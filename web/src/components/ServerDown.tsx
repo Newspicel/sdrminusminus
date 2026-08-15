@@ -5,28 +5,17 @@ import { Button } from "./BaseControls";
 import { BTN_PRIMARY } from "./controls";
 import { serverDownDetail } from "./serverStatus";
 
-/** How often this screen probes. The socket's own backoff climbs to 30 s, which is right for a
- * tab left open overnight and wrong for someone reading this screen while starting the server. */
 const PROBE_MS = 3000;
 
-/**
- * Shown when the startup reads did not answer at all: the workspace list is unknown, so "there
- * are no workspaces" is not something we know — offering to create one would be a button whose
- * click can only fail.
- */
 export function ServerDown({ reason, onReachable }: { reason: string; onReachable: () => void }) {
   const queryClient = useQueryClient();
   const detail = serverDownDetail(reason);
 
   const reconnect = useCallback(() => {
-    // The socket backs off on its own schedule; bring it along, or the app can come back with a
-    // live REST layer and no event stream behind it.
     onReachable();
     void queryClient.refetchQueries({ type: "active" });
   }, [onReachable, queryClient]);
 
-  // Probe one cheap endpoint rather than refetching every startup query: a server that is still
-  // down should cost one refused connection per attempt, not five.
   useEffect(() => {
     let stopped = false;
     let timer = 0;

@@ -1,22 +1,3 @@
-//! NAVTEX / SITOR-B decoder ( P2): 100 baud FSK at a 170 Hz shift carrying the CCIR
-//! 476 seven-unit code with mode-B time diversity (ITU-R M.540, M.625).
-//!
-//! Three layers sit on the discriminator. The *alphabet* is a constant-ratio code — exactly
-//! four of seven bits are mark — so a corrupted character is detectable without a checksum.
-//! The *diversity* sends every character twice, five character periods apart, which is what
-//! turns detection into correction. The *framing* is `ZCZC B1B2B3B4 … NNNN`, and only text
-//! between those markers is emitted: a broadcast station idles for minutes at a time, and a
-//! decoder that logged everything it sliced would bury the messages in phasing signal.
-//!
-//! Everything about the physical layer is fixed by the standard, so the only setting is which
-//! way round the sideband is.
-//!
-//! The waveform is the catalog's plain-CPFSK entry (`cpm_params`), and the reference
-//! modulator in `testgen` transmits it through the library's own `CpmMod`; the receive side
-//! still runs its discriminator + `BitSync` chain because the `cpm/` demodulator's centre
-//! estimate cannot yet carry this alphabet — the measured defect is documented at
-//! `cpm_params`.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -33,84 +14,65 @@ use crate::{
     rtty::{FIGS_CODE, FIGURES, LETTERS, LTRS_CODE},
 };
 
-/// Fixed by ITU-R M.540: NAVTEX is 100 baud, 170 Hz shift, on 518 / 490 / 4209.5 kHz.
 const BAUD: f64 = 100.0;
 const SHIFT_HZ: f64 = 170.0;
 
 const CHANNEL_TAPS: usize = 257;
 
-/// Bits per CCIR 476 character.
 const CHAR_BITS: usize = 7;
 
-/// The repeat (RX) copy of a character is transmitted five character periods after the first
-/// (DX) copy — four other characters lie between them, the 280 ms of time diversity mode B is
-/// built on (ITU-R M.625 §2).
 const FEC_SLOTS: usize = 5;
 
-/// Soft bit values kept: enough to reach from the character just completed back to its DX
-/// copy, which is the whole point of the buffer.
 const HISTORY: usize = (FEC_SLOTS + 1) * CHAR_BITS;
-/// Where the character that just completed starts in [`Decoder::bits`].
 const RX_BASE: usize = FEC_SLOTS * CHAR_BITS;
-/// …and where its DX copy starts.
 const DX_BASE: usize = 0;
-/// The slot before the one that just completed — the other half of the phasing pattern.
 const PREV_BASE: usize = RX_BASE - CHAR_BITS;
 
-/// SITOR control signals: the three code points CCIR 476 has beyond ITA2's alphabet, plus the
-/// signal-repetition character. None of them is text.
 const ALPHA: u8 = 0x0F;
 const BETA: u8 = 0x33;
 const REP: u8 = 0x66;
 const CHAR32: u8 = 0x6A;
 
-/// CCIR 476 → ITA2. The 7-bit code is the index a receiver builds LSB-first from the wire; the
-/// value is the ITA2 code carrying the same character, so the *alphabet* stays defined once,
-/// in [`crate::rtty`], and NAVTEX inherits the shift tables RTTY already proves.
 pub(crate) const CCIR476: [(u8, u8); 31] = [
-    (0x17, 0x0B), // J
-    (0x1B, 0x0D), // F
-    (0x1D, 0x0E), // C
-    (0x1E, 0x0F), // K
-    (0x27, 0x13), // W
-    (0x2B, 0x15), // Y
-    (0x2D, 0x16), // P
-    (0x2E, 0x17), // Q
-    (0x35, 0x1A), // G
-    (0x36, 0x1B), // FIGS
-    (0x39, 0x1C), // M
-    (0x3A, 0x1D), // X
-    (0x3C, 0x1E), // V
-    (0x47, 0x03), // A
-    (0x4B, 0x05), // S
-    (0x4D, 0x06), // I
-    (0x4E, 0x07), // U
-    (0x53, 0x09), // D
-    (0x55, 0x0A), // R
-    (0x56, 0x01), // E
-    (0x59, 0x0C), // N
-    (0x5A, 0x1F), // LTRS
-    (0x5C, 0x04), // space
-    (0x63, 0x11), // Z
-    (0x65, 0x12), // L
-    (0x69, 0x14), // H
-    (0x6C, 0x02), // LF
-    (0x71, 0x18), // O
-    (0x72, 0x19), // B
-    (0x74, 0x10), // T
-    (0x78, 0x08), // CR
+    (0x17, 0x0B),
+    (0x1B, 0x0D),
+    (0x1D, 0x0E),
+    (0x1E, 0x0F),
+    (0x27, 0x13),
+    (0x2B, 0x15),
+    (0x2D, 0x16),
+    (0x2E, 0x17),
+    (0x35, 0x1A),
+    (0x36, 0x1B),
+    (0x39, 0x1C),
+    (0x3A, 0x1D),
+    (0x3C, 0x1E),
+    (0x47, 0x03),
+    (0x4B, 0x05),
+    (0x4D, 0x06),
+    (0x4E, 0x07),
+    (0x53, 0x09),
+    (0x55, 0x0A),
+    (0x56, 0x01),
+    (0x59, 0x0C),
+    (0x5A, 0x1F),
+    (0x5C, 0x04),
+    (0x63, 0x11),
+    (0x65, 0x12),
+    (0x69, 0x14),
+    (0x6C, 0x02),
+    (0x71, 0x18),
+    (0x72, 0x19),
+    (0x74, 0x10),
+    (0x78, 0x08),
 ];
 
-/// The ITA2 code a CCIR 476 character carries, or `None` for a control signal or an invalid
-/// code.
 pub(crate) fn ita2_for(code: u8) -> Option<u8> {
     CCIR476
         .iter()
         .find_map(|&(ccir, ita2)| (ccir == code).then_some(ita2))
 }
 
-/// The CCIR 476 code for an ITA2 code — the encoder's direction, so the reference modulator
-/// reads the same chart the decoder does instead of carrying a second copy of it.
 #[cfg(any(test, feature = "test-signals"))]
 pub(crate) fn ccir_for(ita2: u8) -> Option<u8> {
     CCIR476
@@ -118,23 +80,14 @@ pub(crate) fn ccir_for(ita2: u8) -> Option<u8> {
         .find_map(|&(ccir, code)| (code == ita2).then_some(ccir))
 }
 
-/// A character survives the wire only if exactly four of its seven bits are mark. This is the
-/// whole error *detection* mechanism of the alphabet.
 fn valid(code: u8) -> bool {
     code.count_ones() == 4
 }
 
-/// Consecutive undecodable characters tolerated before the phasing is presumed lost. Each
-/// failure costs two and each success refunds one, so a burst of noise resyncs quickly while
-/// an occasional hit on a good signal does not.
 const MAX_ERROR_RUN: u32 = 6;
 
-/// Bit periods without a decodable character before a message in progress is given up on and
-/// emitted incomplete — the carrier dropped mid-broadcast.
 const IDLE_FLUSH_BITS: usize = 300;
 
-/// Characters accepted in one broadcast. A real NAVTEX message is a few hundred; ten thousand
-/// means the framing was lost and `NNNN` will never arrive.
 const MAX_BODY_CHARS: usize = 10_000;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -150,7 +103,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 pub struct NavtexChannel {
     demod: FmDemod,
     post: RealDecimator,
-    /// `-1.0` when `invert` swaps mark and space (equivalent to reversing the sideband).
     polarity: f32,
     sync: BitSync,
     decoder: Decoder,
@@ -168,7 +120,6 @@ fn params(settings: &ChannelSettings) -> Result<&NavtexParams, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     let half = SHIFT_HZ / 2.0 + 2.0 * BAUD;
     (-half, half)
@@ -182,22 +133,6 @@ pub(crate) fn channel_filter() -> ChannelFilter {
     ))
 }
 
-/// The NAVTEX waveform as `cpm/` entry data: two-level CPFSK, NRZ (rect)
-/// frequency pulse, ±85 Hz deviation at 100 baud. Mark — the upper tone — carries the 1 bit
-/// (ITU-R M.476), so index 1 transmits +1 and a soft symbol's sign is the soft bit the SITOR
-/// combiner wants. The reference modulator in `testgen` transmits this entry (
-/// §1.2).
-///
-/// The receiver does **not** ride `CpmDemod` yet, and the block is measured, not stylistic:
-/// its centre estimate learns the *data mean*, and SITOR's constant-ratio alphabet is
-/// mark-biased forever (4 of 7 bits, +1/7 in level units — no averaging length fixes a static
-/// bias). The learned bias de-antipodalises transitions into the Gardner detector, whose
-/// S-curve then grows a *stable* false equilibrium half a symbol off: on the band-limited
-/// broadcast, initial timing phases in a ≈12 %-wide zone lock there persistently — 27–202 bit
-/// errors on a clean signal, identical from 0.003 to 0.08 cycles/symbol of loop bandwidth,
-/// zero errors at every phase with the same chain minus the centre estimate. Until the centre
-/// is per-entry data (off, or with the alphabet's expected mean), `BitSync`'s zero-crossing
-/// clock — which needs no centre — stays.
 #[cfg(any(test, feature = "test-signals"))]
 pub(crate) fn cpm_params(rate: f64) -> CpmParams {
     let sps = rate / BAUD;
@@ -210,8 +145,6 @@ pub(crate) fn cpm_params(rate: f64) -> CpmParams {
     )
 }
 
-/// One bit of integrate-and-dump — NRZ keying's own matched filter, from the shared pulse
-/// library, the same shape RTTY builds at its own rate.
 fn post_filter(rate: f64) -> RealDecimator {
     RealDecimator::new(&pulse::rect(rate / BAUD, Norm::Area), 1)
 }
@@ -241,8 +174,6 @@ impl ChannelRx for NavtexChannel {
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let wanted = polarity(params(&settings)?);
-        // Only a polarity flip matters, and it invalidates everything decoded so far — the
-        // same bits read the other way up are a different message, not a continuation.
         if wanted != self.polarity {
             self.polarity = wanted;
             self.reset();
@@ -257,8 +188,6 @@ impl ChannelRx for NavtexChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.demod.process(iq, &mut self.demod_buf);
         for s in &mut self.demod_buf {
-            // Full deviation is the whole signal, so clamping there costs a correctly tuned
-            // transmission nothing while bounding what carrier-free noise can contribute.
             *s = if s.is_finite() {
                 (*s * self.polarity).clamp(-1.0, 1.0)
             } else {
@@ -281,21 +210,11 @@ impl NavtexChannel {
     }
 }
 
-/// Where the receiver is in the SITOR-B slot structure.
 enum State {
-    /// Hunting the phasing signal: REP in a DX slot with ALPHA in the RX slot behind it.
-    /// A random 7-bit window is a valid character often enough that one hit is not proof,
-    /// so the pattern must repeat at exactly the slot spacing before the lock is taken.
     Phasing { since_hit: usize },
-    Reading {
-        since_slot: usize,
-        /// Whether the slot about to complete is the repeat half of a pair — the one that
-        /// carries both copies and is therefore where decoding happens.
-        next_is_rx: bool,
-    },
+    Reading { since_slot: usize, next_is_rx: bool },
 }
 
-/// Slot spacing of the phasing signal: one DX and one RX slot.
 const PHASING_PERIOD: usize = 2 * CHAR_BITS;
 
 struct Decoder {
@@ -304,11 +223,9 @@ struct Decoder {
     figs: bool,
     error_run: u32,
     since_char: usize,
-    /// Text accumulated between `ZCZC` and `NNNN`.
     body: String,
     collecting: bool,
     newline: bool,
-    /// Rolling window of the last four printable characters, for the framing markers.
     tail: [char; 4],
     errors_corrected: u32,
 }
@@ -346,8 +263,6 @@ impl Decoder {
                 *since_hit = since_hit.saturating_add(1);
                 if hit {
                     if *since_hit == PHASING_PERIOD {
-                        // The ALPHA that just completed sits in an RX slot, so the next slot
-                        // to complete is a DX one.
                         self.state = State::Reading {
                             since_slot: 0,
                             next_is_rx: false,
@@ -376,7 +291,6 @@ impl Decoder {
         }
     }
 
-    /// Decide one character from its two transmitted copies (ITU-R M.625 §2 mode B).
     fn decode_slot(&mut self, out: &mut ChannelOutputs) {
         let rx = code_at(&self.bits, RX_BASE);
         let dx = code_at(&self.bits, DX_BASE);
@@ -385,9 +299,6 @@ impl Decoder {
         } else if valid(dx) {
             Some((dx, true))
         } else {
-            // Neither copy is a legal character, but the two disagree about *which* bits are
-            // marginal; summing the soft values before slicing recovers a character that
-            // neither copy carries on its own.
             let mut combined = 0u8;
             for i in 0..CHAR_BITS {
                 if self.bits[DX_BASE + i] + self.bits[RX_BASE + i] > 0.0 {
@@ -419,8 +330,6 @@ impl Decoder {
     }
 
     fn emit_char(&mut self, code: u8, out: &mut ChannelOutputs) {
-        // Control signals carry no text — and the idle timer must keep running through them,
-        // because ALPHA *is* what a station sends when it has stopped talking.
         if matches!(code, ALPHA | BETA | REP | CHAR32) {
             return;
         }
@@ -439,7 +348,6 @@ impl Decoder {
             }
             _ => {}
         }
-        // `ita2` comes from the table above, which only holds five-bit codes.
         let ch = if self.figs {
             FIGURES[ita2 as usize]
         } else {
@@ -447,7 +355,6 @@ impl Decoder {
         };
         match ch {
             '\0' => {}
-            // CR, CR LF and CR CR LF are all one line break to a reader.
             '\r' | '\n' => {
                 if !self.newline && self.collecting {
                     self.body.push('\n');
@@ -466,7 +373,6 @@ impl Decoder {
 
     fn push_text(&mut self, ch: char, out: &mut ChannelOutputs) {
         if self.tail == ['Z', 'C', 'Z', 'C'] {
-            // A second ZCZC before NNNN means the first message never terminated.
             if self.collecting {
                 self.body.truncate(self.body.len() - "ZCZ".len());
                 self.emit_message(false, out);
@@ -516,7 +422,6 @@ impl Decoder {
 fn code_at(bits: &[f32; HISTORY], base: usize) -> u8 {
     let mut code = 0u8;
     for i in 0..CHAR_BITS {
-        // The first bit received is the least significant (ITU-R M.476 transmission order).
         if bits[base + i] > 0.0 {
             code |= 1 << i;
         }
@@ -524,9 +429,6 @@ fn code_at(bits: &[f32; HISTORY], base: usize) -> u8 {
     code
 }
 
-/// Split `B1B2B3B4` off the front of a broadcast body. Anything that is not two letters
-/// followed by two digits is not a header — a message received from the middle keeps all of
-/// its text rather than losing four characters to a guess.
 fn split_header(body: &str) -> (Option<(char, char, u8)>, &str) {
     let trimmed = body.trim_start();
     let mut chars = trimmed.chars();
@@ -598,10 +500,6 @@ mod tests {
 
     const BROADCAST: &str = "ZCZC DA07\r\nGALE WARNING\r\nGERMAN BIGHT\r\nNNNN";
 
-    /// The alphabet is the one thing a round trip through our own modulator cannot check —
-    /// both sides would have to be wrong the same way. So the whole 35-code chart is
-    /// transcribed here from ITU-R M.476 (the table fldigi and every SITOR decoder carries),
-    /// character by character, against the ITA2 codes `rtty` already proves.
     #[test]
     fn ccir476_chart_matches_the_standard() {
         #[rustfmt::skip]
@@ -622,8 +520,6 @@ mod tests {
         assert_eq!(ita2_for(0x5A), Some(LTRS_CODE));
         assert_eq!(ita2_for(0x36), Some(FIGS_CODE));
 
-        // Exactly the 35 four-of-seven code points exist: the 31 alphabet entries plus the
-        // four SITOR control signals, and nothing else.
         let alphabet: Vec<u8> = (0..=127u8).filter(|&c| ita2_for(c).is_some()).collect();
         let control = [ALPHA, BETA, REP, CHAR32];
         let legal: Vec<u8> = (0..=127u8).filter(|&c| valid(c)).collect();
@@ -638,8 +534,6 @@ mod tests {
         for code in alphabet.iter().chain(&control) {
             assert!(valid(*code), "{code:#04x} is not four-of-seven");
         }
-        // The ITA2 side must be a bijection onto every code but NUL, or a character is
-        // unreachable.
         let mut ita2: Vec<u8> = CCIR476.iter().map(|&(_, code)| code).collect();
         ita2.sort_unstable();
         assert_eq!(ita2, (1..=31u8).collect::<Vec<_>>());
@@ -670,12 +564,9 @@ mod tests {
         assert_eq!(messages[0].serial, Some(13));
     }
 
-    /// The point of mode B: a burst that destroys one copy of a run of characters must cost
-    /// nothing, because the other copy is five characters away in time.
     #[test]
     fn time_diversity_survives_a_burst_that_wipes_one_copy() {
         let mut iq = transmission(BROADCAST, RATE);
-        // 120 ms of dead carrier — roughly two characters, and never both copies of one.
         let burst = (0.12 * RATE) as usize;
         let start = iq.len() / 2;
         for s in &mut iq[start..start + burst] {
@@ -702,9 +593,6 @@ mod tests {
         assert_eq!(messages[0].text, "GALE WARNING\nGERMAN BIGHT");
     }
 
-    /// A transmitter whose bit clock runs 0.3 % slow drifts nearly three bit periods over
-    /// this broadcast — routine for the zero-crossing clock, and the tracking bar any future
-    /// front-end migration must meet.
     #[test]
     fn tracks_a_sample_clock_error_through_the_broadcast() {
         let iq = testgen::resample(&transmission(BROADCAST, RATE), RATE, RATE * 1.003);
@@ -714,9 +602,6 @@ mod tests {
         assert!(messages[0].complete);
     }
 
-    /// Continuous-stream lock over ~9000 bits — NAVTEX never keys off, so the bit clock gets
-    /// no dead time to hide in. Clean signal in, zero repairs demanded: one slipped bit
-    /// anywhere would shred a character and surface as a repair or a truncated message.
     #[test]
     fn a_long_broadcast_holds_the_bit_clock_end_to_end() {
         let body: String = (0..12)
@@ -744,8 +629,6 @@ mod tests {
         }
     }
 
-    /// Text outside `ZCZC … NNNN` is not a message. A station idles for minutes between
-    /// broadcasts, and everything it sends in that time must stay out of the log.
     #[test]
     fn phasing_and_idle_produce_no_message() {
         let iq = testgen::navtex::phasing(6.0, RATE);
@@ -755,7 +638,6 @@ mod tests {
     #[test]
     fn a_broadcast_cut_short_is_reported_incomplete() {
         let full = transmission(BROADCAST, RATE);
-        // Drop the tail, which takes NNNN with it, then leave dead air for the idle flush.
         let mut iq = full[..full.len() * 3 / 4].to_vec();
         iq.extend(testgen::silence((6.0 * RATE) as usize));
         let messages = decode(&iq);
@@ -801,7 +683,6 @@ mod tests {
         let head = &full[..cut];
         let tail = &full[cut..];
 
-        // Control: without the retune, the second half completes the message.
         let mut kept = channel(NavtexParams::default());
         assert!(decode_blocks(&mut kept, head, &BLOCKS).is_empty());
         let finished = decode_blocks(&mut kept, tail, &BLOCKS);

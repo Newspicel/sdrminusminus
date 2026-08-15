@@ -58,9 +58,6 @@ export const useSignalSurveyStore = create<SignalSurveyStore>((set) => ({
     })),
 }));
 
-/** Peak spectrum level inside the requested RF slice. The value is relative to full scale;
- * converting it to dBm requires a receiver-specific calibration the spectrum stream does not
- * claim to have. */
 export function measureSignalDbfs(
   frame: SpectrumFrame,
   frequencyHz: number,
@@ -102,9 +99,6 @@ export function signalOffsetLimitHz(spanHz: number, bandwidthHz: number): number
   return Math.max(0, Math.floor((spanHz - bandwidthHz) / 2));
 }
 
-/** One point per roughly ten-metre cell: stopping at a traffic light must not make that location
- * look stronger merely because it produced more fixes than the road around it. Repeated readings
- * are averaged in linear power, then converted back to dB. */
 export function mergeSurveySample(
   samples: readonly SignalSurveySample[],
   incoming: Omit<SignalSurveySample, "observations">,

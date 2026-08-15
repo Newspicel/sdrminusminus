@@ -24,14 +24,9 @@ export interface ChartView {
   format: (value: number) => string;
 }
 
-/** The two hues the plot palette licenses for data. A view that needs a third quantity puts it
- * in the marker table instead of inventing a colour. */
 const TRACE = "var(--color-plot-trace)";
 const SECOND = "var(--color-plot-hold)";
 
-/** How far below the top of the magnitude axis it is allowed to reach. With nothing connected
- * to CH1 the S21 trace sits on the noise floor near −90 dB, and letting that set the scale
- * flattens the reflection trace — the one being measured — into the top gridline. */
 const MAGNITUDE_FLOOR_DB = 60;
 
 export const CHART_VIEWS: readonly ChartView[] = [
@@ -103,13 +98,10 @@ export function chartView(id: ChartId): ChartView {
   return CHART_VIEWS.find((view) => view.id === id) ?? (CHART_VIEWS[0] as ChartView);
 }
 
-/** Every value the view's series read, for the rows currently in frame. */
 export function seriesValues(view: ChartView, rows: readonly PointReadout[]): number[] {
   return view.series.flatMap((series) => rows.map((row) => series.valueOf(row)));
 }
 
-/** An axis that lands on round numbers, so the gridline labels are readable and stable as the
- * marker moves rather than re-scaling to whatever the noise floor did. */
 function snapped(values: number[], step: number, minimumSpan: number): Domain {
   const finite = values.filter(Number.isFinite);
   if (finite.length === 0) {
@@ -124,7 +116,6 @@ function snapped(values: number[], step: number, minimumSpan: number): Domain {
   return { low: middle - minimumSpan / 2, high: middle + minimumSpan / 2 };
 }
 
-/** Keep the axis from reaching further below its top than `depth`. */
 function floored(domain: Domain, depth: number): Domain {
   return { low: Math.max(domain.low, domain.high - depth), high: domain.high };
 }

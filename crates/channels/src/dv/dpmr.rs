@@ -1,5 +1,3 @@
-//! dPMR decoder (ETSI TS 102 490): 4FSK at 2400 symbols per second in 6.25 kHz — the licence-
-//! free 446 MHz digital radios and their commercial cousins.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -15,7 +13,6 @@ use super::{
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-/// 4800 bit/s over 2400 symbols, at half the deviation of the 12.5 kHz modes.
 pub(crate) const BAUD: f64 = 2_400.0;
 pub(crate) const DEVIATION_HZ: f64 = 1_050.0;
 pub(crate) const RRC_ALPHA: f64 = 0.2;
@@ -28,19 +25,14 @@ const FS2: u64 = 0x5F_F77D;
 pub(crate) const LONG_SYNC_BITS: u32 = 48;
 const SHORT_SYNC_BITS: u32 = 24;
 pub(crate) const LONG_TOLERANCE: u32 = 4;
-/// Half the tolerance for half the pattern: 24 bits at four errors is a pattern noise matches
-/// several times a minute, and a superframe marker has no payload check behind it to catch that.
 const SHORT_TOLERANCE: u32 = 2;
 
-/// Header information: 72 bits under a CRC-8, ten Hamming(12,8) blocks on the wire.
 const HI_BITS: usize = 72;
 const HI_CODED_BITS: usize = 120;
 const HI_BLOCKS: usize = 10;
 const HI_SYMBOLS: usize = HI_CODED_BITS / 2;
 const CC_SYMBOLS: usize = 12;
-/// Everything the header frame carries after FS1: HI0, the colour code, HI1.
 const HEADER_SYMBOLS: usize = HI_SYMBOLS * 2 + CC_SYMBOLS;
-/// Four CCH/TCH pairs, two colour-code fields and the repeated FS2 in the middle.
 const SUPERFRAME_SYMBOLS: usize = 756;
 const TCH_STARTS: [usize; 4] = [36, 228, 420, 612];
 const TCH_SYMBOLS: usize = 144;
@@ -72,7 +64,6 @@ fn params(settings: &ChannelSettings) -> Result<&DpmrParams, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
@@ -107,8 +98,6 @@ impl ChannelRx for DpmrChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         for &symbol in &self.symbols {
@@ -122,7 +111,6 @@ struct Decoder {
     countdown: usize,
     pending: Option<Pending>,
     bits: Vec<bool>,
-    /// True while a superframe is being received, so its repeated sync marks nothing new.
     in_call: bool,
     voice_call: bool,
     vocoder: MbeDecoder,
@@ -206,11 +194,9 @@ impl Decoder {
         }
     }
 
-    /// The two header copies and the colour code between them.
     fn header(&mut self, packet: bool) -> Option<(DvFrame, bool)> {
         self.window.bits(0, HEADER_SYMBOLS, &mut self.bits);
         let colour = colour_code(&self.bits[HI_CODED_BITS..HI_CODED_BITS + CC_SYMBOLS * 2]);
-        // Either copy will do; the second exists because the first may not survive.
         let hi = header_info(&self.bits[..HI_CODED_BITS])
             .or_else(|| header_info(&self.bits[HI_CODED_BITS + CC_SYMBOLS * 2..]))?;
 
@@ -260,7 +246,6 @@ fn colour_code(bits: &[bool]) -> Option<u16> {
     Some(value)
 }
 
-/// Undo scrambling, interleaving and the systematic Hamming blocks, and check the CRC-8.
 fn header_info(coded: &[bool]) -> Option<Vec<bool>> {
     let mut descrambled = [false; HI_CODED_BITS];
     let mut register = 0x1FFu16;
@@ -269,15 +254,12 @@ fn header_info(coded: &[bool]) -> Option<Vec<bool>> {
         register = (register << 1 | feedback) & 0x1FF;
         *slot = coded[i] ^ (feedback == 1);
     }
-    // The interleaver writes the ten 12-bit blocks down the columns of a 12 × 10 matrix and
-    // reads the rows out, so the transmitted bit at row r, column c is block c bit r.
     let mut blocks = [false; HI_CODED_BITS];
     for r in 0..12 {
         for c in 0..HI_BLOCKS {
             blocks[c * 12 + r] = descrambled[r * HI_BLOCKS + c];
         }
     }
-    // Hamming(12,8) is systematic: the byte is the first eight bits of its block.
     let mut bytes = [0u8; HI_BLOCKS];
     let mut info = Vec::with_capacity(HI_BITS);
     for (block, byte) in bytes.iter_mut().enumerate() {

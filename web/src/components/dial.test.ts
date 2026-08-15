@@ -17,8 +17,6 @@ describe("isTunable", () => {
     expect(isTunable({ min: 100e6, max: 100e6 + 1 })).toBe(true);
   });
 
-  // A recording is pinned to the centre it was captured at, and the dial has to say so: every
-  // retune it could send is refused, and each one still costs a round trip and a state refresh.
   it("is false for a range of one point", () => {
     expect(isTunable({ min: 100e6, max: 100e6 })).toBe(false);
     expect(isTunable({ min: 0, max: 0 })).toBe(false);

@@ -1,4 +1,3 @@
-// Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -28,10 +27,7 @@ use tokio::sync::broadcast;
 
 const ARRAY: &str = "virtual:array4";
 const TRANSCEIVER: &str = "virtual:transceiver";
-/// The array's default rate; every stream's marker sits under Nyquist here (at low rates
-/// the outer markers are muted, not aliased — see `device-virtual`).
 const RATE: f64 = 2_048_000.0;
-/// What the virtual radios power up tuned to.
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 
 fn engine() -> Arc<Engine> {
@@ -68,8 +64,6 @@ async fn next_snapshot(rx: &mut broadcast::Receiver<SpectrumSnapshot>) -> Spectr
     }
 }
 
-/// Offset of the strongest FFT bin from the snapshot's center (the `db` array is
-/// DC-centered).
 fn peak_offset_hz(snapshot: &SpectrumSnapshot) -> f64 {
     let n = snapshot.db.len();
     let mut peak = 0usize;
@@ -81,9 +75,6 @@ fn peak_offset_hz(snapshot: &SpectrumSnapshot) -> f64 {
     (peak as f64 - n as f64 / 2.0) / n as f64 * f64::from(snapshot.span_hz)
 }
 
-/// Power near `offset_hz` in complex baseband: correlation with e^(−j2πft) summed over
-/// short windows, so the marker's ±2.5 kHz FM wobble stays inside the window's main lobe.
-/// Complex, not the audio helpers' real Goertzel — that cannot tell +150 kHz from −150 kHz.
 fn band_power(samples: &[Complex<f32>], sample_rate: f64, offset_hz: f64) -> f64 {
     const WINDOW: usize = 512;
     let w = std::f64::consts::TAU * offset_hz / sample_rate;
@@ -100,9 +91,6 @@ fn band_power(samples: &[Complex<f32>], sample_rate: f64, offset_hz: f64) -> f64
     total
 }
 
-/// The core lane-identity claim: a channel on stream 2 demodulates stream 2's marker, and
-/// the same offset on stream 0 — where that frequency holds only noise — never opens the
-/// squelch.
 #[tokio::test]
 async fn a_channel_on_stream_2_hears_stream_2_and_not_stream_0() {
     let engine = engine();
@@ -130,9 +118,6 @@ async fn per_stream_spectrum_differs_and_a_retune_moves_every_lane() {
     let mut rx0 = engine.subscribe_spectrum(ds, 0).unwrap();
     let mut rx3 = engine.subscribe_spectrum(ds, 3).unwrap();
 
-    // Each lane's spectrum must peak at its own stream's marker — bin resolution is
-    // RATE / FFT size = 500 Hz, so a 5 kHz tolerance is generous and unambiguous
-    // (markers sit 50 kHz apart).
     let peak0 = peak_offset_hz(&next_snapshot(&mut rx0).await);
     let peak3 = peak_offset_hz(&next_snapshot(&mut rx3).await);
     assert!(
@@ -144,7 +129,6 @@ async fn per_stream_spectrum_differs_and_a_retune_moves_every_lane() {
         "stream 3 peaks at {peak3} Hz"
     );
 
-    // One radio, one tuner: a retune must reach every lane, not just stream 0.
     engine
         .patch_device(
             ds,
@@ -169,9 +153,6 @@ async fn per_stream_spectrum_differs_and_a_retune_moves_every_lane() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A removal routed to the wrong lane would leave the DSP-side host (and its PCM sender)
-/// alive: the encoder join inside `remove_channel` would hang and the audio stream would
-/// never close. Both are asserted under a timeout.
 #[tokio::test]
 async fn removing_a_channel_on_a_non_zero_stream_frees_it() {
     let engine = engine();
@@ -221,8 +202,6 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     let err = engine.subscribe_spectrum(ds, 99).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
 
-    // Checked before the recordings-dir requirement: the stream refusal must name the
-    // count even on an engine with recording disabled.
     let err = engine.start_recording(ds, 4).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(err.to_string().contains("4 rx streams"), "unhelpful: {err}");
@@ -235,9 +214,6 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// One recording per set, on the named stream (b): the live status, the finalized
-/// hand-off, and the SigMF meta all say stream 2 — and the data really is lane 2's, which
-/// only the recorded IQ itself can prove.
 #[tokio::test]
 async fn a_recording_on_stream_2_captures_stream_2_and_says_so() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -289,9 +265,6 @@ async fn a_recording_on_stream_2_captures_stream_2_and_says_so() {
     );
 }
 
-/// Wait until `rx`'s lane reports `center_hz` with its strongest bin near `peak_offset_hz`
-/// (bins are 500 Hz at the default rate; markers sit 50 kHz apart, so ±5 kHz is unambiguous).
-/// A lane that never gets there fails at the deadline naming what it last showed.
 async fn settle(
     rx: &mut broadcast::Receiver<SpectrumSnapshot>,
     center_hz: f64,
@@ -385,7 +358,6 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
         ..DeviceSettings::default()
     };
 
-    // A stream the radio lacks is refused naming the count.
     let ds = engine.create_device_set(TRANSCEIVER).unwrap();
     let err = engine
         .patch_device(ds, entry(2, Some(101_000_000.0)))
@@ -407,8 +379,6 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
     );
     engine.remove_device_set(ds).unwrap();
 
-    // Shared tuning (the coherent array): a per-stream centre would desynchronise the array
-    // and is refused naming the setting, while per-stream gain is exactly what it scopes.
     let ds = engine.create_device_set(ARRAY).unwrap();
     let err = engine
         .patch_device(ds, entry(1, Some(101_000_000.0)))
@@ -436,7 +406,6 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
     assert_eq!(set.settings.streams[0].gains[0].value_db, 12.0);
     engine.remove_device_set(ds).unwrap();
 
-    // A radio that declares nothing per stream refuses any entry at all.
     let ds = engine.create_device_set("virtual:halfduplex").unwrap();
     let err = engine.patch_device(ds, entry(0, None)).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
@@ -445,8 +414,6 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// : a scan owns the radio-wide dial, and a per-stream-tuning radio has none — a
-/// sweep would silently drag every unpinned lane. Shared-tuning radios stay sweepable.
 #[tokio::test]
 async fn a_scan_is_refused_where_tuning_is_per_stream() {
     let engine = engine();
@@ -518,16 +485,9 @@ async fn a_recording_on_a_retuned_lane_stamps_that_lanes_centre() {
     assert_eq!(captures[0].frequency, Some(LANE1_HZ));
 }
 
-/// Fixed rate of [`PagingDriver`]'s lanes: 5× POCSAG's 48 kHz channel rate, so the DDC
-/// really mixes and decimates (the decode e2e convention).
 const PAGING_RATE: f64 = 240_000.0;
-/// Where the POCSAG burst sits in each lane's baseband — non-zero so the decoded stamp is
-/// centre *plus offset*, not just the centre echoed back.
 const PAGING_OFFSET_HZ: f64 = 25_000.0;
 
-/// Two-lane radio with per-stream tuning whose every lane replays the same POCSAG burst, so
-/// a decoder on either lane decodes the same page. The *stamp* is then the only difference
-/// between the lanes' records — exactly the field a shared-centre bug corrupts silently.
 struct PagingDriver {
     iq: Arc<Vec<Complex<f32>>>,
 }
@@ -598,8 +558,6 @@ impl SdrDevice for PagingDevice {
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
-        // The backend contract: a delta the capability cannot honour is refused, never
-        // silently dropped — the engine refuses first, but the double must stay honest.
         check_stream_settings(settings, &self.capabilities)?;
         self.settings.merge_from(settings);
         Ok(())
@@ -615,7 +573,6 @@ impl SdrDevice for PagingDevice {
         let iq = self.iq.clone();
         let stop = self.stop.clone();
         self.worker = Some(std::thread::spawn(move || {
-            // ~20 ms blocks, paced to real time, both lanes fed from one clock.
             const BLOCK: usize = 4_800;
             let mut pos = 0usize;
             let mut next = Instant::now();
@@ -646,10 +603,6 @@ impl SdrDevice for PagingDevice {
     }
 }
 
-/// : a decoded frame's `freq_hz` is *its lane's* centre plus the channel offset.
-/// After a per-stream retune, lane 1's records must carry lane 1's absolute frequency while
-/// lane 0's still carry the radio-wide one — a frame filed under the wrong frequency is
-/// silent and wrong, the failure this asserts against end to end.
 #[tokio::test]
 async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
     const LANE1_HZ: f64 = 433_000_000.0;

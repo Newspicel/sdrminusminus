@@ -1,15 +1,7 @@
-//! The shape of each design, to scale, in the frame the wire types declare: `x` along the
-//! elements, `y` up, `z` into the boom.
-//!
-//! Nothing here computes a length. Every dimension arrives already worked out by the design it
-//! belongs to, so the drawing and the cutting list can never disagree.
-
 use sdrmm_wire::{
     AntennaGeometry, AntennaPoint, AntennaSegment, AntennaSegmentRole as Role, MAX_RADIAL_SLOPE_DEG,
 };
 
-/// How tall the base coil is drawn against the rod above it. The calculator knows the coil's
-/// wire length, not the form it is wound on, so the sketch shows it as a marked-off base.
 const COIL_HEIGHT_FRACTION: f64 = 0.05;
 
 fn at(x_m: f64, y_m: f64, z_m: f64) -> AntennaPoint {
@@ -25,8 +17,6 @@ fn segment(label: &str, role: Role, from: AntennaPoint, to: AntennaPoint) -> Ant
     }
 }
 
-/// Radials or a counterpoise fan, evenly spaced around the vertical and sloping down by
-/// `slope_deg`.
 fn radial_fan(base: AntennaPoint, length_m: f64, count: u8, slope_deg: f64) -> Vec<AntennaSegment> {
     let slope = slope_deg.clamp(0.0, MAX_RADIAL_SLOPE_DEG).to_radians();
     let reach = length_m * slope.cos();
@@ -195,7 +185,6 @@ pub(super) fn j_pole(
     }
 }
 
-/// One element on a Yagi's boom: half its length either side of the boom, at its own station.
 pub(super) struct BoomElement {
     pub name: String,
     pub length_m: f64,

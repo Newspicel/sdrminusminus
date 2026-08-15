@@ -4,7 +4,11 @@
 # Rust
 /target
 **/target
-# Cargo.lock IS committed: this workspace ships binaries (reproducible builds, PLAN §15).
+# Cargo.lock IS committed: this workspace ships binaries and needs reproducible builds.
+
+# Python
+__pycache__/
+*.pyc
 
 # Node / web
 node_modules

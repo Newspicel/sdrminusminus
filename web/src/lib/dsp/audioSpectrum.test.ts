@@ -9,7 +9,6 @@ import {
 
 const RATE = 48_000;
 
-/** Interleaved PCM of a real sine at `hz`, `frames` long. */
 function tone(hz: number, frames: number, channels = 1, amp = 1): Float32Array {
   const pcm = new Float32Array(frames * channels);
   for (let frame = 0; frame < frames; frame++) {
@@ -21,7 +20,6 @@ function tone(hz: number, frames: number, channels = 1, amp = 1): Float32Array {
   return pcm;
 }
 
-/** The last row a run of `pcm` produced. */
 function lastRow(spectrogram: AudioSpectrogram, pcm: Float32Array, channels = 1): Uint8Array {
   let row: Uint8Array | null = null;
   spectrogram.push(pcm, channels, (emitted) => {
@@ -33,7 +31,6 @@ function lastRow(spectrogram: AudioSpectrogram, pcm: Float32Array, channels = 1)
   return row;
 }
 
-/** Read a row byte back to dB. */
 function db(byte: number): number {
   return AUDIO_DB_MIN + (byte / 255) * (AUDIO_DB_MAX - AUDIO_DB_MIN);
 }
@@ -42,7 +39,6 @@ describe("AudioSpectrogram", () => {
   it("emits one row per hop, whatever size the blocks arrive in", () => {
     const spectrogram = new AudioSpectrogram(256, 128);
     let rows = 0;
-    // 1024 frames delivered as eight blocks of 128 is eight hops.
     for (let i = 0; i < 8; i++) {
       spectrogram.push(tone(1000, 128), 1, () => {
         rows += 1;
@@ -53,7 +49,6 @@ describe("AudioSpectrogram", () => {
 
   it("puts a tone in the bin its frequency belongs to", () => {
     const spectrogram = new AudioSpectrogram(1024, 512);
-    // 3 kHz of 24 kHz across 512 bins is bin 64.
     const row = lastRow(spectrogram, tone(3000, 4096));
     const peak = row.indexOf(Math.max(...row));
     expect(Math.abs(peak - 64)).toBeLessThanOrEqual(1);

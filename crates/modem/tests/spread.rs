@@ -40,8 +40,6 @@ fn sensitivity(stem: &str) -> f64 {
     limits::ebn0_at_ber(&load_curve(stem), 1e-3).expect("committed curve must bracket BER 1e-3")
 }
 
-/// Every committed row: its chain, grid, seed and artifact. One list, read by the drift gate, the
-/// clean-channel gate and the regeneration runner, so a row cannot join two of the three.
 type Row = (
     &'static str,
     fn() -> Link,
@@ -104,9 +102,6 @@ fn css_sf12_link() -> Link {
     css_link(12)
 }
 
-/// Every chain has a floor, and it is below anything a curve measures: a defect in the framing,
-/// the acquisition or the bit packing shows up here rather than as a mysterious tolerance failure
-/// three tests later.
 #[test]
 fn every_chain_round_trips_clean_at_high_ebn0() {
     for (name, link, ..) in ROWS {
@@ -115,8 +110,6 @@ fn every_chain_round_trips_clean_at_high_ebn0() {
     }
 }
 
-/// Every committed curve reproduces its artifact's first points at the committed seed and budgets
-/// — the drift gate that makes each of them a regression test rather than a snapshot.
 #[test]
 fn every_committed_curve_matches_its_baseline() {
     for (name, link, grid, seed, stem) in ROWS {
@@ -134,11 +127,8 @@ fn every_committed_curve_matches_its_baseline() {
     }
 }
 
-/// One judged row: the committed artifact, its grid, and the shifted closed form it answers to.
 type OracleRow = (&'static str, &'static [f64], Box<dyn Fn(f64) -> f64>);
 
-/// Every oracle-matched row and its reference. Three of the four entries are here; CCK is the one
-/// commit-and-guard row, and what stands in for its closed form is the rate trade measured below.
 fn oracle_rows() -> Vec<OracleRow> {
     vec![
         (
@@ -179,17 +169,6 @@ fn oracle_rows() -> Vec<OracleRow> {
     ]
 }
 
-/// **The phase's acceptance.** Every spread row that has a closed form sits on it, shifted by the
-/// frame's own overhead and by nothing else.
-///
-/// Two claims are being made at once and they are worth separating. For the direct-sequence and
-/// hopping rows the claim is that *spreading is transparent under AWGN*: a chip carries `1/N` of
-/// the symbol's energy and the correlator collects `N` of them, so a spread BPSK curve is a BPSK
-/// curve and a hopped one is the same curve again. For the chirp rows the claim is the phase-5
-/// identity's third member: `2^SF` cyclic shifts of one sweep are `2^SF` orthogonal signals, so
-/// the rows answer to the exact noncoherent orthogonal form at M = 128, 1024 and 4096 — orders
-/// no alternating binomial sum can evaluate, which is why the harness grew a second evaluation of
-/// that oracle.
 #[test]
 fn every_oracle_row_sits_on_its_own_closed_form() {
     for (stem, grid, oracle) in oracle_rows() {
@@ -228,10 +207,6 @@ fn the_jammer_rows_move_less_than_the_processing_gain_and_the_catalog_says_so() 
     );
 }
 
-/// The other half of the same claim, and the reason the jammer row is not simply "more is
-/// better": spreading buys **nothing** against thermal noise. The two codes' sensitivities must be
-/// the same number, or the rejection above would be a sensitivity difference wearing a jammer's
-/// name.
 #[test]
 fn the_two_spreading_factors_have_the_same_sensitivity() {
     let gap = sensitivity(M31_AWGN) - sensitivity(BARKER11_AWGN);
@@ -242,11 +217,6 @@ fn the_two_spreading_factors_have_the_same_sensitivity() {
     );
 }
 
-/// **CCK's trade, as the pair of numbers that is its commit-and-guard reference.** Eight chips
-/// carry eight bits where Barker-11 carries one over eleven — eleven times the rate at the same
-/// chip rate — and CCK is nonetheless *ahead* in Eb/N0, because it is a block code in sixteen real
-/// dimensions rather than an uncoded point (`spread::cck`'s distance test carries the geometry
-/// behind that). The 4-bit rate sits between them.
 #[test]
 fn cck_buys_rate_and_is_still_ahead_of_the_direct_sequence_row() {
     let barker = sensitivity(BARKER11_AWGN);
@@ -267,10 +237,6 @@ fn cck_buys_rate_and_is_still_ahead_of_the_direct_sequence_row() {
     assert!((cck_bits_per_chip / barker_bits_per_chip - 11.0).abs() < 1e-12);
 }
 
-/// **The chirp entry's own trade**: a spreading factor spends `2^SF` chips on `SF` bits, so the
-/// alphabet grows exponentially while the payload grows linearly — and the noncoherent orthogonal
-/// curve improves with M. Committed as an ordering plus the size of the step, since a
-/// monotonicity alone would pass on a broken engine that simply got slower.
 #[test]
 fn sensitivity_improves_with_the_spreading_factor() {
     let sf7 = sensitivity(CSS_SF7_AWGN);
@@ -286,9 +252,6 @@ fn sensitivity_improves_with_the_spreading_factor() {
     assert!((air_time - 18.667).abs() < 1e-2);
 }
 
-/// **Hopping costs nothing when the sequencer is known**, which is the framework's whole claim.
-/// Measured against the row it carries rather than against a tolerance: the de-hop is the exact
-/// inverse of the hop, so the two curves are the same curve.
 #[test]
 fn hopping_costs_nothing_over_the_entry_it_carries() {
     let cost = sensitivity(FHSS_AWGN) - sensitivity(BARKER11_AWGN);
@@ -337,7 +300,6 @@ fn a_parked_jammer_reaches_only_its_own_share_of_a_hopped_burst() {
     );
 }
 
-/// A short version of a committed chain, so a loopback is a property test rather than a sweep.
 fn loopback_at_margin(mut link: Link, stem: &str, margin_db: f64, seed: u64) {
     let payloads = Payloads::new(seed, 8, link.bits_per_trial);
     let mut channel =
@@ -382,29 +344,15 @@ fn the_payload_survives_a_hopping_channel_with_the_sequencer_known() {
 const PROBE_ERRORS: u64 = 120;
 const PROBE_BITS: u64 = 30_000;
 
-/// The narrowband-jammer row's own budget, and it is far larger than every other axis's for a
-/// reason that is the definition rather than caution: **processing gain is an average over where
-/// the jammer sits**, the offset is drawn once per trial, and a probe of fourteen trials measures
-/// the worst of fourteen draws instead. Measured: at the standard budget the length-31 code read
-/// only 0.55 dB better than Barker-11, where the two codes' despread jammer powers differ by the
-/// full 4.2 dB (`spread::dsss`'s direct measurement). Two hundred draws is what makes the row a
-/// property of the code.
 const JAMMER_ERRORS: u64 = 400;
 const JAMMER_BITS: u64 = 500_000;
 
-/// The composite-profile rows sweep a whole curve twice, so their grid has to bracket the 1e-3
-/// crossing of both the clean chain and the impaired one.
 const DSSS_PROFILE_GRID: [f64; 6] = [5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
 const CCK_PROFILE_GRID: [f64; 6] = [4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
 const CSS_PROFILE_GRID: [f64; 6] = [2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
 
-/// Axis brackets, named because the gates read them: a row that reaches its bracket is an axis
-/// the entry does not fail on, and saying so takes the bracket's own value.
 const JAMMER_AXIS_DB: f64 = 40.0;
 
-/// The jammer axis is searched from a floor rather than from zero, because CCK's rate costs it
-/// enough interference tolerance to fail with the jammer already *below* the carrier — and a row
-/// pinned at exactly 0.0 records nothing and cannot be guarded (a 20 % allowance on zero is zero).
 const JAMMER_FLOOR_DB: f64 = 10.0;
 const TIMING_AXIS_SAMPLES: f64 = 16.0;
 
@@ -429,15 +377,6 @@ fn axis_row(
     )
 }
 
-/// The narrowband jammer row, and the axis convention behind it: the search finds the *largest*
-/// value an entry survives, so the axis is stated as interference-over-carrier rather than the
-/// carrier-over-interference a datasheet would print. Larger is better, which is what makes the
-/// row directly comparable across spreading factors — and the comparison *is* the processing
-/// gain.
-///
-/// The jammer's offset is drawn per realisation over the chain's own chip band, because that is
-/// what processing gain is defined as: an average over where a narrowband interferer sits, not a
-/// tone at one frequency (`ber::impair::interference` records what a fixed tone measures instead).
 fn jammer_row(link: &Link, op_db: f64, seed: u64, half_band_cycles: f64) -> LimitRow {
     shifted_jammer_row("narrowband J/C", |jc_db| {
         limits::measure_ber(
@@ -451,9 +390,6 @@ fn jammer_row(link: &Link, op_db: f64, seed: u64, half_band_cycles: f64) -> Limi
     })
 }
 
-/// [`axis_row`] over the shifted jammer axis: the search runs on `J/C + `[`JAMMER_FLOOR_DB`] so it
-/// can start at zero as `search_axis_limit` requires, and the recorded threshold is shifted back
-/// into the J/C a reader wants.
 fn shifted_jammer_row(axis: &str, ber_at: impl Fn(f64) -> f64) -> LimitRow {
     let mut row = axis_row(axis, "dB", JAMMER_AXIS_DB, 0.1, |shifted| {
         ber_at(shifted - JAMMER_FLOOR_DB)
@@ -462,9 +398,6 @@ fn shifted_jammer_row(axis: &str, ber_at: impl Fn(f64) -> f64) -> LimitRow {
     row
 }
 
-/// The direct-sequence and CCK axes — one function, because the two entries share their chip
-/// rate, their chip pulse and their receiver's shape, so a difference between their tables is the
-/// block code.
 fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) -> Vec<LimitRow> {
     vec![
         axis_row("static CFO", "Hz", 20_000.0, 5.0, |hz| {
@@ -483,8 +416,6 @@ fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) ->
                 seed,
             )
         }),
-        // The clock row is the burst search's: one whole-sample origin for the whole burst, so a
-        // drifting clock walks the chip instants off the correlator's grid.
         axis_row("sample clock", "ppm", 200.0, 0.5, |ppm| {
             probe(
                 link,
@@ -549,10 +480,6 @@ fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) ->
     ]
 }
 
-/// The chirp axes. Only the carrier row differs in *kind* from the chip-domain ones, and it is the
-/// entry's most interesting number: a chirp turns a frequency offset into a timing shift, the
-/// preamble-bin estimate absorbs both together, and the payload is read through the same combined
-/// correction — so this row lands orders above every other entry's.
 fn css_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
     vec![
         axis_row("static CFO", "Hz", CSS_BANDWIDTH * 0.5, 200.0, |hz| {
@@ -621,8 +548,6 @@ fn css_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
     ]
 }
 
-/// The two focused tables: a spreading factor's jammer row alone (the m31 entry exists for the
-/// processing-gain comparison and nothing else) and the hopping entry's parked-jammer row.
 fn jammer_only_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
     vec![jammer_row(link, op_db, seed, 0.5 / CHIP_SPS as f64)]
 }

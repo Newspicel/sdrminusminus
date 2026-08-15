@@ -17,7 +17,6 @@ describe("LossTracker", () => {
     t.next(0n);
     t.next(960n);
     expect(t.next(3_840n)).toEqual({ kind: "gap", frames: 1_920 });
-    // The clock is intact afterwards.
     expect(t.next(4_800n)).toEqual({ kind: "continuous" });
   });
 
@@ -33,7 +32,6 @@ describe("LossTracker", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
     t.next(960n);
-    // A restarted clock says nothing about how much was missed: no count to report.
     expect(t.next(0n)).toEqual({ kind: "reset", frames: 0 });
     expect(t.next(960n)).toEqual({ kind: "continuous" });
     expect(t.next(2_880n)).toEqual({ kind: "gap", frames: 960 });
@@ -53,7 +51,6 @@ describe("LossTracker", () => {
     t.next(0n);
     t.next(960n);
     t.reset();
-    // A fresh stream restarts its clock; no reset/gap must be reported.
     expect(t.next(0n)).toEqual({ kind: "continuous" });
     expect(t.next(960n)).toEqual({ kind: "continuous" });
   });

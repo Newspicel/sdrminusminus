@@ -1,8 +1,3 @@
-//! Keeping the engine's trunk follower in step with the patch.
-//!
-//! The follower itself lives in the engine; all this does is answer "which channels are control
-//! channels" whenever the workspace or the live device sets move.
-
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use sdrmm_engine::{Engine, TrunkSystem};
@@ -11,14 +6,10 @@ use tokio::sync::{broadcast::error::RecvError, watch};
 
 use crate::Store;
 
-/// Grants arrive in bursts and each one changes a device set, so the workspace read waits for
-/// the burst to finish rather than running once per grant.
 const DEBOUNCE: Duration = Duration::from_millis(250);
 
-/// Backstop for a change no event describes.
 const REFRESH: Duration = Duration::from_secs(30);
 
-/// Trunk node id → how long its completed calls are kept. Zero-retention nodes are absent.
 pub(crate) type Retentions = Arc<HashMap<String, Duration>>;
 
 pub(crate) async fn watch_patch(

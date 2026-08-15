@@ -62,8 +62,6 @@ describe("boundsOf", () => {
 });
 
 describe("structureBounds", () => {
-  /** The coax the quad's matching section is made of is cut to length, but the antenna is not
-   * that much bigger for it. */
   it("leaves the feedline out of the antenna's own size", () => {
     const quad: AntennaGeometry = {
       feed: { x_m: 0, y_m: 0, z_m: 0 },
@@ -84,7 +82,6 @@ describe("planView", () => {
     expect(planView(boundsOf(VERTICAL)).label).toBe("Front view");
   });
 
-  /** A Yagi seen from the front is a single element with the rest hidden behind it. */
   it("looks down on a boom, so the elements stay apart", () => {
     const view = planView(boundsOf(YAGI));
     expect(view.label).toBe("Top view");
@@ -92,7 +89,6 @@ describe("planView", () => {
     expect(view.vertical).toBe("z");
   });
 
-  /** Looking down on a boom, the far end of it belongs at the top of the page. */
   it("points the boom away from the reader", () => {
     const view = planView(boundsOf(YAGI));
     const reflector = project({ x_m: 0, y_m: 0, z_m: 0 }, view.angles);

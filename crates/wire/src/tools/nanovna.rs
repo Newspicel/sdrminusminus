@@ -41,16 +41,12 @@ fn default_averages() -> u16 {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NanoVnaCalibrateRequest {
     pub port: String,
-    /// Applied by [`NanoVnaCalStep::Reset`], which is where a calibration begins: every standard
-    /// after it has to be measured over the range the measurement will use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range: Option<NanoVnaSweepState>,
     #[serde(flatten)]
     pub step: NanoVnaCalStep,
 }
 
-/// One move in the guided calibration. Each maps to a `cal` subcommand on the instrument, so a
-/// panel walking an operator through open/short/load/thru never has to build shell text itself.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "step", rename_all = "snake_case")]
 pub enum NanoVnaCalStep {
@@ -73,9 +69,6 @@ pub enum NanoVnaCalStep {
 pub enum NanoVnaResult {
     Devices {
         devices: Vec<NanoVnaDevice>,
-        /// Serial ports that are present but are not a VNA, by name only — the panel lists
-        /// instruments, and an operator whose clone went unrecognised still needs to see that
-        /// the port exists before typing it in.
         ignored_ports: Vec<String>,
     },
     Device(NanoVnaDeviceReport),
@@ -83,9 +76,6 @@ pub enum NanoVnaResult {
     Calibration(NanoVnaCalibration),
 }
 
-/// How sure discovery is that a port carries a VNA. USB serial numbers are shared across whole
-/// families of boards, so a matching id alone is `Probable` and only the product or vendor
-/// string promotes it to `Confirmed`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NanoVnaMatch {
@@ -112,7 +102,6 @@ pub struct NanoVnaDevice {
     pub usb_pid: Option<u16>,
 }
 
-/// Everything the instrument will say about itself, read back over the shell.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NanoVnaDeviceReport {
     pub port: String,
@@ -124,7 +113,6 @@ pub struct NanoVnaDeviceReport {
     pub battery_mv: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bandwidth_hz: Option<u32>,
-    /// The drive level the firmware reports, where 255 is its own automatic choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

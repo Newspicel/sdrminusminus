@@ -3,23 +3,13 @@ use sdrmm_dsp::{Costas, DcBlocker, FirC, Pll, RealDecimator, design_lowpass};
 
 use super::filter::{Band, BandFilter, design_vestigial};
 
-/// What the carrier does.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AmMode {
-    /// Full carrier at modulation depth `depth`: the baseband is `1 + depth·a(t)`, which stays
-    /// positive — and therefore envelope-detectable — for `depth ≤ 1` and a message inside
-    /// ±1. Broadcast practice leaves margin below 1; the engine allows the whole range and
-    /// lets a measurement say what over-modulation costs.
     FullCarrier { depth: f64 },
-    /// Suppressed carrier: the baseband is the message itself. All the transmitted power
-    /// carries information, which is the 4.8 dB at depth 1 that
-    /// [`am_fom`](crate::ber::theory::am_fom) prices — and no envelope survives it.
     Suppressed,
 }
 
 impl AmMode {
-    /// Modulation depth, or 1 for a suppressed carrier, which is what the closed forms read as
-    /// "every bit of the transmitted power is message".
     #[must_use]
     pub fn depth(self) -> f64 {
         match self {
@@ -32,19 +22,13 @@ impl AmMode {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AmParams {
     pub mode: AmMode,
-    /// Message bandwidth. The transmitter band-limits the message to it, the receiver's audio
-    /// filter cuts at it, and every closed form the entry is held to reads the noise in it.
     pub bandwidth: f64,
     pub vestige: Option<f64>,
-    /// Taps in the transmitter's vestigial filter and the receiver's predetection band.
     pub band_taps: usize,
-    /// Taps in the message-limiting and post-detection audio filters.
     pub audio_taps: usize,
 }
 
 impl AmParams {
-    /// A double-sideband entry at the crate's default filter lengths — the shape most callers
-    /// want, with the two tap counts stated once here instead of at every call site.
     #[must_use]
     pub fn new(mode: AmMode, bandwidth: f64) -> Self {
         Self {
@@ -56,9 +40,6 @@ impl AmParams {
         }
     }
 
-    /// The occupied band, as the receiver's predetection filter should be set: symmetric about
-    /// the carrier for double sideband, and `[-vestige, bandwidth]` once a vestigial slope has
-    /// carved the lower one away.
     #[must_use]
     pub fn band(&self) -> BandFilter {
         match self.vestige {
@@ -72,8 +53,6 @@ impl AmParams {
     }
 }
 
-/// The transmitter: band-limited message onto an amplitude, optionally through the vestigial
-/// slope.
 pub struct AmMod {
     mode: AmMode,
     message: RealDecimator,
@@ -100,7 +79,6 @@ impl AmMod {
         }
     }
 
-    /// Replaces `out` with one complex-baseband sample per input audio sample.
     pub fn process(&mut self, audio: &[f32], out: &mut Vec<Complex<f32>>) {
         self.message.process(audio, &mut self.limited);
         let depth = self.mode.depth() as f32;
@@ -120,33 +98,19 @@ impl AmMod {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AmDetector {
-    /// `|x|` — no carrier reference at all, which is why it is the tier every consumer in the
-    /// repo runs and the one a suppressed carrier defeats.
     Envelope,
-    /// A carrier loop, then the real part of what it de-rotates: a [`Pll`] on the residual
-    /// carrier for [`AmMode::FullCarrier`], a [`Costas`] loop for [`AmMode::Suppressed`],
-    /// because a suppressed carrier's baseband is real-valued and sign-bearing — which is to
-    /// say it is BPSK, and its carrier is recovered the way BPSK's is.
     Synchronous { loop_bw: f64 },
 }
 
-/// What the receiver does around the detector. Both filters are optional and both defaults are
-/// "on": a channel whose runtime already band-limited the input would otherwise pay for the
-/// same filter twice, and a consumer reading a wideband baseband — a video raster — wants the
-/// detector's output undecimated and unfiltered.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AmRx {
     pub detector: AmDetector,
     pub predetection: bool,
     pub audio_filter: bool,
-    /// Remove the detector's DC. Always wanted after an envelope detector, where DC *is* the
-    /// carrier; never wanted where the baseband's own level carries information (again, a
-    /// video raster: its blanking level is the datum).
     pub dc_block: bool,
 }
 
 impl AmRx {
-    /// The full receiver: IF filter, detector, DC block and audio filter.
     #[must_use]
     pub fn new(detector: AmDetector) -> Self {
         Self {
@@ -157,10 +121,6 @@ impl AmRx {
         }
     }
 
-    /// The detector alone. What a channel wants when its own runtime already supplies the
-    /// selectivity and owns whatever comes after the detector — `channels::atv` reads a video
-    /// raster whose blanking level is its datum, so both the audio filter and the DC block would
-    /// destroy the very thing it measures.
     #[must_use]
     pub fn detector_only(detector: AmDetector) -> Self {
         Self {
@@ -178,7 +138,6 @@ enum Carrier {
     Costas(Costas),
 }
 
-/// The receiver.
 pub struct AmDemod {
     band: Option<Band>,
     carrier: Carrier,
@@ -189,10 +148,6 @@ pub struct AmDemod {
 }
 
 impl AmDemod {
-    /// Pull-in range of the carrier loop, as a multiple of its own bandwidth. A carrier loop
-    /// with no range cannot acquire an offset at all, and one with unbounded range walks onto
-    /// a strong sideband component and stays there; ten bandwidths is the span the entry's CFO
-    /// row is measured over.
     const PULL_IN: f64 = 10.0;
 
     #[must_use]
@@ -218,7 +173,6 @@ impl AmDemod {
         }
     }
 
-    /// Replaces `out` with one audio sample per input sample.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<f32>) {
         let input = match self.band.as_mut() {
             Some(band) => {
@@ -254,8 +208,6 @@ impl AmDemod {
         }
     }
 
-    /// Carrier-loop lock quality in 0..=1, or 1 for the envelope tier, which has nothing to
-    /// lock and therefore nothing to lose.
     #[must_use]
     pub fn lock(&self) -> f32 {
         match &self.carrier {
@@ -295,8 +247,6 @@ mod tests {
         out
     }
 
-    /// The envelope never folds while the depth stays inside 1, and the depth is readable back
-    /// off the waveform — the transmitter's own calibration.
     #[test]
     fn the_full_carrier_envelope_carries_its_stated_depth() {
         let params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);
@@ -310,8 +260,6 @@ mod tests {
         assert!((depth - 0.8).abs() < 0.02, "measured depth {depth}");
     }
 
-    /// Envelope detection of a full carrier: the tone comes back at `depth` times its own
-    /// amplitude, with the carrier's DC removed and nothing else added.
     #[test]
     fn the_envelope_tier_recovers_a_tone() {
         let params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);
@@ -327,9 +275,6 @@ mod tests {
         );
     }
 
-    /// The same waveform through the synchronous tier: same amplitude, same cleanliness — the
-    /// two tiers are one number above threshold, which is what the entry's curves then
-    /// separate below it.
     #[test]
     fn the_synchronous_tier_recovers_the_same_tone() {
         let params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);
@@ -346,8 +291,6 @@ mod tests {
         );
     }
 
-    /// The carrier loop earns its keep on an offset the envelope tier is simply blind to: a
-    /// synchronous detector without one reads the message rotating through zero.
     #[test]
     fn the_carrier_loop_pulls_in_an_offset() {
         let params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);
@@ -365,9 +308,6 @@ mod tests {
         assert!((amplitude - 0.4).abs() < 0.03, "amplitude {amplitude}");
     }
 
-    /// The module's headline as a measurement: a suppressed carrier has no envelope. The
-    /// synchronous tier reads it cleanly and the envelope tier rectifies it, and the rectified
-    /// output's harmonic content is most of the signal.
     #[test]
     fn a_suppressed_carrier_defeats_the_envelope_tier() {
         let params = AmParams::new(AmMode::Suppressed, BANDWIDTH);
@@ -378,8 +318,6 @@ mod tests {
             &iq,
         );
         let window = &coherent[8_192..28_672];
-        // A Costas loop resolves the carrier only up to π, so the recovered message may be
-        // inverted — an amplitude, not a sign, is what the tier promises.
         let amplitude = tone_amplitude(window, TONE);
         assert!(
             (amplitude - 0.8).abs() < 0.03,
@@ -393,9 +331,6 @@ mod tests {
         assert!(distortion > 0.4, "rectified distortion {distortion}");
     }
 
-    /// Vestigial sideband recovers the message from a spectrum carrying barely more than half
-    /// of it, and the complementary slope is why — measured through the synchronous detector,
-    /// which is the one the slope's symmetry argument is about.
     #[test]
     fn a_vestigial_sideband_detects_undistorted() {
         let mut params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);
@@ -414,11 +349,6 @@ mod tests {
         );
     }
 
-    /// …and what an *envelope* detector costs on the same waveform, which is the reason
-    /// broadcast television ran its carrier far above its sidebands. Carving one sideband
-    /// leaves a quadrature component the magnitude cannot separate from the in-phase one, so
-    /// the envelope is `√(i² + q²)` of a message plus its own Hilbert transform — a distortion
-    /// no filter downstream removes, and one that shrinks only as the carrier is raised.
     #[test]
     fn an_envelope_detector_pays_quadrature_distortion_on_a_vestigial_sideband() {
         let mut params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);
@@ -431,9 +361,6 @@ mod tests {
             (0.05..0.2).contains(&distortion),
             "distortion at depth 0.8: {distortion}"
         );
-        // The quadrature term is proportional to the depth and the carrier it is measured
-        // against is not, so quartering the depth quarters the distortion — asserted as the
-        // ratio, which is the law rather than one of its values.
         params.mode = AmMode::FullCarrier { depth: 0.2 };
         let shallow = modulated(&params, 0.5, 65_536);
         let audio = demodulated(&params, &AmRx::new(AmDetector::Envelope), &shallow);
@@ -442,8 +369,6 @@ mod tests {
         assert!((ratio - 0.25).abs() < 0.03, "distortion ratio {ratio}");
     }
 
-    /// The optional stages are genuinely optional: with all three off the detector's own
-    /// output arrives sample for sample, which is what a video consumer reads.
     #[test]
     fn a_bare_receiver_passes_the_detector_output_through() {
         let params = AmParams::new(AmMode::FullCarrier { depth: 0.8 }, BANDWIDTH);

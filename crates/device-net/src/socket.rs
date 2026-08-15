@@ -1,5 +1,3 @@
-//! The transport both network backends stream over: one TCP connection, shared by the control
-//! thread that writes commands into it and the capture thread that drains samples out of it.
 use std::{
     io::{ErrorKind, Read as _, Write as _},
     net::{Shutdown, TcpStream},
@@ -13,37 +11,24 @@ use std::{
 
 use sdrmm_device::{DeviceError, StopHandle, StreamFailure, lock};
 
-/// How long a control write may block before the peer counts as wedged. A command is at most
-/// eight bytes and cannot fill a socket buffer on its own, so reaching this means the far side has
-/// stopped reading entirely.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// What one read off the socket produced.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Read {
-    /// This many bytes landed at the front of the caller's buffer.
     Got(usize),
-    /// The timeout expired with nothing to read. Not an error — it is how the capture supervisor
-    /// gets a chance to look at its stop flag.
     Idle,
-    /// The connection is over; [`Connection::failure`] says why.
     Ended,
 }
 
-/// A live connection to a remote receiver.
 #[derive(Debug)]
 pub(crate) struct Connection {
     socket: Arc<TcpStream>,
-    /// The read timeout currently set on the socket, in microseconds. The supervisor passes the
-    /// same poll interval every time, so caching it turns one `setsockopt` per block into one per
-    /// connection.
     timeout_us: AtomicU64,
     failure: Mutex<Option<StreamFailure>>,
 }
 
 impl Connection {
     pub(crate) fn new(socket: TcpStream) -> Self {
-        // A blocked control write must not park the control thread for the stack's own default.
         let _ = socket.set_write_timeout(Some(WRITE_TIMEOUT));
         Self {
             socket: Arc::new(socket),
@@ -52,32 +37,22 @@ impl Connection {
         }
     }
 
-    /// A handle that ends this connection from another thread.
     pub(crate) fn stop_handle(&self) -> SocketStop {
         SocketStop {
             socket: self.socket.clone(),
         }
     }
 
-    /// Close the connection. Idempotent, and safe from any thread: it is what unblocks a capture
-    /// thread parked in `read`.
     pub(crate) fn close(&self) {
         let _ = self.socket.shutdown(Shutdown::Both);
     }
 
-    /// Send a command. Every command in both protocols is a short fixed-size frame, so a partial
-    /// write is a failure of the connection rather than something to resume.
-    ///
-    /// # Errors
-    /// [`DeviceError::Io`] naming what the socket refused. The caller's setting has not been
-    /// applied and must not be reported as if it had.
     pub(crate) fn send(&self, frame: &[u8]) -> Result<(), DeviceError> {
         (&*self.socket)
             .write_all(frame)
             .map_err(|e| DeviceError::Io(format!("send: {e}")))
     }
 
-    /// Fill the front of `buf`, waiting at most `timeout`.
     pub(crate) fn read(&self, buf: &mut [u8], timeout: Duration) -> Read {
         let wanted = u64::try_from(timeout.as_micros())
             .unwrap_or(u64::MAX)
@@ -92,8 +67,6 @@ impl Connection {
         match (&*self.socket).read(buf) {
             Ok(0) => self.fail("the server closed the connection".to_string()),
             Ok(n) => Read::Got(n),
-            // `WouldBlock` and `TimedOut` are the same event on different platforms; `Interrupted`
-            // is a signal, and the supervisor's next pass simply asks again.
             Err(e)
                 if matches!(
                     e.kind(),
@@ -106,16 +79,9 @@ impl Connection {
         }
     }
 
-    /// End this connection with a reason, keeping the first one given: a shutdown from the stop
-    /// handle makes every later read fail too, and "connection reset" would bury the reason that
-    /// matters. Also how a backend reports a frame it cannot parse — the bytes are no longer where
-    /// they are thought to be, and only a fresh connection can fix that.
     pub(crate) fn fail(&self, reason: String) -> Read {
         let mut failure = lock(&self.failure);
         if failure.is_none() {
-            // Never fatal. `fatal` means re-arming in place cannot help because the device left
-            // the bus — but a remote receiver is reached by dialling it again, which is exactly
-            // what a tier-1 restart does here, and the server may simply have been restarted.
             *failure = Some(StreamFailure {
                 reason,
                 fatal: false,
@@ -132,7 +98,6 @@ impl Connection {
     }
 }
 
-/// Ends a connection from a thread that is not the one draining it.
 #[derive(Clone, Debug)]
 pub(crate) struct SocketStop {
     socket: Arc<TcpStream>,
@@ -144,20 +109,12 @@ impl StopHandle for SocketStop {
     }
 }
 
-/// Reusable capture buffers.
-///
-/// A capture stream hands out owned blocks — the supervisor's trait cannot lend from the stream,
-/// because the block outlives the borrow — so without a pool every block on the sample path would
-/// be a fresh zeroed allocation. Blocks return themselves here when they drop, so a steady stream
-/// allocates once and then never again.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BlockPool {
     free: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
 impl BlockPool {
-    /// A block of exactly `len` bytes, whose contents are unspecified: every caller fills the
-    /// prefix it later truncates to.
     pub(crate) fn take(&self, len: usize) -> Block {
         let mut bytes = lock(&self.free).pop().unwrap_or_default();
         bytes.clear();
@@ -169,7 +126,6 @@ impl BlockPool {
     }
 }
 
-/// A capture block that goes back to its pool when the supervisor is done with it.
 #[derive(Debug)]
 pub(crate) struct Block {
     bytes: Vec<u8>,
@@ -177,7 +133,6 @@ pub(crate) struct Block {
 }
 
 impl Block {
-    /// Keep the first `len` bytes — what a short read leaves.
     pub(crate) fn truncate(&mut self, len: usize) {
         self.bytes.truncate(len);
     }
@@ -198,8 +153,6 @@ impl Deref for Block {
 impl Drop for Block {
     fn drop(&mut self) {
         let mut free = lock(&self.pool.free);
-        // One capture thread holds at most a block at a time; anything beyond a handful means a
-        // pool being used as a leak, and dropping the buffer is better than growing forever.
         if free.len() < 4 {
             free.push(std::mem::take(&mut self.bytes));
         }
@@ -212,7 +165,6 @@ mod tests {
 
     use super::*;
 
-    /// A listener on a loopback port the OS picked, and the client end of one connection to it.
     fn connected() -> (TcpStream, Connection) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -245,8 +197,6 @@ mod tests {
         );
     }
 
-    /// The property the supervisor's stop depends on: a read parked in the kernel has to come back
-    /// when another thread closes the socket.
     #[test]
     fn a_stop_handle_unblocks_a_parked_read() {
         let (_server, conn) = connected();
@@ -256,7 +206,6 @@ mod tests {
             stop.stop();
         });
         let mut buf = [0u8; 8];
-        // Far longer than the stop takes: if the shutdown did not reach the reader, this hangs.
         assert_eq!(conn.read(&mut buf, Duration::from_secs(30)), Read::Ended);
     }
 

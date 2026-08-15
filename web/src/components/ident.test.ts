@@ -76,7 +76,6 @@ describe("identMeasurements", () => {
     );
     expect(noClock).not.toHaveProperty("Symbol rate");
     expect(noClock).not.toHaveProperty("Deviation");
-    // A continuous carrier has nothing to say about duty, so the row is absent rather than 100%.
     expect(noClock).not.toHaveProperty("Duty");
   });
 

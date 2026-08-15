@@ -1,20 +1,9 @@
-// A complex FFT for the baseband displays.
-//
-// This is the one place the client does its own spectral work. The device spectrum is measured on
-// the server, where the whole stream is; a channel's baseband arrives here as raw samples, and
-// transforming a 2048-point burst in the browser costs far less than asking the server for a
-// second spectrum of the same data at a rate it would have to pace separately.
-
-/** Iterative radix-2 Cooley–Tukey, in place, decimation in time. `re`/`im` must be the same
- * power-of-two length. */
 export function fft(re: Float32Array, im: Float32Array): void {
   const n = re.length;
   if (n !== im.length || n < 2 || (n & (n - 1)) !== 0) {
     throw new Error(`fft needs a power-of-two length, got ${n} and ${im.length}`);
   }
 
-  // Bit-reversal permutation, computed incrementally: the reverse of i+1 is the reverse of i with
-  // a carry propagating downward from the top bit.
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;
     for (; j & bit; bit >>= 1) {
@@ -54,7 +43,6 @@ export function fft(re: Float32Array, im: Float32Array): void {
   }
 }
 
-/** A periodic Hann window of `n` points, matching the server's (`dsp::window::hann`). */
 export function hann(n: number): Float32Array {
   const window = new Float32Array(n);
   if (n === 0) {
@@ -70,14 +58,6 @@ export function hann(n: number): Float32Array {
   return window;
 }
 
-/**
- * Sum of a window: the gain an unnormalized transform applies to a tone at a bin centre. Dividing
- * the magnitude by it both undoes the window's attenuation and supplies the 1/N the transform
- * itself does not, so a full-scale tone reads 0 dBFS.
- *
- * The sum and not the mean — this mirrors `dsp::window::coherent_gain`, and the two have to agree
- * or a baseband plot would sit tens of dB away from the device spectrum above it.
- */
 export function coherentGain(window: Float32Array): number {
   let sum = 0;
   for (const value of window) {
@@ -86,8 +66,6 @@ export function coherentGain(window: Float32Array): number {
   return sum;
 }
 
-/** Scratch buffers and the window for a fixed transform size, so a display that runs every frame
- * allocates once. */
 export class SpectrumAnalyzer {
   readonly size: number;
   private readonly re: Float32Array;
@@ -103,13 +81,6 @@ export class SpectrumAnalyzer {
     this.invGain = 1 / Math.max(coherentGain(this.window), Number.MIN_VALUE);
   }
 
-  /**
-   * DC-centred power spectrum in dBFS of `size` complex samples taken from interleaved `samples`.
-   *
-   * Mirrors the server's analyzer exactly — same window, same coherent-gain correction, same
-   * DC-centred bin order — so a baseband plot and the device spectrum above it read on one scale.
-   * A short input is zero-padded, which widens the response rather than shifting it.
-   */
   powerDb(samples: Float32Array, out: Float32Array): Float32Array {
     const n = this.size;
     const db = out.length === n ? out : new Float32Array(n);

@@ -1,39 +1,3 @@
-//! Complementary code keying: eight complex
-//! chips carrying eight bits, detected by correlating against the whole codebook at once.
-//!
-//! **What separates it from the direct-sequence entry beside it.** DSSS spends its chips on one
-//! constellation point and gets interference rejection back; CCK spends the same eight chips on a
-//! *block code* and gets rate back — 802.11b's 11 Mbit/s is this codebook at the same 11 Mchip/s
-//! the 1 Mbit/s Barker rate uses. The two share the chip substrate ([`chip`](super::chip)) and
-//! nothing above it, which is exactly the split 802.11b itself makes.
-//!
-//! **The codebook is generated, not transcribed** (§3.3: point sets are data — so are codeword
-//! sets). Every word comes out of the one formula IEEE 802.11-1999 §18.4.6.5 states,
-//!
-//! ```text
-//! c = { e^{j(φ1+φ2+φ3+φ4)}, e^{j(φ1+φ3+φ4)}, e^{j(φ1+φ2+φ4)}, −e^{j(φ1+φ4)},
-//!       e^{j(φ1+φ2+φ3)},    e^{j(φ1+φ3)},    −e^{j(φ1+φ2)},    e^{jφ1} }
-//! ```
-//!
-//! with the four phases drawn from a QPSK alphabet at the 8-bit rate and from a reduced one at
-//! the 4-bit rate. A table of 64 transcribed words would be a liability no test could check; a
-//! generator's properties can be, and they are: constant modulus, the minimum distance the rate
-//! rests on, and the fact that φ1 factors out of the word as a pure rotation.
-//!
-//! **That factorisation is the receiver.** φ1 multiplies every chip, so it does not change which
-//! word was sent — the correlator bank runs over the `M/4` words with `φ1 = 0`, and the winner's
-//! own phase carries φ1. A 64-word bank decodes 256 candidates.
-//!
-//! **The differential layer is not here.** 802.11b encodes φ1 differentially; this crate has one
-//! differential codec ([`symbolcode`](crate::symbolcode)) and the π/4-DQPSK entry already
-//! establishes where it goes — on the symbol *indices*, outside the engine. What the engine does
-//! carry is the spec's odd-symbol π rotation, because that is a per-symbol rotation of the
-//! waveform exactly as π/2-BPSK's is, and a receiver cannot undo it without knowing it.
-//!
-//! **A label is four phase indices**, two bits each, φ1 in the low pair. Which of a MAC frame's
-//! bits land in which index is 802.11's business and not this entry's (§6 scope decision: the
-//! waveform is in, the protocol is out).
-
 use std::f32::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex;
@@ -41,21 +5,13 @@ use num_complex::Complex;
 use super::chip::{ChipShaper, find_burst};
 use crate::{linear::PhaseAnchor, soft::Llr};
 
-/// Chips in a CCK codeword — eight, at both rates, which is the point of the code: the rate
-/// changes and the chip rate does not.
 pub const CHIPS: usize = 8;
 
-/// Words in the largest bank ([`CckMode::Bits8`]'s), and the receive path's scratch size.
 pub const MAX_WORDS: usize = 64;
 
-/// How many bits a codeword carries — 802.11b's 5.5 and 11 Mbit/s rates, named by the property
-/// that distinguishes them rather than by a data rate this crate has no opinion about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CckMode {
-    /// Four bits: φ1 from a QPSK alphabet, φ2 ∈ {π/2, 3π/2}, φ3 = 0, φ4 ∈ {0, π}. 802.11b's
-    /// 5.5 Mbit/s.
     Bits4,
-    /// Eight bits: all four phases from the QPSK alphabet. 802.11b's 11 Mbit/s.
     Bits8,
 }
 
@@ -68,28 +24,23 @@ impl CckMode {
         }
     }
 
-    /// Words in the correlator bank: the alphabet with φ1 divided out.
     #[must_use]
     pub fn words(self) -> usize {
         1 << (self.bits_per_symbol() - 2)
     }
 
-    /// Labels the mode defines.
     #[must_use]
     pub fn alphabet(self) -> u32 {
         1 << self.bits_per_symbol()
     }
 }
 
-/// The generated codeword set with φ1 divided out — `words()` unit-modulus words of [`CHIPS`]
-/// chips, indexed by the label's upper bits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Codebook {
     mode: CckMode,
     words: Vec<[Complex<f32>; CHIPS]>,
 }
 
-/// The four QPSK phases, as unit vectors indexed by a dibit (0 → 1, 1 → j, 2 → −1, 3 → −j).
 fn quadrant(index: u32) -> Complex<f32> {
     match index & 3 {
         0 => Complex::new(1.0, 0.0),
@@ -100,7 +51,6 @@ fn quadrant(index: u32) -> Complex<f32> {
 }
 
 impl Codebook {
-    /// Builds the mode's bank from the §18.4.6.5 formula.
     #[must_use]
     pub fn new(mode: CckMode) -> Self {
         let words = (0..mode.words() as u32)
@@ -109,7 +59,6 @@ impl Codebook {
         Self { mode, words }
     }
 
-    /// One word at `φ1 = 0`, from the base index (the label's bits above the φ1 pair).
     fn word(mode: CckMode, index: u32) -> [Complex<f32>; CHIPS] {
         let (p2, p3, p4) = match mode {
             CckMode::Bits8 => (
@@ -117,8 +66,6 @@ impl Codebook {
                 quadrant((index >> 2) & 3),
                 quadrant((index >> 4) & 3),
             ),
-            // The reduced alphabet: φ2 is a BPSK pair offset a quarter turn, φ3 is fixed at 0,
-            // φ4 is a plain BPSK pair. Two bits, four words.
             CckMode::Bits4 => (
                 quadrant(1 + 2 * (index & 1)),
                 quadrant(0),
@@ -147,8 +94,6 @@ impl Codebook {
         &self.words
     }
 
-    /// The chips a label transmits at symbol index `symbol`, at the amplitude that makes a
-    /// symbol's energy 1: the base word times φ1's rotation, times the spec's odd-symbol π.
     pub fn chips(&self, label: u32, symbol: usize, out: &mut [Complex<f32>; CHIPS]) {
         let word = &self.words[(label >> 2) as usize % self.words.len()];
         let rotation = quadrant(label + 2 * (symbol as u32 & 1)) * (CHIPS as f32).sqrt().recip();
@@ -157,21 +102,11 @@ impl Codebook {
         }
     }
 
-    /// The symbol-domain value a correct correlation produces: the unit phasor φ1 rotated into,
-    /// odd-symbol π included. This is what the §3.4 anchor fits against, and the value the
-    /// entry's noise variance is measured as a residual from.
     #[must_use]
     pub fn reference(&self, label: u32, symbol: usize) -> Complex<f32> {
         quadrant(label + 2 * (symbol as u32 & 1))
     }
 
-    /// The correlator bank: `r[i] = (1/√8)·Σ_c y_c·conj(w_i[c])`, normalised so the winning
-    /// correlation of a clean symbol has unit magnitude and every `r[i]` carries the chip
-    /// stream's own N0 — the same normalisation the despreader beside it uses, so the two
-    /// entries' noise variances mean one thing.
-    ///
-    /// # Panics
-    /// If `out` is shorter than the bank.
     pub fn correlate(&self, chips: &[Complex<f32>; CHIPS], out: &mut [Complex<f32>]) {
         assert!(
             out.len() >= self.words.len(),
@@ -191,12 +126,6 @@ impl Codebook {
         }
     }
 
-    /// The joint maximum-likelihood decision over word *and* φ1, from a correlator bank.
-    ///
-    /// Not `argmax |r_i|`, which is the tempting shortcut and is wrong: every candidate has the
-    /// same energy, so the likelihood is `Re(r_i·e^{−jφ1})`, and a slightly weaker correlation
-    /// sitting exactly on a QPSK axis beats a stronger one sitting between two. The difference is
-    /// only visible in noise, which is where it matters.
     #[must_use]
     pub fn decide(&self, bank: &[Complex<f32>], symbol: usize) -> u32 {
         let mut best = (0u32, f32::NEG_INFINITY);
@@ -209,9 +138,6 @@ impl Codebook {
         best.0
     }
 
-    /// The log-likelihood of `label`, up to the common scale every candidate shares:
-    /// `Re(r_i·e^{−jφ1})` with the odd-symbol rotation folded in. One of `±Re`, `±Im` of the
-    /// word's own correlation, since φ1 is a quadrant.
     #[must_use]
     pub fn metric(&self, bank: &[Complex<f32>], label: u32, symbol: usize) -> f32 {
         let r = bank[(label >> 2) as usize % self.words.len()];
@@ -223,16 +149,6 @@ impl Codebook {
         }
     }
 
-    /// Per-bit max-log LLRs over the joint alphabet.
-    ///
-    /// The crate's one point demapper cannot serve here and the reason is structural rather than
-    /// an omission: its observation is a *point* and this one is a vector of eight chips. What is
-    /// shared is the form — max-log over an alphabet — and the calibration: all codewords carry
-    /// equal energy, so `|y − c|²` reduces to `−2·Re⟨y, c⟩` and the LLR is
-    /// `(2/N0)·(max_{bit=1} metric − max_{bit=0} metric)`.
-    ///
-    /// # Panics
-    /// If `out` is not `bits_per_symbol` long, or `noise_var` is not a positive finite number.
     pub fn llrs(&self, bank: &[Complex<f32>], symbol: usize, noise_var: f64, out: &mut [Llr]) {
         let bits = self.mode.bits_per_symbol();
         assert_eq!(out.len(), bits, "one LLR slot per codeword bit");
@@ -259,7 +175,6 @@ impl Codebook {
     }
 }
 
-/// One CCK waveform as data: the rate, the chip pulse, and the burst search's coherent span.
 #[derive(Clone, Debug)]
 pub struct CckParams {
     codebook: Codebook,
@@ -268,9 +183,6 @@ pub struct CckParams {
 }
 
 impl CckParams {
-    /// # Panics
-    /// If the search group is zero — a burst search integrating over no symbols has nothing to
-    /// peak on.
     #[must_use]
     pub fn new(mode: CckMode, shaper: ChipShaper, search_group_symbols: usize) -> Self {
         assert!(search_group_symbols > 0, "a search group spans ≥ 1 symbol");
@@ -306,16 +218,12 @@ impl CckParams {
         CHIPS * self.shaper.sps()
     }
 
-    /// Eb charged to a frame's own framing, in dB — the same closed form of the geometry the
-    /// direct-sequence entry's is: `10·log₁₀((P + L)/L)` over symbols, independent of the rate
-    /// because the bits per symbol cancel out of the ratio.
     #[must_use]
     pub fn framing_overhead_db(preamble: usize, payload: usize) -> f64 {
         10.0 * ((preamble + payload) as f64 / payload as f64).log10()
     }
 }
 
-/// The transmitter. Cold path, like every modulator in this crate.
 #[derive(Clone, Debug)]
 pub struct CckMod {
     params: CckParams,
@@ -336,9 +244,6 @@ impl CckMod {
         &self.params
     }
 
-    /// A whole burst: the known preamble's labels, then the payload's. The burst's origin is
-    /// `out.len()` as measured when this is called, and symbol indices — which the odd-symbol
-    /// rotation reads — count from the preamble's first symbol.
     pub fn frame(&mut self, preamble: &[u32], labels: &[u32], out: &mut Vec<Complex<f32>>) {
         self.chips.clear();
         self.push_labels(preamble, 0);
@@ -356,7 +261,6 @@ impl CckMod {
         }
     }
 
-    /// The preamble's chips alone — what [`CckDemod::acquire`] correlates against.
     #[must_use]
     pub fn preamble_chips(&self, preamble: &[u32]) -> Vec<Complex<f32>> {
         let mut chips = Vec::with_capacity(preamble.len() * CHIPS);
@@ -369,7 +273,6 @@ impl CckMod {
     }
 }
 
-/// The receiver: matched filter, burst search, correlator bank, anchor.
 #[derive(Clone, Debug)]
 pub struct CckDemod {
     params: CckParams,
@@ -403,16 +306,6 @@ impl CckDemod {
         self.acquisition
     }
 
-    /// Matched-filters `wave`, finds the burst whose first symbols carry `preamble`, and fits the
-    /// §3.4 anchor over them.
-    ///
-    /// `None` when the search was impossible or the anchor would not fit — a preamble shorter than
-    /// two symbols, an empty origin range, or a degenerate fit. It is *not* a detector: given a
-    /// searchable range the correlator always names its best origin, so a `Some` says "this is
-    /// where the burst is if there is one", not "there is one".
-    ///
-    /// Steady state allocates nothing: every buffer reaches its capacity on the first call and is
-    /// reused, which is what the §4.2 gate asserts.
     pub fn acquire(
         &mut self,
         wave: &[Complex<f32>],
@@ -440,9 +333,6 @@ impl CckDemod {
             search,
         )?;
 
-        // The anchor reads the *known* word's correlation, not the winning one: at the SNRs an
-        // acquisition has to work at, a decision-directed reference would occasionally fit the
-        // rotation to the wrong codeword and take the whole burst with it.
         self.fitted.clear();
         self.expected.clear();
         let mut bank = [Complex::new(0.0, 0.0); MAX_WORDS];
@@ -452,10 +342,6 @@ impl CckDemod {
             self.fitted.push(bank[(label >> 2) as usize % bank.len()]);
             self.expected.push(self.params.codebook.reference(label, k));
         }
-        // Gain only, no slope: the direct-sequence entry beside this one records the measurement
-        // (`dsss`'s module docs) — a slope fitted on a short preamble and extrapolated across a
-        // long payload is worth more phase error than it removes, and both entries frame bursts
-        // the same way.
         let anchor = PhaseAnchor::fit_gain_only(&self.fitted, &self.expected).ok()?;
         anchor.correct_block(0, &mut self.fitted);
         let noise_var =
@@ -469,11 +355,6 @@ impl CckDemod {
         Some(acquisition)
     }
 
-    /// The correlator bank of symbol `symbol` (counted from the burst's first), with the
-    /// acquisition's gain and residual frequency removed.
-    ///
-    /// # Panics
-    /// If `out` is not the bank's length.
     pub fn bank(&self, symbol: usize, out: &mut [Complex<f32>]) {
         let Some(acquisition) = self.acquisition else {
             out.fill(Complex::new(0.0, 0.0));
@@ -485,8 +366,6 @@ impl CckDemod {
         }
     }
 
-    /// The raw bank, before any correction — the form acquisition needs, since the correction is
-    /// what it is still fitting.
     fn bank_at(&self, origin: usize, symbol: usize, out: &mut [Complex<f32>]) {
         let mut chips = [Complex::new(0.0, 0.0); CHIPS];
         self.params
@@ -495,7 +374,6 @@ impl CckDemod {
         self.params.codebook.correlate(&chips, out);
     }
 
-    /// `symbols` payload labels, appended to `out`. Writes nothing without an acquisition (§8).
     pub fn demodulate(&self, preamble_symbols: usize, symbols: usize, out: &mut Vec<u32>) {
         if self.acquisition.is_none() {
             return;
@@ -510,8 +388,6 @@ impl CckDemod {
         }
     }
 
-    /// Per-bit LLRs of `symbols` payload symbols, at the noise variance the acquisition
-    /// measured. Appends `symbols · bits_per_symbol` values in transmission order.
     pub fn llrs(&self, preamble_symbols: usize, symbols: usize, out: &mut Vec<Llr>) {
         let Some(acquisition) = self.acquisition else {
             return;
@@ -534,8 +410,6 @@ impl CckDemod {
     }
 }
 
-/// The 8-chip codeword's amplitude per chip at unit symbol energy — `1/√8`, written once so the
-/// modulator and the tests read the same constant.
 pub const CHIP_AMPLITUDE: f32 = FRAC_1_SQRT_2 * 0.5;
 
 #[cfg(test)]
@@ -570,10 +444,6 @@ mod tests {
         wave
     }
 
-    /// The codebook's three structural properties, which is what a *generated* table can be held
-    /// to where a transcribed one could not: every chip has unit modulus (so the transmitter is
-    /// constant-envelope), no two words coincide, and φ1 is a pure rotation — the property the
-    /// bank's `M/4` size rests on.
     #[test]
     fn the_generated_codebook_is_constant_modulus_distinct_and_factors_phi1_out() {
         for mode in [CckMode::Bits4, CckMode::Bits8] {
@@ -592,8 +462,6 @@ mod tests {
                     assert!(!same, "{mode:?} words {i} and {j} coincide");
                 }
             }
-            // φ1 rotates the whole word and nothing else: the chips of `label` and of the same
-            // label with a different φ1 differ by one constant phasor.
             let mut a = [Complex::new(0.0, 0.0); CHIPS];
             let mut b = [Complex::new(0.0, 0.0); CHIPS];
             let base = 2u32 << 2;
@@ -607,19 +475,6 @@ mod tests {
         }
     }
 
-    /// **CCK is a block code, and this is the number that says so.** Eight complex chips are
-    /// sixteen real dimensions carrying eight bits — the same half-bit-per-dimension a bare BPSK
-    /// symbol carries — so the 256-word set is free to be *better* packed than 256 independent
-    /// binary decisions, and it is: its minimum squared distance is 1 against an antipodal pair's
-    /// 4 at the same symbol energy, which at eight bits a symbol against one is 3 dB in CCK's
-    /// favour per Eb asymptotically. The committed curve measures 1.4 dB of that at 1e-3, and the
-    /// rest is what the *24* nearest neighbours below cost through the union bound — a dense shell
-    /// is the price a good packing pays.
-    ///
-    /// The minimum is reached two ways, and both are a quarter turn: one of φ2..φ4 alone (which
-    /// changes four of the eight chips), or φ1 against one of them (which changes the other four).
-    /// φ1's own quarter turn changes all eight and sits twice as far, which is why the correlator
-    /// bank can afford to decide the word first and the phase second.
     #[test]
     fn the_codebook_is_a_block_code_with_the_distance_that_earns_its_rate() {
         let book = Codebook::new(CckMode::Bits8);
@@ -645,8 +500,6 @@ mod tests {
         }
         assert!((d2_min - 1.0).abs() < 1e-5, "d²_min {d2_min}");
 
-        // The shell is the same size around every word — the geometry is a group, so a union
-        // bound read off one word is the bound for all of them.
         for x in 0..256u32 {
             let neighbours = (0..256u32)
                 .filter(|&y| y != x && (d2(x, y) - d2_min).abs() < 1e-5)
@@ -657,8 +510,6 @@ mod tests {
             );
         }
 
-        // φ1's quarter turn is the *other* distance, twice the minimum — the separation the
-        // decision's two stages rest on.
         assert!(
             (d2(0, 1) - 2.0).abs() < 1e-5,
             "φ1 quarter turn d² {}",
@@ -666,8 +517,6 @@ mod tests {
         );
     }
 
-    /// A codeword's energy is 1, which is what puts CCK's Eb/N0 on the same axis as every other
-    /// entry's (crate-root convention).
     #[test]
     fn a_codeword_carries_unit_energy() {
         let book = Codebook::new(CckMode::Bits8);
@@ -680,8 +529,6 @@ mod tests {
         }
     }
 
-    /// The bank recovers the sent codeword exactly on a clean channel, and its winning
-    /// correlation is the unit phasor the anchor fits against.
     #[test]
     fn the_bank_recovers_a_clean_codeword_and_its_phase() {
         for mode in [CckMode::Bits4, CckMode::Bits8] {
@@ -701,7 +548,6 @@ mod tests {
         }
     }
 
-    /// Both rates round-trip through the whole chain, origin searched rather than known.
     #[test]
     fn both_rates_round_trip_and_find_their_own_origin() {
         for mode in [CckMode::Bits4, CckMode::Bits8] {
@@ -720,14 +566,10 @@ mod tests {
         }
     }
 
-    /// The joint decision is not `argmax |r|`, and the difference is measurable: a bank in which
-    /// the strongest correlation sits between two QPSK axes while a weaker one sits on an axis
-    /// must decode to the weaker word.
     #[test]
     fn the_decision_is_joint_over_word_and_phase() {
         let book = Codebook::new(CckMode::Bits8);
         let mut bank = vec![Complex::new(0.0, 0.0); book.words().len()];
-        // Word 3 at magnitude 1 exactly between two axes; word 5 at 0.95 on the real axis.
         bank[3] = Complex::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
         bank[5] = Complex::new(0.95, 0.0);
         assert!(bank[3].norm() > bank[5].norm());
@@ -736,10 +578,6 @@ mod tests {
         assert_eq!(decided & 3, 0);
     }
 
-    /// LLR calibration on the joint alphabet: among bits reported at confidence |llr|, the
-    /// fraction wrong must track `1/(1+e^|llr|)`. This is what makes the entry's soft output an
-    /// [`Llr`] rather than a confidence, and it exercises the noise variance the acquisition
-    /// measured end to end.
     #[test]
     fn llr_magnitudes_predict_their_own_error_rate() {
         let mode = CckMode::Bits8;
@@ -748,8 +586,6 @@ mod tests {
         let payload = labels(mode, 12_000, 0x11c5);
         let mut wave = transmit(&p, &preamble, &payload);
         let mut rng = Rng::new(0x11c6);
-        // Es/N0 = 11 dB: 8 bits a symbol, so this is the operating point the entry's committed
-        // curve sits near, and the band the LLR calibration has to hold across.
         let sigma = (0.08f64 / 2.0).sqrt();
         for s in wave.iter_mut() {
             *s += Complex::new((rng.normal() * sigma) as f32, (rng.normal() * sigma) as f32);
@@ -784,7 +620,6 @@ mod tests {
         }
     }
 
-    /// No acquisition, no symbols (§8: no silent failure).
     #[test]
     fn a_demodulator_with_no_acquisition_produces_nothing() {
         let demod = CckDemod::new(params(CckMode::Bits8));

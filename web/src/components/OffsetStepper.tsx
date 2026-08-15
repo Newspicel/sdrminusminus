@@ -3,7 +3,6 @@ import { clampOffsetHz } from "./channelSettings";
 import { BTN } from "./controls";
 import { NumberField } from "./NumberField";
 
-/** Mirrored either side of the field, coarsest outermost. */
 const DOWN_HZ = [-25_000, -5_000] as const;
 const UP_HZ = [5_000, 25_000] as const;
 
@@ -14,7 +13,6 @@ export function OffsetStepper({
   label = "Offset (kHz)",
 }: {
   offsetHz: number;
-  /** How far the offset may travel either way, or `null` when nothing bounds it yet. */
   limitHz: number | null;
   onOffset: (hz: number) => void;
   label?: string;
@@ -42,9 +40,6 @@ export function OffsetStepper({
   );
 }
 
-/** All four the same width, so the field is the middle of the row by measurement and not only by
- * count — `−25k` and `+5k` are different lengths, and sized to their text they put the field
- * visibly off-centre. */
 function StepButton({ hz, onStep }: { hz: number; onStep: (hz: number) => void }) {
   return (
     <Button

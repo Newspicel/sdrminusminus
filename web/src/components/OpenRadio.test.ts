@@ -17,8 +17,6 @@ function device(driver: string, key: string, label = `${driver} ${key}`): Device
 }
 
 describe("rankDevices", () => {
-  /** A radio on the network is hardware like any other: someone who added one should not have to
-   * read past the signal generator to find it again. */
   it("puts every real radio above the virtual devices", () => {
     const ranked = rankDevices([
       device("virtual", "siggen", "Signal Generator"),
@@ -79,7 +77,6 @@ describe("unclaimedDevices", () => {
     ).toEqual([]);
   });
 
-  /** A serial-less reference names its backend's one device, so it claims that one and no other. */
   it("matches a keyed reference and a bare backend alike", () => {
     expect(
       unclaimedDevices(devices, [{ backend: "virtual", key: "siggen" }]).map(deviceId),
@@ -147,8 +144,6 @@ describe("networkDeviceId", () => {
     expect(networkDeviceId("spyserver", "spy.local")).toBe("spyserver:spy.local");
   });
 
-  /** The server defaults the port and lower-cases the host; guessing either here would be a second
-   * address parser, and the patch would store a key the probe never reports. */
   it("passes the address through untouched", () => {
     expect(networkDeviceId("rtltcp", "  Radio.Local  ")).toBe("rtltcp:Radio.Local");
     expect(networkDeviceId("rtltcp", "[2001:db8::1]:1234")).toBe("rtltcp:[2001:db8::1]:1234");
@@ -166,8 +161,6 @@ describe("networkDeviceId", () => {
     }
   });
 
-  /** The composed id has to survive the split `DeviceRegistry::open` does on the *first* colon,
-   * which is what makes an IPv6 endpoint reach the driver intact. */
   it("round-trips through the id a probed device would report", () => {
     const id = networkDeviceId("rtltcp", "[::1]:1234");
     expect(id).not.toBeNull();
@@ -179,7 +172,6 @@ describe("networkDeviceId", () => {
 });
 
 describe("NETWORK_BACKENDS", () => {
-  /** The drivers the server registers. A rename on either side has to break something. */
   it("names the two protocols and shows each one's default port", () => {
     expect(NETWORK_BACKENDS.map((b) => b.driver)).toEqual(["rtltcp", "spyserver"]);
     expect(NETWORK_BACKENDS.map((b) => b.placeholder.split(":").pop())).toEqual(["1234", "5555"]);

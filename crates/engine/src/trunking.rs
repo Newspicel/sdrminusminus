@@ -1,7 +1,3 @@
-//! Following a trunked system's traffic channels: control-channel grants become extra
-//! receivers on the same radio. Which channels carry a system is a workspace question, so the
-//! answer is pushed in through [`Engine::configure_trunking`] rather than read from here.
-
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, Weak, mpsc},
@@ -18,11 +14,8 @@ use crate::Engine;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Every follower is a full C4FM demodulator, so this is a CPU bound as much as a protocol one.
 const MAX_FOLLOWERS_PER_SYSTEM: usize = 16;
 
-/// A grant outside the sampled bandwidth is refused every time it is tried, so failures back
-/// off instead of being retried at the reconcile rate for as long as the system runs.
 const RETRY_BASE: Duration = Duration::from_secs(5);
 const RETRY_MAX: Duration = Duration::from_secs(300);
 
@@ -30,7 +23,6 @@ const RETRY_MAX: Duration = Duration::from_secs(300);
 pub struct TrunkSystem {
     pub node: String,
     pub protocol: DmrTrunkProtocol,
-    /// `(device set, channel)` of every control channel feeding this node.
     pub carriers: Vec<(u32, u32)>,
 }
 
@@ -39,8 +31,6 @@ pub(crate) enum TrunkInput {
     Configure(Vec<TrunkSystem>),
 }
 
-/// Resolved against live engine state rather than carried in the config: the centre frequency
-/// moves under the follower's feet as the radio is retuned.
 #[derive(Clone)]
 struct Carrier {
     system_node: String,
@@ -141,8 +131,6 @@ struct Follower {
     status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
     systems: Vec<TrunkSystem>,
     carriers: HashMap<(u32, u32), Vec<Carrier>>,
-    /// `(system node, logical channel)` → receive frequency: a Tier III grant names a channel
-    /// number and nothing else.
     definitions: HashMap<(String, u16), u64>,
     followers: HashMap<FollowerKey, FollowerChannel>,
     problems: HashMap<FollowerKey, Problem>,
@@ -150,7 +138,6 @@ struct Follower {
 }
 
 impl Follower {
-    /// The inbox is the only blocking point and its timeout is the reconcile tick.
     fn run(mut self, rx: &mpsc::Receiver<TrunkInput>) {
         let mut next_reconcile = Instant::now();
         loop {
@@ -171,8 +158,6 @@ impl Follower {
         }
     }
 
-    /// A radio with no centre frequency yet is left out rather than guessed at: every grant is
-    /// an offset from that centre, so a guess puts the follower where nothing is transmitting.
     fn resolve_carriers(&self, engine: &Engine) -> HashMap<(u32, u32), Vec<Carrier>> {
         let state = engine.snapshot();
         let mut carriers: HashMap<(u32, u32), Vec<Carrier>> = HashMap::new();
@@ -239,8 +224,6 @@ impl Follower {
         let DecoderEvent::Dv(frame) = &record.event else {
             return;
         };
-        // A frame that survived only because the channel ignores CRCs may be reported, but it
-        // may not steer a receiver: noise would fabricate grants.
         if frame.crc_verified == Some(false) {
             return;
         }
@@ -362,7 +345,6 @@ impl Follower {
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
-        // Both emit their own `DeviceSet` scope; nothing here announces it a second time.
         let result = match self.followers.get(&key) {
             Some(follower) => engine
                 .patch_channel(carrier.device_set, follower.channel, settings)
@@ -409,8 +391,6 @@ impl Follower {
         })
     }
 
-    /// Returns whether this is news: the first failure is worth a warning and a state change,
-    /// the twentieth is not.
     fn fail(&mut self, key: FollowerKey, grant: Grant, reason: String) -> bool {
         let now = Instant::now();
         let existing = self
@@ -472,8 +452,6 @@ impl Follower {
             .map(|(key, follower)| (key.clone(), follower.device_set, follower.channel))
             .collect();
         for (key, device_set, channel) in known {
-            // A channel that is already gone is the ordinary case on shutdown and when a radio
-            // is closed under the system; only a real refusal is worth saying out loud.
             match engine.remove_channel(device_set, channel) {
                 Ok(()) => {}
                 Err(error) if error.is_not_found() => {}
@@ -532,7 +510,6 @@ impl Follower {
         }
     }
 
-    /// The engine lock must not be held here: `snapshot` takes it and then this one.
     fn publish(&self) {
         let statuses = self
             .systems
@@ -545,7 +522,6 @@ impl Follower {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = statuses;
     }
 
-    /// Sorted, not left in hash order: this is snapshot state a client diffs.
     fn status_of(&self, system: &TrunkSystem) -> TrunkSystemStatus {
         let mut status = TrunkSystemStatus {
             node: system.node.clone(),
@@ -608,8 +584,6 @@ mod tests {
         Engine::with_registry(registry, None)
     }
 
-    /// A device set with one DMR channel on it, standing in for a control channel, and the
-    /// centre frequency every grant in these tests is an offset from.
     fn control_channel(engine: &Engine) -> (u32, u32, f64) {
         let device_set = engine
             .create_device_set("virtual:siggen")
@@ -727,8 +701,6 @@ mod tests {
         assert!(status.problems.is_empty());
     }
 
-    /// The grant arrives before the channel definition that says where the channel is. Nothing
-    /// may be opened on a guess.
     #[test]
     fn a_grant_for_an_undefined_channel_opens_nothing() {
         let engine = engine();
@@ -742,7 +714,6 @@ mod tests {
         assert!(follower.followers.is_empty());
     }
 
-    /// A frame kept only because the channel ignores CRCs must not steer a receiver.
     #[test]
     fn an_unverified_grant_is_ignored() {
         let engine = engine();
@@ -834,9 +805,6 @@ mod tests {
         assert_eq!(status.followers[1].slot, 2);
     }
 
-    /// The commonest real refusal: a Tier III system whose traffic channels are outside the
-    /// bandwidth the radio is sampling. It has to be visible in state, and it must not be
-    /// retried at the reconcile rate for as long as the system runs.
     #[test]
     fn a_grant_outside_the_sampled_band_is_reported_once_and_backed_off() {
         let engine = engine();

@@ -5,10 +5,8 @@ use std::{
 
 use sdrmm_device::DeviceError;
 
-/// Extra module directories to search, ahead of the bundled ones.
 const EXTRA_MODULE_PATH: &str = "SDRMM_SOAPY_MODULE_PATH";
 
-/// Details from the loaded SoapySDR core, used by `sdrmm --doctor` and package smoke tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeInfo {
     pub core_version: String,
@@ -25,14 +23,6 @@ pub fn runtime_info() -> RuntimeInfo {
     }
 }
 
-/// Select the application's private Soapy tree before the first enumerate or device open.
-///
-/// The bundled modules are not the only ones searched. A module the package cannot carry — a
-/// distribution's UHD, a SoapySDRPlay3 built against a newer vendor API — is picked up from the
-/// host's own module directories, and `SDRMM_SOAPY_MODULE_PATH` names directories that come
-/// first. A module built against a different SoapySDR ABI is refused by the core with a logged
-/// error rather than loaded, so an incompatible host module costs a log line.
-///
 /// # Safety
 /// The caller must invoke this during single-threaded process startup, before any other thread
 /// can read or write the process environment and before constructing a [`SoapyDriver`].
@@ -45,9 +35,6 @@ pub unsafe fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(
             modules.display()
         )));
     }
-    // A search path the operator already set is kept rather than replaced: this function runs
-    // inside a packaged app, and a container or a Nix wrapper that pointed SoapySDR somewhere
-    // deliberate should not lose that by being packaged.
     let extra: Vec<PathBuf> = [EXTRA_MODULE_PATH, "SOAPY_SDR_PLUGIN_PATH"]
         .iter()
         .filter_map(std::env::var_os)
@@ -64,10 +51,6 @@ pub unsafe fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(
     Ok(())
 }
 
-/// The module search path, in load order: directories the operator named, then the bundled tree,
-/// then the host's own. Duplicates and directories that do not exist are dropped — SoapySDR
-/// reports its search path verbatim, and a missing entry in `sdrmm --doctor` reads as a packaging
-/// fault.
 fn search_path(
     bundled: &Path,
     extra: &[PathBuf],
@@ -88,8 +71,6 @@ fn search_path(
     std::env::join_paths(ordered)
 }
 
-/// Where a platform's own SoapySDR installation keeps its modules. The ABI directory is part of
-/// the name, so a module for another SoapySDR generation is never even a candidate.
 fn host_module_dirs() -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     let roots = ["/usr/local/lib", "/opt/homebrew/lib", "/opt/local/lib"];
@@ -112,10 +93,6 @@ fn host_module_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Windows resolves a module's imports through the process search path, and the SDRplay
-/// installer leaves `sdrplay_api.dll` in its own directory. Putting that directory on `PATH` is
-/// what lets the staged SoapySDRPlay3 module load; everywhere else the loader's own defaults
-/// already cover the vendor library.
 #[cfg(target_os = "windows")]
 unsafe fn prepend_vendor_library_dirs() {
     let Some(program_files) = std::env::var_os("ProgramFiles") else {

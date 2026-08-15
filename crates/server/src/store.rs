@@ -40,18 +40,11 @@ pub enum StoreError {
     Corrupt(#[from] serde_json::Error),
 }
 
-/// Page size a decoder-log query gets when it asks for none, and the ceiling every request is
-/// clamped to. The ceiling matches the largest page the log panel offers, so every option it
-/// shows is honoured; bulk transfer is what export is for.
 pub const DECODER_LOG_LIMIT_DEFAULT: u32 = 200;
 pub const DECODER_LOG_LIMIT_MAX: u32 = 2_000;
 
-/// Hard ceiling on one export, whatever the filter matches: the whole body is built in memory
-/// before it is sent, so an unbounded export is an out-of-memory kill.
 pub const DECODER_LOG_EXPORT_MAX: u32 = 100_000;
 
-/// Migrations keyed off `PRAGMA user_version`: each entry runs inside a transaction that also
-/// bumps the version, so a crash mid-migration leaves the previous version intact. Append-only.
 const MIGRATIONS: &[&str] = &[
     "
     CREATE TABLE presets (
@@ -198,15 +191,9 @@ const MIGRATIONS: &[&str] = &[
     ",
 ];
 
-/// How many arrangements one workspace remembers. Deep enough that a session's worth of nudges
-/// stays reachable, bounded because every entry is a whole snapshot and the table is never
-/// pruned by anything else.
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
 
-/// Index fields for one finalized recording, derived from its SigMF pair during
-/// reconciliation (: the files are the source of truth; rows are upserted by stem).
 pub struct RecordingRow {
-    /// File name without directory or `.sigmf-*` extension — unique within the recordings dir.
     pub stem: String,
     pub created_at: String,
     pub device_label: String,
@@ -216,21 +203,12 @@ pub struct RecordingRow {
     pub bytes: u64,
 }
 
-/// Where a batch of decoder rows came from, beyond the coordinates the frames carry themselves.
-///
-/// The two travel together because neither means anything alone: a node id names a decoder only
-/// inside the workspace whose binding produced it, and a workspace without a binding attributes
-/// nothing. With no active workspace both are empty and every row is stored unattributed.
 pub struct LogOrigin<'a> {
     pub workspace: Option<i64>,
-    /// `(device set, channel)` → the patch node that channel belongs to.
     pub nodes: &'a HashMap<(u32, u32), String>,
 }
 
 impl LogOrigin<'static> {
-    /// The origin of a batch nothing can attribute — no active workspace, hence no binding. Its
-    /// rows are stored on the coordinates they carry themselves, which is also the shape of every
-    /// row written before the log recorded a node.
     #[must_use]
     pub fn unattributed() -> Self {
         static NONE: LazyLock<HashMap<(u32, u32), String>> = LazyLock::new(HashMap::new);
@@ -247,7 +225,6 @@ pub struct Store {
 }
 
 impl Store {
-    /// Open (creating and migrating as needed); `None` is a private in-memory database.
     pub fn open(path: Option<&Path>) -> Result<Self, StoreError> {
         let conn = match path {
             Some(path) => Connection::open(path)?,
@@ -264,8 +241,6 @@ impl Store {
 
     pub fn create_preset(&self, name: &str, snapshot: &PresetSnapshot) -> Result<i64, StoreError> {
         let json = serde_json::to_string(snapshot)?;
-        // Denormalized for the same reason `workspaces.nodes` is: a preset whose blob this build
-        // cannot read must break applying that one preset, never the list it is named in.
         let devices = u32::try_from(snapshot.devices.len()).unwrap_or(u32::MAX);
         let conn = self.lock();
         conn.execute(
@@ -356,7 +331,6 @@ impl Store {
              device_label = excluded.device_label, center_hz = excluded.center_hz, \
              sample_rate = excluded.sample_rate, samples = excluded.samples, \
              bytes = excluded.bytes",
-            // SQLite integers are i64; counts can't realistically overflow them.
             params![
                 row.stem,
                 row.created_at,
@@ -370,9 +344,6 @@ impl Store {
         Ok(())
     }
 
-    /// List the index, deriving the fields that depend on where the recordings dir currently
-    /// is (`device_id`, per the wire contract `virtual:file:<dir-joined stem>`) instead of
-    /// persisting them — a moved dir must not strand stale absolute paths in rows.
     pub fn list_recordings(&self, dir: &Path) -> Result<Vec<RecordingInfo>, StoreError> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
@@ -424,8 +395,6 @@ impl Store {
         Ok(())
     }
 
-    /// Drop rows whose SigMF pair vanished from disk — the reconcile pass hands in every
-    /// stem it found.
     pub fn prune_recordings(&self, keep_stems: &[String]) -> Result<(), StoreError> {
         let conn = self.lock();
         if keep_stems.is_empty() {
@@ -440,14 +409,6 @@ impl Store {
         Ok(())
     }
 
-    /// Persist a batch of decoder frames in one transaction. Decoders emit hundreds of frames
-    /// a second (ADS-B), and a commit per row would make SQLite the bottleneck.
-    ///
-    /// `origin` resolves a frame's `(device set, channel)` to the patch node that channel belongs
-    /// to, which — with the workspace that node lives in — is the row's durable origin
-    /// (`DecoderLogEntry::node`). A channel it does not know is stored without one rather than
-    /// guessed at: the query has a fallback for exactly those rows, and a wrong node would
-    /// attribute a frame to a decoder that never heard it.
     pub fn insert_decoder_events(
         &self,
         records: &[DecodedRecord],
@@ -483,23 +444,14 @@ impl Store {
         Ok(records.len())
     }
 
-    /// The `WHERE` clause behind every decoder-log read, clear and export.
-    ///
-    /// The wire scope in `filter` names patch nodes, and a node id is an identity only within one
-    /// workspace — so the scope is read against the active one, which is the workspace every
-    /// canvas drawing that scope is looking at. Resolving it here rather than taking it from the
-    /// query keeps a caller from asking for another workspace's rows under its own node ids.
     fn decoder_log_predicate(
         &self,
         filter: &DecoderLogQuery,
     ) -> Result<DecoderLogPredicate, StoreError> {
-        // Read before the callers take the connection: this locks, and the lock is not reentrant.
         let workspace = self.active_workspace_id()?;
         DecoderLogPredicate::build(filter, workspace, &self.run_start)
     }
 
-    /// One page of the decoder log, newest first, plus how many rows the filter matches in
-    /// total (ignoring the page size) so the client can show "showing 200 of 12,431".
     pub fn query_decoder_log(
         &self,
         filter: &DecoderLogQuery,
@@ -519,8 +471,6 @@ impl Store {
         Ok((entries, total.max(0).unsigned_abs()))
     }
 
-    /// Every matching entry for an export, capped at [`DECODER_LOG_EXPORT_MAX`]; the query's
-    /// own `limit` is a list-view concern and is ignored here (per the wire contract).
     pub fn export_decoder_log(
         &self,
         filter: &DecoderLogQuery,
@@ -530,7 +480,6 @@ impl Store {
         select_decoder_log(&conn, &predicate, DECODER_LOG_EXPORT_MAX)
     }
 
-    /// Clear the entries matching `filter` (an empty filter clears the log).
     pub fn delete_decoder_log(&self, filter: &DecoderLogQuery) -> Result<u64, StoreError> {
         let predicate = self.decoder_log_predicate(filter)?;
         let deleted = self.lock().execute(
@@ -540,9 +489,6 @@ impl Store {
         Ok(deleted as u64)
     }
 
-    /// Keep only the newest `max_rows` entries, returning how many were dropped. `id` is
-    /// monotonic and rows are inserted in arrival order, so "newest" is "highest id" and the
-    /// cut can be a single range delete instead of a sort over `at`.
     pub fn prune_decoder_log(&self, max_rows: u64) -> Result<u64, StoreError> {
         let dropped = self.lock().execute(
             "DELETE FROM decoder_log WHERE id <= \
@@ -552,8 +498,6 @@ impl Store {
         Ok(dropped as u64)
     }
 
-    /// The switcher's view: every workspace, plus which one is active ( — exactly one
-    /// is, server-wide, so every client opens the same workspace). Reads projection columns only.
     pub fn list_workspaces(&self) -> Result<WorkspacesResponse, StoreError> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
@@ -581,8 +525,6 @@ impl Store {
         read_workspace(&conn, id)
     }
 
-    /// Store a new workspace. The snapshot is validated first: a layout the client could not
-    /// render back is refused at the edge, never persisted.
     pub fn create_workspace(
         &self,
         name: &str,
@@ -602,9 +544,6 @@ impl Store {
         Ok(conn.last_insert_rowid())
     }
 
-    /// Rename and/or re-lay-out a workspace. `revision` is the one the caller last saw: a
-    /// mismatch means another client wrote in between, and the write is refused instead of
-    /// silently discarding that client's layout.
     pub fn update_workspace(
         &self,
         id: i64,
@@ -660,17 +599,10 @@ impl Store {
         Ok(info)
     }
 
-    /// Step the workspace back to the arrangement before its last change, and hand back what it
-    /// now holds.
-    ///
-    /// The step is stored, not local: the row itself moves, so every client's next read — the one
-    /// the `workspaces` scope asks for — sees the same canvas. What was undone stays reachable
-    /// through [`redo_workspace`](Self::redo_workspace) until the next edit branches away from it.
     pub fn undo_workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
         self.step_history(id, Step::Undo)
     }
 
-    /// Step forward again through what [`undo_workspace`](Self::undo_workspace) walked back.
     pub fn redo_workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
         self.step_history(id, Step::Redo)
     }
@@ -690,8 +622,6 @@ impl Store {
                 step: step.name(),
             });
         };
-        // Re-serialized rather than written back verbatim: an entry recorded by an older build is
-        // brought up to today's shape on the way through, exactly as a read does it.
         let snapshot = parse_workspace_snapshot(&json)?;
         tx.execute(
             "UPDATE workspaces SET snapshot = ?2, nodes = ?3, history_at = ?4, \
@@ -709,12 +639,6 @@ impl Store {
         Ok(detail)
     }
 
-    /// Every node id this workspace's history still names.
-    ///
-    /// What a node was tuned to is kept per node and pruned when the node leaves the graph
-    /// (`WorkspaceState::retain_nodes`). Undo puts a deleted node back, so pruning on the graph
-    /// alone would hand it back at its type's defaults — a channel returning on the wrong
-    /// frequency. A node stays remembered for as long as a step can bring it back.
     pub fn history_nodes(&self, workspace_id: i64) -> Result<HashSet<String>, StoreError> {
         #[derive(serde::Deserialize)]
         struct Ids {
@@ -735,8 +659,6 @@ impl Store {
         let rows = stmt.query_map(params![workspace_id], |row| row.get::<_, String>(0))?;
         let mut nodes = HashSet::new();
         for json in rows {
-            // A single unreadable entry costs the ids it names, not the save this is guarding:
-            // erring towards keeping settings is the whole point of the set.
             if let Ok(ids) = serde_json::from_str::<Ids>(&json?) {
                 nodes.extend(ids.graph.nodes.into_iter().map(|node| node.id));
             }
@@ -744,9 +666,6 @@ impl Store {
         Ok(nodes)
     }
 
-    /// Delete a workspace, handing back the workspace that is active afterwards. Deleting the
-    /// active one promotes the lowest-id survivor rather than leaving the app with no
-    /// layout at all; deleting the last one leaves `None` and the client offers to create one.
     pub fn delete_workspace(&self, id: i64) -> Result<Option<i64>, StoreError> {
         let mut conn = self.lock();
         let tx = conn.transaction()?;
@@ -754,9 +673,6 @@ impl Store {
         if deleted == 0 {
             return Err(StoreError::WorkspaceNotFound(id));
         }
-        // The `active_workspace` row is maintained here rather than by a foreign key: rusqlite
-        // leaves `PRAGMA foreign_keys` off by default, so an `ON DELETE SET NULL` would be
-        // inert documentation and the pointer would dangle.
         if active_workspace(&tx)? == Some(id) {
             let next: Option<i64> = tx
                 .query_row("SELECT id FROM workspaces ORDER BY id LIMIT 1", [], |row| {
@@ -778,8 +694,6 @@ impl Store {
         Ok(active)
     }
 
-    /// Where a workspace's radios were last tuned, or an empty state if it has never been
-    /// captured — a workspace that has never run is not an error, it just applies at defaults.
     pub fn workspace_state(&self, workspace_id: i64) -> Result<WorkspaceState, StoreError> {
         let conn = self.lock();
         let stored: Option<String> = conn
@@ -795,8 +709,6 @@ impl Store {
         }
     }
 
-    /// Persist a workspace's settings, replacing whatever was there. No revision check: the
-    /// server is the only writer and the engine's snapshot is by definition the newest truth.
     pub fn put_workspace_state(
         &self,
         workspace_id: i64,
@@ -827,16 +739,11 @@ impl Store {
         set_active_workspace(&conn, Some(id))
     }
 
-    /// Which workspace is active, without reading its layout. A corrupt or future-version
-    /// snapshot must not take down the paths that only need the id — deleting the broken
-    /// workspace is the recovery, and it cannot be the thing that fails.
     pub fn active_workspace_id(&self) -> Result<Option<i64>, StoreError> {
         let conn = self.lock();
         active_workspace(&conn)
     }
 
-    /// The active workspace with its layout, if there is one. `None` when the app has no
-    /// workspaces at all (every one deleted).
     pub fn active_workspace(&self) -> Result<Option<WorkspaceDetail>, StoreError> {
         let conn = self.lock();
         match active_workspace(&conn)? {
@@ -845,11 +752,6 @@ impl Store {
         }
     }
 
-    /// Give a workspace-less database the starter workspace, so a first run lands on a device
-    /// node and a scope instead of an empty canvas. Runs on every open and only acts on an empty
-    /// table — an install whose last workspace was deleted gets the default back on the next
-    /// restart, which beats a permanently empty shell, and it is also what re-seeds a database
-    /// whose M6 workspaces migration 5 cleared.
     fn seed_workspaces(&self) -> Result<(), StoreError> {
         {
             let conn = self.lock();
@@ -870,8 +772,6 @@ impl Store {
     }
 }
 
-/// The same bound on both write paths: a workspace is picked by name in the switcher, so an
-/// empty or unprintably long one is a broken row, not a preference.
 fn validate_name(name: &str) -> Result<(), StoreError> {
     if name.trim().is_empty() || name.chars().count() > sdrmm_wire::workspace::MAX_NAME_LEN {
         return Err(StoreError::WorkspaceLayout(WorkspaceError::Name));
@@ -928,7 +828,6 @@ fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreEr
     })
 }
 
-/// Which way [`Store::step_history`] walks, and the entry that lands.
 #[derive(Clone, Copy)]
 enum Step {
     Undo,
@@ -936,7 +835,6 @@ enum Step {
 }
 
 impl Step {
-    /// The nearest recorded state on this side of where the workspace stands.
     fn query(self) -> &'static str {
         match self {
             Self::Undo => {
@@ -981,12 +879,6 @@ fn read_history(conn: &Connection, id: i64, at: i64) -> Result<WorkspaceHistory,
     })
 }
 
-/// Record the state a write is producing, so the write can be walked back out of.
-///
-/// The entry list is the workspace's own line of arrangements: the first write also records what
-/// it is *leaving*, since undo has to be able to return there and a workspace stored before this
-/// table has no entry for where it stands. Editing after an undo branches — what redo would have
-/// led to is dropped, the same rule a text editor follows.
 fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreError> {
     let at = history_at(conn, id)?;
     let now = now_rfc3339();
@@ -1009,8 +901,6 @@ fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreErr
     } else {
         at
     };
-    // A write that changes nothing is not a step: the canvas re-persists the whole workspace on
-    // every gesture, and an undo that visibly does nothing is worse than one fewer step.
     let unchanged: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM workspace_history \
          WHERE workspace_id = ?1 AND seq = ?2 AND snapshot = ?3)",
@@ -1169,8 +1059,6 @@ fn migrate_call_buffers(snapshot: &mut serde_json::Value) {
     }
 }
 
-/// `name` is `UNIQUE`, and a collision is the user picking a name that is already taken — a
-/// 409, not a database failure. Every other constraint violation stays a `Db` error.
 fn name_taken(err: rusqlite::Error, name: &str) -> StoreError {
     match err.sqlite_error_code() {
         Some(rusqlite::ErrorCode::ConstraintViolation) => {
@@ -1180,9 +1068,6 @@ fn name_taken(err: rusqlite::Error, name: &str) -> StoreError {
     }
 }
 
-/// A decoder-log row with its `event` blob still unparsed: `query_map`'s closure can only fail
-/// with a `rusqlite::Error`, and a blob that no longer deserializes must surface as
-/// [`StoreError::Corrupt`] rather than be silently skipped.
 struct DecoderLogRow {
     id: i64,
     at: String,
@@ -1241,10 +1126,7 @@ fn select_decoder_log(
     Ok(entries)
 }
 
-/// The `WHERE` clause (and its bound values) shared by the decoder-log list, count, export and
-/// clear. Filters compose with `AND`; an empty query means "everything".
 struct DecoderLogPredicate {
-    /// Either empty or `" WHERE …"`, ready to concatenate onto a statement.
     clause: String,
     params: Vec<Value>,
 }
@@ -1255,8 +1137,6 @@ impl DecoderLogPredicate {
         workspace: Option<i64>,
         run_start: &str,
     ) -> Result<Self, StoreError> {
-        // Every other term is a literal; this one is as wide as the channel list, so it is built
-        // here to outlive the borrows in `terms`.
         let sources_term: String;
         let mut terms: Vec<&str> = Vec::new();
         let mut params = Vec::new();
@@ -1284,8 +1164,6 @@ impl DecoderLogPredicate {
             params.push(Value::Text(normalize_timestamp(until)?));
         }
         if let Some(q) = &filter.q {
-            // SQLite's `LIKE` folds ASCII case only (the bundled build carries no ICU); that
-            // is what "case-insensitive" means for this filter.
             terms.push("(station LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')");
             let pattern = Value::Text(format!("%{}%", escape_like(q)));
             params.push(pattern.clone());
@@ -1300,25 +1178,6 @@ impl DecoderLogPredicate {
     }
 }
 
-/// The `WHERE` fragment for a wire scope, binding its values into `params`.
-///
-/// The two halves are an OR, and each carries the guard that makes its half an identity rather
-/// than a name something else also answers to:
-///
-/// * A node id is unique only within its workspace — templates author theirs as slugs and
-///   `merge_patch` deduplicates only inside the workspace it merges into — so the node half is
-///   read against the workspace that produced it. With no active workspace nothing can be
-///   attributed by node at all, and the half is dropped.
-/// * The coordinate half exists for rows that carry no node (written before the log recorded one,
-///   or in the window before the binding caught up with a new channel), and `(device_set,
-///   channel)` names a decoder only for the run that allocated it. Bounding it to this run is
-///   what keeps a channel from inheriting the frames of whoever held its id last time.
-///
-/// The null guard on the second half is what keeps the two from crossing: a row that *has* a node
-/// is attributable, so it must be matched by node alone.
-///
-/// An empty scope is a node with nothing wired into it, and matches no row. "Show me the frames
-/// from nothing" is not "show me everything", and the same clause backs the clear endpoint.
 fn scope_clause(
     scope: &LogScope,
     workspace: Option<i64>,
@@ -1354,8 +1213,6 @@ fn scope_clause(
     format!("({})", halves.join(" OR "))
 }
 
-/// Neutralize the wildcards in a user-supplied substring so `q = "50%"` searches for a percent
-/// sign instead of matching everything.
 fn escape_like(needle: &str) -> String {
     let mut out = String::with_capacity(needle.len());
     for ch in needle.chars() {
@@ -1367,11 +1224,6 @@ fn escape_like(needle: &str) -> String {
     out
 }
 
-/// RFC3339 UTC at fixed nanosecond precision. `at` is stored and compared as text, and text
-/// order only matches chronological order when every value has the same shape: jiff trims
-/// trailing zeros, so an untouched `12:00:00.5Z` would sort *before* `12:00:00Z`. Normalizing
-/// on write and on every `since`/`until` bound is what makes the range filters — and the
-/// index that serves them — correct.
 fn normalize_timestamp(at: &str) -> Result<String, StoreError> {
     let ts: jiff::Timestamp = at
         .parse()
@@ -1379,9 +1231,6 @@ fn normalize_timestamp(at: &str) -> Result<String, StoreError> {
     Ok(rfc3339(ts))
 }
 
-/// Fixed-width fractional seconds. Every timestamp column is ordered and range-compared as
-/// text by SQLite, and jiff's own `Display` trims trailing zeros — `.9812Z` then compares
-/// greater than the later `.98125Z`.
 fn rfc3339(ts: jiff::Timestamp) -> String {
     format!("{ts:.9}")
 }
@@ -1390,7 +1239,6 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let done = usize::try_from(version).unwrap_or(0);
     for (i, migration) in MIGRATIONS.iter().enumerate().skip(done) {
-        // PRAGMA can't take a bound parameter; `i` comes from the const table, not input.
         conn.execute_batch(&format!(
             "BEGIN;\n{migration}\nPRAGMA user_version = {};\nCOMMIT;",
             i + 1
@@ -1457,7 +1305,6 @@ mod tests {
         assert_eq!(listed[0].id, id);
         assert_eq!(listed[0].name, "fm broadcast");
         assert_eq!(listed[0].devices, 1);
-        // RFC3339 UTC: parseable and Z-suffixed.
         assert!(
             listed[0].created_at.ends_with('Z'),
             "{}",
@@ -1627,7 +1474,6 @@ mod tests {
         }
     }
 
-    /// The workspace `Store::open` seeded and activated — the one a scoped query is read against.
     fn active(store: &Store) -> i64 {
         store
             .active_workspace_id()
@@ -1635,7 +1481,6 @@ mod tests {
             .expect("open seeds and activates one")
     }
 
-    /// Three decoders across two device sets, oldest first.
     fn seed(store: &Store) {
         store
             .insert_decoder_events(
@@ -1679,8 +1524,6 @@ mod tests {
         assert_eq!(entries[0].event, adsb("4CA2D4", "RYR9AB"));
         assert_eq!(entries[1].kind, "aprs");
         assert_eq!(entries[2].station.as_deref(), Some("3C6444"));
-        // Stored timestamps are normalized RFC3339 UTC, which is what makes the text
-        // comparison behind since/until chronological.
         assert_eq!(entries[2].at, "2026-08-09T12:00:00.000000000Z");
     }
 
@@ -1754,7 +1597,6 @@ mod tests {
         );
         assert_eq!(by_summary.1, 1);
 
-        // Wildcards in `q` are literal, not LIKE metacharacters.
         let literal = query(
             &store,
             DecoderLogQuery {
@@ -1789,9 +1631,6 @@ mod tests {
         assert!(contradictory.0.is_empty());
     }
 
-    /// The filter a canvas node draws with its wires. Channel ids are allocated per device set,
-    /// so `0:1` and `1:1` are different channels and the pair — never the channel alone — is what
-    /// a term matches. Written in this run, because that is the only run these coordinates name.
     #[test]
     fn decoder_log_sources_filter_names_channels_not_device_sets() {
         let store = Store::open(None).expect("open");
@@ -1823,8 +1662,6 @@ mod tests {
         assert_eq!(stations("1:1"), ["CCCCCC"]);
         assert_eq!(stations("0:2,1:1"), ["CCCCCC", "BBBBBB"]);
 
-        // A node with nothing wired into it matches nothing — and, crucially, its Clear button
-        // deletes nothing rather than the whole log.
         assert!(stations("").is_empty());
         let empty = DecoderLogQuery {
             sources: Some(String::new()),
@@ -1833,8 +1670,6 @@ mod tests {
         assert_eq!(store.delete_decoder_log(&empty).expect("clear"), 0);
         assert_eq!(query(&store, DecoderLogQuery::default()).1, 3);
 
-        // A list that will not parse is refused, never quietly dropped — dropping it would widen
-        // the query the caller asked to narrow.
         let malformed = DecoderLogQuery {
             sources: Some("0:1,nonsense".to_owned()),
             ..DecoderLogQuery::default()
@@ -1849,13 +1684,6 @@ mod tests {
         ));
     }
 
-    /// The whole point of the node column: an engine channel id is reused between runs, so a
-    /// scope built on one hands a node whatever else has held that id. The node id is stable for
-    /// the node's life, and it wins wherever a row carries one.
-    /// `run_start` is compared against stored `at` values as text, so the two have to be written
-    /// to the same width. They were not: stored rows were normalized to nine fractional digits
-    /// while `run_start` took jiff's trimmed `Display`, and a `run_start` whose microseconds
-    /// ended in a zero compared greater than rows logged after it.
     #[test]
     fn a_trimmed_fraction_never_outsorts_a_later_timestamp() {
         let trimmed = jiff::Timestamp::from_nanosecond(1_000_000_000_981_200_000).expect("ts");
@@ -1879,8 +1707,6 @@ mod tests {
             channel,
             ..record(&now, 0, adsb(icao, "FLIGHT"))
         };
-        // Two nodes that held channel 1 in different runs, plus a row from before the column
-        // existed — the three cases the scope has to keep apart.
         store
             .insert_decoder_events(
                 &[on(1, "AAAAAA")],
@@ -1920,10 +1746,7 @@ mod tests {
 
         assert_eq!(stations("channel:new", "0:1"), ["LEGACY", "BBBBBB"]);
         assert_eq!(stations("channel:old", "0:1"), ["LEGACY", "AAAAAA"]);
-        // Without the fallback the nodeless row is unreachable, which is what makes it a fallback
-        // and not the filter.
         assert_eq!(stations("channel:new", ""), ["BBBBBB"]);
-        // And the fallback alone reaches only the rows that have no better identity.
         assert_eq!(stations("", "0:1"), ["LEGACY"]);
         assert!(stations("", "").is_empty());
 
@@ -1932,10 +1755,6 @@ mod tests {
         assert_eq!(entries[2].node.as_deref(), Some("channel:old"));
     }
 
-    /// The fallback half names coordinates, and coordinates are only an identity for the run that
-    /// allocated them: channel `0:1` is a different decoder in every run that had one. A nodeless
-    /// row from an earlier run is therefore out of every scope — it is history the log keeps, not
-    /// something the decoder wired in now ever heard.
     #[test]
     fn decoder_log_scope_fallback_stops_at_the_start_of_this_run() {
         let store = Store::open(None).expect("open");
@@ -1968,14 +1787,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["THISRUN"]
         );
-        // Both rows are still in the log; it is the wire scope that cannot reach the older one.
         assert_eq!(query(&store, DecoderLogQuery::default()).1, 2);
     }
 
-    /// A node id is an identity only inside its workspace. Templates author theirs as slugs
-    /// (`ch0`, `log`), so two workspaces built from templates hold the same ids — and without the
-    /// workspace guard a log node would be handed the other workspace's history, which is the
-    /// leak the column exists to close.
     #[test]
     fn decoder_log_scope_does_not_cross_workspaces_sharing_a_node_id() {
         let store = Store::open(None).expect("open");
@@ -2030,7 +1844,6 @@ mod tests {
         assert_eq!(total, 3);
         assert_eq!(entries[0].station.as_deref(), Some("4CA2D4"));
 
-        // A limit past the ceiling is clamped, not honoured.
         let (entries, _) = query(
             &store,
             DecoderLogQuery {
@@ -2041,8 +1854,6 @@ mod tests {
         assert_eq!(entries.len(), 3);
     }
 
-    /// The ceiling has to cover the largest page the log panel offers, or picking it silently
-    /// serves a shorter one.
     #[test]
     fn decoder_log_serves_the_largest_page_the_panel_offers() {
         const PANEL_MAX: u32 = 2_000;
@@ -2178,26 +1989,14 @@ mod tests {
         let active = store.active_workspace().expect("active").expect("seeded");
         assert_eq!(active.snapshot, WorkspaceSnapshot::starter());
 
-        // Seeding is an empty-table rule, not a first-open rule: reopening must not add a
-        // second "Workspace" (and the UNIQUE name would fail loudly if it tried).
         drop(store);
     }
 
-    /// Upgrading an existing log must keep every row it already has. The origin columns arrive
-    /// null on all of them, which is not a gap to be filled in — nothing recorded which node or
-    /// workspace those frames came from, and inventing one would attribute them to whichever
-    /// decoder happens to hold that channel id now.
-    ///
-    /// So they stay in the log, queryable and exportable, and out of every wire scope: a row that
-    /// names neither and predates this run is history, not something a decoder wired in now was
-    /// ever heard by.
     #[test]
     fn adding_the_origin_columns_keeps_the_rows_already_logged() {
         let file = tempfile::NamedTempFile::new().expect("temp db");
         {
             let conn = Connection::open(file.path()).expect("open");
-            // A database as the release that first shipped a decoder log left it — found by the
-            // migration rather than counted from the end, so a later one cannot silently move it.
             let created = MIGRATIONS
                 .iter()
                 .position(|migration| migration.contains("CREATE TABLE decoder_log"))
@@ -2387,7 +2186,6 @@ mod tests {
         assert_eq!(info.nodes, 2);
         assert_eq!(store.workspace(id).expect("read").snapshot, edited);
 
-        // Deleting the active workspace promotes a survivor rather than leaving none.
         assert_eq!(store.delete_workspace(id).expect("delete"), Some(seeded));
         assert!(matches!(
             store.delete_workspace(id),
@@ -2407,8 +2205,6 @@ mod tests {
         assert!(store.active_workspace().expect("active").is_none());
     }
 
-    /// A workspace without the node named here — the shape a canvas edit has, since every
-    /// gesture re-persists the whole arrangement.
     fn without(node: &str) -> WorkspaceSnapshot {
         let mut snapshot = WorkspaceSnapshot::starter();
         snapshot.graph.nodes.retain(|held| held.id != node);
@@ -2434,15 +2230,12 @@ mod tests {
             .revision
     }
 
-    /// The history is the workspace's, not a client's: a step is stored, so the next read every
-    /// browser makes is the one that was stepped to.
     #[test]
     fn workspace_history_walks_back_out_of_its_own_edits() {
         let store = Store::open(None).expect("open");
         let id = store.list_workspaces().expect("list").workspaces[0].id;
         let starter = WorkspaceSnapshot::starter();
 
-        // Nothing has been edited, so there is nowhere to step.
         let fresh = store.workspace(id).expect("read");
         assert_eq!(fresh.history, WorkspaceHistory::default());
         assert!(matches!(
@@ -2456,8 +2249,6 @@ mod tests {
         let back = store.undo_workspace(id).expect("undo");
         assert_eq!(back.snapshot, without("speaker"));
         assert!(back.history.can_undo && back.history.can_redo);
-        // A step is a change like any other: the revision moves, so a client holding the old one
-        // cannot overwrite it without reading first.
         assert!(back.info.revision > 3);
         assert_eq!(back.info.nodes, 2);
 
@@ -2482,9 +2273,6 @@ mod tests {
         ));
     }
 
-    /// Editing after an undo branches: what redo would have led to is gone, exactly as it is in
-    /// every editor. Keeping it would offer a step forward into an arrangement nobody can reach
-    /// from what is on screen.
     #[test]
     fn an_edit_after_an_undo_drops_what_redo_would_have_reached() {
         let store = Store::open(None).expect("open");
@@ -2504,8 +2292,6 @@ mod tests {
         );
     }
 
-    /// A gesture that ends where it started still re-persists the whole workspace. Recording it
-    /// would cost a step that visibly does nothing.
     #[test]
     fn a_write_that_changes_nothing_is_not_a_step() {
         let store = Store::open(None).expect("open");
@@ -2520,8 +2306,6 @@ mod tests {
         );
     }
 
-    /// The list is bounded, and it is the oldest end that goes: an operator undoing reaches for
-    /// the last few gestures, never the first ones of the session.
     #[test]
     fn the_history_forgets_its_oldest_arrangements() {
         let store = Store::open(None).expect("open");
@@ -2560,8 +2344,6 @@ mod tests {
         ));
     }
 
-    /// Where a node was tuned outlives the node while a step can bring it back — otherwise the
-    /// autosave forgets a deleted channel's frequency seconds before an undo restores it.
     #[test]
     fn the_history_keeps_a_deleted_nodes_settings_reachable() {
         let store = Store::open(None).expect("open");
@@ -2584,9 +2366,6 @@ mod tests {
         assert_eq!(rows, 0, "deleting a workspace takes its history with it");
     }
 
-    /// Layouts are re-persisted on every gesture, so an update carrying a revision the caller
-    /// no longer holds must be refused — otherwise an idle browser's stale layout silently
-    /// overwrites the one someone is arranging.
     #[test]
     fn workspace_update_refuses_a_stale_revision() {
         let store = Store::open(None).expect("open");
@@ -2612,8 +2391,6 @@ mod tests {
     fn workspace_writes_reject_a_bad_layout_and_a_taken_name() {
         let store = Store::open(None).expect("open");
         let id = store.list_workspaces().expect("list").workspaces[0].id;
-        // A wire into a node that is not there: the graph is refused whole rather than stored
-        // with a wire the canvas would drop on read.
         let mut dangling = WorkspaceSnapshot::starter();
         dangling.graph.edges.push(sdrmm_wire::PatchEdge {
             from: sdrmm_wire::PortRef {
@@ -2640,7 +2417,6 @@ mod tests {
             ),
             Err(StoreError::WorkspaceLayout(WorkspaceError::Patch(_)))
         ));
-        // A refused write leaves the revision alone, or the next honest write would 409.
         assert_eq!(store.workspace(id).expect("read").info.revision, 1);
 
         assert!(matches!(
@@ -2673,7 +2449,6 @@ mod tests {
         ));
     }
 
-    /// A blob that no longer parses is a corrupt database, not a row to skip quietly.
     #[test]
     fn decoder_log_surfaces_an_unparseable_event_blob() {
         let store = Store::open(None).expect("open");

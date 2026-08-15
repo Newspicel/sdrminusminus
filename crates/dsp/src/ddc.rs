@@ -2,29 +2,14 @@ use num_complex::Complex;
 
 use crate::{Decimator, FracResampler, Nco, fir::design_lowpass};
 
-/// Flat passband each side of DC as a fraction of the output rate (80% total).
 const PASSBAND_FRAC: f64 = 0.4;
-/// Alias-protected band each side of DC as a fraction of the output rate.
 const PROTECT_FRAC: f64 = 0.5;
 
-/// Widest signal, in Hz, a *resampling* DDC can deliver at `output_rate`.
-///
-/// Every rate conversion needs somewhere to put its filter transition: the band between the
-/// flat passband and the protected edge. A channel that occupies the full output rate leaves
-/// no room for it and can only be served by a transparent DDC — one whose input rate already
-/// equals its output rate. Callers must refuse such a channel on any other device rate rather
-/// than hand its decoder a smeared signal that silently decodes nothing.
 #[must_use]
 pub fn resamplable_bandwidth_hz(output_rate: f64) -> f64 {
     2.0 * PROTECT_FRAC * output_rate
 }
 
-/// Widest signal, in Hz, a DDC delivers *flat* at `output_rate`.
-///
-/// Narrower than [`resamplable_bandwidth_hz`], which is only the point past which energy
-/// folds back in: between the two lies the filter transition, where a signal still arrives but
-/// tilted. A mode that cares about amplitude across its whole band — an envelope detector
-/// measuring pulse widths, say — must stay inside this.
 #[must_use]
 pub fn flat_bandwidth_hz(output_rate: f64) -> f64 {
     2.0 * PASSBAND_FRAC * output_rate
@@ -38,8 +23,6 @@ pub enum DdcError {
     OutputAboveInput { input: f64, output: f64 },
 }
 
-/// One channel's front end: complex input at the device rate in, complex baseband at exactly
-/// `output_rate` out.
 #[derive(Clone, Debug)]
 pub struct Ddc {
     input_rate: f64,
@@ -51,7 +34,6 @@ pub struct Ddc {
 }
 
 impl Ddc {
-    /// `offset_hz` is where the wanted channel sits relative to the device center frequency.
     pub fn new(input_rate: f64, output_rate: f64, offset_hz: f64) -> Result<Self, DdcError> {
         if !input_rate.is_finite()
             || !output_rate.is_finite()
@@ -77,8 +59,6 @@ impl Ddc {
             rate /= factor as f64;
         }
         let ratio = output_rate / rate;
-        // An exact integer chain needs no fractional stage — skipping it also keeps the
-        // interpolation kernel's rolloff out of the passband entirely.
         let resamp = ((ratio - 1.0).abs() > 1e-12).then(|| FracResampler::new(ratio));
 
         Ok(Self {
@@ -91,13 +71,11 @@ impl Ddc {
         })
     }
 
-    /// Retunes the mixer only — phase-continuous, no filter state reset, cheap.
     pub fn set_offset(&mut self, offset_hz: f64) {
         self.nco
             .set_freq((-offset_hz) as f32, self.input_rate as f32);
     }
 
-    /// Replaces `out` with the baseband samples fully computable from history + `input`.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let nco = &mut self.nco;
         self.work_in.clear();
@@ -117,8 +95,6 @@ impl Ddc {
     }
 }
 
-/// Largest integer decimation that keeps the intermediate rate at or above the output rate,
-/// guarded against `41.999…` float quotients picking an off-by-one factor.
 fn integer_decimation(quotient: f64) -> usize {
     let rounded = quotient.round();
     if (quotient - rounded).abs() < 1e-9 {
@@ -128,8 +104,6 @@ fn integer_decimation(quotient: f64) -> usize {
     }
 }
 
-/// Descending prime factors: big cheap stages first at the high rate, so the tight final
-/// filter runs at the lowest possible rate.
 fn prime_factors_desc(mut n: usize) -> Vec<usize> {
     let mut factors = Vec::new();
     let mut d = 2;
@@ -294,7 +268,6 @@ mod tests {
         settled.clear();
         for (i, chunk) in phase2.chunks(BLOCK).enumerate() {
             ddc.process(chunk, &mut out);
-            // Only the block straddling the retune may glitch.
             if i >= 1 {
                 settled.extend_from_slice(&out);
             }

@@ -1,4 +1,3 @@
-//! NXDN decoder: 4FSK in 6.25 kHz at 2400 symbols per second, or 12.5 kHz at 4800.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -18,20 +17,14 @@ use super::{
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-/// Frame sync word 0xCDF59, 20 bits.
 pub(crate) const FSW: u64 = 0x000C_DF59;
 pub(crate) const FSW_BITS: u32 = 20;
 pub(crate) const SYNC_TOLERANCE: u32 = 2;
 
-/// The LICH is the 16 bits after the sync.
 const LICH_BITS: usize = 8;
 const LICH_SYMBOLS: usize = 8;
-/// The sync outlasts the LICH in the window: its ten symbols are what the level and centre
-/// estimates are anchored to.
 const FSW_SYMBOLS: usize = FSW_BITS as usize / 2;
 
-/// One frame, sync word to sync word: 384 bits at either channel width. The cadence every
-/// real transmission holds, and the confirmation a lone parity bit cannot give.
 const FRAME_SYMBOLS: u64 = 192;
 const POST_FSW_SYMBOLS: usize = FRAME_SYMBOLS as usize - FSW_SYMBOLS;
 const SACCH_SYMBOLS: usize = 30;
@@ -54,8 +47,6 @@ const L3_TX_RELEASE: u32 = 0x08;
 
 pub(crate) const RRC_ALPHA: f64 = 0.2;
 
-/// Descriptors differ only in the channel width, and the width picks the symbol rate: 6.25 kHz
-/// NXDN is 2400 symbols per second at ±1050 Hz, 12.5 kHz is 4800 at ±1944 Hz.
 pub(crate) fn shape(bandwidth: NxdnBandwidth) -> (f64, f64, f64) {
     match bandwidth {
         NxdnBandwidth::Narrow => (2_400.0, 1_050.0, 6_250.0),
@@ -91,7 +82,6 @@ fn params(settings: &ChannelSettings) -> Result<&NxdnParams, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &NxdnParams) -> (f64, f64) {
     let (_, _, bandwidth) = shape(p.bandwidth);
     (-bandwidth / 2.0, bandwidth / 2.0)
@@ -123,8 +113,6 @@ impl ChannelRx for NxdnChannel {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = *params(&settings)?;
         if p.bandwidth != self.bandwidth {
-            // A width change is a different symbol rate, so the front end is rebuilt rather
-            // than retuned; nothing it has learned about the old signal applies.
             let (baud, deviation, _) = shape(p.bandwidth);
             self.demod = c4fm_demod(&c4fm_params(self.input_rate, baud, deviation, RRC_ALPHA));
             self.decoder.reset();
@@ -139,8 +127,6 @@ impl ChannelRx for NxdnChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         for &symbol in &self.symbols {
@@ -155,10 +141,7 @@ struct Decoder {
     hunting: bool,
     bits: Vec<bool>,
     last_kind: Option<DvFrameKind>,
-    /// Symbols seen, the clock frame cadence is measured against.
     clock: u64,
-    /// The last sync's frame and where its sync word ended, held until the next sync word
-    /// confirms the cadence.
     held: Option<Held>,
     sync_at: u64,
     vocoder: MbeDecoder,
@@ -465,8 +448,6 @@ fn apply_layer3(frame: &mut DvFrame, layer3: &[bool]) {
     );
 }
 
-/// Whether two sync words sit a whole number of frames apart, give or take a symbol of clock
-/// slip. Multiples count so one corrupted LICH does not also cost its neighbour the chain.
 fn on_cadence(delta: u64) -> bool {
     let rem = delta % FRAME_SYMBOLS;
     delta > 0 && rem.min(FRAME_SYMBOLS - rem) <= 1
@@ -517,8 +498,6 @@ mod tests {
         );
     }
 
-    /// The wide variant is a different radio to the front end: twice the symbol rate and twice
-    /// the deviation, and the same framing above it.
     #[test]
     fn decodes_the_twelve_and_a_half_kilohertz_variant() {
         let shape = tx::Shape {
@@ -541,8 +520,6 @@ mod tests {
             std::array::from_fn(|frame| std::array::from_fn(|slot| encoded[frame * 4 + slot]));
         let iq = tx::transmission_with_voice(&tx::Shape::default(), 1, true, &voice, INPUT_RATE_HZ);
         let (_, audio) = decode_with_audio(&mut channel(NxdnBandwidth::Narrow), &iq);
-        // The last frame deliberately remains unreported: NXDN waits for the following sync
-        // to confirm cadence before trusting its one-bit LICH parity.
         assert_tone_audio(&audio, 16);
     }
 

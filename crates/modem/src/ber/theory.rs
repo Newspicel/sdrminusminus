@@ -1,13 +1,5 @@
 use std::f64::consts::{FRAC_1_SQRT_2, LN_2, PI};
 
-//
-// W. J. Cody's rational Chebyshev approximations for erf/erfc ("Rational Chebyshev
-// approximation for the error function", Math. Comp. 23 (1969), 631–637), with the coefficient
-// sets from his SPECFUN `CALERF` (TOMS 715). The three segment approximations carry a stated
-// maximal relative error below 6e-19, so the f64 evaluation is limited by arithmetic — a few
-// ulps — far inside the 1e-10 gate the tests encode for [0, 6].
-
-/// erf on [0, 0.46875]: erf(x) ≈ x·P(x²)/Q(x²).
 const ERF_NUM: [f64; 5] = [
     3.1611237438705655,
     113.86415415105016,
@@ -22,7 +14,6 @@ const ERF_DEN: [f64; 4] = [
     2844.236833439171,
 ];
 
-/// erfc on [0.46875, 4]: erfc(x) ≈ e^{−x²}·P(x)/Q(x).
 const ERFC_MID_NUM: [f64; 9] = [
     0.5641884969886701,
     8.883149794388377,
@@ -45,7 +36,6 @@ const ERFC_MID_DEN: [f64; 8] = [
     1230.3393548037495,
 ];
 
-/// erfc beyond 4: erfc(x) ≈ e^{−x²}/x·(1/√π − x⁻²·P(x⁻²)/Q(x⁻²)).
 const ERFC_FAR_NUM: [f64; 6] = [
     0.30532663496123236,
     0.36034489994980445,
@@ -64,15 +54,10 @@ const ERFC_FAR_DEN: [f64; 5] = [
 
 const FRAC_1_SQRT_PI: f64 = 0.5641895835477563;
 
-/// The complementary error function, double precision, accurate to a few ulps everywhere it
-/// does not underflow (erfc(x) < the smallest normal beyond x ≈ 26.54, where 0 is returned).
 #[must_use]
 pub fn erfc(x: f64) -> f64 {
     let y = x.abs();
     if y <= 0.46875 {
-        // erf is what the rational form gives here; erfc = 1 − erf costs nothing because
-        // erf ≤ 0.5, so the subtraction cannot cancel. Below ~ε the x² term would be pure
-        // noise; the approximation at ysq = 0 is erf's leading 2x/√π.
         let ysq = if y > 1.11e-16 { y * y } else { 0.0 };
         let mut num = ERF_NUM[4] * ysq;
         let mut den = ysq;
@@ -106,53 +91,36 @@ pub fn erfc(x: f64) -> f64 {
     if x < 0.0 { 2.0 - tail } else { tail }
 }
 
-/// e^{−y²} by Cody's 1/16 splitting. Computed directly, the half-ulp rounding of y² becomes a
-/// relative error of y²·ε in the exponential — 8e-14 by y = 26, an order above the rest of the
-/// evaluation. Truncating y to 4 fractional bits makes ysq and ysq² exactly representable, so
-/// the large exponent is exact and only the small remainder e^{−del} rounds.
 fn exp_neg_squared(y: f64) -> f64 {
     let ysq = (y * 16.0).trunc() / 16.0;
     let del = (y - ysq) * (y + ysq);
     (-ysq * ysq).exp() * (-del).exp()
 }
 
-/// The Gaussian tail probability Q(x) = P(N(0,1) > x) = ½·erfc(x/√2) — the form every
-/// coherent-detection curve below is built from.
 #[must_use]
 pub fn q(x: f64) -> f64 {
     0.5 * erfc(x * FRAC_1_SQRT_2)
 }
 
-/// Eb/N0 per information bit, dB → linear. All oracles parameterise on the dB value exactly as
-/// given; γ_b is its one f64 image.
 fn ebn0_lin(ebn0_db: f64) -> f64 {
     10f64.powf(ebn0_db / 10.0)
 }
 
-/// log2(m) for a modulation order that must be a power of two ≥ 2 — a non-power-of-two order
-/// handed to any oracle here is a harness bug, not a curve to produce.
 fn bits_per_symbol(m: u32) -> f64 {
     debug_assert!(m >= 2 && m.is_power_of_two(), "modulation order {m}");
     f64::from(m.ilog2())
 }
 
-/// Coherent BPSK bit error rate — exact: ½·erfc(√γ_b).
 #[must_use]
 pub fn bpsk_ber(ebn0_db: f64) -> f64 {
     0.5 * erfc(ebn0_lin(ebn0_db).sqrt())
 }
 
-/// Coherent Gray-mapped QPSK bit error rate — exact, and identical to BPSK: the two rails are
-/// independent BPSK channels each carrying one bit at the same Eb/N0, so per bit nothing
-/// changes. Stated as its own function so a QPSK curve is compared against a reference that
-/// says QPSK.
 #[must_use]
 pub fn qpsk_ber(ebn0_db: f64) -> f64 {
     bpsk_ber(ebn0_db)
 }
 
-/// M-PAM symbol error rate — exact for the uniform constellation at average symbol energy
-/// k·Eb: 2(M−1)/M · Q(√(6k/(M²−1)·γ_b)). At m = 2 this is BPSK.
 #[must_use]
 pub fn mpam_ser(m: u32, ebn0_db: f64) -> f64 {
     let k = bits_per_symbol(m);
@@ -161,22 +129,15 @@ pub fn mpam_ser(m: u32, ebn0_db: f64) -> f64 {
     2.0 * (m_f - 1.0) / m_f * q((6.0 * k / (m_f * m_f - 1.0) * g).sqrt())
 }
 
-/// Gray-mapped M-PAM bit error rate — the standard nearest-neighbour approximation SER/log2(M):
-/// a Gray-adjacent symbol error costs exactly one bit, and errors that jump further carry
-/// weight only at low SNR. Exact at m = 2; tight (a few percent) once SER ≲ 1e-1.
 #[must_use]
 pub fn mpam_ber(m: u32, ebn0_db: f64) -> f64 {
     mpam_ser(m, ebn0_db) / bits_per_symbol(m)
 }
 
-/// True for the orders square-QAM formulas hold for: 4, 16, 64, 256, 1024, … — two identical
-/// √M-PAM rails require an even number of bits.
 fn is_square_qam(m: u32) -> bool {
     m >= 4 && m.is_power_of_two() && m.ilog2().is_multiple_of(2)
 }
 
-/// Square M-QAM symbol error rate — exact: the constellation is two independent √M-PAM rails,
-/// each in error with probability p = 2(1−1/√M)·Q(√(3k/(M−1)·γ_b)), so SER = 1 − (1−p)².
 #[must_use]
 pub fn mqam_ser(m: u32, ebn0_db: f64) -> f64 {
     debug_assert!(is_square_qam(m), "square QAM order {m}");
@@ -187,10 +148,6 @@ pub fn mqam_ser(m: u32, ebn0_db: f64) -> f64 {
     p * (2.0 - p)
 }
 
-/// Gray-mapped square M-QAM bit error rate — the standard nearest-neighbour form
-/// (4/k)(1−1/√M)·Q(√(3k/(M−1)·γ_b)), i.e. one bit per rail-adjacent symbol error. At m = 4 it
-/// reduces algebraically to [`qpsk_ber`]; for larger orders it is tight once SER ≲ 1e-1 and
-/// asymptotically exact in SNR.
 #[must_use]
 pub fn mqam_ber(m: u32, ebn0_db: f64) -> f64 {
     debug_assert!(is_square_qam(m), "square QAM order {m}");
@@ -200,11 +157,6 @@ pub fn mqam_ber(m: u32, ebn0_db: f64) -> f64 {
     4.0 / k * (1.0 - 1.0 / m_f.sqrt()) * q((3.0 * k / (m_f - 1.0) * g).sqrt())
 }
 
-/// Coherent M-PSK symbol error rate. Exact for m = 2 (Q(√(2γ_b))) and m = 4
-/// (2Q − Q² over the two rails). For m > 4 no closed form exists; this is the standard
-/// nearest-boundary form 2Q(√(2k·γ_b)·sin(π/M)) — it counts the two adjacent decision
-/// boundaries and nothing beyond, so it reads slightly low at low SNR and is asymptotically
-/// exact in SNR (well inside measurement tolerance once SER ≲ 1e-2).
 #[must_use]
 pub fn mpsk_ser(m: u32, ebn0_db: f64) -> f64 {
     let k = bits_per_symbol(m);
@@ -219,8 +171,6 @@ pub fn mpsk_ser(m: u32, ebn0_db: f64) -> f64 {
     }
 }
 
-/// Differentially detected binary DPSK bit error rate — exact: ½·e^{−γ_b}. No carrier
-/// recovery, no Gaussian tail: the noncoherent detection statistic gives a pure exponential.
 #[must_use]
 pub fn dbpsk_ber(ebn0_db: f64) -> f64 {
     0.5 * (-ebn0_lin(ebn0_db)).exp()
@@ -244,10 +194,6 @@ pub fn dqpsk_ber(ebn0_db: f64) -> f64 {
     (-0.5 * d * d).exp() * sum
 }
 
-/// The first-order Marcum Q function Q₁(a, b) for a, b ≥ 0, via the canonical series
-/// Q₁ = e^{−(a²+b²)/2}·Σ_{k≥0} (a/b)^k·I_k(ab), computed with exponentially scaled Bessel
-/// terms so nothing overflows however large ab gets. For a > b the series conditioning flips,
-/// so the symmetry Q₁(a,b) + Q₁(b,a) = 1 + e^{−(a²+b²)/2}·I₀(ab) maps it back.
 #[must_use]
 pub fn marcum_q1(a: f64, b: f64) -> f64 {
     debug_assert!(a >= 0.0 && b >= 0.0, "Marcum Q of ({a}, {b})");
@@ -265,8 +211,6 @@ pub fn marcum_q1(a: f64, b: f64) -> f64 {
     q1_core(a, b).0
 }
 
-/// (Q₁(a,b), I₀(ab)·e^{−ab}) for 0 < a ≤ b. With Î_k = I_k(ab)·e^{−ab} the series becomes
-/// e^{−(b−a)²/2}·Σ (a/b)^k·Î_k — all factors in [0, 1], no overflow at any SNR.
 fn q1_core(a: f64, b: f64) -> (f64, f64) {
     let x = a * b;
     let r = a / b;
@@ -281,17 +225,10 @@ fn q1_core(a: f64, b: f64) -> (f64, f64) {
     ((-0.5 * d * d).exp() * sum, scaled[0])
 }
 
-/// One-step estimate of I_j(x)/I_{j−1}(x) — the Padé form x/(j + √(j² + x²)), always in
-/// (0, 1]. Only used to size series truncation and recurrence start; a few percent of error
-/// here just costs a couple of spare terms.
 fn bessel_ratio_estimate(j: f64, x: f64) -> f64 {
     x / (j + (j * j + x * x).sqrt())
 }
 
-/// Highest series index worth keeping for Σ (a/b)^k·Î_k(x): walk the per-term bound
-/// r·(ratio estimate) down to 1e-22 of the leading term. The cap only matters for
-/// astronomically large x, where the tail it truncates is still far below f64 resolution
-/// of the sum.
 fn series_len(x: f64, r: f64) -> usize {
     let mut k = 1usize;
     let mut bound = 1.0f64;
@@ -302,12 +239,6 @@ fn series_len(x: f64, r: f64) -> usize {
     k
 }
 
-/// Exponentially scaled modified Bessel functions Î_k = I_k(x)·e^{−x} for k = 0..=k_max, by
-/// Miller's algorithm: the upward recurrence I_{k−1} = I_{k+1} + (2k/x)·I_k is unstable in the
-/// direction of growing k, so it is run downward from a start order high enough that the seed's
-/// arbitrariness has decayed below 1e-24 by k_max, then the whole set is normalised at once
-/// through the identity I₀(x) + 2·Σ_{k≥1} I_k(x) = e^x — which lands directly on the scaled
-/// values without ever forming e^x.
 fn bessel_i_scaled(x: f64, k_max: usize) -> Vec<f64> {
     let mut out = vec![0.0; k_max + 1];
     if x <= 0.0 {
@@ -320,9 +251,6 @@ fn bessel_i_scaled(x: f64, k_max: usize) -> Vec<f64> {
         start += 1;
         headroom *= bessel_ratio_estimate(start as f64, x);
     }
-    // Unnormalised values grow toward k = 0 by the same factor the headroom shrank, so the
-    // tiny seed keeps everything in normal f64 range; the 1e250 rescale is for callers far
-    // outside any Eb/N0 a curve will ever see.
     let mut above = 0.0f64;
     let mut cur = 1e-280f64;
     let mut norm = 2.0 * cur;
@@ -351,13 +279,8 @@ fn bessel_i_scaled(x: f64, k_max: usize) -> Vec<f64> {
     out
 }
 
-/// Largest orthogonal alphabet the oracle evaluates — the chirp entry's SF12, 4096 cyclic
-/// shifts of one sweep ([`crate::spread::css`]).
 pub const MAX_ORTHOGONAL_ORDER: u32 = 1 << 12;
 
-/// Order above which [`mfsk_noncoherent_ser`] switches from the binomial sum to the quadrature.
-/// 64 is where the binomials stop converting to double-double without rounding, and the two
-/// evaluations are asserted to agree everywhere below it.
 const BINOMIAL_LIMIT: u32 = 64;
 
 #[must_use]
@@ -375,9 +298,6 @@ pub fn mfsk_noncoherent_ser(m: u32, ebn0_db: f64) -> f64 {
     }
 }
 
-/// The alternating binomial sum in double-double — see [`mfsk_noncoherent_ser`]. γ_s = k·γ_b is
-/// formed as an *exact* product, since the whole point of this path is that nothing rounds before
-/// the cancellation.
 fn orthogonal_ser_binomial(m: u32, k: f64, gamma_b: f64) -> f64 {
     let gs = Dd::product(k, gamma_b);
     let mut sum = Dd::ZERO;
@@ -401,8 +321,6 @@ fn orthogonal_ser_quadrature(m: u32, gamma: f64) -> f64 {
     let exponent = f64::from(m - 1);
     let integrand = |u: f64| {
         let gap = u - root_gamma;
-        // 1 − (1−e^{−x})^{M−1}, formed so that the small-value regime — which is the whole of the
-        // high-SNR tail — never passes through a subtraction of near-equal numbers.
         let tail = -(exponent * (-(-u * u).exp()).ln_1p()).exp_m1();
         2.0 * u * (-gap * gap).exp() * bessel_i0_scaled(2.0 * u * root_gamma) * tail
     };
@@ -414,14 +332,6 @@ fn orthogonal_ser_quadrature(m: u32, gamma: f64) -> f64 {
     (sum * step / 3.0).clamp(0.0, 1.0)
 }
 
-/// `I₀(x)·e^{−x}` for x ≥ 0 — Abramowitz & Stegun 9.8.1/9.8.2, whose stated relative error is
-/// 1.6e-7 below 3.75 and 1.9e-7 above.
-///
-/// A scalar polynomial rather than [`bessel_i_scaled`]'s Miller recurrence, which is exact to
-/// f64 but costs `O(x)` iterations and an allocation: the quadrature above evaluates this tens of
-/// thousands of times per point at arguments in the thousands, and the recurrence would make an
-/// oracle slower than the sweep it judges. What that costs is stated where it matters — in
-/// [`mfsk_noncoherent_ser`]'s accuracy paragraph — rather than left for a reader to discover.
 fn bessel_i0_scaled(x: f64) -> f64 {
     if x < 3.75 {
         let t = x / 3.75;
@@ -444,9 +354,6 @@ fn bessel_i0_scaled(x: f64) -> f64 {
     series / x.sqrt()
 }
 
-/// Noncoherent orthogonal M-FSK bit error rate — exact given the SER: orthogonal signalling
-/// makes every wrong symbol equally likely, so a symbol error flips each bit with probability
-/// 2^{k−1}/(2^k−1), i.e. BER = SER·M/(2(M−1)). At m = 2 the factor is 1.
 #[must_use]
 pub fn mfsk_noncoherent_ber(m: u32, ebn0_db: f64) -> f64 {
     let m_f = f64::from(m);
@@ -455,28 +362,17 @@ pub fn mfsk_noncoherent_ber(m: u32, ebn0_db: f64) -> f64 {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NearestNeighbour {
-    /// Minimum distance of the unit-mean-energy table.
     pub d_min: f64,
-    /// Mean number of points at `d_min` from a point.
     pub neighbours: f64,
-    /// Mean Hamming distance across the minimum-distance pairs.
     pub bits_per_error: f64,
-    /// log2 of the table size.
     pub bits_per_symbol: f64,
-    /// Every unordered pair as `(distance, Hamming weight)`, which is the whole union sum.
     pairs: Vec<(f64, f64)>,
-    /// Table size.
     points: f64,
 }
 
-/// Relative slack defining "at the minimum distance", matching the constellation module's own:
-/// several orders above trigonometric rounding, several below the gap to the next shell in
-/// every catalog table.
 const SHELL_SLACK: f64 = 1.002;
 
 impl NearestNeighbour {
-    /// Reads the geometry off a table. O(M²) — a setup-time measurement, not a per-point one;
-    /// hold the result and call [`Self::ber`] on the grid.
     #[must_use]
     pub fn of(c: &crate::constellation::Constellation) -> Self {
         let p = c.points();
@@ -512,16 +408,12 @@ impl NearestNeighbour {
         }
     }
 
-    /// The nearest-neighbour *symbol* error rate — the truncated form, kept because it is the
-    /// number a catalog row quotes when describing a geometry's sensitivity, and because the
-    /// closed forms it generalises are stated the same way.
     #[must_use]
     pub fn ser(&self, ebn0_db: f64) -> f64 {
         let gs = self.bits_per_symbol * ebn0_lin(ebn0_db);
         (self.neighbours * q(self.d_min * (0.5 * gs).sqrt())).min(1.0)
     }
 
-    /// The union bound on the bit error rate — the acceptance reference (see the type docs).
     #[must_use]
     pub fn ber(&self, ebn0_db: f64) -> f64 {
         let scale = (0.5 * self.bits_per_symbol * ebn0_lin(ebn0_db)).sqrt();
@@ -534,13 +426,6 @@ impl NearestNeighbour {
     }
 }
 
-//
-// An unevaluated sum hi + lo of two f64 (Dekker/Knuth error-free transformations, as in the
-// QD library), worth ~31 significant digits. Deterministic across platforms: every operation
-// is built from IEEE-754 correctly-rounded +, −, × and fused multiply-add. Only what the
-// M-FSK sum needs exists — this is not a general library.
-
-/// ln 2 to double-double precision, for the range reduction in [`Dd::exp`].
 const LN2_DD: Dd = Dd {
     hi: LN_2,
     lo: 2.3190468138462996e-17,
@@ -552,7 +437,6 @@ struct Dd {
     lo: f64,
 }
 
-/// Error-free a + b (Knuth two-sum): hi is the rounded sum, lo the exact rounding error.
 fn two_sum(a: f64, b: f64) -> Dd {
     let s = a + b;
     let bb = s - a;
@@ -562,7 +446,6 @@ fn two_sum(a: f64, b: f64) -> Dd {
     }
 }
 
-/// Error-free a + b assuming |a| ≥ |b| — one operation cheaper than [`two_sum`].
 fn quick_two_sum(a: f64, b: f64) -> Dd {
     let s = a + b;
     Dd {
@@ -571,7 +454,6 @@ fn quick_two_sum(a: f64, b: f64) -> Dd {
     }
 }
 
-/// Error-free a·b via fused multiply-add: the FMA rounds once, so a·b − round(a·b) is exact.
 fn two_prod(a: f64, b: f64) -> Dd {
     let p = a * b;
     Dd {
@@ -584,13 +466,10 @@ impl Dd {
     const ZERO: Dd = Dd { hi: 0.0, lo: 0.0 };
     const ONE: Dd = Dd { hi: 1.0, lo: 0.0 };
 
-    /// The exact product of two f64 — how γ_s = k·γ_b enters without rounding.
     fn product(a: f64, b: f64) -> Dd {
         two_prod(a, b)
     }
 
-    /// Exact conversion of an integer up to 2^63 (binomials for m ≤ 64 fit): the rounded
-    /// image plus the integer remainder, which is small enough to be a second exact f64.
     fn from_u64(v: u64) -> Dd {
         let hi = v as f64;
         #[allow(clippy::cast_possible_truncation)]
@@ -630,9 +509,6 @@ impl Dd {
         quick_two_sum(q1, q2)
     }
 
-    /// e^self for self ≤ 0, by range reduction against [`LN2_DD`] and a Taylor series on the
-    /// remainder (|r| ≤ ln2/2, so ~25 terms reach 1e-35). Arguments below −708 return zero:
-    /// that is where f64 exp underflows anyway, and a sum term that small decides nothing.
     fn exp(self) -> Dd {
         debug_assert!(
             self.hi <= 0.0,
@@ -654,7 +530,6 @@ impl Dd {
                 break;
             }
         }
-        // 2^k is exact, so the scaling touches neither component's error term.
         #[allow(clippy::cast_possible_truncation)]
         let scale = 2f64.powi(k as i32);
         Dd {
@@ -668,83 +543,27 @@ impl Dd {
     }
 }
 
-//
-// An analog entry has no bits, so Eb/N0 describes nothing and the reference every closed form
-// below is stated against is the *channel* SNR: `SNR_c = P_R/(N0·W)`, received power over the
-// noise in one message bandwidth (the accounting `impair::sigma_for_channel_snr` applies). The
-// **figure of merit** is then `SNR_out / SNR_c` — dimensionless, independent of the detector's
-// own gain, and therefore exactly what a SINAD measurement can be held to.
-//
-// Every form here is the high-SNR one: above the detector's threshold, where the noise is small
-// enough that the nonlinearity in it is linear. The knee below that threshold is precisely what
-// the entries' committed curves measure and no closed form describes, which is why the analog
-// gates read their oracle at the top of the grid and record the knee as a number instead.
-//
-// The derivations are all one shape, done in complex baseband with per-component noise variance
-// σ² so no sample rate appears: the received power is `P_R = mean|x|²`, `N0 = 2σ²` per
-// cycle/sample, and the output noise is whatever the detector's own transfer does to a white
-// phase or amplitude perturbation before the audio filter cuts it at W.
-
-/// Amplitude modulation, both detectors, above threshold: `(m²P̄)/(1 + m²P̄)` for a message of
-/// normalised power `P̄` at depth `m` — the fraction of the transmitted power that is message
-/// rather than carrier.
-///
-/// For the sinusoidal message every SINAD measurement uses, `P̄ = ½`. At full depth that is
-/// `⅓`, the textbook **4.77 dB** an envelope-detectable carrier costs against suppressing it,
-/// and at the 0.8 depth broadcast practice leaves, 6.15 dB. A suppressed carrier is not this
-/// form's `m = 1` case — there is no `1` in the denominator to add, because there is no carrier
-/// — and it has its own, [`ssb_fom`].
 #[must_use]
 pub fn am_fom(depth: f64, message_power: f64) -> f64 {
     let modulated = depth * depth * message_power;
     modulated / (1.0 + modulated)
 }
 
-/// Suppressed-carrier amplitude modulation — DSB-SC, SSB and VSB alike: unity.
-///
-/// Both halves of that are worth stating, because both are measured. Coherent detection of a
-/// double-sideband signal collects twice the signal *and* twice the noise of a single-sideband
-/// one, so the two land on the same number; and a receiver that reads only the real axis
-/// discards the quadrature noise, which is what pays for the coherent gain.
 #[must_use]
 pub fn ssb_fom() -> f64 {
     1.0
 }
 
-/// Frequency modulation above threshold: `3β²P̄`, with `β = Δf/W` the deviation ratio and `P̄`
-/// the message's normalised power — `3β²/2` for the sinusoid a SINAD measurement uses.
-///
-/// The derivation, since the constant is the whole acceptance: a small complex perturbation on
-/// `A·e^{jφ}` is a phase error of variance `σ²/2A²` per sample, white across the sampled band;
-/// a discriminator differentiates it, which weights that white spectrum by `f²`; integrating
-/// the result to ±W gives output noise `W³σ²/(3A²)` per unit rate against a signal of
-/// `Δf²P̄·2`. Dividing by `SNR_c = A²/(2σ²W)` leaves `3β²P̄`, with everything else cancelling.
-///
-/// This is where an analog entry's bandwidth becomes sensitivity: **the improvement is
-/// quadratic in deviation**. Broadcast FM's 75 kHz over a 15 kHz message is β = 5 and
-/// **+15.74 dB** over its own channel SNR; a 12.5 kHz voice channel's 2.5 kHz over 3 kHz is
-/// β = 0.83 and only +0.18 dB. Against full-carrier AM at 0.8 depth — which *loses* 6.15 dB —
-/// the two are 21.9 dB and 6.3 dB ahead, bought with 180 kHz and 11 kHz of occupied
-/// bandwidth against AM's 6.
 #[must_use]
 pub fn fm_fom(deviation_ratio: f64, message_power: f64) -> f64 {
     3.0 * deviation_ratio * deviation_ratio * message_power
 }
 
-/// Phase modulation above threshold: `β_p²P̄` for a peak phase deviation of `β_p` radians —
-/// the same derivation as [`fm_fom`] without the differentiator, so the noise is flat rather
-/// than parabolic and the `3` becomes a `1`.
-///
-/// A phase modulator at one radian of deviation is therefore `10·log₁₀(3)` — 4.77 dB — behind
-/// a frequency modulator whose deviation ratio is also one, and that gap is the `f²` weighting
-/// alone.
 #[must_use]
 pub fn pm_fom(peak_phase_rad: f64, message_power: f64) -> f64 {
     peak_phase_rad * peak_phase_rad * message_power
 }
 
-/// The oracle a measured SINAD curve is held to: output SINAD in dB for a channel SNR in dB,
-/// above the detector's threshold.
 #[must_use]
 pub fn analog_sinad_db(fom: f64, channel_snr_db: f64) -> f64 {
     channel_snr_db + 10.0 * fom.log10()
@@ -762,10 +581,6 @@ mod tests {
         );
     }
 
-    /// The table-driven bound must reproduce the closed forms it generalises, in the tail where
-    /// the nearest-neighbour asymptote is the whole story. 4-PAM and 16-QAM are the two shapes
-    /// the catalog's exotic tables are read against, and both are exact enough by 15 dB that a
-    /// 2% agreement is a real check on `d_min`, `N̄` and the Eb accounting all three.
     #[test]
     fn nearest_neighbour_bound_reproduces_the_closed_forms() {
         use crate::constellation::tables;
@@ -791,8 +606,6 @@ mod tests {
             );
             assert_rel(qam16.ber(db), mqam_ber(16, db), 0.05, "16-QAM BER");
         }
-        // BPSK is the degenerate case the whole harness is calibrated on: one neighbour at
-        // distance 2, so the bound is the exact curve.
         let bpsk = NearestNeighbour::of(&tables::pam(2).unwrap());
         for db in [0.0, 5.0, 10.0] {
             assert_rel(bpsk.ser(db), bpsk_ber(db), 1e-9, "BPSK SER");
@@ -800,8 +613,6 @@ mod tests {
         }
     }
 
-    /// The exotic tables have no closed form; what can still be checked is that their geometry
-    /// reads back sanely and that the bound orders them the way their densities demand.
     #[test]
     fn exotic_tables_read_back_a_usable_bound() {
         use crate::constellation::tables;
@@ -812,18 +623,11 @@ mod tests {
         assert!(cross32.ser(20.0) < qam32_ish.ser(20.0));
         let apsk16 = NearestNeighbour::of(&tables::apsk16_dvbs2(3.15).unwrap());
         let qam16 = NearestNeighbour::of(&tables::qam_square(16).unwrap());
-        // DVB-S2 16-APSK gives away Euclidean distance to stay circular; on a linear channel
-        // that is a measurable loss against 16-QAM, and the bound must say so.
         assert!(apsk16.d_min < qam16.d_min, "{apsk16:?} vs {qam16:?}");
         for nn in [&cross32, &apsk16] {
             assert!(nn.ser(25.0) < 1e-6 && nn.ser(0.0) <= 1.0);
             assert!(nn.ber(25.0) < 1e-5 && nn.ber(0.0) <= 1.0);
         }
-        // What the union sum buys over the truncated form, and where. On the 16-star table the
-        // radial pairs sit 31 % beyond d_min, so at the shoulder they are a real share of the
-        // error rate and the truncation misses half of it; by the tail their Q has collapsed and
-        // the two agree. A reference that only matched in the tail would be judging the shoulder
-        // of every committed curve against a number it never meant.
         let star = NearestNeighbour::of(&tables::qam_star(&[1.0, 2.0], 8).unwrap());
         let truncated = |db: f64| star.ser(db) * star.bits_per_error / star.bits_per_symbol;
         assert!(
@@ -840,8 +644,6 @@ mod tests {
         );
     }
 
-    /// Every reference value in this module was computed independently with mpmath at 40
-    /// decimal digits, then rounded to the nearest f64.
     #[test]
     fn erfc_matches_independent_values() {
         let table = [
@@ -858,7 +660,6 @@ mod tests {
             (-2.0, 1.9953222650189528),
         ];
         for (x, want) in table {
-            // The requirement is 1e-10 on [0, 6]; Cody delivers a few ulps, so gate at 1e-12.
             assert_rel(erfc(x), want, 1e-12, &format!("erfc({x})"));
         }
         assert!((erfc(0.0) - 1.0).abs() < 1e-15, "erfc(0)");
@@ -1017,8 +818,8 @@ mod tests {
         let table = [
             (1.0, 2.0, 0.26901206003591),
             (0.5, 3.0, 0.01784367338648221),
-            (2.0, 1.0, 0.918107696369406), // a > b: the symmetry branch
-            (3.0, 3.0, 0.5674797622908615), // a = b: slowest series convergence
+            (2.0, 1.0, 0.918107696369406),
+            (3.0, 3.0, 0.5674797622908615),
             (2.42, 5.84, 0.0005012345039334298),
         ];
         for (a, b, want) in table {
@@ -1075,9 +876,6 @@ mod tests {
         );
     }
 
-    /// The reason the sum runs in double-double: at M = 64 and 0 dB plain f64 returns 0.3516
-    /// against the true 0.2964 — a 19% miss. These gates are orders tighter than the f64
-    /// failure, so they fail again if anyone "simplifies" the arithmetic back.
     #[test]
     fn mfsk_alternating_sum_survives_cancellation() {
         assert_rel(
@@ -1118,14 +916,6 @@ mod tests {
         );
     }
 
-    /// The two evaluations of the orthogonal oracle are two derivations of one quantity — the
-    /// alternating binomial sum and the integral over the correct branch's density — and neither
-    /// shares a line of code with the other. Where both apply they must agree, and that agreement
-    /// is the *only* reason the quadrature can be trusted at the orders where the sum cannot run.
-    ///
-    /// The tolerance is the quadrature's own: relative 1e-6, set by the `I₀` polynomial's stated
-    /// 1.9e-7 plus Simpson's residual. Asserted across the whole SNR span a curve is measured
-    /// over, and at every order the exact sum still reaches.
     #[test]
     fn both_evaluations_of_the_orthogonal_oracle_agree() {
         for m in [2u32, 4, 8, 16, 32, 64] {
@@ -1147,11 +937,6 @@ mod tests {
         }
     }
 
-    /// The orders the quadrature exists for — the chirp entry's SF7 through SF12. Nothing
-    /// independent can check these directly, so what is checked is the structure the closed form
-    /// has to have: monotone in SNR, monotone *downward* in alphabet size at fixed Eb/N0 (the
-    /// property that makes a spreading factor worth spending), and bracketed by the orders on
-    /// either side of it.
     #[test]
     fn the_large_alphabet_oracle_is_ordered_in_both_arguments() {
         for db in [0.0f64, 2.0, 4.0, 6.0] {
@@ -1231,12 +1016,7 @@ mod tests {
         assert_rel(full, -4.771, 1e-3, "AM full-depth penalty in dB");
         let broadcast = 10.0 * am_fom(0.8, 0.5).log10();
         assert_rel(broadcast, -6.150, 1e-3, "AM 0.8-depth penalty in dB");
-        // Suppressing the carrier and spending its power on the message reaches unity — the
-        // form above does not describe that case, which is what `ssb_fom` is for.
         assert!((ssb_fom() - 1.0).abs() < 1e-15);
-        // Wideband FM: 75 kHz over a 15 kHz message is β = 5 and 15.74 dB of improvement;
-        // narrowband FM at 2.5 kHz over 3 kHz is β = 0.833 and 0.18 dB. Against AM at 0.8
-        // depth the two are 21.9 and 6.3 dB ahead, which is what the deviation bought.
         assert_rel(
             10.0 * fm_fom(5.0, 0.5).log10(),
             15.740,

@@ -20,31 +20,14 @@ use crate::ber::{
     theory,
 };
 
-/// Where committed artifacts live, relative to the workspace root — the path the docs-row rule
-/// in `cargo xtask check` resolves and `CATALOG.md` writes out in full.
 pub const BASELINE_DIR: &str = "crates/modem/baselines";
 
-/// Grid points a smoke tier measures, from the front of the committed grid. Three is the
-/// crate's own idiom: enough to place the shoulder, cheap enough to run on every `cargo test`.
 pub const SMOKE_POINTS: usize = 3;
 
-/// Errors a committed curve's point collects before its ratio is believed. Errors arrive in
-/// two populations — a steady trickle and rare whole-trial failures when a low-SNR trial
-/// mis-anchors — so the budget is set by the heavy tail: 2000 keeps a shoulder point's
-/// realisation from being one failed trial's. The trial-bit *cap* that bounds the steep
-/// high-SNR points instead is per entry, stated with each entry's grids.
 pub const FULL_ERRORS: u64 = 2_000;
 
-/// Worst drift a re-measured tier may show against its committed artifact. Same seed, same
-/// budgets and same grid points make each measured point a *reproduction* of the committed
-/// one — bit-identical on one host — so this slack absorbs cross-platform float drift and
-/// nothing else.
 pub const DRIFT_TOLERANCE_DB: f64 = 0.5;
 
-/// One sweep tier: the grid, the seed that names every point's realisation, and the error
-/// budget. `(seed, grid index)` names a point, so a grid *prefix* at the same seed and budget
-/// reproduces the committed points exactly — which is what makes a smoke tier a regression
-/// gate rather than an independent measurement.
 #[derive(Clone, Copy, Debug)]
 pub struct Tier {
     pub grid: &'static [f64],
@@ -55,21 +38,12 @@ pub struct Tier {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Reference {
-    /// Commit-and-guard: no closed form describes the chain, so the committed artifact is the
-    /// reference and the drift gate is the whole judgement. Every partial-response CPM row
-    /// through a discriminator is here.
     Committed,
-    /// Oracle-matched: a closed form the whole curve is held to, as worst horizontal penalty
-    /// across the grid.
     Oracle {
         name: &'static str,
         ber: fn(f64) -> f64,
         tolerance_db: f64,
     },
-    /// Oracle-matched through the chain's own documented offset at one BER — the honest
-    /// mapping where no closed form describes the detector exactly. The M = 2 discriminator
-    /// row is the case: neither the coherent nor exactly the noncoherent detector, and its
-    /// framing overhead is charged to Eb, so the offset documents the *chain*.
     OffsetOracle {
         name: &'static str,
         ber: fn(f64) -> f64,
@@ -79,22 +53,16 @@ pub enum Reference {
     },
 }
 
-/// One committed curve and everything needed to reproduce and judge it.
 #[derive(Clone, Copy, Debug)]
 pub struct Measurement {
-    /// Artifact stem under [`BASELINE_DIR`], without extension (e.g. `"cpm/msk_awgn"`).
     pub stem: &'static str,
     pub link: fn() -> Link,
-    /// The committed sweep.
     pub full: Tier,
-    /// Grid points the smoke tier measures, from the front of `full.grid`, at the same seed
-    /// and budgets.
     pub smoke_points: usize,
     pub reference: Reference,
 }
 
 impl Measurement {
-    /// A commit-and-guard measurement at the crate's standard error budget — every CPM row.
     #[must_use]
     pub const fn committed(
         stem: &'static str,
@@ -117,7 +85,6 @@ impl Measurement {
         }
     }
 
-    /// This measurement's sweep at one tier: the committed grid, or its smoke prefix.
     #[must_use]
     pub fn tier(&self, full: bool) -> Tier {
         let mut tier = self.full;
@@ -127,7 +94,6 @@ impl Measurement {
         tier
     }
 
-    /// Path of the committed artifact relative to the workspace root.
     #[must_use]
     pub fn artifact(&self) -> String {
         format!("{BASELINE_DIR}/{}.json", self.stem)
@@ -155,17 +121,10 @@ impl Measurement {
                 offset_db,
                 tolerance_db,
             } => {
-                // The offset is defined at one BER, so a tier whose grid stops above that
-                // crossing simply cannot answer — a smoke prefix sits on the shoulder. Silent
-                // rather than failing: the drift gate against the committed artifact still
-                // judges every tier.
                 let measured = penalty_db(curve, ber, at_ber);
                 if !measured.is_finite() {
                     return None;
                 }
-                // The gap judged is the distance from the *documented* offset, so a chain that
-                // drifted away from its recorded discriminator loss fails even though it still
-                // sits near theory.
                 Some((
                     format!("{name} + documented {offset_db:+.2} dB at BER {at_ber:.0e}"),
                     measured - offset_db,
@@ -175,8 +134,6 @@ impl Measurement {
         }
     }
 
-    /// Worst horizontal drift of a freshly measured curve from the committed one, over the
-    /// measured grid's span.
     #[must_use]
     pub fn drift_db(&self, curve: &Curve, committed: &Curve) -> Option<f64> {
         let lo = curve.points.first()?.ebn0_db;
@@ -185,7 +142,6 @@ impl Measurement {
     }
 }
 
-/// One catalog entry as the harness knows it — the name `cargo xtask ber <entry>` takes.
 #[derive(Clone, Copy, Debug)]
 pub struct Entry {
     pub name: &'static str,
@@ -209,8 +165,6 @@ const BPSK_IDEAL: &[Measurement] = &[Measurement {
     },
 }];
 
-/// Every entry with a runner, in catalog order. A phase adds a row here and the command, the
-/// crate's gates and `CATALOG.md`'s runner column all learn about it at once.
 pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "bpsk-ideal",
@@ -331,8 +285,6 @@ pub const ENTRIES: &[Entry] = &[
 ];
 
 impl Entry {
-    /// Whether this entry's artifacts live under the linear engine's baseline directory — how the
-    /// crate's own tooling picks the linear rows out of the registry without a second list.
     #[must_use]
     pub fn stem_prefix_is_linear(&self) -> bool {
         self.measurements
@@ -341,14 +293,11 @@ impl Entry {
     }
 }
 
-/// The entry registered under `name`, if any.
 #[must_use]
 pub fn find(name: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|entry| entry.name == name)
 }
 
-/// The measurement that owns an artifact stem, whichever entry it belongs to — how a gate
-/// names a curve without also restating the link, grid, seed and budget it was measured with.
 #[must_use]
 pub fn measurement(stem: &str) -> Option<&'static Measurement> {
     ENTRIES
@@ -370,9 +319,6 @@ mod tests {
             .unwrap()
     }
 
-    /// A registered measurement whose artifact is missing is a runner that cannot be judged —
-    /// and the docs-row rule would never catch it, because that rule reads the catalog against
-    /// the tree, not against this registry.
     #[test]
     fn every_registered_measurement_has_its_committed_artifact() {
         let root = workspace_root();
@@ -389,8 +335,6 @@ mod tests {
         }
     }
 
-    /// Entry names are the command's public surface and artifact stems are file paths: a
-    /// duplicate of either silently shadows a measurement.
     #[test]
     fn entry_names_and_artifact_stems_are_unique() {
         let mut names: Vec<&str> = ENTRIES.iter().map(|e| e.name).collect();
@@ -409,9 +353,6 @@ mod tests {
         assert_eq!(stems.len(), count, "duplicate artifact stem");
     }
 
-    /// The smoke tier is a gate only because it reproduces committed points: a prefix longer
-    /// than the grid, or a grid too short to place a shoulder, would quietly make it something
-    /// else.
     #[test]
     fn every_smoke_tier_is_a_prefix_of_its_committed_grid() {
         for entry in ENTRIES {
@@ -430,8 +371,6 @@ mod tests {
         }
     }
 
-    /// Grids are read as ascending Eb/N0 by every consumer that interpolates a crossing
-    /// ([`worst_penalty_db_vs_curve`], the limits runner's sensitivity search).
     #[test]
     fn every_grid_ascends() {
         for entry in ENTRIES {

@@ -15,16 +15,11 @@ import {
 } from "./graph";
 import { FACES } from "./nodes";
 
-/** A pointer gesture on a face. Held in a ref: a drag must not re-render the rack on its own
- * bookkeeping. */
 interface Gesture {
   node: string;
-  /** An edge drag takes the neighbour with it; the corner resizes this face alone. */
   mode: "move" | "corner" | RackEdge;
   originX: number;
   originY: number;
-  /** The rack as it was when the gesture started — every frame is that layout plus one delta,
-   * never the previous frame plus one, so a refused step cannot accumulate. */
   base: RackLayout;
 }
 
@@ -32,7 +27,6 @@ export function Rack() {
   const workspace = useWorkspaceContext();
   const hostRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
-  // The layout under the pointer, so the faces follow it before the write lands.
   const [preview, setPreview] = useState<RackLayout | null>(null);
 
   const cellSize = useCallback(() => {
@@ -106,8 +100,6 @@ export function Rack() {
   return (
     <div
       ref={hostRef}
-      // The patch's own ground: a bay is now usually wider than the face mounted in it, so what
-      // shows between them is a wall rather than the hairline the separator colour was drawn for.
       className="grid min-h-0 flex-1 gap-px bg-bg p-px"
       style={{
         gridTemplateColumns: `repeat(${RACK_COLS}, minmax(0, 1fr))`,
@@ -125,8 +117,6 @@ export function Rack() {
         return (
           <div
             key={slot.node}
-            // The same handle React Flow puts on a patch node, so a face is addressable by node
-            // in either view.
             data-id={slot.node}
             className="flex min-h-0 min-w-0 items-center justify-center"
             style={{
@@ -134,11 +124,6 @@ export function Rack() {
               gridRow: `${slot.y + 1} / span ${slot.h}`,
             }}
           >
-            {/* A bay is how much of the wall the operator gave this instrument; the face inside
-                it is still the size its kind is. Only a viewport grows into its bay — stretching
-                a column of controls across one puts the same acre of dead space beside it that
-                fixing the sizes removed from the patch. Never larger than the bay: a face given
-                less room than it wants shrinks and scrolls rather than covering its neighbour. */}
             <div
               className="relative max-h-full max-w-full"
               style={faceSize(node, workspace.context)}
@@ -153,8 +138,6 @@ export function Rack() {
   );
 }
 
-/** The box the face gets inside its bay: the whole bay for an instrument that is worth more room,
- * and its own size for everything else (`isResizable`). */
 function faceSize(node: PatchNode, context: GraphContext): CSSProperties {
   if (isResizable(node.kind)) {
     return { width: "100%", height: "100%" };
@@ -163,20 +146,11 @@ function faceSize(node: PatchNode, context: GraphContext): CSSProperties {
   return { width: size.w, height: size.h };
 }
 
-/**
- * A face renders from its stored node and the workspace context, and neither changes while a
- * pointer is down — so the drag preview, which re-renders the rack on every cell it crosses,
- * must not re-render the instruments with it. A scope's WebGL viewport and a map's tiles
- * repainting sixty times a second *is* the flicker this fixes.
- */
 const RackFace = memo(function RackFace({ node }: { node: PatchNode }) {
   const Face = FACES[node.kind];
   return <Face node={node} />;
 });
 
-/** The grips sit over the shell's own chrome so a face's controls stay clickable: the header
- * drags (clear of the pin and remove buttons), the four edges drag their boundary, and the
- * bottom-right corner resizes into free space. */
 function Grips({
   node,
   onBegin,
@@ -198,7 +172,6 @@ function Grips({
       {edge("s", "inset-x-0 bottom-0 h-1.5 cursor-ns-resize", "Drag the boundary below")}
       {edge("w", "inset-y-0 left-0 w-1.5 cursor-ew-resize", "Drag the boundary to the left")}
       {edge("e", "inset-y-0 right-0 w-1.5 cursor-ew-resize", "Drag the boundary to the right")}
-      {/* Below the top edge grip, so both stay reachable on a 26px header. */}
       <span
         aria-hidden
         title="Move — drop on another face to trade places"
@@ -215,7 +188,6 @@ function Grips({
   );
 }
 
-/** The layout this gesture produces, `cells` from where it started. */
 function applyGesture(gesture: Gesture, dx: number, dy: number): RackLayout {
   const slot = (gesture.base.slots ?? []).find((candidate) => candidate.node === gesture.node);
   if (slot === undefined) {
@@ -242,7 +214,6 @@ function applyGesture(gesture: Gesture, dx: number, dy: number): RackLayout {
   }
 }
 
-/** Structural equality, so a pointer move that stays inside its cell costs no render. */
 function sameRack(a: RackLayout, b: RackLayout): boolean {
   return JSON.stringify(a.slots ?? []) === JSON.stringify(b.slots ?? []);
 }

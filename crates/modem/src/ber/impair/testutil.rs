@@ -1,6 +1,3 @@
-//! Shared measurement helpers for the calibration tests — the "measured" half of the
-//! applied == measured contract. Test-only: nothing here ships into the harness proper.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -8,15 +5,10 @@ use num_complex::Complex;
 use super::sinc::interp;
 use crate::ber::rng::Rng;
 
-/// A unit carrier at DC: the probe for pure-phase impairments, whose effect is then exactly
-/// the phase trajectory they applied.
 pub(crate) fn ones(len: usize) -> Vec<Complex<f32>> {
     vec![Complex::new(1.0, 0.0); len]
 }
 
-/// Unit-amplitude complex exponential at `f` cycles/sample. The phase argument is reduced
-/// modulo one cycle *before* the trig, so the tone stays phase-exact at any length f64 can
-/// index — a naively accumulated `2π·f·n` would not.
 pub(crate) fn tone(f: f64, len: usize) -> Vec<Complex<f32>> {
     (0..len)
         .map(|n| {
@@ -28,8 +20,6 @@ pub(crate) fn tone(f: f64, len: usize) -> Vec<Complex<f32>> {
         .collect()
 }
 
-/// Unit-power circularly-symmetric white Gaussian noise — the probe for impairments measured
-/// by correlation (multipath taps) or by level statistics (clipping, quantiser levels, DC).
 pub(crate) fn white(rng: &mut Rng, len: usize) -> Vec<Complex<f32>> {
     (0..len)
         .map(|_| {
@@ -42,19 +32,12 @@ pub(crate) fn white(rng: &mut Rng, len: usize) -> Vec<Complex<f32>> {
         .collect()
 }
 
-/// Sample-to-sample phase increments in radians — the derivative every carrier-axis
-/// measurement starts from. Valid while each true increment stays inside ±π; the tests keep
-/// their applied frequencies well below that.
 pub(crate) fn arg_increments(x: &[Complex<f32>]) -> Vec<f64> {
     x.windows(2)
         .map(|w| f64::from((w[1] * w[0].conj()).arg()))
         .collect()
 }
 
-/// The delay of `y` relative to `x`, measured over `y[range]` by cross-correlation: integer
-/// search to `max_lag`, then successive grid refinement against band-limited interpolates of
-/// `x` down to a 0.5-millisample step — an order below the 0.01-sample tolerance the timing
-/// calibrations assert.
 pub(crate) fn est_delay(
     x: &[Complex<f32>],
     y: &[Complex<f32>],

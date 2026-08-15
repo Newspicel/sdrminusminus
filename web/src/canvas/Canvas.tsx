@@ -51,13 +51,10 @@ import {
 import { NODE_TYPES } from "./nodes";
 import { closeEngineObjects } from "./remove";
 
-/** Node data React Flow carries. Only the stored node — everything live comes from context. */
 export interface FlowData extends Record<string, unknown> {
   node: PatchNode;
 }
 
-/** Framing on open. `maxZoom` keeps a one-node patch from opening magnified — a face drawn at
- * twice its size is not more legible, it is just further from what the operator will see next. */
 const FIT_VIEW = { padding: 0.12, maxZoom: 1 } as const;
 
 const DELETE_KEYS = ["Backspace", "Delete"];
@@ -71,15 +68,10 @@ export function Canvas() {
     toFlowEdges(workspace.graph, workspace.context),
   );
 
-  // What a paste has just added, until the write it made comes back around and the fresh faces
-  // can be selected. Only a selected face is draggable, so a paste that left the originals
-  // selected would answer the gesture that always follows it by moving the wrong nodes.
   const pasted = useRef<ReadonlySet<string>>(new Set());
   const selection = nodes.filter((node) => node.selected).map((node) => node.id);
   useClipboard(
     workspace,
-    // A node reached by its number key is selected in this application but not in React Flow, so
-    // the keyboard's own selection is what the chord falls back to.
     selection.length > 0 ? selection : workspace.selected === null ? [] : [workspace.selected],
     useCallback((ids: readonly string[]) => {
       pasted.current = new Set(ids);
@@ -91,8 +83,6 @@ export function Canvas() {
   useEffect(() => {
     if (sameGraph(held.current, workspace.graph)) {
       setEdges(toFlowEdges(workspace.graph, context));
-      // The channel type list arrives after the first paint and is what decides how tall a
-      // channel's face opens, so a graph that has not changed can still have a size to settle.
       setNodes((previous) => withNaturalSizes(previous, workspace.graph, context));
       return;
     }
@@ -102,10 +92,6 @@ export function Canvas() {
     if (arrived) {
       pasted.current = new Set();
     }
-    // Reconciled, not replaced: a fresh object per node would drop React Flow's own `selected`
-    // flag and its measured handle bounds, so after any write the library would consider
-    // nothing selected while the node still rendered as selected — and Backspace would stop
-    // deleting it.
     setNodes((previous) =>
       toFlowNodes(workspace.graph, context).map((node) => {
         const mounted = previous.find((candidate) => candidate.id === node.id);
@@ -126,10 +112,6 @@ export function Canvas() {
           if (flow === undefined) {
             return node;
           }
-          // A size is stored only once the face has been resized away from what its kind opens
-          // at: writing the natural size back would freeze this node at today's default and
-          // silently opt it out of every later one. A kind that cannot be resized drops any size
-          // a older build stored for it, rather than being pinned to it forever.
           const natural = naturalSize(node, workspace.context);
           const { width: w, height: h } = flow;
           const resized =
@@ -148,8 +130,6 @@ export function Canvas() {
     }));
   }, [workspace]);
 
-  // React Flow owns the live geometry; `commitGeometry` runs from a microtask after a gesture
-  // ends and reads it here. Written after commit so render stays pure.
   const flowRef = useRef(nodes);
   useLayoutEffect(() => {
     flowRef.current = nodes;
@@ -163,7 +143,6 @@ export function Canvas() {
         workspace.select(selects.find((change) => change.selected)?.id ?? null);
       }
       for (const change of changes) {
-        // A resize reports every frame; only its last one is a gesture that ended.
         if (change.type === "dimensions" && change.resizing === false) {
           queueMicrotask(commitGeometry);
         }
@@ -193,9 +172,6 @@ export function Canvas() {
     [onEdgesChange, workspace],
   );
 
-  // Backspace deletes what is selected, and a node's deletion has to close the radio or channel
-  // it was driving first — the same rule the face's own ✕ follows. A refusal here cancels the
-  // whole deletion, so the patch never draws a radio as gone while it is still streaming.
   const onBeforeDelete: OnBeforeDelete<Node<FlowData>, Edge> = useCallback(
     async ({ nodes: doomed, edges: cut }) => {
       try {
@@ -255,11 +231,6 @@ export function Canvas() {
     [refusal],
   );
 
-  // Only the active face is dragged by the pointer; every other one leaves the drag and the
-  // wheel to the camera. React Flow stamps its own `nopan` on any node it considers draggable,
-  // which is what would otherwise make the patch unscrollable wherever a face is under the
-  // pointer — so "click a window before its controls answer" is also what keeps the camera free
-  // (`NodeShell`'s `Active` carries the other half of the rule).
   const flowNodes = useMemo(
     () =>
       nodes.map((node) =>
@@ -268,9 +239,6 @@ export function Canvas() {
     [nodes],
   );
 
-  // Right-click is where an operator looks for "delete this", and a wire has nowhere else to be
-  // asked: it has no chrome of its own, so without a menu the only way to cut one is to select
-  // it and reach for a key nobody was told about.
   const [menu, setMenu] = useState<Menu | null>(null);
   const openMenu = useCallback((event: React.MouseEvent, target: Menu["target"]) => {
     event.preventDefault();
@@ -298,12 +266,9 @@ export function Canvas() {
         onNodeContextMenu={(event, node) => openMenu(event, { kind: "node", id: node.id })}
         onEdgeContextMenu={(event, edge) => openMenu(event, { kind: "edge", id: edge.id })}
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
-        // Both keys, because both are what people press for "delete this".
         deleteKeyCode={DELETE_KEYS}
         panOnScroll
         panOnScrollSpeed={1}
-        // The patch opens framed: a workspace drawn over several screens is otherwise restored at
-        // whatever corner the last camera left, and the operator's first gesture is always a hunt.
         fitView
         fitViewOptions={FIT_VIEW}
         minZoom={0.15}
@@ -324,9 +289,6 @@ interface Menu {
   target: { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "pane" };
 }
 
-/** What right-clicking offers, per thing clicked. Deliberately short: everything here is also
- * reachable from the node's own chrome or a key, and a menu that lists the whole application is
- * one nobody reads. */
 function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const workspace = useWorkspaceContext();
   const { fitView } = useReactFlow();
@@ -334,12 +296,9 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const node = menu.target.kind === "node" ? nodeOf(workspace.graph, menu.target.id) : undefined;
   const pinned = node !== undefined && isPinned(workspace.rack, node.id);
 
-  // A menu that outlives its context is a menu that acts on the wrong thing.
   useEffect(() => {
     const dismiss = (event: Event) => {
       if (event instanceof KeyboardEvent) {
-        // Escape closes from anywhere — including a focused item, whose keydown target is
-        // inside the menu and must not fall through to the pointer guard below.
         if (event.key === "Escape") {
           onClose();
         }
@@ -409,7 +368,6 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   }
 
   return (
-    // Fixed, not absolute: the coordinates are the pointer's, and the canvas is transformed.
     <div
       ref={menuRef}
       role="menu"
@@ -426,9 +384,6 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   );
 }
 
-/** Carry a fresh natural size onto already-mounted faces, leaving everything React Flow has
- * measured or selected alone. The same array comes back when nothing moved, so an edge-only
- * update does not re-render the patch. */
 function withNaturalSizes(
   mounted: Node<FlowData>[],
   graph: PatchGraph,
@@ -449,8 +404,6 @@ function withNaturalSizes(
 
 function toFlowNodes(graph: PatchGraph, context: GraphContext): Node<FlowData>[] {
   return graph.nodes.map((node) => {
-    // A stored size only counts for a kind that can be resized; every other face is the size its
-    // kind is (`naturalSize`), whatever an older build wrote into the workspace.
     const natural = naturalSize(node, context);
     const size = (isResizable(node.kind) ? node.size : null) ?? natural;
     return {
@@ -466,8 +419,6 @@ function toFlowNodes(graph: PatchGraph, context: GraphContext): Node<FlowData>[]
 
 function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
   return (graph.edges ?? []).map((edge) => {
-    // A wire that exists but cannot carry what it says it carries is drawn as a fault on the
-    // wire itself — the face at its end says what to do about it.
     const warning = edgeWarning(context, graph, edge.from, edge.to);
     const carried = portOf(context, graph, edge.from, "out")?.port_type;
     return {

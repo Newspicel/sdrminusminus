@@ -1,20 +1,11 @@
 use num_complex::Complex;
 use sdrmm_modem::cpm::CpmMod;
 
-// Deliberately the decoder's own tables rather than a second copy: a duplicated 32-entry
-// chart is one more thing to drift, and it would not catch a typo anyway — both sides would
-// have to be wrong the same way for a round trip to pass. What guards the alphabet is
-// `rtty::tests::ita2_rows_match_the_standard_alphabet`, which transcribes the whole chart
-// independently of both.
 use crate::rtty::{FIGS_CODE, FIGURES, LETTERS, LTRS_CODE, SPACE_CODE, cell_params};
 
-/// Mark idle either side of the message: a real link idles on mark, and the lead-in also
-/// primes the receiver's post-detection filter before the first start bit arrives.
 const LEAD_IN_BITS: usize = 8;
 const LEAD_OUT_BITS: usize = 4;
 
-/// ITA2 code for `ch` and the shift row it lives in — `None` when both rows carry it (space,
-/// CR, LF), so no shift character is needed.
 fn code_for(ch: char) -> Option<(u8, Option<bool>)> {
     let find = |row: &[char; 32]| row.iter().position(|&c| c == ch && c != '\0');
     match (find(&LETTERS), find(&FIGURES)) {
@@ -25,13 +16,6 @@ fn code_for(ch: char) -> Option<(u8, Option<bool>)> {
     }
 }
 
-/// Encode `text` as ITA2 codes, inserting the LTRS/FIGS shifts it needs. Lowercase is folded to
-/// upper case and characters outside the alphabet are dropped, since the code has no room for
-/// them.
-///
-/// `unshift_on_space` re-sends the shift after a space, which is the amateur RTTY convention;
-/// SITOR-B tracks the shift strictly and passes `false`. This is the character layer both
-/// modulators share — only the framing below it differs.
 #[must_use]
 pub fn ita2_codes(text: &str, unshift_on_space: bool) -> Vec<u8> {
     let mut codes = Vec::new();
@@ -54,18 +38,11 @@ pub fn ita2_codes(text: &str, unshift_on_space: bool) -> Vec<u8> {
     codes
 }
 
-/// Frame `text` for RTTY, where a space is assumed to unshift — the stream then decodes the
-/// same with `unshift_on_space` either way.
-///
-/// Cells are half a bit each: 1.5 stop bits is a standard RTTY option and has no bit-resolution
-/// representation. [`modulate`] keys them at twice the baud rate.
 #[must_use]
 pub fn encode(text: &str, stop_bits: f64) -> Vec<bool> {
     encode_codes(&ita2_codes(text, true), stop_bits)
 }
 
-/// Frame raw ITA2 codes without any shift handling — the way to build a stream whose shift
-/// state is deliberately wrong.
 #[must_use]
 pub fn encode_codes(codes: &[u8], stop_bits: f64) -> Vec<bool> {
     let stop_cells = (stop_bits * 2.0).round().max(2.0) as usize;
@@ -94,7 +71,6 @@ pub fn modulate(cells: &[bool], baud: f64, shift_hz: f64, rate: f64) -> Vec<Comp
     iq
 }
 
-/// Modulate `text` as two-tone FSK at complex baseband, symmetric about DC.
 #[must_use]
 pub fn transmission(
     text: &str,
@@ -131,7 +107,6 @@ mod tests {
 
     #[test]
     fn shifts_are_inserted_only_when_the_row_changes() {
-        // "A1 2" needs FIGS before "1" and, because a space unshifts, again before "2".
         let cells = encode("a1 2", 1.0);
         let (frames, _) = cells.as_chunks::<14>();
         let codes: Vec<u8> = frames
@@ -148,7 +123,6 @@ mod tests {
         for s in &iq {
             assert!((s.norm() - 1.0).abs() < 1e-3, "magnitude {}", s.norm());
         }
-        // Idle is mark, i.e. +85 Hz: 8000/85 samples per turn, so the phase advances.
         let turn = (iq[100] * iq[99].conj()).arg() as f64 * 8_000.0 / std::f64::consts::TAU;
         assert!((turn - 85.0).abs() < 1.0, "idle tone {turn} Hz");
     }

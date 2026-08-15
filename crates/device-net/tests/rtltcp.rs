@@ -1,8 +1,4 @@
 #![allow(clippy::expect_used)]
-//! A harness that cannot bind a loopback socket or clone it has nothing left to assert,
-//! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
-//! the free functions and closures a fake server is built out of.
-//! The rtl_tcp backend against a fake server (: no hardware in CI, ever).
 mod common;
 
 use std::{
@@ -18,20 +14,14 @@ use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice};
 use sdrmm_device_net::RtlTcpDriver;
 use sdrmm_wire::{DeviceSettings, ExtraValue, GainValue};
 
-/// Command bytes a fake server observed, keyed by which connection carried them.
 type Observed = Arc<Mutex<HashMap<usize, Vec<(u8, u32)>>>>;
 
-/// Which connection is which. The device dials once to read the greeting and hangs up, so the
-/// capture is always the *second* — and a reconnect the third.
 const OPENED: usize = 0;
 const CAPTURING: usize = 1;
 const RECONNECTED: usize = 2;
 
-/// Commands in a replay with the tuner's AGC on: rate, centre, correction, gain mode, the
-/// RTL2832U's AGC and the bias tee. A manual gain adds its value behind the mode, making seven.
 const REPLAY_IN_AGC: usize = 6;
 
-/// The R820T greeting, which is what all but one of these tests want.
 fn greeting(magic: &[u8; 4], tuner: u32, gain_steps: u32) -> [u8; 12] {
     let mut bytes = [0u8; 12];
     bytes[..4].copy_from_slice(magic);
@@ -40,16 +30,10 @@ fn greeting(magic: &[u8; 4], tuner: u32, gain_steps: u32) -> [u8; 12] {
     bytes
 }
 
-/// Every sample value the RTL2832U can produce, in order, so a test can name the byte it expects
-/// rather than a level.
 fn ramp() -> Vec<u8> {
     (0..=255u8).collect()
 }
 
-/// A server that greets, then streams a ramp forever, recording the commands it is sent.
-///
-/// `drop_capture` closes the capturing connection after a moment, which is the only way a test can
-/// make a healthy stream fail the way a restarted server does.
 fn fake_rtl_tcp(
     magic: [u8; 4],
     tuner: u32,
@@ -89,14 +73,11 @@ fn fake_rtl_tcp(
     (server, observed)
 }
 
-/// Open the device the way the server does: adopt the endpoint, then open the key it canonicalized
-/// to.
 fn open(driver: &RtlTcpDriver, endpoint: &str) -> Result<Box<dyn SdrDevice>, DeviceError> {
     let info = driver.resolve(endpoint).expect("an addressable endpoint");
     driver.open(&info)
 }
 
-/// A sink that hands every block to the test.
 fn blocking_sink() -> (RxSink, mpsc::Receiver<Vec<Sample>>) {
     let (tx, rx) = mpsc::channel();
     (
@@ -141,7 +122,6 @@ fn a_tuner_this_backend_has_no_table_for_still_opens() {
     );
 }
 
-/// Reading whatever answers the port as IQ would show a plausible noise floor forever.
 #[test]
 fn a_port_that_is_not_an_rtl_tcp_server_is_refused_by_name() {
     let (server, _) = fake_rtl_tcp(*b"HTTP", 5, 29, false);
@@ -188,8 +168,6 @@ fn capturing_replays_every_setting_before_the_first_sample_and_streams() {
     let block = blocks.recv_timeout(DEADLINE).expect("samples arrive");
     assert!(!block.is_empty());
 
-    // The whole state, in the order the radio needs it — not just the delta, because a fresh
-    // connection is a dongle at its power-on defaults.
     eventually("the replay", || {
         commands(&observed, CAPTURING).len() > REPLAY_IN_AGC
     });
@@ -234,8 +212,6 @@ fn a_retune_while_streaming_reaches_the_server() {
     device.rx_stop();
 }
 
-/// The samples the far side sent have to arrive as the samples the in-tree RTL-SDR driver would
-/// have produced from the same bytes — the transport is the only thing that differs.
 #[test]
 fn the_bytes_on_the_wire_arrive_as_rtl_sdr_samples() {
     let (server, _) = fake_rtl_tcp(*b"RTL0", 5, 29, false);
@@ -252,8 +228,6 @@ fn the_bytes_on_the_wire_arrive_as_rtl_sdr_samples() {
     device.rx_stop();
 }
 
-/// The behaviour a remote radio lives or dies by: a server that restarts costs a reconnect, and
-/// the reconnect puts the tuning back before a single sample is pushed.
 #[test]
 fn a_dropped_connection_reconnects_and_replays_the_tuning() {
     let (server, observed) = fake_rtl_tcp(*b"RTL0", 5, 29, true);

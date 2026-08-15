@@ -1,18 +1,8 @@
-/** Retina is worth the fill rate; past 2× the extra samples are below the resolution of the eye
- * and a Pi-class browser pays for them anyway (: the Pi is the floor). */
 const MAX_DPR = 2;
-/** Ceiling on dpr × canvas zoom: React Flow magnifies a node with a CSS transform, so a plot at
- * 2× zoom on a 2× display would otherwise ask for four device pixels per layout pixel — sixteen
- * times the buffer, for sharpness nobody can see. */
 const MAX_PIXEL_RATIO = 3;
-/** Floor, so a node zoomed far out still draws a recognisable plot rather than four rows. */
 const MIN_PIXEL_RATIO = 0.5;
-/** Ratios snap to eighths. Zoom is continuous, and a backing store resized on every frame of a
- * zoom gesture is reallocated and cleared on every frame of it. */
 const RATIO_STEPS = 8;
 
-/** How much larger an element is drawn than it is laid out — the scale of every CSS transform
- * above it. React Flow's zoom is the one that matters here; on the rack there is none. */
 export function zoomOf(renderedPx: number, layoutPx: number): number {
   return renderedPx > 0 && layoutPx > 0 ? renderedPx / layoutPx : 1;
 }
@@ -23,15 +13,10 @@ export function pixelRatio(dpr: number, zoom: number): number {
   return Math.min(MAX_PIXEL_RATIO, Math.max(MIN_PIXEL_RATIO, snapped));
 }
 
-/** Backing-store extent for a CSS extent at this ratio. */
 export function backingPx(cssPx: number, ratio: number): number {
   return cssPx > 0 ? Math.round(cssPx * ratio) : 0;
 }
 
-/** History rows a plot of this backing height shows: one row per *layout* pixel. Counting
- * backing rows would halve the scroll speed on a 2× display, and would make zooming the canvas
- * change how far back the waterfall reaches. Clamped to the ring, so the bottom edge can never
- * wrap onto the newest row. */
 export function rowsForHeight(heightPx: number, ratio: number, rings: number): number {
   return Math.max(2, Math.min(rings, Math.round(heightPx / (ratio > 0 ? ratio : 1))));
 }
@@ -40,9 +25,6 @@ export function nextRingRow(row: number, rings: number): number {
   return rings > 0 ? (row + 1) % rings : 0;
 }
 
-/** Where a history handed to a fresh ring lands: how many of its `count` rows to skip, how many
- * fit, and the write cursor they leave behind. More rows than the ring holds keeps the newest —
- * the oldest are the ones already scrolled past the bottom of the plot. */
 export function seedPlacement(
   count: number,
   rings: number,
@@ -51,9 +33,6 @@ export function seedPlacement(
   return { skip: Math.max(0, count - rows), rows, write: rings > 0 ? rows % rings : 0 };
 }
 
-/** One axis of the shared drawing buffer: grow to whatever the largest visible plot needs, and
- * shrink only once it needs less than half. A buffer that tracked the requirement exactly would
- * be reallocated on every frame of a resize. */
 export function fitExtent(current: number, required: number): number {
   if (required > current) {
     return required;

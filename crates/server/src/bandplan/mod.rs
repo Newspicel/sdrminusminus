@@ -6,34 +6,20 @@ use sdrmm_wire::{
 };
 use serde::Deserialize;
 
-/// One row of a layer table. Ranges are half-open `[start_hz, stop_hz)`, so a band that ends
-/// where the next begins produces no zero-width sliver.
-///
-/// Rows within a layer **may overlap**: a regulator gives one range to several services at once,
-/// and flattening that into one row per range would be inventing an answer the source does not
-/// give. [`resolve`] handles it; nothing here has to.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Entry {
     pub start_hz: f64,
     pub stop_hz: f64,
     pub service: BandService,
-    /// Exactly what the source calls it.
     pub name: String,
-    /// The name an operator would use, where it differs from the official one. Contributed by
-    /// [`ANNOTATIONS`], never by an importer.
     #[serde(default)]
     pub friendly: Option<String>,
-    /// Primary rather than secondary. Both the ITU and BNetzA tables encode this as
-    /// capitalisation of the service name, so an importer reads it off for free.
     #[serde(default = "primary_by_default")]
     pub primary: bool,
-    /// Where the row is in its source document — `27001`, `FREQ_00001`. Also the allocation's
-    /// stable id, because a range cannot identify a row in a table that repeats ranges.
     #[serde(default)]
     pub reference: Option<String>,
     #[serde(default)]
     pub aliases: Vec<String>,
-    /// The mode "tune here" applies.
     #[serde(default)]
     pub suggested: Option<ChannelParams>,
     #[serde(default)]
@@ -46,8 +32,6 @@ const fn primary_by_default() -> bool {
     true
 }
 
-/// How a layer document came to exist, carried into [`BandLayerInfo`] so a reader can tell an
-/// importer's output from the hand-written remainder.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[expect(
     dead_code,
@@ -55,20 +39,15 @@ const fn primary_by_default() -> bool {
               document and its diff; only `generator` is answered over the wire"
 )]
 pub(crate) struct Provenance {
-    /// `curated`, or the importer that wrote it (`bnetza`, `ofcom`, `fcc`).
     pub generator: String,
-    /// Where the source document was fetched from, and when.
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]
     pub fetched_at: Option<String>,
-    /// SHA-256 of the source document as parsed. Recorded, not enforced: it is how a reviewer
-    /// tells "the regulator changed the table" from "the parser changed its mind".
     #[serde(default)]
     pub sha256: Option<String>,
 }
 
-/// A published table. `entries` must be sorted by `start_hz`; they may overlap each other.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Layer {
     pub id: String,
@@ -85,7 +64,6 @@ pub(crate) struct Layer {
 pub(crate) struct Annotation {
     pub start_hz: f64,
     pub stop_hz: f64,
-    /// What an operator calls this stretch.
     pub name: String,
     #[serde(default)]
     pub aliases: Vec<String>,
@@ -95,14 +73,10 @@ pub(crate) struct Annotation {
     pub channel_step_hz: Option<f64>,
     #[serde(default)]
     pub notes: Option<String>,
-    /// Restrict the annotation to entries of one service, so "Marine VHF" labels the maritime
-    /// allocation over 156–162 MHz and not the land-mobile row that shares it.
     #[serde(default)]
     pub service: Option<BandService>,
 }
 
-/// Every layer document, `include_str!`d so they ship inside the binary. Adding an importer is
-/// adding its output here and naming it from a region.
 static LAYER_DOCS: &[(&str, &str)] = &[
     ("world", include_str!("../../data/bandplan/world.json")),
     ("itu-r1", include_str!("../../data/bandplan/itu-r1.json")),
@@ -117,10 +91,6 @@ static LAYER_DOCS: &[(&str, &str)] = &[
 
 static ANNOTATIONS_DOC: &str = include_str!("../../data/bandplan/annotations.json");
 
-/// The curated annotations, sorted so the splitter can walk them.
-///
-/// `expect` here is not I/O: the document is `include_str!`d, so a malformed one cannot appear
-/// at runtime — it fails the loader test in CI, before it can reach anybody.
 #[expect(clippy::expect_used, reason = "compiled-in constant; see above")]
 static ANNOTATIONS: LazyLock<Vec<Annotation>> = LazyLock::new(|| {
     let mut parsed: Vec<Annotation> =
@@ -129,11 +99,6 @@ static ANNOTATIONS: LazyLock<Vec<Annotation>> = LazyLock::new(|| {
     parsed
 });
 
-/// Every layer, parsed and annotated once.
-///
-/// `expect` is load-of-a-compiled-in-constant, not I/O: the documents are `include_str!`d, so a
-/// malformed one cannot appear at runtime — it fails the test that parses them, in CI, before it
-/// can reach anybody (CLAUDE.md's startup exception).
 static LAYERS: LazyLock<Vec<Layer>> = LazyLock::new(|| {
     LAYER_DOCS
         .iter()
@@ -149,18 +114,9 @@ static LAYERS: LazyLock<Vec<Layer>> = LazyLock::new(|| {
         .collect()
 });
 
-/// Split every entry at the annotation edges inside it, then label the pieces an annotation
-/// fully contains.
-///
-/// Splitting first is what keeps this honest. "Marine VHF" covers 156–161.9625 MHz; the ITU
-/// allocation it sits in runs 156–174 MHz. Labelling the whole allocation would put the name on
-/// 12 MHz of land mobile, and skipping it because it does not fit would lose the name entirely.
-/// Cutting the allocation at the annotation's edges gives each piece its right answer.
 fn annotate(entries: Vec<Entry>, annotations: &[Annotation]) -> Vec<Entry> {
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
-        // Only the annotations that actually touch this entry, and only the edges strictly
-        // inside it: an edge at the boundary splits nothing.
         let mut cuts: Vec<f64> = annotations
             .iter()
             .filter(|a| a.stop_hz > entry.start_hz && a.start_hz < entry.stop_hz)
@@ -180,23 +136,15 @@ fn annotate(entries: Vec<Entry>, annotations: &[Annotation]) -> Vec<Entry> {
                 stop_hz: stop,
                 ..entry.clone()
             };
-            // The narrowest annotation containing the piece wins, so a specific note inside a
-            // broad one is not overruled by it.
             let found = annotations
                 .iter()
                 .filter(|a| a.start_hz <= start && a.stop_hz >= stop)
                 .filter(|a| a.service.is_none_or(|service| service == entry.service))
-                // …and an annotation never renames a row that is *more* specific than it is.
-                // "UHF land mobile" spans 440–470 MHz and would otherwise relabel CEPT's
-                // 200 kHz PMR446 row sitting inside it, replacing the precise answer with the
-                // vague one — the exact inversion this whole layering exists to prevent.
                 .filter(|a| entry_width >= a.stop_hz - a.start_hz)
                 .min_by(|a, b| (a.stop_hz - a.start_hz).total_cmp(&(b.stop_hz - b.start_hz)));
             if let Some(annotation) = found {
                 piece.friendly = Some(annotation.name.clone());
                 piece.aliases = annotation.aliases.clone();
-                // The regulator's own raster and notes win where it published them: an
-                // annotation fills gaps, it does not correct the source.
                 piece.suggested = piece.suggested.or_else(|| annotation.suggested.clone());
                 piece.channel_step_hz = piece.channel_step_hz.or(annotation.channel_step_hz);
                 piece.notes = piece.notes.or_else(|| annotation.notes.clone());
@@ -207,8 +155,6 @@ fn annotate(entries: Vec<Entry>, annotations: &[Annotation]) -> Vec<Entry> {
     out
 }
 
-/// A coarse footprint, in degrees. Used only to guess a default region from a coordinate; the
-/// operator's own choice always wins over it.
 struct Bbox {
     lat: (f64, f64),
     lon: (f64, f64),
@@ -225,16 +171,11 @@ struct RegionDef {
     name: &'static str,
     country: Option<&'static str>,
     itu: ItuRegion,
-    /// Layer ids, least specific first.
     layers: &'static [&'static str],
     overlays: &'static [&'static str],
-    /// Where this region applies, coarsely. Empty for the bare ITU regions, which are decided
-    /// by [`itu_region_of`] instead.
     footprint: &'static [Bbox],
 }
 
-/// The selectable regions, most specific first — [`locate`] returns the first footprint hit, so
-/// Germany must be tried before CEPT.
 static REGIONS: &[RegionDef] = &[
     RegionDef {
         id: "de",
@@ -323,12 +264,8 @@ static REGIONS: &[RegionDef] = &[
     },
 ];
 
-/// What a client with no stored preference gets. Region 1 rather than a country: it is the
-/// widest answer that is still useful, and the client offers to narrow it from the browser's
-/// location.
 pub(crate) const DEFAULT_REGION: &str = "itu-r1";
 
-/// The lane the regulatory stack resolves into. Overlay lanes are named by their layer.
 const ALLOCATION_LANE: &str = "allocation";
 
 static PLANS: LazyLock<Vec<BandPlan>> = LazyLock::new(|| REGIONS.iter().map(build).collect());
@@ -344,9 +281,6 @@ pub(crate) fn plan(region: &str) -> Option<BandPlan> {
     PLANS.iter().find(|plan| plan.region.id == region).cloned()
 }
 
-/// Guess a region from a coordinate. Coarse by construction — the footprints are bounding
-/// boxes, and the ITU fallback approximates lines A/B/C — so the answer is a starting point the
-/// operator confirms, never a silent setting.
 pub(crate) fn locate(lat: f64, lon: f64) -> BandRegionMatch {
     if let Some(def) = REGIONS
         .iter()
@@ -371,12 +305,6 @@ pub(crate) fn locate(lat: f64, lon: f64) -> BandRegionMatch {
     }
 }
 
-/// ITU regions from a coordinate, approximating Radio Regulations lines A/B/C with boxes.
-///
-/// Known to be wrong at the edges the boxes cannot express: Mongolia and northern China sit
-/// inside the Region 3 box but Mongolia is Region 1 (RR 5.2 names it explicitly), and the
-/// Atlantic leg of line B is a set of great-circle arcs, not the meridian used here. Every
-/// answer from this function is reported as `approximate`.
 fn itu_region_of(lat: f64, lon: f64) -> ItuRegion {
     const GREENLAND: Bbox = Bbox {
         lat: (58.0, 84.0),
@@ -477,7 +405,6 @@ impl Pool {
         if let Some(&at) = self.index.get(&built.id) {
             return at;
         }
-        // The count is bounded by the tables, which are far smaller than u32.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "an allocation table of four billion rows is not a thing"
@@ -493,28 +420,12 @@ fn layer(id: &str) -> Option<&'static Layer> {
     LAYERS.iter().find(|layer| layer.id == id)
 }
 
-/// Flatten a layer stack into non-overlapping blocks, most-specific-wins.
-///
-/// An active-set sweep, not a per-layer lookup, because **the source tables overlap themselves**.
-/// A regulator routinely gives one range to several services at once — BNetzA hands 435–472 kHz
-/// to aeronautical navigation, maritime mobile *and* short-range devices in three separate rows,
-/// and the ITU table's 13.36–13.41 MHz is fixed and radio astronomy together. So "the entry
-/// covering this frequency in this layer" is not a question with one answer, and any formulation
-/// that assumes it is drops co-allocations on the floor.
-///
-/// Each entry's edges become events; walking them in order keeps the set of entries covering the
-/// current interval, and every one of them lands in the block — the winner by rank, the rest as
-/// `covered`. Adjacent intervals whose whole set is identical merge back together, so a boundary
-/// that exists only because some *other* part of the spectrum has an edge there is not drawn.
 fn resolve(stack: &[&'static Layer], pool: &mut Pool) -> Vec<BandBlock> {
-    /// An entry's start or stop, tagged with everything the ordering needs.
     struct Event {
         hz: f64,
         opens: bool,
         at: usize,
     }
-    // Flattened once so an event can name its entry by index; the order here is also the
-    // tie-break of last resort, which makes the output stable across runs.
     let flat: Vec<(&Layer, &Entry, u8)> = stack
         .iter()
         .enumerate()
@@ -541,8 +452,6 @@ fn resolve(stack: &[&'static Layer], pool: &mut Pool) -> Vec<BandBlock> {
             at,
         });
     }
-    // Closes before opens at the same frequency, so a band ending where the next begins does not
-    // briefly appear to be both.
     events.sort_by(|a, b| a.hz.total_cmp(&b.hz).then(a.opens.cmp(&b.opens)));
 
     let mut active: Vec<usize> = Vec::new();
@@ -569,8 +478,6 @@ fn resolve(stack: &[&'static Layer], pool: &mut Pool) -> Vec<BandBlock> {
     blocks
 }
 
-/// Rank the entries covering one interval and record it, merging into the previous block when
-/// the whole set is unchanged.
 fn push_block(
     blocks: &mut Vec<BandBlock>,
     start: f64,
@@ -580,9 +487,6 @@ fn push_block(
     pool: &mut Pool,
 ) {
     let mut order: Vec<usize> = active.to_vec();
-    // Most specific layer first; within a layer a primary allocation outranks a secondary one,
-    // because a secondary service must accept interference from every primary one and calling it
-    // the winner would invert what the band actually is. Flat index last, for a stable order.
     order.sort_by(|&a, &b| {
         let (_, entry_a, rank_a) = &flat[a];
         let (_, entry_b, rank_b) = &flat[b];
@@ -618,9 +522,6 @@ fn push_block(
 
 fn allocation(layer: &Layer, entry: &Entry) -> BandAllocation {
     BandAllocation {
-        // The source's own row id where it has one. A range alone cannot identify a row in a
-        // table that gives one range to several services, and annotation splitting means one
-        // source row can become several entries — hence the range in the fallback too.
         id: match &entry.reference {
             Some(reference) => format!("{}:{reference}:{:.0}", layer.id, entry.start_hz),
             None => format!("{}:{:.0}:{}", layer.id, entry.start_hz, entry.name),
@@ -644,8 +545,6 @@ fn allocation(layer: &Layer, entry: &Entry) -> BandAllocation {
 mod tests {
     use super::*;
 
-    /// Sorted and non-empty — but *not* disjoint. Overlap within a layer is what a co-allocation
-    /// is, and asserting it away is what would drop one.
     #[test]
     fn every_layer_is_sorted_and_its_rows_are_well_formed() {
         for layer in LAYERS.iter() {
@@ -670,9 +569,6 @@ mod tests {
         }
     }
 
-    /// The annotations overlay is the one hand-written thing left, and it is applied to
-    /// *generated* rows — so its attach rule has to be exactly right or an importer's precision
-    /// is thrown away by a curated approximation.
     #[test]
     fn an_annotation_labels_the_pieces_it_covers_and_nothing_wider() {
         let entries: Vec<Entry> = serde_json::from_str(
@@ -694,19 +590,12 @@ mod tests {
                 .map(|e| e.friendly.clone().unwrap_or_else(|| e.name.clone()))
                 .unwrap_or_default()
         };
-        // The wide row is cut at the annotation's edges, and only the middle piece is renamed:
-        // labelling all of 100–200 "Marine VHF" would put the name on 90 units that are not.
         assert_eq!(named(100.0), "MARITIME MOBILE");
         assert_eq!(named(110.0), "Marine VHF");
         assert_eq!(named(150.0), "MARITIME MOBILE");
-        // The narrow row sits wholly inside the annotation but is the more specific statement,
-        // so it keeps its own name — the PMR446-inside-UHF-land-mobile case.
         assert_eq!(named(120.0), "A NARROW ROW");
     }
 
-    /// An allocation's id is what a block references and what the client keys on. A table that
-    /// repeats ranges — every real one does — makes `layer:start_hz` ambiguous, so a collision
-    /// here would silently merge two services into one.
     #[test]
     fn allocation_ids_are_unique_within_every_plan() {
         for plan in PLANS.iter() {
@@ -722,12 +611,8 @@ mod tests {
         }
     }
 
-    /// The property the sweep exists for: where a source gives one range to several services,
-    /// all of them survive into the block rather than the last one read winning.
     #[test]
     fn co_allocations_all_survive_into_the_block() {
-        // Authored as a document rather than a literal, so this also holds the loader's schema:
-        // the shape here is exactly what an importer has to write.
         let layer: &'static Layer = Box::leak(Box::new(
             serde_json::from_str::<Layer>(
                 r#"{
@@ -766,7 +651,6 @@ mod tests {
         assert_eq!(blocks[1].stop_hz, 200.0);
         assert_eq!(blocks[1].covered.len(), 2);
 
-        // 200–300: only the one that runs on.
         assert_eq!(name(blocks[2].of), "ISM");
         assert!(blocks[2].covered.is_empty());
     }
@@ -781,9 +665,6 @@ mod tests {
         assert!(plan(DEFAULT_REGION).is_some());
     }
 
-    /// A suggested mode is applied to a channel verbatim, so a type this build does not ship
-    /// would be a 400 the operator sees only on click. Now guards `annotations.json`, which is
-    /// where the modes live once the layers are generated.
     #[test]
     fn every_suggested_mode_is_a_channel_type_this_build_ships() {
         let types: Vec<String> = sdrmm_engine::Engine::new(None)
@@ -919,7 +800,6 @@ mod tests {
         );
     }
 
-    /// The same frequency answers differently per region — the reason regions exist at all.
     #[test]
     fn regions_disagree_where_the_tables_do() {
         let of = |region: &str, hz: f64| -> String {
@@ -1000,8 +880,6 @@ mod tests {
         assert!(plan("").is_none());
     }
 
-    /// A boundary shared by two layers must not leave a zero-width block behind, and a gap in
-    /// every layer must stay a gap rather than becoming a block with no allocation.
     #[test]
     fn the_sweep_emits_neither_slivers_nor_empty_blocks() {
         for plan in PLANS.iter() {

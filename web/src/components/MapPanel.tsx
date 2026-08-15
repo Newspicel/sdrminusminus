@@ -40,29 +40,14 @@ import { type PositionSample, usePositionStore } from "../lib/position";
 import { SIGNAL_MAX_DBFS, SIGNAL_MIN_DBFS, type SignalSurveySample } from "../lib/signalSurvey";
 import { formatMhz } from "./format";
 
-// MapLibre v6 ships its worker as a separate file and derives its URL from `import.meta.url`,
-// which under a bundler points at the bundle rather than the package — so every bundler consumer
-// has to hand it the worker itself. `?worker&url` and not `?url`: the dist worker imports a
-// sibling chunk that a verbatim asset copy would leave behind.
 setWorkerUrl(workerUrl);
 
-/** : OpenFreeMap vector tiles — free, no API key, no usage cap. A self-hosted PMTiles
- * basemap replaces this URL when the server grows one; nothing else here changes. */
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
-/** A field Pi has no internet and must not wait on one: if the style has not arrived by then,
- * the map opens on the offline backdrop instead of hanging with a blank canvas. */
 const BASEMAP_TIMEOUT_MS = 6_000;
 
-/** Half-size of the click/tap hit box in pixels — a 4 px dot is not a touch target. */
 const HIT_SLOP_PX = 9;
 
-/** MapLibre's compact attribution opens *expanded* and re-expands itself whenever the credits
- * change (`_updateAttributions` calls `_updateCompact`), so a map node spends its bottom edge on a
- * credit line the operator never asked for. `maplibregl-compact` present without
- * `maplibregl-compact-show` is the collapsed ⓘ badge — the same state MapLibre's own toggle lands
- * in — and holding the class from the start is what makes it stick: `_updateCompact` expands only
- * when that class is *absent*. */
 class CollapsedAttributionControl extends AttributionControl {
   override onAdd(map: MapLibreMap): HTMLElement {
     const container = super.onAdd(map);
@@ -87,38 +72,24 @@ export function MapPanel({
   className,
 }: {
   kinds: readonly MapKind[];
-  /** `[lon, lat]` station fixes — an ADS-B channel's CPR reference — drawn as landmarks under
-   * the targets they anchor. */
   references?: readonly (readonly [number, number])[];
   positionNodes?: readonly string[];
-  /** Aggregated drive-survey readings. Present, even when empty, enables the signal layer and
-   * its absolute dBFS legend. */
   signalSamples?: readonly SignalSurveySample[];
-  /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
-   * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with
-   * one gesture, since the two cannot share a wheel. */
   active?: boolean;
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
-  // Last station array published per kind. Comparing identity (the store hands out a new array
-  // only when that kind changed) keeps an idle map from re-serialising GeoJSON twice a second.
   const drawnRef = useRef<Partial<Record<MapKind, readonly Target[]>>>({});
   const selectedRef = useRef<{ kind: MapKind; id: string } | null>(null);
   const targetFramedRef = useRef(false);
   const positionFramedRef = useRef(false);
   const signalFramedRef = useRef(false);
-  // The map is built once and outlives any number of wire changes, so the listeners and the draw
-  // tick read the wired kinds, the references and the theme colours from here rather than
-  // closing over them.
   const kindsRef = useRef(kinds);
   const referencesRef = useRef(references);
   const positionNodesRef = useRef(positionNodes);
   const signalSamplesRef = useRef<readonly SignalSurveySample[] | null>(signalSamples ?? null);
-  // Written after commit, never during render: React may replay or discard a render, and the
-  // map's listeners must not be left reading a prop from one that never landed.
   useLayoutEffect(() => {
     kindsRef.current = kinds;
     referencesRef.current = references;
@@ -151,12 +122,8 @@ export function MapPanel({
       highlight(mapRef.current, kindsRef.current, next);
     };
 
-    // One token does double duty: the offline backdrop, and the outline that keeps every target
-    // readable against whichever basemap is under it.
     const edge = themeColor(container, "--color-bg", "#101113");
     edgeRef.current = edge;
-    // The station mark is *ours* — the one place the map spends the app accent rather than a
-    // kind colour, so it can never be mistaken for a target.
     accentRef.current = themeColor(container, "--color-accent", "#76acfc");
 
     void (async () => {
@@ -187,8 +154,6 @@ export function MapPanel({
         highlight(map, kindsRef.current, selectedRef.current);
       });
 
-      // Once the operator has moved the map themselves, the auto-frame below must never take the
-      // view back off them.
       map.on("movestart", (event) => {
         if (event.originalEvent !== undefined) {
           targetFramedRef.current = true;
@@ -199,9 +164,6 @@ export function MapPanel({
 
       map.on("click", (event) => select(hitTarget(map, event)));
 
-      // One hit test against the layers that exist, rather than MapLibre's per-layer
-      // enter/leave listeners: the layer set follows the wires, and a delegated listener
-      // outlives the layer it names.
       map.on("mousemove", (event) => {
         map.getCanvas().style.cursor = hitTarget(map, event) === null ? "" : "pointer";
       });
@@ -267,7 +229,6 @@ export function MapPanel({
         }
         drawnRef.current[kind] = rows;
         const collection = targetCollection(rows, now);
-        // `setData` resolves when the tile re-parse lands; the next tick is our only consumer.
         void map.getSource<GeoJSONSource>(sourceId(kind))?.setData(collection);
         next[kind] = collection.features.length;
         changed = true;
@@ -295,8 +256,6 @@ export function MapPanel({
     };
 
     const drawTimer = setInterval(draw, DRAW_TICK_MS);
-    // The store's age-out is global, so the horizon this panel picks is the one every target
-    // view gets; `TARGET_MAX_AGE_MS` is deliberately generous for that reason.
     const ageTimer = setInterval(
       () => useDecodedStore.getState().ageOut(TARGET_MAX_AGE_MS),
       AGE_OUT_INTERVAL_MS,
@@ -307,9 +266,6 @@ export function MapPanel({
     };
   }, []);
 
-  // The map's own gestures are handed over with the face: an inactive one is a picture, and the
-  // wheel across it belongs to the canvas camera. Re-run on every render of an active map too —
-  // the handlers only exist once the style has landed, which is later than the first effect.
   useEffect(() => {
     const map = mapRef.current;
     if (map === null) {
@@ -331,9 +287,6 @@ export function MapPanel({
     }
   }, [active, basemap]);
 
-  // Rewiring the node changes what it plots. The key, not the array, is the dependency: `kinds`
-  // is rebuilt on every render, and a rebuilt layer stack twice a second is not what a wire
-  // change costs.
   const kindsKey = kinds.join(" ");
   useEffect(() => {
     const map = mapRef.current;
@@ -348,8 +301,6 @@ export function MapPanel({
       selectedRef.current = null;
       setDetail(null);
     }
-    // A rebuilt dot layer carries default paint, so a selection that survived the rewire has to
-    // be drawn onto it again.
     highlight(map, wired, selectedRef.current);
   }, [kindsKey]);
 
@@ -388,9 +339,6 @@ export function MapPanel({
 
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>
-      {/* Sized in flow, not `absolute inset-0`: MapLibre stamps `maplibregl-map` onto this
-          element, and its stylesheet's unlayered `position: relative` beats Tailwind's layered
-          utilities — `inset-0` then anchors to nothing and the box collapses to zero height. */}
       <div ref={containerRef} className="h-full w-full bg-bg" />
 
       <div className="pointer-events-none absolute top-2 left-2 flex flex-col items-start gap-1">
@@ -494,9 +442,6 @@ const LAYER_KIND: ReadonlyMap<string, MapKind> = new Map(
   MAP_KINDS.flatMap((kind) => LAYER_PARTS.map((part) => [layerId(kind, part), kind])),
 );
 
-/** The topmost target under the pointer. Layers the style does not carry are filtered out
- * first: an unwired kind has none at all, a kind whose course icon could not be rasterised has
- * no heading layer, and querying a layer that is not there is an error. */
 function hitTarget(map: MapLibreMap, event: MapMouseEvent): { kind: MapKind; id: string } | null {
   const layers = [...LAYER_KIND.keys()].filter((id) => map.getLayer(id) !== undefined);
   if (layers.length === 0) {
@@ -515,10 +460,6 @@ function hitTarget(map: MapLibreMap, event: MapMouseEvent): { kind: MapKind; id:
   return kind === undefined || typeof id !== "string" ? null : { kind, id };
 }
 
-/** `null` = the basemap could not be reached, so the caller falls back to the offline backdrop.
- * Pre-fetching rather than handing MapLibre the URL is what makes that fallback possible: a
- * style that 404s or times out inside MapLibre never fires `style.load`, and the target layers
- * would never be installed at all. */
 async function fetchStyle(): Promise<MapStyle | null> {
   try {
     const response = await fetch(BASEMAP_STYLE_URL, {
@@ -541,9 +482,6 @@ function offlineStyle(background: string): MapStyle {
   };
 }
 
-/** The map's layer stack, rebuilt from scratch for exactly the wired kinds. Taking the whole
- * stack down first is what keeps a rewire cheap to reason about: the alternative is a diff whose
- * insertion order has to reproduce the dots-then-labels rule below. */
 function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]): void {
   for (const kind of MAP_KINDS) {
     for (const part of LAYER_PARTS) {
@@ -567,16 +505,11 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
       paint: {
         "circle-radius": 4,
         "circle-color": color,
-        // The stroke is the theme background, so a target stays legible over OpenFreeMap's light
-        // tiles and over the dark offline backdrop without two colour schemes.
         "circle-stroke-color": edge,
         "circle-stroke-width": 1,
       },
     });
 
-    // The heading symbol only exists if we could rasterise one; without it the map keeps its
-    // dots rather than asking MapLibre for an image that is not there. Images outlive the layer
-    // stack, so a rewire reuses the one already registered.
     const icon = `${sourceId(kind)}-icon`;
     if (!map.hasImage(icon)) {
       const image = KIND_ICON[kind](color, edge);
@@ -806,18 +739,14 @@ const ARROW_PX = 18;
 const PLANE_PX = 26;
 const SHIP_PX = 22;
 
-/** The raster a heading-bearing target draws: kind read off the shape before the colour
- * ( — every colour paired with a marker). */
 const KIND_ICON: Record<MapKind, (color: string, edge: string) => ImageData | null> = {
   adsb: planeImage,
   ais: shipImage,
   aprs: arrowImage,
 };
 
-/** Ems the label sits below the position — past each kind's symbol, not through it. */
 const LABEL_OFFSET_EM: Record<MapKind, number> = { adsb: 1.3, ais: 1.1, aprs: 0.7 };
 
-/** `null` when the browser gives us no 2D context — the map then draws dots only. */
 function rasterize(px: number, draw: (ctx: CanvasRenderingContext2D) => void): ImageData | null {
   const canvas = document.createElement("canvas");
   canvas.width = px * ICON_SCALE;
@@ -831,8 +760,6 @@ function rasterize(px: number, draw: (ctx: CanvasRenderingContext2D) => void): I
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
-/** Traces the starboard half of a north-facing outline and its port mirror, so symmetry is
- * stated once instead of maintained twice. */
 function silhouette(
   ctx: CanvasRenderingContext2D,
   px: number,
@@ -844,8 +771,6 @@ function silhouette(
   ctx.closePath();
 }
 
-/** The edge stroke goes under the fill: half the line survives as a halo against the basemap
- * without thinning the silhouette. */
 function paint(ctx: CanvasRenderingContext2D, color: string, edge: string): void {
   ctx.strokeStyle = edge;
   ctx.lineWidth = 1;
@@ -855,8 +780,6 @@ function paint(ctx: CanvasRenderingContext2D, color: string, edge: string): void
   ctx.fill();
 }
 
-/** A course indicator pointing north at rotation 0, drawn clear of the 4 px dot so the two read
- * as one symbol. */
 function arrowImage(color: string, edge: string): ImageData | null {
   return rasterize(ARROW_PX, (ctx) => {
     const mid = ARROW_PX / 2;
@@ -889,7 +812,6 @@ function planeImage(color: string, edge: string): ImageData | null {
   });
 }
 
-/** A hull seen from above, bow north — the AIS symbol every chartplotter taught. */
 function shipImage(color: string, edge: string): ImageData | null {
   return rasterize(SHIP_PX, (ctx) => {
     silhouette(ctx, SHIP_PX, [
@@ -905,7 +827,6 @@ function shipImage(color: string, edge: string): ImageData | null {
 
 const REFERENCE_ID = "station-reference";
 
-/** A ring and a centre dot: a fix, not a mover — no heading, no dot layer, no selection. */
 function stationImage(color: string, edge: string): ImageData | null {
   const PX = 20;
   return rasterize(PX, (ctx) => {
@@ -925,9 +846,6 @@ function stationImage(color: string, edge: string): ImageData | null {
   });
 }
 
-/** Where the wired decoders decode *from*: an ADS-B channel's CPR reference is the antenna's
- * own fix, worth seeing among the targets it anchors. A landmark, not a target — kept out of
- * the hit test and installed once, before the target layers, so they stack above it. */
 function installReferenceLayer(
   map: MapLibreMap,
   accent: string,
@@ -967,10 +885,6 @@ function sameCounts(a: Counts, b: Counts): boolean {
   return MAP_KINDS.every((kind) => a[kind] === b[kind]);
 }
 
-/** Reads a theme token off the live element so the map follows the app's palette rather than
- * pinning a second copy of it. Painted down to sRGB hex through a pixel because MapLibre's
- * style spec takes CSS Color 3 only and *drops the whole layer* handed the tokens' `oklch(...)`
- * — and canvas `fillStyle` reads back unconverted, so painting is the only conversion. */
 function themeColor(element: Element, token: string, fallback: string): string {
   const value = getComputedStyle(element).getPropertyValue(token).trim();
   if (value === "") {
@@ -989,7 +903,6 @@ function themeColor(element: Element, token: string, fallback: string): string {
   return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** Absolute UTC, not "12 s ago": a wall clock does not need a re-render to stay true. */
 function formatUtc(ms: number): string {
   return `${new Date(ms).toISOString().slice(11, 19)}Z`;
 }

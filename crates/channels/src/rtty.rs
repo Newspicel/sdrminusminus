@@ -1,18 +1,3 @@
-//! RTTY decoder ( P2): two-tone FSK into the Baudot/ITA2 alphabet.
-//!
-//! The waveform is the catalog's plain-CPFSK entry (`cell_params`): the reference modulator
-//! in `testgen` transmits it through the library's own `CpmMod`, and the matched filter below
-//! comes from the shared pulse library. The receive side deliberately keeps its per-sample
-//! start/stop framing instead of riding `cpm/`'s demodulator, for two measured reasons. RTTY
-//! is *character-asynchronous* — a sender may pause between characters for any time at all,
-//! and the standard 1.5-bit stop element shifts the bit lattice half a period per character —
-//! so timing re-anchors on every start-bit edge and one clean edge decodes the very next
-//! character with no acquisition run-in; the engine's one continuous-clock timing stack
-//! (`SymbolSync`) cannot re-phase per character. And the traffic is
-//! mark-biased (idle is *continuous* mark), which statically biases `CpmDemod`'s
-//! data-mean-learning centre estimate — the failure NAVTEX measured on its milder 4-of-7
-//! bias is documented at `navtex::cpm_params`.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -28,38 +13,22 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 257;
 
-/// Post-detection filter length is one symbol, which at 45.45 baud is 176 taps; the cap keeps
-/// a hypothetical very slow setting from turning the filter into a per-sample cost blowup.
 const MAX_POST_TAPS: usize = 511;
 
-/// Every bit of a frame — start, data and stop — must reach this fraction of full deviation,
-/// or the frame is dropped. A real transmission sits at ±1 on all seven; band-limited noise
-/// reaches that level only by chance, so requiring it seven times over is what keeps an idle
-/// band from printing the garbage a sign-only slicer would.
 const MIN_LEVEL: f32 = 0.5;
 
-/// Flush after this many characters even without a line ending: a teleprinter line is 69
-/// characters, so a sender that never sends CR still produces one event per line's worth.
 const FLUSH_CHARS: usize = 72;
 
-/// Flush a partial line after this many bit periods without a character — the carrier dropped
-/// or the operator stopped, and held text must not wait for the next transmission.
 const IDLE_FLUSH_BITS: f64 = 24.0;
 
-/// Positions sampled per character: the start bit, five data bits, and the first stop bit.
 const FRAME_BITS: usize = 7;
 const STOP_INDEX: usize = FRAME_BITS - 1;
 
-/// ITA2 (Baudot) letters row indexed by the 5-bit code. `'\0'` marks a code that is not text:
-/// NUL, and the two shift codes, which are handled before the lookup.
 pub(crate) const LETTERS: [char; 32] = [
     '\0', 'E', '\n', 'A', ' ', 'S', 'I', 'U', '\r', 'D', 'R', 'J', 'N', 'F', 'C', 'K', 'T', 'Z',
     'L', 'W', 'H', 'Y', 'P', 'Q', 'O', 'B', 'G', '\0', 'M', 'X', 'V', '\0',
 ];
 
-/// Figures row in the US teleprinter variant of ITA2 — `$ ' ! #` sit where the international
-/// table has WRU/BELL/undefined. Code 0x05 is BELL, a signal rather than text, so it is
-/// dropped like the other non-text codes.
 pub(crate) const FIGURES: [char; 32] = [
     '\0', '3', '\n', '-', ' ', '\0', '8', '7', '\r', '$', '4', '\'', ',', '!', ':', '(', '5', '"',
     ')', '2', '#', '6', '0', '1', '9', '?', '&', '\0', '.', '/', ';', '\0',
@@ -82,7 +51,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 pub struct RttyChannel {
     demod: FmDemod,
     post: RealDecimator,
-    /// `-1.0` when `invert` swaps mark and space (equivalent to reversing the sideband).
     polarity: f32,
     decoder: Decoder,
     demod_buf: Vec<f32>,
@@ -118,7 +86,6 @@ fn check_params(p: &RttyParams) -> Result<(), ChannelError> {
     Ok(())
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &RttyParams) -> (f64, f64) {
     let half = p.shift_hz / 2.0 + 2.0 * p.baud;
     (-half, half)
@@ -133,20 +100,11 @@ pub(crate) fn channel_filter(p: &RttyParams) -> Result<ChannelFilter, ChannelErr
     )))
 }
 
-/// One bit of integrate-and-dump — NRZ keying's own matched filter, from the shared pulse
-/// library, sized from the current baud so 45.45 and 75 get the same shape.
 fn post_filter(p: &RttyParams) -> RealDecimator {
     let sps = (DESCRIPTOR.input_rate_hz / p.baud).min(MAX_POST_TAPS as f64);
     RealDecimator::new(&pulse::rect(sps, Norm::Area), 1)
 }
 
-/// The RTTY waveform as `cpm/` entry data, stated at the half-bit *cell*
-/// rate: 1.5 stop bits has no whole-bit representation, and at two cells per bit every
-/// element of the start/stop frame is a whole number of symbols. Mark — the upper tone — is
-/// index 1, so a cell's symbol index is its keyed level. Only the reference modulator rides
-/// this entry (the module docs say why the receiver cannot); building the test signals from
-/// it keeps the transmitted waveform and the receiver's numbers from drifting apart
-///.
 #[cfg(any(test, feature = "test-signals"))]
 pub(crate) fn cell_params(baud: f64, shift_hz: f64, rate: f64) -> CpmParams {
     let cell_baud = 2.0 * baud;
@@ -186,22 +144,13 @@ impl ChannelRx for RttyChannel {
         self.demod = FmDemod::new(rate, p.shift_hz / 2.0);
         self.post = post_filter(p);
         self.polarity = polarity(p);
-        // Text decoded under the old settings stays queued; the idle timer flushes it.
         self.decoder.configure(rate, p);
         Ok(())
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // Mark and space are symmetric about DC once the host has centred the channel, so one
-        // discriminator scaled to ±shift/2 reads the pair directly as ±1 — no correlator pair
-        // whose window would have to be re-tuned for every baud/shift combination, and the
-        // same code holds from 45.45/170 to 75/850.
         self.demod.process(iq, &mut self.demod_buf);
         for s in &mut self.demod_buf {
-            // Full deviation is the whole signal, so hard-limiting there costs a correctly
-            // tuned transmission nothing while bounding the ±rate/(2·shift) excursions
-            // carrier-free noise produces — that is what lets the filter below average noise
-            // down to a level the slicer's gate can reject.
             *s = if s.is_finite() {
                 (*s * self.polarity).clamp(-1.0, 1.0)
             } else {
@@ -219,7 +168,6 @@ fn polarity(p: &RttyParams) -> f32 {
     if p.invert { -1.0 } else { 1.0 }
 }
 
-/// Character frame in progress, timed from the falling edge that opened its start bit.
 #[derive(Clone, Copy, Default)]
 struct Frame {
     since_edge: usize,
@@ -227,10 +175,7 @@ struct Frame {
     bits: u8,
 }
 
-/// Start/stop framing and the ITA2 shift state. Resynchronises on every start bit, so a
-/// character lost to noise costs one character rather than the rest of the transmission.
 struct Decoder {
-    /// Sample offset from the start-bit edge at which each frame bit is sliced.
     slice_at: [usize; FRAME_BITS],
     idle_flush: usize,
     unshift_on_space: bool,
@@ -287,8 +232,6 @@ impl Decoder {
         self.positive = level >= 0.0;
     }
 
-    /// Slice one frame bit; `None` ends the frame, either because it completed or because it
-    /// failed the start/stop test and the edge that opened it was noise.
     fn slice(&mut self, mut frame: Frame, level: f32, out: &mut ChannelOutputs) -> Option<Frame> {
         match frame.next {
             0 => {
@@ -328,7 +271,6 @@ impl Decoder {
             }
             _ => {}
         }
-        // `code` comes from five sliced bits, so it always indexes inside the 32-entry rows.
         let ch = if self.figs {
             FIGURES[code as usize]
         } else {
@@ -339,8 +281,6 @@ impl Decoder {
         }
         match ch {
             '\0' => {}
-            // A line ends with CR, CR LF or CR CR LF depending on the sender; all three are one
-            // line break to a reader.
             '\r' | '\n' => {
                 if !self.newline {
                     self.text.push('\n');
@@ -393,7 +333,6 @@ mod tests {
         .unwrap()
     }
 
-    /// Enough dead air after a burst for the idle timer to flush the last partial line.
     fn tail(baud: f64) -> Vec<Complex<f32>> {
         testgen::silence((40.0 * RATE / baud) as usize)
     }
@@ -425,7 +364,6 @@ mod tests {
         decode_blocks(&mut channel(p), iq, &BLOCKS).concat()
     }
 
-    /// One transmission of `text` with the trailing dead air a decoder needs to flush it.
     fn burst(text: &str, p: &RttyParams) -> Vec<Complex<f32>> {
         let mut iq = transmission(text, p.baud, p.shift_hz, p.stop_bits.periods(), RATE);
         iq.extend_from_slice(&tail(p.baud));
@@ -434,11 +372,6 @@ mod tests {
 
     #[test]
     fn ita2_rows_match_the_standard_alphabet() {
-        // The reference modulator shares these tables, so every round-trip test would still
-        // pass with a typo in them. This is the only thing standing between the decoder and a
-        // wrong alphabet, so it transcribes the whole chart — ITA2 with the US teleprinter
-        // figures row, the variant the table documents — rather than spot-checking it. `\0`
-        // marks a code with no printable meaning in that shift (NULL, BELL, FIGS, LTRS).
         #[rustfmt::skip]
         const STANDARD: [(u8, char, char); 32] = [
             (0x00, '\0', '\0'), (0x01, 'E',  '3'),  (0x02, '\n', '\n'), (0x03, 'A',  '-'),
@@ -521,7 +454,6 @@ mod tests {
 
     #[test]
     fn unshift_on_space_recovers_a_stream_that_lost_its_letters_shift() {
-        // FIGS 1 7 SPACE A B C, with the LTRS that should precede "ABC" missing.
         let codes = [FIGS_CODE, 0x17, 0x07, SPACE_CODE, 0x03, 0x19, 0x0E];
         let p = RttyParams::default();
         let mut iq = modulate(
@@ -546,8 +478,6 @@ mod tests {
         for seed in [0x1234_5678, 0xdead_beef, 0x0f0f_0f0f] {
             let noise = complex_noise(seed, 0.05, 120_000);
             assert_eq!(decode(p.clone(), &noise), "", "seed {seed:#x} raw");
-            // Band-limited noise is the harder case: it varies slowly enough to look like
-            // keying, so only the level gate keeps it out.
             let noise = selected(&p, &noise);
             assert_eq!(decode(p.clone(), &noise), "", "seed {seed:#x} filtered");
         }
@@ -562,9 +492,6 @@ mod tests {
         assert_eq!(decode(p, &iq), "DE DL1ABC");
     }
 
-    /// The engine always runs [`crate::channel_filter`] ahead of the demod, and a narrow-shift
-    /// mode lives or dies on that selectivity — so a noise test that skips it would be
-    /// measuring the wrong receiver.
     fn selected(p: &RttyParams, iq: &[Complex<f32>]) -> Vec<Complex<f32>> {
         let mut filtered = Vec::new();
         channel_filter(p).unwrap().process(iq, &mut filtered);

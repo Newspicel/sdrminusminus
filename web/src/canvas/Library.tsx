@@ -1,15 +1,3 @@
-// Presets, templates, bookmarks, the band search and the recordings: the things a workspace is
-// configured *from*, which are not nodes with a stream to carry, in one drawer rather than as
-// node kinds that could never be wired to anything.
-//
-// The tools sit here too, for the same reason: an instrument or a calculator answers a question
-// beside the receiver and has no stream to carry, so it is launched from the drawer rather than
-// wired into the patch.
-//
-// Nothing here states a target radio at rest. Templates are the one section that reconfigures one
-// radio wholesale, so its cards name the radio on the button that does it; presets cover the
-// whole workspace (`PresetSnapshot`); bookmarks and the band search tune whatever the operator
-// has selected, and only say so when there is nothing to tune.
 import { Tabs } from "@base-ui/react/tabs";
 import { BandsPanel } from "../components/BandsPanel";
 import { BookmarksPanel } from "../components/BookmarksPanel";
@@ -59,8 +47,6 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
         kind: "device",
         data: { device },
         position: placeNode(snapshot.graph, "device"),
-        // Bounded like every other node label: the server validates the whole snapshot on every
-        // write, so one over-long label would refuse the next node drag too.
         label: recording.file.slice(0, MAX_NAME_LEN),
       }),
     }));
@@ -70,9 +56,6 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
 
   return (
     <Tabs.Root defaultValue="templates" className="flex flex-col overflow-hidden rounded-md">
-      {/* A header band, like a node's: the sections stay put while their content scrolls under
-          them, and the drawer reads as one instrument rather than a list that starts with five
-          loose buttons. */}
       <Tabs.List
         className="flex shrink-0 items-center gap-0.5 border-b border-line bg-panel-2 px-2 py-1.5"
         aria-label="Library section"

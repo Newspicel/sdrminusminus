@@ -1,37 +1,14 @@
-//! Stage four of identification: which protocols look like this?
-//!
-//! Waveform evidence only. A signature here says what a protocol *sounds* like — how wide, how
-//! fast, how far it shifts — and nothing about where in the spectrum it is usually found, because
-//! a channel does not know its own absolute frequency (the host stamps that onto the events it
-//! publishes). What the band would add, framing adds better: [`super::framing`] confirms the one
-//! family whose members are waveform-identical by demodulating them and looking for their syncs.
-//!
-//! Two exclusions worth stating. ADS-B occupies a megahertz and cannot fit the identifier's
-//! slice at all, so it is never a candidate — the ADS-B decoder meets the radio at its own rate
-//! for the same reason. RDS is a subcarrier inside a broadcast FM signal rather than a signal of
-//! its own, so what is on the air there is FM, and that is what gets reported.
-
 use sdrmm_wire::{Modulation, ProtocolMatch};
 
 use super::{detect::Band, features::Waveform};
 use crate::dv::MODE_SIGNATURES;
 
-/// Candidates below this fit are not worth an operator's attention.
 const MIN_SCORE: f32 = 0.35;
 const MAX_CANDIDATES: usize = 5;
-/// How far outside a range a measurement may fall before the fit reaches zero, in multiples of
-/// the range's own width.
 const SKIRT: f64 = 1.5;
-/// Narrowest skirt any range gets, as a fraction of its centre — so a signature pinned to one
-/// exact symbol rate still tolerates a measurement error.
 const MIN_SKIRT_FRACTION: f64 = 0.05;
-/// Applied when a signature names a property the measurement could not produce. A clock that was
-/// not found is not evidence against the protocol, but it is not evidence for it either.
 const UNMEASURED: f32 = 0.75;
 
-/// Weights. The symbol clock is the most discriminating thing a receiver can measure without
-/// decoding, so it counts for most; bandwidth is the least, being as much a property of the
-/// receiver's own filter as of the transmission.
 const WEIGHT_BANDWIDTH: f32 = 1.0;
 const WEIGHT_SYMBOL_RATE: f32 = 2.0;
 const WEIGHT_DEVIATION: f32 = 1.5;
@@ -46,7 +23,6 @@ const fn range(low: f64, high: f64) -> Range {
     Range { low, high }
 }
 
-/// A range around `center`, `fraction` either side.
 const fn about(center: f64, fraction: f64) -> Range {
     Range {
         low: center * (1.0 - fraction),
@@ -74,7 +50,6 @@ impl Range {
 #[derive(Clone, Copy)]
 struct Signature {
     name: &'static str,
-    /// The channel type that decodes it, when this build has one.
     type_id: Option<&'static str>,
     modulations: &'static [Modulation],
     bandwidth_hz: Range,
@@ -83,9 +58,6 @@ struct Signature {
     why: &'static str,
 }
 
-/// The analog modes and the data modes that are separable by measurement alone. The digital
-/// voice family is not in here: its members share a waveform, and their entries are built from
-/// the decoders' own numbers in [`dv_signatures`].
 const SIGNATURES: &[Signature] = &[
     Signature {
         name: "FM broadcast",
@@ -233,7 +205,6 @@ const SIGNATURES: &[Signature] = &[
     },
 ];
 
-/// One candidate per digital-voice mode, built from the decoders' own waveform constants.
 fn dv_signatures() -> impl Iterator<Item = Signature> {
     MODE_SIGNATURES.iter().map(|mode| Signature {
         name: mode.name,
@@ -250,7 +221,6 @@ fn dv_signatures() -> impl Iterator<Item = Signature> {
     })
 }
 
-/// Every protocol whose signature the measurements fit, best first.
 pub(crate) fn candidates(
     modulation: Modulation,
     band: &Band,
@@ -341,8 +311,6 @@ mod tests {
         assert_eq!(names(&found).first(), Some(&"AIS"));
     }
 
-    /// The land-mobile digital modes share a waveform, so measurement alone must shortlist them
-    /// together rather than pick one — picking one is what the framing search is for.
     #[test]
     fn the_c4fm_family_comes_back_as_a_shortlist() {
         let found = candidates(Modulation::Fsk4, &band(12_500.0), &keyed(4_800.0, 1_944.0));

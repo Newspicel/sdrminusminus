@@ -1,5 +1,3 @@
-//! Window functions for spectral analysis ( dsp inventory).
-
 use std::f32::consts::PI;
 
 #[must_use]
@@ -15,8 +13,6 @@ pub fn hann(n: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Coherent gain of a window: `sum(w)`. A full-scale tone at a bin center produces a
-/// magnitude of `sum(w)` before normalization, so dividing by it yields ~0 dBFS.
 #[must_use]
 pub fn coherent_gain(window: &[f32]) -> f32 {
     window.iter().sum()

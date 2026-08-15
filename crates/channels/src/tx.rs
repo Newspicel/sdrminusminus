@@ -2,27 +2,17 @@ use std::{collections::VecDeque, f64::consts::PI};
 
 use crate::ChannelError;
 
-/// Rise and fall time of a keyed burst. A hard edge on a carrier throws sidebands far outside
-/// the channel; a couple of milliseconds of raised cosine keeps them inside it and is short
-/// enough that no syllable or symbol is lost to the ramp.
 const RAMP_MS: f64 = 2.0;
 
-/// Longest backlog a modulator will accept, as seconds of transmission. A transmitter is a
-/// real-time device: a queue past this is a caller feeding it faster than the air can carry,
-/// and saying so beats growing without bound.
 pub(crate) const MAX_QUEUE_S: f64 = 5.0;
 
 pub(crate) struct TxQueue<T> {
-    /// Type id of the owning mode, for the refusal message.
     mode: &'static str,
-    /// Items that fit inside [`MAX_QUEUE_S`] at the mode's rate.
     capacity: usize,
     items: VecDeque<T>,
 }
 
 impl<T> TxQueue<T> {
-    /// `rate` is the rate the queued items are consumed at — audio samples per second for the
-    /// analog modes, symbols per second for the keyed ones.
     pub(crate) fn new(mode: &'static str, rate: f64) -> Self {
         Self {
             mode,
@@ -31,11 +21,6 @@ impl<T> TxQueue<T> {
         }
     }
 
-    /// Reserve room for `n` more items before pushing any of them, so a refused payload is
-    /// never a half-queued one.
-    ///
-    /// # Errors
-    /// [`ChannelError::InvalidPayload`] when the backlog would pass the bound.
     pub(crate) fn accept(&self, n: usize) -> Result<(), ChannelError> {
         if self.items.len() + n <= self.capacity {
             return Ok(());
@@ -68,17 +53,13 @@ impl<T> TxQueue<T> {
     }
 }
 
-/// Where a burst is in its envelope. The carrier is only at full amplitude in `Running`.
 enum State {
     Idle,
-    /// Samples already emitted into the leading ramp.
     Rising(usize),
     Running,
-    /// Samples already emitted into the trailing ramp.
     Falling(usize),
 }
 
-/// The raised-cosine envelope of one keyed burst.
 pub(crate) struct Burst {
     ramp_len: usize,
     state: State,
@@ -92,14 +73,11 @@ impl Burst {
         }
     }
 
-    /// How long the edges are, for the tests that measure a burst against them.
     #[cfg(test)]
     pub(crate) fn ramp_len(&self) -> usize {
         self.ramp_len
     }
 
-    /// Envelope for the next sample, advancing the burst; `None` once the transmitter has
-    /// nothing left to radiate. `more` says the payload still has something to carry.
     pub(crate) fn next(&mut self, more: bool) -> Option<f32> {
         match self.state {
             State::Idle if !more => None,
@@ -107,9 +85,6 @@ impl Burst {
                 self.state = State::Rising(1);
                 Some(self.ramp(0))
             }
-            // A drained queue ends the burst rather than splicing a gap into it: a transmitter
-            // starved of payload must stop radiating, not radiate whatever arrives next as if
-            // it were continuous.
             State::Running if !more => {
                 self.state = State::Falling(1);
                 Some(self.ramp(self.ramp_len - 1))
@@ -134,8 +109,6 @@ impl Burst {
         }
     }
 
-    /// Rising-edge envelope at ramp sample `k`, reaching exactly 1.0 at `ramp_len - 1`. The
-    /// falling edge reads it backwards.
     fn ramp(&self, k: usize) -> f32 {
         (0.5 * (1.0 - (PI * (k + 1) as f64 / self.ramp_len as f64).cos())) as f32
     }
@@ -154,8 +127,6 @@ mod tests {
         assert_eq!(burst.next(false), None);
     }
 
-    /// The shape every modulator inherits: up over the ramp, flat while there is payload, down
-    /// over the ramp, and nothing at all after.
     #[test]
     fn the_envelope_rises_holds_and_falls_to_silence() {
         let mut burst = Burst::new(RATE);
@@ -173,8 +144,6 @@ mod tests {
         let fall: Vec<f32> = std::iter::from_fn(|| burst.next(false)).collect();
         assert_eq!(fall.len(), ramp);
         assert!(fall.windows(2).all(|p| p[1] < p[0]), "fall not monotonic");
-        // The edges are symmetric, so the fall ends on the same first ramp step the rise
-        // started from — near silence, not exact silence.
         assert!(fall[ramp - 1] < 1e-3, "last sample {}", fall[ramp - 1]);
         assert_eq!(burst.next(false), None);
     }

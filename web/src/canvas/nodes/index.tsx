@@ -55,8 +55,6 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   scanner: mount(ScannerFace),
 };
 
-/** The faces themselves, for the rack — which renders a face without a React Flow node around
- * it. */
 export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
   gps: GpsFace,

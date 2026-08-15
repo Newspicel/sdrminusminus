@@ -70,7 +70,6 @@ describe("findTool", () => {
     expect(findTool(tools, "other")?.descriptor.id).toBe("other");
   });
 
-  /** Opening a tool that is no longer there must not quietly open a different one. */
   it("finds nothing for a tool this build does not have", () => {
     expect(findTool(tools, "gone")).toBeNull();
     expect(findTool(tools, null)).toBeNull();

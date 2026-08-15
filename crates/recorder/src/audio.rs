@@ -1,35 +1,16 @@
-//! One channel's audio as a WAV file: what the listener hears, written while it is heard.
-//!
-//! Not SigMF. A SigMF pair describes samples off an antenna — a rate, a tuning, a capture
-//! geometry — and none of that survives demodulation; what is left is speech at 48 kHz, and the
-//! container everything from a browser to a transcriber already opens is a WAV. Sixteen-bit PCM
-//! for the same reason: every channel's audio is bounded to ±1 before it leaves the demodulator,
-//! so a float container would buy nothing and cost half the disk and half the readers.
-//!
-//! The header is rewritten as the recording grows rather than only at the end, so a server that
-//! is killed mid-recording leaves a file that still plays up to where it stopped.
-
 use std::{
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 
-/// Extension every audio recording carries, and what [`scan_audio`] lists on.
 pub const AUDIO_SUFFIX: &str = ".wav";
-/// One sample of one channel, as written.
 pub const AUDIO_BYTES_PER_SAMPLE: u64 = 2;
-/// Canonical PCM header: `RIFF` + `WAVE` + a 16-byte `fmt ` + the `data` chunk header.
 const HEADER_LEN: u64 = 44;
-/// `WAVE_FORMAT_PCM`.
 const FORMAT_PCM: u16 = 1;
 const BITS_PER_SAMPLE: u16 = 16;
-/// How much audio may go by before the on-disk sizes are brought up to date. A second of lost
-/// tail on a killed server is the trade for not seeking twice per 25 ms block.
 const HEADER_REFRESH_FRAMES: u64 = 48_000;
 
-/// What a WAV's own header says about it, plus what its length on disk says — which is the
-/// honest count for a recording whose writer was killed before it could finalize.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioInfo {
     pub channels: u8,
@@ -49,7 +30,6 @@ impl AudioInfo {
     }
 }
 
-/// Streaming 16-bit PCM WAV writer.
 #[derive(Debug)]
 pub struct AudioWriter {
     file: File,
@@ -61,8 +41,6 @@ pub struct AudioWriter {
 }
 
 impl AudioWriter {
-    /// Create `path`, refusing one that already exists — two recordings sharing a file would
-    /// interleave into something neither of them could play back.
     pub fn create(path: &Path, sample_rate: u32, channels: u8) -> io::Result<Self> {
         if channels == 0 {
             return Err(io::Error::new(
@@ -86,8 +64,6 @@ impl AudioWriter {
         })
     }
 
-    /// Append interleaved audio. `interleaved` is whole frames at this file's channel count;
-    /// anything else is the caller handing over a layout the header does not describe.
     pub fn write_frames(&mut self, interleaved: &[f32]) -> io::Result<()> {
         let channels = usize::from(self.channels);
         if !interleaved.len().is_multiple_of(channels) {
@@ -110,8 +86,6 @@ impl AudioWriter {
         self.refresh_header()
     }
 
-    /// Append `frames` of silence — what a squelched channel produces, and it has to take up
-    /// the same room on disk as the time it took to go by.
     pub fn write_silence(&mut self, frames: usize) -> io::Result<()> {
         if frames == 0 {
             return Ok(());
@@ -129,7 +103,6 @@ impl AudioWriter {
         self.frames
     }
 
-    /// Bytes of audio; the header is not counted, so this is what the recording carries.
     #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.frames * u64::from(self.channels) * AUDIO_BYTES_PER_SAMPLE
@@ -145,8 +118,6 @@ impl AudioWriter {
         &self.path
     }
 
-    /// Write the final sizes and flush. Dropping a writer without this leaves the file playable
-    /// up to the last refresh, which is what makes a killed server survivable.
     pub fn finalize(mut self) -> io::Result<()> {
         self.write_sizes()?;
         self.file.sync_all()
@@ -161,9 +132,6 @@ impl AudioWriter {
 
     fn write_sizes(&mut self) -> io::Result<()> {
         let data_len = self.bytes_written();
-        // A recording past 4 GiB — a full day of stereo — cannot be described by a 32-bit RIFF
-        // size. Saturating is what every streaming writer does, and it keeps the audio already
-        // on disk readable rather than stating a length that wrapped.
         let riff = u32::try_from(HEADER_LEN - 8 + data_len).unwrap_or(u32::MAX);
         let data = u32::try_from(data_len).unwrap_or(u32::MAX);
         self.file.seek(SeekFrom::Start(4))?;
@@ -176,8 +144,6 @@ impl AudioWriter {
     }
 }
 
-/// Every audio recording in `dir`, sorted by name. A missing directory is an empty library,
-/// not a failure: nothing has been recorded yet.
 pub fn scan_audio(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -195,9 +161,6 @@ pub fn scan_audio(dir: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Read what a WAV says about itself. The frame count comes from the file's real length rather
-/// than from the `data` size, so a recording whose writer was killed reports what can actually
-/// be played instead of what the header last claimed.
 pub fn read_audio_info(path: &Path) -> io::Result<AudioInfo> {
     let mut file = File::open(path)?;
     let mut head = [0u8; HEADER_LEN as usize];
@@ -227,7 +190,6 @@ pub fn read_audio_info(path: &Path) -> io::Result<AudioInfo> {
     Ok(AudioInfo {
         channels,
         sample_rate,
-        // Whole frames only: a torn trailing write would desynchronise every reader after it.
         frames: bytes / frame_bytes,
         bytes: bytes - bytes % frame_bytes,
     })
@@ -255,9 +217,6 @@ fn header(sample_rate: u32, channels: u8, data_len: u32) -> Vec<u8> {
     out
 }
 
-/// Full scale is ±1: everything a channel emits is already bounded there, and a sample that
-/// arrives outside it (or as a NaN, which no comparison would catch) is clamped rather than
-/// allowed to wrap into the opposite polarity.
 fn to_pcm16(sample: f32) -> i16 {
     if !sample.is_finite() {
         return 0;
@@ -326,8 +285,6 @@ mod tests {
         assert!((info.duration_s() - 6.0 / f64::from(RATE)).abs() < 1e-9);
     }
 
-    /// Stereo counts in frames, not samples: a WFM recording that counted interleaved values
-    /// would report twice the audio it holds.
     #[test]
     fn stereo_frames_carry_both_sides() {
         let dir = TempDir::new().expect("tempdir");
@@ -351,8 +308,6 @@ mod tests {
         assert_eq!(writer.frames_written(), 0);
     }
 
-    /// The whole point of refreshing the header as it goes: a writer that never finalizes —
-    /// the server was killed — still leaves a file that plays what it captured.
     #[test]
     fn a_writer_that_never_finalizes_leaves_a_playable_file() {
         let dir = TempDir::new().expect("tempdir");
@@ -372,8 +327,6 @@ mod tests {
         assert_eq!(info.frames, 2 * HEADER_REFRESH_FRAMES);
     }
 
-    /// Nothing outside ±1 may wrap into the opposite polarity, and a NaN must not become the
-    /// loudest sample in the file.
     #[test]
     fn out_of_range_and_non_finite_samples_are_bounded() {
         let dir = TempDir::new().expect("tempdir");
@@ -383,8 +336,6 @@ mod tests {
             .write_frames(&[4.0, -4.0, f32::NAN, f32::INFINITY])
             .expect("write");
         writer.finalize().expect("finalize");
-        // A NaN and an infinity both become silence: neither is a level, and writing either as
-        // full scale would put a click in the recording that was never on the air.
         assert_eq!(samples(&path), [i16::MAX, -i16::MAX, 0, 0]);
     }
 

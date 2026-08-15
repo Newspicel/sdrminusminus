@@ -2,16 +2,11 @@ use std::f64::consts::TAU;
 
 use num_complex::Complex;
 
-/// Smoothing coefficient for `y += c·(x − y)` matching the analog RC time constant `tau_s`
-/// at `rate` (matched-z pole `e^(−1/(rate·tau))`). Public because decoders that track a
-/// slicing level need the same smoother at a tau of their own choosing, and a second copy of
-/// two lines is a second thing to get wrong.
 #[must_use]
 pub fn one_pole_coeff(rate: f64, tau_s: f64) -> f32 {
     (1.0 - (-1.0 / (rate * tau_s)).exp()) as f32
 }
 
-/// FM deemphasis: single-pole lowpass with the region-standard tau (50 µs EU, 75 µs US).
 #[derive(Clone, Debug)]
 pub struct Deemphasis {
     state: f32,
@@ -29,8 +24,6 @@ impl Deemphasis {
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
-        // One non-finite sample latches the recursion forever; healing per block bounds the
-        // damage from a driver glitch to a block, without a per-sample branch.
         if !self.state.is_finite() {
             self.state = 0.0;
         }
@@ -41,14 +34,6 @@ impl Deemphasis {
     }
 }
 
-/// Cascaded single-pole complex lowpass, one `y += c·(x − y)` section per stage. The
-/// coefficients are real, so the response is symmetric about DC: a carrier mixed exactly to
-/// baseband passes with no phase shift at all — which is what a phase detector reading the
-/// output depends on — while its neighbours roll off `stages`·6 dB per octave.
-///
-/// This is the cheap alternative to an FIR for a *very* narrow band at a high rate: the FM
-/// pilot needs a ~400 Hz corner at 240 kHz, which no realisable FIR reaches without decimating
-/// first, and decimating would cost the sample-accurate phase the reference is rebuilt from.
 #[derive(Clone, Debug)]
 pub struct ComplexOnePole {
     stages: Vec<Complex<f32>>,
@@ -56,7 +41,6 @@ pub struct ComplexOnePole {
 }
 
 impl ComplexOnePole {
-    /// `cutoff_hz` is the −3 dB corner of a single stage; the cascade's own corner is lower.
     #[must_use]
     pub fn new(rate: f64, cutoff_hz: f64, stages: usize) -> Self {
         assert!(
@@ -69,8 +53,6 @@ impl ComplexOnePole {
         }
     }
 
-    /// Advance one sample. A non-finite input is dropped rather than latched into the
-    /// recursion — the per-sample counterpart of the per-block healing above.
     #[must_use]
     pub fn process(&mut self, sample: Complex<f32>) -> Complex<f32> {
         let mut v = if sample.re.is_finite() && sample.im.is_finite() {
@@ -92,8 +74,6 @@ impl ComplexOnePole {
     }
 }
 
-/// DC blocker `y[n] = x[n] − x[n−1] + a·y[n−1]`. The 0.995 pole puts the corner near
-/// fs/1500 (~32 Hz at 48 kHz) — inaudible, but it kills demodulator DC offsets.
 #[derive(Clone, Debug, Default)]
 pub struct DcBlocker {
     x1: f32,
@@ -109,7 +89,6 @@ impl DcBlocker {
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
-        // Same per-block healing as `Deemphasis`: `y1` would latch a non-finite value.
         if !(self.x1.is_finite() && self.y1.is_finite()) {
             self.x1 = 0.0;
             self.y1 = 0.0;
@@ -123,18 +102,8 @@ impl DcBlocker {
     }
 }
 
-/// Cascaded single-pole sections in [`Highpass`]. Three is what makes a 300 Hz corner reach
-/// −33 dB at 88.5 Hz — enough to take a CTCSS tone out of the audio — while still passing the
-/// bottom of the voice band.
 const HIGHPASS_SECTIONS: usize = 3;
 
-/// Highpass at `corner_hz`, 6 dB/octave per section, built as `x − lowpass(x)` three times.
-///
-/// This is an IIR because the job cannot be done any other way at audio rates: taking a
-/// subaudible tone out from under speech means a stopband at 250 Hz and a passband at 300,
-/// which is a transition of 0.001 of the sample rate at 48 kHz and thousands of FIR taps. A
-/// radio does not do that either — it cascades gentle sections and accepts that the highest
-/// CTCSS tones are only damped, not removed.
 #[derive(Clone, Debug)]
 pub struct Highpass {
     lows: [f32; HIGHPASS_SECTIONS],
@@ -142,8 +111,6 @@ pub struct Highpass {
 }
 
 impl Highpass {
-    /// # Panics
-    /// If `rate` or `corner_hz` is not positive.
     #[must_use]
     pub fn new(rate: f64, corner_hz: f64) -> Self {
         assert!(
@@ -161,7 +128,6 @@ impl Highpass {
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
-        // Same per-block healing as the filters above: one non-finite sample would latch.
         if !self.lows.iter().all(|v| v.is_finite()) {
             self.reset();
         }
@@ -174,14 +140,6 @@ impl Highpass {
     }
 }
 
-/// Transposed direct-form-II biquad — the section every adjustable audio filter here is built
-/// from, with RBJ cookbook coefficients.
-///
-/// An FIR cannot do this job: a notch narrow enough to remove a heterodyne without a hole in the
-/// voice around it is a transition of a few hundredths of a percent of the sample rate, and the
-/// corners of a passband filter move whenever an operator drags a slider — redesigning hundreds
-/// of taps per edit on the control plane, and swapping them under the DSP thread, buys nothing a
-/// two-pole section does not already give.
 #[derive(Clone, Copy, Debug)]
 pub struct Biquad {
     b0: f32,
@@ -194,8 +152,6 @@ pub struct Biquad {
 }
 
 impl Biquad {
-    /// Lowest `q` a section is built with. Below it the poles are so damped that a "notch" is a
-    /// broad dip across the whole voice band, which is not what any caller means.
     const MIN_Q: f64 = 0.05;
 
     fn from_unnormalized(b: [f64; 3], a: [f64; 3]) -> Self {
@@ -215,7 +171,6 @@ impl Biquad {
         }
     }
 
-    /// Shared intermediates: the pole angle and the bandwidth parameter both designs need.
     fn geometry(rate: f64, freq_hz: f64, q: f64) -> (f64, f64, f64) {
         let nyquist = rate / 2.0;
         let freq = freq_hz.clamp(rate * 1e-4, nyquist * 0.995);
@@ -224,8 +179,6 @@ impl Biquad {
         (w0.cos(), w0.sin(), alpha)
     }
 
-    /// # Panics
-    /// If `rate` is not positive.
     #[must_use]
     pub fn lowpass(rate: f64, freq_hz: f64, q: f64) -> Self {
         assert!(rate > 0.0, "rate must be positive");
@@ -236,8 +189,6 @@ impl Biquad {
         )
     }
 
-    /// # Panics
-    /// If `rate` is not positive.
     #[must_use]
     pub fn highpass(rate: f64, freq_hz: f64, q: f64) -> Self {
         assert!(rate > 0.0, "rate must be positive");
@@ -248,10 +199,6 @@ impl Biquad {
         )
     }
 
-    /// Band-stop at `freq_hz`, `q` = centre over −3 dB width.
-    ///
-    /// # Panics
-    /// If `rate` is not positive.
     #[must_use]
     pub fn notch(rate: f64, freq_hz: f64, q: f64) -> Self {
         assert!(rate > 0.0, "rate must be positive");
@@ -268,8 +215,6 @@ impl Biquad {
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
-        // Same per-block healing as the one-pole filters above: a non-finite sample would latch
-        // in `z1`/`z2` and silence the channel for good.
         if !(self.z1.is_finite() && self.z2.is_finite()) {
             self.reset();
         }
@@ -347,7 +292,6 @@ mod tests {
         assert!((0.891..1.122).contains(&gain), "post-recovery gain {gain}");
     }
 
-    /// Settled response of a `stages`-deep cascade to a complex tone at `freq_norm`.
     fn cascade_gain(freq_norm: f64, stages: usize) -> f32 {
         let mut filter = ComplexOnePole::new(1.0, CUTOFF_NORM, stages);
         let input = complex_tone(freq_norm, 200_000);
@@ -355,7 +299,6 @@ mod tests {
         rms_c(&out[out.len() / 2..])
     }
 
-    /// −3 dB corner of one stage, normalized to the sample rate.
     const CUTOFF_NORM: f64 = 0.001;
 
     #[test]
@@ -371,8 +314,6 @@ mod tests {
         }
     }
 
-    /// Real coefficients ⇒ a mirror-image tone is treated identically, and DC passes untouched
-    /// in both magnitude *and* phase — the stereo pilot reference is rebuilt from that phase.
     #[test]
     fn complex_one_pole_is_symmetric_about_dc_and_passes_it_unrotated() {
         let above = cascade_gain(0.005, 3);
@@ -413,8 +354,6 @@ mod tests {
         rms_r(&x[n / 2..]) / FRAC_1_SQRT_2
     }
 
-    /// The numbers the audio path depends on: a CTCSS tone damped out of audibility, the
-    /// voice band left where it was.
     #[test]
     fn highpass_takes_the_subaudible_band_out_and_keeps_the_voice_band() {
         let analytic = |f: f64| (f / f.hypot(300.0)).powi(3) as f32;
@@ -445,7 +384,6 @@ mod tests {
         assert!(tone.iter().all(|v| v.is_finite()), "state still poisoned");
     }
 
-    /// Settled response of `filter` to a real tone, as a linear gain.
     fn biquad_gain(mut filter: Biquad, freq_hz: f64) -> f32 {
         let rate = 48_000.0;
         let n = (rate * 0.5) as usize;
@@ -454,9 +392,6 @@ mod tests {
         rms_r(&x[n / 2..]) / FRAC_1_SQRT_2
     }
 
-    /// The RBJ sections against their analytic magnitudes: −3 dB at the corner, 6 dB/octave per
-    /// pole beyond it. A section with a sign error in `a1` still looks like "a filter" on a
-    /// spectrum; it does not land on these numbers.
     #[test]
     fn biquad_corners_are_3_db_down_and_roll_off_at_12_db_per_octave() {
         let rate = 48_000.0;
@@ -483,7 +418,6 @@ mod tests {
         }
     }
 
-    /// What a manual notch is for: the heterodyne gone, the voice either side of it intact.
     #[test]
     fn biquad_notch_removes_its_tone_and_leaves_its_neighbours() {
         let rate = 48_000.0;
@@ -506,9 +440,6 @@ mod tests {
         assert!((0.9..1.05).contains(&gain), "post-recovery gain {gain}");
     }
 
-    /// A degenerate `q` must still leave a stable section rather than a pole outside the unit
-    /// circle: the settings that reach here have been range-checked, but a filter that could
-    /// diverge on a bad number is one full-scale scream into somebody's headphones.
     #[test]
     fn biquad_stays_stable_at_degenerate_settings() {
         for (freq_hz, q) in [(0.0f64, 0.0f64), (48_000.0, 0.0), (-100.0, -5.0)] {

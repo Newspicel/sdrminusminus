@@ -21,8 +21,6 @@ use sdrmm_modem::{
     },
 };
 
-/// The committed artifacts, resolved from this crate's manifest — the registry states them
-/// workspace-relative, which is what `cargo xtask ber` and the docs-row rule read.
 fn baseline_path(stem: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
@@ -31,7 +29,6 @@ fn load_curve(stem: &str) -> Curve {
     sweep::load_json(&baseline_path(stem)).unwrap()
 }
 
-/// Every registered entry whose artifacts live under `baselines/linear/`.
 fn linear_entries() -> Vec<&'static Entry> {
     catalog::ENTRIES
         .iter()
@@ -75,9 +72,6 @@ fn every_linear_row_is_registered_and_committed() {
     }
 }
 
-/// A chain defect is loud before statistics: with no noise at all, every registered chain returns
-/// its payload bit for bit. This is the gate that caught the receiver correlating against rotated
-/// word points, the differential reference symbol, and the star table's difference rule.
 #[test]
 fn every_chain_round_trips_a_noiseless_payload() {
     for m in linear_measurements() {
@@ -93,10 +87,6 @@ fn every_chain_round_trips_a_noiseless_payload() {
     }
 }
 
-/// Smoke tier of every committed curve: the first [`SMOKE_POINTS`](catalog::SMOKE_POINTS) grid
-/// points re-measured with the committed budgets. `(seed, index)` names each point's realisation,
-/// so a grid prefix reproduces the committed points exactly on one host;
-/// [`DRIFT_TOLERANCE_DB`] absorbs cross-platform float drift only.
 #[test]
 fn every_committed_curve_reproduces_its_smoke_prefix() {
     for m in linear_measurements() {
@@ -120,8 +110,6 @@ fn every_committed_curve_reproduces_its_smoke_prefix() {
     }
 }
 
-/// Every committed curve descends. A waterfall that rises inside itself is a chain that fell over
-/// somewhere on the grid, and it is the one shape a horizontal-distance gate can miss.
 #[test]
 fn every_committed_curve_is_monotone() {
     for m in linear_measurements() {
@@ -144,8 +132,6 @@ fn every_committed_curve_is_monotone() {
     }
 }
 
-/// Every committed point carries enough errors to mean something. The budget is 2000; the floor
-/// asserted is 100, which is where a point's vertical confidence interval is ±20 %.
 #[test]
 fn every_committed_point_is_above_the_error_floor() {
     for m in linear_measurements() {
@@ -179,15 +165,11 @@ fn every_committed_curve_sits_at_its_reference() {
     );
 }
 
-/// Eb/N0 a committed curve crosses `ber` at.
 fn crossing(stem: &str, ber: f64) -> f64 {
     limits::ebn0_at_ber(&load_curve(stem), ber)
         .unwrap_or_else(|| panic!("{stem} never crosses {ber:e}"))
 }
 
-/// Coherent OOK against the noncoherent envelope tier. The gap is what a carrier reference is
-/// worth to a keyed carrier — and the reason the multilevel amplitude rows are measured coherently
-/// (see `catalog::ask`).
 #[test]
 fn coherent_ook_beats_the_envelope_tier_by_its_committed_margin() {
     let coherent = crossing(catalog::ask::OOK_COHERENT_AWGN, 1e-3);
@@ -200,9 +182,6 @@ fn coherent_ook_beats_the_envelope_tier_by_its_committed_margin() {
     assert!(margin < 4.0, "margin {margin:.2} dB is implausibly large");
 }
 
-/// Feedforward timing against the tracking loop, on the identical 16-QAM chain. This is the
-/// measurement that put the high-order rows on the feedforward tier: the tracking loop's residual
-/// jitter is an error floor, not a shift, so the margin at 1e-3 understates it.
 #[test]
 fn feedforward_timing_beats_the_tracking_loop_by_its_committed_margin() {
     let feedforward = crossing(catalog::qam::QAM16_AWGN, 1e-3);
@@ -225,9 +204,6 @@ fn coherent_pi4_dqpsk_beats_the_differential_tier_by_its_committed_margin() {
     );
 }
 
-/// The offset axis must cost nothing: OQPSK on QPSK's curve and π/2-BPSK on BPSK's, both within
-/// the counting noise of a 2000-error point. What the stagger and the rotation buy is envelope
-/// (asserted in `linear::modulator`), and a sensitivity that moved would be a defect.
 #[test]
 fn the_offset_rows_sit_on_their_unstaggered_twins() {
     for (offset, plain, name) in [
@@ -250,9 +226,6 @@ fn the_offset_rows_sit_on_their_unstaggered_twins() {
     }
 }
 
-/// The differential family's ~3 dB against its coherent counterparts, read off the committed
-/// curves. Not a tier comparison of one entry — DPSK's data *is* the difference, so it has no
-/// coherent tier — but the family relationship the catalog states, and worth holding to a number.
 #[test]
 fn the_differential_family_pays_its_documented_penalty() {
     for (differential, coherent, name, range) in [
@@ -277,21 +250,10 @@ fn the_differential_family_pays_its_documented_penalty() {
     }
 }
 
-/// Margin above each entry's own measured 1e-3 sensitivity at which its loopback must be perfect.
-/// 8 dB rather than the CPM rows' 6: these payloads are 4096 symbols, so a trial carries up to
-/// 40 960 bits and the residual BER has to be that much smaller for `residual × bits ≪ 1`.
 const LOOPBACK_MARGIN_DB: f64 = 8.0;
 
-/// The one row with no clean loopback at any margin, and the reason: the tracking-timing
-/// comparison chain has an *error floor*, not a shifted waterfall — its residual timing jitter
-/// does not shrink with SNR — so "perfect at a stated margin" is not a property it has. That is
-/// precisely the finding the row exists to record, and exempting it here is cheaper than pretending
-/// a margin exists.
 const NO_CLEAN_LOOPBACK: [&str; 1] = [catalog::qam::QAM16_TRACKED_AWGN];
 
-/// Level-1 E2E for every entry: 5 payloads survive the channel bit for bit at
-/// [`LOOPBACK_MARGIN_DB`] above the committed sensitivity. Because `tx.rs` drives the same
-/// modulators, a green loopback is also the transmit path's correctness test.
 #[test]
 fn every_entry_loops_back_clean_at_its_stated_margin() {
     for m in linear_measurements() {
@@ -316,8 +278,6 @@ fn every_entry_loops_back_clean_at_its_stated_margin() {
     }
 }
 
-/// Probe budget per axis point: enough to separate the failure floor from the operating BER,
-/// cheap enough that a ~16-probe bisection stays fast.
 const PROBE_ERRORS: u64 = 200;
 const PROBE_BITS: u64 = 1_500_000;
 
@@ -325,9 +285,6 @@ fn probe(link: &Link, spec: &ChannelSpec, op_db: f64) -> f64 {
     limits::measure_ber(link, spec, op_db, 0x11c5, PROBE_ERRORS, PROBE_BITS)
 }
 
-/// One axis of a limits table: what it is called, the bracket and resolution its bisection uses,
-/// and how a value becomes a channel. Bundled into a struct because the alternative is an
-/// eight-argument function, and at eight arguments a call site stops saying which number is which.
 struct Axis<'a> {
     name: &'a str,
     unit: &'a str,
@@ -461,15 +418,6 @@ fn measure_limits(entry: &str, link: &Link, grid: &[f64], seed: u64) -> LimitsTa
     table
 }
 
-/// The three committed limits tables and the chains behind them: the coherent reference
-/// configuration (QPSK), the densest table a coherent loop carries (16-QAM), and the noncoherent
-/// tier (envelope OOK). One per *tier*, not one per row: the axes measure the receiver, and every
-/// row on a tier runs the same receiver with a different table.
-/// Sensitivity grids for the limits runs, *wider* than the committed curves' by 3 dB at the top.
-/// The reason is structural: every axis row is measured at sensitivity(1e-3) + 3 dB, and the ≤1 dB
-/// penalty criterion needs the clean curve read one further dB below that — so the grid has to
-/// reach past the operating point, which a curve grid chosen to end where its points still carry
-/// 100 errors does not.
 const QPSK_LIMITS_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
 const QAM16_LIMITS_GRID: &[f64] = &[8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0];
 const OOK_LIMITS_GRID: &[f64] = &[8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0];
@@ -509,10 +457,6 @@ fn limits_tables_match_committed() {
     }
 }
 
-/// Warmed-up throughput of one chain's steady-state `process` path, per the `ber::perf`
-/// convention: two warm-up calls so the buffers hold their steady capacity, then the measured
-/// iterations. The signal is the entry's own modulator output, so the number is what a channel
-/// running this entry actually pays.
 fn measure_tier(
     bench: &str,
     config: &str,
@@ -536,9 +480,6 @@ fn measure_tier(
     }
 }
 
-/// The coherent tier's throughput at three table densities and on both timing tiers. Three
-/// densities because the demapper and the decision-directed detector both scan the table, so cost
-/// grows with M and a single row would say nothing about the catalog's range.
 fn measured_coherent_perf() -> Vec<PerfBaseline> {
     let rx = linear::rrc();
     let mut out = Vec::new();
@@ -593,8 +534,6 @@ fn measured_coherent_perf() -> Vec<PerfBaseline> {
     out
 }
 
-/// The noncoherent envelope tier: no carrier loop, one magnitude and two moments per symbol, so
-/// this is the catalog's cheapest linear receiver and the floor the coherent rows are read against.
 fn measured_envelope_perf() -> Vec<PerfBaseline> {
     let rx = linear::rrc();
     let params = linear::params(tables::ook(), 0.0, false);

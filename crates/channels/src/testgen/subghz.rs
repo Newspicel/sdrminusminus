@@ -8,29 +8,19 @@ use sdrmm_modem::{
 
 use super::{shift, silence};
 
-/// Every burst ends with enough silence for a decoder to close its repeat-collapse window.
 const TAIL_S: f64 = 0.7;
-/// Lead-in silence, so an adaptive slicer has a noise floor before the first edge.
 const LEAD_IN_S: f64 = 0.05;
-/// Carrier offset within the channel. Deliberately not zero: these transmitters are never on
-/// frequency, and a generator that pretended otherwise would not test the wide channel.
 const CARRIER_OFFSET_HZ: f64 = 30_000.0;
 
-/// A pulse-width-coded transmission of the PT2262 / EV1527 family.
 #[derive(Clone, Debug)]
 pub struct Pwm {
     pub bits: Vec<bool>,
-    /// The base clock period, in µs.
     pub short_us: u32,
-    /// Length of the long half of a bit cell, in base periods (3 for the usual remote).
     pub long_multiple: u32,
-    /// The sync gap that separates repeats, in base periods.
     pub sync_gap_multiple: u32,
     pub repeats: u32,
 }
 
-/// Alternating pulse/gap durations in µs for one frame, ending with the sync pulse and its
-/// long gap — the order a receiver actually sees.
 #[must_use]
 pub fn pwm_timings(frame: &Pwm) -> Vec<u32> {
     let short = frame.short_us;
@@ -48,13 +38,11 @@ pub fn pwm_timings(frame: &Pwm) -> Vec<u32> {
     out
 }
 
-/// Half-cell levels for a Manchester-coded payload: a 1 is high then low.
 #[must_use]
 pub fn manchester_cells(bits: &[bool]) -> Vec<bool> {
     bits.iter().flat_map(|&b| [b, !b]).collect()
 }
 
-/// Alternating pulse/gap durations in µs for a Manchester frame at `half_cell_us`.
 #[must_use]
 pub fn manchester_timings(bits: &[bool], half_cell_us: u32) -> Vec<u32> {
     let cells = manchester_cells(bits);
@@ -71,15 +59,12 @@ pub fn manchester_timings(bits: &[bool], half_cell_us: u32) -> Vec<u32> {
         }
     }
     out.push(run);
-    // A frame that starts low has no opening pulse; the receiver would drop the leading gap,
-    // so the generator does too and the two agree on where the frame begins.
     if !cells.first().copied().unwrap_or(true) {
         out.remove(0);
     }
     out
 }
 
-/// Key an on/off envelope from alternating pulse/gap durations in µs, pulse first.
 #[must_use]
 pub fn envelope(timings_us: &[u32], rate: f64) -> Vec<f32> {
     let samples = |us: u32| (f64::from(us) * 1e-6 * rate).round() as usize;
@@ -96,7 +81,6 @@ pub fn envelope(timings_us: &[u32], rate: f64) -> Vec<f32> {
     out
 }
 
-/// On-off keying of the channel carrier by `timings_us`.
 #[must_use]
 pub fn keyed(timings_us: &[u32], rate: f64) -> Vec<Complex<f32>> {
     let step = TAU * CARRIER_OFFSET_HZ / rate;
@@ -107,7 +91,6 @@ pub fn keyed(timings_us: &[u32], rate: f64) -> Vec<Complex<f32>> {
         .collect()
 }
 
-/// An OOK transmission of `frame`, repeated as a remote repeats it.
 #[must_use]
 pub fn pwm(frame: &Pwm, rate: f64) -> Vec<Complex<f32>> {
     let one = pwm_timings(frame);
@@ -118,7 +101,6 @@ pub fn pwm(frame: &Pwm, rate: f64) -> Vec<Complex<f32>> {
     keyed(&timings, rate)
 }
 
-/// A Manchester transmission repeated with a silent gap between copies.
 #[must_use]
 pub fn manchester(bits: &[bool], half_cell_us: u32, repeats: u32, rate: f64) -> Vec<Complex<f32>> {
     let one = manchester_timings(bits, half_cell_us);
@@ -157,8 +139,6 @@ pub fn pwm_fsk(frame: &Pwm, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     ));
     let mut burst = Vec::new();
     modulator.modulate(&symbols, &mut burst);
-    // No flush: a transmitter keying down truncates its last tone, and the frame's own
-    // trailing sync gap is what the decoder times.
     shift(&mut burst, CARRIER_OFFSET_HZ, rate);
     let mut iq = silence((LEAD_IN_S * rate) as usize);
     iq.extend(burst);

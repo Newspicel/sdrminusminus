@@ -3,9 +3,6 @@ use sdrmm_wire::PositionFix;
 use crate::{Engine, EngineError, recording, runtime::DspCommand};
 
 impl Engine {
-    /// Feed a live station fix to a channel without changing its persisted settings. Position
-    /// wires can update once a second while driving; treating that as channel configuration
-    /// would churn state revisions and save the last place the receiver happened to pass.
     pub fn update_channel_position(
         &self,
         ds: u32,
@@ -32,8 +29,6 @@ impl Engine {
         Ok(())
     }
 
-    /// Update the geotag attached to the set's active recording. The writer samples the latest
-    /// value between IQ blocks, so the DSP thread never takes a lock or waits on GPS I/O.
     pub fn update_recording_position(
         &self,
         ds: u32,

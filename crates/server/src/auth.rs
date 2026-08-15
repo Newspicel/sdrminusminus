@@ -1,6 +1,3 @@
-//! Optional shared-token auth. One middleware covers REST, the WebSocket and
-//! the MCP mount; without a configured token it is a pass-through, which is the documented
-//! default posture (LAN-trusted, same as SDRangel/rtl_tcp).
 use axum::{
     Json,
     extract::{Request, State},
@@ -10,13 +7,9 @@ use axum::{
 };
 use sdrmm_wire::ApiError;
 
-/// Paths that stay reachable without a token. `/api/auth` is how a client learns a token is
-/// needed at all; the OpenAPI document and the Swagger UI that renders it describe the API's
-/// *shape*, never its data, and their browser-side fetches cannot carry a header.
 const PUBLIC_PATHS: &[&str] = &["/api/auth", "/api/openapi.json"];
 const PUBLIC_PREFIXES: &[&str] = &["/api/docs"];
 
-/// The configured token, shared with the middleware layer. `None` disables auth entirely.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Auth {
     token: Option<std::sync::Arc<str>>,
@@ -25,8 +18,6 @@ pub(crate) struct Auth {
 impl Auth {
     pub(crate) fn new(token: Option<&str>) -> Self {
         Self {
-            // An empty token is a configuration mistake that would otherwise "enable" auth
-            // while accepting `?token=`; treat it as unset and say so.
             token: match token {
                 Some(t) if !t.is_empty() => Some(t.into()),
                 Some(_) => {
@@ -76,8 +67,6 @@ fn is_public(path: &str) -> bool {
     PUBLIC_PATHS.contains(&path) || PUBLIC_PREFIXES.iter().any(|p| path.starts_with(p))
 }
 
-/// The token the request carries, header first. Returns an owned string because the query
-/// form has to be percent-decoded out of a borrowed URI.
 fn presented_token(request: &Request) -> Option<String> {
     if let Some(bearer) = request
         .headers()
@@ -90,9 +79,6 @@ fn presented_token(request: &Request) -> Option<String> {
     query_token(request.uri().query()?)
 }
 
-/// `token=` out of a raw query string. Hand-parsed rather than pulled through `serde_urlencoded`
-/// so an otherwise-malformed query (which the endpoint itself will reject with a 400) cannot
-/// turn into a 401 and send a client hunting for a credentials problem it does not have.
 fn query_token(query: &str) -> Option<String> {
     query
         .split('&')
@@ -107,9 +93,6 @@ fn percent_decode(value: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
-            // Sliced as BYTES, never as `&str`: a `%` followed by a multi-byte character
-            // would otherwise split it and panic — on an unauthenticated request, from the
-            // network.
             b'%' if i + 2 < bytes.len() => {
                 match std::str::from_utf8(&bytes[i + 1..i + 3])
                     .ok()
@@ -119,8 +102,6 @@ fn percent_decode(value: &str) -> String {
                         out.push(byte);
                         i += 3;
                     }
-                    // Not a valid escape: keep it verbatim rather than dropping characters,
-                    // so a mistyped token fails comparison instead of silently matching.
                     None => {
                         out.push(b'%');
                         i += 1;
@@ -140,9 +121,6 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Length-then-content comparison in constant time for equal lengths. The length leak is
-/// inherent to any comparison and is not the interesting secret; what this prevents is the
-/// byte-at-a-time early exit that makes a token guessable one character per request.
 fn token_eq(presented: &str, expected: &str) -> bool {
     let (a, b) = (presented.as_bytes(), expected.as_bytes());
     if a.len() != b.len() {
@@ -208,8 +186,6 @@ mod tests {
             status(&app, "/api/state?token=s3cret", None).await,
             StatusCode::OK
         );
-        // The login UI has to load before the user can supply a token, and the probe that
-        // tells it a token is needed must answer unauthenticated.
         assert_eq!(status(&app, "/", None).await, StatusCode::OK);
         assert_eq!(status(&app, "/api/auth", None).await, StatusCode::OK);
         assert_eq!(
@@ -267,8 +243,6 @@ mod tests {
         assert_eq!(err.error, "authentication required");
     }
 
-    /// The WS handshake and the export download can only carry the token in the query, and a
-    /// token with URL-unsafe bytes must survive that round trip.
     #[test]
     fn query_tokens_are_percent_decoded() {
         assert_eq!(query_token("token=a%2Fb").as_deref(), Some("a/b"));
@@ -277,8 +251,6 @@ mod tests {
         assert_eq!(query_token("nope=1"), None);
     }
 
-    /// A `%` followed by a multi-byte character used to slice a `&str` off a char boundary
-    /// and panic — reachable from an unauthenticated request.
     #[test]
     fn malformed_escapes_never_panic() {
         for query in [
@@ -302,8 +274,6 @@ mod tests {
         assert!(!token_eq("", "abc"));
     }
 
-    /// An empty token would enable the middleware while matching `?token=`; it must read as
-    /// "no auth configured" instead.
     #[test]
     fn empty_token_disables_auth() {
         assert!(!Auth::new(Some("")).required());

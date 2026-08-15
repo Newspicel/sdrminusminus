@@ -14,14 +14,8 @@ use crate::{
     linear::{CarrierLoop, PhaseDetector},
 };
 
-/// Loop bandwidth of every M-th-power row. Measured on the QPSK chain across 0.0003–0.01: the
-/// waterfall is flat from 0.0003 to 0.003 and costs ~0.15 dB at 8 dB Eb/N0 by 0.01, which is the
-/// M-th-power detector's own noise leaking into the loop. 0.003 is the widest setting that costs
-/// nothing.
 pub const PSK_LOOP_BW: f64 = 0.003;
 
-/// Coherent BPSK — the crate's `pam(2)` table, so bit 1 is the positive point and this row is the
-/// phase-0 calibration link plus framing, timing recovery and carrier recovery.
 #[must_use]
 pub fn bpsk_link() -> Link {
     coherent_link(
@@ -37,7 +31,6 @@ pub fn bpsk_link() -> Link {
     )
 }
 
-/// Coherent Gray QPSK, in the two-independent-rails orientation (`qam_square(4)`).
 #[must_use]
 pub fn qpsk_link() -> Link {
     coherent_link(
@@ -53,7 +46,6 @@ pub fn qpsk_link() -> Link {
     )
 }
 
-/// Coherent Gray 8-PSK.
 #[must_use]
 pub fn psk8_link() -> Link {
     coherent_link(
@@ -69,9 +61,6 @@ pub fn psk8_link() -> Link {
     )
 }
 
-/// OQPSK: the QPSK table with its quadrature rail staggered half a symbol. The receiver undoes
-/// the stagger with an integer-sample delay, so this row must land on QPSK's curve — the stagger
-/// buys envelope, not sensitivity, and a curve that moved would mean the delay is wrong.
 #[must_use]
 pub fn oqpsk_link() -> Link {
     coherent_link(
@@ -87,24 +76,6 @@ pub fn oqpsk_link() -> Link {
     )
 }
 
-/// π/2-BPSK: BPSK with a quarter-turn per symbol, which halves the peak phase step for the same
-/// reason OQPSK staggers. Same table, same curve as BPSK — the rotation is a schedule both ends
-/// run — but *not* the same detector, and the reason is worth stating because it is the one place
-/// a rotated entry differs from its unrotated twin.
-///
-/// The receiver's de-rotation starts at its own first output symbol, and *which* symbol that is
-/// moves with the timing estimate: a fraction of a sample either way changes the count by one and
-/// the residual rotation by π/2. For an unrotated BPSK entry any residual is a multiple of π — the
-/// table's own symmetry — and no detector can tell. Here the residual is a multiple of π/2, which
-/// is not a symmetry of `pam(2)`, and a squaring detector meets it exactly on the boundary of its
-/// unambiguous range where it cannot decide which way to pull. Measured: 32 % BER, on a chain
-/// whose noiseless loopback was perfect, because noiseless the parity never changed.
-///
-/// The fix is the rule for every rotated entry: **strip the union of the rotated table, not the
-/// table**. π/2-BPSK's de-rotated symbols lie on ±1 or ±j depending on that parity, and together
-/// those four points are a QPSK set — so a 4th-power detector locks whatever the parity is, and
-/// the unique-word anchor names which of the four the payload actually used. Generally, an entry
-/// rotating by π/M needs order 2M. π/4-DQPSK's coherent tier is the same rule at 8.
 #[must_use]
 pub fn pi2_bpsk_link() -> Link {
     coherent_link(
@@ -133,27 +104,21 @@ fn dpsk_link(name: &str, m: u32) -> Link {
     )
 }
 
-/// Differentially detected binary DPSK — the family's exact-oracle member.
 #[must_use]
 pub fn dbpsk_link() -> Link {
     dpsk_link("dbpsk", 2)
 }
 
-/// Differentially detected Gray DQPSK.
 #[must_use]
 pub fn dqpsk_link() -> Link {
     dpsk_link("dqpsk", 4)
 }
 
-/// Differentially detected 8-DPSK — Bluetooth EDR's 8DPSK alphabet.
 #[must_use]
 pub fn dpsk8_link() -> Link {
     dpsk_link("8dpsk", 8)
 }
 
-/// π/4-DQPSK, differential tier — TETRA's and EDR's waveform. The transmitted alphabet walks an
-/// 8-PSK grid (four data phases plus the entry's own π/4 per symbol); the demodulator removes the
-/// rotation, so the differences land on plain QPSK and this row must sit on DQPSK's curve.
 #[must_use]
 pub fn pi4_dqpsk_link() -> Link {
     differential_link(
@@ -173,8 +138,6 @@ pub fn pi4_dqpsk_coherent_link() -> Link {
          differential decode of the indices, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud",
         params(tables::psk(4), tables::PI_4_ROTATION, false),
         4,
-        // Order 8, not 4: the de-rotation parity leaves a residual that is a multiple of π/4, and
-        // the union of the two rotated QPSK sets is 8-PSK (see `pi2_bpsk_link`'s docs).
         || {
             Some(CarrierLoop::new(
                 PhaseDetector::MthPower { m: 8 },
@@ -204,16 +167,10 @@ pub const PI4_DQPSK_COHERENT_AWGN: &str = "linear/pi4_dqpsk_coherent_awgn";
 pub const PSK_LIMITS: &str = "linear/qpsk_limits";
 pub const PSK_PERF: &str = "linear/psk_perf";
 
-/// Worst horizontal distance from the closed form a coherent row may show. It is not zero for
-/// three stated reasons: the framing charges 0.12 dB to Eb, the timing estimate and carrier loop
-/// each cost a little, and the sweep's own counting noise is ~0.1 dB at the committed budget.
 pub const ORACLE_TOLERANCE_DB: f64 = 0.75;
 
-/// The differential rows have exact oracles too (`dbpsk_ber`, `dqpsk_ber`), so they are held to
-/// the same tolerance. 8-DPSK has no exact form; its reference is commit-and-guard.
 pub const DIFFERENTIAL_TOLERANCE_DB: f64 = 0.75;
 
-/// A closed-form-referenced measurement at the crate's standard budgets.
 const fn oracle_row(
     stem: &'static str,
     link: fn() -> Link,
@@ -241,10 +198,6 @@ const fn oracle_row(
     }
 }
 
-/// 8-PSK's bit error rate under Gray labelling: the nearest-boundary symbol form divided by the
-/// three bits a Gray-adjacent symbol error costs one of. Stated here rather than in `theory`
-/// because the division is the *labelling's* property, not the modulation's, and `theory` keeps
-/// SER and BER separate for exactly that reason.
 fn psk8_ber(ebn0_db: f64) -> f64 {
     theory::mpsk_ser(8, ebn0_db) / 3.0
 }
@@ -279,9 +232,6 @@ pub const COHERENT: &[Measurement] = &[
     ),
 ];
 
-/// The offset entry. Both rows are held to the *same* oracles as their unstaggered and unrotated
-/// twins, which is the whole acceptance: an offset axis that cost sensitivity would be a defect,
-/// not a trade.
 pub const OFFSET: &[Measurement] = &[
     oracle_row(
         OQPSK_AWGN,
@@ -303,7 +253,6 @@ pub const OFFSET: &[Measurement] = &[
     ),
 ];
 
-/// The DPSK family. 8-DPSK has no exact closed form, so its reference is commit-and-guard.
 pub const DIFFERENTIAL: &[Measurement] = &[
     oracle_row(
         DBPSK_AWGN,
@@ -326,9 +275,6 @@ pub const DIFFERENTIAL: &[Measurement] = &[
     Measurement::committed(DPSK8_AWGN, dpsk8_link, DPSK8_GRID, 0xd8b5, FULL_CAP),
 ];
 
-/// π/4-DQPSK's two tiers. The differential one is held to the DQPSK oracle — the entry's
-/// difference alphabet *is* Gray QPSK — and the coherent one is commit-and-guard, because what it
-/// is for is the measured margin over the tier below it, not a closed form of its own.
 pub const PI4: &[Measurement] = &[
     oracle_row(
         PI4_DQPSK_AWGN,

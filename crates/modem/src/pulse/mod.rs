@@ -4,18 +4,9 @@ mod nyquist;
 pub use cpm::{gaussian, gaussian_freq, half_sine, lrc, lrec, phase_pulse, rect};
 pub use nyquist::{raised_cosine, root_raised_cosine};
 
-/// Which sum of the taps is fixed to 1. See the module docs for why the choice is always the
-/// caller's: the two conventions answer different questions (symbol energy vs level/phase
-/// gain), and getting one while meaning the other is a silent decibel-scale error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Norm {
-    /// `Σ h[n]² = 1`. For linear-modulation shaping and matched filters (crate-root
-    /// convention): symbol energy equals the constellation point's |·|², matched-filter peak
-    /// is exactly 1.
     Energy,
-    /// `Σ h[n] = 1` (unit DC gain). For level-preserving filters and CPM frequency pulses:
-    /// the cumulative phase pulse reaches q = ½, so a full-response symbol advances the
-    /// carrier phase by exactly π·h.
     Area,
 }
 
@@ -24,8 +15,6 @@ fn normalise(mut h: Vec<f64>, norm: Norm) -> Vec<f32> {
         Norm::Energy => h.iter().map(|v| v * v).sum::<f64>().sqrt().recip(),
         Norm::Area => h.iter().sum::<f64>().recip(),
     };
-    // Every shape in this module has strictly positive energy and area by construction, so a
-    // non-finite scale is an internal defect, not a caller error.
     assert!(
         scale.is_finite(),
         "pulse shape has no energy/area to normalise"

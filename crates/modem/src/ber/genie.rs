@@ -10,11 +10,6 @@ use crate::{
     soft::Llr,
 };
 
-/// The transmit-side record a genie-paired [`Link`](super::sweep::Link) keeps per trial: the
-/// symbols it sent and the clean waveform they became, written by the modulate half and read
-/// by the demodulate half. Shared behind `Rc<RefCell<_>>` because a `Link` is two separately
-/// boxed `Fn` closures; the runners call them strictly modulate → channel → demodulate within
-/// one trial, so the writer's borrow and the readers' never overlap.
 #[derive(Debug, Default)]
 pub struct GenieTap {
     tx_symbols: Vec<Complex<f32>>,
@@ -22,14 +17,11 @@ pub struct GenieTap {
 }
 
 impl GenieTap {
-    /// One handle cloned into both closures of a link.
     #[must_use]
     pub fn shared() -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self::default()))
     }
 
-    /// The modulate half calls this before returning: the trial's symbols and shaped
-    /// waveform, copied because the channel then mutates the returned waveform in place.
     pub fn record(&mut self, tx_symbols: &[Complex<f32>], clean_wave: &[Complex<f32>]) {
         self.tx_symbols.clear();
         self.tx_symbols.extend_from_slice(tx_symbols);
@@ -47,41 +39,12 @@ impl GenieTap {
         &self.clean_wave
     }
 
-    /// The true channel state the demappers under test have to estimate: total complex noise
-    /// variance N0 = mean |received − clean|², measured against the clean waveform the genie
-    /// kept — sample-exact knowledge no receiver has. Read back rather than passed in because
-    /// inside [`sweep_ber`](super::sweep::sweep_ber) the AWGN axis derives its sigma per point
-    /// from the waveform's own measured energy, so no constructor value exists for a link to
-    /// be told; reading the applied noise back is the impair module's own applied == measured
-    /// doctrine, and its 1/√n wobble (~0.6% on a 4096-bit trial, ~0.026 dB) sits below
-    /// anything a BER gate resolves. Everything the channel did besides noise — rotation,
-    /// ISI — lands in the estimate too, understating LLRs rather than overstating them,
-    /// exactly as [`noise_var_from_known`] documents.
-    ///
-    /// The waveform-level number is also the symbol-statistic-level number: unit-energy
-    /// matched taps pass white noise at its per-sample total variance (see
-    /// [`IdealShaping::symbol_statistics`](super::reference::IdealShaping::symbol_statistics)),
-    /// so this value feeds [`genie_llrs`] and the real demappers unchanged.
-    ///
-    /// # Panics
-    /// If `received`'s length differs from the recorded clean waveform's, or no trial has
-    /// been recorded — per [`noise_var_from_known`].
     #[must_use]
     pub fn true_noise_var(&self, received: &[Complex<f32>]) -> f64 {
         noise_var_from_known(received, &self.clean_wave)
     }
 }
 
-/// The genie LLR stream — the best any demapper of this front end could do: the exact-tier
-/// posterior of every symbol statistic at the true noise variance, appended to `out` label bit
-/// 0 first (the [`demap`](crate::constellation::demap) convention). Nothing here is new
-/// arithmetic — it is [`exact_llrs`] fed perfect channel state; what makes it a *bound* is who
-/// supplies the inputs: statistics from a known-timing front end and N0 from
-/// [`GenieTap::true_noise_var`], leaving no estimation error, no timing loss and no
-/// approximation tier between the channel and the FEC.
-///
-/// # Panics
-/// As [`exact_llrs`]: if `true_noise_var` is not a positive finite number.
 pub fn genie_llrs(
     statistics: &[Complex<f32>],
     c: &Constellation,
@@ -111,13 +74,9 @@ mod tests {
         sweep::{Link, penalty_db_vs_curve, sweep_ber},
     };
 
-    /// Information bits per trial. The +4 flush bits and the edge pulse tails are charged to
-    /// the link (Eb is per information bit), a ~0.02 dB overhead every run here shares.
     const INFO_BITS: usize = 1024;
     const FLUSH_BITS: usize = 4;
 
-    /// Gray 4-PAM handed in as the ±1/±3 grid, normalised by construction to mean Es = 1 —
-    /// the same table the demap hand-computation tests pin.
     fn gray_4pam() -> Constellation {
         Constellation::from_points(
             vec![
@@ -131,17 +90,10 @@ mod tests {
         .unwrap()
     }
 
-    /// The one stage the genie swap replaces: how symbol statistics and the true N0 become
-    /// the FEC's LLRs.
     #[derive(Clone, Copy)]
     enum LlrSource {
-        /// [`genie_llrs`] — the bound.
         Genie,
-        /// The real demapper at `noise_var_scale` × the true variance: 1.0 is a correctly
-        /// calibrated max-log tier, 10.0 the deliberate mis-calibration.
         MaxLog { noise_var_scale: f64 },
-        /// Genie LLRs with every magnitude forced to full confidence — hard-decision
-        /// decoding wearing the soft interface, the harshest sign-preserving quality defect.
         HardClip,
     }
 
@@ -157,11 +109,6 @@ mod tests {
         }
     }
 
-    /// The demonstration link: payload + flush → rate-1/2 K=5 convolutional code → coded bit
-    /// pairs onto Gray 4-PAM (first coded bit = label bit 0) → the reference chain's shaping
-    /// → matched-filter statistics at known timing → `source` LLRs → [`Llr::to_fec`] →
-    /// Viterbi. `rx_table` is the demapper's constellation — the sound concept hands the
-    /// mapper's own table, the broken-concept test hands a different labelling.
     fn coded_pam4_with(source: LlrSource, rx_table: Constellation) -> Link {
         let shaping = Rc::new(IdealShaping::new());
         let tx_table = gray_4pam();
@@ -236,9 +183,6 @@ mod tests {
         coded_pam4_with(source, gray_4pam())
     }
 
-    /// The stream wrapper adds no arithmetic of its own: first statistic against the demap
-    /// module's hand-computed exact-tier constants, second against [`exact_llrs`] called
-    /// directly, order label-bit-0-first.
     #[test]
     fn genie_llrs_stream_the_exact_tier_per_symbol() {
         let c = gray_4pam();
@@ -261,12 +205,6 @@ mod tests {
         assert_eq!([out[2], out[3]], direct);
     }
 
-    /// The genie's channel-state read against impair-injected AWGN of known sigma, at both
-    /// levels the module doc claims are the same number: per-component σ = 0.25 means total
-    /// N0 = 0.125 at the waveform (≈65k samples, estimator SE ~0.55%, so the 2% gate reads
-    /// correctness) and the *same* N0 at the matched-filter statistics (8192 of them, SE
-    /// ~1.6%, 5% gate) — the unit-energy-taps identity that lets one measurement feed the
-    /// demappers directly.
     #[test]
     fn true_noise_var_reads_the_applied_awgn() {
         let shaping = IdealShaping::new();
@@ -298,22 +236,6 @@ mod tests {
         );
     }
 
-    /// The committed proof behind the module docs — see there for the reading of each gap.
-    /// Setup: four LLR qualities on the identical link, identical seed, so every trial's
-    /// payload, waveform and noise realisation are bit-identical across the runs sharing a
-    /// point grid and the curve gaps are paired comparisons.
-    ///
-    /// Error budget (the `MIN_ERRORS_PER_POINT` doc note): 200 errors per point is a ±14%
-    /// two-sided 95% vertical interval, ~0.06 decades; over the waterfall's measured
-    /// ~0.7–1.3 decade/dB local slope that is at most ~0.09 dB horizontal per curve, before
-    /// the pairing cancels the shared noise — an order under the 0.3 dB gate and well under
-    /// the asserted orderings. The floor of 100 is asserted on every point. The hard-clip
-    /// curve is right-shifted past the shared grid, so it gets its own points bracketing the
-    /// comparison BER.
-    ///
-    /// Measured at seed 0x6e2e (deterministic; the asserted windows leave room only for
-    /// cross-platform libm wobble, which moves single error counts): gaps vs genie at BER
-    /// 6e-3 — max-log(true N0) +0.025 dB, max-log(10× N0) +0.231 dB, hard-clip +2.670 dB.
     #[test]
     fn genie_separates_concept_failures_from_llr_quality() {
         let spec = ChannelSpec::default();
@@ -358,9 +280,6 @@ mod tests {
             "demapper beats the genie by {real_gap} dB"
         );
 
-        // Quality broken, mildly: 10x mis-scale costs through Llr::to_fec quantisation only
-        // (a float metric would shrug a uniform scale off) — asserted as ordering plus a
-        // window around the measured value, not a knife-edge.
         assert!(
             mis_gap > real_gap + 0.1,
             "10x mis-scale ({mis_gap} dB) not separated from calibrated ({real_gap} dB)"
@@ -370,10 +289,6 @@ mod tests {
             "10x mis-scale gap {mis_gap} dB outside the measured window"
         );
 
-        // Quality broken, harshly: full-confidence clipping is hard-decision decoding — the
-        // defect that stays visible even on a decoder whose metric makes uniform scaling
-        // fully benign. Larger than the textbook ~2 dB soft-vs-hard figure because that is
-        // the deep-waterfall asymptote and at 6e-3 the hard curve is still on its shoulder.
         assert!(
             clip_gap > mis_gap + 0.5,
             "hard-clip ({clip_gap} dB) not separated from 10x mis-scale ({mis_gap} dB)"
@@ -384,11 +299,6 @@ mod tests {
         );
     }
 
-    /// The concept side of the separation: a natural-binary demapper against the Gray mapper
-    /// swaps the labels of the two positive-rail points, so a quarter of all coded bits
-    /// arrive inverted at full genie confidence and the Viterbi floors — measured BER 0.506
-    /// at 7.5 dB, where the sound concept posts ≲1e-5. Genie LLRs did not absolve it: the
-    /// failure is the concept's, which is exactly the verdict the bound exists to deliver.
     #[test]
     fn a_broken_mapping_fails_even_with_genie_llrs() {
         let natural = Constellation::from_points(
@@ -411,9 +321,6 @@ mod tests {
         );
     }
 
-    /// Determinism (harness doctrine): the genie adds no randomness, so a genie-paired coded
-    /// run is byte-identical from its seed — across fresh link constructions, whose tap and
-    /// Viterbi state are per-link — and a different seed is a different realisation.
     #[test]
     fn same_seed_reproduces_the_identical_genie_curve() {
         let run = |seed: u64| {

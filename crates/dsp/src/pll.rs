@@ -2,26 +2,15 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use num_complex::Complex;
 
-/// Second-order (proportional + integral) loop filter shared by the loops below.
-/// `loop_bw` and the frequency limits are normalised to the sample rate (cycles/sample).
 #[derive(Clone, Debug)]
 pub struct LoopFilter {
     alpha: f64,
     beta: f64,
-    /// Integrator state, in rad/sample.
     freq: f64,
-    /// Symmetric integrator clamp, in rad/sample.
     limit: f64,
 }
 
 impl LoopFilter {
-    /// Gains come from the standard second-order form with natural frequency `wn = loop_bw` and
-    /// damping `zeta`: `alpha = 4·zeta·wn/d`, `beta = 4·wn²/d`, `d = 1 + 2·zeta·wn + wn²`
-    /// (Rice, *Digital Communications: A Discrete-Time Approach*, App. C; the same expression
-    /// GNU Radio's `control_loop::update_gains` uses).
-    ///
-    /// A loop with a nominal frequency keeps that offset outside the filter and lets the filter
-    /// track the signed deviation, which is what `freq_limit_norm` bounds.
     #[must_use]
     pub fn new(loop_bw: f64, damping: f64, freq_limit_norm: f64) -> Self {
         assert!(
@@ -38,14 +27,9 @@ impl LoopFilter {
         }
     }
 
-    /// Advance with a phase error in radians; returns the new phase increment.
     #[must_use]
     pub fn advance(&mut self, error: f64) -> f64 {
-        // A non-finite error latches the integrator forever — same healing argument as the
-        // recursions in `iir.rs`, except here dropping the update costs a single sample.
         let error = if error.is_finite() { error } else { 0.0 };
-        // The clamp is the reason callers pass a frequency limit at all: without it a noise
-        // burst integrates the loop off the signal and it never pulls back in.
         self.freq = (self.freq + self.beta * error).clamp(-self.limit, self.limit);
         self.freq + self.alpha * error
     }
@@ -60,23 +44,16 @@ impl LoopFilter {
     }
 }
 
-/// Tracking PLL for a residual carrier or pilot tone (RDS 19 kHz pilot, AM carrier).
 #[derive(Clone, Debug)]
 pub struct Pll {
     filter: LoopFilter,
     lock: LockDetector,
-    /// Nominal frequency, in rad/sample.
     center: f64,
-    /// Phase of the reference returned by the most recent `process`, wrapped to `[-π, π)`.
     phase: f64,
-    /// Increment computed from the previous sample, applied at the top of the next `process`
-    /// so that `phase` — and therefore `harmonic` — always describes the reference just
-    /// returned rather than the next one.
     inc: f64,
 }
 
 impl Pll {
-    /// `center_norm` is the nominal frequency, `range_norm` the ± pull-in limit around it.
     #[must_use]
     pub fn new(loop_bw: f64, damping: f64, center_norm: f64, range_norm: f64) -> Self {
         Self {
@@ -88,7 +65,6 @@ impl Pll {
         }
     }
 
-    /// Advance one sample; returns the loop's current reference phasor (unit magnitude).
     #[must_use]
     pub fn process(&mut self, sample: Complex<f32>) -> Complex<f32> {
         self.phase = step_phase(self.phase, self.inc);
@@ -99,9 +75,6 @@ impl Pll {
         to_c32(reference)
     }
 
-    /// Phasor at `n` times the loop frequency — the pilot-to-subcarrier multiplier RDS/stereo
-    /// need. Only integer `n` is well defined; a fractional harmonic depends on which 2π branch
-    /// the loop phase happens to sit in.
     #[must_use]
     pub fn harmonic(&self, n: f64) -> Complex<f32> {
         to_c32(Complex::from_polar(1.0, wrap_pi(n * self.phase)))
@@ -112,26 +85,17 @@ impl Pll {
         self.center / TAU + self.filter.freq_norm()
     }
 
-    /// The loop's instantaneous frequency estimate in cycles/sample: the whole filter output —
-    /// integrator *and* proportional path — for the sample just processed.
-    ///
-    /// This is the control voltage a PLL frequency demodulator reads. [`Self::freq_norm`]
-    /// returns only the integrator, which follows modulation slower than the loop bandwidth
-    /// and rolls the rest off; a demodulator reading it would low-pass the very message it is
-    /// recovering.
     #[must_use]
     pub fn increment_norm(&self) -> f64 {
         self.inc / TAU
     }
 
-    /// Smoothed |error| based lock estimate in 0..=1; > 0.5 means locked.
     #[must_use]
     pub fn lock(&self) -> f32 {
         self.lock.value()
     }
 }
 
-/// Costas loop for BPSK — the RDS 57 kHz subcarrier demodulator.
 #[derive(Clone, Debug)]
 pub struct Costas {
     filter: LoopFilter,
@@ -146,8 +110,6 @@ impl Costas {
     pub fn new(loop_bw: f64, damping: f64, center_norm: f64, range_norm: f64) -> Self {
         Self {
             filter: LoopFilter::new(loop_bw, damping, range_norm),
-            // The decision-directed detector folds the error into ±π/2, so a random phase
-            // averages to zero quality only against that reduced span.
             lock: LockDetector::new(loop_bw, FRAC_PI_2),
             center: TAU * center_norm,
             phase: 0.0,
@@ -155,7 +117,6 @@ impl Costas {
         }
     }
 
-    /// Advance one sample; returns the de-rotated sample (data on the real axis).
     #[must_use]
     pub fn process(&mut self, sample: Complex<f32>) -> Complex<f32> {
         self.phase = step_phase(self.phase, self.inc);
@@ -172,15 +133,12 @@ impl Costas {
         self.center / TAU + self.filter.freq_norm()
     }
 
-    /// Smoothed |error| based lock estimate in 0..=1; > 0.5 means locked.
     #[must_use]
     pub fn lock(&self) -> f32 {
         self.lock.value()
     }
 }
 
-/// Smoothed lock quality: 1 when the detector's phase error sits at zero, 0 when the error is
-/// spread uniformly over `range` — i.e. the loop is riding noise, not a carrier.
 #[derive(Clone, Debug)]
 struct LockDetector {
     value: f64,
@@ -192,15 +150,11 @@ impl LockDetector {
     fn new(loop_bw: f64, range: f64) -> Self {
         Self {
             value: 0.0,
-            // Averaging over roughly one loop time constant makes the estimate follow the loop
-            // instead of lagging behind it; the bounds keep pathological loop_bw usable.
             coeff: loop_bw.clamp(1e-4, 0.5),
             range,
         }
     }
 
-    /// `None` means the sample carried no phase at all (dead or non-finite input), which counts
-    /// as unlocked — not as a perfect zero-error alignment.
     fn update(&mut self, error: Option<f64>) {
         let quality = error.map_or(0.0, |e| 1.0 - 2.0 * e.abs() / self.range);
         self.value += self.coeff * (quality - self.value);
@@ -211,20 +165,15 @@ impl LockDetector {
     }
 }
 
-/// Phase of a de-rotated sample, or `None` when it carries none.
 fn phase_error(derotated: Complex<f64>) -> Option<f64> {
     (derotated.is_finite() && derotated.norm_sqr() > 0.0).then(|| derotated.arg())
 }
 
-/// Decision-directed BPSK detector: strip the ±1 symbol before measuring the phase, so the
-/// modulation cannot steer the loop and the error stays inside ±π/2.
 fn bpsk_error(derotated: Complex<f64>) -> Option<f64> {
     let symbol = if derotated.re < 0.0 { -1.0 } else { 1.0 };
     phase_error(derotated * symbol)
 }
 
-/// `inc` is pre-wrapped into `[-π, π)`, so a single correction always bounds the accumulator
-/// and f64 precision cannot erode over a long run.
 fn step_phase(phase: f64, inc: f64) -> f64 {
     let next = phase + inc;
     if next >= PI {
@@ -236,9 +185,6 @@ fn step_phase(phase: f64, inc: f64) -> f64 {
     }
 }
 
-/// Reduce a per-sample phase increment into `[-π, π)`. Exact for a sampled phasor: `e^(jθn)` is
-/// periodic in 2π per integer sample, so the wrapped increment produces the same sequence
-/// (correctly aliased) for any requested frequency.
 fn wrap_pi(x: f64) -> f64 {
     (x + PI).rem_euclid(TAU) - PI
 }
@@ -259,7 +205,6 @@ mod tests {
     use crate::testutil::{XorShift32, complex_tone};
 
     const DAMPING: f64 = FRAC_1_SQRT_2;
-    /// A 19 kHz stereo pilot sampled at 240 kHz.
     const PILOT: f64 = 19_000.0 / 240_000.0;
     const RANGE: f64 = 300.0 / 240_000.0;
     const PILOT_BW: f64 = 0.005;
@@ -345,8 +290,6 @@ mod tests {
         }
         assert!(pll.lock() > 0.5, "lock {}", pll.lock());
 
-        // Locked, the third harmonic must hold a constant phase against a directly generated
-        // 3·tone phasor: every sample's relative phasor then adds up to a unit-norm mean.
         let mut sum = Complex::new(0.0f64, 0.0);
         for (k, &x) in signal[40_000..].iter().enumerate() {
             let _ = pll.process(x);
@@ -379,8 +322,6 @@ mod tests {
             })
             .collect();
 
-        // The loop is blind to a 180° flip, so fix the polarity from the settled run and
-        // require every symbol to agree with it.
         let settled = SYMBOLS * SPS / 2;
         let correlation: f64 = out[settled..]
             .iter()

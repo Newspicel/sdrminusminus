@@ -12,33 +12,15 @@ use crate::{
     store::{Store, StoreError},
 };
 
-/// How long the settings must stay still before they are written, and the longest a change may
-/// go unwritten regardless. Both are needed: a scroll-wheel tune emits a change per detent, so
-/// idle-only debouncing never writes while the operator is spinning the dial, and interval-only
-/// writing costs a transaction per tick of an idle workspace.
 const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
 const AUTOSAVE_MAX_WAIT: Duration = Duration::from_secs(15);
 
-/// A device node bound to a live device set, and its channel nodes bound to live channels.
 pub(crate) struct DeviceBinding {
     pub node: String,
     pub device_set: u32,
-    /// Channel node id → live channel id, for the nodes that have one.
     pub channels: Vec<(String, u32)>,
 }
 
-/// Hand every device a stored workspace names, but no probe can find, back to the driver that can
-/// address it.
-///
-/// Only the network backends answer, and they are the reason this runs at all: a remote receiver is
-/// named by an operator rather than discovered, so after a restart nothing would put its endpoint
-/// back into the probe list — and apply only opens devices that are *in* that list, so a device
-/// node bound to one would sit at "not attached" forever with the radio online the whole time.
-/// The stored workspace is where those endpoints live, which makes this the one place that can
-/// restore them.
-///
-/// Best-effort by nature: a driver that cannot address a key says so by returning nothing, and an
-/// unreadable workspace costs its endpoints rather than the startup.
 pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
     let Ok(workspaces) = store.list_workspaces() else {
         return;
@@ -51,8 +33,6 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
             let NodeBody::Device(device) = &node.body else {
                 continue;
             };
-            // A reference carries a key only where the driver exposes no serial, which is exactly
-            // the shape a network endpoint has.
             let Some(reference) = device.device.as_ref().filter(|d| d.key.is_some()) else {
                 continue;
             };
@@ -86,13 +66,6 @@ pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(St
     bound
 }
 
-/// Match a device node's channel nodes to the live channels of the set it is bound to.
-///
-/// Apply's rule exactly (`crate::rest::bring_up`): a node takes the first unclaimed channel of
-/// the type it declares *on the stream its wire taps*, in stored order. The stream is part of
-/// the key because two same-type nodes on different streams of one radio would otherwise claim
-/// each other's channels and swap settings on capture. Nodes without a live channel are
-/// omitted — for capture there is nothing to record, and apply creates them separately.
 fn bind_channels(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
     let mut live: Vec<(u32, &str, u32)> = set
         .channels
@@ -167,10 +140,6 @@ pub(crate) fn capture(
         .collect()
 }
 
-/// Fold the engine's current settings into the active workspace's stored state.
-///
-/// Returns without writing when the workspace has no active workspace — a database whose last
-/// workspace was deleted has nowhere to put this, and the next open re-seeds one.
 pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
     let Some(active) = state.store.active_workspace()? else {
         return Ok(());
@@ -184,39 +153,26 @@ pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
         .clone();
     let captured = capture(graph, &state.engine.snapshot(), &unrestored);
     stored.merge(captured);
-    // A node undo can bring back is a node whose settings are still needed: pruning on the graph
-    // alone would return a restored channel at its type's defaults rather than where it was.
     let recoverable = state.store.history_nodes(active.info.id)?;
     stored.retain_nodes(|node| graph.node(node).is_some() || recoverable.contains(node));
     state.store.put_workspace_state(active.info.id, &stored)
 }
 
-/// Persist the workspace's settings shortly after they stop changing.
-///
-/// Driven off the engine's own event stream rather than the endpoints that mutate: tuning arrives
-/// over REST, MCP and the scanner alike, and one writer behind all of them cannot be bypassed by
-/// a caller that forgets to save. It emits no scope of its own — nothing reads this row live, and
-/// an emit would be a change event feeding the loop that produced it.
 pub(crate) fn spawn_autosave(state: &AppState) {
     let mut events = state.engine.subscribe_events();
     let state = state.clone();
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        // Same guard as the decoded encoder, and just as loud: a workspace that silently stops
-        // remembering where it was tuned is only discovered on the next restart.
         tracing::warn!("no runtime in context: the workspace's settings will not be saved");
         return;
     };
     let _guard = handle.enter();
     tokio::spawn(async move {
         loop {
-            // Nothing pending: block until something worth saving happens.
             match events.recv().await {
                 Ok(event) if !touches_settings(&event) => continue,
                 Ok(_) | Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => break,
             }
-            // Idle window, reset by every further change; `hard` bounds it so a dial nobody stops
-            // turning still reaches disk.
             let hard = Instant::now() + AUTOSAVE_MAX_WAIT;
             let mut idle = Instant::now() + AUTOSAVE_IDLE;
             let mut open = true;
@@ -255,9 +211,6 @@ pub(crate) fn spawn_autosave(state: &AppState) {
     });
 }
 
-/// Whether an event can have changed something worth persisting. Scanner progress is the noisy
-/// one this excludes: it fires every dwell and the tuning it reports is the sweep's, not the
-/// operator's (see [`capture`]).
 fn touches_settings(event: &ServerEvent) -> bool {
     matches!(
         event,
@@ -267,35 +220,14 @@ fn touches_settings(event: &ServerEvent) -> bool {
     )
 }
 
-/// What activating a workspace did to the hardware. Counts rather than ids: nothing downstream
-/// acts on them, and a switch that quietly closed four radios is exactly the thing that has to
-/// show up in a log (CLAUDE.md no-silent-failure).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Reconciled {
     pub closed: u32,
     pub dropped_channels: u32,
     pub stopped_scans: u32,
-    /// Nodes whose saved settings the engine refused — a rate locked by a live recording is the
-    /// case that reaches here. Their live settings are the *previous* workspace's, so a capture
-    /// that wrote them back would destroy what this workspace had saved; [`capture`] skips them
-    /// until a later restore succeeds.
     pub unrestored: Vec<String>,
 }
 
-/// Bring the hardware in line with the workspace that just became active.
-///
-/// Apply is additive on purpose: a second browser loading a workspace must never close a radio
-/// somebody else is using (`crate::rest::bring_up`). Activation is the opposite gesture — the
-/// operator asked for *this* workspace — so what the previous one left running is not the
-/// incoming one's to inherit. Exactly one workspace is active, and after this the hardware says
-/// so: radios the graph does not name are closed, channels it does not draw are dropped from the
-/// radios it keeps, and a sweep it does not draw gives the tuning back.
-///
-/// Only the subtractive half lives here. Opening the radios the workspace names and creating the
-/// channels it draws stays with apply, which runs next and restores the settings of every set it
-/// opens itself. The surviving sets are this function's to restore, because apply deliberately
-/// will not retune a radio that was already open — without this, two workspaces naming one radio
-/// would each inherit the other's tuning and never get their own back.
 pub(crate) fn reconcile(
     state: &AppState,
     incoming: &PatchGraph,
@@ -305,8 +237,6 @@ pub(crate) fn reconcile(
     let snapshot = engine.snapshot();
     let bindings = bind(incoming, &snapshot);
     let mut report = Reconciled::default();
-    // Cleared here, not appended to: a switch that restores cleanly must lift the block a
-    // previous failed one left, or that workspace never saves its tuning again.
     state
         .unrestored
         .lock()
@@ -319,8 +249,6 @@ pub(crate) fn reconcile(
         }
         match engine.remove_device_set(set.id) {
             Ok(()) => report.closed += 1,
-            // Already gone is the outcome asked for; anything else is a radio still running that
-            // this workspace does not draw, and that has to be visible.
             Err(err) if err.is_not_found() => {}
             Err(err) => tracing::warn!(%err, set = set.id, "could not close a radio on switch"),
         }
@@ -356,10 +284,6 @@ pub(crate) fn reconcile(
             tracing::warn!(err, set = set.id, "could not restore a radio on switch");
             report.unrestored.push(binding.node.clone());
         }
-        // A channel that *survived* the switch keeps the outgoing workspace's offset, squelch and
-        // params unless it is patched here: apply skips a live channel of the right type
-        // (`crate::rest::bring_up`), so nothing downstream would ever hand it this workspace's
-        // settings. Same failure as the device half, one level down.
         for (node, channel) in &binding.channels {
             let Some(stored) = saved.channel(node) else {
                 continue;
@@ -392,11 +316,6 @@ pub(crate) fn restore_device(
         .map_err(|err| err.to_string())
 }
 
-/// The settings a channel node should be created with: the ones it last had, or its type's
-/// defaults if it has never been captured.
-/// Saved settings whose params are a *different* type than the node declares are ignored: the
-/// node is what the workspace draws, and a channel whose mode was changed out of band through the
-/// REST surface must not silently redraw it.
 pub(crate) fn channel_settings(
     node: &str,
     channel_type: &str,
@@ -418,8 +337,6 @@ mod tests {
 
     use super::*;
 
-    /// A backend that can address any key but discovers nothing — the shape of a network client,
-    /// without a socket.
     #[derive(Default)]
     struct NamedOnly {
         adopted: std::sync::Mutex<Vec<String>>,
@@ -462,7 +379,6 @@ mod tests {
         }
     }
 
-    /// A driver that only ever reports what is attached, which is every real-hardware backend.
     struct HardwareOnly;
 
     impl DeviceDriver for HardwareOnly {
@@ -500,9 +416,6 @@ mod tests {
         Engine::with_registry(registry, None)
     }
 
-    /// The restart case this whole path exists for: the endpoint lives only in the stored
-    /// workspace, and until it is handed back to its driver no probe reports it — so apply, which
-    /// only opens what the probe lists, would leave the node waiting for a radio that is online.
     #[test]
     fn a_named_device_in_a_stored_workspace_is_back_in_the_probe_after_a_restart() {
         let store = Store::open(None).expect("in-memory store");
@@ -530,8 +443,6 @@ mod tests {
         );
     }
 
-    /// A workspace naming an unplugged dongle must not make the device list claim it is there:
-    /// only a driver that can address a key by name answers, and hardware backends never do.
     #[test]
     fn a_reference_to_absent_hardware_adopts_nothing() {
         let store = Store::open(None).expect("in-memory store");
@@ -545,7 +456,6 @@ mod tests {
                 }),
             )
             .expect("stored");
-        // …and one that names a serial rather than a key carries no endpoint to adopt at all.
         store
             .create_workspace(
                 "serial",

@@ -1,16 +1,3 @@
-//! §5 measurement bundle for the CP-OFDM and DMT entries: committed BER
-//! curves at four modulation orders on a subcarrier, the channel-estimation comparison that says
-//! what acquisition costs, the two §4.3 limits tables, level-1 E2E loopbacks, and the
-//! channel-estimation error read against its own closed form.
-//!
-//! The chains live in `ber::catalog::ofdm`; the committed artifacts live in `baselines/ofdm/`.
-//!
-//! The acceptance that makes this a framework rather than a fifth mapper: **an OFDM subcarrier
-//! under a flat channel is a bare carrier**, so every acquiring row is held to the same closed
-//! form the linear engine's own row is held to, shifted by the frame's overhead — a number
-//! computed from the geometry (`OfdmParams::framing_overhead_db`), identical for all four orders,
-//! and never fitted.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -60,8 +47,6 @@ fn sensitivity(stem: &str) -> f64 {
     limits::ebn0_at_ber(&load_curve(stem), 1e-3).expect("committed curve must bracket BER 1e-3")
 }
 
-// --- Always-run harness gates ----------------------------------------------------------------
-
 #[test]
 fn every_chain_round_trips_clean_at_high_ebn0() {
     for (link, name) in [
@@ -96,8 +81,6 @@ fn assert_curve_prefix(link: &Link, grid: &[f64], seed: u64, name: &str) {
     assert!(worst.abs() < 0.5, "{name} drift vs committed: {worst} dB");
 }
 
-/// Every committed curve reproduces its artifact's first points at the committed seed and
-/// budgets — the drift gate that makes each of them a regression test rather than a snapshot.
 #[test]
 fn every_committed_curve_matches_its_baseline() {
     for (link, grid, seed, stem) in [
@@ -142,11 +125,6 @@ fn every_committed_curve_matches_its_baseline() {
     }
 }
 
-/// The framework's acceptance (§4.1): every order's *genie* row sits on the same closed form its
-/// bare-carrier twin does, shifted by the frame's own overhead and by nothing else. Four orders
-/// against one geometry constant is what says the transform, the prefix, the pilots and the
-/// preamble cost the same at every table — which is the claim a framework has to make, and one no
-/// single row could.
 #[test]
 fn every_order_sits_on_its_subcarriers_own_closed_form() {
     for (stem, grid, oracle) in oracle_rows() {
@@ -159,12 +137,8 @@ fn every_order_sits_on_its_subcarriers_own_closed_form() {
     }
 }
 
-/// One judged row: the committed genie artifact, its grid, and the shifted closed form it answers
-/// to.
 type OracleRow = (&'static str, &'static [f64], Box<dyn Fn(f64) -> f64>);
 
-/// Every genie row and its reference. The DMT row answers to the same form through its *own*
-/// overhead, which is the Hermitian mirror priced in one number.
 fn oracle_rows() -> [OracleRow; 5] {
     [
         (
@@ -195,15 +169,6 @@ fn oracle_rows() -> [OracleRow; 5] {
     ]
 }
 
-/// What acquisition costs, per order: the same frame decoded by a receiver that must find the
-/// burst, measure its carrier and estimate its channel, against one that is told all three.
-///
-/// The number is the channel estimate's, and its shape is worth stating: two averaged training
-/// repeats leave an error of variance σ²/2 per bin, which enters the payload as a *multiplicative*
-/// constant — one draw per frame, not per symbol — so a complex table pays about
-/// 10·log10(1 + ½) = 1.76 dB of it while a real one (BPSK reads only the in-phase rail) pays
-/// visibly less. Gated in both directions per order, because a genie row that stopped being ahead
-/// would mean the comparison had stopped comparing.
 #[test]
 fn acquisition_costs_the_recorded_margin_over_the_genie() {
     for (name, acquiring, genie, lo, hi) in [
@@ -211,8 +176,6 @@ fn acquisition_costs_the_recorded_margin_over_the_genie() {
         ("qpsk", QPSK_AWGN, QPSK_GENIE_AWGN, 1.4, 2.9),
         ("16-qam", QAM16_AWGN, QAM16_GENIE_AWGN, 1.4, 2.9),
         ("64-qam", QAM64_AWGN, QAM64_GENIE_AWGN, 1.4, 2.9),
-        // Two pilots instead of four: the residual-phase line is fitted with no degrees of
-        // freedom left over, so the DMT chain pays more for its acquisition than the complex one.
         ("dmt", DMT_AWGN, DMT_GENIE_AWGN, 1.4, 3.6),
     ] {
         let cost = sensitivity(acquiring) - sensitivity(genie);
@@ -223,10 +186,6 @@ fn acquisition_costs_the_recorded_margin_over_the_genie() {
     }
 }
 
-/// The estimator tiers, measured against each other (§5 item 2). The comb tier is *ahead* under
-/// AWGN and it is not a paradox: the short training's energy sits on a twelfth of the band and
-/// repeats ten times, so its per-bin estimate is far quieter than the long training's two
-/// repeats. What it gives back is delay-spread resolution, which the limits tables price.
 #[test]
 fn the_comb_tier_is_ahead_under_awgn_and_the_limits_tables_say_why() {
     let margin = sensitivity(QPSK_AWGN) - sensitivity(QPSK_COMB_AWGN);
@@ -251,10 +210,6 @@ fn the_comb_tier_is_ahead_under_awgn_and_the_limits_tables_say_why() {
     );
 }
 
-/// The DMT row's headline, and it is a closed form rather than a measurement: a Hermitian
-/// spectrum radiates the same energy for half the payload, so the same waveform needs exactly
-/// 3.01 dB more Eb per bit. Measured between the two *genie* rows, so that what is compared is two
-/// waveforms and not two receivers — the acquiring pair differs by its pilot count as well.
 #[test]
 fn dmt_costs_the_hermitian_mirror_and_nothing_else() {
     let cost = sensitivity(DMT_GENIE_AWGN) - sensitivity(QPSK_GENIE_AWGN);
@@ -269,22 +224,6 @@ fn dmt_costs_the_hermitian_mirror_and_nothing_else() {
     );
 }
 
-// --- Channel-estimation error (§4.1, against its closed form) ---------------------------------
-
-/// The estimator's error curve, read against the identity behind it: a least-squares estimate
-/// from two averaged repeats of a known symbol leaves `σ²/2` per bin, whatever the SNR. Measured
-/// end to end — a real frame through the real acquisition — so what is asserted is the *chain's*
-/// estimate and not a formula re-derived in a test.
-///
-/// The estimate carries one thing the closed form does not, and the measurement separates it
-/// rather than absorbing it: the acquisition's own residual carrier error, which lands on every
-/// bin as the *same* phase (the training windows sit a fixed distance from the frame's origin) and
-/// is therefore indistinguishable from a channel that is rotated. Nothing downstream cares —
-/// a common rotation is exactly what the pilot tracker's constant term removes — so it is reported
-/// on its own and the per-bin error is read about it.
-///
-/// This is what the plan's "channel-estimation error curves" are, in the two forms that can be
-/// gated: the error itself here, and the BER it costs as the genie margin above.
 #[test]
 fn the_channel_estimate_carries_half_the_noise_variance_at_every_snr() {
     let params = OfdmParams::wifi_like();
@@ -312,14 +251,10 @@ fn the_channel_estimate_carries_half_the_noise_variance_at_every_snr() {
             for s in &mut wave {
                 *s += Complex::new((rng.normal() * sigma) as f32, (rng.normal() * sigma) as f32);
             }
-            // No window backoff for this one measurement: the backoff is a deliberate cyclic
-            // shift, so it puts a known phase ramp in the estimate and the truth to compare
-            // against would stop being unity. What is under test is the estimator's error.
             let mut demod = OfdmDemod::new(params.clone()).with_window_backoff(0);
             demod.acquire(&wave, 128).unwrap();
             let estimate = demod.channel();
             reported += estimate.noise_var();
-            // The common rotation, and the per-bin error about it.
             let mean: Complex<f64> = params
                 .map()
                 .occupied()
@@ -350,18 +285,12 @@ fn the_channel_estimate_carries_half_the_noise_variance_at_every_snr() {
             "σ² {sigma2}: estimate MSE {mse}, closed form {}",
             sigma2 / 2.0
         );
-        // The acquisition's residual carrier error, as the common rotation it becomes: at the
-        // noisiest point measured (σ² = 0.1) the worst of 40 frames is 0.39 rad — a fifth of a
-        // QPSK decision region, which is why removing it is the pilot tracker's job and not an
-        // optional refinement.
         assert!(
             worst_common < 0.5,
             "σ² {sigma2}: worst common rotation {worst_common} rad"
         );
     }
 }
-
-// --- Level-1 E2E -----------------------------------------------------------
 
 fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u64) {
     let sensitivity = sensitivity(curve_name);
@@ -370,9 +299,6 @@ fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u6
     assert_eq!(loopback(&mut link, &mut channel, payloads), Ok(()));
 }
 
-/// A shorter frame than the committed one for the loopback rows: the property is "no errors at
-/// this margin", and 8 symbols keeps a trial's 2304 bits well inside the residual-BER budget the
-/// §4.4 margin rule asks for while still carrying a whole preamble and a whole acquisition.
 fn short_link(name: &str, receiver: Receiver, m: u32) -> Link {
     link_sized(
         name,
@@ -441,8 +367,6 @@ fn dmt_loops_back_clean_at_6db_margin() {
     );
 }
 
-// --- Limits tables (§4.3, QPSK reference configuration, both estimator tiers) -----------------
-
 fn probe(link: &Link, spec: &ChannelSpec, op_db: f64) -> f64 {
     limits::measure_ber(link, spec, op_db, QPSK_SEED ^ 0x11e5, 150, 40_000)
 }
@@ -466,15 +390,9 @@ fn axis_row(
 
 const PROFILE_ERRORS: u64 = 250;
 const PROFILE_CAP: u64 = 600_000;
-/// The composite-profile rows sweep a whole curve twice, so their grid has to bracket the 1e-3
-/// crossing of *both* the clean chain and the impaired one — which for a frequency-selective
-/// profile on an uncoded chain is several dB to the right of the clean sensitivity. One grid per
-/// tier, because the two tiers' sensitivities are a measured margin apart.
 const LONG_PROFILE_GRID: [f64; 6] = [9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
 const COMB_PROFILE_GRID: [f64; 6] = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
 
-/// Axis brackets, named because the gates below read them: a row that reaches its bracket is an
-/// axis the entry does not fail on, and saying so takes the bracket's own value.
 const CFO_AXIS_HZ: f64 = 800_000.0;
 const DRIFT_AXIS_HZ_S: f64 = 1e9;
 const TIMING_AXIS_SAMPLES: f64 = 32.0;
@@ -482,9 +400,6 @@ const DELAY_AXIS_SAMPLES: f64 = 32.0;
 
 fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> {
     vec![
-        // The preamble's own acquisition range, and the reason this row reads in hundreds of kHz
-        // where a tracking loop's reads in Hz: the short training's 16-sample period wraps at
-        // ±625 kHz at 20 MHz, and nothing inside the frame has to track anything.
         axis_row("static CFO", "Hz", CFO_AXIS_HZ, 2_000.0, |hz| {
             probe(
                 link,
@@ -492,8 +407,6 @@ fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> 
                 op_db,
             )
         }),
-        // One estimate for a 286 µs burst, so what drift costs is the offset it has walked by the
-        // last symbol — the pilots' common-phase term absorbs the rest.
         axis_row("frequency drift", "Hz/s", DRIFT_AXIS_HZ_S, 5e6, |hz_s| {
             probe(
                 link,
@@ -501,9 +414,6 @@ fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> 
                 op_db,
             )
         }),
-        // The clock row is the cyclic prefix's, not the pilots': a fast receive clock walks the
-        // transform window earlier into the prefix, which stays ISI-free and reads as a phase ramp
-        // the pilot slope removes — until the walk exceeds the prefix.
         axis_row("sample clock", "ppm", 10_000.0, 10.0, |ppm| {
             probe(
                 link,
@@ -524,9 +434,6 @@ fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> 
                 )
             },
         ),
-        // The row the whole waveform exists for. The axis is quantised to whole samples (the
-        // profile's own unit), so the bisection converges onto a step and the tolerance is half a
-        // sample.
         axis_row("two-ray delay", "samples", DELAY_AXIS_SAMPLES, 0.5, |d| {
             probe(
                 link,
@@ -550,9 +457,6 @@ fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> 
                 op_db,
             )
         }),
-        // IQ imbalance is the impairment a multicarrier waveform has an answer for and a
-        // single-carrier one does not: it mirrors bin k onto bin −k, so every subcarrier is
-        // interfered with by the *image* of its opposite number.
         axis_row("IQ gain", "dB", 6.0, 0.05, |db| {
             probe(
                 link,
@@ -620,17 +524,6 @@ fn comb_tier_limits_rows_match_committed_table() {
     assert_table_matches(COMB_LIMITS, &qpsk_comb_link(), &COMB_PROFILE_GRID);
 }
 
-/// The prefix's promise, read off the committed table: the one-tap equaliser survives a two-ray
-/// channel for as long as the echo lands inside the transform window's own head start, and not
-/// much longer. It is the clearest thing this waveform does and it should be a committed number,
-/// not a textbook remark.
-///
-/// The bracket is stated rather than a point value, because the row is a *noisy* measurement at a
-/// stated echo level (−6 dB) and the boundary it finds is therefore soft: below the window's start
-/// (`cp − backoff` = 12 samples) there is no inter-symbol interference at all, past the prefix
-/// (16) there is nothing but, and a −6 dB echo's leakage in between is still small enough to
-/// survive — measured at 18 samples. The sharp, noiseless form of the same boundary is
-/// `multipath_inside_the_prefix_is_equalised_and_past_it_is_not` in `ofdm::demod`.
 #[test]
 fn the_delay_spread_limit_is_the_cyclic_prefix() {
     let table = limits::load_json(&baseline_path(LIMITS)).unwrap();
@@ -647,14 +540,6 @@ fn the_delay_spread_limit_is_the_cyclic_prefix() {
     );
 }
 
-/// The other half of the multipath story, and the one a reader should not have to be surprised
-/// by: these rows are **fade-limited, not delay-limited**. A one-tap equaliser divides by the
-/// channel, so a subcarrier the channel nulled comes back as amplified noise, and on an *uncoded*
-/// chain nothing recovers it — the exponential-PDP row therefore fails at well under one sample of
-/// RMS delay spread, long before any echo reaches the prefix. That is not a defect of the
-/// equaliser; it is why every OFDM system in the world pairs this waveform with coding and
-/// interleaving across subcarriers, which is channel coding and lives beside the FEC in
-/// `sdrmm-dsp` rather than here.
 #[test]
 fn the_frequency_selective_rows_are_fade_limited_not_delay_limited() {
     let table = limits::load_json(&baseline_path(LIMITS)).unwrap();
@@ -677,8 +562,6 @@ fn the_frequency_selective_rows_are_fade_limited_not_delay_limited() {
         "a dispersive channel is supposed to cost this chain far more than one specular echo"
     );
 }
-
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ----------------------
 
 fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     let curve = sweep::sweep_ber(

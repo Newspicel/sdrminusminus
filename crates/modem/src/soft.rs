@@ -1,49 +1,24 @@
 use sdrmm_dsp::fec::conv;
 
-/// A soft bit on an arbitrary confidence scale: the sign is the bit (positive = 1), the
-/// magnitude means "more sure" but in no particular unit. Producers in this crate emit ±1.0
-/// for a clean full-confidence symbol — the "clean symbol reaches full scale" convention the
-/// phase-0 four-level front end set and [`crate::cpm::Mapping::soft_bits`] carries on — but the
-/// type promises nothing beyond the sign.
-///
-/// Exactly 0.0 is an erasure: the absence of a vote, matching `fec::conv::ERASURE`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SoftBit(pub f32);
 
-/// A true log-likelihood ratio, `ln(P(1|y) / P(0|y))` in nats. Computing one requires the
-/// noise variance (see `constellation::demap`), and holding this type is the claim that a
-/// calibrated variance went in — magnitudes are comparable across symbols, across bursts, and
-/// against probabilities (`P(wrong) = 1 / (1 + e^|llr|)`). Nothing arbitrary-scale may be
-/// wrapped in it; that is the whole point of the type.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Llr(pub f32);
 
-/// |LLR| that [`Llr::to_fec`] maps to full Viterbi confidence. At 8 nats the bit is wrong with
-/// probability 1/(1+e⁸) ≈ 3.4e-4, and one quantisation step of the i16 scale then spans
-/// 8/64 = 0.125 nats. Saturating higher would spend the 7-bit range resolving certainty
-/// differences no metric comparison can act on; lower would clip the region where soft
-/// decisions actually out-vote each other.
 pub const LLR_SATURATION: f32 = 8.0;
 
 impl SoftBit {
-    /// The hard decision. Loses the confidence entirely — and the erasure/0 case with it: an
-    /// erasure slices to 0 here, so callers to whom "no vote" differs from "voted 0" must
-    /// check [`Self::is_erasure`] first.
     #[must_use]
     pub fn bit(self) -> bool {
         self.0 > 0.0
     }
 
-    /// Exactly zero — no vote either way, the analogue of `fec::conv::ERASURE`.
     #[must_use]
     pub fn is_erasure(self) -> bool {
         self.0 == 0.0
     }
 
-    /// To the Viterbi's i16 scale: ±1.0 (a clean symbol) maps to ±`CONFIDENT`, and the clamp is
-    /// why the scale is bounded at all — an over-confident value must not out-vote the rest of
-    /// the frame. Lost: everything beyond unit magnitude saturates, and what survives is
-    /// quantised to 1/64 of full scale.
     #[must_use]
     pub fn to_fec(self) -> conv::Soft {
         let full = f32::from(conv::CONFIDENT);
@@ -52,21 +27,16 @@ impl SoftBit {
 }
 
 impl Llr {
-    /// The hard decision; same information loss and erasure caveat as [`SoftBit::bit`].
     #[must_use]
     pub fn bit(self) -> bool {
         self.0 > 0.0
     }
 
-    /// Exactly zero — both hypotheses equally likely, which as a vote is an erasure.
     #[must_use]
     pub fn is_erasure(self) -> bool {
         self.0 == 0.0
     }
 
-    /// To the Viterbi's i16 scale: ±[`LLR_SATURATION`] nats and beyond map to ±`CONFIDENT`.
-    /// Lost: certainty past the saturation point, and resolution below one step of
-    /// [`LLR_SATURATION`]/`CONFIDENT` = 0.125 nats.
     #[must_use]
     pub fn to_fec(self) -> conv::Soft {
         let full = f32::from(conv::CONFIDENT);
@@ -74,18 +44,6 @@ impl Llr {
     }
 }
 
-/// The hard decision of a *bank* of detection statistics — the argmax an orthogonal receiver
-/// makes where a linear one slices. One definition, because both engines that make it (the
-/// M-FSK filterbank's tone energies, M-PPM's slot statistics) must agree on the one thing an
-/// argmax leaves open:
-///
-/// **Ties resolve to the later index.** They carry no information — a dead window reads all
-/// zeros, and equal statistics are equal evidence — so what matters is that the rule is fixed
-/// and stated rather than emergent. `channels::adsb` has always had it: "a 1 is energy in the
-/// *first* half of the bit", so two equal halves are not a 1.
-///
-/// # Panics
-/// If `statistics` is empty — an argmax over nothing is not 0, it is a caller bug.
 #[must_use]
 pub fn argmax(statistics: &[f32]) -> u8 {
     assert!(!statistics.is_empty(), "no statistics, no decision");
@@ -98,9 +56,6 @@ pub fn argmax(statistics: &[f32]) -> u8 {
     best as u8
 }
 
-/// Numerically free — an LLR is a perfectly good confidence. Lost: the calibration claim.
-/// The `SoftBit` no longer promises its magnitude is in nats, and there is deliberately no
-/// conversion back.
 impl From<Llr> for SoftBit {
     fn from(llr: Llr) -> Self {
         Self(llr.0)
@@ -135,7 +90,6 @@ mod tests {
         assert_eq!(SoftBit(1.0).to_fec(), CONFIDENT);
         assert_eq!(SoftBit(-1.0).to_fec(), -CONFIDENT);
         assert_eq!(SoftBit(0.5).to_fec(), CONFIDENT / 2);
-        // Beyond unit confidence saturates instead of out-voting the frame.
         assert_eq!(SoftBit(37.0).to_fec(), CONFIDENT);
         assert_eq!(SoftBit(-2.5).to_fec(), -CONFIDENT);
     }

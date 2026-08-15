@@ -20,13 +20,9 @@ use sdrmm_modem::{
     },
 };
 
-/// This test binary's allocation counter — `#[global_allocator]` binds per binary, so the library
-/// cannot install it on anyone's behalf (see `ber::perf`).
 #[global_allocator]
 static ALLOC: CountingAlloc = CountingAlloc::new();
 
-/// Payload symbols the benches drive. Shorter than a committed trial's, because a bench measures
-/// throughput per sample and a longer burst only makes the run slower.
 const SYMBOLS: usize = 512;
 const CSS_SF: u32 = 7;
 
@@ -58,7 +54,6 @@ fn labels(count: usize, alphabet: u32) -> Vec<u32> {
         .collect()
 }
 
-/// One acquired direct-sequence burst and everything needed to read it again.
 struct Dsss {
     demod: DsssDemod,
     wave: Vec<Complex<f32>>,
@@ -230,9 +225,6 @@ fn the_direct_sequence_receive_path_allocates_nothing() {
     });
 }
 
-/// Acquisition is not the per-sample hot path — it runs once per burst — but a receiver scanning
-/// for bursts runs it *constantly* on noise, which makes it exactly the path a stray `Vec` would
-/// hide in.
 #[test]
 fn the_burst_search_allocates_nothing() {
     let mut burst = dsss_burst();
@@ -250,10 +242,6 @@ fn the_burst_search_allocates_nothing() {
     });
 }
 
-/// CCK's correlator bank and its soft path. The bank is stack scratch sized by [`MAX_WORDS`], and
-/// this is what says so.
-///
-/// [`MAX_WORDS`]: sdrmm_modem::spread::cck::MAX_WORDS
 #[test]
 fn the_cck_correlator_bank_allocates_nothing() {
     let mut burst = cck_burst();
@@ -280,8 +268,6 @@ fn the_cck_correlator_bank_allocates_nothing() {
     assert_eq!(llrs.len(), SYMBOLS * 8);
 }
 
-/// The chirp receive path: dechirp, transform, argmax — and the timing estimate, whose modal vote
-/// is the one place here that would naturally have reached for a `Vec`.
 #[test]
 fn the_chirp_receive_path_allocates_nothing() {
     let (mut demod, wave, preamble, symbols) = css_burst();
@@ -309,8 +295,6 @@ fn the_chirp_receive_path_allocates_nothing() {
     assert_eq!(sink.len(), symbols);
 }
 
-/// The hopper and de-hopper operate in place and hold no buffer at all, which is the whole reason
-/// the framework can carry any entry without owning one.
 #[test]
 fn hopping_allocates_nothing() {
     let sequence = hop_sequence(11);
@@ -325,8 +309,6 @@ fn hopping_allocates_nothing() {
     assert_no_alloc("FhssDemod::dehop", || dehopper.dehop(&mut wave));
 }
 
-/// Rewrites the committed baseline. Run deliberately, on the reference machine:
-/// `cargo test -p sdrmm-modem --release --test spread_perf write_ -- --ignored`.
 #[test]
 #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
 fn write_spread_perf_baseline() {
@@ -345,8 +327,6 @@ fn write_spread_perf_baseline() {
     }
 }
 
-/// The nightly perf gate: measured against committed, failing past [`REGRESSION_FRACTION`].
-/// Compared only in release and only on the host that wrote the baseline.
 #[test]
 #[ignore = "nightly perf gate; run in release: cargo test -p sdrmm-modem --release --test spread_perf compare_ -- --ignored"]
 fn compare_spread_perf_baseline() {

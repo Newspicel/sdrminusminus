@@ -13,7 +13,6 @@ describe("historyStep", () => {
     expect(historyStep(chord("y", { ctrlKey: true }))).toBe("redo");
   });
 
-  // Shift produces the capital, and a keyboard layout can hand either spelling to the listener.
   it("reads the shifted capital as the same key", () => {
     expect(historyStep(chord("Z", { ctrlKey: true, shiftKey: true }))).toBe("redo");
     expect(historyStep(chord("Y", { metaKey: true }))).toBe("redo");

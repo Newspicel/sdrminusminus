@@ -1,7 +1,5 @@
 import type { DeviceSet, RecordingFormat, RecordingStatus } from "../lib/types";
 
-// What each container costs the operator, said once so the panel and the canvas agree. The
-// archive is the one that survives a round trip back into sdr--; the WAV is for other tools.
 export const downloadFormats: ReadonlyArray<{
   format: RecordingFormat;
   label: string;
@@ -23,9 +21,6 @@ export type RecordControl =
   | { kind: "idle"; canStart: boolean }
   | { kind: "recording"; status: RecordingStatus };
 
-// A faulted recording still reads as "recording": the writer has already stopped, but only an
-// explicit stop clears the surfaced error and frees the set for the next start ( — the
-// fault must stay visible, not vanish on the next state refresh).
 export function deriveRecordControl(set: DeviceSet): RecordControl {
   if (set.recording != null) {
     return { kind: "recording", status: set.recording };
@@ -33,8 +28,6 @@ export function deriveRecordControl(set: DeviceSet): RecordControl {
   return { kind: "idle", canStart: set.status === "running" };
 }
 
-// Wall-clock elapsed while healthy; a faulted recording's writer has already stopped, so the
-// readout freezes at the captured duration (samples / rate) instead of counting dead air.
 export function recordingElapsedS(
   status: RecordingStatus,
   nowMs: number,
@@ -48,7 +41,6 @@ export function recordingElapsedS(
 }
 
 export function formatDuration(seconds: number): string {
-  // Round to tenths first so 59.99 lands in the m:ss branch, not as "60.0 s".
   const tenths = Math.round(seconds * 10) / 10;
   if (tenths < 60) {
     return `${tenths.toFixed(1)} s`;

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { coherentGain, fft, hann, SpectrumAnalyzer } from "./fft";
 
-/** Interleaved I/Q of a complex tone at `cyclesPerBlock` cycles across `n` samples. */
 function tone(n: number, cyclesPerBlock: number, amp = 1): Float32Array {
   const out = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) {
@@ -39,7 +38,6 @@ describe("fft", () => {
     }
   });
 
-  /** Against a direct DFT, which is the definition the fast version has to agree with. */
   it("matches a direct transform on an arbitrary signal", () => {
     const n = 32;
     const re = new Float32Array(n);
@@ -82,7 +80,6 @@ describe("hann", () => {
     const window = hann(8);
     expect(window[0]).toBeCloseTo(0, 6);
     expect(window[4]).toBeCloseTo(1, 6);
-    // Periodic, not symmetric: the last point is not a second zero.
     expect(window.at(-1)).toBeGreaterThan(0);
   });
 
@@ -93,7 +90,6 @@ describe("hann", () => {
 });
 
 describe("coherentGain", () => {
-  /** The same half-of-N the server's `hann_coherent_gain_is_half_n` pins. */
   it("is half the length for a Hann window and the length for a rectangular one", () => {
     expect(coherentGain(hann(1024))).toBeCloseTo(512, 1);
     expect(coherentGain(new Float32Array(16).fill(1))).toBe(16);
@@ -105,7 +101,6 @@ describe("SpectrumAnalyzer", () => {
   it("reads a full-scale tone at a bin centre as 0 dBFS", () => {
     const analyzer = new SpectrumAnalyzer(256);
     const db = analyzer.powerDb(tone(256, 8), new Float32Array(256));
-    // DC-centred, so bin `n/2 + 8`.
     expect(db[128 + 8]).toBeCloseTo(0, 1);
   });
 
@@ -133,7 +128,6 @@ describe("SpectrumAnalyzer", () => {
     const analyzer = new SpectrumAnalyzer(128);
     const db = analyzer.powerDb(tone(32, 4), new Float32Array(128));
     expect(db.every((value) => Number.isFinite(value))).toBe(true);
-    // Still the loudest thing in the spectrum, just spread by the shorter window.
     const peak = db.indexOf(Math.max(...db));
     expect(Math.abs(peak - (64 + 16))).toBeLessThanOrEqual(4);
   });

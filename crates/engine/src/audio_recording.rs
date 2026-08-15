@@ -15,12 +15,8 @@ use crate::{
     audio::{PcmBlock, PcmPayload},
 };
 
-/// PCM blocks queue whole, so the headroom before a stalled writer becomes a surfaced fault is
-/// cap × block cadence: about a second and a half at the ~25 ms blocks a channel produces.
 const AUDIO_REC_CHANNEL_CAP: usize = 64;
 
-/// The counters and the one fault a live audio recording publishes. Read from the control side
-/// while the writer thread owns the file.
 #[derive(Debug, Default)]
 pub(crate) struct AudioRecordingShared {
     frames: AtomicU64,
@@ -41,16 +37,11 @@ impl AudioRecordingShared {
         self.error.get().cloned()
     }
 
-    /// First fault wins, so a queue overflow behind a write error cannot mask the cause.
     pub(crate) fn fail(&self, message: String) {
         let _ = self.error.set(message);
     }
 }
 
-/// The DSP-thread end of a channel audio recording. Handed to the host through the lane's
-/// command queue; the queue closes — which is the finalize handshake — once *every* clone of it
-/// is gone. It is clonable because the control side keeps one: a channel rebuilt for a new rate
-/// or a new mode gets a fresh host, and the recording has to carry across that swap.
 #[derive(Clone)]
 pub(crate) struct AudioRecorderTap {
     tx: mpsc::SyncSender<PcmBlock>,
@@ -58,9 +49,6 @@ pub(crate) struct AudioRecorderTap {
 }
 
 impl AudioRecorderTap {
-    /// Hand one block of the channel's audio to the writer. `false` means the recording has
-    /// failed and the caller must disarm: carrying on would write a file with holes in it that
-    /// nothing downstream could tell from silence on the air.
     #[must_use]
     pub(crate) fn push(&self, block: PcmBlock) -> bool {
         match self.tx.try_send(block) {
@@ -70,8 +58,6 @@ impl AudioRecorderTap {
                     .fail("audio recording queue overflow — disk too slow?".to_string());
                 false
             }
-            // The writer drops its receiver only on its own fault, which it reports first; this
-            // covers a panicked writer.
             Err(mpsc::TrySendError::Disconnected(_)) => {
                 self.shared
                     .fail("audio recording writer stopped".to_string());
@@ -98,9 +84,6 @@ pub(crate) fn create_tap() -> (
     )
 }
 
-/// The writer thread. Built control-side so a spawn failure surfaces on the REST call; it exits
-/// when the tap is gone or at the first fault, finalizing either way so what was already
-/// captured stays a playable file.
 pub(crate) fn spawn_writer(
     writer: AudioWriter,
     blocks: mpsc::Receiver<PcmBlock>,
@@ -119,9 +102,6 @@ fn write_loop(
 ) {
     let mut next_frame: Option<u64> = None;
     while let Ok(block) = blocks.recv() {
-        // A WAV states its channel count once, in a header the audio already written sits
-        // behind. A mode switched to a different layout mid-recording is therefore the end of
-        // this file rather than something to convert on the way past.
         if block.channels != writer.channels() {
             shared.fail(format!(
                 "the channel switched to {}-channel audio; a WAV cannot change layout mid-file",
@@ -133,9 +113,6 @@ fn write_loop(
             PcmPayload::Samples(samples) => samples.len() / usize::from(block.channels),
             PcmPayload::Silence(frames) => *frames,
         };
-        // Stamps are the channel's own frame clock, so a jump means PCM was lost on the way
-        // here. Padding keeps the recording's timeline honest — a minute in is a minute in —
-        // and the gap is reported rather than left to look like quiet air.
         if let Some(expected) = next_frame
             && block.start_frame > expected
         {
@@ -167,16 +144,11 @@ fn write_loop(
     }
 }
 
-/// Where audio recordings live: beside the IQ library rather than in it, since a directory of
-/// SigMF pairs is also the list of replayable devices and a WAV is not one of them.
 #[must_use]
 pub fn audio_dir(recordings_dir: &Path) -> PathBuf {
     recordings_dir.join("audio")
 }
 
-/// Open the file one recording writes into, claiming a name nothing else holds. `ds` and `ch`
-/// are in the name because a listener looking at a directory of these has nothing else to tell
-/// two channels of the same radio apart by.
 pub(crate) fn create_writer(
     dir: &Path,
     ds: u32,
@@ -249,8 +221,6 @@ mod tests {
         assert_eq!((info.channels, info.frames), (1, 960));
     }
 
-    /// A WAV header states one layout. The recording ends where the channel stops matching it,
-    /// with the reason kept rather than frames a reader would misinterpret.
     #[test]
     fn a_layout_change_ends_the_recording_and_says_why() {
         let dir = TempDir::new().expect("tempdir");
@@ -276,8 +246,6 @@ mod tests {
         );
     }
 
-    /// PCM lost on the way to the writer must not shorten the recording: what is written stays
-    /// as long as the air time it covers.
     #[test]
     fn a_gap_in_the_stamps_is_padded_rather_than_spliced_out() {
         let dir = TempDir::new().expect("tempdir");
@@ -297,7 +265,6 @@ mod tests {
 
     #[test]
     fn a_full_queue_surfaces_overflow_instead_of_dropping_audio() {
-        // No writer thread, so the queue backs up exactly as a wedged disk would make it.
         let (tap, _blocks, shared) = create_tap();
         for i in 0..AUDIO_REC_CHANNEL_CAP as u64 {
             assert!(tap.push(samples(i * 480, 1, 480)));

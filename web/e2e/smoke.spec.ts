@@ -9,7 +9,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-/** Draw a wire between two ports the way a pointer does. */
 async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
   const start = await from.boundingBox();
   const end = await to.boundingBox();
@@ -22,8 +21,6 @@ async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
   await page.mouse.up();
 }
 
-/** How far a port's marker sits from the middle of its own label, in pixels. Both are placed from
- * the same `top`, so anything above a rounding error is a marker that has moved under its paint. */
 async function rowOffset(node: Locator, port: string): Promise<number> {
   const handle = `.react-flow__handle[data-handleid="${port}"]`;
   const marker = await node.locator(handle).boundingBox();
@@ -34,14 +31,10 @@ async function rowOffset(node: Locator, port: string): Promise<number> {
   return Math.abs(marker.y + marker.height / 2 - (label.y + label.height / 2));
 }
 
-/** The cursor a control actually paints. Computed, not the class list: the rule that gives a
- * headless primitive its pointer lives in the stylesheet, and a node's own `cursor` inherits
- * down over anything that fails to state one. */
 async function cursor(locator: Locator): Promise<string> {
   return locator.evaluate((element) => getComputedStyle(element).cursor);
 }
 
-/** A popup inside a zoomed patch must inherit the same physical scale as its field. */
 async function renderedScale(locator: Locator): Promise<number> {
   return locator.evaluate((element) => {
     const height = (element as HTMLElement).offsetHeight;
@@ -49,36 +42,24 @@ async function renderedScale(locator: Locator): Promise<number> {
   });
 }
 
-/** Leave an autocomplete field the way a pointer does: press somewhere else on the face. While a
- * suggestion popup is open it hides every element outside itself from the accessibility tree, and
- * a scripted `blur()` reports no element focus moved to — which a combobox reads as the window
- * losing focus, not the field being left — so the popup would stay open over the next control. */
 async function leaveField(node: Locator): Promise<void> {
   await node.locator("header").click();
 }
 
-/** Bring a face on the canvas forward, the way a pointer does. Its controls answer only once its
- * node is the selected one — until then the face takes the press and hands it to the camera — so
- * every leg that reaches into a face selects it first, by the one part that is never a control. */
 async function activate(node: Locator): Promise<void> {
   await node.locator("header").click();
 }
 
-/** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
- * node they render rather than through React Flow. */
 function rackNode(page: Page, id: string): Locator {
   return page.locator(`.grid > [data-id="${id}"]`);
 }
 
-/** The rack as the server has it — the arrangement is server state, not what the DOM happens to
- * be showing mid-gesture. */
 async function slots(page: Page): Promise<{ node: string; x: number; w: number }[]> {
   const list = await page.request.get("/api/workspaces").then((r) => r.json());
   const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
   return detail.snapshot.rack.slots;
 }
 
-/** Bring every node into view before wiring faces from opposite sides of a large patch. */
 async function fitPatch(page: Page): Promise<void> {
   const pane = page.locator(".react-flow__pane");
   const box = await pane.boundingBox();
@@ -92,8 +73,6 @@ async function fitPatch(page: Page): Promise<void> {
     .click();
 }
 
-/** Drag a rack grip by whole cells. The grid is `RACK_COLS` wide, so a cell is the container's
- * width over twelve — the same arithmetic the rack itself does. */
 async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
   const box = await grip.boundingBox();
   const grid = await page.locator(".grid").first().boundingBox();
@@ -108,13 +87,9 @@ async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
 }
 
 test.describe("the workspace", () => {
-  // These legs deliberately share the throwaway server state built by the first one. If that
-  // setup fails, later assertions describe consequences rather than independent failures.
   test.describe.configure({ mode: "serial" });
 
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
-    // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
-    // fallback the map leg below lands in is itself behaviour the map owes a field workspace.
     await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
     await page.route("**/api/devices", (route) =>
       route.fulfill({
@@ -130,8 +105,6 @@ test.describe("the workspace", () => {
         },
       }),
     );
-    // MapLibre rejects a paint colour it cannot parse by dropping the whole layer with one
-    // console error — the map then looks whole minus its targets, which no locator below sees.
     const styleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error" && message.text().includes("color expected")) {
@@ -201,7 +174,6 @@ test.describe("the workspace", () => {
       ),
     );
 
-    // The state the server reports is the contract; the canvas is just its picture.
     await expect
       .poll(async () => {
         const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
@@ -226,8 +198,6 @@ test.describe("the workspace", () => {
       expect(await rowOffset(channel, port)).toBeLessThan(1);
     }
 
-    // The threshold is drawn whether or not squelch is on — switching it must not resize the face
-    // under the pointer — so "off" is the slider going inert, not the row disappearing.
     const squelch = channel.getByRole("checkbox", { name: /squelch/i });
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
     await expect(threshold).toBeDisabled();
@@ -235,18 +205,12 @@ test.describe("the workspace", () => {
     await expect(threshold).toBeEnabled();
     expect(await cursor(squelch)).toBe("pointer");
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
-    // Only the title bar of the selected face wears the hand. The library paints its own over the
-    // whole card, which promised a move on every control the face owns and on every face the
-    // pointer merely crossed.
     expect(await cursor(channel)).toBe("default");
     expect(await cursor(channel.locator("header"))).toBe("grab");
     expect(await cursor(node("scope").locator("header"))).toBe("default");
     await channel.getByText("-60 dB", { exact: true }).click();
     await expect(squelch).toBeChecked();
 
-    // A face that is not the selected one leaves the drag to the camera and keeps its controls out
-    // of it. Both answering at once was the break: dragging the patch across a channel swept its
-    // squelch threshold on the way past.
     await activate(node("device"));
     const viewport = page.locator(".react-flow__viewport");
     const framing = (): Promise<string> =>
@@ -268,8 +232,6 @@ test.describe("the workspace", () => {
     await sweep(grip, 90);
     expect(await threshold.inputValue()).toBe(held);
     expect(await framing()).not.toBe(framedAt);
-    // Dragged back from where the face now sits, so the legs below find the patch framed as they
-    // left it — and the thumb is swept a second time without moving.
     await sweep(grip + 90, -90);
     expect(await framing()).toBe(framedAt);
     expect(await threshold.inputValue()).toBe(held);
@@ -334,14 +296,7 @@ test.describe("the workspace", () => {
     ).toBeGreaterThan(0);
     await expect(rackNode(page, "scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 
-    // The plot's own toolbar, in the rack because a face there is always the active one
-    // (NodeShell) — so the plot's gestures are armed and this is where they used to swallow it.
-    // The plot captures the pointer on `pointerdown` to pan and tune, and a capture on the
-    // ancestor retargets the release: the button never saw a click, and the tune-on-click ran
-    // instead.
     const scopePlot = rackNode(page, "scope");
-    // Where the radio sits: the shared centre and any per-stream override, because `tuneDelta`
-    // writes one or the other depending on what the radio scopes per stream.
     const tunedTo = async (): Promise<string> => {
       const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
       const settings = state.device_sets[0]?.settings;
@@ -359,7 +314,6 @@ test.describe("the workspace", () => {
     await page.keyboard.press("Escape");
     await expect(tracesDialog).toBeHidden();
 
-    // The trigger is labelled with the colormap in force, which on a fresh profile is the default.
     await scopePlot.getByRole("button", { name: /^classic$/i }).click();
     await page.getByRole("button", { name: /^viridis$/i }).click();
     await expect(
@@ -408,9 +362,6 @@ test.describe("the workspace", () => {
       map.locator('.react-flow__handle[data-handleid="events"]'),
     );
 
-    // The face proves the composition: the wire chose the aircraft layer (the legend), the
-    // aborted CDN landed the offline fallback, and the canvas has real height — the break this
-    // guards collapsed the container to zero and left MapLibre painting into a box nobody saw.
     await expect(map.getByText("Aircraft")).toBeVisible();
     await expect(map.getByText(/basemap unavailable/i)).toBeVisible();
     await expect
@@ -433,10 +384,6 @@ test.describe("the workspace", () => {
   });
 
   test("opens the map's basemap credits collapsed", async ({ page }) => {
-    // A basemap with credits, which the offline fallback has none of — MapLibre only expands the
-    // attribution once a *used* source hands it a line to show, so a source without a layer
-    // referencing it would leave the control empty and this test asserting nothing. The tiles
-    // themselves stay off the wire; the credit line is the whole subject here.
     await page.route("https://tiles.openfreemap.org/styles/liberty", (route) =>
       route.fulfill({
         json: {
@@ -625,10 +572,6 @@ test.describe("the workspace", () => {
   });
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
-    // The region and the ruler moved out of `localStorage` and into the snapshot, so that two
-    // operators on one server stop drawing two different rulers over one signal. What proves it
-    // is the stored workspace, not the checkbox: the setting has to survive the round trip the
-    // canvas's own writes go through.
     await page.goto("/");
     await page
       .getByRole("button", { name: /workspace/i })
@@ -653,8 +596,6 @@ test.describe("the workspace", () => {
   });
 
   test("undoes a change on the server, where every client reads it", async ({ page }) => {
-    // Undo is not this browser's stack: the history belongs to the workspace, so what proves the
-    // step is the stored graph the next client would load, not the canvas the gesture happened on.
     await page.goto("/");
     const stored = async (): Promise<string[]> => {
       const list = await page.request.get("/api/workspaces").then((r) => r.json());
@@ -680,7 +621,6 @@ test.describe("the workspace", () => {
     await expect(added).toBeVisible();
     await expect.poll(async () => (await stored()).length).toBe(before.length + 1);
 
-    // Left as it was found: these legs share one server.
     await undo.click();
     await expect.poll(stored).toEqual(before);
   });
@@ -700,10 +640,8 @@ test.describe("the workspace", () => {
     await expect(page.getByText("Copied 1 node")).toBeVisible();
     await page.keyboard.press("ControlOrMeta+v");
 
-    // The fixture's speaker is `speaker`; a pasted one is minted as `speaker:…`.
     const copy = page.locator('.react-flow__node[data-id^="speaker:"]');
     await expect(copy).toBeVisible();
-    // The copy is what the next gesture is about, and only a selected face is draggable.
     await expect(copy).toHaveClass(/selected/);
     await expect.poll(async () => (await stored()).length).toBe(before.length + 1);
 
@@ -721,7 +659,6 @@ test.describe("the workspace", () => {
     await expect(scope.getByText(/waiting for the first frame/i)).toHaveCount(0);
     await fitPatch(page);
 
-    // One wire in, one instrument: nothing to switch between, so nothing is offered.
     const sources = scope.getByRole("group", { name: "Scope source" });
     await expect(sources).toHaveCount(0);
 
@@ -735,8 +672,6 @@ test.describe("the workspace", () => {
       scope.locator('.react-flow__handle[data-handleid="baseband"]'),
     );
 
-    // Wiring a tap in offers the narrower view without taking the radio away: the scope stays on
-    // the spectrum until the toggle says otherwise.
     await expect(sources).toBeVisible();
     await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
     await activate(scope);
@@ -747,8 +682,6 @@ test.describe("the workspace", () => {
     await sources.getByRole("button", { name: "IQ" }).click();
     await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
 
-    // Right-clicking names the frequency under the pointer. A quarter of the way across a
-    // 2.048 MHz span centred on 100 MHz is 99.488 MHz, give or take where the pixel landed.
     const plot = scope.locator(".bg-plot-bg");
     const box = await plot.boundingBox();
     if (box === null) {
@@ -771,21 +704,16 @@ test.describe("the workspace", () => {
         return bookmarks.find((b: { label: string }) => b.label === "smoke mark")?.freq_hz ?? 0;
       })
       .toBeGreaterThan(99_400_000);
-    // A mark you cannot see is not a mark: it is drawn back onto the plot it was taken from.
     await expect(plot.getByText("smoke mark")).toBeVisible();
 
     await plot.click({ button: "right", position: at });
     await menu.getByRole("button", { name: /^New channel here/ }).click();
-    // The mode is the operator's choice, typed at rather than hunted for — and picked in a dialog
-    // of its own, off the node the canvas pans and zooms with the same wheel.
     const modes = page.getByRole("dialog", { name: "New channel" });
     await expect(modes).toBeVisible();
     await expect(menu).toHaveCount(0);
     await modes.getByRole("searchbox", { name: "Search channel modes" }).fill("nfm");
     await modes.getByRole("button", { name: "NFM", exact: true }).first().click();
     await expect(modes).toHaveCount(0);
-    // The node is drawn and wired here; the frequency is a setting on the channel apply creates,
-    // so what proves the gesture landed is the engine's own offset.
     await expect
       .poll(async () => {
         const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
@@ -799,7 +727,6 @@ test.describe("the workspace", () => {
     await page.goto("/");
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
 
-    // Tools are launched from the library drawer, beside the other things a bench is set up with.
     await page.getByRole("button", { name: "Library" }).click();
     await page.getByRole("tab", { name: "Tools" }).click();
     await page.getByRole("button", { name: /^Antenna calculator/ }).click();
@@ -812,10 +739,7 @@ test.describe("the workspace", () => {
     await frequency.pressSequentially("14.2");
     await frequency.press("Tab");
     await expect(frequency).toHaveValue("14.2");
-    // A half-wave dipole at 14.2 MHz, end-effect factor 0.95: the whole path — panel to server
-    // to table — in one number.
     await expect(tools.getByRole("row", { name: /tip-to-tip span/i })).toContainText(/10\.0\d\d m/);
-    // The same answer as a drawing: a flat dipole is drawn face on.
     await expect(tools.getByRole("img", { name: /dipole.*front view/i })).toBeVisible();
 
     await tools.getByRole("combobox", { name: "Antenna design" }).click();
@@ -824,10 +748,8 @@ test.describe("the workspace", () => {
     await directors.click();
     await directors.press("ControlOrMeta+a");
     await directors.pressSequentially("3");
-    // Enter commits without leaving the field: the panel answers while the operator is still in it.
     await directors.press("Enter");
     await expect(tools.getByRole("row", { name: /director 3/i })).toBeVisible();
-    // A boom is only visible from above, and every element on it gets drawn.
     const drawing = tools.getByRole("img", { name: /yagi.*top view/i });
     await expect(drawing).toBeVisible();
     await expect(drawing.locator("title", { hasText: /^Director 3 —/ })).toHaveCount(1);
@@ -839,8 +761,6 @@ test.describe("the workspace", () => {
     await tools.getByRole("group", { name: "Length units" }).getByText("ft").click();
     await expect(tools.getByRole("row", { name: /^Reflector\b/ })).toContainText(/ft/);
 
-    // The next design replaces the answer in place: the panel never empties out, so the drawing
-    // is still turned the way it was left and still measured in the chosen unit.
     await tools.getByRole("combobox", { name: "Antenna design" }).click();
     await page.getByRole("option", { name: "Inverted V" }).click();
     await expect(tools.getByRole("img", { name: /inverted v.*angle/i })).toBeVisible();
@@ -849,15 +769,10 @@ test.describe("the workspace", () => {
 
     await tools.getByRole("button", { name: "Close" }).click();
     await expect(tools).toHaveCount(0);
-    // The patch is exactly where it was: a tool is not part of the signal path.
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
   });
 
   test("serves the mark to the tab and the top bar", async ({ page }) => {
-    // Both files are rendered from assets/icon.svg by `cargo xtask icons` and reach the binary
-    // through `web/dist`, so a missing one is a build that shipped without them. It cannot show
-    // up as a 404 either: unknown paths fall back to index.html (server/assets.rs), so the tab
-    // would quietly get HTML where it asked for an image. Assert the content type, not the code.
     for (const [path, type] of [
       ["/icon.svg", "image/svg+xml"],
       ["/favicon.ico", "image/"],

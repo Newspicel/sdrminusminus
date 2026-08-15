@@ -5,8 +5,6 @@ use num_complex::Complex;
 use sdrmm_dsp::{SymbolSync, design_rrc};
 use sdrmm_modem::ber::perf::{shaped_bpsk_iq, test_dibits};
 
-/// The shared Gardner/Farrow loop alone, on the antipodal signal that drives its detector at
-/// full rate — every engine composes it, so its cost is everyone's floor.
 fn symbol_sync_8sps(c: &mut Criterion) {
     let iq = shaped_bpsk_iq(4_096, 8.0, 0x0dd5);
     let mut sync = SymbolSync::new(8.0, 0.01);
@@ -33,10 +31,6 @@ fn design_rrc_canary(c: &mut Criterion) {
     group.finish();
 }
 
-/// The phase-3 CPM engine at the M = 4 reference configuration (48 kHz, 4800 baud, ETSI
-/// dibit table, ±1944 Hz, RRC α = 0.2, timing bw 0.015) — the committed number lives in
-/// `baselines/cpm/mfsk_perf.json`, written by the ignored test in `tests/mfsk_perf.rs` from
-/// the identical waveform and construction, so the bench and the gate measure the same work.
 fn cpm_demod_m4_48k(c: &mut Criterion) {
     use sdrmm_modem::{
         cpm::{CpmDemod, CpmMod, CpmParams, Mapping, TIMING_BW_BURST},
@@ -68,10 +62,6 @@ fn cpm_demod_m4_48k(c: &mut Criterion) {
     group.finish();
 }
 
-/// GMSK BT = 0.5 (D-STAR/Bluetooth-BR shape) at 10 sps through its pulse-matched receive
-/// filter — the committed number lives in `baselines/cpm/gmsk_perf.json`, written by the
-/// ignored test in `tests/gmsk_msk_afsk_bundles.rs` from the identical waveform and
-/// construction, so the bench and the gate measure the same work (likewise the two below).
 fn gmsk_bt05_demod(c: &mut Criterion) {
     use sdrmm_modem::{
         cpm::{CpmDemod, CpmMod, CpmParams, Mapping, TIMING_BW_BURST},
@@ -102,7 +92,6 @@ fn gmsk_bt05_demod(c: &mut Criterion) {
     group.finish();
 }
 
-/// MSK (1REC h = ½) at 10 sps with the integrate-and-dump receive filter.
 fn msk_demod(c: &mut Criterion) {
     use sdrmm_modem::{
         cpm::{CpmDemod, CpmMod, CpmParams, Mapping, TIMING_BW_BURST},
@@ -133,8 +122,6 @@ fn msk_demod(c: &mut Criterion) {
     group.finish();
 }
 
-/// Bell-202-shaped AFSK (1200/2200 Hz, 1200 baud) through the tier-1 tone-filterbank
-/// detector on real 12 kHz audio — the real-input hot path.
 fn afsk_filterbank_12k(c: &mut Criterion) {
     use sdrmm_modem::{
         cpm::{CpmDemod, CpmMod, CpmParams, Mapping, RealDetector, TIMING_BW_BURST},
@@ -175,11 +162,6 @@ fn afsk_filterbank_12k(c: &mut Criterion) {
     group.finish();
 }
 
-/// The phase-5 orthogonal M-FSK entry at its reference configuration (48 kHz, 4800 baud, M = 4,
-/// spacing one cycle per symbol) — the committed number lives in
-/// `baselines/orthogonal/mfsk_perf.json`, written by the ignored test in
-/// `tests/orthogonal_ppm_perf.rs` from the identical waveform, so bench and gate measure the
-/// same work (likewise the PPM bench below).
 fn mfsk4_filterbank_48k(c: &mut Criterion) {
     use sdrmm_modem::{ber::catalog::orthogonal, orthogonal::MfskDemod};
     let symbols = orthogonal::filler(4, 1_200);
@@ -198,8 +180,6 @@ fn mfsk4_filterbank_48k(c: &mut Criterion) {
     group.finish();
 }
 
-/// The phase-5 M-PPM entry's tier-1 detector at 1 Mslot/s on 8 Msps — the Mode S alphabet at the
-/// catalog's reference oversampling.
 fn ppm2_matched_8m(c: &mut Criterion) {
     use sdrmm_modem::{ber::catalog::ppm, ppm::SlotDetector};
     let symbols = ppm::filler(2, 2_048);
@@ -218,11 +198,6 @@ fn ppm2_matched_8m(c: &mut Criterion) {
     group.finish();
 }
 
-/// The phase-6 OFDM entry at its reference configuration (64-point transform, 16-sample prefix,
-/// 48 + 4 subcarriers, QPSK at 20 MHz) — the committed numbers live in
-/// `baselines/ofdm/ofdm_perf.json`, written by the ignored test in `tests/ofdm_perf.rs` from the
-/// identical frame, so bench and gate measure the same work. Two groups because the cost splits:
-/// the per-symbol path against the whole frame, preamble search included.
 fn ofdm64_20m(c: &mut Criterion) {
     use sdrmm_modem::{
         ber::catalog::ofdm::{LEAD, SEARCH, SYMBOLS},
@@ -279,8 +254,6 @@ fn ofdm64_20m(c: &mut Criterion) {
     group.finish();
 }
 
-/// 2-level bench symbols from the shared dibit generator, so every CPM bench draws from one
-/// deterministic source.
 fn test_bits(len: usize, seed: u32) -> Vec<u8> {
     test_dibits(len, seed).into_iter().map(|d| d & 1).collect()
 }

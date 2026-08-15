@@ -1,4 +1,3 @@
-//! Vocoder adapters shared by the digital-voice air interfaces.
 use std::{
     alloc::{Layout, handle_alloc_error},
     ffi::c_void,
@@ -20,8 +19,6 @@ const VOCODER_RATE_HZ: f64 = 8_000.0;
 const MBE_FRAME_SAMPLES: usize = 160;
 const OUTPUT_SAMPLES_PER_MBE_FRAME: usize = 960;
 
-/// AMBE+2 3,600 x 2,450 code-vector interleave shared by DMR, NXDN EHR, dPMR and YSF V/D1.
-/// Rows are codec vectors c0..c3 and columns are LSB-based bit positions.
 pub(crate) const AMBE_3600_INTERLEAVE: [[(u8, u8); 2]; 36] = [
     [(0, 23), (0, 5)],
     [(1, 10), (2, 3)],
@@ -61,9 +58,6 @@ pub(crate) const AMBE_3600_INTERLEAVE: [[(u8, u8); 2]; 36] = [
     [(2, 4), (3, 0)],
 ];
 
-/// One stateful 8 kHz -> application-rate output path. Vocoders are predictive, and so is the
-/// fractional resampler; both are deliberately kept per channel rather than reconstructed per
-/// RF frame.
 struct PcmOutput {
     resampler: FracResampler,
     pcm_8k: Vec<Complex<f32>>,
@@ -149,8 +143,6 @@ impl MbeDecoder {
         self.output.reset();
     }
 
-    /// Decode a carrier-specific AMBE+2 interleave after it has been assembled into the four
-    /// codec code vectors.
     pub(crate) fn decode_half_code_vectors(
         &mut self,
         code: [u32; 4],
@@ -172,7 +164,6 @@ impl MbeDecoder {
         }
     }
 
-    /// Decode the natural 49-bit AMBE+2 information order used by YSF V/D mode 2.
     pub(crate) fn decode_half_info(
         &mut self,
         bits: &[bool; 49],
@@ -193,7 +184,6 @@ impl MbeDecoder {
         }
     }
 
-    /// Decode a P25 Annex-H full-rate frame in air-interface dibit order.
     pub(crate) fn decode_full_dibits(
         &mut self,
         dibits: &[u8; 72],
@@ -211,7 +201,6 @@ impl MbeDecoder {
         }
     }
 
-    /// Decode full-rate code vectors supplied by a non-P25 carrier such as YSF Voice FR.
     pub(crate) fn decode_full_code_vectors(
         &mut self,
         code: [u32; 8],
@@ -230,8 +219,6 @@ unsafe extern "C" {
     fn sdrmm_dstar_vocoder_decode(decoder: *mut c_void, bits: *const u8, pcm: *mut f32) -> i32;
 }
 
-/// D-STAR's first-generation 3,600 x 2,400 AMBE decoder. The native state is owned uniquely
-/// and is only touched through `&mut self`; moving a channel between DSP threads is safe.
 pub(crate) struct DstarVocoder {
     decoder: NonNull<c_void>,
     output: PcmOutput,
@@ -318,7 +305,6 @@ impl Codec2Decoder {
         self.output.reset();
     }
 
-    /// A voice-only M17 stream carries two 64-bit Codec2 3200 frames per radio frame.
     pub(crate) fn decode_3200(
         &mut self,
         payload: &[u8; 16],
@@ -335,7 +321,6 @@ impl Codec2Decoder {
         }
     }
 
-    /// Voice+data M17 uses one 64-bit Codec2 1600 frame (40 ms) followed by 64 data bits.
     pub(crate) fn decode_1600(
         &mut self,
         payload: &[u8; 16],
@@ -350,15 +335,12 @@ impl Codec2Decoder {
         self.output.append_i16(&self.pcm, out);
     }
 
-    /// FreeDV 1600 carries one 52-bit Codec2 1300 frame every 40 ms.
     pub(crate) fn decode_1300(&mut self, payload: &[u8; 7], out: &mut ChannelOutputs) {
         self.codec_1300.decode(&mut self.pcm, payload);
         self.output.append_i16(&self.pcm, out);
     }
 }
 
-/// Assemble one 72-bit carrier interleave into AMBE+2's four code vectors. Each table row is
-/// the `(vector, LSB-based bit)` destination for the high and low bit of one air dibit.
 pub(crate) fn half_rate_code_vectors(
     frame: &[bool; 72],
     interleave: &[[(u8, u8); 2]; 36],
@@ -388,7 +370,6 @@ pub(crate) mod testutil {
         })
     }
 
-    /// AMBE+2 frames in the carrier interleave shared by NXDN, dPMR and YSF V/D1.
     pub(crate) fn half_rate_frames(count: usize) -> Vec<[bool; 72]> {
         let mut encoder = Vocoder::new(Rate::HalfRate3600x2450);
         (0..count)
@@ -415,7 +396,6 @@ pub(crate) mod testutil {
             .collect()
     }
 
-    /// Natural 49-bit AMBE+2 information frames for YSF V/D2.
     pub(crate) fn natural_half_rate_frames(count: usize) -> Vec<[bool; 49]> {
         let mut encoder = Vocoder::new(Rate::HalfRate2450x2450);
         (0..count)
@@ -428,7 +408,6 @@ pub(crate) mod testutil {
             .collect()
     }
 
-    /// Annex-H full-rate IMBE frames for P25. The YSF generator converts these to Voice-FR.
     pub(crate) fn full_rate_frames(count: usize) -> Vec<[bool; 144]> {
         let mut encoder = Vocoder::new(Rate::FullRate7200x4400);
         (0..count)

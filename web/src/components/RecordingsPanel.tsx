@@ -1,7 +1,3 @@
-// SigMF recordings browser (: files on disk are the source of truth; the list is the
-// reconciled index, WS-invalidated on scope "recordings"). A recording plays back through a
-// `virtual:file:` device, so opening one is the same gesture as opening a radio: it draws a
-// source node on the canvas, and apply is what starts it.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AUDIO_RECORDINGS_KEY,
@@ -76,8 +72,6 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
   );
 }
 
-/** Channel audio, in the same drawer as the IQ it was demodulated from. No "open as source":
- * a WAV of speech is not a signal a receiver can be pointed at — it is listened to elsewhere. */
 function AudioRecordings() {
   const queryClient = useQueryClient();
   const recordings = useQuery(audioRecordingsQuery());

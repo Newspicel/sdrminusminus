@@ -15,10 +15,7 @@ use sdrmm_wire::{NetworkExportSettings, NetworkSampleFormat, NetworkTransport};
 
 use crate::EngineError;
 
-/// About half a second at a 2 Msps receiver, matching the capture ring's scheduling headroom.
 const NETWORK_RING_CAPACITY: usize = 1 << 20;
-/// Fits below a 1500-byte Ethernet MTU after IPv4 + UDP headers and remains a whole number of
-/// complex samples in every supported encoding.
 const UDP_PAYLOAD_BYTES: usize = 1_400;
 const NETWORK_IO_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -58,8 +55,6 @@ pub(crate) struct NetworkExportTap {
 }
 
 impl NetworkExportTap {
-    /// The network writer never backpressures the DSP thread. A full queue ends the export and
-    /// surfaces the loss rather than silently sending a stream with an unmarked hole.
     #[must_use]
     pub(crate) fn push(&mut self, samples: &[Complex<f32>]) -> bool {
         if samples.is_empty() {

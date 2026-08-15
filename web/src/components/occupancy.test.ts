@@ -61,7 +61,6 @@ describe("occupancyRows", () => {
 
 describe("dutyAlpha", () => {
   it("lifts the low end without claiming a quiet frequency is busy", () => {
-    // 4% duty would be all but invisible drawn linearly.
     expect(dutyAlpha(0.04)).toBeCloseTo(0.2, 6);
     expect(dutyAlpha(0.04)).toBeGreaterThan(0.04);
     expect(dutyAlpha(1)).toBe(1);

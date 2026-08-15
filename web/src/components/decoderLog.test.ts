@@ -100,9 +100,6 @@ describe("toQuery", () => {
     });
   });
 
-  // Both halves travel, always: the node ids are what match a row written in any run, and the
-  // coordinates reach the rows that predate them. A node with nothing wired in must ask for
-  // nothing rather than for everything — the same query backs the Clear button.
   it("sends an empty scope rather than omitting it", () => {
     expect(toQuery(filter(), NO_WIRES)).toEqual({ limit: 500, nodes: "", sources: "" });
   });
@@ -122,8 +119,6 @@ describe("matchesFilter", () => {
     expect(matchesFilter(record(), filter({ q: "nordlicht" }), WIRED)).toBe(false);
   });
 
-  // The wire scope is the one filter the operator cannot clear, so it is checked before any of
-  // theirs: a log node must not tail a decoder it is not wired to.
   it("drops a frame from a channel that is not wired in", () => {
     const scope = sourceSet("0:0");
     expect(matchesFilter(record(), filter(), scope)).toBe(true);
@@ -134,8 +129,6 @@ describe("matchesFilter", () => {
 });
 
 describe("collectLive", () => {
-  // The store's per-kind slices are correlated with their payload type; the fixtures build plain
-  // records of the matching kind, which only the assertion can tell the compiler.
   const frames = {
     adsb: [record({ at: "2026-08-09T12:00:03Z" }), record({ at: "2026-08-09T12:00:01Z" })],
     ais: [record({ at: "2026-08-09T12:00:02Z", event: ais })],
@@ -173,9 +166,6 @@ describe("buildRows", () => {
     expect(rows[0]?.summary).toBe("3c6444 · DLH123 · 35000 ft");
   });
 
-  // Newest first across both sources, not two blocks: the writer flushes twice a second, so a
-  // stored row can be newer than a frame still only in the tail, and the table must not put the
-  // older one on top because of where it came from.
   it("orders the tail and the stored page as one table", () => {
     const rows = buildRows(
       [entry({ id: 2, at: "2026-08-09T12:00:04Z" }), entry({ at: "2026-08-09T12:00:00Z" })],
@@ -340,8 +330,6 @@ describe("clock and GNSS summaries", () => {
   });
 });
 
-/** These three mirror `DecoderEvent::summary` in `crates/wire/src/decode.rs`; a live row and the
- * stored row it becomes a second later must read identically in the same table. */
 describe("wave-2 summaries", () => {
   it("renders a NAVTEX broadcast as header, subject and one line of text", () => {
     expect(

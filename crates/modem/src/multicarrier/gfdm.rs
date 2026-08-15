@@ -2,29 +2,17 @@ use num_complex::Complex;
 
 use super::transform::{invert, matvec};
 
-/// Largest block a receiver will build a dense matrix for. `N = K·M` and the inverse is `N³` at
-/// construction and `N²` per block, so this is a guard against a parameterisation that would
-/// quietly turn a receiver into a linear-algebra benchmark.
 pub const MAX_BLOCK: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GfdmParams {
-    /// Subcarriers per block.
     pub subcarriers: usize,
-    /// Subsymbols per block — the `M` that distinguishes GFDM from OFDM, which is this at 1.
     pub subsymbols: usize,
-    /// Root-raised-cosine roll-off of the circular prototype pulse. At 0 the pulse is a sinc
-    /// over the block and the matrix is worst-conditioned; toward 1 it is well-conditioned and
-    /// spectrally wide, which is the trade the roll-off *is*.
     pub rolloff: f64,
-    /// Cyclic prefix in samples, prepended to the whole block rather than to each subsymbol —
-    /// the saving that motivates the waveform.
     pub cp: usize,
 }
 
 impl GfdmParams {
-    /// The 802.11-adjacent reference configuration the catalog measures: 16 subcarriers, 5
-    /// subsymbols, roll-off 0.5.
     #[must_use]
     pub fn new(subcarriers: usize, subsymbols: usize, rolloff: f64) -> Self {
         Self {
@@ -35,23 +23,16 @@ impl GfdmParams {
         }
     }
 
-    /// Samples in one block before the prefix — `K·M`, and the number of points it carries.
     #[must_use]
     pub fn block(&self) -> usize {
         self.subcarriers * self.subsymbols
     }
 
-    /// Samples one block occupies on the wire.
     #[must_use]
     pub fn samples(&self) -> usize {
         self.block() + self.cp
     }
 
-    /// The circular prototype pulse, unit energy, centred at sample 0 so that the `m`-th
-    /// subsymbol's copy is a plain rotation by `m·K`.
-    ///
-    /// # Panics
-    /// If the block is empty or past [`MAX_BLOCK`].
     #[must_use]
     pub fn prototype(&self) -> Vec<f64> {
         let n = self.block();
@@ -75,9 +56,6 @@ impl GfdmParams {
         g
     }
 
-    /// The modulation matrix `A`, row-major, `N` rows of `N` columns. Column `k·M + m` is
-    /// subcarrier `k`'s `m`-th subsymbol: the prototype rotated by `m·K` samples and mixed to
-    /// subcarrier `k`.
     #[must_use]
     pub fn matrix(&self) -> Vec<Complex<f64>> {
         let (n, k_count, m_count) = (self.block(), self.subcarriers, self.subsymbols);
@@ -120,7 +98,6 @@ fn rrc(t: f64, alpha: f64) -> f64 {
     numerator / (PI * t * (1.0 - (4.0 * alpha * t).powi(2)))
 }
 
-/// The transmitter: one dense product per block.
 #[derive(Clone)]
 pub struct GfdmMod {
     params: GfdmParams,
@@ -129,9 +106,6 @@ pub struct GfdmMod {
 }
 
 impl GfdmMod {
-    /// # Panics
-    /// If the prefix is longer than the block it prefixes — the block is what it is copied from,
-    /// so a longer one has nothing to take, and `modulate` would underflow rather than say so.
     #[must_use]
     pub fn new(params: GfdmParams) -> Self {
         assert!(
@@ -170,27 +144,19 @@ impl GfdmMod {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfdmDetector {
-    /// `A⁻¹` — exact, noise-amplifying. Tier 1.
     ZeroForcing,
-    /// `Aᴴ` — free, self-interfering. Tier 2.
     Matched,
 }
 
-/// The receiver.
 #[derive(Clone)]
 pub struct GfdmDemod {
     params: GfdmParams,
     matrix: Vec<Complex<f32>>,
-    /// Noise amplification per point: the row norms of the receive matrix, which for the
-    /// zero-forcing tier is what its inverse costs and for the matched one is exactly 1.
     amplification: Vec<f32>,
     block: Vec<Complex<f32>>,
 }
 
 impl GfdmDemod {
-    /// # Panics
-    /// If the zero-forcing tier is asked for and the modulation matrix is singular — a prototype
-    /// with no inverse is a parameterisation error, not a runtime condition.
     #[must_use]
     pub fn new(params: GfdmParams, detector: GfdmDetector) -> Self {
         let n = params.block();
@@ -228,14 +194,11 @@ impl GfdmDemod {
         &self.params
     }
 
-    /// Per-point noise amplification — the zero-forcing tier's whole cost, readable without
-    /// sweeping anything, and exactly 1 on the matched tier.
     #[must_use]
     pub fn amplification(&self) -> &[f32] {
         &self.amplification
     }
 
-    /// Appends one point per transmitted point to `out`, dropping each block's prefix.
     pub fn demodulate(&mut self, x: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let n = self.params.block();
         for chunk in x.chunks_exact(self.params.samples()) {
@@ -273,8 +236,6 @@ mod tests {
             .collect()
     }
 
-    /// The prototype is unit energy and its energy is where a pulse's should be — concentrated
-    /// about sample 0, since that is what makes the `m`-th subsymbol a plain rotation.
     #[test]
     fn the_prototype_is_unit_energy_and_centred_on_zero() {
         let params = reference();
@@ -291,8 +252,6 @@ mod tests {
         assert_eq!(peak, 0, "the pulse peaks away from sample 0");
     }
 
-    /// Every column of the modulation matrix carries the same energy, which is what makes a
-    /// per-point Eb/N0 mean one thing across the block.
     #[test]
     fn every_column_of_the_matrix_carries_unit_energy() {
         let params = reference();
@@ -304,8 +263,6 @@ mod tests {
         }
     }
 
-    /// The zero-forcing tier is exact: without noise the points come back as they went in, which
-    /// is the property a non-orthogonal waveform has to earn rather than inherit.
     #[test]
     fn the_zero_forcing_tier_round_trips_exactly() {
         let params = reference();
@@ -320,9 +277,6 @@ mod tests {
         }
     }
 
-    /// And the matched tier is not, which is the *other* half of the same fact. Its residual is
-    /// the self-interference a non-orthogonal transmitter creates, and it is what becomes an
-    /// error floor no Eb/N0 removes.
     #[test]
     fn the_matched_tier_leaves_measurable_self_interference() {
         let params = reference();
@@ -343,8 +297,6 @@ mod tests {
         );
     }
 
-    /// The zero-forcing tier's cost, readable without sweeping anything: the inverse's row norms
-    /// are the noise it amplifies, and the matched tier's are exactly one.
     #[test]
     fn the_zero_forcing_tier_states_its_own_noise_amplification() {
         let params = reference();
@@ -361,13 +313,6 @@ mod tests {
         );
     }
 
-    /// **The roll-off is the conditioning, and it runs the way the frequency axis runs, not the
-    /// time axis.** A larger roll-off localises the pulse in *time* — which is what a reader
-    /// expects to help, since GFDM's subsymbols overlap in time — but widens it in *frequency*,
-    /// and the measurement says the subcarrier overlap is what dominates: at roll-off 0.9 the
-    /// inverse amplifies noise by 1.86 where at 0.1 it amplifies by 1.01. So the pulse that costs
-    /// the receiver least is the one whose spectrum is tightest, and the out-of-band roll-off the
-    /// waveform exists for is bought at the zero-forcing tier's expense.
     #[test]
     fn a_spectrally_wider_prototype_costs_the_inverse_more() {
         let worst = |rolloff: f64| {
@@ -385,7 +330,6 @@ mod tests {
         assert!((tight - 1.01).abs() < 0.1 && (wide - 1.86).abs() < 0.2);
     }
 
-    /// The prefix is the block's, not the subsymbol's — the saving the waveform exists for.
     #[test]
     fn the_cyclic_prefix_is_the_blocks_own() {
         let mut params = reference();
@@ -406,8 +350,6 @@ mod tests {
         }
     }
 
-    /// `cp` is a public field nothing else validates, and a prefix longer than the block it
-    /// copies underflows a `usize` in `modulate` rather than naming the parameter.
     #[test]
     #[should_panic(expected = "a cyclic prefix is a copy of the block's tail")]
     fn a_prefix_longer_than_its_block_is_rejected_at_construction() {

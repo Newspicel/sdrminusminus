@@ -253,7 +253,6 @@ macro_rules! channel {
 channel!(Psk31Channel, Psk31, PSK31_DESCRIPTOR, Psk31);
 channel!(Psk63Channel, Psk63, PSK63_DESCRIPTOR, Psk63);
 
-/// ITU-R M.2034 / G3PLX Varicode, indexed by its decoded ASCII value.
 pub(crate) const VARICODE: [&str; 128] = [
     "1010101011",
     "1011011011",

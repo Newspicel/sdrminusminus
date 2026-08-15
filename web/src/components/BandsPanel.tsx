@@ -8,7 +8,6 @@ import { searchPlan, serviceEdge, serviceLabel } from "./bandPlan";
 import { CHIP, FIELD, LABEL } from "./controls";
 import { formatHz } from "./format";
 
-/** Enough to fill the drawer without turning a two-letter query into a wall. */
 const LIMIT = 30;
 
 export function BandsPanel({ active }: { active: DeviceSet | null }) {
@@ -18,9 +17,6 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
 
   const hits = plan === null ? [] : searchPlan(plan, query, LIMIT);
 
-  /** Tune the receiver to the band's centre. Only the receiver: this panel has no notion of
-   * which channel is selected — the scope's ruler is where a band moves a channel — and it is
-   * the same thing the bookmarks beside it do. */
   const tune = (startHz: number, stopHz: number, suggested: ChannelParams | null): void => {
     if (active === null) {
       return;

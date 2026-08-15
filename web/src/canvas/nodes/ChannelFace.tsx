@@ -26,9 +26,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const channel = workspace.channels.get(node.id) ?? null;
   const source = iqSourceOf(workspace.graph, node.id);
   const wired = source !== null;
-  // Where the channel actually is: *its lane's* centre plus the offset — on a radio whose
-  // streams tune apart, the device-wide centre would file this channel under a frequency it is
-  // not on — falling back to the offset alone while the radio reports no centre.
   const centerHz =
     set === null
       ? null
@@ -37,9 +34,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const offsetHz = channel?.settings.offset_hz ?? 0;
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
-  // The face has no play button and no decoder pane — everything this channel produces is read at
-  // the end of a wire — so a channel that demodulates or decodes into nothing has to say so
-  // somewhere, and this is where it is looked for.
   const unwired = unwiredOutputs(workspace.graph, node.id, descriptor);
 
   return (
@@ -85,15 +79,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   );
 }
 
-/**
- * The outputs this channel's type has that no face is reading, phrased as what is missing at the
- * far end. A stream that arrives nowhere looks exactly like one that never started, and this is
- * the only place the difference shows.
- *
- * Only video. `events` is absent because every NFM channel declares the `tone` decoder and almost
- * none is set to look for one; `audio` because an unwired speaker is the normal state of every
- * decoder-only channel, so the line fired on nearly every face in the patch.
- */
 function unwiredOutputs(
   graph: PatchGraph,
   node: string,
@@ -145,9 +130,6 @@ function RateMismatch({
   );
 }
 
-/** The rate this radio offers that is closest to the bottom of the range — lowest first, since
- * every extra sample costs the DSP thread and buys the decoder nothing. `null` when the radio
- * offers none. A radio that reports no discrete rates takes any, so it takes the minimum. */
 function nearestRate(set: DeviceSet, wanted: { min: number; max: number }): number | null {
   const rates = set.capabilities.sample_rates;
   if (rates.length === 0) {
@@ -161,7 +143,6 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
-/** The header's one-word account of why there is no channel behind the node. */
 function bindingLabel(wired: boolean, open: boolean): string {
   if (!wired) {
     return "no device";

@@ -33,7 +33,6 @@ function fakeSocket() {
   return {
     socket,
     sent,
-    /** What the server sends when it answers a subscribe: the id it allocated for that lane. */
     started: (streamId: number, deviceSet: number, stream = 0) =>
       events?.({
         type: "StreamStarted",
@@ -68,7 +67,6 @@ const subscribes = (sent: ClientCommand[]) => sent.filter((c) => c.type === "Sub
 const unsubscribes = (sent: ClientCommand[]) =>
   sent.filter((c) => c.type === "UnsubscribeSpectrum");
 
-/** Past the release grace, whatever it is set to. */
 const waitOutGrace = () => vi.advanceTimersByTime(60_000);
 
 describe("SpectrumHub", () => {
@@ -145,8 +143,6 @@ describe("SpectrumHub", () => {
     expect(subscribes(fake.sent)).toHaveLength(2);
   });
 
-  // Two scopes on two lanes of one multi-stream radio: independent subscriptions, and letting go
-  // of one must leave the other running. Keying on the device set alone silenced both.
   it("keeps two lanes of one radio apart", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -194,8 +190,6 @@ describe("SpectrumHub", () => {
     ).toEqual(["1:0", "1:3", "3:0"]);
   });
 
-  // Ids belong to the connection that issued them; a reconnect reissues them and an old one must
-  // not still be routing frames to a face.
   it("forgets the ids of a connection that dropped", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -232,7 +226,6 @@ describe("SpectrumHub", () => {
   });
 });
 
-/** The rows of a history, one array per row, so an expectation reads as what the plot draws. */
 function rowsOf(history: { rows: Uint8Array; count: number; bins: number }): number[][] {
   return Array.from({ length: history.count }, (_, row) => [
     ...history.rows.subarray(row * history.bins, (row + 1) * history.bins),
@@ -274,8 +267,6 @@ describe("SpectrumHub history", () => {
     expect(hub.latest(1, 0)?.centerHz).toBe(100e6);
   });
 
-  // Without this a scrubbed row is drawn against whatever window happens to be current, which is
-  // the one thing the metadata exists to prevent.
   it("keeps each row's own dB window, aligned with the rows", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -322,7 +313,6 @@ describe("SpectrumHub history", () => {
     expect(rows[rows.length - 1]).toEqual([(SPECTRUM_HISTORY_ROWS + 1) & 0xff, 0]);
   });
 
-  // A different bin count is a different x axis: the old rows cannot be drawn above the new ones.
   it("drops what it held when the bin count changes", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -350,8 +340,6 @@ describe("SpectrumHub history", () => {
     expect(unsubscribes(fake.sent)).toHaveLength(1);
   });
 
-  // The grace outlives a reconnect, so a lane inside one is a lane the new connection must be
-  // told about — its face is on its way back and the history has to keep filling.
   it("re-subscribes a lane still inside its grace when the socket comes back", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();

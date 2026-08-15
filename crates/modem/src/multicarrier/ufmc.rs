@@ -7,22 +7,13 @@ pub const MAX_FFT: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UfmcParams {
-    /// Transform size.
     pub fft: usize,
-    /// Contiguous subcarrier groups, each filtered by its own copy of the prototype. Half sit
-    /// below the carrier and half above; DC is never allocated.
     pub subbands: usize,
-    /// Subcarriers per subband.
     pub per_subband: usize,
-    /// Prototype length. Its tail is what replaces the cyclic prefix, and its length is what the
-    /// entry's overhead is computed from.
     pub filter_len: usize,
 }
 
 impl UfmcParams {
-    /// The reference configuration the catalog measures: 128-point transform, four subbands of
-    /// twelve — 48 data subcarriers, the same count `ofdm/`'s 802.11a/g-like row carries, so the
-    /// two frameworks' curves are directly comparable — and a 33-tap prototype.
     #[must_use]
     pub fn reference() -> Self {
         Self {
@@ -33,28 +24,21 @@ impl UfmcParams {
         }
     }
 
-    /// Points one symbol carries.
     #[must_use]
     pub fn points(&self) -> usize {
         self.subbands * self.per_subband
     }
 
-    /// Samples one symbol occupies: the transform plus the filter's tail.
     #[must_use]
     pub fn samples(&self) -> usize {
         self.fft + self.filter_len - 1
     }
 
-    /// The Eb/N0 the filter tail costs, in dB, as a closed form of the geometry: a receiver
-    /// integrating `N + L − 1` samples collects that ratio more noise than one integrating `N`.
     #[must_use]
     pub fn overhead_db(&self) -> f64 {
         10.0 * (self.samples() as f64 / self.fft as f64).log10()
     }
 
-    /// Transform bin of the `index`-th allocated subcarrier, wrapped into `0..fft`. The
-    /// allocation is symmetric about the carrier and skips DC: subbands below it first, in
-    /// ascending frequency, then those above.
     #[must_use]
     pub fn bin(&self, index: usize) -> usize {
         let half = (self.subbands * self.per_subband / 2) as isize;
@@ -63,7 +47,6 @@ impl UfmcParams {
         (signed.rem_euclid(self.fft as isize)) as usize
     }
 
-    /// Which subband owns the `index`-th allocated subcarrier.
     #[must_use]
     pub fn subband_of(&self, index: usize) -> usize {
         index / self.per_subband
@@ -101,7 +84,6 @@ impl UfmcParams {
         b * self.per_subband
     }
 
-    /// The `index`-th allocated subcarrier as a signed bin about the carrier.
     fn signed_bin(&self, index: usize) -> f64 {
         let half = (self.subbands * self.per_subband / 2) as isize;
         let offset = index as isize - half;
@@ -109,7 +91,6 @@ impl UfmcParams {
     }
 }
 
-/// The transmitter: one transform and one convolution per subband, summed.
 #[derive(Clone)]
 pub struct UfmcMod {
     params: UfmcParams,
@@ -160,15 +141,11 @@ impl UfmcMod {
     }
 }
 
-/// The receiver: zero-pad to `2N`, transform, keep the even bins, divide by the filter response.
 #[derive(Clone)]
 pub struct UfmcDemod {
     params: UfmcParams,
     dft: Dft,
-    /// `1 / F_b(k/N)` for each allocated subcarrier, computed once from the taps.
     equaliser: Vec<Complex<f32>>,
-    /// Noise amplification per allocated subcarrier — `|1/F|²`, the entry's own cost readable
-    /// without sweeping anything.
     amplification: Vec<f32>,
     padded: Vec<Complex<f32>>,
 }
@@ -211,14 +188,11 @@ impl UfmcDemod {
         &self.params
     }
 
-    /// `|1/F_b(k)|²` per allocated subcarrier: what the per-bin division costs in noise. Flat to
-    /// a fraction of a dB is what says the prototype's passband actually covers its subband.
     #[must_use]
     pub fn amplification(&self) -> &[f32] {
         &self.amplification
     }
 
-    /// Appends one point per transmitted point to `out`.
     pub fn demodulate(&mut self, x: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let samples = self.params.samples();
         for chunk in x.chunks_exact(samples) {
@@ -261,13 +235,10 @@ mod tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), bins.len(), "a bin is allocated twice");
-        // Lowest allocated bin is −24 and highest is +24, wrapped.
         assert_eq!(bins[0], params.fft - 24);
         assert_eq!(bins[47], 24);
     }
 
-    /// The receiver is exact: without noise the points come back as they went in, which is the
-    /// claim the zero-pad-and-decimate algebra makes.
     #[test]
     fn the_receiver_round_trips_exactly() {
         let params = UfmcParams::reference();
@@ -283,8 +254,6 @@ mod tests {
         }
     }
 
-    /// The prototype's passband covers its subband, stated as the number that matters: the
-    /// per-bin division amplifies noise by a fraction of a dB and not by an order.
     #[test]
     fn the_per_bin_division_costs_almost_nothing() {
         let demod = UfmcDemod::new(UfmcParams::reference());
@@ -296,9 +265,6 @@ mod tests {
         assert!(worst_db < 1.5, "worst noise amplification {worst_db} dB");
     }
 
-    /// What the waveform is *for*: leakage outside the allocated band, against the rectangle a
-    /// CP-OFDM symbol would have radiated instead. Measured as the power a bin two subbands past
-    /// the allocation edge receives.
     #[test]
     fn the_subband_filter_buys_out_of_band_suppression() {
         let params = UfmcParams::reference();
@@ -330,8 +296,6 @@ mod tests {
         );
     }
 
-    /// The overhead is arithmetic, not a fitted constant, and it is what the entry's oracle is
-    /// shifted by.
     #[test]
     fn the_overhead_is_the_filter_tail() {
         let params = UfmcParams::reference();
@@ -341,8 +305,6 @@ mod tests {
         assert!((params.overhead_db() - 0.9691).abs() < 1e-4);
     }
 
-    /// A prototype longer than the receiver's own padding used to panic inside
-    /// `copy_from_slice`, which names the buffer and not the parameter that sized it.
     #[test]
     #[should_panic(expected = "a UFMC symbol runs")]
     fn a_prototype_the_receiver_cannot_hold_is_rejected() {
@@ -351,8 +313,6 @@ mod tests {
         let _ = UfmcMod::new(params);
     }
 
-    /// An odd subband count splits the allocation unevenly across a carrier it never allocates,
-    /// which centres one filter where no subcarrier is — and does it silently.
     #[test]
     #[should_panic(expected = "even subband count")]
     fn an_odd_subband_count_is_rejected() {

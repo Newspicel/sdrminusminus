@@ -1,13 +1,8 @@
-//! The SpyServer wire protocol, as `spyserver_protocol.h` defines it: length-prefixed commands
-//! out, length-prefixed messages back, everything little-endian and every field a `u32`.
 use sdrmm_device::DeviceError;
 
-/// SpyServer's default port, and what an operator who typed only a host means.
 pub(crate) const DEFAULT_PORT: u16 = 5555;
 
-/// `SPYSERVER_PROTOCOL_VERSION`: major 2, minor 0, revision 1700.
 pub(crate) const PROTOCOL_VERSION: u32 = (2 << 24) | 1700;
-/// A server whose major version differs speaks a protocol whose messages this cannot frame.
 fn major(version: u32) -> u32 {
     version >> 24
 }
@@ -15,47 +10,27 @@ fn major(version: u32) -> u32 {
 const CMD_HELLO: u32 = 0;
 const CMD_SET_SETTING: u32 = 2;
 
-/// `SPYSERVER_MAX_MESSAGE_BODY_SIZE`. A body larger than this is a desynchronised stream, not a
-/// big message, and reading it would mean allocating whatever a hostile server asked for.
 pub(crate) const MAX_BODY: u32 = 1 << 20;
 
-/// Five `u32`s in front of every message.
 pub(crate) const HEADER_LEN: usize = 20;
-/// Twelve `u32`s of `SpyServerDeviceInfo`.
 pub(crate) const DEVICE_INFO_LEN: usize = 48;
-/// Nine `u32`s of `SpyServerClientSync`.
 pub(crate) const CLIENT_SYNC_LEN: usize = 36;
 
-/// `SPYSERVER_STREAM_MODE_IQ_ONLY`. The FFT and AF streams are the server's own DSP; this project
-/// does its own, so only raw IQ is ever asked for.
 const STREAM_MODE_IQ_ONLY: u32 = 0x01;
-/// `SPYSERVER_STREAM_TYPE_IQ`.
 pub(crate) const STREAM_TYPE_IQ: u32 = 1;
 
-/// Message types this backend acts on. Everything else — the FFT and AF streams, `READ_SETTING`,
-/// `PONG` — is skipped by body size without being parsed.
 pub(crate) const MSG_DEVICE_INFO: u16 = 0;
 pub(crate) const MSG_CLIENT_SYNC: u16 = 1;
 
-/// The sample formats a server can send IQ in, and the message type each arrives as.
-///
-/// `INT24` and `DINT4` are deliberately absent: neither is a format the rest of the pipeline has a
-/// conversion for, and a format that cannot be decoded must be refused at open rather than
-/// delivered as noise.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum IqFormat {
-    /// `SPYSERVER_STREAM_FORMAT_UINT8`: offset binary around 128.
     Uint8,
-    /// `SPYSERVER_STREAM_FORMAT_INT16`. The default: half the bandwidth of float for a dynamic
-    /// range no receiver behind a SpyServer exceeds.
     #[default]
     Int16,
-    /// `SPYSERVER_STREAM_FORMAT_FLOAT`.
     Float32,
 }
 
 impl IqFormat {
-    /// The `SPYSERVER_STREAM_FORMAT_*` value, which is what `SETTING_IQ_FORMAT` takes.
     pub(crate) fn code(self) -> u32 {
         match self {
             Self::Uint8 => 1,
@@ -64,7 +39,6 @@ impl IqFormat {
         }
     }
 
-    /// The `SPYSERVER_MSG_TYPE_*_IQ` the samples come back as.
     pub(crate) fn message_type(self) -> u16 {
         match self {
             Self::Uint8 => 100,
@@ -73,19 +47,12 @@ impl IqFormat {
         }
     }
 
-    /// The format a message announces itself as.
-    ///
-    /// Reading the format off each message rather than off what was last asked for is what makes a
-    /// format change mid-capture work: the messages already in flight when the setting is sent are
-    /// still in the old format, and they decode correctly instead of being read with the new
-    /// stride. `None` for `INT24_IQ` and for every non-IQ message.
     pub(crate) fn from_message_type(kind: u16) -> Option<Self> {
         [Self::Uint8, Self::Int16, Self::Float32]
             .into_iter()
             .find(|format| format.message_type() == kind)
     }
 
-    /// Bytes per complex sample.
     pub(crate) fn sample_bytes(self) -> usize {
         match self {
             Self::Uint8 => 2,
@@ -94,7 +61,6 @@ impl IqFormat {
         }
     }
 
-    /// The name this format is offered and selected under.
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Uint8 => "uint8",
@@ -109,12 +75,6 @@ impl IqFormat {
             .find(|format| format.name() == name)
     }
 
-    /// The format a server's `ForcedIQFormat` demands. `None` when it forces nothing (zero, the
-    /// usual case).
-    ///
-    /// # Errors
-    /// [`DeviceError::Unsupported`] when it forces one this backend cannot decode — which is the
-    /// whole reason the field is consulted at open.
     pub(crate) fn forced(code: u32) -> Result<Option<Self>, DeviceError> {
         match code {
             0 => Ok(None),
@@ -128,22 +88,14 @@ impl IqFormat {
     }
 }
 
-/// The settings this backend writes. `SETTING_FFT_*` and the AF stream are absent for the same
-/// reason their stream modes are.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum Setting {
-    /// Which streams the server should produce at all.
     StreamingMode,
-    /// The tuner's gain, as an index into a table the protocol never sends.
     Gain,
     IqFormat,
-    /// Centre frequency in Hz. The server moves the device behind it when it is allowed to.
     IqFrequency,
-    /// Power-of-two decimation stage: the sample rate is the device's maximum shifted right by it.
     IqDecimation,
-    /// dB the server applies before quantising, and reports back in each message's flags.
     IqDigitalGain,
-    /// Whether to send anything. Last on, first off.
     StreamingEnabled,
 }
 
@@ -160,9 +112,6 @@ impl Setting {
         }
     }
 
-    /// Where this setting sits in a batch. Format and decimation decide how the server frames and
-    /// scales what it sends, so they precede the digital gain computed from them; streaming is
-    /// enabled once everything it would carry is already set.
     fn rank(self) -> u8 {
         match self {
             Self::IqFormat => 0,
@@ -176,14 +125,11 @@ impl Setting {
     }
 }
 
-/// Put a batch into the order the server has to receive it in.
 pub(crate) fn ordered(mut batch: Vec<(Setting, u32)>) -> Vec<(Setting, u32)> {
     batch.sort_by_key(|(setting, _)| setting.rank());
     batch
 }
 
-/// `CMD_HELLO`: the protocol version this client speaks, then its name, which is what a server
-/// operator sees in their client list.
 pub(crate) fn hello(client: &str) -> Vec<u8> {
     let body_size = 4 + client.len();
     let mut frame = Vec::with_capacity(8 + body_size);
@@ -194,7 +140,6 @@ pub(crate) fn hello(client: &str) -> Vec<u8> {
     frame
 }
 
-/// `CMD_SET_SETTING`: a setting id and its value.
 pub(crate) fn setting(setting: Setting, value: u32) -> [u8; 16] {
     let mut frame = [0u8; 16];
     frame[..4].copy_from_slice(&CMD_SET_SETTING.to_le_bytes());
@@ -204,27 +149,19 @@ pub(crate) fn setting(setting: Setting, value: u32) -> [u8; 16] {
     frame
 }
 
-/// The streaming mode this backend always selects.
 pub(crate) const fn iq_only() -> (Setting, u32) {
     (Setting::StreamingMode, STREAM_MODE_IQ_ONLY)
 }
 
-/// The five `u32`s in front of every message.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct MessageHeader {
-    /// The low sixteen bits of `MessageType`.
     pub(crate) kind: u16,
-    /// The high sixteen: for an IQ message, the digital gain in dB the server applied.
     pub(crate) flags: u16,
     pub(crate) stream_type: u32,
     pub(crate) body_size: u32,
 }
 
 impl MessageHeader {
-    /// # Errors
-    /// [`DeviceError::Io`] when the protocol id is not a version this can frame, or the body is
-    /// larger than the protocol allows — both mean the byte stream is not where it is thought to
-    /// be, and reading on would compound it.
     pub(crate) fn parse(bytes: &[u8; HEADER_LEN]) -> Result<Self, DeviceError> {
         let word = |at: usize| {
             u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
@@ -255,7 +192,6 @@ impl MessageHeader {
     }
 }
 
-/// What the server says about the receiver behind it.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DeviceInfo {
     pub(crate) device_type: u32,
@@ -270,8 +206,6 @@ pub(crate) struct DeviceInfo {
 }
 
 impl DeviceInfo {
-    /// The receiver models a SpyServer can front, for the device label. An unknown code is not an
-    /// error — the field is a label, not a capability.
     pub(crate) fn model(self) -> &'static str {
         match self.device_type {
             1 => "Airspy",
@@ -281,8 +215,6 @@ impl DeviceInfo {
         }
     }
 
-    /// Whether the digital gain the server applies before quantising is one it computes from the
-    /// decimation stage and the tuner gain (the Airspy) or from the decimation stage alone.
     pub(crate) fn airspy_one(self) -> bool {
         self.device_type == 1
     }
@@ -302,10 +234,7 @@ impl DeviceInfo {
             device_type: word(0),
             serial: word(1),
             max_sample_rate: word(2),
-            // 3 is MaximumBandwidth: the analogue front end's, which this backend does not set.
             decimation_stages: word(4),
-            // 5 is GainStageCount, which only says how many stages the *server* folds into the one
-            // gain index it accepts.
             max_gain_index: word(6),
             min_frequency: word(7),
             max_frequency: word(8),
@@ -315,12 +244,8 @@ impl DeviceInfo {
     }
 }
 
-/// What this client is allowed to do, and where the radio currently sits.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ClientSync {
-    /// Zero on a server that has locked its tuning — a shared receiver someone else is steering.
-    /// Then only the IQ centre inside the window below can move, and that window is the whole
-    /// frequency range this client has.
     pub(crate) can_control: bool,
     pub(crate) gain: u32,
     pub(crate) iq_center_hz: u32,
@@ -343,7 +268,6 @@ impl ClientSync {
         Ok(Self {
             can_control: word(0) != 0,
             gain: word(1),
-            // 2 is DeviceCenterFrequency, which is the server's business rather than this client's.
             iq_center_hz: word(3),
             min_iq_center_hz: word(5),
             max_iq_center_hz: word(6),
@@ -394,8 +318,6 @@ mod tests {
         assert_eq!(&frame[12..], &100_000_000u32.to_le_bytes());
     }
 
-    /// The order that is correctness: the digital gain the server is asked for is computed from
-    /// the decimation, and nothing should be streaming before the format that frames it is set.
     #[test]
     fn a_batch_sets_the_stream_up_before_it_turns_it_on() {
         let batch = ordered(vec![
@@ -437,8 +359,6 @@ mod tests {
         assert_eq!(header.body_size, 64);
     }
 
-    /// Both refusals exist to stop a desynchronised stream being read as samples — one of them by
-    /// allocating whatever a hostile server asked for.
     #[test]
     fn a_header_from_another_protocol_or_with_an_impossible_body_is_refused() {
         let wrong_version = MessageHeader::parse(&header_bytes(3 << 24, 101, 0, 1, 0, 64));
@@ -513,7 +433,6 @@ mod tests {
     fn a_forced_format_is_honoured_and_an_undecodable_one_is_refused_at_open() {
         assert_eq!(IqFormat::forced(0).expect("nothing forced"), None);
         assert_eq!(IqFormat::forced(2).expect("int16"), Some(IqFormat::Int16));
-        // INT24 and DINT4: real protocol formats with no conversion here.
         for code in [3, 5] {
             assert!(IqFormat::forced(code).is_err(), "format {code}");
         }

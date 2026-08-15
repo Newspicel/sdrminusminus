@@ -12,17 +12,10 @@ use serde::{Deserialize, Serialize};
 pub const REGRESSION_FRACTION: f64 = 0.10;
 
 thread_local! {
-    /// Per-thread rather than process-wide: `cargo test` runs many tests concurrently in one
-    /// process, and a shared counter would charge a zero-alloc assertion with whatever its
-    /// neighbour threads allocated mid-measurement. `const`-initialised and `Drop`-free, so
-    /// touching it from inside the allocator can neither allocate nor re-enter.
     static THREAD_ALLOCS: Cell<u64> = const { Cell::new(0) };
 }
 
 fn count_one() {
-    // `try_with`, because this runs inside `alloc`, where a panic is an abort: during thread
-    // teardown another destructor may still allocate after this key is gone, and that
-    // allocation simply goes uncounted.
     let _ = THREAD_ALLOCS.try_with(|count| count.set(count.get() + 1));
 }
 
@@ -53,8 +46,6 @@ unsafe impl GlobalAlloc for CountingAlloc {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        // A growth on the hot path is memory acquired on the hot path; it counts exactly as a
-        // fresh allocation would.
         count_one();
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -64,13 +55,6 @@ unsafe impl GlobalAlloc for CountingAlloc {
     }
 }
 
-/// Allocations the current thread performs while `f` runs. A zero is only believed from an
-/// installed counter: the canary allocation proves [`CountingAlloc`] is this binary's
-/// `#[global_allocator]`, because an uninstalled counter reads zero for everything and would
-/// green every zero-alloc gate vacuously.
-///
-/// # Panics
-/// If the counting allocator is not installed in the calling binary.
 #[must_use]
 pub fn measure_allocs(f: impl FnOnce()) -> u64 {
     let canary = thread_allocs();
@@ -93,19 +77,12 @@ pub fn assert_no_alloc(label: &str, f: impl FnOnce()) {
     );
 }
 
-/// Wall-clock throughput of `iters` calls of `f`, each consuming `samples_per_iter` input
-/// samples, in Msamples/s. Plain [`Instant`] rather than criterion, so the baseline tests and
-/// any quick probe measure exactly the work the criterion benches measure, without the
-/// statistical machinery. Callers warm `f` up first: a cold first call carries one-off buffer
-/// growth, and that is allocation to assert on, not throughput to average in.
 #[must_use]
 pub fn measure_throughput(iters: u64, samples_per_iter: u64, mut f: impl FnMut()) -> f64 {
     let start = Instant::now();
     for _ in 0..iters {
         f();
     }
-    // Floored so a degenerate zero-length measurement stays finite instead of feeding an
-    // infinity into the comparison arithmetic downstream.
     let elapsed = start.elapsed().as_secs_f64().max(1e-9);
     (iters as f64) * (samples_per_iter as f64) / elapsed / 1e6
 }
@@ -119,30 +96,21 @@ pub struct PerfBaseline {
     pub host: String,
 }
 
-/// The `arch-os` pair a baseline is stamped with and compared under.
 #[must_use]
 pub fn host_id() -> String {
     format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
 }
 
-/// Writes baselines as pretty-printed JSON — the committed artifact reviewers read in diffs.
 pub fn save_baselines(path: &Path, baselines: &[PerfBaseline]) -> std::io::Result<()> {
     let mut json = serde_json::to_string_pretty(baselines).map_err(std::io::Error::other)?;
     json.push('\n');
     std::fs::write(path, json)
 }
 
-/// Reads a committed baseline list back. A malformed file is an error, never an empty list —
-/// a gate with nothing to compare against has to say so, not pass.
 pub fn load_baselines(path: &Path) -> std::io::Result<Vec<PerfBaseline>> {
     serde_json::from_str(&std::fs::read_to_string(path)?).map_err(std::io::Error::other)
 }
 
-/// One bench's measured-vs-committed outcome. `change_fraction` is signed: +0.08 is 8% faster
-/// than the baseline, −0.12 is the regression the gate exists for. −1.0 marks a committed
-/// bench the measurement produced no comparable number for — missing, config string moved, or
-/// a zero baseline — treated as a full loss, because a bench that silently vanishes is how a
-/// perf gate dies.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PerfChange {
     pub bench: String,
@@ -189,13 +157,9 @@ pub fn compare_perf(
     }
 }
 
-/// The xorshift32 the dsp fixtures use. A bench signal only has to be busy and reproducible;
-/// statistical care is the harness RNG's job ([`super::rng`]), not the signal generator's.
 struct XorShift32(u32);
 
 impl XorShift32 {
-    /// Zero is xorshift's one fixed point, so it is mapped away rather than trusted not to
-    /// be passed.
     fn seeded(seed: u32) -> Self {
         Self(seed | 1)
     }
@@ -208,20 +172,12 @@ impl XorShift32 {
     }
 }
 
-/// Deterministic pseudo-random dibits for bench signals.
 #[must_use]
 pub fn test_dibits(len: usize, seed: u32) -> Vec<u8> {
     let mut rng = XorShift32::seeded(seed);
     (0..len).map(|_| (rng.next() & 3) as u8).collect()
 }
 
-/// Antipodal ±1 symbols through a root-raised-cosine (α = 0.35) at `sps` samples per symbol,
-/// as complex baseband with zero quadrature — the densest diet a Gardner loop gets, since
-/// every symbol change is an equal-and-opposite transition it takes an error from. That makes
-/// this the *expensive* case for `SymbolSync`, which is the right one to baseline.
-///
-/// # Panics
-/// If `sps` is not a whole number of at least two.
 #[must_use]
 pub fn shaped_bpsk_iq(symbols: usize, sps: f64, seed: u32) -> Vec<Complex<f32>> {
     assert!(
@@ -249,8 +205,6 @@ mod tests {
 
     use super::*;
 
-    /// This test binary's counter (see [`CountingAlloc`]: `#[global_allocator]` binds per
-    /// binary, so the library cannot install it for anyone else).
     #[global_allocator]
     static ALLOC: CountingAlloc = CountingAlloc::new();
 
@@ -386,7 +340,6 @@ mod tests {
         }]
     }
 
-    /// The committed rows this scaffold can still measure — the file minus [`RETIRED`].
     fn live_committed(committed: &[PerfBaseline]) -> Vec<PerfBaseline> {
         committed
             .iter()
@@ -399,9 +352,6 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("baselines/perf_phase0.json")
     }
 
-    /// The committed file still carries the deleted chain's row, and the gate still compares
-    /// every row that is not it — the two halves of the retirement, so neither the history nor
-    /// the live gate can be lost without a failure here.
     #[test]
     fn the_committed_file_keeps_its_history_and_gates_the_rest() {
         let committed = load_baselines(&committed_baseline_path()).unwrap();
@@ -416,10 +366,6 @@ mod tests {
         assert_eq!(live, ["symbol_sync_8sps"]);
     }
 
-    /// Rewrites the committed phase-0 baseline. Run deliberately, on the reference machine:
-    /// `cargo test -p sdrmm-modem --release write_perf_baseline -- --ignored`. The [`RETIRED`]
-    /// rows are carried through untouched — a rerun must not quietly erase the history the
-    /// migration was measured against.
     #[test]
     #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
     fn write_perf_baseline() {
@@ -437,10 +383,6 @@ mod tests {
         save_baselines(&path, &rows).unwrap();
     }
 
-    /// The nightly perf gate: measured against committed, failing past
-    /// [`REGRESSION_FRACTION`]. Compared only in release and only on the host that wrote the
-    /// baseline — a debug build or another machine's silicon would flag its own slowness as
-    /// an engine regression.
     #[test]
     #[ignore = "nightly perf gate; run in release: cargo test -p sdrmm-modem --release compare_perf_baseline -- --ignored"]
     fn compare_perf_baseline() {

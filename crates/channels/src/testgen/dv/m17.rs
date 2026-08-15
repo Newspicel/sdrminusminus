@@ -1,7 +1,3 @@
-//! M17 reference transmitter: a link setup frame through the same chain the specification
-//! defines — CRC, convolutional code, puncturing, interleaving, randomising — then stream
-//! frames and an end-of-transmission marker.
-
 use num_complex::Complex;
 use sdrmm_dsp::{crc16_msb, fec::conv};
 
@@ -26,7 +22,6 @@ const RANDOMIZER: [u8; 46] = [
 
 const CALLSIGN_ALPHABET: &[u8; 40] = b" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/.";
 
-/// A transmission: link setup, three stream frames, end of transmission.
 #[must_use]
 pub fn transmission(destination: &str, source: &str, rate: f64) -> Vec<Complex<f32>> {
     const CODEC2_SILENCE_PAIR: [u8; 16] = [
@@ -37,7 +32,6 @@ pub fn transmission(destination: &str, source: &str, rate: f64) -> Vec<Complex<f
     transmission_with_voice(destination, source, &voice, rate)
 }
 
-/// A stream with caller-supplied pairs of Codec2 3200 frames.
 #[must_use]
 pub(crate) fn transmission_with_voice(
     destination: &str,
@@ -48,7 +42,6 @@ pub(crate) fn transmission_with_voice(
     transmission_with_type(destination, source, voice, 0b0101, rate)
 }
 
-/// M17 voice+data: one Codec2 1600 frame in the first eight bytes and eight bytes of data.
 #[must_use]
 #[allow(dead_code)]
 pub(crate) fn transmission_with_voice_data(
@@ -70,7 +63,6 @@ fn transmission_with_type(
     stream_transmission(destination, source, voice, stream_type, true, rate)
 }
 
-/// A receiver joins after the link setup frame and reconstructs it from six stream LICH chunks.
 #[must_use]
 #[allow(dead_code)]
 pub(crate) fn late_entry(destination: &str, source: &str, rate: f64) -> Vec<Complex<f32>> {
@@ -111,7 +103,6 @@ fn stream_transmission(
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
 }
 
-/// The 368 payload bits of a link setup frame.
 fn lsf_bits(destination: &str, source: &str, stream_type: u16) -> Vec<bool> {
     let mut lsf = bits(callsign(destination), 48);
     lsf.extend(bits(callsign(source), 48));

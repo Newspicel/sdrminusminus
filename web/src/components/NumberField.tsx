@@ -1,6 +1,3 @@
-// Numeric input that keeps a local draft while typing and commits on blur/Enter — per-keystroke
-// PATCHes would flood the server and fight the WS-refreshed value. Commits clamp to the declared
-// range.
 import { NumberField as Primitive } from "@base-ui/react/number-field";
 import { useState } from "react";
 import { FIELD } from "./controls";
@@ -12,8 +9,6 @@ interface Common {
   max?: number;
   step?: number;
   className?: string;
-  /** For a field whose value is only wrong in company — see `AdsbReference`. A field that can
-   * validate itself clamps instead, so this stays out of the common path. */
   invalid?: boolean;
 }
 
@@ -39,8 +34,6 @@ export function NumberField({
       value={draft}
       onDraft={setDraft}
       onCommit={(committed) => {
-        // An empty field is not a value for these settings, so it reads as an abandoned edit
-        // rather than a rejected one: snap back to what the radio is actually set to.
         if (committed === null) {
           setDraft(value);
         } else if (committed !== value) {
@@ -52,8 +45,6 @@ export function NumberField({
   );
 }
 
-/** For settings where an empty field is itself a value (auto-track, no reference position) —
- * otherwise there is no way back to auto once a number has been set. */
 export function OptionalNumberField({
   label,
   placeholder,
@@ -116,9 +107,6 @@ function Field({
       min={min}
       max={max}
       step={step}
-      // `onValueCommitted` is the contract: it fires on blur and on a released stepper, never
-      // per keystroke. Enter is ours — the primitive treats it as a navigation key outside a
-      // form, so a typed number would sit there uncommitted until focus left the field.
       onValueChange={onDraft}
       onValueCommitted={onCommit}
       format={{ useGrouping: false, maximumFractionDigits: fractionDigits(step) }}
@@ -141,8 +129,6 @@ function Field({
   );
 }
 
-/** Local while the operator types, replaced whenever the setting itself changes — a WS refresh
- * or a server clamp is the truth, and re-seeding on it is what makes a rejected edit visible. */
 function useDraft(value: number | null): [number | null, (next: number | null) => void] {
   const [draft, setDraft] = useState(value);
   const [seen, setSeen] = useState(value);

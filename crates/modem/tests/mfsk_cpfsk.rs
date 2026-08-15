@@ -20,8 +20,6 @@ use sdrmm_modem::ber::{
     theory,
 };
 
-/// The committed artifacts, resolved from this crate's manifest — the registry states them
-/// workspace-relative, which is what `cargo xtask ber` and the docs-row rule read.
 fn baseline_path(stem: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
@@ -30,9 +28,6 @@ fn load_curve(stem: &str) -> Curve {
     sweep::load_json(&baseline_path(stem)).unwrap()
 }
 
-/// A chain defect (alignment, sign, level scale, hook plumbing) is loud before statistics:
-/// with nearly no noise, one trial of every chain sits at or near zero errors. Bound 5e-3 —
-/// a mis-slice or misalignment reads tens of percent.
 #[test]
 fn all_three_chains_round_trip_clean_at_high_ebn0() {
     for (link, name) in [
@@ -49,10 +44,6 @@ fn all_three_chains_round_trip_clean_at_high_ebn0() {
     assert!(ber < 5e-3, "mfsk4 burst floor {ber} at 30 dB Eb/N0");
 }
 
-/// Smoke tier of a committed curve: the first three grid points re-measured with the
-/// committed budgets. (seed, index) names each point's realisation, so a grid prefix
-/// reproduces the committed points exactly on one host; 0.5 dB absorbs cross-platform float
-/// drift only.
 fn assert_curve_prefix(link: &Link, grid: &[f64], seed: u64, name: &str) {
     let committed = load_curve(name);
     let measured = sweep::sweep_ber(
@@ -82,9 +73,6 @@ fn mfsk8_curve_matches_committed_baseline() {
     assert_curve_prefix(&mfsk8_link(), M8_GRID, M8_SEED, M8_AWGN);
 }
 
-/// The M = 2 reference gate, smoke tier: the committed curve itself must sit at theory + the
-/// documented offset. Reading the committed artifact costs nothing, and the full writer
-/// re-asserts the same bound on fresh measurement.
 #[test]
 fn mfsk2_committed_curve_sits_at_theory_plus_documented_offset() {
     let committed = load_curve(M2_AWGN);
@@ -103,30 +91,21 @@ fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u6
     assert_eq!(loopback(&mut link, &mut channel, payloads), Ok(()));
 }
 
-/// M = 2 has no measurable floor (0 errors in 2e5 bits from 16 dB up), so +6 dB over the
-/// ~12.4 dB sensitivity leaves ~zero expected errors across the 2048 trial bits.
 #[test]
 fn mfsk2_loops_back_clean_at_6db_margin() {
     loopback_at_margin(mfsk2_link_sized(1_024), M2_AWGN, 6.0, 0x2e2e);
 }
 
-/// +10 dB over the 13.7 dB sensitivity operates near the ~1e-5 clean residual: ~0.06
-/// expected errors over 2 × 2048 bits.
 #[test]
 fn mfsk4_loops_back_clean_at_10db_margin() {
     loopback_at_margin(mfsk4_link_sized(1_024), M4_AWGN, 10.0, 0x4e2e);
 }
 
-/// +10 dB over the 18.1 dB sensitivity; the 8-level residual is ~1e-4, so the budget is 2
-/// payloads of 2 hook-framed blocks (2 × 672 bits): ~0.13 expected errors.
 #[test]
 fn mfsk8_loops_back_clean_at_10db_margin() {
     loopback_at_margin(mfsk8_link_sized(2), M8_AWGN, 10.0, 0x8e2e);
 }
 
-/// One seeded probe at the operating point. 150 errors separates a passing probe (clean BER
-/// ~1e-4 at sensitivity + 3 dB) from the 1e-2 limit unambiguously; the cap bounds a probe
-/// that fails hard.
 fn probe(link: &Link, spec: &ChannelSpec, op_db: f64) -> f64 {
     limits::measure_ber(link, spec, op_db, M4_SEED ^ 0xbe5, 150, 40_000)
 }
@@ -216,9 +195,6 @@ fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
     ]
 }
 
-/// Grid and budget of the composite-profile degradation row, shared by the full writer and
-/// the smoke re-measurement so the two measure the same quantity. The grid brackets the 1e-3
-/// crossing for the clean chain and leaves headroom for the profile's shift.
 const PROFILE_GRID: [f64; 4] = [12.0, 13.0, 14.0, 15.0];
 const PROFILE_ERRORS: u64 = 250;
 const PROFILE_CAP: u64 = 1_000_000;
@@ -242,10 +218,6 @@ fn measure_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
     rows
 }
 
-/// Smoke tier of the limits table: every committed row re-measured with the committed
-/// budgets must sit within 20% of its committed threshold, one-sided — moving better is
-/// never a failure. The operating point comes from the committed table, so the smoke run
-/// pays for no sensitivity resweep; the curve smoke test guards that number.
 #[test]
 fn mfsk4_limits_rows_match_committed_table() {
     let committed = limits::load_json(&baseline_path(M4_LIMITS)).unwrap();
@@ -324,9 +296,6 @@ fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     curve
 }
 
-/// Run in release:
-/// `cargo test -p sdrmm-modem --release --test mfsk_cpfsk -- --ignored measure_mfsk`.
-/// The M = 2 writer is also the full reference gate: theory + documented offset.
 #[test]
 #[ignore = "full sweep; run in release to (re)generate the committed curve"]
 fn measure_mfsk2_full() {

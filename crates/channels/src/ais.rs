@@ -1,4 +1,3 @@
-//! AIS decoder ( P2): 9600 baud GMSK, NRZI + HDLC framing, CRC-16/X-25.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -20,29 +19,17 @@ const CHANNEL_TAPS: usize = 129;
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
-/// Total span of the entry's GMSK frequency pulse in symbol periods: the NRZ rect's own
-/// symbol plus a four-symbol truncation of the BT 0.4 Gaussian premod filter — the shaping
-/// span the reference transmitter (`testgen::ais`) has always used.
 const PULSE_SPAN: usize = 5;
-/// Matched-filter truncation: total span in symbol periods (`span·sps` taps). Three keeps the
-/// combined transmit+receive Gaussian's inter-symbol interference inside the eye at 5 samples
-/// per bit.
 const MATCHED_SPAN: usize = 3;
 
-/// Shortest ITU-R M.1371 message (88 bits, type 15) plus the two FCS octets, and the longest
-/// (a five-slot 1008-bit binary broadcast) plus the same.
 const MIN_FRAME_BYTES: usize = 13;
 const MAX_FRAME_BYTES: usize = 128;
 
-/// "Not available" codes: 102.3 kt, 360.0°, 511°.
 const SOG_UNAVAILABLE: u64 = 1_023;
 const COG_INVALID: u64 = 3_600;
 const HEADING_UNAVAILABLE: u16 = 511;
-/// Positions travel in 1/10 000 minute units, so a degree is 600 000 of them. The 91°/181°
-/// "not available" codes fall out of the coordinate range check rather than being special-cased.
 const COORD_UNITS_PER_DEGREE: f64 = 600_000.0;
 
-/// NMEA 0183 caps a sentence at 82 characters and `!AIVDM,n,n,s,X,,f*hh` costs 20 of them.
 const MAX_PAYLOAD_CHARS: usize = 60;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -55,53 +42,24 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-/// Time constant of the carrier-offset corrector, in samples — the old chain's DC blocker
-/// corner (~38 Hz at 48 kHz) restated, and the same reasoning holds: ~40 bit periods is far
-/// above the six bits HDLC's stuffing lets the line hold one level, so the estimate cannot
-/// chase the data, yet a burst's 24-bit training sequence plus its opening flag is enough to
-/// take a receiver frequency error off the eye before the payload begins.
 const CARRIER_TAU_SAMPLES: f64 = 200.0;
 
 pub struct AisChannelRx {
     letter: char,
     demod: CpmDemod,
-    /// The M = 2 level table the soft symbols are sliced against.
     slicer: Mapping,
     nrzi: NrziDecoder,
     deframer: HdlcDeframer,
-    /// Amplitude-weighted circular mean of `x[n]·conj(x[n−1])`: its argument is the mean
-    /// per-sample phase advance — the receiver frequency error, since the modulation's own
-    /// mean is held near zero by the NRZI line balance the stuffing enforces.
-    ///
-    /// Why the channel corrects the carrier *before* the cpm front end instead of leaving
-    /// the offset to the engine's centre estimate: a 1200 Hz dial error (7 ppm at 162 MHz,
-    /// which the old chain decoded through) is half the eye on the discriminator, and the
-    /// engine's centre loop is deliberately slower than one AIS burst. Worse, until the bias
-    /// is gone the timing detector's symmetry gate rejects the very transitions the 24-bit
-    /// training sequence supplies, so the clock never acquires — measured here: 0/5 burst
-    /// phases decode at ±1200 Hz without this corrector, 3/5 at ±400 Hz.
-    ///
-    /// Why *amplitude-weighted* (the one thing the old chain's post-discriminator DC blocker
-    /// could not be): each sample votes with its power, so the selection filter's band-edge
-    /// precursor ripple (~60 dB down) and the dead channel's noise cannot move an estimate a
-    /// burst's body has set, while a burst arriving over a cold estimate re-converges within
-    /// samples because its power outweighs the accumulated noise by the same margin.
     carrier_acc: Complex<f32>,
     carrier_alpha: f32,
     carrier_prev: Complex<f32>,
-    /// Derotation phase in radians, advanced by `arg(carrier_acc)` each sample; f64 so a
-    /// long watch cannot spend the mantissa on accumulated turns.
     carrier_phase: f64,
     mixed: Vec<Complex<f32>>,
     soft: Vec<f32>,
-    /// Deframed payload octets, each bit-reversed into the wire bit order the fields use.
     msg: Vec<u8>,
-    /// Sequential message identifier stamped on the next multi-sentence AIVDM group (0–9).
     seq: u8,
 }
 
-/// The AIS waveform as `cpm/` entry data. `Mapping::natural(2)` puts the mark tone
-/// (+2400 Hz, the high NRZI line state) at index 1, level +1.
 fn cpm_params(sps: f64) -> CpmParams {
     CpmParams::from_deviation(
         Mapping::natural(2),
@@ -112,16 +70,6 @@ fn cpm_params(sps: f64) -> CpmParams {
     )
 }
 
-/// The Gaussian matched filter, zero-padded to declare the *upstream* filtering span to the
-/// demodulator's gate. The burst has been through the channel's own [`CHANNEL_TAPS`]-tap
-/// selection filter before the demodulator sees it, and that filter's leading half is
-/// precursor ripple at its band edge — ~12.5 kHz, which a discriminator reads as five times
-/// the outermost level however small its amplitude (measured +5.0 for the filter's whole
-/// group delay on a keyed burst). The gate keeps a keying edge out of the level, centre and
-/// clock estimates for exactly the receive filter's declared span, so the pad (identical
-/// convolution, longer declared span) extends that guard over the upstream group delay;
-/// without it the estimates learn the ripple and the training sequence arrives scaled by a
-/// third and biased past its own amplitude.
 fn receive_filter(sps: f64) -> Vec<f32> {
     let mut taps = pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area);
     taps.resize(CHANNEL_TAPS / 2 + taps.len(), 0.0);
@@ -142,7 +90,6 @@ fn check_params(_p: &AisParams) -> Result<(), ChannelError> {
     Ok(())
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(_p: &AisParams) -> (f64, f64) {
     let half = DESCRIPTOR.bandwidth_hz / 2.0;
     (-half, half)
@@ -170,9 +117,6 @@ impl ChannelRx for AisChannelRx {
         let cpm = cpm_params(sps);
         Ok(Self {
             letter: p.ais_channel.letter(),
-            // Area norm: the level estimates rely on the receive filter's unit DC gain.
-            // Burst timing bandwidth: an AIS transmission gives the clock a 24-bit training
-            // sequence, not a continuous stream.
             demod: CpmDemod::new(&cpm, &receive_filter(sps), TIMING_BW_BURST),
             slicer: cpm.mapping().clone(),
             nrzi: NrziDecoder::new(),
@@ -231,8 +175,6 @@ impl ChannelRx for AisChannelRx {
     }
 }
 
-/// Bit offsets of the position fields, which the class A and class B reports lay out
-/// differently while sharing every encoding.
 struct PositionLayout {
     sog: usize,
     lon: usize,
@@ -241,7 +183,6 @@ struct PositionLayout {
     heading: usize,
 }
 
-/// ITU-R M.1371 Annex 8 Table 45 (message types 1, 2 and 3).
 const CLASS_A_POSITION: PositionLayout = PositionLayout {
     sog: 50,
     lon: 61,
@@ -250,7 +191,6 @@ const CLASS_A_POSITION: PositionLayout = PositionLayout {
     heading: 128,
 };
 
-/// ITU-R M.1371 Annex 8 Table 61 (message type 18).
 const CLASS_B_POSITION: PositionLayout = PositionLayout {
     sog: 46,
     lon: 57,
@@ -259,7 +199,6 @@ const CLASS_B_POSITION: PositionLayout = PositionLayout {
     heading: 124,
 };
 
-/// Message type, repeat indicator and MMSI — the header every AIS message opens with.
 const HEADER_BITS: usize = 38;
 
 fn decode(msg: &[u8], bits: usize, letter: char, nmea: String) -> Option<AisMessage> {
@@ -307,7 +246,6 @@ fn read_position(msg: &[u8], layout: &PositionLayout, out: &mut AisMessage) {
     out.heading_deg = (heading != HEADING_UNAVAILABLE).then_some(heading);
 }
 
-/// Two's-complement read of a `len`-bit field (`len` in 2..=64).
 fn signed(msg: &[u8], offset: usize, len: usize) -> i64 {
     let raw = bits_be(msg, offset, len);
     if raw >> (len - 1) & 1 == 1 {
@@ -322,7 +260,6 @@ fn coord(raw: i64, limit_deg: f64) -> Option<f64> {
     (deg.abs() <= limit_deg).then_some(deg)
 }
 
-/// Six-bit ASCII: 0–31 are `@`–`_`, 32–63 are space–`?`. `None` once the pad is trimmed away.
 fn text(msg: &[u8], offset: usize, chars: usize) -> Option<String> {
     let mut s = String::with_capacity(chars);
     for i in 0..chars {
@@ -333,7 +270,6 @@ fn text(msg: &[u8], offset: usize, chars: usize) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
-/// NMEA "armoured ASCII": six payload bits per character, the last group zero-padded.
 fn armour(msg: &[u8], bits: usize) -> String {
     (0..bits.div_ceil(6))
         .map(|group| {
@@ -346,9 +282,6 @@ fn armour(msg: &[u8], bits: usize) -> String {
         .collect()
 }
 
-/// `!AIVDM` sentences for one payload, newline-separated when it needs more than one. Only the
-/// final sentence reports the fill bits; a multi-sentence group carries a sequential id so a
-/// parser can reassemble it.
 fn sentences(payload: &str, fill: usize, letter: char, seq: &mut u8) -> String {
     let chunks: Vec<&[u8]> = payload.as_bytes().chunks(MAX_PAYLOAD_CHARS).collect();
     let total = chunks.len();
@@ -415,8 +348,6 @@ mod tests {
         }
     }
 
-    /// Feed `iq` in the given block sizes and collect the decoded messages, asserting the
-    /// channel stays silent (AIS has no audio).
     fn run_blocks(
         chan: &mut AisChannelRx,
         iq: &[Complex<f32>],
@@ -452,21 +383,10 @@ mod tests {
         )
     }
 
-    /// Quiet the receiver hears before a transmitter keys, in samples. The cpm gate measures
-    /// the channel's noise floor over 384 symbol periods before it may open (its estimates
-    /// learn nothing until then, so a burst inside that window meets a frozen clock); a
-    /// receiver tuned to a marine channel has heard seconds of quiet before any vessel's
-    /// slot comes up, and 480 bit periods — 50 ms — of lead-in models that.
     const LEAD_IN: usize = 2_400;
 
-    /// The receiver's own noise, 40 dB below the carrier — what an antenna delivers when no
-    /// one transmits. Digital silence is not that: against a measured floor of exactly zero
-    /// the gate reads any nonzero power as a carrier, so the selection filter's band-edge
-    /// ripple around each burst counts as keyed signal and a burst's end is never seen.
     const FLOOR: f32 = 0.01;
 
-    /// Frame a transmitter's burst the way the receiver meets it: quiet lead-in, the burst,
-    /// quiet tail, all over the receiver's own noise floor.
     fn framed(burst_iq: Vec<Complex<f32>>) -> Vec<Complex<f32>> {
         let mut iq = silence(LEAD_IN);
         iq.extend(burst_iq);
@@ -495,11 +415,6 @@ mod tests {
         msgs.into_iter().next().unwrap()
     }
 
-    /// A vessel's burst arrives at whatever fraction of a bit the receiver's clock happens
-    /// to sit at, and AIS grants exactly 24 training bits to acquire in — there is no second
-    /// burst to coast into, as TDMA voice modes have. Every sub-bit arrival phase must
-    /// decode, at every dial error the frequency-error test covers: without the carrier
-    /// corrector the measured surface was 3/5 phases at ±400 Hz and 0/5 at ±1200 Hz.
     #[test]
     fn acquires_from_every_burst_phase_at_every_dial_error() {
         for offset_hz in [0.0, -400.0, 400.0, -1_200.0, 1_200.0] {
@@ -632,11 +547,8 @@ mod tests {
     #[test]
     fn a_corrupted_burst_emits_nothing() {
         let payload = position_payload(&report());
-        // One payload bit flipped after the FCS was taken: the burst still frames cleanly, so
-        // only the CRC can reject it.
         let iq = framed(corrupted_burst(&payload, 100, RATE));
         assert!(run(&select(&iq)).is_empty());
-        // The same burst without the flip must decode, or the test proves nothing.
         assert_eq!(only(run(&transmission(&payload))).mmsi, 244_670_316);
     }
 
@@ -670,8 +582,6 @@ mod tests {
         assert_eq!(whole, ragged);
     }
 
-    /// Recompute the NMEA checksum the way a parser does: XOR of everything between `!`
-    /// and `*`, two uppercase hex digits.
     fn checksum_ok(sentence: &str) -> bool {
         let Some((body, tail)) = sentence.strip_prefix('!').and_then(|s| s.split_once('*')) else {
             return false;
@@ -695,7 +605,6 @@ mod tests {
         assert!(m.nmea.contains(",0*"), "{}", m.nmea);
     }
 
-    /// Six-bit value of an armoured character, inverting the `+48 / +8` mapping.
     fn dearmour_char(c: char) -> u8 {
         let v = c as u8 - 48;
         if v > 40 { v - 8 } else { v }
@@ -717,7 +626,6 @@ mod tests {
             assert_eq!(fields[2], (i + 1).to_string());
             assert_eq!(fields[3], "0", "sequential id");
             assert_eq!(fields[4], "A");
-            // 424 bits is 70 full groups plus four bits, so the last sentence pads two.
             assert_eq!(fields[6], if i == 0 { "0" } else { "2" });
             for c in fields[5].chars() {
                 let v = dearmour_char(c);
@@ -731,8 +639,6 @@ mod tests {
 
     #[test]
     fn decodes_through_a_receiver_frequency_error() {
-        // Half the deviation of tuning error is a standing discriminator offset the DC blocker
-        // has to remove before the slicer sees the eye — 1200 Hz is 7 ppm at 162 MHz.
         for offset_hz in [-1_200.0, -400.0, 400.0, 1_200.0] {
             let mut iq = raw(&position_payload(&report()));
             shift(&mut iq, offset_hz, RATE);
@@ -774,16 +680,6 @@ mod tests {
         assert_eq!(only(msgs).ais_channel, 'B');
     }
 
-    /// The committed fixture (fixtures/ais_position_pre_cpm_240k), rendered by the
-    /// pre-migration generator with its stepped burst envelope: decode-equivalence across the
-    /// cpm migration is proven against the committed artifact, not only against the migrated
-    /// generator. The capture is the raw burst at +25 kHz in a 240 kHz stream, so the test
-    /// runs the engine's own front-end shape — mix to baseband, decimate to the channel
-    /// rate, selection filter — with the listening lead-in any tuned receiver has.
-    ///
-    /// Its stem deliberately differs from the playable `ais_position_240k`: that one is
-    /// rewritten by `cargo xtask fixtures` from today's generator, so reading it here would
-    /// leave the migrated generator proving itself and this test asserting nothing.
     #[test]
     fn decodes_the_committed_fixture() {
         const FIXTURE: &[u8] =
@@ -819,10 +715,6 @@ mod tests {
         assert!((m.lon.unwrap() - 9.9846).abs() < 1e-4, "lon {:?}", m.lon);
     }
 
-    /// The migrated generator at the device rate the engine e2e and the fixture renderer
-    /// drive it at — 240 kHz, 25 samples per bit — decoded through the same DDC shape as the
-    /// committed fixture: the sps axis of the cpm parameterisation is data, and this pins it
-    /// at a second operating point.
     #[test]
     fn a_240k_rendering_decodes_through_the_ddc_path() {
         const DEVICE_RATE: f64 = 240_000.0;

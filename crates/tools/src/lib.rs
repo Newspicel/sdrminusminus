@@ -1,13 +1,3 @@
-//! The tool plane: instruments and calculators that stand beside the receiver.
-//!
-//! Nothing here touches a device, a channel or the DSP graph, and nothing in the signal path
-//! may depend on this crate. A tool is a blocking request/response function — the server runs
-//! it off the async executor — so a tool that talks to a serial instrument can simply block on
-//! the port instead of colouring the whole framework async.
-//!
-//! Adding a tool: a variant on [`sdrmm_wire::ToolRequest`] and [`sdrmm_wire::ToolResponse`], a
-//! module here implementing [`Tool`], and an entry in [`builtins`].
-
 use std::collections::BTreeMap;
 
 use sdrmm_wire::{ToolDescriptor, ToolRequest, ToolResponse};
@@ -18,18 +8,14 @@ pub mod nanovna;
 pub use antenna::AntennaTool;
 pub use nanovna::NanoVnaTool;
 
-/// Why a tool call did not produce an answer.
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     #[error("no tool with id {0}")]
     Unknown(String),
     #[error("{0}")]
     Invalid(String),
-    /// The registry handed a tool a request belonging to another one. Unreachable through the
-    /// registry's own dispatch; it exists so a tool never has to guess.
     #[error("the {tool} tool cannot answer a {got} request")]
     WrongTool { tool: &'static str, got: String },
-    /// Compiled in, but the hardware or resource it needs is not there.
     #[error("the {tool} tool is unavailable: {reason}")]
     Unavailable { tool: &'static str, reason: String },
     #[error("the {tool} tool failed: {reason}")]
@@ -55,22 +41,16 @@ impl ToolError {
     }
 }
 
-/// One tool. Implementors are shared across threads and hold whatever state they need behind
-/// their own synchronisation; [`Tool::run`] takes `&self` so the registry can be an `Arc`.
 pub trait Tool: Send + Sync {
     fn descriptor(&self) -> ToolDescriptor;
 
-    /// Answer one request. May block: the caller is responsible for keeping it off an async
-    /// executor.
     fn run(&self, request: ToolRequest) -> Result<ToolResponse, ToolError>;
 }
 
-/// Every tool this build has. Feature-gated ones are absent rather than reported as broken.
 fn builtins() -> Vec<Box<dyn Tool>> {
     vec![Box::new(AntennaTool), Box::new(NanoVnaTool::default())]
 }
 
-/// The tools a server offers, keyed by the id their requests are tagged with.
 #[derive(Default)]
 pub struct ToolRegistry {
     tools: BTreeMap<String, Box<dyn Tool>>,
@@ -86,11 +66,6 @@ impl ToolRegistry {
         registry
     }
 
-    /// Add a tool that is not a builtin — a desktop-only instrument, or a stub in a test.
-    ///
-    /// # Errors
-    /// [`ToolError::DuplicateId`] if the id is taken: a silent replacement would leave the
-    /// launcher advertising one tool and the router running another.
     pub fn register(&mut self, tool: Box<dyn Tool>) -> Result<(), ToolError> {
         let id = tool.descriptor().id;
         if self.tools.contains_key(&id) {
@@ -100,7 +75,6 @@ impl ToolRegistry {
         Ok(())
     }
 
-    /// What `GET /api/tools` lists, ordered by name so the launcher does not have to sort.
     #[must_use]
     pub fn descriptors(&self) -> Vec<ToolDescriptor> {
         let mut descriptors: Vec<ToolDescriptor> =
@@ -124,11 +98,6 @@ impl ToolRegistry {
         self.tools.is_empty()
     }
 
-    /// Run a request against the tool its tag names.
-    ///
-    /// # Errors
-    /// [`ToolError::Unknown`] if no tool answers to the tag, otherwise whatever the tool
-    /// itself refused or failed with.
     pub fn run(&self, request: ToolRequest) -> Result<ToolResponse, ToolError> {
         let id = request.tool_id();
         let tool = self

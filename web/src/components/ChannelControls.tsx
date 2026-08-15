@@ -23,15 +23,11 @@ import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const DEFAULT_SQUELCH_DB = -60;
 
-// Choice lists for the wire enums, typed off the generated union so a renamed or added variant
-// breaks here instead of shipping an option the server rejects.
-/** Which DMR timeslot reaches the log and audio output; the receiver always hears both. */
 const DMR_SLOTS: Options<NonNullable<ChannelParamsOf<"dmr">["slots"]>> = [
   { value: "both", label: "Both" },
   { value: "one", label: "TS1" },
   { value: "two", label: "TS2" },
 ];
-/** NXDN's two channel widths, which are two different symbol rates to the demodulator. */
 const NXDN_WIDTHS: Options<NonNullable<ChannelParamsOf<"nxdn">["bandwidth"]>> = [
   { value: "narrow", label: "6.25" },
   { value: "wide", label: "12.5" },
@@ -64,9 +60,6 @@ const NFM_TONE_MODES: Options<NonNullable<ChannelParamsOf<"nfm">["tone_mode"]>> 
   { value: "ctcss", label: "CTCSS" },
   { value: "dcs", label: "DCS" },
 ];
-// The 50 standard CTCSS tones and the 83 standard DCS codes, as a radio's own code lists. The
-// server refuses anything outside them (it is what the detector searches), so an entry that
-// drifted from `channels::tone_squelch` fails loudly the first time it is picked.
 const CTCSS_TONES_HZ = [
   67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8, 97.4, 100.0, 103.5, 107.2,
   110.9, 114.8, 118.8, 123.0, 127.3, 131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5,
@@ -148,11 +141,6 @@ const RADIO_CLOCK_STANDARDS: Options<NonNullable<ChannelParamsOf<"radio_clock">[
   { value: "jjy", label: "JJY" },
 ];
 
-/**
- * One channel's settings, addressed by the device set it lives on and the engine channel itself.
- * Everything above — which radio, which node, whether it exists at all — is the caller's; this is
- * only the control surface.
- */
 export function ChannelControls({
   deviceSet,
   channel,
@@ -162,7 +150,6 @@ export function ChannelControls({
   deviceSet: number;
   channel: ChannelInfo;
   descriptor: ChannelDescriptor | undefined;
-  /** Receiver sample rate, which is the width the offset may move within. */
   spanHz: number | null;
 }) {
   const { applyEdit } = useChannelPatch();
@@ -200,9 +187,6 @@ export function ChannelControls({
             }
           }}
         />
-        {/* Drawn whether or not squelch is on, so switching it does not resize the face under
-            the pointer — off, the threshold is the one it will open at. With tracking on it is
-            the level the gate falls back to, and the live threshold is on the meter above. */}
         <Slider
           label="Squelch threshold (dB)"
           className="min-w-0 flex-1"
@@ -223,8 +207,6 @@ export function ChannelControls({
         </span>
       </SettingRow>
 
-      {/* Tracking needs a gate to move: with the squelch off there is no threshold to place,
-          so the row follows it rather than offering a control that would do nothing. */}
       <SettingRow label="Auto">
         <Checkbox
           label="Track the noise floor"
@@ -261,8 +243,6 @@ export function ChannelControls({
 
       <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
 
-      {/* Only where there is audio to process: a data decoder's chain would be a set of
-          controls the server refuses. */}
       {channelHasAudio(descriptor) && (
         <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
       )}
@@ -295,8 +275,6 @@ function ModeControls({
               label="Tone squelch"
               value={mode}
               options={NFM_TONE_MODES}
-              // Switching to a gating mode without a tone chosen would be settings the server
-              // refuses, so the first standard tone and code stand in until one is picked.
               onChange={(tone_mode) =>
                 set({
                   ...params.settings,
@@ -616,8 +594,6 @@ function ModeControls({
         />
       );
     case "navtex":
-      // 100 baud at a 170 Hz shift is the whole standard (ITU-R M.540); the sideband the
-      // receiver landed on is the only thing left to choose.
       return (
         <Toggle
           label="Invert"
@@ -1012,8 +988,6 @@ function ModeControls({
           </SettingRow>
         </>
       );
-    // Everything about these four — symbol rate, deviation, channel width, sync patterns — is
-    // fixed by the mode, so there is nothing to offer beyond the frequency the operator tuned.
     case "dstar":
     case "ysf":
     case "p25":
@@ -1110,8 +1084,6 @@ function Toggle({
   );
 }
 
-// The presets are what operators actually use; the field stays free so an off-list value is
-// still reachable (and an incoming one is still shown, with no preset marked).
 function PresetNumberField({
   label,
   value,

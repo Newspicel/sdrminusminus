@@ -1,5 +1,3 @@
-//! POCSAG pager decoder ( P2): two-level FSK at 512/1200/2400 bit/s carrying
-//! BCH(31,21) codewords (ITU-R M.584).
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -20,40 +18,22 @@ const CHANNEL_TAPS: usize = 129;
 const NOMINAL_DEVIATION_HZ: f64 = 4_500.0;
 
 const FRAME_SYNC: u32 = 0x7CD2_15D8;
-/// Idle codeword — fills unused slots and terminates a message.
 const IDLE: u32 = 0x7A89_C197;
 const CODEWORD_BITS: u32 = 32;
 const BATCH_CODEWORDS: usize = 16;
-/// Payload bits a message codeword carries (32 minus the flag, BCH check bits and parity).
 const PAYLOAD_BITS: usize = 20;
 const ALPHA_BITS: usize = 7;
 const NUMERIC_BITS: usize = 4;
 
-/// The 32-bit sync word survives a couple of channel errors; beyond that the batch boundary
-/// would be a guess, and a wrong boundary shreds every codeword behind it.
 const SYNC_TOLERANCE: u32 = 2;
 
-/// Longest message accepted, in payload bits (128 codewords ≈ 365 alphanumeric characters).
-/// A "message" longer than this is a decoder that has lost the thread, not a page; emitting a
-/// truncated one would be worse than dropping it.
 const MAX_PAYLOAD_BITS: usize = 128 * PAYLOAD_BITS;
 
-/// Symbol periods of digital quiet each front end hears at construction — the cpm gate's
-/// 384-symbol floor-settle window, with margin. A floor measured on digital quiet is zero, so
-/// the gate reads everything after it as keyed and every loop learns always — the old
-/// discriminator chain's operating point, which POCSAG needs on all three counts: a
-/// transmission may meet the channel the moment it is created (the committed fixture is keyed
-/// from sample zero), each transmission re-acquires clock and level from its own 576-bit
-/// preamble rather than from channel history, and the integrate-and-dump chain decodes pages
-/// the BCH code repairs from below the gate's 6 dB carrier rise — a floor learned from real
-/// noise would gate out transmissions the old front end decoded. M = 2 slicing is a sign
-/// decision, so whatever an ungated level estimate learns from noise costs nothing.
 const QUIET_SYMBOLS: f64 = 512.0;
 
 const NUMERIC_ALPHABET: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', 'U', ' ', '-', ')', '(',
 ];
-/// Codes a transmitter pads the last alphanumeric codeword with; they end the message.
 const ALPHA_PADDING: [u8; 3] = [0x00, 0x03, 0x04];
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -67,14 +47,11 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct PocsagChannel {
-    /// The M = 2 level table soft symbols are sliced against; a sliced index is the data bit.
     slicer: Mapping,
     invert: bool,
     baud: PocsagBaud,
     candidates: Vec<Candidate>,
-    /// Index into `candidates` of the rate currently holding frame sync.
     locked: Option<usize>,
-    /// Per-block soft-symbol scratch, reused across calls.
     soft: Vec<f32>,
 }
 
@@ -115,7 +92,6 @@ fn check_params(p: &PocsagParams) -> Result<(), ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &PocsagParams) -> (f64, f64) {
     let half = p.bandwidth_hz / 2.0;
     (-half, half)
@@ -137,48 +113,34 @@ fn candidates(rate: f64, baud: PocsagBaud) -> Vec<Candidate> {
         .collect()
 }
 
-/// What feeding one bit did to a candidate's framing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Framing {
     Held,
-    /// A frame sync codeword matched: this candidate is decoding batches.
     Acquired,
-    /// The codeword after a batch was not a frame sync word — the transmission is over.
     Lost,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum Batching {
-    /// Sliding search for the frame sync codeword.
     Hunt,
-    Codeword {
-        index: usize,
-        bits: u32,
-    },
-    /// The 32 bits after a batch must be the next frame sync codeword.
-    Resync {
-        bits: u32,
-    },
+    Codeword { index: usize, bits: u32 },
+    Resync { bits: u32 },
 }
 
-/// The page being assembled: an address codeword and the message codewords behind it.
 #[derive(Clone, Copy, Debug)]
 struct Pending {
     address: u32,
     function: u8,
     errors: u32,
-    /// An uncorrectable codeword landed inside this message, so it may never be emitted.
     poisoned: bool,
 }
 
-/// One candidate bit rate: its own cpm front end, sync correlator and framing.
 struct Candidate {
     baud: u16,
     demod: CpmDemod,
     detector: SyncDetector,
     batching: Batching,
     pending: Option<Pending>,
-    /// Message payload bits of `pending`, reused across messages.
     payload: Vec<bool>,
 }
 
@@ -186,10 +148,6 @@ impl Candidate {
     fn new(rate: f64, baud: u16) -> Self {
         let params = cpm_params(rate, baud);
         let sps = params.sps();
-        // Rect is NRZ keying's own matched filter — the integrate-and-dump the old chain
-        // ran, as unit-DC-gain taps the level estimates rely on. Burst timing bandwidth: a
-        // transmission's 576-bit preamble is the clock's whole acquisition budget, and
-        // 0.015 cycles/symbol locks inside a seventh of it.
         let mut demod = CpmDemod::new(&params, &pulse::rect(sps, Norm::Area), TIMING_BW_BURST);
         let quiet = vec![Complex::new(0.0, 0.0); (QUIET_SYMBOLS * sps).ceil() as usize];
         demod.process(&quiet, &mut Vec::new());
@@ -203,10 +161,6 @@ impl Candidate {
         }
     }
 
-    /// Restart the framing search. The front end is deliberately left alone: its estimates
-    /// describe the channel rather than the transmission that just ended, and
-    /// `CpmDemod::reset` would re-enter the gate's floor-settle window — deaf to what it
-    /// hears — right when the next transmission's preamble may already be arriving.
     fn reset(&mut self) {
         self.detector.reset();
         self.batching = Batching::Hunt;
@@ -258,9 +212,6 @@ impl Candidate {
 
     fn codeword(&mut self, index: usize, word: u32, out: &mut Vec<DecoderEvent>) {
         let Some((word, errors)) = pocsag_bch_decode(word) else {
-            // The damage could have been the address codeword that ends the message in
-            // progress or a payload codeword inside it — either way what we hold is not the
-            // message that was sent.
             if let Some(pending) = &mut self.pending {
                 pending.poisoned = true;
             }
@@ -336,7 +287,6 @@ fn numeric_text(bits: &[bool]) -> String {
         .as_chunks::<NUMERIC_BITS>()
         .0
         .iter()
-        // The mask is what keeps the index inside the alphabet; four bits already are.
         .map(|chunk| NUMERIC_ALPHABET[usize::from(character(chunk) & 0x0F)])
         .collect();
     text.truncate(text.trim_end_matches(' ').len());
@@ -362,9 +312,6 @@ impl ChannelRx for PocsagChannel {
         })
     }
 
-    /// A new rate set restarts detection — a batch half-decoded at the old rate cannot be
-    /// continued at a new one — but any other settings change leaves a transmission in
-    /// progress alone.
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         check_params(p)?;
@@ -380,9 +327,6 @@ impl ChannelRx for PocsagChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         let mut soft = std::mem::take(&mut self.soft);
         for index in 0..self.candidates.len() {
-            // Every front end runs on every block, so a candidate's clock and level
-            // estimates are warm the moment the lock releases; only the lock holder — or,
-            // unlocked, every candidate — frames bits from its symbols.
             soft.clear();
             self.candidates[index].demod.process(iq, &mut soft);
             if self.locked.is_some_and(|held| held != index) {
@@ -390,7 +334,6 @@ impl ChannelRx for PocsagChannel {
             }
             for &symbol in &soft {
                 let symbol = if self.invert { -symbol } else { symbol };
-                // Index 0 transmits +1 — mark, the 0 bit — so the sliced index is the bit.
                 let bit = self.slicer.slice(symbol) == 1;
                 match self.candidates[index].bit(bit, &mut out.events) {
                     Framing::Held => {}
@@ -407,9 +350,6 @@ impl ChannelRx for PocsagChannel {
 }
 
 impl PocsagChannel {
-    /// A candidate matched the frame sync codeword: it takes the lock and the others'
-    /// framing restarts. A candidate that matched by chance fails its next batch boundary
-    /// and hands the lock back, so a false lock costs a batch rather than the transmission.
     fn acquire(&mut self, index: usize) {
         self.locked = Some(index);
         for (i, candidate) in self.candidates.iter_mut().enumerate() {
@@ -436,8 +376,6 @@ mod tests {
 
     const RATE: f64 = 48_000.0;
     const DEVIATION_HZ: f64 = 4_500.0;
-    /// Addresses are 21 bits; their low 3 bits (7 and 0 here) put the two pages in different
-    /// frames of a batch.
     const ALPHA_ADDRESS: u32 = 1_234_567;
     const NUMERIC_ADDRESS: u32 = 1_987_648;
 
@@ -470,8 +408,6 @@ mod tests {
         ]
     }
 
-    /// A transmission with lead-in and lead-out silence, so every run also exercises the
-    /// carrier-absent path.
     fn burst(pages: &[Page], baud: u16) -> Vec<Complex<f32>> {
         let mut iq = silence(4_000);
         iq.extend(transmission(pages, baud, DEVIATION_HZ, RATE));
@@ -622,7 +558,6 @@ mod tests {
         });
         assert_expected_pages(&run(&mut chan, &inverted), 1_200);
 
-        // The setting is a swap, not a repair: it must break the upright transmission.
         let mut chan = channel_with(PocsagParams {
             invert: true,
             ..PocsagParams::default()
@@ -630,8 +565,6 @@ mod tests {
         assert!(run(&mut chan, &burst(&pages(), 1_200)).is_empty());
     }
 
-    /// Noise heavy enough to flip bits in the codewords but not to break the bit clock: the
-    /// pages must still come out exactly, repaired by the BCH code.
     #[test]
     fn noise_that_flips_bits_still_decodes_through_the_bch_code() {
         for seed in [0x51d3_2ac1u32, 0x1234_5678, 0xdead_beef, 0x0f0f_0f0f] {
@@ -678,8 +611,6 @@ mod tests {
         iq
     }
 
-    /// A stream of message codewords longer than any real page means framing has been lost;
-    /// what is held is not a message and must not be emitted as one.
     #[test]
     fn an_overlong_message_is_dropped_rather_than_truncated() {
         let long = Page {

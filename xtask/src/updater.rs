@@ -6,12 +6,6 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 
-/// The updater artifact each bundle target produces in Tauri v2, in preference order within a
-/// platform: macOS tars the `.app`, while Linux reuses the AppImage and Windows reuses the
-/// installer. The `.dmg` and Linux package-manager bundles are never what the updater fetches.
-///
-/// NSIS outranks WiX because its passive mode installs per-user with a progress bar and no
-/// elevation prompt; the MSI would ask for admin rights on an update the user already accepted.
 const KINDS: &[(&str, &str)] = &[
     ("darwin", ".app.tar.gz"),
     ("linux", ".AppImage"),
@@ -19,15 +13,8 @@ const KINDS: &[(&str, &str)] = &[
     ("windows", ".msi"),
 ];
 
-/// `createUpdaterArtifacts: true` signs every emitted Linux package even though this app only
-/// updates AppImages (a `.deb` install is deliberately left to its package manager). These are
-/// known non-updater signatures rather than a bundler naming change; every other unknown suffix
-/// remains an error so a new updater artifact format cannot silently disappear from the manifest.
 const NON_UPDATER_KINDS: &[&str] = &[".deb", ".rpm", ".dmg"];
 
-/// Architecture tokens as they appear in bundler output, mapped to the keys the updater matches
-/// against. Longest first: `x86_64` contains `x86`, so the order is what keeps an x86_64 build
-/// from being published as the 32-bit one.
 const ARCHES: &[(&str, &str)] = &[
     ("x86_64", "x86_64"),
     ("aarch64", "aarch64"),
@@ -39,9 +26,6 @@ const ARCHES: &[(&str, &str)] = &[
     ("x86", "i686"),
 ];
 
-/// Mirrors the `desktop` matrix in `.github/workflows/release.yml`. Dropping one of these
-/// silently strands every installed client on that platform until the next release, so a missing
-/// entry fails the job instead.
 const EXPECTED: &[&str] = &[
     "darwin-aarch64",
     "darwin-x86_64",
@@ -67,9 +51,6 @@ struct Candidate {
     signature: String,
 }
 
-/// Collect `<dir>/*.sig` into `latest.json`. `base_url` is the release's download prefix, which
-/// differs between a tag and the rolling nightly — the GitHub layout is the workflow's business,
-/// not this command's.
 pub fn manifest(dir: &Path, version: &str, base_url: &str, out: Option<&Path>) -> Result<()> {
     let mut sigs = Vec::new();
     for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
@@ -85,7 +66,6 @@ pub fn manifest(dir: &Path, version: &str, base_url: &str, out: Option<&Path>) -
             sigs.push((name, signature));
         }
     }
-    // `read_dir` order is filesystem-defined; sorting keeps a rerun byte-identical.
     sigs.sort();
     ensure!(
         !sigs.is_empty(),
@@ -167,8 +147,6 @@ fn build(sigs: &[(String, String)], version: &str, base_url: &str) -> Result<Man
     })
 }
 
-/// `Some(platform key, preference)`, where a lower preference wins if one platform has two
-/// updater artifacts; `None` for a known package the updater does not install.
 fn classify(file: &str) -> Result<Option<(String, usize)>> {
     let kind = KINDS
         .iter()
@@ -200,8 +178,6 @@ mod tests {
 
     const BASE: &str = "https://example.invalid/download/v1.2.3";
 
-    /// Real bundler output names for the four matrix strands, macOS already renamed the way the
-    /// release workflow does it.
     fn release() -> Vec<(String, String)> {
         [
             "sdr--_1.2.3_aarch64.app.tar.gz",
@@ -230,7 +206,6 @@ mod tests {
         assert_eq!(linux.signature, "sig-of-sdr--_1.2.3_amd64.AppImage");
     }
 
-    /// Windows builds both installers, so both signatures reach the release directory.
     #[test]
     fn prefers_nsis_over_msi() {
         let mut sigs = release();
@@ -258,8 +233,6 @@ mod tests {
         assert!(err.contains("both claim windows-x86_64"), "{err}");
     }
 
-    /// The exact failure the macOS rename exists to prevent: unrenamed, both slices are called
-    /// `sdr--.app.tar.gz` and one silently overwrites the other in the release.
     #[test]
     fn rejects_the_unrenamed_macos_artifact() {
         let sigs = vec![("sdr--.app.tar.gz.sig".to_string(), "sig".to_string())];
@@ -280,7 +253,6 @@ mod tests {
         );
     }
 
-    /// Tauri v2 signs a `.deb` too, but a package-manager install is not an updater candidate.
     #[test]
     fn ignores_a_known_non_updater_signature() {
         let mut sigs = release();

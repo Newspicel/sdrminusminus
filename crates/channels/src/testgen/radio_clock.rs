@@ -2,8 +2,6 @@ use num_complex::Complex;
 
 pub const RATE: f64 = 2_000.0;
 
-/// Two DCF77 minutes carrying 2026-08-15 12:34 CET. Repeating the minute closes the first
-/// frame with the omitted second-59 pulse, so the fixture can begin exactly at second zero.
 #[must_use]
 pub fn dcf77_example() -> Vec<Complex<f32>> {
     let mut bits = [false; 59];

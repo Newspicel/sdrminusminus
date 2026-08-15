@@ -1,6 +1,3 @@
-//! Pure translation between the wire capability model and what an rtl_tcp server will accept:
-//! the tuner tables the greeting's one byte selects, and the state that is the only account of
-//! what the remote dongle is set to.
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
@@ -9,20 +6,11 @@ use sdrmm_wire::{
 
 use crate::rtltcp::proto::{Command, Tuner, ordered};
 
-/// Sole gain stage, named as the in-tree RTL-SDR driver and SoapyRTLSDR name it so the same dongle
-/// presents the same control however it was reached.
 pub(crate) const TUNER_STAGE: &str = "TUNER";
-/// Phantom power on the antenna port (RTL2832U GPIO0).
 pub(crate) const BIAS_TEE: &str = "bias_tee";
-/// The R82xx tuner's own AGC.
 pub(crate) const AGC: &str = "agc";
-/// The RTL2832U's digital AGC, which is a different thing from [`AGC`] and is why both are here.
 pub(crate) const RTL_AGC: &str = "rtl_agc";
 
-/// The rates offered. The RTL2832U's resampler has two valid windows and everything between them
-/// aliases, so the wire model's single `sample_rate_range` cannot describe it and the discrete
-/// menu — the one every RTL-SDR tool offers — is the honest representation. Kept identical to the
-/// in-tree RTL-SDR driver's: it is the same silicon on the far side of the socket.
 const RATE_MENU: [f64; 9] = [
     250_000.0,
     1_024_000.0,
@@ -34,20 +22,12 @@ const RATE_MENU: [f64; 9] = [
     2_880_000.0,
     3_200_000.0,
 ];
-/// The resampler's two valid windows, which `apply` enforces whatever the menu offers.
 const RATE_WINDOWS: [(f64, f64); 2] = [(225_001.0, 300_000.0), (900_001.0, 3_200_000.0)];
 
-/// Advertised crystal-correction range, matching the in-tree driver's.
 const PPM_MAX: f64 = 200.0;
 
-/// Every parameter on this protocol is four bytes wide, so nothing above 4.29 GHz can be
-/// expressed — the one bound that holds even for a server whose tuner this backend cannot name.
 const MAX_PARAM_HZ: f64 = u32::MAX as f64;
 
-/// librtlsdr's gain tables, in tenths of a dB (`librtlsdr.c`). The protocol sends only how many
-/// entries the remote has, never the entries, so this is what makes the advertised range the
-/// tuner's own instead of a guess — and the count is what proves the table still matches the
-/// server's librtlsdr before it is trusted.
 const E4000_GAINS: [i32; 14] = [
     -10, 15, 40, 65, 90, 115, 140, 165, 190, 215, 240, 290, 340, 420,
 ];
@@ -62,12 +42,6 @@ const R82XX_GAINS: [i32; 29] = [
     386, 402, 421, 434, 439, 445, 480, 496,
 ];
 
-/// The gain steps a tuner has, when the server's own count agrees with the table held here.
-///
-/// A disagreement means the far side is running a librtlsdr whose table this one does not
-/// describe — the several forks differ — and the answer is to stop claiming to know it: the caller
-/// then advertises a plain range and sends the value through unsnapped, which is what the remote
-/// would do with it anyway.
 pub(crate) fn gain_table(tuner: Tuner, reported_steps: u32) -> &'static [i32] {
     let table: &'static [i32] = match tuner {
         Tuner::E4000 => &E4000_GAINS,
@@ -84,12 +58,6 @@ pub(crate) fn gain_table(tuner: Tuner, reported_steps: u32) -> &'static [i32] {
     }
 }
 
-/// The tuner's frequency envelope, as gr-osmosdr's `rtl_source_c` tabulates it.
-///
-/// An unrecognised tuner gets no range at all rather than a plausible one: rtl_tcp is spoken by
-/// more than librtlsdr, and a range that is a guess would either refuse tunings the radio can
-/// reach or promise ones it cannot. The wire model reads an absent range as "filtered on nothing",
-/// which is exactly what is true here — `validate` still holds it to what the protocol can carry.
 fn freq_ranges(tuner: Tuner) -> Vec<Range> {
     let bounds: &[(f64, f64)] = match tuner {
         Tuner::E4000 => &[(52e6, 2.2e9)],
@@ -109,10 +77,7 @@ fn freq_ranges(tuner: Tuner) -> Vec<Range> {
         .collect()
 }
 
-/// The capability envelope of a remote dongle that has just greeted us.
 pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
-    // A table that is not the tuner's leaves the stage a plain span: the remote clamps whatever it
-    // is sent, so an unsnapped value is honest — it just cannot be reported back as exact.
     let range = match (gains.iter().copied().min(), gains.iter().copied().max()) {
         (Some(min), Some(max)) => Range {
             min: tenths_to_db(min),
@@ -166,8 +131,6 @@ fn tenths_to_db(tenths: i32) -> f64 {
     f64::from(tenths) / 10.0
 }
 
-/// Nearest entry in the tuner's table, in tenths of a dB; ties take the lower step so a snap never
-/// raises gain beyond what was asked for. `None` only for a table this backend does not know.
 fn nearest_gain(table: &[i32], tenths: i32) -> Option<i32> {
     table
         .iter()
@@ -175,12 +138,9 @@ fn nearest_gain(table: &[i32], tenths: i32) -> Option<i32> {
         .min_by_key(|g| ((i64::from(*g) - i64::from(tenths)).abs(), i64::from(*g)))
 }
 
-/// How the remote's tuner gain is being driven.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GainMode {
-    /// The tuner's own AGC owns it.
     Auto,
-    /// Tenths of a dB, snapped to the tuner's table where this backend knows it.
     Manual(i32),
 }
 
@@ -190,16 +150,11 @@ pub(crate) struct Remote {
     center_hz: u32,
     ppm: i32,
     gain: GainMode,
-    /// The last manual value, kept across a spell of AGC so leaving it restores the gain the
-    /// operator chose rather than jumping to full sensitivity.
     manual_tenths: i32,
     bias_tee: bool,
     rtl_agc: bool,
 }
 
-/// What an untouched rtl_tcp session runs at. The server does not report its dongle's state, so
-/// these are what this backend asserts on connect and what it reports until something changes
-/// them — and asserting them is what makes the reported settings true rather than assumed.
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 2_048_000;
 const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
@@ -216,8 +171,6 @@ impl Remote {
         }
     }
 
-    /// Every setting as commands, in the order a dongle that remembers nothing has to receive
-    /// them. Sent on connect and on every reconnect.
     pub(crate) fn replay(&self) -> Vec<(Command, u32)> {
         let mut batch = vec![
             (Command::SampleRate, self.sample_rate),
@@ -230,9 +183,6 @@ impl Remote {
         ordered(batch)
     }
 
-    /// What the client is shown. Gain is reported only in manual: in AGC the tuner ignores the
-    /// value, and showing the one a later `agc: false` would restore as if it were live would be
-    /// the display disagreeing with the radio.
     pub(crate) fn wire(&self) -> DeviceSettings {
         let mut settings = DeviceSettings {
             center_hz: Some(f64::from(self.center_hz)),
@@ -265,8 +215,6 @@ impl Remote {
     }
 }
 
-/// The mode and, in manual, the value — always both, because the remote discards a value that
-/// arrives while its AGC still owns the tuner.
 fn gain_commands(gain: GainMode) -> Vec<(Command, u32)> {
     match gain {
         GainMode::Auto => vec![(Command::GainMode, 0)],
@@ -276,16 +224,6 @@ fn gain_commands(gain: GainMode) -> Vec<(Command, u32)> {
     }
 }
 
-/// Pre-flight for `apply`: refuse everything the protocol cannot carry *before* a byte is sent,
-/// and resolve the rest into the new remote state plus the commands that get it there.
-///
-/// Nothing here can consult the radio — it answers nothing — so this is where the honesty of the
-/// whole backend lives: a value that survives this is reported as applied, and one that does not
-/// is refused by name rather than sent into the dark.
-///
-/// # Errors
-/// [`DeviceError::Unsupported`] naming the field and why, for a setting outside what the RTL2832U
-/// and this protocol can take.
 pub(crate) fn validate(
     delta: &DeviceSettings,
     caps: &Capabilities,
@@ -333,8 +271,6 @@ pub(crate) fn validate(
                 "ppm {ppm} outside ±{PPM_MAX}"
             )));
         }
-        // The remote's correction registers count in whole ppm, so a fractional request has no
-        // representation; it is rounded, and reported back rounded so the choice is visible.
         next.ppm = ppm.round() as i32;
         batch.push((Command::FreqCorrection, next.ppm as u32));
     }
@@ -409,8 +345,6 @@ pub(crate) fn validate(
     Ok((next, ordered(batch)))
 }
 
-/// Every advertised extra is a boolean; anything else in the delta is a client bug, not a value to
-/// coerce.
 fn extra_bool(setting: &ExtraSetting, value: &ExtraValue) -> Result<bool, DeviceError> {
     match setting {
         ExtraSetting::Bool { .. } => value.value.as_bool().ok_or_else(|| {
@@ -455,15 +389,12 @@ mod tests {
         assert_eq!(caps.freq_ranges[0].min, 24e6);
     }
 
-    /// The check that keeps the tables honest: a server whose librtlsdr has a different table
-    /// must not have this one's snapped onto it.
     #[test]
     fn a_step_count_that_disagrees_drops_the_table_and_widens_the_stage() {
         assert!(gain_table(Tuner::R820T, 28).is_empty());
         assert!(gain_table(Tuner::Unknown, 29).is_empty());
         let caps = capabilities(Tuner::R820T, gain_table(Tuner::R820T, 28));
         assert_eq!(caps.gains[0].range.max, 50.0);
-        // …and a value in that span goes through unsnapped rather than being refused.
         let (next, batch) = validate(
             &DeviceSettings {
                 gains: vec![GainValue {
@@ -481,8 +412,6 @@ mod tests {
         assert_eq!(batch, vec![(Command::GainMode, 1), (Command::Gain, 317)]);
     }
 
-    /// An unrecognised server is filtered on nothing rather than on a guess, but the protocol's
-    /// own four-byte parameter still bounds it.
     #[test]
     fn an_unknown_tuner_advertises_no_range_and_is_held_only_to_the_wire_format() {
         let caps = capabilities(Tuner::Unknown, &[]);
@@ -519,14 +448,10 @@ mod tests {
             ..DeviceSettings::default()
         }))
         .expect("accepted");
-        // 22.9 and 25.4 straddle the request; 22.9 is the nearer, and it is what is reported back
-        // rather than the 24.0 that was asked for.
         assert_eq!(next.gain, GainMode::Manual(229));
         assert_eq!(batch, vec![(Command::GainMode, 1), (Command::Gain, 229)]);
         assert_eq!(next.wire().gains[0].value_db, 22.9);
 
-        // Exactly between 36.4 and 37.2: the lower step wins, so a snap never raises gain past
-        // what was asked for.
         let (tie, _) = apply(delta(DeviceSettings {
             gains: vec![GainValue {
                 stage: TUNER_STAGE.to_string(),
@@ -538,8 +463,6 @@ mod tests {
         assert_eq!(tie.gain, GainMode::Manual(364));
     }
 
-    /// The ordering that is correctness: the mode has to reach the radio before the value, or the
-    /// AGC swallows it.
     #[test]
     fn a_rate_and_gain_change_together_arrive_in_the_radios_order() {
         let (_, batch) = apply(delta(DeviceSettings {
@@ -676,8 +599,6 @@ mod tests {
         }
     }
 
-    /// A reconnect meets a dongle at its power-on defaults, so the replay has to carry every
-    /// setting — not the last delta — and in the same order the live path uses.
     #[test]
     fn a_replay_carries_every_setting_in_order() {
         let (next, _) = apply(delta(DeviceSettings {

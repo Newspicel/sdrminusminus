@@ -35,8 +35,6 @@ describe("nmeaSuggestion", () => {
     ).toEqual({ value: "/dev/cu.usbmodem11401", detail: "GNSS receiver · GPS-1" });
   });
 
-  /** The path is already the item's own line; repeating it as the detail was what made the list
-   * read as two copies of one entry. */
   it("says nothing more about a port that reports no identity", () => {
     expect(nmeaSuggestion({ path: "/dev/ttyS0" })).toEqual({ value: "/dev/ttyS0" });
   });

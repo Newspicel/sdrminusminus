@@ -1,29 +1,20 @@
-//! Block codes the digital-voice signalling layers are built from ( wave 3).
-/// A systematic single-error-correcting code defined by one parity mask per check bit.
-///
-/// Bit order is the specification's: `word[0..k]` are the information bits, `word[k..n]` the
-/// parity bits, in transmission order.
 #[derive(Clone, Copy, Debug)]
 pub struct ParityCode {
     k: usize,
-    /// One mask per parity bit; bit `i` set means information bit `i` is in that parity sum.
     parity: &'static [u16],
 }
 
 impl ParityCode {
-    /// Hamming(7,4,3) protecting the DMR CACH TACT field.
     pub const HAMMING_7_4: Self = Self {
         k: 4,
         parity: &[0b0111, 0b1110, 0b1011],
     };
 
-    /// Hamming(13,9,3) — the columns of a DMR BPTC(196,96) block (ETSI TS 102 361-1 B.3.11).
     pub const HAMMING_13_9: Self = Self {
         k: 9,
         parity: &[0b0_0110_1011, 0b0_1101_0111, 0b1_1010_1111, 0b1_0011_0101],
     };
 
-    /// Hamming(15,11,3) — the rows of a DMR BPTC(196,96) block (ETSI TS 102 361-1 B.3.12).
     pub const HAMMING_15_11: Self = Self {
         k: 11,
         parity: &[
@@ -34,8 +25,6 @@ impl ParityCode {
         ],
     };
 
-    /// Hamming(16,11,4) — the same code with an extra check bit, protecting the rows of the
-    /// BPTC(128,77) block a DMR voice burst carries its embedded link control in.
     pub const HAMMING_16_11: Self = Self {
         k: 11,
         parity: &[
@@ -63,22 +52,16 @@ impl ParityCode {
         ],
     };
 
-    /// Information bits carried.
     #[must_use]
     pub const fn k(&self) -> usize {
         self.k
     }
 
-    /// Codeword length in bits.
     #[must_use]
     pub const fn n(&self) -> usize {
         self.k + self.parity.len()
     }
 
-    /// Fill `word[k..n]` from the information bits in `word[..k]`.
-    ///
-    /// # Panics
-    /// If `word` is shorter than [`ParityCode::n`].
     pub fn encode(&self, word: &mut [bool]) {
         assert!(word.len() >= self.n(), "word shorter than the codeword");
         for (j, &mask) in self.parity.iter().enumerate() {
@@ -86,12 +69,6 @@ impl ParityCode {
         }
     }
 
-    /// Correct `word` in place, returning the number of bits repaired, or `None` when the
-    /// syndrome names no single-bit error the code can locate — for the distance-4 member that
-    /// is a detected double error, for the distance-3 ones an uncorrectable pattern.
-    ///
-    /// # Panics
-    /// If `word` is shorter than [`ParityCode::n`].
     pub fn decode(&self, word: &mut [bool]) -> Option<u32> {
         assert!(word.len() >= self.n(), "word shorter than the codeword");
         let mut syndrome = 0u32;
@@ -108,7 +85,6 @@ impl ParityCode {
             word[self.k + j] = !word[self.k + j];
             return Some(1);
         }
-        // Otherwise the syndrome is the check-matrix column of the flipped information bit.
         for (i, bit) in word.iter_mut().enumerate().take(self.k) {
             if self.column(i) == syndrome {
                 *bit = !*bit;
@@ -126,7 +102,6 @@ impl ParityCode {
         acc
     }
 
-    /// The check-matrix column for information bit `i`: which parity sums it takes part in.
     fn column(&self, i: usize) -> u32 {
         self.parity
             .iter()
@@ -136,11 +111,6 @@ impl ParityCode {
     }
 }
 
-/// A shortened cyclic code with an appended even-parity bit, decoded by exhaustive search.
-///
-/// The codeword is `info` (`k` bits, first transmitted) then `info · x^parity mod gen`
-/// (`parity` bits) then one bit making the whole word even weight. Words are `u32`, MSB of the
-/// `n`-bit word first on the wire.
 #[derive(Clone, Copy, Debug)]
 pub struct CyclicCode {
     k: u32,
@@ -149,12 +119,9 @@ pub struct CyclicCode {
     correctable: u32,
 }
 
-/// Longest message any code here carries, so the Gray-code walk needs no allocation.
 const MAX_MESSAGE_BITS: usize = 16;
 
 impl CyclicCode {
-    /// Golay(20,8,8) — the DMR slot type, carrying colour code and data type either side of the
-    /// sync (ETSI TS 102 361-1 B.3.3). Corrects three errors and detects four.
     pub const GOLAY_20_8: Self = Self {
         k: 8,
         parity: 11,
@@ -162,7 +129,6 @@ impl CyclicCode {
         correctable: 3,
     };
 
-    /// Golay(18,6,8) protecting each six-bit symbol in a P25 header data unit.
     pub const GOLAY_18_6: Self = Self {
         k: 6,
         parity: 11,
@@ -170,7 +136,6 @@ impl CyclicCode {
         correctable: 3,
     };
 
-    /// QR(16,7,6) — the DMR embedded signalling field in a voice burst (B.3.4). Corrects two.
     pub const QR_16_7: Self = Self {
         k: 7,
         parity: 8,
@@ -178,8 +143,6 @@ impl CyclicCode {
         correctable: 2,
     };
 
-    /// The extended binary Golay(24,12,8) the Golay(20,8) above is shortened from — YSF's FICH
-    /// is four of these. Corrects three errors and detects four.
     pub const GOLAY_24_12: Self = Self {
         k: 12,
         parity: 11,
@@ -194,19 +157,16 @@ impl CyclicCode {
         correctable: 11,
     };
 
-    /// Codeword length in bits.
     #[must_use]
     pub const fn n(&self) -> u32 {
         self.k + self.parity + 1
     }
 
-    /// Mask of the `n` transmitted bits.
     fn mask(&self) -> u64 {
         let n = self.n();
         if n >= 64 { u64::MAX } else { (1 << n) - 1 }
     }
 
-    /// The `n`-bit codeword for `info`, MSB first.
     #[must_use]
     pub fn encode(&self, info: u32) -> u64 {
         let info = u64::from(info) & ((1 << self.k) - 1);
@@ -221,19 +181,9 @@ impl CyclicCode {
         word | u64::from(word.count_ones() % 2 == 1)
     }
 
-    /// Nearest codeword to `word`, as `(information bits, errors corrected)`. `None` when the
-    /// nearest one is further away than the code can correct, which is a detected error rather
-    /// than a silent guess.
-    ///
-    /// The search walks the messages in Gray-code order, so each candidate codeword is one XOR
-    /// away from the last: the whole 2^k sweep costs one XOR and one population count per
-    /// candidate, which is what makes an exhaustive decode affordable even for the 65 536
-    /// messages of P25's BCH.
     #[must_use]
     pub fn decode(&self, word: u64) -> Option<(u32, u32)> {
         let word = word & self.mask();
-        // The code is linear, so the codeword of a message is the XOR of the codewords of its
-        // set bits.
         let mut rows = [0u64; MAX_MESSAGE_BITS];
         for (i, row) in rows.iter_mut().enumerate().take(self.k as usize) {
             *row = self.encode(1 << i);
@@ -255,8 +205,6 @@ impl CyclicCode {
 mod tests {
     use super::*;
 
-    /// The property that makes a code the code it claims to be. A wrong parity table still
-    /// round-trips against itself; only the distance says whether it is the published one.
     fn min_distance_parity(code: &ParityCode) -> u32 {
         let mut best = u32::MAX;
         for info in 1..1u32 << code.k() {
@@ -304,8 +252,6 @@ mod tests {
         }
     }
 
-    /// Distance 4 buys detection, not correction: the extended member must refuse a double
-    /// error rather than "repair" it into a third wrong word.
     #[test]
     fn the_extended_hamming_detects_double_errors() {
         let code = ParityCode::HAMMING_16_11;
@@ -330,9 +276,6 @@ mod tests {
         }
     }
 
-    /// The DMR slot type as ETSI publishes it: eight information bits followed by the remainder
-    /// modulo 0xC75 and an even-parity bit. These two are the first entries of the encoding
-    /// table every DMR implementation ships, and pin the bit order this code is packed in.
     #[test]
     fn golay_20_8_matches_the_published_slot_type_words() {
         assert_eq!(CyclicCode::GOLAY_20_8.encode(0x01) >> 1 & 0x7FF, 0x475);
@@ -351,8 +294,6 @@ mod tests {
                 }
                 assert_eq!(code.decode(word), Some((info, errors)), "{errors} errors");
             }
-            // Both codes have even minimum distance, so one error past the correction limit
-            // lands strictly between two codewords: the decoder must say so, not guess.
             let mut word = clean;
             for bit in 0..=limit {
                 word ^= 1 << (bit * 5 % code.n());

@@ -2,15 +2,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use sdrmm_wire::{PlaybackAction, PlaybackRequest, PlaybackStatus};
 
-/// No seek pending. A real target can never collide with it: it would be an eight-exabyte
-/// recording.
 const NO_SEEK: u64 = u64::MAX;
 
 #[derive(Debug)]
 pub struct PlaybackShared {
     position: AtomicU64,
-    /// Last position fixed by pause, seek or stop. A worker whose in-flight block loses a race
-    /// with that request restores this value instead of publishing stale progress.
     requested_position: AtomicU64,
     position_generation: AtomicU64,
     total: AtomicU64,
@@ -31,7 +27,6 @@ impl PlaybackShared {
         }
     }
 
-    /// What the client's transport draws.
     #[must_use]
     pub fn status(&self) -> PlaybackStatus {
         PlaybackStatus {
@@ -41,37 +36,26 @@ impl PlaybackShared {
         }
     }
 
-    /// Apply a transport request. Stop is pause-and-rewind in one step: two requests would let
-    /// a block slip out between them, so a stopped recording could sit one block off zero.
     pub fn control(&self, request: &PlaybackRequest) {
         match request.action {
             PlaybackAction::Play => self.paused.store(false, Ordering::Relaxed),
             PlaybackAction::Pause => {
                 self.paused.store(true, Ordering::Relaxed);
-                // Freeze at the last published boundary. The seek both invalidates a block
-                // already in flight and makes resume continue from the position returned to
-                // the client, rather than from beyond an unseen block.
                 self.request_seek(self.position.load(Ordering::SeqCst));
             }
             PlaybackAction::Stop => {
                 self.paused.store(true, Ordering::Relaxed);
                 self.request_seek(0);
             }
-            // A seek with no position is a seek to the start, which is what a client that
-            // omits the field can only have meant.
             PlaybackAction::Seek => self.request_seek(request.position_samples.unwrap_or(0)),
         }
     }
 
-    /// Snapshot the seek generation before the worker starts reading a block.
     #[must_use]
     pub fn position_generation(&self) -> u64 {
         self.position_generation.load(Ordering::SeqCst)
     }
 
-    /// Publish where the worker has got to, unless pause, seek or stop landed while its block
-    /// was in flight. The second generation check closes the race where the request arrives
-    /// between the first check and the position store.
     pub fn set_position(&self, samples: u64, generation: u64) {
         if self.position_generation.load(Ordering::SeqCst) != generation {
             return;
@@ -93,19 +77,12 @@ impl PlaybackShared {
 
     fn request_seek(&self, samples: u64) {
         let requested = samples.min(self.total());
-        // The position moves with the request rather than when the worker gets there: a paused
-        // transport never reaches the worker, and a scrub that snapped back until playback
-        // resumed would read as a dropped input.
-        // Publish the requested value before advancing the generation. That gives an in-flight
-        // worker a stable value to restore if it crosses this request.
         self.requested_position.store(requested, Ordering::SeqCst);
         self.seek.store(samples, Ordering::SeqCst);
         self.position_generation.fetch_add(1, Ordering::SeqCst);
         self.position.store(requested, Ordering::SeqCst);
     }
 
-    /// The pending seek target, cleared as it is taken — a seek is an event, and replaying it
-    /// every block would peg the transport wherever it last landed.
     #[must_use]
     pub fn take_seek(&self) -> Option<u64> {
         match self.seek.swap(NO_SEEK, Ordering::Relaxed) {
@@ -119,9 +96,6 @@ impl PlaybackShared {
         self.paused.load(Ordering::Relaxed)
     }
 
-    /// Whether a seek is waiting, without taking it. A worker parked at the end of a recording
-    /// polls this to know it has somewhere to go: consuming the seek to find out would throw
-    /// away the very thing that should wake it.
     #[must_use]
     pub fn seek_pending(&self) -> bool {
         self.seek.load(Ordering::Relaxed) != NO_SEEK
@@ -168,8 +142,6 @@ mod tests {
         assert_eq!(shared.take_seek(), Some(0));
     }
 
-    /// The worker may have read a block before stop arrived. Completing that old block must not
-    /// move the stopped transport away from zero.
     #[test]
     fn stale_worker_progress_cannot_overwrite_a_stop() {
         let shared = PlaybackShared::new(1_000);
@@ -188,8 +160,6 @@ mod tests {
         );
     }
 
-    /// Pause returns a status synchronously. A block that was already being read must not make
-    /// the immediately following state snapshot disagree with that response.
     #[test]
     fn stale_worker_progress_cannot_overwrite_a_pause() {
         let shared = PlaybackShared::new(1_000);
@@ -203,8 +173,6 @@ mod tests {
         assert_eq!(shared.take_seek(), Some(paused.position_samples));
     }
 
-    /// The readout has to follow the scrub immediately: while paused the worker never runs, so
-    /// waiting for it to consume the seek would leave the bar sitting at the old position.
     #[test]
     fn a_seek_moves_the_reported_position_before_the_worker_sees_it() {
         let shared = PlaybackShared::new(1_000);

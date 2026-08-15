@@ -18,14 +18,11 @@ const fn default_nmea_update_interval_ms() -> u32 {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PositionSource {
-    /// The geolocation provider exposed by the desktop WebView.
     #[default]
     Device,
-    /// A gpsd JSON endpoint, normally `127.0.0.1:2947`.
-    Gpsd { address: String },
-    /// An NMEA 0183 serial device. Receivers push sentences; `update_interval_ms` limits how
-    /// often complete fixes are published to live consumers without attempting proprietary
-    /// receiver configuration commands.
+    Gpsd {
+        address: String,
+    },
     Nmea {
         device: String,
         baud: u32,
@@ -40,7 +37,6 @@ pub struct GpsNode {
     pub source: PositionSource,
 }
 
-/// One serial port the server can currently offer to an NMEA GPS node.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NmeaDeviceInfo {
     pub path: String,
@@ -61,8 +57,6 @@ pub struct NmeaDevicesResponse {
     pub devices: Vec<NmeaDeviceInfo>,
 }
 
-/// One live station fix. Optional measurements stay absent when the provider did not report
-/// them; latitude and longitude are always a complete, validated pair.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PositionFix {
     pub latitude: f64,
@@ -75,8 +69,6 @@ pub struct PositionFix {
     pub speed_mps: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_deg: Option<f64>,
-    /// RFC3339 UTC. Providers without their own timestamp are stamped when the server receives
-    /// the fix.
     pub time: String,
 }
 

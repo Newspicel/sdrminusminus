@@ -1,4 +1,3 @@
-//! The tone filterbank: M matched filters, one per tone, read as energies.
 use num_complex::Complex;
 
 use super::params::MfskParams;
@@ -7,9 +6,7 @@ use super::params::MfskParams;
 pub struct ToneBank {
     m: usize,
     window: usize,
-    /// `rotors[k·window + n] = e^{−j2πfₖn}`, the conjugate reference of tone k.
     rotors: Vec<Complex<f32>>,
-    /// `1/window`: applied to the squared magnitude, so the sum itself is never rescaled.
     scale: f64,
 }
 
@@ -73,9 +70,6 @@ mod tests {
         out
     }
 
-    /// Orthogonality, measured: a tone reads its own bin at full symbol energy and every other
-    /// bin at nothing. This is the property the whole entry rests on, and the reason
-    /// [`MfskParams`] refuses a fractional spacing.
     #[test]
     fn each_tone_lights_its_own_bin_and_no_other() {
         let params = MfskParams::orthogonal(8, 16.0);
@@ -96,8 +90,6 @@ mod tests {
         }
     }
 
-    /// The normalisation contract: noise alone reads mean N0 in every bin, whatever the window
-    /// length. Without it `energy_llrs`' `noise_var` would be a fudge factor.
     #[test]
     fn a_noise_only_bin_reads_mean_n0() {
         for sps in [8.0, 32.0, 128.0] {
@@ -123,9 +115,6 @@ mod tests {
         }
     }
 
-    /// Half a symbol of misalignment must cost energy rather than silently reading full scale —
-    /// this is the loss the entry's timing estimator exists to avoid, and the reason the limits
-    /// table's timing row means something.
     #[test]
     fn a_misaligned_window_loses_energy() {
         let params = MfskParams::orthogonal(4, 16.0);
@@ -135,8 +124,6 @@ mod tests {
         let mut offset = vec![0.0f32; 4];
         bank.energies(&wave, 16, &mut aligned);
         bank.energies(&wave, 24, &mut offset);
-        // The same tone throughout, so a shifted window still reads it: what is lost is the
-        // reference phase agreeing across the window, not the tone.
         assert!((aligned[2] - 16.0).abs() < 1e-3, "{aligned:?}");
         assert!(offset[2] <= aligned[2] + 1e-3, "{offset:?} vs {aligned:?}");
     }

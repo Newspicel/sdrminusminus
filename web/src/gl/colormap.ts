@@ -1,25 +1,10 @@
-// The colour ramps, once. The waterfall samples them on the GPU and the persistence display
-// samples them on the CPU, so the coefficients live here and the shader source is generated from
-// the same numbers — two hand-copied ramps would drift the moment one of them is tuned.
-
-/** Index order is the wire format between `setColormap` and the shader's `uMap` — a name's
- * position here is the integer the shader switches on, so reordering this list re-colours every
- * plot. `classic` leads because it is the default, which also makes it what an unknown name
- * falls back to. */
 export const COLORMAPS = ["classic", "magma", "inferno", "plasma", "viridis", "gray"] as const;
 export type Colormap = (typeof COLORMAPS)[number];
 
 export const DEFAULT_COLORMAP: Colormap = "classic";
 
-/** Linear RGB-ish triple in `[0, 1]`, the range both samplers work in. */
 export type Rgb = readonly [number, number, number];
 
-/**
- * SDR++'s Classic map, its fifteen stops verbatim (`root/res/colormaps/classic.json`) and
- * interpolated the way it interpolates them: straight lines between adjacent stops, in sRGB.
- * `#FE6D16` and `#FF0000` each appear twice on purpose — the repeat is what holds orange and red
- * flat across their share of the range instead of sweeping through.
- */
 const CLASSIC_STOPS: readonly Rgb[] = [
   [0.0, 0.0, 0.12549],
   [0.0, 0.0, 0.18824],
@@ -38,7 +23,6 @@ const CLASSIC_STOPS: readonly Rgb[] = [
   [0.2902, 0.0, 0.0],
 ];
 
-/** Seven-term polynomial fits of the matplotlib ramps, evaluated by Horner in both samplers. */
 const POLYNOMIALS: Readonly<Partial<Record<Colormap, readonly Rgb[]>>> = {
   magma: [
     [-0.00213649, -0.00074966, -0.00538613],
@@ -78,8 +62,6 @@ const POLYNOMIALS: Readonly<Partial<Record<Colormap, readonly Rgb[]>>> = {
   ],
 };
 
-/** Sample a ramp at `t`, clamped to `[0, 1]`. The CPU half of the pair; the shader below is
- * generated from the same tables and must stay pixel-identical to it. */
 export function sampleColormap(map: Colormap, t: number): Rgb {
   const x = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
   if (map === "gray") {
@@ -102,8 +84,6 @@ export function sampleColormap(map: Colormap, t: number): Rgb {
 
 function sampleClassic(t: number): Rgb {
   const x = t * (CLASSIC_STOPS.length - 1);
-  // At t == 1 the floor is already the last stop, and interpolating towards the one past it would
-  // run off the end.
   const i = Math.min(Math.floor(x), CLASSIC_STOPS.length - 2);
   const lo = CLASSIC_STOPS[i] ?? [0, 0, 0];
   const hi = CLASSIC_STOPS[i + 1] ?? lo;
@@ -123,8 +103,6 @@ function glslPoly(map: Colormap, index: number): string {
   return `  if (uMap == ${index}) { return poly(t, ${poly.map(glslVec3).join(", ")}); }`;
 }
 
-/** `vec3 colormap(float t)` plus its tables, generated from the constants above. Concatenated
- * into the waterfall's fragment shader. */
 export const COLORMAP_GLSL = `
 const vec3 CLASSIC[${CLASSIC_STOPS.length}] = vec3[${CLASSIC_STOPS.length}](
 ${CLASSIC_STOPS.map((stop) => `  ${glslVec3(stop)}`).join(",\n")}

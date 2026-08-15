@@ -13,7 +13,6 @@ pub fn params() -> CpmParams {
     CpmParams::from_h(Mapping::natural(2), 0.5, pulse::rect(SPS, Norm::Area), SPS)
 }
 
-/// The integrate-and-dump receive filter — this pulse's matched filter.
 #[must_use]
 pub fn rx() -> Vec<f32> {
     pulse::rect(SPS, Norm::Area)

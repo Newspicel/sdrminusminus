@@ -1,6 +1,3 @@
-// Removal must close the engine objects behind the nodes it takes, whichever lane feeds them:
-// resolved as the bare `iq`, a channel wired to `iq3` would leak its engine channel — the node
-// disappears from the patch while the demod keeps running.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "../lib/types";
 import type { Workspace } from "./context";
@@ -127,8 +124,6 @@ describe("releaseRadio", () => {
 
     await releaseRadio(workspace, "dev", () => order.push("unbound"));
 
-    // The other order cannot work: once the node names no radio, the binding that finds the
-    // set to close is gone.
     expect(order).toEqual(["closed", "unbound"]);
   });
 

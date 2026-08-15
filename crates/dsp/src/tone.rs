@@ -4,13 +4,9 @@ use num_complex::Complex;
 
 use crate::iir::one_pole_coeff;
 
-/// Goertzel single-bin power over a fixed block — the cheapest "is this tone present".
-/// Resolution is `sample_rate / block`; `freq_hz` need not sit on a bin center, but off-center
-/// frequencies pay the usual rectangular-window scalloping loss (up to −3.9 dB at half a bin).
 #[derive(Clone, Debug)]
 pub struct Goertzel {
     coeff: f32,
-    /// Scales `|X|²` to squared amplitude: an on-bin unit sine gives `|X| = block/2`.
     norm: f32,
     block: usize,
     n: usize,
@@ -37,7 +33,6 @@ impl Goertzel {
         }
     }
 
-    /// Feed one sample; returns the block's power when the block completes.
     pub fn push(&mut self, sample: f32) -> Option<f32> {
         let s0 = sample + self.coeff * self.s1 - self.s2;
         self.s2 = self.s1;
@@ -47,8 +42,6 @@ impl Goertzel {
             return None;
         }
         let power = self.s1 * self.s1 + self.s2 * self.s2 - self.coeff * self.s1 * self.s2;
-        // The recurrence's poles sit on the unit circle, so it would latch a non-finite sample
-        // forever; clearing at every block boundary bounds the damage to one block.
         self.reset();
         Some(power * self.norm)
     }
@@ -60,18 +53,12 @@ impl Goertzel {
     }
 }
 
-/// Sliding single-frequency correlator: the magnitude of a `window`-long DFT bin, updated
-/// every sample. Two of these (mark and space) are the classic AFSK1200 detector. Scaled so a
-/// unit-amplitude sine on the analysed frequency reads ≈ 1.0.
 #[derive(Clone, Debug)]
 pub struct ToneCorrelator {
-    /// `e^(−jω)` — one sample of the analysed tone's phase.
     rot: Complex<f64>,
-    /// `e^(−jωN)` — the phase the departing sample accumulated while inside the window.
     exit: Complex<f64>,
     norm: f32,
     buf: Vec<f32>,
-    /// Index of the oldest sample, i.e. where the next one is written.
     pos: usize,
     acc: Complex<f64>,
     since_rebuild: usize,
@@ -98,13 +85,10 @@ impl ToneCorrelator {
         }
     }
 
-    /// Feed one sample; returns the current correlation magnitude.
     pub fn push(&mut self, sample: f32) -> f32 {
         let leaving = self.buf[self.pos];
         self.buf[self.pos] = sample;
         self.pos = (self.pos + 1) % self.buf.len();
-        // S[n] = e^(−jω)·S[n−1] + x[n] − x[n−N]·e^(−jωN): the sliding DFT of the window with
-        // the newest sample as phase reference, valid for any ω (not just bin centers).
         self.acc = self.acc * self.rot + f64::from(sample) - self.exit * f64::from(leaving);
         self.since_rebuild += 1;
         if self.since_rebuild >= self.buf.len() {
@@ -120,10 +104,6 @@ impl ToneCorrelator {
         self.since_rebuild = 0;
     }
 
-    /// The recurrence's pole sits exactly on the unit circle, so its rounding error never
-    /// decays. Recomputing the sum straight from the ring once per window bounds the error to
-    /// one window's worth of rounding at O(1) amortized cost, and heals a non-finite sample
-    /// within one window of it leaving the ring.
     fn rebuild(&mut self) {
         let n = self.buf.len();
         let mut acc = Complex::new(0.0, 0.0);
@@ -137,8 +117,6 @@ impl ToneCorrelator {
     }
 }
 
-/// One-pole envelope follower with independent attack and release time constants: attack
-/// applies while the input sits above the current value, release while it sits below.
 #[derive(Clone, Debug)]
 pub struct Envelope {
     value: f32,
@@ -162,8 +140,6 @@ impl Envelope {
     }
 
     pub fn push(&mut self, magnitude: f32) -> f32 {
-        // One non-finite input would latch the recursion forever; hold the last good value so
-        // a driver glitch costs a sample rather than the channel.
         if magnitude.is_finite() {
             let coeff = if magnitude > self.value {
                 self.attack
@@ -185,35 +161,19 @@ impl Envelope {
     }
 }
 
-/// Hysteresis as a fraction of the peak-to-floor span, applied either side of the midpoint.
 const HYSTERESIS: f32 = 0.1;
-/// Below this peak-to-floor ratio the "signal" is indistinguishable from a noise envelope's own
-/// crest factor (~3 for a lightly smoothed one), so the slicer refuses to key at all.
 const MIN_SNR: f32 = 6.0;
 
-/// Tracker time constants for [`KeyingSlicer`]. They are the only thing that differs between
-/// keying at Morse speed and keying at remote-control speed, so they are a value rather than
-/// a second copy of the slicer.
 #[derive(Clone, Copy, Debug)]
 pub struct KeyingTiming {
-    /// Peak rises with the envelope almost immediately…
     pub peak_rise_s: f64,
-    /// …and decays over several elements, so one element's amplitude still sets the reference
-    /// during the gap that follows it.
     pub peak_fall_s: f64,
-    /// The floor mirrors it: it drops into a key-up gap within one gap…
     pub floor_fall_s: f64,
-    /// …and only creeps back up over a band-noise timescale.
     pub floor_rise_s: f64,
-    /// Seeding both trackers from zero would let the floor climb on its own (slow) constant
-    /// while the peak snaps to the input, faking a full-scale signal at startup. Instead they
-    /// start together at the loudest sample of this window — long enough for an upstream
-    /// envelope follower to settle, far shorter than one keyed element.
     pub warmup_s: f64,
 }
 
 impl KeyingTiming {
-    /// Hand-sent CW: elements are tens of milliseconds and gaps between words are seconds.
     pub const MORSE: Self = Self {
         peak_rise_s: 5e-3,
         peak_fall_s: 0.5,
@@ -222,10 +182,6 @@ impl KeyingTiming {
         warmup_s: 20e-3,
     };
 
-    /// Short-burst keying (sub-GHz remotes and sensors): symbols are hundreds of microseconds
-    /// and a whole transmission is over in tens of milliseconds, so every constant is three
-    /// orders of magnitude shorter — the peak still has to survive the ~10 ms sync gap inside
-    /// one frame.
     pub const BURST: Self = Self {
         peak_rise_s: 100e-6,
         peak_fall_s: 50e-3,
@@ -235,8 +191,6 @@ impl KeyingTiming {
     };
 }
 
-/// Adaptive on/off threshold for a keyed envelope (CW, OOK): tracks slow noise-floor and peak
-/// estimates and slices halfway between them, with hysteresis.
 #[derive(Clone, Debug)]
 pub struct KeyingSlicer {
     peak: f32,
@@ -251,7 +205,6 @@ pub struct KeyingSlicer {
 }
 
 impl KeyingSlicer {
-    /// A slicer timed for hand-sent CW.
     #[must_use]
     pub fn new(sample_rate: f64) -> Self {
         Self::with_timing(sample_rate, KeyingTiming::MORSE)
@@ -274,9 +227,7 @@ impl KeyingSlicer {
         }
     }
 
-    /// Feed an envelope sample; returns the key state (true = tone present).
     pub fn push(&mut self, envelope: f32) -> bool {
-        // Same healing rule as `Envelope`: a non-finite sample would latch both trackers.
         if !envelope.is_finite() {
             return self.key;
         }
@@ -292,11 +243,6 @@ impl KeyingSlicer {
             self.peak_fall
         };
         self.peak += peak_coeff * (envelope - self.peak);
-        // A key-down run carries no information about the noise floor; letting the floor creep
-        // toward the tone through a long dash would erode the reported SNR until the slicer
-        // dropped the key mid-element. Falling is never gated, so the estimate cannot latch
-        // high — a noise floor that rises while keyed still unkeys on the first dip and
-        // resumes tracking.
         let floor_coeff = if envelope < self.floor {
             self.floor_fall
         } else if self.key {
@@ -320,8 +266,6 @@ impl KeyingSlicer {
         self.key
     }
 
-    /// Current signal-to-floor ratio — a decoder uses it to ignore pure noise. Linear power
-    /// ratio of the tracked peak to the tracked floor, not dB.
     #[must_use]
     pub fn snr(&self) -> f32 {
         self.peak / self.floor.max(f32::MIN_POSITIVE)
@@ -350,8 +294,6 @@ mod tests {
 
     #[test]
     fn goertzel_separates_its_bin_from_the_next_one() {
-        // 40-sample blocks at 48 kHz put the bins 1.2 kHz apart, so 2.4 kHz lands on a null of
-        // the 1.2 kHz analysis window.
         let block = 40;
         let power = |freq: f64| {
             let mut g = Goertzel::new(RATE, MARK_HZ, block);
@@ -382,7 +324,6 @@ mod tests {
         assert_eq!(emitted, 5);
     }
 
-    /// Steady-state correlator magnitude, measured after the window has filled.
     fn correlate(tone_hz: f64, detector_hz: f64, window: usize) -> f32 {
         let mut c = ToneCorrelator::new(RATE, detector_hz, window);
         let x = real_tone(tone_hz / RATE, window * 20);
@@ -461,10 +402,8 @@ mod tests {
     }
 
     const CW_RATE: f64 = 8_000.0;
-    /// 60 ms dots — 20 wpm.
     const DOT: usize = 480;
 
-    /// Build a keyed envelope for `pattern` (true = key down, in dot units) with additive noise.
     fn keyed_envelope(pattern: &[(bool, usize)], noise: f32) -> Vec<f32> {
         let mut rng = XorShift32(0x5eed_1234);
         let mut env = Envelope::new(CW_RATE, 2e-3, 2e-3);
@@ -480,7 +419,6 @@ mod tests {
 
     #[test]
     fn keying_slicer_recovers_a_noisy_pattern() {
-        // PARIS-ish: dot, dash, dot dot — with the standard 1-dot intra-character spacing.
         let pattern = [
             (false, 4),
             (true, 1),

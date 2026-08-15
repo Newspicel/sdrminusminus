@@ -1,5 +1,3 @@
-//! RDS decoder ( P2): the 57 kHz DBPSK subcarrier on the FM composite, per
-//! EN 50067 / IEC 62106.
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex;
@@ -15,46 +13,26 @@ use sdrmm_wire::{DecoderEvent, RdsUpdate};
 const BIT_RATE: f64 = 1_187.5;
 const PILOT_HZ: f64 = 19_000.0;
 const DATA_EDGE_HZ: f64 = 2.0 * BIT_RATE;
-/// Nearest composite neighbour of the subcarrier: the stereo difference signal ends at
-/// 53 kHz, 4 kHz below it.
 const NEIGHBOUR_HZ: f64 = 4_000.0;
-/// Symbol-loop rate aimed for; the decimation factor is the integer that lands nearest it.
 const TARGET_BASEBAND_HZ: f64 = 9_600.0;
-/// Floor for that rate: three times the data edge keeps the anti-alias filter realisable and
-/// the timing loop above its two-samples-per-symbol minimum.
 const MIN_BASEBAND_HZ: f64 = 3.0 * DATA_EDGE_HZ;
-/// The pilot lands at DC after its mixer, so its filter only has to hold off the nearest
-/// composite neighbours — audio ends 4 kHz below 19 kHz, the stereo subcarrier starts 4 kHz
-/// above it.
 const PILOT_CUTOFF_HZ: f64 = 1_000.0;
-/// Blackman transition width, in taps·cycles-per-sample (see `sdrmm_dsp::fir`).
 const BLACKMAN_TRANSITION: f64 = 5.5;
 
-/// Pilot loop bandwidth, normalised to the baseband rate (~20 Hz). Narrow, because every
-/// radian of pilot phase error is tripled onto the data carrier.
 const PILOT_LOOP_BW: f64 = 0.002;
-/// Pull-in range around the pilot, as a fraction of the baseband rate.
 const PILOT_RANGE: f64 = 0.001;
-/// Timing loop bandwidth, in cycles per symbol.
 const TIMING_LOOP_BW: f64 = 0.01;
-/// Residual-phase loop, in cycles per symbol. It has only a fixed rotation to remove, so it
-/// may be fast and its frequency integrator stays nearly pinned.
 const PHASE_LOOP_BW: f64 = 0.02;
 const PHASE_RANGE: f64 = 0.005;
 
 const BLOCK_BITS: usize = 26;
 const BLOCK_MASK: u32 = (1 << BLOCK_BITS) - 1;
 const BLOCKS_PER_GROUP: usize = 4;
-/// Slot of block C — the one sent with either the C or the C′ offset word.
 const C_SLOT: usize = 2;
 const LAST_SLOT: usize = BLOCKS_PER_GROUP - 1;
-/// Bad blocks tolerated before the block clock is abandoned and the offset words are hunted
-/// again. Three groups' worth: long enough to ride out a flutter fade, short enough that a
-/// clock stolen by a chance syndrome hit is dropped within a quarter of a second.
 const MAX_BLOCK_MISSES: u32 = 12;
 
 const PS_LEN: usize = 8;
-/// Every PS segment seen.
 const PS_COMPLETE: u8 = u8::MAX;
 const RT_LEN: usize = 64;
 const RT_TERMINATOR: u8 = 0x0D;
@@ -65,8 +43,6 @@ const AF_MAX_CODE: u8 = 204;
 const AF_BASE_HZ: f64 = 87_500_000.0;
 const AF_STEP_HZ: f64 = 100_000.0;
 
-/// Programme Type names, RDS (Europe) variant — EN 50067 Annex F table F.1. The RBDS (North
-/// America) table gives the same codes different names and is deliberately not used here.
 const PTY_NAMES: [&str; 32] = [
     "None",
     "News",
@@ -102,8 +78,6 @@ const PTY_NAMES: [&str; 32] = [
     "Alarm",
 ];
 
-/// Receiver for the RDS subcarrier of an FM composite. `new` expects a composite rate high
-/// enough to carry 57 kHz at all — the WFM channel's 240 kHz is the only one in the tree.
 pub(crate) struct RdsDecoder {
     mpx_rate: f64,
     nco: Nco,
@@ -113,11 +87,9 @@ pub(crate) struct RdsDecoder {
     matched: Decimator,
     timing: SymbolSync,
     phase: Costas,
-    /// The library's BPSK table — the alphabet this decoder slices against (see the module docs).
     alphabet: Constellation,
     differential: DifferentialDecoder,
     frames: GroupDecoder,
-    /// Scratch reused across calls: after warm-up `process` allocates nothing.
     pilot_mix: Vec<Complex<f32>>,
     data_mix: Vec<Complex<f32>>,
     pilot_bb: Vec<Complex<f32>>,
@@ -156,15 +128,11 @@ impl RdsDecoder {
         }
     }
 
-    /// Feed a block of composite samples; push an [`RdsUpdate`] whenever a decoded group
-    /// actually changed the station picture.
     pub(crate) fn process(&mut self, mpx: &[f32], out: &mut Vec<DecoderEvent>) {
         self.pilot_mix.clear();
         self.data_mix.clear();
         for &sample in mpx {
             let pilot = self.nco.next_sample();
-            // The subcarrier is the pilot's third harmonic, so cubing the same phasor keeps
-            // the two mixers exactly locked whatever the oscillator's own rounding does.
             let subcarrier = pilot * pilot * pilot;
             self.pilot_mix.push(pilot.conj() * sample);
             self.data_mix.push(subcarrier.conj() * sample);
@@ -189,9 +157,6 @@ impl RdsDecoder {
         }
     }
 
-    /// Drop everything the decoder knows, the station picture included — what the channel
-    /// needs when it is retuned, so one station's PS name can never accrete onto another's.
-    /// Rebuilding is the only way to clear the analog loops, which have no reset of their own.
     pub(crate) fn reset(&mut self) {
         *self = Self::new(self.mpx_rate);
     }
@@ -203,8 +168,6 @@ fn decimation(mpx_rate: f64) -> usize {
     by_target.min(ceiling).max(1.0) as usize
 }
 
-/// Anti-alias lowpass for the data path: flat to the data edge, in full stopband before the
-/// lowest frequency that would fold onto it, and the −6 dB point midway between the two.
 fn anti_alias(mpx_rate: f64, baseband_rate: f64, factor: usize) -> Vec<f32> {
     let alias_hz = baseband_rate - DATA_EDGE_HZ;
     let taps = (BLACKMAN_TRANSITION * mpx_rate / (alias_hz - DATA_EDGE_HZ)).ceil() as usize;
@@ -214,10 +177,6 @@ fn anti_alias(mpx_rate: f64, baseband_rate: f64, factor: usize) -> Vec<f32> {
     )
 }
 
-/// Receive filter: the biphase symbol correlator — `+1` over the first half of a bit, `−1`
-/// over the second — convolved with a lowpass that trims the composite-rate decimator's wide
-/// passband down to the data spectrum, so a stereo subcarrier's 53 kHz edge cannot reach the
-/// slicer.
 fn matched_taps(sps: f64, baseband_rate: f64) -> Vec<f32> {
     let span = sps.round().max(2.0) as usize;
     let biphase: Vec<f32> = (0..span)
@@ -248,16 +207,11 @@ fn convolve(a: &[f32], b: &[f32]) -> Vec<f32> {
     out
 }
 
-/// Where the block clock stands.
 #[derive(Clone, Copy, Debug, Default)]
 enum BlockSync {
-    /// Sliding the 26-bit window past every offset word, looking for a block boundary.
     #[default]
     Hunt,
-    /// Following the clock. `confirmed` turns on once a second block lands where the first
-    /// predicted it, which is what stops a 1-in-1024 chance syndrome hit from stealing it.
     Track {
-        /// Slot the next block boundary belongs to.
         slot: usize,
         bits: usize,
         misses: u32,
@@ -265,8 +219,6 @@ enum BlockSync {
     },
 }
 
-/// Bits in, groups out: block synchronisation, group interpretation, and the emit-on-change
-/// rule that keeps a station repeating itself eleven times a second off the event log.
 #[derive(Default)]
 struct GroupDecoder {
     window: u32,
@@ -359,9 +311,6 @@ impl GroupDecoder {
         };
     }
 
-    /// A group is only interpreted with all four blocks intact. Salvaging the good blocks of
-    /// a damaged group would buy a few extra characters at the price of letting a mis-keyed
-    /// segment address rewrite the PS name.
     fn close_group(&mut self, out: &mut Vec<DecoderEvent>) {
         if let [Some(a), Some(b), Some(c), Some(d)] = self.blocks {
             self.groups = self.groups.saturating_add(1);
@@ -384,8 +333,6 @@ const fn next_slot(slot: usize) -> usize {
     (slot + 1) % BLOCKS_PER_GROUP
 }
 
-/// Block C is sent with offset C in a version-A group and C′ in a version-B one, so slot 2
-/// accepts either; which one arrived is redundant with the version bit of block B.
 fn check_slot(window: u32, slot: usize) -> Option<u16> {
     match slot {
         0 => rds_check_block(window, RdsOffset::A),
@@ -397,8 +344,6 @@ fn check_slot(window: u32, slot: usize) -> Option<u16> {
     }
 }
 
-/// Everything the received groups say about the station. A field only becomes `Some` once a
-/// group has actually carried it, so a fresh channel reports what it knows and nothing else.
 struct Station {
     pi: Option<u16>,
     pty: Option<u8>,
@@ -412,8 +357,6 @@ struct Station {
     rt_seen: u64,
     rt_flag: Option<bool>,
     rt_text: Option<String>,
-    /// Alternative frequencies as the codes they were sent as, plus how many the station said
-    /// it would send.
     af: Vec<u8>,
     af_expected: usize,
 }
@@ -440,15 +383,12 @@ impl Default for Station {
 }
 
 impl Station {
-    /// Fold one intact group into the picture; true when a published field moved.
     fn apply(&mut self, a: u16, b: u16, c: u16, d: u16) -> bool {
         let mut changed = set(&mut self.pi, a);
         changed |= set(&mut self.tp, b & 0x0400 != 0);
         changed |= set(&mut self.pty, ((b >> 5) & 0x1F) as u8);
         let version_b = b & 0x0800 != 0;
         match b >> 12 {
-            // 0A/0B: a PS name segment, the traffic and music flags, and — version A only —
-            // two bytes of the alternative frequency list.
             0 => {
                 changed |= set(&mut self.ta, b & 0x0010 != 0);
                 changed |= set(&mut self.music, b & 0x0008 != 0);
@@ -458,8 +398,6 @@ impl Station {
                     changed |= self.push_af(c as u8);
                 }
             }
-            // 2A/2B: RadioText. Version A carries four characters per group, version B two,
-            // with block C repeating the PI code instead.
             2 => {
                 let flag = b & 0x0010 != 0;
                 if self.rt_flag.is_some_and(|previous| previous != flag) {
@@ -517,8 +455,6 @@ impl Station {
         publish(&mut self.rt_text, complete)
     }
 
-    /// A message is complete once every character up to its terminator — or all 64, when it
-    /// carries none — has been received. Until then nothing is published.
     fn radiotext(&self) -> Option<String> {
         let end = (0..RT_LEN)
             .find(|&i| self.rt_seen & (1u64 << i) != 0 && self.rt.get(i) == Some(&RT_TERMINATOR))
@@ -578,7 +514,6 @@ impl Station {
     }
 }
 
-/// Publish `value` into an optional field; true when it moved.
 fn set<T: PartialEq>(slot: &mut Option<T>, value: T) -> bool {
     let moved = slot.as_ref() != Some(&value);
     if moved {
@@ -587,8 +522,6 @@ fn set<T: PartialEq>(slot: &mut Option<T>, value: T) -> bool {
     moved
 }
 
-/// A completed text never reverts to "unknown": the next message being assembled must not
-/// blank the display of the last one that finished.
 fn publish(slot: &mut Option<String>, value: Option<String>) -> bool {
     match value {
         Some(text) if slot.as_deref() != Some(text.as_str()) => {
@@ -599,8 +532,6 @@ fn publish(slot: &mut Option<String>, value: Option<String>) -> bool {
     }
 }
 
-/// EN 50067 Annex E code table G0. Only its ASCII-identical range is mapped; the national and
-/// symbol code points above 0x7E become `?` rather than silently vanishing.
 fn text(raw: &[u8]) -> String {
     raw.iter()
         .map(|&c| {
@@ -664,7 +595,6 @@ mod tests {
         }
     }
 
-    /// Run a composite through the whole receiver in deliberately ragged blocks.
     fn run(decoder: &mut RdsDecoder, mpx: &[f32]) -> Vec<DecoderEvent> {
         let mut events = Vec::new();
         let mut pos = 0;
@@ -689,8 +619,6 @@ mod tests {
                 "skip {skip}: only {} groups",
                 decoder.groups
             );
-            // A chance syndrome hit costs one rejected block before the clock is dropped
-            // again; anything beyond that is a broken hunt.
             assert!(
                 decoder.block_errors <= 2,
                 "skip {skip}: {} block errors",
@@ -741,8 +669,6 @@ mod tests {
         let mut bits = bits_of(&tx_groups(&station(), 40));
         let mut second = station();
         second.radiotext = "second message".to_owned();
-        // Toggle the RadioText A/B flag on the second run: its characters must replace the
-        // first message's, not merge into them.
         let toggled: Vec<u32> = tx_groups(&second, 40)
             .into_iter()
             .enumerate()
@@ -819,8 +745,6 @@ mod tests {
             update.alt_freqs_hz,
             vec![89_800_000.0, 95_100_000.0, 103_500_000.0]
         );
-        // 3.5 s is 39 groups; the front end costs a fraction of a second to converge and the
-        // block clock one group to find, but nothing after that may be dropped.
         assert!(
             decoder.frames.groups >= 34,
             "only {} groups",

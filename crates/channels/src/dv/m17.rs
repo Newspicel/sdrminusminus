@@ -1,5 +1,3 @@
-//! M17 decoder (M17 specification, 2024): C4FM at 4800 symbols per second, root-raised-cosine
-//! shaped at 0.5, in 9 kHz.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -17,7 +15,6 @@ use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, vocoder::Codec
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 pub(crate) const BAUD: f64 = 4_800.0;
-/// M17 deviates ±2400 Hz on its outer symbols and shapes with α = 0.5.
 pub(crate) const DEVIATION_HZ: f64 = 2_400.0;
 pub(crate) const RRC_ALPHA: f64 = 0.5;
 pub(crate) const BANDWIDTH_HZ: f64 = 9_000.0;
@@ -27,22 +24,16 @@ pub(crate) const SYNC_STREAM: u64 = 0xFF5D;
 pub(crate) const SYNC_PACKET: u64 = 0x75FF;
 const SYNC_EOT: u64 = 0x555D;
 pub(crate) const SYNC_BITS: u32 = 16;
-/// Two bit errors in a 16-bit burst; the four bursts are far enough apart for that.
 pub(crate) const SYNC_TOLERANCE: u32 = 2;
 
-/// Payload of every frame: 184 symbols, 368 bits.
 const PAYLOAD_SYMBOLS: usize = 184;
 const PAYLOAD_BITS: usize = 368;
-/// The link setup frame before puncturing: 240 information bits plus four flush bits, at rate
-/// 1/2.
 const LSF_CODED_BITS: usize = 488;
 const LSF_BITS: usize = 240;
 const LSF_BYTES: usize = LSF_BITS / 8;
 const STREAM_CODED_BITS: usize = 296;
 const STREAM_BITS: usize = 144;
 
-/// P1, the puncturing pattern a link setup frame is thinned with: 46 of every 61 coded bits are
-/// transmitted, which is exactly 368 of 488.
 const PUNCTURE_1: [bool; 61] = {
     let mut pattern = [true; 61];
     let mut i = 2;
@@ -53,20 +44,15 @@ const PUNCTURE_1: [bool; 61] = {
     pattern
 };
 
-/// The randomiser: 368 bits of the specification's fixed sequence, XORed over the payload so a
-/// long run of one symbol never reaches the air.
 const RANDOMIZER: [u8; 46] = [
     0xD6, 0xB5, 0xE2, 0x30, 0x82, 0xFF, 0x84, 0x62, 0xBA, 0x4E, 0x96, 0x90, 0xD8, 0x98, 0xDD, 0x5D,
     0x0C, 0xC8, 0x52, 0x43, 0x91, 0x1D, 0xF8, 0x6E, 0x68, 0x2F, 0x35, 0xDA, 0x14, 0xEA, 0xCD, 0x76,
     0x19, 0x8D, 0xD5, 0x80, 0xD1, 0x33, 0x87, 0x13, 0x57, 0x18, 0x2D, 0x29, 0x78, 0xC3,
 ];
 
-/// M17's CRC: polynomial 0x5935 with an all-ones register.
 const CRC_POLY: u16 = 0x5935;
 const CRC_INIT: u16 = 0xFFFF;
 
-/// The interleaver, as the quadratic permutation the specification defines rather than the
-/// table it prints: bit `i` of the interleaved payload is bit `(45·i + 92·i²) mod 368`.
 fn interleave_index(i: usize) -> usize {
     (45 * i + 92 * i * i) % PAYLOAD_BITS
 }
@@ -99,7 +85,6 @@ fn params(settings: &ChannelSettings) -> Result<&M17Params, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
@@ -134,8 +119,6 @@ impl ChannelRx for M17Channel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         for &symbol in &self.symbols {
@@ -144,7 +127,6 @@ impl ChannelRx for M17Channel {
     }
 }
 
-/// What the sync burst said the frame is.
 #[derive(Clone, Copy, PartialEq)]
 enum FrameType {
     LinkSetup,
@@ -160,11 +142,8 @@ struct Decoder {
     soft: Vec<Soft>,
     coded: Vec<Soft>,
     info: Vec<bool>,
-    /// A stream carries its link setup once and then repeats it in fragments; reporting the
-    /// same call every 40 ms would drown the log.
     in_stream: bool,
     stream_type: Option<u16>,
-    /// Six late-entry LICH chunks rebuild the LSF for a receiver joining mid-call.
     late_lsf: [bool; LSF_BITS],
     late_chunks: u8,
     stream_coded: Vec<Soft>,
@@ -217,9 +196,6 @@ impl Decoder {
         if self.pending.is_some() {
             return;
         }
-        // The end-of-transmission marker is a sync burst with no payload behind it, so the
-        // only thing vouching for it is the call it ends: without one it is indistinguishable
-        // from the sixteen bits of noise that match it several times a second.
         if self.in_stream && self.window.sync_distance(SYNC_EOT, SYNC_BITS) <= SYNC_TOLERANCE {
             self.window.anchor(SYNC_EOT, SYNC_BITS);
             self.in_stream = false;
@@ -259,7 +235,6 @@ impl Decoder {
         }
     }
 
-    /// Undo the transmitter's payload chain and read the link setup out of it.
     fn link_setup(&mut self) -> Option<DvFrame> {
         self.window.soft_bits(0, PAYLOAD_SYMBOLS, &mut self.soft);
         for (i, value) in self.soft.iter_mut().enumerate() {
@@ -267,8 +242,6 @@ impl Decoder {
                 *value = -*value;
             }
         }
-        // Deinterleave, then put an erasure back wherever the puncturing pattern removed a
-        // coded bit — a position the decoder must weigh as evidence for neither branch.
         let mut deinterleaved = [ERASURE; PAYLOAD_BITS];
         for (i, &value) in self.soft.iter().enumerate() {
             deinterleaved[interleave_index(i)] = value;
@@ -292,8 +265,6 @@ impl Decoder {
                 .iter()
                 .fold(0u8, |acc, &b| acc << 1 | u8::from(b));
         }
-        // The CRC covers the whole frame including its own two bytes, so a good frame leaves a
-        // zero register.
         if crc16_msb(CRC_POLY, CRC_INIT, &lsf) != 0 {
             return None;
         }
@@ -430,8 +401,6 @@ fn callsign(address: u64) -> Option<String> {
     String::from_utf8(call).ok().map(|s| s.trim().to_owned())
 }
 
-/// Base-40 encoding of a callsign: the inverse of [`callsign`], which is what makes the
-/// round-trip test below a test of the decoding and not of a shared table.
 #[cfg(test)]
 fn encode_callsign(call: &str) -> u64 {
     if call == "ALL" {
@@ -464,7 +433,6 @@ mod tests {
         .expect("m17 channel")
     }
 
-    /// The mode that can say who is talking without a vocoder, saying it.
     #[test]
     fn decodes_the_callsigns_of_a_link_setup_frame() {
         let iq = tx::transmission("ALL", "DL1ABC", INPUT_RATE_HZ);
@@ -501,8 +469,6 @@ mod tests {
         }
         let iq = tx::transmission_with_voice("ALL", "DL1ABC", &voice, INPUT_RATE_HZ);
         let (_, audio) = decode_with_audio(&mut channel(), &iq);
-        // The front end acquires the stream cadence on the first two short sync bursts; the
-        // remaining six frames prove twelve independently framed Codec2 blocks end to end.
         assert_tone_audio(&audio, 12);
     }
 

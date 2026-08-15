@@ -10,9 +10,6 @@ pub struct FirC {
 }
 
 impl FirC {
-    /// Run arbitrary complex taps, for a response no real prototype can be modulated into — an
-    /// asymmetric band whose two edges roll off differently (the vestigial-sideband slope) is
-    /// the case.
     #[must_use]
     pub fn new(taps: &[Complex<f32>]) -> Self {
         Self {
@@ -20,8 +17,6 @@ impl FirC {
         }
     }
 
-    /// Modulate real lowpass `taps` to `center_norm` (normalized to the sample rate, may be
-    /// negative): `c[k] = taps[k]·e^(j·2π·center·k)`.
     #[must_use]
     pub fn from_lowpass(taps: &[f32], center_norm: f64) -> Self {
         let coeffs: Vec<Complex<f32>> = taps
@@ -40,7 +35,6 @@ impl FirC {
         }
     }
 
-    /// Replaces `out` with one filtered sample per input sample.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.core.process(input, out);
     }

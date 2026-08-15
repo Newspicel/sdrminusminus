@@ -10,27 +10,15 @@ use crate::{
     workspace::MAX_NAME_LEN,
 };
 
-/// Structural caps. A graph is stored whole in one row and rewritten on every arrangement
-/// gesture, so the bounds are what keeps one row from growing without limit; the numbers are far
-/// above any workspace a person would draw.
 pub const MAX_NODES: usize = 128;
 pub const MAX_EDGES: usize = 256;
 pub const MAX_NODE_ID_LEN: usize = 64;
-/// Canvas coordinates are unbounded in React Flow; this is the box a stored position must sit in
-/// so a corrupt write cannot park a node where no camera will find it.
 pub const MAX_COORD: f32 = 100_000.0;
 pub const MAX_NODE_SIZE: f32 = 10_000.0;
 pub const RACK_COLS: u16 = 12;
 pub const RACK_ROWS: u16 = 8;
-/// Bounds a stored port string, not live hardware: validation is pure over the stored graph, so
-/// the family a repeating port admits must end somewhere or any `iq…` digits would be a storable
-/// name. A KrakenSDR is 5 coherent streams; sixteen leaves headroom.
 pub const MAX_STREAMS: u32 = 16;
 
-/// The port name for stream `index` of the family `base`.
-///
-/// Stream 0 keeps the bare name — every stored workspace, template and e2e selector names it —
-/// so the visible numbering starts at 2: `iq`, `iq2`, `iq3`, …
 #[must_use]
 pub fn stream_port(base: &str, index: u32) -> String {
     if index == 0 {
@@ -40,10 +28,6 @@ pub fn stream_port(base: &str, index: u32) -> String {
     }
 }
 
-/// The stream `name` addresses within family `base`, if it is one of that family's.
-///
-/// One spelling per port: `iq1` would alias `iq` and `iq02` would alias `iq2`, so only the
-/// canonical rendering of `2..=MAX_STREAMS` names a stream.
 #[must_use]
 pub fn port_stream(base: &str, name: &str) -> Option<u32> {
     if name == base {
@@ -60,32 +44,13 @@ pub fn port_stream(base: &str, name: &str) -> Option<u32> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortType {
-    /// Wideband complex baseband at the device rate.
     Iq,
-    /// One channel's complex baseband at *its* rate: after the down-conversion and the channel
-    /// filter, before the demodulator.
-    ///
-    /// Deliberately not [`PortType::Iq`]. A channel tap is not interchangeable with a radio's
-    /// wideband stream — nothing can host a channel on one, and typing the two the same would
-    /// make `channel → channel` a wireable cycle that the engine could never build.
     Baseband,
-    /// 48 kHz demodulated audio (Opus on the wire).
     Audio,
-    /// Typed decoder and completed-call events.
     Events,
-    /// Scanned pictures, one raster per field (`VIDEO_GRAY` or `VIDEO_RGB` on the wire, ATV).
     Video,
     Control,
-    /// Live station coordinates and motion.
     Position,
-    /// Complex baseband to be transmitted at the device rate.
-    ///
-    /// **Reserved, and inert by construction.** No node kind in this build emits it, so no edge
-    /// into a transmit input can validate — the port is the shape transmit will arrive in, not a
-    /// path to it. The authorized-use gate has to exist first.
-    ///
-    /// The input it sits on is [`PortCondition::DeviceIsTxCapable`], so it is drawn on the radios
-    /// that have a send side and nowhere else — an RTL-SDR node has no transmit input at all.
     Tx,
 }
 
@@ -105,7 +70,6 @@ impl PortType {
     }
 }
 
-/// Which side of a node a port sits on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortDirection {
@@ -113,46 +77,24 @@ pub enum PortDirection {
     Out,
 }
 
-/// When a port exists. A conditional port depends on what is *behind* the node — the channel type
-/// it names, or the radio it is bound to — and those answers live once in [`ChannelDescriptor`]
-/// and [`Capabilities`]. The catalog states the dependency instead of the client inventing port
-/// names for it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortCondition {
     #[default]
     Always,
-    /// Only when the channel type produces listenable audio.
     ChannelHasAudio,
-    /// Only when the channel type emits decoder events.
     ChannelIsDecoder,
-    /// Only when the channel type scans out a picture.
     ChannelHasVideo,
-    /// Only when the channel uses the station position while decoding.
     ChannelNeedsPosition,
-    /// Only on a radio that has a transmit side ([`Capabilities::duplex`]). Unlike the channel
-    /// conditions this one is answered by the *binding* rather than by the stored node: which
-    /// radio a device node names is stored, but what that radio can do is only known while it is
-    /// attached. A node naming no radio, or one that is not plugged in, has nothing to ask — and
-    /// hides the port rather than guessing at it.
     DeviceIsTxCapable,
 }
 
-/// What a node's conditional ports are resolved against: whatever is behind the node. Never
-/// stored and never on the wire — it is the argument to [`PortSpec::applies_to`], assembled by
-/// each caller from the tables it already holds.
 #[derive(Clone, Copy, Debug)]
 pub enum PortBacking<'a> {
-    /// The descriptor of the type a channel node names.
     Channel(&'a ChannelDescriptor),
-    /// The capabilities of the radio a device node is bound to.
     Device(&'a Capabilities),
 }
 
-/// How many of a port a node really has. A repeating port is a *family*: the catalog is
-/// per-build static and cannot see how many streams a radio delivers, so it ships the base spec
-/// with this flag and whoever can see the backing expands it — one port per stream, named by
-/// [`stream_port`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortRepeat {
@@ -163,9 +105,6 @@ pub enum PortRepeat {
 }
 
 impl PortRepeat {
-    /// How many ports this spec expands to on a node with `backing` behind it. Clamped low
-    /// because a radio reporting 0 rx streams still has the one IQ port every stored wire names,
-    /// and high because a port past [`MAX_STREAMS`] could never take a valid wire.
     fn count(self, backing: Option<PortBacking<'_>>) -> u32 {
         match (self, backing) {
             (Self::Once, _) => 1,
@@ -175,24 +114,16 @@ impl PortRepeat {
             (Self::PerTxStream, Some(PortBacking::Device(caps))) => {
                 caps.tx_streams.clamp(1, MAX_STREAMS)
             }
-            // No backing: stream 0 only. A port drawn on a guess is one the operator can be
-            // told to use and then refused.
             (Self::PerRxStream | Self::PerTxStream, _) => 1,
         }
     }
 }
 
-/// One port of a node type.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PortSpec {
-    /// Stable slug, unique within its node and direction; this is what an edge names.
     pub name: String,
     pub port_type: PortType,
     pub direction: PortDirection,
-    /// Whether more than one edge may touch this port. A *stream* output fans out — one device
-    /// feeds N channels, scopes and a recorder, which is today's device set drawn — but an
-    /// ownership output does not: a scanner drives one radio, because one sweep is what the
-    /// engine runs. So arity is stated on both sides and checked on both sides.
     pub multi: bool,
     #[serde(default, skip_serializing_if = "is_always")]
     pub condition: PortCondition,
@@ -240,10 +171,6 @@ impl PortSpec {
         self
     }
 
-    /// Whether this port exists on a node with `backing` behind it. `None` is a node with nothing
-    /// behind it yet — a device naming no radio, or naming one that is not attached — which keeps
-    /// every conditional port off it: a port drawn on a guess is one the operator can be told to
-    /// use and then refused.
     #[must_use]
     pub fn applies_to(&self, backing: Option<PortBacking<'_>>) -> bool {
         match (self.condition, backing) {
@@ -280,17 +207,14 @@ pub enum NodeCategory {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceRef {
-    /// Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`.
     pub backend: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
-    /// Per-driver key, used without a serial or to distinguish variants sharing one serial.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
 }
 
 impl DeviceRef {
-    /// The reference that names this discovered device.
     #[must_use]
     pub fn from_info(info: &DeviceInfo) -> Self {
         let variant = info.serial.as_ref().is_some_and(|serial| {
@@ -305,9 +229,6 @@ impl DeviceRef {
         }
     }
 
-    /// Whether `info` is the device this reference names. Serial identifies the physical radio;
-    /// an accompanying key narrows that to a variant. Without a serial the key identifies the
-    /// device; a backend with a single serial-less device can match on the backend alone.
     #[must_use]
     pub fn matches(&self, info: &DeviceInfo) -> bool {
         if self.backend != info.driver {
@@ -332,11 +253,8 @@ pub struct DeviceNode {
     pub device: Option<DeviceRef>,
 }
 
-/// A channel node's payload. The *type* is topology — it decides the node's ports — while the
-/// settings behind it stay on the engine's channel (module docs).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelNode {
-    /// [`ChannelDescriptor::type_id`]: `"nfm"`, `"adsb"`, `"subghz"`, …
     pub channel_type: String,
 }
 
@@ -367,7 +285,6 @@ pub const DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ: u64 = 12_500;
 pub const MAX_SIGNAL_MAP_OFFSET_HZ: i64 = 1_000_000_000_000;
 pub const MAX_SIGNAL_MAP_BANDWIDTH_HZ: u64 = 100_000_000;
 
-/// The IQ-relative slice a signal survey measures while pairing spectrum frames with positions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct SignalMapNode {
@@ -399,41 +316,23 @@ pub enum NodeBody {
     Device(DeviceNode),
     Gps(GpsNode),
     Channel(ChannelNode),
-    /// Spectrum + waterfall over a device's IQ.
     Scope,
-    /// Client-side audio mix (: the server ships streams, not a mix).
     Speaker,
-    /// MapLibre, one layer per connected decoder.
     Map,
-    /// A drive survey of one RF slice, pairing spectrum power with GPS fixes.
     SignalMap(SignalMapNode),
-    /// The live picture a decoder holds — an RDS station, a table of aircraft, a teleprinter
-    /// roll — one readout per connected decoder. This is the *state* a decoder accumulates, which
-    /// is the half of its output that a log row cannot carry; the frames themselves are read in
-    /// [`NodeBody::DecoderLog`], so nothing here repeats it.
     Readout,
-    /// The stored decoder log, filtered to the decoders wired into it.
     DecoderLog,
     DmrTrunk(DmrTrunkNode),
     ChatOutput(ChatOutputNode),
-    /// The raster a video channel scans out.
     Video,
-    /// SigMF recording of a device's IQ.
     Recorder,
-    /// WAV recording of what a channel's audio *sounds* like, one file per wired channel. Its
-    /// own kind rather than a mode of the recorder above, because the two record different
-    /// things from different places in the chain: one the radio's raw IQ, the other one
-    /// channel's demodulated audio, after everything the channel does to it.
     AudioRecorder,
-    /// Unframed raw IQ sent over UDP datagrams or a TCP byte stream.
     NetworkExport(NetworkExportNode),
-    /// CSV/JSON export of the stored decoder log.
     Export,
     Scanner,
 }
 
 impl NodeBody {
-    /// Stable slug, matching the serde tag.
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -478,22 +377,11 @@ impl NodeBody {
         }
     }
 
-    /// Every port this kind can have, conditions included. A node's real port list is this
-    /// filtered by [`PortSpec::applies_to`] against what backs it — a channel's descriptor, a
-    /// device's capabilities.
     #[must_use]
     pub fn ports(&self) -> Vec<PortSpec> {
         ports_for(self.kind())
     }
 
-    /// The real port list of a node with `backing` behind it: conditions resolved and every
-    /// repeating spec expanded to one port per stream, named by [`stream_port`]. Expanded ports
-    /// are concrete sockets, so they carry [`PortRepeat::Once`] — leaving the flag on would
-    /// invite a second expansion.
-    ///
-    /// With no backing a repeating port keeps stream 0 only: how many streams a radio delivers
-    /// is known only while it is attached, and a port drawn on a guess is one the operator can
-    /// be told to use and then refused.
     #[must_use]
     pub fn ports_with(&self, backing: Option<PortBacking<'_>>) -> Vec<PortSpec> {
         let mut ports = Vec::new();
@@ -516,8 +404,6 @@ impl NodeBody {
     }
 }
 
-/// The port table, keyed by node-kind slug so the catalog and a stored node answer from the same
-/// place.
 fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortCondition::{
         Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, ChannelNeedsPosition,
@@ -526,12 +412,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortDirection::{In, Out};
     use PortType::{Audio, Baseband, Control, Events, Iq, Position, Tx, Video};
     match kind {
-        // A radio's left side is what is done *to* it, and its right side is what comes off it.
-        // Both inputs take one wire: one sweep owns the tuning, one baseband keys the transmitter.
-        //
-        // The transmit input is drawn only on a radio that has a send side: a receiver has no
-        // socket to key, and a port that could never do anything on the commonest SDR there is
-        // reads as a broken node rather than as a reservation.
         "device" => vec![
             PortSpec::new(Control, In, false, Always),
             PortSpec::new(Tx, In, false, DeviceIsTxCapable)
@@ -543,8 +423,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
-        // The baseband output is the channel's own passband — what the demodulator is looking
-        // at, not what the radio handed the channel. A scope on it sees what a decoder sees.
         "channel" => vec![
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, ChannelNeedsPosition),
@@ -553,8 +431,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, Out, true, ChannelIsDecoder),
             PortSpec::new(Video, Out, true, ChannelHasVideo),
         ],
-        // Two inputs, one instrument: a radio's wideband stream or one channel's passband. Both
-        // may be wired at once and the face reads the baseband, which is the narrower answer.
         "scope" => vec![
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Baseband, In, false, Always),
@@ -563,8 +439,6 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, Always),
         ],
-        // Several channels at once, like the speaker: one file each, and an operator recording
-        // a net does not want a node per voice.
         "audio_recorder" => vec![PortSpec::new(Audio, In, true, Always)],
         "network_export" => vec![PortSpec::new(Iq, In, false, Always)],
         "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
@@ -590,29 +464,22 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
     }
 }
 
-/// One entry of the node palette the client renders its "add node" menu from (: the client
-/// renders what the server describes).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NodeTypeInfo {
-    /// Slug matching [`NodeBody::kind`].
     pub kind: String,
     pub name: String,
     pub category: NodeCategory,
     pub ports: Vec<PortSpec>,
-    /// Channel nodes need a type from `GET /api/channeltypes`; the menu offers one entry per
-    /// descriptor rather than one entry for "channel".
     #[serde(default)]
     pub needs_channel_type: bool,
 }
 
-/// `GET /api/patch/catalog` — the node palette and its ports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PatchCatalog {
     pub nodes: Vec<NodeTypeInfo>,
 }
 
 impl PatchCatalog {
-    /// The catalog this build offers, in the order the palette lists it.
     #[must_use]
     pub fn build() -> Self {
         let entry = |body: &NodeBody, name: &str| NodeTypeInfo {
@@ -663,47 +530,36 @@ impl PatchCatalog {
     }
 }
 
-/// Canvas position of a node, in React Flow's coordinate space.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Position {
     pub x: f32,
     pub y: f32,
 }
 
-/// Face size in canvas units. Absent means the node's natural size.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Size {
     pub w: f32,
     pub h: f32,
 }
 
-/// One node: what it is, where it sits, and what the operator called it.
-///
-/// There is no `pinned` flag: rack membership is the single truth for "this face is being
-/// operated", and two representations of one fact drift.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PatchNode {
-    /// Client-generated, unique within the graph, stable for the node's life.
     pub id: String,
     #[serde(flatten)]
     pub body: NodeBody,
     pub position: Position,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<Size>,
-    /// User-renamed caption; `None` renders the kind's default name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
-/// One end of an edge.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub struct PortRef {
     pub node: String,
-    /// [`PortSpec::name`] on that node.
     pub port: String,
 }
 
-/// A wire: which stream a node consumes, and from whom.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub struct PatchEdge {
     pub from: PortRef,
@@ -717,17 +573,14 @@ pub struct PatchGraph {
     pub edges: Vec<PatchEdge>,
 }
 
-/// One pinned face on the rack grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct RackCell {
-    /// Whole grid cells from the left / top.
     pub x: u16,
     pub y: u16,
     pub w: u16,
     pub h: u16,
 }
 
-/// One pinned node and the cells it occupies.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct RackSlot {
     pub node: String,
@@ -820,15 +673,12 @@ impl PatchGraph {
         self.nodes.iter().find(|node| node.id == id)
     }
 
-    /// Device nodes in stored order — the order every binding pass walks, so which node claims a
-    /// duplicate-serial clone is stable across runs.
     pub fn device_nodes(&self) -> impl Iterator<Item = &PatchNode> {
         self.nodes
             .iter()
             .filter(|node| matches!(node.body, NodeBody::Device(_)))
     }
 
-    /// Nodes wired into `node`'s `port` input, in stored order.
     pub fn sources_of<'a>(&'a self, node: &'a str, port: &'a str) -> impl Iterator<Item = &'a str> {
         self.edges
             .iter()
@@ -836,7 +686,6 @@ impl PatchGraph {
             .map(|edge| edge.from.node.as_str())
     }
 
-    /// Nodes fed by `node`'s `port` output, in stored order.
     pub fn targets_of<'a>(&'a self, node: &'a str, port: &'a str) -> impl Iterator<Item = &'a str> {
         self.edges
             .iter()
@@ -852,8 +701,6 @@ impl PatchGraph {
             if !matches!(node.body, NodeBody::Channel(_)) {
                 return None;
             }
-            // The stream is what the wire says, not the string "iq": the device end of the edge
-            // may name any port of its rx family.
             let stream = self.edges.iter().find_map(|edge| {
                 (edge.to.node == node.id && edge.to.port == "iq" && edge.from.node == device_node)
                     .then(|| port_stream("iq", &edge.from.port))
@@ -863,11 +710,6 @@ impl PatchGraph {
         })
     }
 
-    /// Whether both graphs describe the same radios, decoders and wires — everything the engine
-    /// is brought up from — ignoring where the faces sit and what they are called.
-    ///
-    /// Moving a face is not a change to the hardware, and the paths that reconcile the engine to a
-    /// stored graph close radios and drop channels: they must not run for a drag.
     #[must_use]
     pub fn same_topology(&self, other: &Self) -> bool {
         self.edges == other.edges
@@ -879,15 +721,10 @@ impl PatchGraph {
                 .all(|(a, b)| a.id == b.id && a.body == b.body)
     }
 
-    /// Structural validity: ids, geometry, and wires that name real ports of compatible type.
-    /// Semantics that need the running build's channel registry are
-    /// [`Self::validate_against`].
     pub fn validate(&self) -> Result<(), PatchError> {
         self.check(None)
     }
 
-    /// Structural validity plus the checks that need the channel registry: a channel node names
-    /// a type this build has, and a conditional port exists only on a type that produces it.
     pub fn validate_against(&self, channels: &[ChannelDescriptor]) -> Result<(), PatchError> {
         self.check(Some(channels))
     }
@@ -997,8 +834,6 @@ impl PatchGraph {
             if landed.contains(&&edge.to) && !input.multi {
                 return Err(PatchError::PortOccupied(edge.to.clone()));
             }
-            // An output says its arity too: a stream fans out, ownership does not, and a scanner
-            // sweeping two radios at once is a workspace the engine cannot run.
             if left.contains(&&edge.from) && !out.multi {
                 return Err(PatchError::PortOccupied(edge.from.clone()));
             }
@@ -1026,10 +861,6 @@ impl PatchGraph {
         let node = self
             .node(&reference.node)
             .ok_or_else(|| PatchError::UnknownNode(reference.node.clone()))?;
-        // A repeating port admits its whole bounded family, backing or not: validation is pure
-        // over the stored graph and runs on every write, so refusing a stored `iq3` here would
-        // refuse every later write — a node drag included. [`MAX_STREAMS`] is what keeps an
-        // arbitrary name `UnknownPort`.
         let matches_name = |port: &PortSpec| {
             port.name == reference.port
                 || (port.repeat != PortRepeat::Once
@@ -1047,15 +878,6 @@ impl PatchGraph {
                 Err(PatchError::UnknownPort(reference.clone()))
             };
         };
-        // A conditional port is only real on a type that produces it: wiring an ADS-B channel's
-        // audio out would otherwise be a wire the engine has no stream for.
-        //
-        // A device node's one conditional port is not checked here and cannot be: whether the
-        // radio it names can transmit is known only while that radio is attached, and validation
-        // is pure over the stored graph. Nothing is let through by the gap — no port emits
-        // [`PortType::Tx`], so an edge into a transmit input dies on the type mismatch first
-        // (`the_reserved_transmit_input_can_take_no_wire`). The day something does emit it, the
-        // check moves to where the capabilities are: the server's `bring_up`.
         if let (NodeBody::Channel(channel), Some(descriptors)) = (&node.body, channels) {
             let descriptor = descriptors
                 .iter()
@@ -1152,7 +974,6 @@ fn check_geometry(node: &PatchNode) -> Result<(), PatchError> {
 }
 
 impl RackLayout {
-    /// Every slot names a node of `graph`, is inside the grid, and overlaps nothing.
     pub fn validate(&self, graph: &PatchGraph) -> Result<(), PatchError> {
         let mut seen: Vec<&str> = Vec::with_capacity(self.slots.len());
         for slot in &self.slots {
@@ -1189,9 +1010,6 @@ fn overlaps(a: RackCell, b: RackCell) -> bool {
 }
 
 impl ChannelParams {
-    /// The documented defaults for a channel type id, as `{"type": id, "settings": {}}`
-    /// deserializes them. One source for the mapping: the enum's own serde tag, so a type this
-    /// build does not have answers `None` instead of a guess.
     #[must_use]
     pub fn default_for(type_id: &str) -> Option<Self> {
         serde_json::from_value(serde_json::json!({ "type": type_id, "settings": {} })).ok()
@@ -1238,8 +1056,6 @@ mod tests {
         }
     }
 
-    /// Only the transmit flag and the stream counts matter to the port table; the rest of a
-    /// radio's report does not.
     fn capabilities(duplex: Duplex, rx_streams: u32, tx_streams: u32) -> Capabilities {
         Capabilities {
             freq_ranges: Vec::new(),
@@ -1296,9 +1112,6 @@ mod tests {
         }
     }
 
-    /// What the engine is brought up from is the nodes and the wires. Moving or renaming a face
-    /// changes the drawing, and the paths that reconcile hardware to a graph must not read it as
-    /// a radio to close.
     #[test]
     fn topology_ignores_where_a_face_sits_and_what_it_is_called() {
         let graph = workspace();
@@ -1327,7 +1140,6 @@ mod tests {
         assert!(!graph.same_topology(&renamed));
     }
 
-    /// The tags the generated TS union switches on.
     #[test]
     fn node_body_is_adjacently_tagged_and_flattened_onto_the_node() {
         let json = serde_json::to_value(channel("ch", "nfm")).unwrap();
@@ -1478,8 +1290,6 @@ mod tests {
         graph.validate().expect("matching wire names");
     }
 
-    /// An ADS-B channel has no audio, so the port it would be wired by does not exist on it —
-    /// the wire is refused where the operator drew it, not at stream time.
     #[test]
     fn a_conditional_port_is_refused_on_a_type_that_lacks_it() {
         let mut graph = workspace();
@@ -1627,7 +1437,6 @@ mod tests {
             "nothing may emit transmit baseband before  gate exists"
         );
 
-        // The nearest thing to a transmit source is another radio's IQ, and the types do not join.
         let mut retransmit = workspace();
         retransmit
             .nodes
@@ -1642,9 +1451,6 @@ mod tests {
         );
     }
 
-    /// A receiver has no send side to draw. The reservation is per *radio*, not per node kind: an
-    /// An RTL-SDR is receive-only, so the node standing for one has two ports, and the
-    /// operator is never shown a socket their hardware does not have.
     #[test]
     fn only_a_radio_that_can_transmit_shows_a_transmit_input() {
         let transmit = ports_for("device")
@@ -1662,8 +1468,6 @@ mod tests {
             named(&transmit, &capabilities(Duplex::Half, 1, 1)),
             "a transceiver"
         );
-        // Which radio is behind the node is stored; what it can do is not — so an unattached one
-        // is a receiver until it says otherwise.
         assert!(!transmit.applies_to(None), "no radio bound");
 
         for port in ports_for("device")
@@ -1674,8 +1478,6 @@ mod tests {
         }
     }
 
-    /// The scanner wire runs *into* the radio it drives, and ownership is exclusive at both ends:
-    /// the engine runs one sweep per device set, and a set answers to one sweep.
     #[test]
     fn a_scanner_owns_the_one_radio_its_wire_runs_into() {
         let mut driven = workspace();
@@ -1847,8 +1649,6 @@ mod tests {
         assert_eq!(graph.channels_of("scope").count(), 0);
     }
 
-    /// Binding follows the wire, not the string: a channel on `dev.iq3` belongs to that device
-    /// and that stream, or its engine channel would leak on delete and swap settings on bind.
     #[test]
     fn channels_of_reports_the_stream_each_channel_taps() {
         let mut graph = workspace();
@@ -1881,7 +1681,6 @@ mod tests {
 
     #[test]
     fn a_name_outside_the_family_addresses_no_stream() {
-        // Stream 0 is spelled "iq": one spelling per port, or arity would split across aliases.
         assert_eq!(port_stream("iq", "iq1"), None);
         assert_eq!(port_stream("iq", "iq0"), None);
         assert_eq!(port_stream("iq", "iqx"), None);
@@ -1893,7 +1692,6 @@ mod tests {
         assert_eq!(port_stream("iq", ""), None);
     }
 
-    /// The catalog stays static; the expansion happens wherever the stream counts are known.
     #[test]
     fn ports_with_expands_a_repeating_port_per_stream() {
         let device = NodeBody::Device(DeviceNode::default());
@@ -1943,7 +1741,6 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["control", "iq"]);
 
-        // A channel's ports never repeat; its backing only resolves conditions.
         let body = NodeBody::Channel(ChannelNode {
             channel_type: "nfm".to_owned(),
         });
@@ -1953,15 +1750,9 @@ mod tests {
             .into_iter()
             .map(|port| port.name)
             .collect();
-        // Baseband is unconditional: every channel has a passband, whatever it does with it.
         assert_eq!(names, vec!["iq", "baseband", "audio"]);
     }
 
-    /// The three *demodulated* things a channel's right side can carry are each conditional, and
-    /// a face draws only the ones its type actually produces: an NFM channel has no picture to
-    /// send anywhere, and a picture port on it is a socket the operator can be told to use and
-    /// then refused. The baseband tap is not one of them — it is the channel's input, and it
-    /// exists whether or not anything is demodulated from it.
     #[test]
     fn a_channels_outputs_follow_what_its_type_produces() {
         let names = |descriptor: &ChannelDescriptor| {
@@ -1983,7 +1774,6 @@ mod tests {
         assert_eq!(names(&atv), vec!["iq", "baseband", "video"]);
         assert_eq!(names(&descriptors()[1]), vec!["iq", "baseband", "events"]);
 
-        // And the type is what joins them: a picture cannot be poured into a readout.
         let mut graph = workspace();
         graph.nodes.push(node("vid", NodeBody::Video));
         graph.edges.push(edge(("ch", "audio"), ("vid", "video")));
@@ -1996,9 +1786,6 @@ mod tests {
         );
     }
 
-    /// The whole reason the channel tap is not typed `Iq`: a wideband stream and one channel's
-    /// passband are not interchangeable, and typing them the same would let an operator wire a
-    /// channel into a channel — a pipeline the engine has no way to build.
     #[test]
     fn a_channel_tap_cannot_be_wired_where_a_wideband_stream_belongs() {
         let catalog = PatchCatalog::build();
@@ -2025,8 +1812,6 @@ mod tests {
         );
         assert!(!takes("channel", PortType::Baseband));
         assert!(!takes("recorder", PortType::Baseband));
-        // The two recorders take different things from different places in the chain: raw IQ
-        // off the radio, and demodulated audio off a channel.
         assert!(takes("recorder", PortType::Iq));
         assert!(!takes("recorder", PortType::Audio));
         assert!(takes("audio_recorder", PortType::Audio));
@@ -2037,7 +1822,6 @@ mod tests {
             "the scope is what reads it"
         );
 
-        // And a wire that tries it anyway is refused, rather than left to convention.
         let mut graph = workspace();
         graph.edges.push(edge(("ch", "baseband"), ("ch", "iq")));
         assert!(graph.validate().is_err());
@@ -2084,8 +1868,6 @@ mod tests {
             );
         }
 
-        // The family exists only where the table repeats: a channel consumes one stream, so
-        // its input has no siblings.
         let mut channel_family = workspace();
         channel_family.edges[1] = edge(("dev", "iq"), ("ch", "iq2"));
         assert_eq!(
@@ -2183,8 +1965,6 @@ mod tests {
         );
     }
 
-    /// The catalog is what the client builds its palette and its drag-time rules from, so its
-    /// shape is a contract.
     #[test]
     fn the_catalog_describes_every_node_kind_once() {
         let catalog = PatchCatalog::build();
@@ -2237,8 +2017,6 @@ mod tests {
             "the common case stays off the wire"
         );
 
-        // A catalog from a peer that predates `repeat` reads every port as `Once`; the roundtrip
-        // pins that the field is the only thing the elision drops.
         let back: PatchCatalog = serde_json::from_value(json).unwrap();
         assert_eq!(back, catalog);
         let bare: PortSpec = serde_json::from_str(
@@ -2377,8 +2155,6 @@ mod tests {
         assert_eq!(graph.validate(), Ok(()));
     }
 
-    /// A channel node names a type; the engine is asked for a channel at that type's documented
-    /// defaults, which is the same body the client sends when it adds one by hand.
     #[test]
     fn default_params_come_from_the_type_id() {
         let params = ChannelParams::default_for("ssb").expect("ssb is a channel type");

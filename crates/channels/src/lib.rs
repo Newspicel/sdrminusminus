@@ -67,13 +67,8 @@ pub use subghz::SubghzChannel;
 pub use weak_signal::{Ft4Channel, Ft8Channel, WsprChannel};
 pub use wfm::WfmChannel;
 
-/// Every channel emits PCM at this rate; the engine's audio path is sized against it.
 pub const AUDIO_RATE: u32 = 48_000;
 
-/// How many interleaved channels this mode's audio comes out as — WFM in stereo is the one
-/// two-channel mode. The engine builds its Opus encoder from this rather than from what a
-/// block happens to contain, so a squelched channel emits silence in the right layout; a mode
-/// whose `process` disagreed with it would interleave garbage.
 #[must_use]
 pub fn audio_channels(params: &ChannelParams) -> u8 {
     match params {
@@ -82,19 +77,12 @@ pub fn audio_channels(params: &ChannelParams) -> u8 {
     }
 }
 
-/// Opus integer-API decoders (and the browser DAC) hard-clip PCM beyond ±1.0, so every demod
-/// bounds its final output here — overshoot (open-squelch FM noise, over-deviated carriers)
-/// must never leave the channel as out-of-range samples.
 pub(crate) fn clamp_full_scale(pcm: &mut [f32]) {
     for s in pcm {
         *s = s.clamp(-1.0, 1.0);
     }
 }
 
-/// The RF band a channel occupies relative to its offset, in Hz (`(low, high)`): symmetric
-/// at the configured bandwidth for NFM/AM, at the descriptor nominal for WFM; SSB occupies
-/// one sideband only. Drives the engine's passband-fit validation, so it must track what
-/// [`channel_filter`] actually selects.
 #[must_use]
 pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
     match params {
@@ -140,20 +128,13 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
     }
 }
 
-/// Channel-selection filter the engine host runs on the DDC output ahead of squelch and
-/// demod, so the gate measures in-channel power and adjacent-channel energy never reaches
-/// the detector. Symmetric modes use a real-tap FIR (half the MACs of a complex one); SSB
-/// needs the one-sided [`FirC`] mirroring its demod passband.
 pub enum ChannelFilter {
     Symmetric(Decimator),
     Sideband(FirC),
-    /// No extra selectivity: the DDC's anti-alias response already bounds the band, and the
-    /// mode needs the full rise time (ADS-B's 0.5 µs pulses).
     Passthrough,
 }
 
 impl ChannelFilter {
-    /// Replaces `out` with one filtered sample per input sample.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         match self {
             Self::Symmetric(f) => f.process(input, out),
@@ -166,8 +147,6 @@ impl ChannelFilter {
     }
 }
 
-/// Build the channel filter for `params` at the mode's descriptor input rate, applying the
-/// same bandwidth bounds the demod constructors enforce.
 pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelError> {
     match params {
         ChannelParams::Nfm(p) => nfm::channel_filter(p),
@@ -206,7 +185,6 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
     }
 }
 
-/// Errors raised while constructing or configuring a channel.
 #[derive(Debug, thiserror::Error)]
 pub enum ChannelError {
     #[error("unknown channel type: {0}")]
@@ -221,12 +199,9 @@ pub enum ChannelError {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ChannelCtx {
-    /// Sample rate of the channel's IQ stream, in Hz.
     pub input_rate: f64,
 }
 
-/// One picture a video channel scanned out. `luma` is always present; `rgb` is either empty or
-/// three bytes per pixel when the transmission carried a supported colour subcarrier.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoPicture {
     pub width: u16,
@@ -237,23 +212,14 @@ pub struct VideoPicture {
 
 #[derive(Default)]
 pub struct ChannelOutputs {
-    /// PCM plus its sample rate, when the channel produced audio this block. Interleaved at
-    /// [`audio_channels`] for the channel's params — a whole number of sample frames.
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
-    /// Typed decoder frames produced this block. The host stamps them with time and
-    /// frequency; a decoder never formats or serializes on the DSP thread.
     pub events: Vec<DecoderEvent>,
-    /// Pictures completed this block. A `Vec` rather than one slot because a block is sized by
-    /// the device's USB transfers, not by the raster: nothing stops one from spanning two
-    /// fields, and the second picture must not be the one that silently vanishes.
     pub video: Vec<VideoPicture>,
-    /// Decimated IQ for scope/constellation panels.
     pub iq_tap: Vec<Complex<f32>>,
 }
 
 impl ChannelOutputs {
-    /// Clear all buffers without freeing capacity, ready for the next block.
     pub fn reset(&mut self) {
         self.audio_pcm.clear();
         self.audio_rate = 0;
@@ -264,8 +230,6 @@ impl ChannelOutputs {
 }
 
 pub trait ChannelRx: Send {
-    /// Static description that drives the "add channel" UI. Object-safe callers use the
-    /// registry; this associated fn is for the concrete type.
     fn descriptor() -> &'static ChannelDescriptor
     where
         Self: Sized;
@@ -274,32 +238,12 @@ pub trait ChannelRx: Send {
     where
         Self: Sized;
 
-    /// Reconfigure mode params in place. A params variant of another channel type is an
-    /// [`ChannelError::InvalidSettings`] — the engine rebuilds the pipeline on type change.
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError>;
 
-    /// The host moved the channel to a different frequency. A demod carries no state tied to
-    /// a particular station, so it ignores this; a decoder does — whatever it has accreted
-    /// describes the signal it just left and must not follow the channel to the next one.
-    /// Retunes arrive here rather than through [`ChannelRx::apply`], which the host does not
-    /// call for an offset-only change.
     fn retuned(&mut self) {}
 
-    /// Update the station position supplied by a position wire. Most modes do not use it;
-    /// decoders such as ADS-B can replace their local reference without persisting a moving fix
-    /// as channel settings.
     fn position_changed(&mut self, _fix: Option<&PositionFix>) {}
 
-    /// Whether the host must keep feeding this channel while the squelch is closed.
-    ///
-    /// A decoder measures time in the samples it has processed — its bit clock, its element
-    /// timing, its inter-frame gaps — so skipping the gated span would splice those spans out
-    /// of a stream that never had a gap in it. `true`, the default, is right for every one of
-    /// them, and the host reads it only for the types that emit events at all.
-    ///
-    /// A channel whose events describe something *inside* a carrier says otherwise when it has
-    /// nothing to describe: there is no subaudible tone under a closed squelch, and running
-    /// the demodulator on silence to find that out is what the squelch exists to avoid.
     fn needs_gated_input(&self) -> bool {
         true
     }
@@ -307,22 +251,12 @@ pub trait ChannelRx: Send {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs);
 }
 
-/// What a transmit channel was handed to send. The mirror of [`ChannelParams`]: one variant per
-/// class of thing a mode carries, and a channel refuses the variants it does not speak.
-///
-/// Frames are bytes rather than text because the framing — addresses, stuffing, checksums — is
-/// the protocol module's job, shared with the decoder that parses it back.
 pub enum TxPayload {
-    /// Mono PCM at [`AUDIO_RATE`] in ±1.0, for the analog modes. Out-of-range samples are
-    /// clamped rather than allowed to over-deviate the carrier.
     Audio(Vec<f32>),
-    /// A finished protocol frame, for the data modes.
     Frame(Vec<u8>),
 }
 
 pub trait ChannelTx: Send {
-    /// The same descriptor the receive side publishes — one type id, one set of rates, whichever
-    /// direction is being built.
     fn descriptor() -> &'static ChannelDescriptor
     where
         Self: Sized;
@@ -331,18 +265,10 @@ pub trait ChannelTx: Send {
     where
         Self: Sized;
 
-    /// Reconfigure mode params in place, as [`ChannelRx::apply`] does.
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError>;
 
     fn submit(&mut self, payload: TxPayload) -> Result<(), ChannelError>;
 
-    /// Hot path: fill `out` with the next samples of the burst, returning how many were written
-    /// to its head. No allocation, no locks — the same contract [`ChannelRx::process`] runs
-    /// under.
-    ///
-    /// A short fill ends the burst: the modulator wrote its last sample and has ramped the
-    /// carrier down. `0` means there is nothing queued, so the host may drop the transmitter.
-    /// Submitting again starts a new burst rather than resuming this one.
     fn generate(&mut self, out: &mut [Complex<f32>]) -> usize;
 }
 
@@ -352,8 +278,6 @@ type CreateTx = fn(ChannelCtx, ChannelSettings) -> Result<Box<dyn ChannelTx>, Ch
 struct Registration {
     descriptor: fn() -> &'static ChannelDescriptor,
     create: CreateRx,
-    /// Populated for the modes that ship a modulator too; `None` is a receive-only type, and is
-    /// what [`ChannelDescriptor::can_transmit`] is derived from so the two cannot disagree.
     create_tx: Option<CreateTx>,
 }
 
@@ -544,11 +468,6 @@ const REGISTRY: &[Registration] = &[
     },
 ];
 
-/// Descriptors for every compiled-in channel type (: static registry).
-///
-/// `exact_rate_only` and `can_transmit` are derived here rather than written into each
-/// descriptor, from the same registry columns the dispatch below reads: neither answer must be
-/// able to disagree with the refusal it predicts.
 #[must_use]
 pub fn descriptors() -> Vec<ChannelDescriptor> {
     REGISTRY
@@ -563,8 +482,6 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
 }
 
 fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
-    // A native-rate type never meets a resampling DDC at all: it is handed the device's own
-    // samples, so the guard band this asks about is not in its path.
     if descriptor.native_rate_max_hz.is_some() {
         return false;
     }
@@ -575,7 +492,6 @@ fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
     high - low >= sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz)
 }
 
-/// Build the channel matching `settings.params`.
 pub fn create(
     ctx: ChannelCtx,
     settings: &ChannelSettings,
@@ -759,9 +675,6 @@ mod tests {
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
             assert_eq!(d.input_rate_hz, rate, "{}", d.type_id);
             assert!(!d.name.is_empty(), "{}", d.type_id);
-            // Every channel type must be useful for something: audio, decoded frames, or a
-            // picture. Several do more than one — WFM decodes RDS beside its audio, NFM the
-            // subaudible tone under it.
             assert!(
                 d.has_audio || d.decoder_kind.is_some() || d.has_video,
                 "{} produces neither audio, decoder events nor video",
@@ -797,10 +710,6 @@ mod tests {
         }
     }
 
-    /// [`audio_channels`] is what the engine sizes its Opus encoder and its squelched
-    /// zero-fill from, so it has to be what the demodulator actually writes: a mode whose
-    /// interleave disagreed would show up here as half — or double — the frames its rate
-    /// implies, and would reach a listener as chipmunk audio, not as a wrong channel count.
     #[test]
     fn audio_channels_matches_the_frames_each_mode_produces() {
         const LEN: usize = 96_000;
@@ -821,8 +730,6 @@ mod tests {
                 "{} emitted a partial sample frame",
                 d.type_id
             );
-            // Digital voice is burst gated: idle/noise deliberately produces no PCM. Each
-            // mode's encoded-waveform test checks decoded duration at its own frame cadence.
             if d.decoder_kind.as_deref() == Some("dv") {
                 continue;
             }
@@ -830,8 +737,6 @@ mod tests {
                 continue;
             }
             let frames = audio.len() / channels;
-            // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
-            // 200 output frames at these tap counts.
             let expected = (LEN as f64 * f64::from(AUDIO_RATE) / d.input_rate_hz) as usize;
             assert!(
                 frames <= expected && expected - frames < 200,
@@ -876,9 +781,6 @@ mod tests {
         }
     }
 
-    /// The flag the canvas would draw a transmit port from must be the same fact `create_tx`
-    /// acts on — a type advertising a modulator it cannot build, or hiding one it can, is the
-    /// drift the derived column exists to prevent.
     #[test]
     fn can_transmit_matches_what_create_tx_will_build() {
         for d in descriptors() {
@@ -904,8 +806,6 @@ mod tests {
         }
     }
 
-    /// : the modes with a modulator so far — the analog voice trio and AX.25. This is a
-    /// reminder to extend the list deliberately, not a cap.
     #[test]
     fn only_the_modes_with_a_modulator_transmit() {
         let transmitting: Vec<String> = descriptors()
@@ -978,8 +878,6 @@ mod tests {
 
     #[test]
     fn channel_filter_passes_in_channel_and_rejects_adjacent() {
-        // NFM at the default 12.5 kHz: a 15 kHz tone sits inside the DDC's flat ±19.2 kHz
-        // passband but outside the channel — it must be gone, not merely damped.
         let mut f = channel_filter(&ChannelParams::Nfm(NfmParams::default())).unwrap();
         let pass = filter_rms(&mut f, 1_000.0 / 48_000.0);
         assert!((0.9..1.05).contains(&pass), "in-channel rms {pass}");
@@ -987,7 +885,6 @@ mod tests {
         let reject = filter_rms(&mut f, 15_000.0 / 48_000.0);
         assert!(reject < 0.01, "adjacent leak rms {reject}");
 
-        // SSB keeps its one-sided selection: the opposite sideband is rejected.
         let ssb = ChannelParams::Ssb(SsbParams::default());
         let mut f = channel_filter(&ssb).unwrap();
         let pass = filter_rms(&mut f, 1_000.0 / 48_000.0);

@@ -1,6 +1,3 @@
-// The sink factory owns real WebAudio resources; these tests fake the WebAudio globals to
-// pin the lifecycle contracts jsdom can't exercise: failure-path teardown and the
-// suspended-context health reporting.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { createDecoder } = vi.hoisted(() => ({ createDecoder: vi.fn() }));
@@ -195,8 +192,6 @@ describe("createWebAudioSink", () => {
     expect(Array.from(posted ?? [])).toEqual([0.25, 0.25, -0.5, -0.5]);
   });
 
-  // A channel that switches to stereo mid-stream cannot be decoded by the mono decoder, and
-  // no Opus decoder can be reconfigured in place: the sink has to build a replacement.
   it("swaps in a decoder for the packet's layout and passes its pcm through untouched", async () => {
     const decoders: {
       channels: number;

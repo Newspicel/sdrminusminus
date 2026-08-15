@@ -54,8 +54,6 @@ describe("matchesQuery", () => {
     expect(matchesQuery(codec2, "serde")).toBe(false);
   });
 
-  /// The question a reader arrives with is "is there copyleft in here", and the answer lives
-  /// in the license column rather than in any component's name.
   it("matches on the license expression", () => {
     expect(matchesQuery(rtlsdr, "gpl")).toBe(true);
     expect(matchesQuery(codec2, "lgpl")).toBe(true);

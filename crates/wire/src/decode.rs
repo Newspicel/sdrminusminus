@@ -3,88 +3,58 @@ use utoipa::ToSchema;
 
 use crate::RadioClockStandard;
 
-/// RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a
-/// slowly-accreting picture rather than a stream of independent frames, so an event is the
-/// current best view of the station, emitted only when a field actually changed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RdsUpdate {
-    /// Programme Identification, as the 4 hex digits everyone quotes it by.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pi: Option<String>,
-    /// Programme Service name (8 chars), once every segment has been seen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ps: Option<String>,
-    /// RadioText (up to 64 chars), once the A/B flag closes a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radiotext: Option<String>,
-    /// Programme Type code (0–31).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pty: Option<u8>,
-    /// Programme Type name for [`RdsUpdate::pty`] under the RDS (EU) table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pty_name: Option<String>,
-    /// Traffic Programme flag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tp: Option<bool>,
-    /// Traffic Announcement flag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ta: Option<bool>,
-    /// Music (true) / Speech (false) switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub music: Option<bool>,
-    /// Alternative frequencies in Hz, as advertised in group 0A.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alt_freqs_hz: Vec<f64>,
-    /// Groups accepted since the channel started.
     pub groups: u64,
-    /// Blocks rejected by the syndrome check since the channel started.
     pub block_errors: u64,
 }
 
-/// POCSAG message class (: 512/1200/2400 baud pagers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PocsagPayload {
-    /// Function-only page with no data codewords.
     Tone,
-    /// BCD digits (function 0 by convention).
     Numeric,
-    /// 7-bit ASCII (function 3 by convention).
     Alpha,
 }
 
-/// One decoded POCSAG page.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PocsagMessage {
-    /// 21-bit receiver address (RIC).
     pub address: u32,
-    /// Function bits 0–3 (the "A/B/C/D" a pager shows).
     pub function: u8,
-    /// Bit rate the batch was decoded at.
     pub baud: u16,
     pub payload: PocsagPayload,
     pub text: String,
-    /// Single-bit errors the BCH(31,21) decoder repaired across the message's codewords.
     pub errors_corrected: u32,
 }
 
-/// One decoded Mode S / ADS-B frame (: preamble correlation + Mode S CRC).
-/// Fields are `Option` because which ones a frame carries depends on its type code — a
-/// position frame has no callsign, an identification frame has no altitude.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AdsbMessage {
-    /// ICAO 24-bit address as 6 hex digits — the aircraft's identity across frames.
     pub icao: String,
-    /// Downlink Format (17 = ADS-B extended squitter, 11 = all-call reply).
     pub df: u8,
-    /// Extended-squitter type code, when the frame has an ME field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_code: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callsign: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub altitude_ft: Option<i32>,
-    /// Latitude in degrees, once a CPR even/odd pair has been solved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lat: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,18 +69,13 @@ pub struct AdsbMessage {
     pub squawk: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_ground: Option<bool>,
-    /// The raw frame as hex — the interop format every Mode S tool speaks.
     pub raw: String,
 }
 
-/// One decoded AIS message (: GMSK/NRZI over HDLC framing).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AisMessage {
-    /// Maritime Mobile Service Identity — the vessel's identity across messages.
     pub mmsi: u32,
-    /// ITU-R M.1371 message type (1–3 position report, 5 static data, 18/19 class B …).
     pub msg_type: u8,
-    /// Which of the two AIS channels the burst arrived on (`A` = 161.975 MHz).
     pub ais_channel: char,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -122,38 +87,28 @@ pub struct AisMessage {
     pub lat: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lon: Option<f64>,
-    /// Speed over ground in knots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sog_kt: Option<f64>,
-    /// Course over ground in degrees.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cog_deg: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading_deg: Option<u16>,
-    /// Navigational status code (0 = under way using engine …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nav_status: Option<u8>,
-    /// The `!AIVDM` sentence — the interop format every AIS tool speaks.
     pub nmea: String,
 }
 
-/// One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them
-/// (: AFSK1200 + 9600 G3RUH).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AprsPacket {
-    /// Source callsign with SSID, e.g. `DL1ABC-9`.
     pub source: String,
     pub destination: String,
-    /// Digipeater path, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<String>,
-    /// Raw information field.
     pub info: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lat: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lon: Option<f64>,
-    /// APRS symbol as `table` + `code`, e.g. `/>` for a car.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,31 +119,22 @@ pub struct AprsPacket {
     pub speed_kt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub altitude_ft: Option<i32>,
-    /// The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7
-    /// standard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's
-    /// own word for a packet whose three message bits mix the standard and custom tables.
-    /// Absent on every packet that is not Mic-E.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mic_e_message: Option<String>,
-    /// TNC2 monitor line (`SRC>DEST,PATH:info`) — the interop format.
     pub tnc2: String,
 }
 
-/// A run of decoded RTTY characters (: Baudot over FSK).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RttyText {
     pub text: String,
 }
 
-/// A run of decoded Morse characters plus the speed the tracker settled on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct MorseText {
     pub text: String,
-    /// Estimated sending speed in words per minute (PARIS standard).
     pub wpm: f32,
 }
 
-/// One CRC-verified FT8 or FT4 message from a synchronized receive slot.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WsjtMessage {
     pub text: String,
@@ -198,16 +144,13 @@ pub struct WsjtMessage {
     pub hard_errors: u32,
 }
 
-/// A run of Varicode text decoded from a BPSK31 or BPSK63 carrier.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PskText {
     pub text: String,
 }
 
-/// One WSPR beacon spot recovered from a two-minute receive slot.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WsprSpot {
-    /// Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign.
     pub text: String,
     pub callsign: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,53 +162,35 @@ pub struct WsprSpot {
     pub drift_hz: f32,
 }
 
-/// One complete five-tone selective call after the repeat marker has been expanded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct SelcallSequence {
     pub system: crate::channel::SelcallSystem,
-    /// Five decoded digits/group symbols. Consecutive equal digits are represented literally,
-    /// not by the on-air repeat marker.
     pub code: String,
-    /// Median detected tone duration, rounded to milliseconds.
     pub tone_ms: u32,
 }
 
-/// One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
-/// parsed out because that is what a receiver filters on — station, subject and serial are how
-/// a ship decides whether it has already seen this message.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NavtexMessage {
-    /// B1 — transmitting station within the NAVAREA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station: Option<char>,
-    /// B2 — subject indicator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<char>,
-    /// Plain-language meaning of [`NavtexMessage::subject`] (ITU-R M.540 Annex 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject_name: Option<String>,
-    /// B3B4 — serial number, 00–99, which a receiver uses to suppress repeats.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<u8>,
     pub text: String,
-    /// Characters the mode-B time diversity repaired from the repeat copy.
     pub errors_corrected: u32,
-    /// True when the broadcast ended with `NNNN`; false when the carrier or the phasing was
-    /// lost and the partial text was flushed instead.
     pub complete: bool,
 }
 
 impl NavtexMessage {
-    /// The `B1B2B3B4` group as broadcast, when the header was received.
     #[must_use]
     pub fn header(&self) -> Option<String> {
         let (station, subject, serial) = (self.station?, self.subject?, self.serial?);
         Some(format!("{station}{subject}{serial:02}"))
     }
 
-    /// Plain-language meaning of a B2 subject indicator (ITU-R M.540 Annex 2). `None` for the
-    /// letters the standard leaves unassigned — naming those would invent authority the
-    /// broadcast does not carry.
     #[must_use]
     pub fn subject_name(subject: char) -> Option<&'static str> {
         Some(match subject.to_ascii_uppercase() {
@@ -290,124 +215,74 @@ impl NavtexMessage {
     }
 }
 
-/// One ACARS block (: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
-/// the standard's, so a message here reads the same as in every other ACARS tool.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AcarsMessage {
-    /// Mode character — `2` is VHF category A.
     pub mode: char,
-    /// Aircraft registration with the standard `.` padding removed.
     pub registration: String,
-    /// Technical acknowledgement: the block being acknowledged, or `None` for a NAK.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ack: Option<char>,
-    /// Two-character label identifying the message type (`5Z`, `H1`, `_d` …).
     pub label: String,
-    /// Block identifier. `0`–`9` marks a downlink (aircraft to ground).
     pub block_id: char,
     pub downlink: bool,
-    /// Message sequence number, on downlinks only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq_no: Option<String>,
-    /// Flight number, on downlinks only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flight: Option<String>,
     pub text: String,
-    /// The block ended with ETB rather than ETX: another block of the same message follows.
     pub more: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubghzEncoding {
-    /// Pulse-width coding: a short-long cell is one bit value, long-short the other. The
-    /// family PT2262/EV1527/Princeton and most cheap remotes speak. The chip is *not*
-    /// identified — an EV1527's 24 data bits and a PT2262's 12 tri-state symbols are the same
-    /// pulse train, so both readings are offered and the operator picks.
     Pwm,
-    /// Manchester: each bit is a mid-cell transition.
     Manchester,
-    /// Nothing matched; only the raw edge timings are reported.
     #[default]
     Raw,
 }
 
-/// One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short
-/// window collapse into one frame with a count, because every one of these devices sends its
-/// payload several times and a log with eight identical rows is a worse log.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct SubghzFrame {
     pub modulation: crate::channel::SubghzModulation,
     pub encoding: SubghzEncoding,
-    /// Decoded payload length in bits; 0 for a raw capture.
     pub bits: u32,
-    /// Payload as hex, MSB first, left-padded to whole bytes.
     pub data: String,
-    /// EV1527 reading of a 24-bit payload: the 20-bit transmitter address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<u32>,
-    /// EV1527 reading of a 24-bit payload: the 4 button bits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub button: Option<u8>,
-    /// PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tri_state: Option<String>,
-    /// The base pulse period the frame was measured against, in µs.
     pub short_us: u32,
-    /// How many times the identical payload arrived inside the collapse window.
     pub repeats: u32,
-    /// Raw pulse/gap durations in µs, pulse first — what a Flipper shows for a signal it
-    /// cannot name. Truncated, so this is for inspection, not replay.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timings_us: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ToneSquelchStatus {
-    /// The CTCSS tone present, in Hz.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ctcss_hz: Option<f64>,
-    /// The DCS code present, as the three octal digits a radio displays.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dcs_code: Option<u16>,
-    /// Whether audio is passing. Always true unless the channel was told to gate on a tone:
-    /// [`crate::NfmToneMode::Detect`] reports what is there without acting on it.
     pub open: bool,
 }
 
-/// The modulation family a [`IdentReport`] settled on.
-///
-/// Coarse on purpose. What a receiver can read off an unknown waveform is how its envelope, its
-/// instantaneous frequency and its spectrum behave, and those separate *families* — they do not
-/// separate the variants inside one, which is what the protocol candidates are for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Modulation {
-    /// Nothing rose above the noise floor.
     #[default]
     None,
-    /// A carrier with nothing on it.
     Carrier,
-    /// A carrier switched on and off — OOK/ASK, and the pulse modulations that look like it.
     Ook,
-    /// Amplitude modulation with its carrier present.
     Am,
-    /// One sideband, carrier suppressed.
     Ssb,
-    /// Analog frequency modulation: constant envelope, one broad continuum of frequencies.
     Fm,
-    /// Two-level frequency shift keying, GFSK and GMSK included.
     Fsk2,
-    /// Four-level FSK — the C4FM the land-mobile digital modes transmit.
     Fsk4,
-    /// Two-phase shift keying.
     Psk2,
-    /// Four-phase shift keying.
     Psk4,
-    /// Constant envelope, flat spectrum, no symbol structure to find: OFDM, spread spectrum,
-    /// and anything else that transmits something shaped like noise.
     NoiseLike,
-    /// Something is there, and none of the tests agreed on what.
     Unknown,
 }
 
@@ -430,109 +305,62 @@ impl Modulation {
         }
     }
 
-    /// Whether the identifier found anything to describe.
     #[must_use]
     pub const fn is_signal(self) -> bool {
         !matches!(self, Self::None)
     }
 }
 
-/// The measurements a classification was made from, carried so the decision can be checked
-/// rather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,
-/// not just the verdict.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct IdentFeatures {
-    /// Standard deviation of the envelope over its own mean. Zero for a constant-envelope
-    /// mode, large for anything that carries information in amplitude.
     pub envelope_variation: f32,
-    /// Fraction of the observation the carrier was keyed on. 1.0 for a continuous transmission.
     pub duty: f32,
-    /// Keyed-on level over keyed-off level, in dB — how deep the keying goes, which is what
-    /// separates a switched carrier from one that is merely fading.
     pub keying_depth_db: f32,
-    /// Power imbalance about the strongest spectral line, `(upper − lower) / total`. Zero for
-    /// a symmetric spectrum (AM, FM, most digital modes), ±1 for a single sideband.
     pub spectral_asymmetry: f32,
-    /// The strongest spectral line over the median of the occupied band, in dB — how much of
-    /// a carrier there is.
     pub carrier_db: f32,
-    /// Wiener entropy of the occupied band: 1.0 is white, 0.0 is a single tone.
     pub spectral_flatness: f32,
-    /// Instantaneous-frequency levels the discriminator resolved: 2 or 4 for keyed modes, 1
-    /// for a carrier, 0 when the distribution is a continuum.
     pub frequency_levels: u8,
-    /// Spread of the instantaneous frequency, in Hz — the deviation of an analog FM signal,
-    /// and roughly the outer deviation of a keyed one.
     pub frequency_spread_hz: f64,
-    /// Strength of the spectral line the squared signal produces, over its own floor, in dB.
-    /// A BPSK signal makes one; so does MSK, which is why the FSK tests run first.
     pub square_line_db: f32,
-    /// The same for the fourth power, which is what QPSK makes.
     pub quartic_line_db: f32,
 }
 
-/// One protocol the waveform could be, and what says so.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ProtocolMatch {
     pub name: String,
-    /// The channel type that decodes it, when this build has one — what the client offers to
-    /// switch the channel to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_id: Option<String>,
-    /// How well the measurements fit the protocol's signature, 0 to 1.
     pub score: f32,
-    /// Set when the protocol's own framing was found in the signal, not merely resembled. A
-    /// confirmed match is an answer; an unconfirmed one is a shortlist entry.
     #[serde(default)]
     pub confirmed: bool,
-    /// The evidence, in a phrase: what matched, or what was recognised.
     pub why: String,
 }
 
-/// What the signal identifier made of the slice it was pointed at.
-///
-/// Emitted on a cadence rather than per frame: there is no frame here. Each report describes one
-/// observation window, so a stream of them is a record of what was on the air and when.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct IdentReport {
     pub modulation: Modulation,
-    /// How firmly the classifier held that answer, 0 to 1.
     pub confidence: f32,
-    /// Which sideband, when the modulation is [`Modulation::Ssb`] and the signal sits wholly to
-    /// one side of where the channel is tuned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sideband: Option<crate::channel::Sideband>,
-    /// Occupied bandwidth, in Hz.
     pub bandwidth_hz: f64,
-    /// Where the signal's centre sits relative to the channel's own offset, in Hz — how far
-    /// the operator is off tune.
     pub center_offset_hz: f64,
-    /// Signal-to-noise ratio in the occupied band, in dB.
     pub snr_db: f32,
-    /// Symbols per second, when a symbol clock was found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol_rate_hz: Option<f64>,
-    /// Peak frequency deviation of a keyed or analog FM signal, in Hz.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deviation_hz: Option<f64>,
-    /// Protocols that fit, best first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<ProtocolMatch>,
     pub features: IdentFeatures,
 }
 
 impl IdentReport {
-    /// The candidate the report is actually asserting, if any: a confirmed match, or the best
-    /// resemblance when nothing was confirmed.
     #[must_use]
     pub fn best(&self) -> Option<&ProtocolMatch> {
         self.candidates.first()
     }
 }
 
-/// Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type
-/// serves all of them because the *question* is the same in every mode — who is talking, to
-/// whom, on which network — and only the names for it differ.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DvMode {
@@ -549,7 +377,6 @@ pub enum DvMode {
 }
 
 impl DvMode {
-    /// Display name, as operators write it.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
@@ -565,25 +392,14 @@ impl DvMode {
     }
 }
 
-/// What the burst was carrying. Every mode distinguishes these four, whatever it calls them:
-/// the frame that opens a transmission and names the parties, the voice frames that follow,
-/// the one that closes it, and the signalling that travels outside a call.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DvFrameKind {
-    /// Call setup: DMR voice LC header, D-Star header, P25 header, M17 link setup.
     #[default]
     Header,
-    /// A voice burst whose signalling named the call (late entry, or an embedded/link-control
-    /// repeat). Voice frames carrying nothing new are not reported — a 20 ms heartbeat is not
-    /// a log entry.
     Voice,
-    /// End of transmission.
     Terminator,
-    /// Signalling outside a call: a DMR CSBK, a P25 trunking block, an NXDN control message.
     Control,
-    /// Payload data rather than voice: a DMR data header, a D-Star fast-data or slow-data
-    /// text block, an M17 packet.
     Data,
 }
 
@@ -624,7 +440,6 @@ impl Vendor {
     }
 }
 
-/// Activity advertised for one DMR timeslot by a Short LC activity update.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DvSlotActivity {
     pub slot: u8,
@@ -642,8 +457,6 @@ pub struct DvChannelDefinition {
     pub color_code: Option<u8>,
 }
 
-/// What the signalling turned out to be. An observation, so it has no "auto" —
-/// [`crate::DmrTrunkProtocol`] is what an operator asks the node for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DvTrunkProtocol {
@@ -656,46 +469,34 @@ pub enum DvTrunkProtocol {
 pub struct DvFrame {
     pub mode: DvMode,
     pub kind: DvFrameKind,
-    /// TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<u8>,
-    /// The mode's network discriminator, under whichever name it publishes: DMR colour code,
-    /// NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_code: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vendor: Option<Vendor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manufacturer_id: Option<u8>,
-    /// True for a talkgroup call, false for a call addressed to one radio.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_call: Option<bool>,
-    /// Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<u32>,
-    /// Numeric destination: talkgroup for a group call, radio ID for a private one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination: Option<u32>,
-    /// Source callsign — the modes that address by callsign rather than by number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_call: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_call: Option<String>,
-    /// The repeater or reflector the call is routed through: D-Star RPT1/RPT2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
-    /// Set when the frame says its payload is encrypted. `Some(false)` is a positive statement
-    /// that it is in the clear; `None` means the frame did not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encrypted: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub algorithm_id: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_id: Option<u16>,
-    /// P25 encryption message indicator as the 72-bit hexadecimal value on the wire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_indicator: Option<String>,
-    /// DMR talker alias assembled from its header and continuation LCs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub talker_alias: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -704,20 +505,14 @@ pub struct DvFrame {
     pub lon: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position_error_m: Option<u32>,
-    /// Logical or absolute channel number named by trunking signalling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_definition: Option<DvChannelDefinition>,
-    /// Set where the signalling names its own flavour, so a follower keys on a discriminant
-    /// rather than on the wording of [`DvFrame::opcode`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trunk_protocol: Option<DvTrunkProtocol>,
-    /// Whether the frame's own CRC matched. `Some(false)` survived only because the channel was
-    /// told to ignore the check, so nothing may act on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crc_verified: Option<bool>,
-    /// Capacity Plus logical slot number carrying the rest channel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rest_channel: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -732,24 +527,16 @@ pub struct DvFrame {
     pub late_entry: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slot_activity: Vec<DvSlotActivity>,
-    /// Decoded packet text, or hexadecimal when its application format is not understood.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<String>,
-    /// Name of the signalling opcode for a control frame — "group voice channel grant",
-    /// "preamble", … — as its specification names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opcode: Option<String>,
-    /// Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta
-    /// field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Bit errors the frame's error-correcting codes repaired — the honest signal-quality
-    /// readout, since a mode with no audio has no other.
     pub errors_corrected: u32,
 }
 
 impl DvFrame {
-    /// A frame of `mode` and `kind` with nothing else known yet.
     #[must_use]
     pub fn new(mode: DvMode, kind: DvFrameKind) -> Self {
         Self {
@@ -759,7 +546,6 @@ impl DvFrame {
         }
     }
 
-    /// How the parties read on one line: `TG 505 ← 2621001`, `DL1ABC → CQCQCQ`.
     #[must_use]
     pub fn parties(&self) -> Option<String> {
         let to = self.destination_call.clone().or_else(|| {
@@ -781,7 +567,6 @@ impl DvFrame {
     }
 }
 
-/// Broadcast waveform identified by a standards-specific synchronizer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BroadcastSystem {
@@ -808,8 +593,6 @@ impl BroadcastSystem {
     }
 }
 
-/// Periodic acquisition report from a wideband digital-broadcast channel. These values describe
-/// the RF lock itself; absent service fields mean the multiplex has not been decoded.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
     pub system: BroadcastSystem,
@@ -826,12 +609,9 @@ pub struct BroadcastStatus {
     pub label: Option<String>,
 }
 
-/// One complete civil-time minute recovered from a long-wave radio-clock service.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RadioClockFrame {
     pub standard: RadioClockStandard,
-    /// ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;
-    /// WWVB is UTC.
     pub datetime: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub utc_offset_minutes: Option<i16>,
@@ -841,11 +621,9 @@ pub struct RadioClockFrame {
     pub leap_warning: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dut1_seconds: Option<f32>,
-    /// The 60 received symbols (`0`, `1`, `M` marker, `?` invalid).
     pub symbols: String,
 }
 
-/// GPS L1 C/A acquisition state or one parity-checked NAV subframe.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GnssFrame {
     pub prn: u8,
@@ -890,7 +668,6 @@ pub enum DecoderEvent {
 }
 
 impl DecoderEvent {
-    /// Stable discriminator, matching the channel `type_id` that produces it.
     #[must_use]
     pub fn kind(&self) -> &'static str {
         match self {
@@ -919,8 +696,6 @@ impl DecoderEvent {
         }
     }
 
-    /// One-line human summary: the log list's row text and the CSV export's `summary`
-    /// column. Lives here so every consumer renders an event the same way.
     #[must_use]
     pub fn summary(&self) -> String {
         match self {
@@ -970,8 +745,6 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
-            // A Mic-E monitor line is packed binary, so the message named beside it is the
-            // only part of the row a reader can act on.
             Self::Aprs(p) => match &p.mic_e_message {
                 Some(message) => format!("{} · {message}", p.tnc2),
                 None => p.tnc2.clone(),
@@ -1161,8 +934,6 @@ impl DecoderEvent {
         lat.zip(lon)
     }
 
-    /// Stable identity of the emitter within a decoder — aircraft ICAO, vessel MMSI, APRS
-    /// callsign, pager address. Map layers and the log's "latest per station" view key on it.
     #[must_use]
     pub fn station(&self) -> Option<String> {
         match self {
@@ -1171,12 +942,8 @@ impl DecoderEvent {
             Self::Adsb(a) => Some(a.icao.clone()),
             Self::Ais(m) => Some(m.mmsi.to_string()),
             Self::Aprs(p) => Some(p.source.clone()),
-            // A NAVTEX station is identified by B1 alone only within its NAVAREA, but a
-            // receiver hears one area at a time, so B1 is the identity that matters here.
             Self::Navtex(n) => n.station.map(String::from),
             Self::Acars(a) => Some(a.registration.clone()),
-            // The transmitter's own address when the payload carries one; otherwise the
-            // payload itself, which is what an unidentified remote is known by.
             Self::Subghz(f) => f
                 .address
                 .map(|a| format!("{a:05X}"))
@@ -1187,8 +954,6 @@ impl DecoderEvent {
                 .or_else(|| f.source.map(|s| s.to_string())),
             Self::Ft8(m) | Self::Ft4(m) => m.text.split_whitespace().nth(1).map(str::to_owned),
             Self::Wspr(s) => Some(s.callsign.clone()),
-            // A survey of what is on a frequency names no emitter: the whole point is that
-            // whoever is transmitting has not been identified yet.
             Self::Rtty(_)
             | Self::Morse(_)
             | Self::Psk31(_)
@@ -1210,9 +975,7 @@ impl DecoderEvent {
 pub struct DecodedRecord {
     pub device_set: u32,
     pub channel: u32,
-    /// RFC3339 UTC.
     pub at: String,
-    /// Absolute RF frequency of the channel when the frame arrived, in Hz.
     pub freq_hz: f64,
     pub event: DecoderEvent,
 }
@@ -1221,8 +984,6 @@ pub struct DecodedRecord {
 mod tests {
     use super::*;
 
-    /// The `{"kind": …, "data": …}` tagging is what the generated TS union discriminates on,
-    /// and what the log table's `kind` column mirrors; lock it.
     #[test]
     fn decoder_event_is_adjacently_tagged() {
         let ev = DecoderEvent::Pocsag(PocsagMessage {
@@ -1330,9 +1091,6 @@ mod tests {
         }
     }
 
-    /// The B2 table is the only place a letter becomes a claim about what the broadcast is
-    /// for, so it is transcribed here against ITU-R M.540 rather than spot-checked — and the
-    /// unassigned letters must stay unnamed.
     #[test]
     fn navtex_subject_names_match_the_standard_table() {
         const NAMED: [(char, &str); 16] = [
@@ -1383,8 +1141,6 @@ mod tests {
         assert_eq!(msg.header(), None);
     }
 
-    /// A raw sub-GHz capture carries no bits, so the summary must describe the capture rather
-    /// than print an empty payload.
     #[test]
     fn subghz_summary_describes_a_raw_capture() {
         let raw = DecoderEvent::Subghz(SubghzFrame {
@@ -1439,8 +1195,6 @@ mod tests {
         assert_eq!(gnss.station().as_deref(), Some("GPS-7"));
     }
 
-    /// A Mic-E packet's TNC2 line is the packed binary it was sent as, so the log row names
-    /// the message; every other APRS packet's line is already readable and is left alone.
     #[test]
     fn a_mic_e_summary_names_the_message_beside_the_monitor_line() {
         let mut packet = AprsPacket {

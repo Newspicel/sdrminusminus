@@ -6,11 +6,9 @@ use sdrmm_modem::{
 };
 
 const FRAME_SYNC: u32 = 0x7CD2_15D8;
-/// Idle codeword — fills unused slots and terminates a message.
 const IDLE: u32 = 0x7A89_C197;
 const BATCH_CODEWORDS: usize = 16;
 const CODEWORD_BITS: u32 = 32;
-/// Payload bits a message codeword carries (32 minus the flag, BCH check bits and parity).
 const PAYLOAD_BITS: usize = 20;
 const ALPHA_BITS: usize = 7;
 const NUMERIC_BITS: usize = 4;
@@ -19,12 +17,8 @@ const PREAMBLE_BITS: usize = 576;
 const NUMERIC_ALPHABET: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', 'U', ' ', '-', ')', '(',
 ];
-/// The space code, which is also what a transmitter pads the last numeric codeword with.
 const NUMERIC_SPACE: u8 = 12;
 
-/// One page to transmit: a 21-bit receiver address (RIC), its function bits, and the message
-/// body. `numeric` picks the 4-bit BCD alphabet; a real transmitter pairs it with function 0.
-/// An empty `text` makes a tone-only page (no message codewords).
 #[derive(Clone, Debug)]
 pub struct Page {
     pub address: u32,
@@ -33,9 +27,6 @@ pub struct Page {
     pub numeric: bool,
 }
 
-/// Encode `pages` into the codeword stream that follows the preamble: whole batches, each a
-/// frame sync codeword plus 16 codewords, unused slots idle. An all-idle batch is always
-/// appended so the final message is terminated in-stream rather than by loss of carrier.
 #[must_use]
 pub fn codewords(pages: &[Page]) -> Vec<u32> {
     let mut batches = vec![[IDLE; BATCH_CODEWORDS]];
@@ -59,15 +50,11 @@ pub fn codewords(pages: &[Page]) -> Vec<u32> {
         .collect()
 }
 
-/// Encode `pages` into a complete POCSAG transmission (preamble + batches) as complex baseband
-/// IQ at `rate`, keyed at `baud` with ±`deviation_hz`.
 #[must_use]
 pub fn transmission(pages: &[Page], baud: u16, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     keyed(&codewords(pages), baud, deviation_hz, rate)
 }
 
-/// Key an arbitrary codeword stream behind the preamble — [`transmission`] without the
-/// framing, so a test can transmit a deliberately damaged codeword sequence.
 #[must_use]
 pub fn keyed(words: &[u32], baud: u16, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let mut symbols = Vec::with_capacity(PREAMBLE_BITS + words.len() * CODEWORD_BITS as usize);
@@ -115,7 +102,6 @@ fn message_codewords(page: &Page) -> Vec<u32> {
         for ch in page.text.chars() {
             push_lsb_first(&mut bits, ascii7(ch), ALPHA_BITS);
         }
-        // NUL padding: the decoder stops at the first one, so it never reaches the message.
         while !bits.len().is_multiple_of(PAYLOAD_BITS) {
             bits.push(false);
         }
@@ -136,7 +122,6 @@ fn push_lsb_first(bits: &mut Vec<bool>, value: u8, len: usize) {
     bits.extend((0..len).map(|i| value >> i & 1 == 1));
 }
 
-/// Characters outside the BCD alphabet have no encoding; they become spaces.
 fn numeric_code(ch: char) -> u8 {
     NUMERIC_ALPHABET
         .iter()
@@ -144,7 +129,6 @@ fn numeric_code(ch: char) -> u8 {
         .map_or(NUMERIC_SPACE, |i| i as u8)
 }
 
-/// The alphanumeric alphabet is 7-bit ASCII; anything else becomes `?`.
 fn ascii7(ch: char) -> u8 {
     if ch.is_ascii() { ch as u8 } else { b'?' }
 }

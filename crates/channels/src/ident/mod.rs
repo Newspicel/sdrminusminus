@@ -1,27 +1,3 @@
-//! Signal identifier: point it at something unknown and it says what the modulation is and,
-//! where it can, which protocol.
-//!
-//! This is a channel like any other — IQ in, decoder events out — but it demodulates nothing.
-//! Each report is one observation window run through five stages:
-//!
-//! 1. [`detect`] averages the spectrum of the slice and pulls the occupied band out of it.
-//! 2. [`features`] mixes that band to DC, decimates to a rate matched to it, and measures the
-//!    waveform: envelope, instantaneous frequency, symbol clock, phase nonlinearities.
-//! 3. [`classify`] walks a decision tree over those measurements to a modulation family.
-//! 4. [`catalog`] scores every protocol signature the family admits.
-//! 5. [`framing`] settles the digital-voice shortlist — whose members share a waveform — by
-//!    demodulating against each candidate and looking for its frame sync.
-//!
-//! Reports carry the measurements they were decided from, so a verdict can be checked rather than
-//! believed. Nothing here is a decode: the identifier tells an operator which channel type to
-//! reach for, and that channel does the decoding.
-//!
-//! The analysis is bounded but not free — it is a handful of transforms, one decimation pass and,
-//! at most, a couple of demodulations — so it runs once per `interval_ms` rather than per block,
-//! and allocates while it does. That is a deliberate exception to the crate's no-allocation rule,
-//! of the same shape and for the same reason as the host's own owned-event hand-off: it happens
-//! once a second on a path whose cost is bounded by construction.
-
 mod catalog;
 mod classify;
 mod detect;
@@ -40,25 +16,12 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-/// The rate the identifier meets the DDC at.
-///
-/// Wide enough to hold a broadcast FM signal whole, which is the widest thing anything else in
-/// this build decodes — and exactly five times the digital-voice front-end rate, so the framing
-/// search reaches 48 kHz by integer decimation alone and never through an interpolator.
 const INPUT_RATE_HZ: f64 = 240_000.0;
 
-/// Channel-selection filter length. The passband is most of the rate, so the transition band is
-/// enormous and a short filter is ample.
 const CHANNEL_TAPS: usize = 63;
 
-/// Longest observation one report may stand on, in samples — a little over a second at the
-/// channel rate. The cap is what keeps a long report interval from turning into an unbounded
-/// buffer and an unbounded analysis; past it the *cadence* still lengthens, and each report
-/// describes the second before it rather than the whole gap.
 const MAX_WINDOW: usize = 262_144;
 
-/// Shortest observation worth analysing. Below this the detection transform cannot be averaged
-/// at all and the band edges would move between reports on a signal that never changed.
 const MIN_WINDOW: usize = 4 * detect::DETECT_FFT;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -73,10 +36,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct IdentChannel {
     params: IdentParams,
-    /// What the next report will be measured from: the most recent [`MAX_WINDOW`] samples.
     window: Vec<Complex<f32>>,
-    /// Samples since the last report, which is what the cadence is counted in — the window holds
-    /// fewer than these once the interval outruns the analysis cap.
     pending: usize,
     detector: detect::Detector,
     meter: features::Meter,
@@ -93,8 +53,6 @@ fn params(settings: &ChannelSettings) -> Result<&IdentParams, ChannelError> {
 }
 
 fn check_params(p: &IdentParams) -> Result<(), ChannelError> {
-    // The band edges are read off an averaged spectrum, so the whole slice has to arrive at the
-    // same level — the DDC's flat passband, not the wider band it merely keeps free of aliases.
     let widest = flat_bandwidth_hz(INPUT_RATE_HZ).min(MAX_IDENT_BANDWIDTH_HZ);
     if !(p.bandwidth_hz.is_finite() && (MIN_IDENT_BANDWIDTH_HZ..=widest).contains(&p.bandwidth_hz))
     {
@@ -120,7 +78,6 @@ fn check_params(p: &IdentParams) -> Result<(), ChannelError> {
     Ok(())
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &IdentParams) -> (f64, f64) {
     let half = p.bandwidth_hz / 2.0;
     (-half, half)
@@ -135,7 +92,6 @@ pub(crate) fn channel_filter(p: &IdentParams) -> Result<ChannelFilter, ChannelEr
     )))
 }
 
-/// Samples between reports.
 fn interval_samples(p: &IdentParams) -> usize {
     let wanted = (f64::from(p.interval_ms) / 1_000.0 * INPUT_RATE_HZ) as usize;
     wanted.max(MIN_WINDOW)
@@ -156,8 +112,6 @@ impl IdentChannel {
         );
         let Some(band) = measured.band else {
             return IdentReport {
-                // How close the loudest thing in the slice came to the threshold. Reported so a
-                // "nothing here" is a measurement rather than a shrug.
                 snr_db: measured.peak_db - measured.floor_db,
                 confidence: 1.0,
                 ..IdentReport::default()
@@ -204,8 +158,6 @@ impl IdentChannel {
     }
 }
 
-/// Whether a deviation is a thing this modulation has. Reporting one for a keyed *carrier* would
-/// be quoting the discriminator's noise as a property of the transmission.
 const fn shifts(modulation: Modulation) -> bool {
     matches!(
         modulation,
@@ -242,8 +194,6 @@ impl ChannelRx for IdentChannel {
     }
 
     fn retuned(&mut self) {
-        // Half an observation from the old frequency and half from the new would be measured as
-        // one signal, and reported as a protocol neither of them is.
         self.restart();
     }
 

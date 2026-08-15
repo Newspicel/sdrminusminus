@@ -1,13 +1,3 @@
-// Everything a decoded frame carried, for the row the decoder log expands.
-//
-// A log row is one line, and one line cannot hold a NAVTEX broadcast's text, an ACARS block's
-// body or a sub-GHz burst's pulse train. Those used to be read in per-channel panes, which were
-// a second copy of this log; the detail lives here instead, so there is one place a frame is read
-// and it is the place that stored it.
-//
-// Pure and exhaustive over `DecoderKind`: a decoder added to `wire` fails the typecheck here
-// until its fields have somewhere to be shown.
-
 import type { AprsPacket, DecoderEvent, DecoderKind, DvFrame } from "../lib/types";
 import { hex5 } from "./decoderLog";
 import {
@@ -19,18 +9,13 @@ import {
   modulationLabel,
 } from "./decoderViews";
 
-/** One `label: value` pair. Only the fields a frame actually carried are emitted — an absent
- * field is a thing the transmission did not say, and a column of em dashes says it worse. */
 export type DetailField = readonly [label: string, value: string];
 
 export interface EventDetail {
   fields: DetailField[];
-  /** Free text that needs its own block: a broadcast, a message body, a pulse train. `null`
-   * when the frame carried none, which is most of them. */
   body: string | null;
 }
 
-/** Every field of a decoded frame, laid out for reading. */
 export function eventDetail(event: DecoderEvent): EventDetail {
   const build = DETAIL[event.kind] as (data: DecoderEvent["data"]) => EventDetail;
   return build(event.data);
@@ -171,8 +156,6 @@ const DETAIL: {
       ["Station", n.station],
       ["Subject", n.subject_name ?? n.subject],
       ["Serial", n.serial == null ? undefined : String(n.serial).padStart(2, "0")],
-      // A broadcast the carrier cut short is still worth reading, but not worth trusting
-      // whole, and the row is the only place that distinction survives.
       ["Ended with NNNN", n.complete ? "yes" : "no — flushed early"],
       ["Repaired", n.errors_corrected > 0 ? `${n.errors_corrected} characters` : undefined],
     ]),
@@ -205,14 +188,9 @@ const DETAIL: {
       ["Base period", f.short_us > 0 ? `${f.short_us} µs` : undefined],
       ["Repeats", f.repeats > 1 ? `×${f.repeats}` : undefined],
     ]),
-    // Pulse first, then gap, as the decoder measured them. Truncated at the source, so this is
-    // for inspection and never for replay.
     body: timings(f.timings_us ?? []),
   }),
 
-  // The measurements first, then the shortlist. A verdict with nothing behind it is worth less
-  // than no verdict, so the numbers it was decided from are part of the answer rather than a
-  // debugging aside.
   ident: (r) => ({
     fields: [
       ["Modulation", modulationLabel(r)],
@@ -264,8 +242,6 @@ const DETAIL: {
       ["Emergency", flag(f.emergency)],
       ["Late entry", flag(f.late_entry)],
       ["Slot activity", slotActivity(f)],
-      // `Some(false)` is a positive statement that the payload is in the clear; absent means the
-      // frame did not say, which is not the same thing.
       ["Encrypted", flag(f.encrypted)],
       ["Algorithm", f.algorithm_id == null ? undefined : hex(f.algorithm_id, 2)],
       ["Key ID", f.key_id == null ? undefined : hex(f.key_id, 4)],
@@ -374,7 +350,6 @@ function hex(value: number, width: number): string {
   return `0x${value.toString(16).toUpperCase().padStart(width, "0")}`;
 }
 
-/** What the frame was: the words a scanner shows rather than the specification's field names. */
 function dvKind(frame: Pick<DvFrame, "kind">): string {
   switch (frame.kind) {
     case "header":
@@ -390,13 +365,10 @@ function dvKind(frame: Pick<DvFrame, "kind">): string {
   }
 }
 
-/** A Mic-E monitor line is packed binary, so it is shown as the body rather than pretended to be
- * readable inline; every other packet's line already reads as text. */
 function monitorLine(packet: AprsPacket): string | null {
   return packet.tnc2 || null;
 }
 
-/** Drops the fields the frame did not carry, so the list is what was received and not a form. */
 function fields(rows: readonly (readonly [string, string | null | undefined])[]): DetailField[] {
   return rows.flatMap(([label, value]) =>
     value == null || value === "" ? [] : [[label, value] as DetailField],
@@ -445,8 +417,6 @@ function header(
   return `${station}${subject}${String(serial).padStart(2, "0")}`;
 }
 
-/** Pulse/gap durations as pairs, so the reader can see the cell structure rather than a wall of
- * numbers. */
 function timings(us: readonly number[]): string | null {
   if (us.length === 0) {
     return null;

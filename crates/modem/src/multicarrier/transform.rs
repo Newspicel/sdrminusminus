@@ -1,5 +1,3 @@
-//! The two pieces of linear algebra all four multicarrier waveforms are built from: a **unitary**
-//! transform of arbitrary size, and a dense complex solve.
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -15,8 +13,6 @@ pub struct Dft {
 }
 
 impl Dft {
-    /// # Panics
-    /// If `n` is zero — a transform of nothing has no scaling.
     #[must_use]
     pub fn new(n: usize) -> Self {
         assert!(n > 0, "a transform needs at least one point");
@@ -48,7 +44,6 @@ impl Dft {
         self.n == 0
     }
 
-    /// In-place forward transform, scaled by `1/√N`.
     pub fn forward(&mut self, buf: &mut [Complex<f32>]) {
         self.forward.process_with_scratch(buf, &mut self.scratch);
         for v in buf.iter_mut() {
@@ -56,7 +51,6 @@ impl Dft {
         }
     }
 
-    /// In-place inverse transform, scaled by `1/√N`.
     pub fn inverse(&mut self, buf: &mut [Complex<f32>]) {
         self.inverse.process_with_scratch(buf, &mut self.scratch);
         for v in buf.iter_mut() {
@@ -114,8 +108,6 @@ pub fn invert(a: &mut [Complex<f64>], n: usize) -> Option<()> {
     Some(())
 }
 
-/// `y = A·x` for a row-major `rows × cols` matrix — the one operation a dense receiver performs
-/// per block, written once so no entry rolls its own loop order.
 pub fn matvec(
     a: &[Complex<f32>],
     rows: usize,
@@ -139,9 +131,6 @@ pub fn matvec(
 mod tests {
     use super::*;
 
-    /// Unitarity, both halves: a round trip is the identity, and the energy is unchanged in the
-    /// middle — which is what makes a per-subcarrier Eb/N0 the same quantity as a time-domain
-    /// one.
     #[test]
     fn the_transform_is_unitary_at_any_size() {
         for n in [8usize, 48, 80, 100] {
@@ -164,8 +153,6 @@ mod tests {
         }
     }
 
-    /// The solve against a matrix whose inverse is known by construction, and a singular one it
-    /// must refuse rather than return noise for.
     #[test]
     fn the_inverse_is_an_inverse_and_a_singular_matrix_is_refused() {
         let n = 6;

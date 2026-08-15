@@ -1,8 +1,3 @@
-//! The discriminator-tier CPM demodulator: carrier gate → detector front end → matched receive
-//! filter → `SymbolSync` → M-level normalisation. One soft symbol per symbol period comes out,
-//! gaps included, scaled so the transmitted levels sit at the mapping table's values whatever
-//! the transmitter's actual deviation — a narrowband transmitter 20 % under-deviated is a
-//! signal to decode, not to reject.
 use num_complex::Complex;
 use sdrmm_dsp::{
     Decimator, FmDemod, Nco, RealDecimator, SymbolSync, ToneCorrelator, design_lowpass,
@@ -11,128 +6,38 @@ use sdrmm_dsp::{
 
 use super::params::CpmParams;
 
-/// Timing loop bandwidth for burst/TDMA entries, in cycles per symbol — `fsk4`'s measured
-/// 0.015. A transmitter's symbol clock is crystal-derived, so the loop only has to acquire:
-/// quickly enough to be locked before a 30 ms burst's sync pattern arrives (~80 symbols from
-/// a cold phase), and wide enough that a static sample-clock error is pulled in within an
-/// acquisition preamble — the committed DMR limits row (23 047 ppm through an 88-symbol
-/// preamble) is only reachable at this width. The cost is the continuous-stream self-noise
-/// documented at [`TIMING_BW_CONTINUOUS`]; a TDMA gate freezes the loop through every gap
-/// before the walk can accumulate, so burst entries never pay it.
 pub const TIMING_BW_BURST: f64 = 0.015;
 
-/// Timing loop bandwidth for continuously-keyed entries. Measured for this engine (see the
-/// module docs in [`super`]): at 0.015 the Gardner detector's self-noise — mid-point ISI on
-/// transitions the symmetry gate cannot reject — integrates into the loop until the rate
-/// estimate walks ±0.09 % on a signal with zero clock error, and six clean 20 000-symbol
-/// 4-level runs collect 879 symbol errors (7e-3: the committed phase-0 floor). At 0.003 the
-/// same six runs collect one error and the rate stays within ±0.02 %. The cost is agility: a
-/// static sample-clock offset pulls in ~25× slower, which the crystal-disciplined
-/// transmitters behind continuous modes (tens of ppm) never make visible.
 pub const TIMING_BW_CONTINUOUS: f64 = 0.003;
 
-/// Floor on the symbol periods the centre estimate averages over — `fsk4`'s 150. A receiver
-/// frequency error is static, so this is deliberately far longer than any run of one symbol a
-/// mode can transmit (RTTY's idle is *continuous* mark — no alphabet argument may shorten the
-/// guard against chasing it), and the committed DMR frequency-drift limit row was measured at
-/// this speed.
 const CENTRE_SYMBOLS_FLOOR: f32 = 150.0;
 
-/// Calibration of the mapping-derived centre averaging. The centre learns from the filtered
-/// signal's mean, so random data wobbles it by √(E[level²]/N) — a fixed N leaves the wobble
-/// growing with the alphabet's power while the slicing margin (half a level spacing) stays
-/// put: at `fsk4`'s N = 150 the wobble is 0.18 margins on the DMR table but 0.37 on an
-/// 8-level one, which brushes the ±5/±7 boundary on clean signal. So N scales with the table:
-/// `N = CENTRE_POWER_SYMBOLS · E[level²] / (spacing/2)²`, which holds the wobble at 0.18
-/// margins for every alphabet and reproduces `fsk4`'s measured 150 exactly on the DMR table
-/// (30 · 5 / 1). The cost is proportionally slower drift tracking for the bigger alphabets —
-/// which need it: their margins shrink as fast as their wobble would have grown.
 const CENTRE_POWER_SYMBOLS: f32 = 30.0;
 
 const PEAK_SYMBOLS: f32 = 60.0;
 
-/// Decay of the peak estimate while the symbol sits *below* the outer region — the safety
-/// path that keeps the estimate from latching high when the outer region goes quiet: a
-/// transmitter that dropped more than the region width (a TDMA level step, gross
-/// under-deviation) would otherwise never re-enter the region and never be followed. Four
-/// times [`PEAK_SYMBOLS`], measured against both sides of the trade: slow enough that the
-/// M = 8 equilibrium stays within its slicing margin (out-of-region loss must stay under the
-/// in-region dynamics), fast enough that a −7.3 dB burst-to-burst level step — the committed
-/// DMR limits row — decays within one 132-symbol burst to a gain the known-symbol hook's
-/// 0.5..2.0 plausibility gate accepts (e^(−132/240) ⇒ measured gain ≈ 0.74).
 const PEAK_HOLD_SYMBOLS: f32 = 4.0 * PEAK_SYMBOLS;
 
-/// How much of a rise the peak estimate takes per symbol. A discriminator click, or the tail
-/// of a keying edge that got past the gate, is one symbol at two or three times any level the
-/// transmitter used; a plain maximum would scale the whole eye down by that for as long as its
-/// decay, and an outer symbol scaled below the decision level slices as an inner one — the one
-/// error the outer levels cannot absorb. Following a rise over a few symbols keeps a real
-/// change in level and leaves a spike behind. Under-reading the level is safe, over-reading
-/// is not.
 const PEAK_ATTACK: f32 = 0.125;
 
-/// Smoothing of the channel power the carrier gate reads, in symbol periods — `fsk4`'s 10⁻⁴ s,
-/// which its comment already names "half a symbol at the fastest mode here". Deliberately
-/// short: the gate has to fall below its threshold within the matched filter's group delay of
-/// a transmitter keying down, and that delay is denominated in symbols, so the smoothing must
-/// be too. Noise cannot open the gate however much this jitters, because opening also takes a
-/// whole filter span of it.
 const ENVELOPE_TAU_SYMBOLS: f64 = 0.5;
 
-/// How fast the gate's noise-floor estimate follows the channel, in symbol periods — `fsk4`'s
-/// 20 ms at 4800 baud — while nothing is keyed, and only then. A floor that went on learning
-/// through a transmission would climb to the signal and gate out the very mode that never
-/// stops transmitting.
 const FLOOR_TAU_SYMBOLS: f64 = 96.0;
 
-/// Multiples of [`FLOOR_TAU_SYMBOLS`] the floor is measured over before the gate may open at
-/// all. Held shut rather than open: a gate that counted the startup transient as a carrier
-/// would hand the level estimate the noise, and the first real burst would spend itself
-/// decaying back down. Nothing is lost by waiting — there is no estimate worth making yet
-/// either.
 const FLOOR_SETTLE: f64 = 4.0;
 
-/// How far above the noise floor the channel power has to sit for a carrier to be counted
-/// present. Six decibels: no discriminator-tier FSK signal decodes at less, so nothing that
-/// could have been decoded is gated out, and power smoothed over [`ENVELOPE_TAU_SYMBOLS`] of
-/// noise never reaches it.
 const CARRIER_RISE: f32 = 4.0;
 
-/// Taps of the analytic front end's image-reject lowpass. 127 at the audio rates these
-/// entries run (the ACARS chain this generalises uses the same order) puts the transition
-/// band well inside the gap between the wanted tones and their mirror image.
 const IMAGE_TAPS: usize = 127;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RealDetector {
-    /// Mix the audio down by `centre_hz`, reject the mirror image a real signal carries, and
-    /// quadrature-discriminate — the MSK-in-AM shape (ACARS: 1800 Hz centre). Output is in
-    /// mapping-level units, exactly as the complex path's discriminator.
-    Discriminator {
-        /// The frequency midway between the outermost tones, in Hz at the audio rate.
-        centre_hz: f64,
-    },
-    /// Two sliding tone correlators; their magnitude difference is the detected level — the
-    /// classic AFSK detector (Bell 202: 1200/2200 Hz). Two tones detect two levels, so this
-    /// detector requires M = 2; the tone that reads +1 and the tone that reads −1 are stated
-    /// explicitly, and the mapping table says which *symbol* each is — the assignment is
-    /// data, not a sign convention.
-    ToneFilterbank {
-        /// Tone whose presence reads as level +1, in Hz.
-        plus_hz: f64,
-        /// Tone whose presence reads as level −1, in Hz.
-        minus_hz: f64,
-    },
+    Discriminator { centre_hz: f64 },
+    ToneFilterbank { plus_hz: f64, minus_hz: f64 },
 }
 
-/// Everything between the input samples and the detected real-valued level signal.
 enum FrontEnd {
-    /// Complex IQ in: quadrature FM discriminator, scaled so a symbol at mapping level L
-    /// reads L (`FmDemod` at rate = sps, deviation = h/2 — the per-sample phase step of
-    /// level L is π·h·L/sps, so ±h/2 "cycles per sample-rate unit" is ±1 level).
     Quadrature(FmDemod),
-    /// Real audio in: subcarrier shift, image reject, then the same discriminator (deviation
-    /// per level unit is h·baud/2 Hz).
     Analytic {
         mixer: Nco,
         image: Decimator,
@@ -140,90 +45,43 @@ enum FrontEnd {
         mixed: Vec<Complex<f32>>,
         baseband: Vec<Complex<f32>>,
     },
-    /// Real audio in: tone-pair correlator difference, already in ±1 level units.
     Filterbank {
         plus: ToneCorrelator,
         minus: ToneCorrelator,
     },
 }
 
-/// M-ary CPM/CPFSK demodulator producing normalised soft symbols; see the module docs. Slicing
-/// and per-bit soft output are the mapping table's job
-/// ([`Mapping::slice`](super::Mapping::slice), [`Mapping::soft_bits`](super::Mapping::soft_bits));
-/// the known-symbol hook ([`KnownSymbols`](super::KnownSymbols)) corrects these symbols where a
-/// protocol has sync patterns to anchor on.
 pub struct CpmDemod {
     front: FrontEnd,
     matched: RealDecimator,
     sync: SymbolSync,
-    /// The mapping's outer |level| — what the peak estimates normalise to.
     level_max: f32,
     centre: f32,
-    /// Level the decision scale is set by, learned only from a keyed channel, in mapping-level
-    /// units (a transmitter at the nominal deviation puts its outer symbols at ±`level_max`).
     peak: f32,
-    /// The same estimate for a channel with nothing on it, learned only while there is not.
-    /// A discriminator fed noise swings further than any symbol a transmitter sends, so
-    /// scaling dead time by the *signal's* level would slice every sample of it to an outer
-    /// symbol — a stream of two indices where there should be M, which a sync pattern then
-    /// matches by chance far more often than noise ever may.
     idle_peak: f32,
     centre_alpha: f32,
     peak_decay: f32,
     peak_hold_decay: f32,
-    /// Lower edge of the outer decision region as a fraction of the peak estimate:
-    /// `(max_level − spacing/2) / max_level`. Zero for M = 2, where both levels are outer and
-    /// every keyed symbol tracks the peak.
     outer_region: f32,
     envelope: f32,
     floor: f32,
     envelope_alpha: f32,
     floor_alpha: f32,
-    /// Samples left of the window the floor is measured over, during which the gate is held
-    /// shut because nothing is yet known about the channel.
     settling: usize,
     settle_samples: usize,
-    /// Consecutive input samples whose power was above the gate's floor, saturating at
-    /// `support`.
     keyed: usize,
-    /// Samples of filtering between the input and a recovered symbol: the matched filter plus
-    /// whatever support the front end adds (a correlator window, the image filter). The
-    /// chain's output only stops carrying a burst edge once this whole span has a carrier
-    /// under it, so the gate opens that late and closes that early — eroding the keyed
-    /// interval by the group delay at each end.
     support: usize,
     demod_buf: Vec<f32>,
     filtered: Vec<f32>,
-    /// Whether each sample of `filtered` has a carrier under it, and whether it has had one
-    /// for the whole of `support`. The first says which of the two level estimates describes
-    /// it; only the second may be *learned* from, because within a span of a keying edge the
-    /// filtered output is part burst and part dead channel. A burst's first symbols still
-    /// have to be sliced against the transmitter's level — they are the head of the payload —
-    /// so the two questions cannot share one answer.
     carrier_run: Vec<bool>,
     settled_run: Vec<bool>,
-    /// The timing recovery works on complex baseband; a detector produces real samples, and
-    /// for those Gardner's expression carries the imaginary part along as zero.
     centred: Vec<Complex<f32>>,
     retimed: Vec<Complex<f32>>,
-    /// The same two questions, per symbol of `retimed`.
     retimed_carrier: Vec<bool>,
     retimed_settled: Vec<bool>,
 }
 
 impl CpmDemod {
-    /// Complex-baseband construction: quadrature discriminator front end.
-    ///
-    /// `receive_filter` is the entry's frequency-pulse-matched receive filter — the RRC half
-    /// of a root pair, the Gaussian premod shape, rect for NRZ keying — as
-    /// [`pulse::Norm::Area`](crate::pulse::Norm) taps: the level estimates rely on the
-    /// filter's unit DC gain. `timing_bw` is the `SymbolSync` loop bandwidth in cycles per
-    /// symbol; [`TIMING_BW_BURST`] and [`TIMING_BW_CONTINUOUS`] are the two measured
-    /// operating points and the choice is part of the entry's data.
-    ///
-    /// # Panics
-    /// If `receive_filter` is empty or not unit-area, or `timing_bw` is outside
-    /// `SymbolSync`'s (0, 1).
     #[must_use]
     pub fn new(params: &CpmParams, receive_filter: &[f32], timing_bw: f64) -> Self {
         let front = FrontEnd::Quadrature(FmDemod::new(params.sps(), params.h() / 2.0));
@@ -338,13 +196,6 @@ impl CpmDemod {
         }
     }
 
-    /// Demodulate a block of complex baseband, appending one soft symbol per recovered symbol
-    /// period to `out`. Timing and level state carry across calls, so any block split gives
-    /// the same symbols.
-    ///
-    /// # Panics
-    /// If this demodulator was constructed with [`Self::real`] — the wrong input domain is a
-    /// construction-site bug, caught on the first call.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<f32>) {
         self.carrier_run.clear();
         self.settled_run.clear();
@@ -358,12 +209,6 @@ impl CpmDemod {
         self.finish(out);
     }
 
-    /// As [`Self::process`], for real audio-domain samples through the constructed
-    /// [`RealDetector`]. The chain downstream of the detector — and therefore the output —
-    /// is identical.
-    ///
-    /// # Panics
-    /// If this demodulator was constructed with [`Self::new`].
     pub fn process_real(&mut self, audio: &[f32], out: &mut Vec<f32>) {
         self.carrier_run.clear();
         self.settled_run.clear();
@@ -397,16 +242,6 @@ impl CpmDemod {
         self.finish(out);
     }
 
-    /// Whether one input sample has a carrier under it, judged against a noise floor measured
-    /// from the channel's own quiet.
-    ///
-    /// The floor may not be a recent *maximum*: an idle channel's loudest noise is its own
-    /// noise, so nothing would ever read as quiet, and the loops would go on learning through
-    /// the seconds before a call as readily as through the dead time inside one.
-    ///
-    /// A channel first sampled mid-transmission measures its floor on that carrier and reads
-    /// keyed off until the carrier drops. That costs the estimates their chance to learn,
-    /// which is what a cold start costs anyway — it cannot cost the decoder the signal.
     fn gate_sample(&mut self, power: f32) {
         self.envelope += self.envelope_alpha * (power - self.envelope);
         self.settling = self.settling.saturating_sub(1);
@@ -414,8 +249,6 @@ impl CpmDemod {
         if !keyed {
             self.floor += self.floor_alpha * (self.envelope - self.floor);
         }
-        // The filtered output only stops carrying a burst's keying edge once the whole
-        // filtering span has a carrier under it.
         self.keyed = if keyed {
             (self.keyed + 1).min(self.support)
         } else {
@@ -425,16 +258,11 @@ impl CpmDemod {
         self.settled_run.push(self.keyed == self.support);
     }
 
-    /// The shared tail of both input domains: matched filter → centre removal → timing →
-    /// level normalisation, `demod_buf` in, soft symbols out.
     fn finish(&mut self, out: &mut Vec<f32>) {
         self.matched.process(&self.demod_buf, &mut self.filtered);
         self.centred.clear();
         for (&sample, &settled) in self.filtered.iter().zip(&self.settled_run) {
             if settled {
-                // Per sample rather than per symbol: the timing detector is fed the centred
-                // signal, so the estimate has to advance with the samples it is subtracted
-                // from, whatever size the blocks arrive in.
                 self.centre += self.centre_alpha * (sample - self.centre);
             }
             self.centred.push(Complex::new(sample - self.centre, 0.0));
@@ -443,15 +271,6 @@ impl CpmDemod {
         self.retimed.clear();
         self.retimed_carrier.clear();
         self.retimed_settled.clear();
-        // One `SymbolSync` call per run of constant gate state, so each recovered symbol can
-        // be attributed to one. Splitting a block this way cannot change the symbols — the
-        // timing state carries across calls — and a mode that never keys off makes one call
-        // per block as before.
-        //
-        // The signal itself is passed through either way. The gate decides only what the
-        // loops are allowed to learn from, never what the decoder above gets to see: a gate
-        // that misjudged a channel would otherwise be able to silence a signal that was
-        // decoding.
         let mut start = 0;
         while start < self.centred.len() {
             let (carrier, settled) = (self.carrier_run[start], self.settled_run[start]);
@@ -480,10 +299,6 @@ impl CpmDemod {
             let magnitude = value.abs();
             if carrier {
                 if settled {
-                    // Three zones (see PEAK_SYMBOLS): above the estimate the attack limiter
-                    // takes over; inside the outer region the symbol *is* the outer level,
-                    // so the estimate pulls toward it; below, only the slow safety decay
-                    // applies, because an inner symbol says nothing about the eye.
                     if magnitude > peak {
                         peak += PEAK_ATTACK * (magnitude - peak);
                     } else if magnitude > peak * self.outer_region {
@@ -506,9 +321,6 @@ impl CpmDemod {
         (self.peak, self.idle_peak) = (peak, idle);
     }
 
-    /// Forget the timing and level estimates — the channel moved, and what this has learned
-    /// describes the transmitter it just left. Filter histories are not flushed (their stale
-    /// span washes out within one filter length, exactly as a retune leaves any FIR).
     pub fn reset(&mut self) {
         self.sync.reset();
         if let FrontEnd::Filterbank { plus, minus } = &mut self.front {
@@ -554,7 +366,6 @@ mod tests {
         Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
     }
 
-    /// A DMR-shaped 4-level entry at the given outer deviation.
     fn four_level(deviation_hz: f64) -> CpmParams {
         CpmParams::from_deviation(
             dibit_mapping(),
@@ -589,9 +400,6 @@ mod tests {
         out
     }
 
-    /// A receiver's own noise, 40 dB below a unit-magnitude carrier — what an antenna delivers
-    /// when no one is transmitting. Digital silence is not that, and a gate handed it would
-    /// measure a noise floor of zero and never close again.
     const NOISE: f32 = 0.01;
 
     fn noise(seed: u64, len: usize) -> Vec<Complex<f32>> {
@@ -612,9 +420,6 @@ mod tests {
             .collect()
     }
 
-    /// A demodulator that has already heard the channel quiet, which is how a receiver meets
-    /// every transmission it was tuned to before the transmitter keyed up. The quiet must
-    /// outlast the gate's floor-settle window, which scales with sps.
     fn listening(demod: &mut CpmDemod, seed: u64) {
         let len = demod.settle_samples + 4 * SPS as usize * 100;
         let quiet = noise(seed, len);
@@ -622,9 +427,6 @@ mod tests {
         demod.process(&quiet, &mut discard);
     }
 
-    /// Errors between `got` and `sent` once the chain delay is taken out, skipping the
-    /// lead-in the clock and the level estimate need. The alignment is searched rather than
-    /// assumed: it is a property of the filter spans, not of the mode.
     fn symbol_errors(got: &[u8], sent: &[u8], skip: usize) -> (usize, usize) {
         let (delay, errors) = (0..48)
             .map(|delay| {
@@ -642,9 +444,6 @@ mod tests {
         (errors, got.len() - skip)
     }
 
-    /// The whole point of the front end: symbols in, the same symbols out, at a deviation the
-    /// demodulator was never told about — an under-deviated transmitter is a signal to
-    /// decode, not to reject.
     #[test]
     fn recovers_four_level_symbols_at_an_unexpected_deviation() {
         for deviation in [1_944.0, 1_400.0, 2_600.0] {
@@ -662,8 +461,6 @@ mod tests {
         }
     }
 
-    /// A receiver is never exactly on frequency. The centre estimate has to absorb the offset
-    /// a mistuned dial or a drifting transmitter puts on the discriminator.
     #[test]
     fn tracks_a_carrier_offset() {
         let sent = symbols(900, 5, 4);
@@ -677,16 +474,10 @@ mod tests {
         let mut soft = Vec::new();
         demod.process(&iq, &mut soft);
         let got: Vec<u8> = soft.iter().map(|&s| params.mapping().slice(s)).collect();
-        // The centre estimate averages over hundreds of symbols, so the offset is only fully
-        // absorbed in the tail — which is what a decoder hunting a sync pattern needs.
         let (errors, _) = symbol_errors(&got, &sent, soft.len() - 200);
         assert_eq!(errors, 0);
     }
 
-    /// The host hands a channel whatever the device gave it. Every piece of state — filter
-    /// history, timing accumulator, centre and peak estimates — has to advance with the
-    /// samples rather than with the calls, or the same signal would decode differently
-    /// depending on the radio's buffer size.
     #[test]
     fn block_splits_do_not_change_the_symbols() {
         let sent = symbols(300, 41, 4);
@@ -712,10 +503,6 @@ mod tests {
         assert_eq!(whole, ragged);
     }
 
-    /// The TDMA case, which is what the carrier gate exists for. A DMR-shaped radio radiates
-    /// 132 symbols in every 288 and the receiver hears its own noise for the rest; the clock,
-    /// centre and level have to arrive at each burst holding what the *transmitter* taught
-    /// them, not what the dead channel did.
     #[test]
     fn a_keyed_transmitter_does_not_lose_its_clock_in_the_dead_time() {
         const ON: usize = 132;
@@ -737,9 +524,6 @@ mod tests {
         let mut soft = Vec::new();
         demod.process(&iq, &mut soft);
 
-        // One symbol per symbol period of input, gaps included: the decoders above count the
-        // dead time out in symbols to find the next burst in their slot, so a clock that ran
-        // fast or slow through it would put them on the wrong bits.
         let ideal = iq.len() / SPS as usize;
         assert!(
             (soft.len() as i64 - ideal as i64).abs() <= 2,
@@ -747,8 +531,6 @@ mod tests {
             soft.len()
         );
 
-        // Only the keyed symbols carry anything; the last burst is checked because it is the
-        // one that has been through every gap.
         let got: Vec<u8> = soft.iter().map(|&s| params.mapping().slice(s)).collect();
         let (delay, _) = (0..48)
             .map(|delay| {
@@ -789,8 +571,6 @@ mod tests {
         );
     }
 
-    /// GMSK at BT = 0.5, h = ½ — the D-STAR/Bluetooth-BR shape: Gaussian partial-response
-    /// frequency pulse, Gaussian receive filter.
     #[test]
     fn gmsk_loopback_is_clean() {
         let params = CpmParams::from_h(
@@ -815,8 +595,6 @@ mod tests {
         assert_eq!(errors, 0, "GMSK symbol errors");
     }
 
-    /// Plain 2FSK at h = ½ (MSK-index CPFSK): rect pulse, integrate-and-dump receive filter —
-    /// the POCSAG/RTTY base shape.
     #[test]
     fn two_level_cpfsk_loopback_is_clean() {
         let params = CpmParams::from_h(Mapping::natural(2), 0.5, pulse::rect(SPS, Norm::Area), SPS);
@@ -849,9 +627,6 @@ mod tests {
         let mut soft = Vec::new();
         demod.process(&iq, &mut soft);
 
-        // Locate the stream by raw slicing (the blind scale slices well enough to align),
-        // then run the hook the way a protocol does: anchor on each known window, slice the
-        // payload behind it through the correction.
         let got: Vec<u8> = soft.iter().map(|&s| params.mapping().slice(s)).collect();
         let (delay, _) = (0..48usize)
             .map(|d| {
@@ -867,7 +642,6 @@ mod tests {
             .unwrap();
         let mut hook = KnownSymbols::new(&params, (4 * PERIOD) as u32);
         let mut errors = Vec::new();
-        // Frame 0 falls inside the clock's pull-in; every later frame must be perfect.
         for frame in 1..FRAMES {
             let base = frame * PERIOD + delay;
             hook.anchor(&PATTERN, &soft[base..base + PATTERN.len()]);
@@ -897,9 +671,6 @@ mod tests {
         assert!(soft.iter().all(|s| s.is_finite()), "non-finite symbol");
     }
 
-    /// Bell-202-like AFSK on real audio: 1200/2200 Hz about 1700, 1200 baud at 48 kHz. Mark
-    /// (bit 1, 1200 Hz) sits *below* the centre, so its level is −1 and the mapping table —
-    /// not a sign convention — carries the assignment: index 0 → +1 (2200 Hz), index 1 → −1.
     fn afsk_params() -> CpmParams {
         CpmParams::from_deviation(
             Mapping::new(vec![1.0, -1.0]),
@@ -910,18 +681,10 @@ mod tests {
         )
     }
 
-    /// The AFSK entry's receive filter: half a symbol of rect. The tone correlators already
-    /// integrate a 48-sample window — 1.2 symbols, the symbol matched filter and then some —
-    /// so the post-detector filter only smooths correlator ripple, and giving it a *full*
-    /// symbol stacks over two symbols of integration onto every transition: measured on this
-    /// exact loopback, a one-symbol rect here collapses transitions to ±0.05 soft values and
-    /// costs 14 errors in 420; half a symbol costs none.
     fn afsk_rx() -> Vec<f32> {
         pulse::rect(20.0, Norm::Area)
     }
 
-    /// The tone-pair audio a Bell-202 transmitter keys: the engine's own baseband CPFSK
-    /// shifted onto the 1700 Hz audio subcarrier.
     fn afsk_audio(sent: &[u8]) -> Vec<f32> {
         let baseband = transmit(&afsk_params(), sent);
         let mut carrier = Nco::new(1_700.0, RATE as f32);
@@ -931,14 +694,11 @@ mod tests {
             .collect()
     }
 
-    /// `receive_filter` is per-detector entry data: the discriminator has no integration of
-    /// its own, so it takes the full-symbol matched rect; the filterbank takes [`afsk_rx`].
     fn afsk_roundtrip(detector: RealDetector, receive_filter: &[f32], seed: u32) {
         let params = afsk_params();
         let sent = symbols(500, seed, 2);
         let audio = afsk_audio(&sent);
         let mut demod = CpmDemod::real(&params, receive_filter, TIMING_BW_BURST, RATE, detector);
-        // The receiver heard the audio channel quiet first, so the gate's floor is real.
         let quiet = real_noise(0x1157, demod.settle_samples + 19_200);
         let mut discard = Vec::new();
         demod.process_real(&quiet, &mut discard);
@@ -962,8 +722,6 @@ mod tests {
         );
     }
 
-    /// The same audio through the other detector option — the choice is per-entry data, and
-    /// both must hand the identical downstream chain a level signal it decodes.
     #[test]
     fn afsk_decodes_through_the_analytic_discriminator() {
         afsk_roundtrip(
@@ -1054,9 +812,6 @@ mod tests {
         );
     }
 
-    /// Two warm-up blocks (streaming stages carry an inter-block remainder, so the second is
-    /// the first whose buffers must fit remainder plus block), then one steady-state call
-    /// that may allocate nothing.
     #[test]
     fn complex_process_steady_state_allocates_nothing() {
         let params = four_level(1_944.0);

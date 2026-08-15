@@ -5,7 +5,6 @@ import type {
   NanoVnaSweep,
 } from "../../lib/types";
 
-/** The NanoVNA-H4 the driver was written against, as it reports itself. */
 export const DEVICE: NanoVnaDeviceReport = {
   port: "/dev/cu.usbmodem4001",
   firmware: "1.2.46",
@@ -51,8 +50,6 @@ export function sweepOf(
   };
 }
 
-/** A resonance at 14.1 MHz, built from a series RLC so the numbers the analysis reads back are
- * ones the physics fixes rather than ones the test asserts into place. */
 export function resonantSweep(count = 201): NanoVnaSweep {
   const centreHz = 14_100_000;
   const resistance = 50;
@@ -67,7 +64,6 @@ export function resonantSweep(count = 201): NanoVnaSweep {
   return sweepOf(points);
 }
 
-/** Γ for a load of R + jX against a 50 Ω reference. */
 function reflection(resistance: number, reactance: number, reference = 50): NanoVnaComplex {
   const numeratorRe = resistance - reference;
   const denominatorRe = resistance + reference;

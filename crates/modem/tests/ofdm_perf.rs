@@ -1,15 +1,3 @@
-//! §4.2 performance baselines for the phase-6 OFDM entry: the per-symbol receive path and the
-//! whole-frame path a burst receiver actually pays, each measured on the waveform the entry's own
-//! catalog chain transmits, plus the steady-state zero-allocation gates.
-//!
-//! Two benches rather than one, because an OFDM receiver's cost splits in two and the split is
-//! the interesting part: the per-symbol path is a transform and a table of one-tap divisions,
-//! while acquisition is a repetition search plus a correlation over the whole preamble — a fixed
-//! cost per burst that a long frame amortises and a short one does not.
-//!
-//! Real-time factors divide by the reference configuration's 20 MHz, so the numbers answer the
-//! same "how many channels of this per core" question every other entry's do.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
@@ -25,13 +13,9 @@ use sdrmm_modem::{
     ofdm::{ChannelEstimator, OfdmDemod, OfdmMod, OfdmParams},
 };
 
-/// This test binary's allocation counter — `#[global_allocator]` binds per binary, so the library
-/// cannot install it on anyone's behalf (see `ber::perf`).
 #[global_allocator]
 static ALLOC: CountingAlloc = CountingAlloc::new();
 
-/// One QPSK frame at the reference geometry, with the same lead-in the catalog chain transmits so
-/// the acquisition bench searches for a burst it has to actually find.
 fn frame() -> (OfdmParams, Vec<Complex<f32>>) {
     let params = OfdmParams::wifi_like();
     let table = tables::qam_square(4).unwrap();
@@ -49,8 +33,6 @@ fn frame() -> (OfdmParams, Vec<Complex<f32>>) {
     (params, wave)
 }
 
-/// Samples the per-symbol bench consumes: the data part of a frame, preamble excluded, since that
-/// is what the symbol path reads.
 fn data_samples(params: &OfdmParams) -> u64 {
     (SYMBOLS * params.symbol_samples()) as u64
 }
@@ -104,10 +86,6 @@ fn path(stem: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
 
-// --- Zero-allocation gates (§4.2) ------------------------------------------------------------
-
-/// The per-symbol path: de-rotate, transform, equalise, track, write. Warmed twice per the §4.2
-/// convention, then one steady-state call must acquire no memory.
 #[test]
 fn the_symbol_path_allocates_nothing() {
     let (params, wave) = frame();
@@ -136,9 +114,6 @@ fn the_symbol_path_allocates_nothing() {
     assert_eq!(sink.len(), SYMBOLS * params.data_subcarriers());
 }
 
-/// Acquisition too, on both estimator tiers. It is not the per-sample hot path — it runs once per
-/// burst — but a receiver scanning for bursts runs it *constantly* on noise, and the channel
-/// estimate's interpolation is the one place here that would naturally have reached for a `Vec`.
 #[test]
 fn acquisition_allocates_nothing_on_either_tier() {
     let (params, wave) = frame();
@@ -153,12 +128,9 @@ fn acquisition_allocates_nothing_on_either_tier() {
     }
 }
 
-/// The soft path: one symbol's points through the crate's demapper at the per-bin noise variance.
 #[test]
 fn the_soft_output_path_allocates_nothing() {
     let (params, mut wave) = frame();
-    // Noise, because the soft path is about believing a symbol *by how noisy its bin is*: a
-    // noiseless frame would measure a variance the demapper is right to refuse.
     let mut rng = sdrmm_modem::ber::rng::Rng::new(0x0f_06);
     for s in &mut wave {
         *s += Complex::new((rng.normal() * 0.1) as f32, (rng.normal() * 0.1) as f32);
@@ -175,10 +147,6 @@ fn the_soft_output_path_allocates_nothing() {
     });
 }
 
-// --- Baseline writer and gate (§4.2 protocol) ------------------------------------------------
-
-/// Rewrites the committed baseline. Run deliberately, on the reference machine:
-/// `cargo test -p sdrmm-modem --release --test ofdm_perf write_ -- --ignored`.
 #[test]
 #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
 fn write_ofdm_perf_baseline() {
@@ -197,8 +165,6 @@ fn write_ofdm_perf_baseline() {
     }
 }
 
-/// The nightly perf gate: measured against committed, failing past [`REGRESSION_FRACTION`].
-/// Compared only in release and only on the host that wrote the baseline.
 #[test]
 #[ignore = "nightly perf gate; run in release: cargo test -p sdrmm-modem --release --test ofdm_perf compare_ -- --ignored"]
 fn compare_ofdm_perf_baseline() {

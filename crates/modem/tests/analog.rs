@@ -43,12 +43,8 @@ fn measure(m: &AnalogMeasurement, full: bool) -> SinadCurve {
     )
 }
 
-/// Worst drift a re-measured curve may show against its committed artifact. Same seed, same
-/// grid and same trial count make each point a *reproduction*, so this absorbs cross-platform
-/// float drift and nothing else.
 const DRIFT_TOLERANCE_DB: f64 = 0.5;
 
-/// The smoke gate every `cargo test` runs: the front of each committed grid, reproduced.
 #[test]
 fn every_committed_curve_reproduces_its_smoke_prefix() {
     for m in measurements() {
@@ -82,8 +78,6 @@ fn every_oracle_row_sits_on_its_figure_of_merit() {
     }
 }
 
-/// Every committed curve rises with SNR over its oracle region: a SINAD that does not improve
-/// with the signal is measuring something other than the signal.
 #[test]
 fn every_committed_curve_is_monotone_above_its_threshold() {
     for m in measurements() {
@@ -108,19 +102,8 @@ fn every_committed_curve_is_monotone_above_its_threshold() {
     }
 }
 
-/// Drop below the oracle that names a detector's knee. One dB is past any counting noise on
-/// these curves and well inside the several dB a real threshold collapses by.
 const KNEE_DROP_DB: f64 = 1.0;
 
-/// AM's two tiers: identical above threshold, and separated below it. The envelope detector's
-/// nonlinearity multiplies the noise by the signal, so it gives up first; a carrier loop has
-/// nothing to multiply and degrades linearly further down.
-///
-/// The separation is *small* — half a dB — and that is the honest result rather than a
-/// disappointment: at a channel SNR where AM's own figure of merit has already put the output
-/// SINAD near 0 dB, there is very little left for a better detector to save. What the two tiers
-/// really differ in is what happens to a carrier the receiver cannot see (a suppressed one, an
-/// offset one), which `analog::am`'s own tests measure.
 #[test]
 fn the_am_tiers_agree_above_threshold_and_separate_below_it() {
     let envelope = load_curve("analog/am_envelope_sinad");
@@ -146,8 +129,6 @@ fn the_am_tiers_agree_above_threshold_and_separate_below_it() {
     }
 }
 
-/// The two single-sideband methods are one waveform, and their curves say so: a phasing exciter
-/// read by a filter and a Weaver exciter read by a Weaver detector land on the same number.
 #[test]
 fn the_two_sideband_methods_measure_the_same_entry() {
     let hilbert = load_curve("analog/ssb_hilbert_sinad");
@@ -163,8 +144,6 @@ fn the_two_sideband_methods_measure_the_same_entry() {
     }
 }
 
-/// The phase's arithmetic headline, read off the committed curves rather than asserted: what a
-/// deviation buys above threshold, and what it costs below one.
 #[test]
 fn the_committed_curves_price_bandwidth_against_sensitivity() {
     let at = |stem: &str, snr: f64| {
@@ -197,17 +176,6 @@ fn the_committed_curves_price_bandwidth_against_sensitivity() {
     );
 }
 
-/// What the FM loop tier is actually worth here, measured rather than assumed — and it is not
-/// what the textbook promises.
-///
-/// A PLL frequency demodulator extends the threshold because it carries a phase estimate the
-/// noise has to move, where a discriminator takes its argument from one sample pair and gives up
-/// the instant the noise wins. That extension needs a loop *narrow* against the message. This
-/// geometry forbids one: the message is a sixteenth of the sample rate, so a second-order loop
-/// flat across it has to run at a natural frequency comparable to the message itself, and a loop
-/// that wide follows the noise almost as readily as the discriminator does. The measured result
-/// is the honest consequence — **0 to 1 dB of sensitivity across the whole grid and no
-/// measurable movement of the knee**, both tiers turning over at the same 12 dB point.
 #[test]
 fn the_fm_loop_tier_buys_sensitivity_rather_than_threshold() {
     let discriminator = load_curve("analog/nfm_discriminator_sinad");
@@ -235,13 +203,6 @@ fn the_fm_loop_tier_buys_sensitivity_rather_than_threshold() {
     );
 }
 
-/// Where the committed gap to each oracle comes from, measured rather than asserted: a figure of
-/// merit is stated for a brick-wall receiver at the message bandwidth, and every real filter's
-/// transition throws away noise *inside* that band which the ideal receiver keeps. So a soft
-/// receiver reads above its own oracle, and sharpening it walks the gap back toward zero.
-///
-/// Run on the suppressed-carrier row, whose figure of merit is exactly 1 and whose reading is
-/// therefore the gap itself with nothing else in it.
 #[test]
 fn the_oracle_gap_is_the_receive_filters_own_transition() {
     let grid = [24.0, 27.0, 30.0];
@@ -297,11 +258,8 @@ fn every_entry_recovers_its_tone_at_a_stated_margin() {
     }
 }
 
-/// Regression tolerance on a committed threshold, as a fraction of its own magnitude.
 const LIMITS_TOLERANCE: f64 = 0.2;
 
-/// The axis rows every analog table carries. One set, so the four tables are row-for-row
-/// comparable and the differences between them are the entries' own.
 fn axis_rows(link: &AnalogLink, op_db: f64, seed: u64, clean_sinad_db: f64) -> Vec<LimitRow> {
     let penalty = sinad_penalty_criterion(clean_sinad_db, 1.0);
     let floor = Criterion::MinSinad {
@@ -348,7 +306,6 @@ fn axis_rows(link: &AnalogLink, op_db: f64, seed: u64, clean_sinad_db: f64) -> V
     ]
 }
 
-/// One committed limits table: artifact stem, entry name, chain, grid and seed.
 type Table = (
     &'static str,
     &'static str,
@@ -416,9 +373,6 @@ fn every_committed_limits_table_still_holds() {
     }
 }
 
-/// JSON only: the committed-artifact format is what lives under `baselines/`, and the docs-row
-/// rule would demand a catalog row for every stray CSV dropped beside it. `cargo xtask ber`
-/// writes the plotting copies, into `target/`.
 fn write_curve(curve: &SinadCurve, stem: &str) {
     let path = baseline_path(stem);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

@@ -12,16 +12,6 @@ export interface PlacementRect {
 
 const SCREEN_GAP = 24;
 
-/** The provider outlives the patch/rack switch, so the last patch viewport remains the target
- * when a recording is opened from the rack; occupied footprints come from React Flow's last
- * measured sizes when it has them. */
-/**
- * Place new nodes against the camera the operator is looking through.
- *
- * `size` is the face the caller is about to add, for the kinds whose height is not the kind's
- * alone — a channel's depends on whether its mode produces audio (`naturalSize`). Left out, the
- * kind's own size stands.
- */
 export function useNodePlacement(): (
   graph: PatchGraph,
   kind: NodeKind,
@@ -45,9 +35,6 @@ export function useNodePlacement(): (
       const occupied = graph.nodes.map((node) => nodeRect(node, rendered.get(node.id)));
       const size = requested ?? NODE_SIZE[kind];
 
-      // Width is zero only before React Flow has mounted for the first time. The top bar cannot
-      // be clicked in that interval, but keeping a deterministic fallback makes the helper safe
-      // in tests and during a future server-rendered shell.
       if (width <= 0 || height <= 0 || zoom <= 0) {
         return dropPosition({ x: 0, y: 0, w: 1200, h: 800 }, size, occupied, SCREEN_GAP);
       }
@@ -58,9 +45,6 @@ export function useNodePlacement(): (
         width: size.w + 2 * gap,
         height: size.h + 2 * gap,
       };
-      // A full view has no clear footprint left in it, so the face lands beside what is drawn.
-      // Widening the camera to take it in keeps every face that was on screen on it — panning
-      // there would push the ports the new face has to be wired to off the top.
       if (!encloses(viewport, face)) {
         void flow.fitBounds(union(viewport, face), { padding: 0 });
       }
@@ -70,9 +54,6 @@ export function useNodePlacement(): (
   );
 }
 
-/** Find the clear position nearest the middle of the view. A full viewport widens the search
- * past its own edges rather than laying one face over another: the camera can be moved to what
- * was placed, and a face nobody can read cannot be. */
 export function dropPosition(
   viewport: PlacementRect,
   size: { w: number; h: number },
@@ -113,8 +94,6 @@ function clearPosition(
     )[0];
 }
 
-/** Everything drawn and everything in view, with a clear face's width all round: the far corners
- * of this area are past every node, so a position clear of them all exists inside it. */
 function widened(
   viewport: PlacementRect,
   size: { w: number; h: number },

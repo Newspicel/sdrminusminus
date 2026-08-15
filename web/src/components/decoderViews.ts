@@ -11,8 +11,6 @@ import type {
 } from "../lib/types";
 import { formatHz } from "./format";
 
-/** Which device set / channel a view is showing. An absent field matches everything, so a view
- * placed before a channel is selected still shows the decoder's traffic. */
 export interface DecoderScope {
   deviceSet?: number;
   channel?: number;
@@ -45,11 +43,8 @@ export function stationsInScope<S extends { deviceSet: number; channel: number }
   return stations.filter((s) => inScope(s.deviceSet, s.channel, scope));
 }
 
-/** A target that has not been heard for this long is no longer "live" — it is dimmed rather
- * than removed, because silence is the only thing a transmitter out of range reports. */
 export const TARGET_STALE_MS = 30_000;
 
-/** Horizon the views hand to `ageOut`: past this a target disappears entirely. */
 export const TARGET_MAX_AGE_MS = 300_000;
 
 export function ageClass(ageMs: number): string {
@@ -70,11 +65,8 @@ export function formatAge(ageMs: number): string {
 
 export interface TargetRow {
   id: string;
-  /** Callsign (ADS-B) or vessel name (AIS); `—` until a frame carrying it arrives. */
   label: string;
-  /** Altitude for aircraft, speed over ground for ships. */
   primary: string;
-  /** Speed + track for aircraft, course + destination for ships. */
   secondary: string;
   position: string;
   ageMs: number;
@@ -109,7 +101,6 @@ export function shipRow(station: StationOf<"ais">, nowMs: number): TargetRow {
 
 export type TargetSort = "age" | "id";
 
-/** Ascending age is "most recently heard first" — the useful default for a live target list. */
 export function sortTargets(
   rows: readonly TargetRow[],
   key: TargetSort,
@@ -136,7 +127,6 @@ export function formatBearing(deg: number | null | undefined): string {
   return `${((Math.round(deg) % 360) + 360) % 360}°`;
 }
 
-/** Five decimals ≈ 1 m — enough to be useful, short enough for a phone column. */
 export function formatPosition(
   lat: number | null | undefined,
   lon: number | null | undefined,
@@ -152,9 +142,6 @@ export function formatClock(at: string): string {
   return `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`;
 }
 
-/** Folds the scoped frames into one picture. The store merges forward per PI, but a transmitter
- * whose PI has not been received yet has no station row at all, and that is exactly when the
- * operator is staring at the panel — so the view folds the frames itself. */
 export function rdsPicture(records: readonly DecodedRecordOf<"rds">[]): RdsUpdate | null {
   if (records.length === 0) {
     return null;
@@ -175,7 +162,6 @@ export type RdsQualityLabel = "no lock" | "good" | "fair" | "poor";
 export interface RdsQuality {
   groups: number;
   blockErrors: number;
-  /** Rejected blocks over all blocks seen; each accepted group is four blocks. */
   errorRate: number;
   label: RdsQualityLabel;
   className: string;
@@ -209,12 +195,8 @@ export function formatAltFreqs(hz: readonly number[] | undefined): string[] {
   return (hz ?? []).toSorted((a, b) => a - b).map(formatHz);
 }
 
-/** Characters kept in a transcript pane. Beyond this the head is dropped — the pane is a live
- * tail; the stored history is `GET /api/decoderlog`. */
 export const TRANSCRIPT_LIMIT = 20_000;
 
-/** Trims from the head at a line boundary when there is one, so the top of the pane is never a
- * half-eaten line. */
 export function appendTranscript(
   previous: string,
   chunk: string,
@@ -229,8 +211,6 @@ export function appendTranscript(
   return newline === -1 ? cut : cut.slice(newline + 1);
 }
 
-/** Builds the pane's text from the store's newest-first frames. Deriving it beats accumulating
- * local state: a cleared or re-flushed store can never leave the pane showing a stale tail. */
 export function buildTranscript(
   records: readonly DecodedRecordOf<"rtty" | "morse" | "psk31" | "psk63">[],
   limit = TRANSCRIPT_LIMIT,
@@ -238,7 +218,6 @@ export function buildTranscript(
   return records.reduceRight((text, r) => appendTranscript(text, r.event.data.text, limit), "");
 }
 
-/** WPM of the most recent Morse frame — the tracked sending speed, not an average over history. */
 export function latestWpm(records: readonly DecodedRecordOf<"morse">[]): number | null {
   const newest = records[0];
   return newest === undefined ? null : newest.event.data.wpm;
@@ -250,13 +229,10 @@ export interface ScrollMetrics {
   clientHeight: number;
 }
 
-/** Sub-pixel scroll heights and zoom make an exact comparison flaky, hence the tolerance. */
 export function isAtBottom(m: ScrollMetrics, tolerancePx = 8): boolean {
   return m.scrollHeight - m.scrollTop - m.clientHeight <= tolerancePx;
 }
 
-/** What is under the carrier, named the way a radio names it: a CTCSS tone in Hz to one
- * decimal, a DCS code as its three octal digits. Empty when there is nothing under it. */
 export function toneLabel(status: { ctcss_hz?: number | null; dcs_code?: number | null }): string {
   return joinFields(
     status.ctcss_hz == null ? "" : `CTCSS ${status.ctcss_hz.toFixed(1)} Hz`,
@@ -284,7 +260,6 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** Mode names as operators write them, which is not how the wire spells them. */
 const DV_MODE_LABELS: Record<DvFrame["mode"], string> = {
   dmr: "DMR",
   dstar: "D-STAR",
@@ -300,8 +275,6 @@ export function dvMode(frame: Pick<DvFrame, "mode">): string {
   return DV_MODE_LABELS[frame.mode];
 }
 
-/** The network the frame was heard on, under whichever name its mode publishes: a DMR colour
- * code, an NXDN or dPMR RAN, a P25 network access code (which everyone quotes in hex). */
 export function dvNetwork(frame: Pick<DvFrame, "mode" | "color_code" | "slot">): string {
   const parts: string[] = [];
   if (frame.slot != null) {
@@ -319,8 +292,6 @@ export function dvNetwork(frame: Pick<DvFrame, "mode" | "color_code" | "slot">):
   return parts.join(" ");
 }
 
-/** Who is talking to whom, by whichever name the mode addresses them. `TG` marks a talkgroup,
- * because a bare number next to a radio ID would read as another radio. */
 export function dvParties(
   frame: Pick<
     DvFrame,
@@ -341,8 +312,6 @@ export function dvParties(
   return to ?? from ?? "";
 }
 
-/** Exhaustive over the wire enum: a modulation family added in `wire` fails the typecheck here
- * until it has a name an operator would recognise. */
 const MODULATION_LABELS: Record<Modulation, string> = {
   none: "no signal",
   carrier: "unmodulated carrier",
@@ -363,12 +332,8 @@ export function modulationLabel(report: IdentReport): string {
   return report.sideband == null ? base : `${base} (${report.sideband.toUpperCase()})`;
 }
 
-/** One `label: value` pair, structurally the `DetailField` the log's expanded row renders. Stated
- * here rather than imported, because `decoderDetail` imports *this* module. */
 export type IdentField = readonly [label: string, value: string];
 
-/** The measurements, as an operator would quote them. Only what was actually measured: an absent
- * symbol clock is a thing the signal did not show, and a dash in its place says it worse. */
 export function identMeasurements(report: IdentReport): IdentField[] {
   if (report.modulation === "none") {
     return [["Loudest bin", `${report.snr_db.toFixed(1)} dB over the noise floor`]];
@@ -390,7 +355,6 @@ export function identMeasurements(report: IdentReport): IdentField[] {
   return fields;
 }
 
-/** How a candidate reads on one line. */
 export function candidateScore(match: { score: number; confirmed?: boolean }): string {
   return match.confirmed === true ? "confirmed" : `${Math.round(match.score * 100)}%`;
 }

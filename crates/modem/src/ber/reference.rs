@@ -3,29 +3,16 @@ use num_complex::Complex;
 use super::sweep::Link;
 use crate::pulse::{self, Norm};
 
-/// Standard narrowband shaping: the roll-off half the catalog's protocols use, a span long
-/// enough that truncation ISI sits ~40 dB under the symbol energy, and 8 samples/symbol so the
-/// waveform is generously oversampled for any later impairment axis.
 const ALPHA: f64 = 0.35;
 const SPAN: usize = 8;
 const SPS: usize = 8;
 
-/// Bits per trial block: large enough to amortise per-block work across the 1e7-bit points of
-/// the full gate, small enough that low-SNR points do not overshoot their 100 errors by much.
 const BITS_PER_TRIAL: usize = 4096;
 
-/// The RRC pulse at unit energy, `Σ h[n]² = 1` (crate-root convention): the matched-filter
-/// output at the correct instant is then exactly the ±1 symbol, and a block's measured energy
-/// is its bit count — so Eb/N0 set from measured energy is the textbook one.
 fn unit_energy_rrc() -> Vec<f32> {
     pulse::root_raised_cosine(SPS as f64, ALPHA, SPAN, Norm::Energy)
 }
 
-/// Ideal coherent BPSK over RRC pulses: bit 1 → +1, bit 0 → −1 (crate-root sign convention),
-/// full-length pulse superposition on transmit, matched RRC on receive, sampled at the known
-/// cascade group delay of `taps−1` samples. The receiver's decision statistic is the real
-/// rail after matched filtering — filtering commutes with `Re` for real taps, so filtering
-/// only the real part is the same statistic at half the work.
 #[must_use]
 pub fn ideal_bpsk() -> Link {
     let tx_taps = unit_energy_rrc();
@@ -40,8 +27,6 @@ pub fn ideal_bpsk() -> Link {
     }
 }
 
-/// Full pulse superposition — the edge symbols keep their whole tails, so block energy is
-/// `n_bits · Σh²` up to the Nyquist cross-terms and the Eb accounting has no edge deficit.
 fn modulate(taps: &[f32], bits: &[bool]) -> Vec<Complex<f32>> {
     if bits.is_empty() {
         return Vec::new();
@@ -57,13 +42,6 @@ fn modulate(taps: &[f32], bits: &[bool]) -> Vec<Complex<f32>> {
     out
 }
 
-/// The reference chain's shaping for arbitrary complex symbol streams: the same unit-energy
-/// RRC taps, full-tail superposition and known-timing sampling as [`ideal_bpsk`], held as a
-/// value so links that carry constellations — the genie-bound demonstration in
-/// [`genie`](super::genie) runs coded 4-PAM this way — measure over the calibrated chain
-/// instead of a second, unproven one. A ±1 real symbol stream reproduces the BPSK link's
-/// waveform sample-for-sample and its decisions bit-for-bit (asserted below), which is what
-/// lets measurements over this struct inherit the phase-0 erfc gate.
 #[derive(Clone, Debug)]
 pub struct IdealShaping {
     taps: Vec<f32>,
@@ -77,15 +55,11 @@ impl IdealShaping {
         }
     }
 
-    /// Callers sizing symbol buffers against waveform lengths need the chain's own rate.
     #[must_use]
     pub fn samples_per_symbol(&self) -> usize {
         SPS
     }
 
-    /// Full-tail superposition of `symbols` on the unit-energy pulse — [`modulate`] for a
-    /// complex stream: block energy is `Σ|s|²` up to the Nyquist cross-terms, so a
-    /// unit-mean-Es constellation keeps the crate's Eb accounting exact.
     #[must_use]
     pub fn modulate(&self, symbols: &[Complex<f32>]) -> Vec<Complex<f32>> {
         if symbols.is_empty() {
@@ -101,12 +75,6 @@ impl IdealShaping {
         out
     }
 
-    /// Matched-filter statistics at the known symbol instants — [`demodulate`] before its
-    /// slicer, kept complex so a demapper can turn them into LLRs. Two properties of this
-    /// chain make the statistic exactly the demap model's `symbol + noise`: unit-energy taps
-    /// pass white noise at its per-sample total variance, so the waveform's N0 *is* the
-    /// statistic's, and the RRC⊗RRC cascade is Nyquist, so consecutive statistics' noise is
-    /// uncorrelated. The genie bound in [`genie`](super::genie) rests on both.
     #[must_use]
     pub fn symbol_statistics(&self, wave: &[Complex<f32>]) -> Vec<Complex<f32>> {
         let nt = self.taps.len();
@@ -133,11 +101,6 @@ impl Default for IdealShaping {
     }
 }
 
-/// Matched filter evaluated only at the symbol instants: symbol `k`'s statistic is the full
-/// convolution's sample `k·SPS + taps−1` — pulse peak at `(taps−1)/2` plus the matched
-/// filter's equal delay — which is the dot product of the taps with the window starting at
-/// `k·SPS`. Computing just those dot products skips the 7/8 of the filter output the sampler
-/// would discard.
 fn demodulate(taps: &[f32], wave: &[Complex<f32>]) -> Vec<bool> {
     let nt = taps.len();
     if wave.len() < nt {
@@ -175,8 +138,6 @@ mod tests {
         assert!((energy - 1.0).abs() < 1e-6, "Σh² = {energy}");
     }
 
-    /// Noiseless loopback is exact — any hard-decision error with zero noise means the known
-    /// delay or the sign convention is wrong, which would poison every measured curve.
     #[test]
     fn noiseless_round_trip_is_error_free() {
         let link = ideal_bpsk();
@@ -187,8 +148,6 @@ mod tests {
         assert_eq!(decoded, bits);
     }
 
-    /// The Eb accounting the whole gate rests on: with unit-energy pulses and ±1 symbols a
-    /// block's energy is its bit count, up to the RRC cascade's Nyquist cross-terms.
     #[test]
     fn block_energy_is_one_per_bit() {
         let link = ideal_bpsk();
@@ -198,15 +157,6 @@ mod tests {
         assert!((eb - 1.0).abs() < 0.01, "Eb = {eb}");
     }
 
-    /// Phase-0 acceptance gate, smoke tier: the harness reads BPSK within 0.2 dB of ½erfc(√γ)
-    /// on a fast subset. The full 0–10 dB tier is `bpsk_matches_erfc_full`.
-    ///
-    /// Error budget: [`MIN_ERRORS_PER_POINT`](crate::ber::MIN_ERRORS_PER_POINT) is a floor,
-    /// not the gate's budget. Its ±20% vertical confidence is tight *divided by the curve's
-    /// log-slope*, and at 0–2 dB that slope is a shallow ~0.15–0.21 decade/dB — 100 errors
-    /// there is a ±0.3–0.4 dB horizontal interval that would trip a 0.2 dB gate on counting
-    /// noise alone. 5000 errors puts every point's 95% interval under 0.09 dB, and low-SNR
-    /// errors are nearly free (5000 at 0 dB is ~64k bits).
     #[test]
     fn bpsk_matches_erfc_smoke() {
         let link = ideal_bpsk();
@@ -226,10 +176,6 @@ mod tests {
         assert!(worst.abs() < 0.2, "worst penalty {worst} dB\n{curve:?}");
     }
 
-    /// The claim that lets [`IdealShaping`] measurements inherit the erfc gate: on the same
-    /// symbols it *is* the BPSK link — waveform sample-identical, and decisions bit-identical
-    /// even under noise, because the real-rail arithmetic is the same operations in the same
-    /// order.
     #[test]
     fn ideal_shaping_reproduces_the_bpsk_link_exactly() {
         let link = ideal_bpsk();
@@ -253,10 +199,6 @@ mod tests {
         assert_eq!(statistic_decisions, (link.demodulate)(&noisy));
     }
 
-    /// Noiseless statistics must return the symbols themselves up to the chain's residual ISI
-    /// — the −40 dB truncation tail plus the discrete RRC⊗RRC's Nyquist error — which bounds
-    /// the statistic error near 1% of a unit symbol. A miss here would bias every LLR the
-    /// genie demonstration computes.
     #[test]
     fn symbol_statistics_recover_a_noiseless_stream() {
         let shaping = IdealShaping::new();

@@ -1,6 +1,3 @@
-//! NFM voice: 48 kHz IQ → quadrature discriminator → voice-band lowpass. RF selectivity at
-//! `bandwidth_hz` is the host's channel filter (see [`crate::channel_filter`]); here the
-//! bandwidth only sets the deviation the discriminator is scaled to.
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
@@ -18,7 +15,6 @@ use crate::{
     tx::{Burst, TxQueue},
 };
 
-/// Fixed post-demod audio cutoff — voice content ends here regardless of channel spacing.
 const VOICE_CUTOFF_HZ: f64 = 3_400.0;
 const AUDIO_TAPS: usize = 129;
 const CHANNEL_TAPS: usize = 129;
@@ -37,13 +33,9 @@ pub struct NfmChannel {
     demod: AngleDemod,
     audio_lp: RealDecimator,
     demod_buf: Vec<f32>,
-    /// `None` while [`NfmToneMode::Off`] — the subaudible path costs a decimation chain and
-    /// fifty correlators, and a channel that was not asked for it pays neither.
     tone: Option<Tone>,
 }
 
-/// Everything the tone modes add to the channel: the detector, the highpass that keeps what it
-/// detects out of the audio, and the last status reported so that only changes are.
 struct Tone {
     mode: NfmToneMode,
     ctcss_hz: Option<f64>,
@@ -61,8 +53,6 @@ impl Tone {
             dcs_code: p.dcs_code,
             detector: ToneSquelch::new(),
             highpass: Highpass::new(DESCRIPTOR.input_rate_hz, AUDIO_CORNER_HZ),
-            // What a channel with nothing under it computes on its first block, so a silent
-            // start says nothing rather than announcing silence.
             reported: ToneSquelchStatus {
                 ctcss_hz: None,
                 dcs_code: None,
@@ -82,7 +72,6 @@ impl Tone {
         self.highpass.reset();
     }
 
-    /// Read the subaudible band, take it out of `demodulated`, and report the gate.
     fn step(&mut self, demodulated: &mut [f32], out: &mut ChannelOutputs) -> bool {
         let heard = self.detector.process(demodulated);
         self.highpass.process(demodulated);
@@ -129,8 +118,6 @@ fn check_bandwidth(p: &NfmParams) -> Result<(), ChannelError> {
     }
 }
 
-/// A tone the detector does not search for could never open the gate, so it is refused where
-/// the operator set it rather than left to look like a dead channel.
 fn check_params(p: &NfmParams) -> Result<(), ChannelError> {
     check_bandwidth(p)?;
     match p.tone_mode {
@@ -204,8 +191,6 @@ impl ChannelRx for NfmChannel {
         let p = params(&settings)?;
         check_params(p)?;
         self.demod = discriminator(DESCRIPTOR.input_rate_hz, p);
-        // Which tone is required is a comparison, not state, so retuning the gate keeps
-        // whatever the detector has already heard on this frequency.
         match (&mut self.tone, p.tone_mode) {
             (_, NfmToneMode::Off) => self.tone = None,
             (Some(tone), _) => tone.configure(p),
@@ -214,7 +199,6 @@ impl ChannelRx for NfmChannel {
         Ok(())
     }
 
-    /// A subaudible tone belongs to the station that was sending it. The channel has left.
     fn retuned(&mut self) {
         if let Some(tone) = &mut self.tone {
             tone.reset();
@@ -233,8 +217,6 @@ impl ChannelRx for NfmChannel {
         }
         self.audio_lp.process(&self.demod_buf, &mut out.audio_pcm);
         clamp_full_scale(&mut out.audio_pcm);
-        // Muted, not skipped: a closed tone gate still owes the client audio of the right
-        // duration, exactly as a closed squelch does.
         if !open {
             out.audio_pcm.fill(0.0);
         }
@@ -244,15 +226,9 @@ impl ChannelRx for NfmChannel {
     }
 }
 
-/// NFM modulator: queued voice → phase-accumulated FM on a constant-envelope carrier.
-///
-/// Written against the deviation and audio bandwidth [`NfmChannel`] demodulates, and sharing
-/// those constants with it, but no code — an error in the discriminator cannot cancel against
-/// one here.
 pub struct NfmTx {
     rate: f64,
     deviation_hz: f64,
-    /// Band-limited by [`audio_lowpass`] on the way in, so `generate` only accumulates phase.
     queue: TxQueue<f32>,
     audio_lp: RealDecimator,
     filtered: Vec<f32>,
@@ -294,10 +270,6 @@ impl ChannelTx for NfmTx {
             ));
         };
         self.queue.accept(pcm.len())?;
-        // Band-limited here rather than in `generate` — the hot path may not allocate — and
-        // clamped after the filter rather than before it: what may not pass ±1 is what reaches
-        // the phase accumulator, and a filter's overshoot is as capable of over-deviating the
-        // carrier as a caller's over-range audio is.
         self.audio_lp.process(&pcm, &mut self.filtered);
         clamp_full_scale(&mut self.filtered);
         self.queue.extend(self.filtered.iter().copied());
@@ -340,7 +312,6 @@ mod tests {
     };
 
     const RATE: f64 = 48_000.0;
-    /// Deviation matching the default 12.5 kHz bandwidth (bandwidth/5).
     const DEVIATION_HZ: f64 = 2_500.0;
 
     fn channel() -> NfmChannel {
@@ -371,8 +342,6 @@ mod tests {
             ..NfmParams::default()
         })))
         .unwrap();
-        // A ±5 kHz-deviation signal (standard for 25 kHz channels) must land at unit
-        // amplitude, not the ±2.0 a fixed 2.5 kHz scale would produce.
         let audio = run_ragged(&mut chan, &fm_iq(RATE, 1_000.0, 5_000.0, 48_000));
         let window = &audio[2_000..14_000];
         let (freq, ratio) = dominant_tone(window, RATE);
@@ -384,8 +353,6 @@ mod tests {
 
     #[test]
     fn carrier_free_noise_stays_within_full_scale() {
-        // Discriminator noise with no carrier reaches ±(π·rate)/(2π·deviation) ≈ ±9.6 before
-        // the audio filter; the final clamp must bound what leaves the channel.
         let mut chan = channel();
         let audio = run_ragged(&mut chan, &complex_noise(0x1234_5678, 0.01, 48_000));
         assert!(!audio.is_empty());
@@ -434,12 +401,8 @@ mod tests {
         assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));
     }
 
-    /// A repeater keys its subaudible signalling at 10–15 % of deviation, under speech at
-    /// most of the rest. Both are fractions of full deviation, which is what the
-    /// discriminator hands back.
     const SUBAUDIBLE: f32 = 0.15;
     const VOICE: f32 = 0.6;
-    /// Long enough for the correlator bank to fill its half-second window twice over.
     const TONE_LEN: usize = 48_000 * 2;
 
     fn tone_params(mode: NfmToneMode, ctcss_hz: Option<f64>, dcs_code: Option<u16>) -> NfmParams {
@@ -455,14 +418,11 @@ mod tests {
         NfmChannel::new(ctx(), settings(ChannelParams::Nfm(p))).unwrap()
     }
 
-    /// A carrier with `subaudible` under a 1 kHz voice tone.
     fn signalling_iq(subaudible: &[f32]) -> Vec<Complex<f32>> {
         let voice = tone_audio(1_000.0, VOICE, RATE, subaudible.len());
         fm_modulate(&mix(subaudible, &voice), DEVIATION_HZ, RATE)
     }
 
-    /// Feed the channel in ragged blocks and return the last status it reported plus the
-    /// audio, which is what a listener would actually get.
     fn run_tone(chan: &mut NfmChannel, iq: &[Complex<f32>]) -> (Vec<ToneSquelchStatus>, Vec<f32>) {
         let mut out = ChannelOutputs::default();
         let (mut statuses, mut audio) = (Vec::new(), Vec::new());
@@ -499,9 +459,6 @@ mod tests {
         }
     }
 
-    /// 162.2 and 165.5 are 3.3 Hz apart and the pair at 67.0/69.3 only 2.3 — the whole reason
-    /// the correlator window is half a second. A bank that named the neighbour would look
-    /// exactly like one that worked.
     #[test]
     fn a_neighbouring_standard_tone_is_not_named_instead() {
         for (sent, neighbour) in [(69.3, 67.0), (162.2, 165.5), (206.5, 203.5)] {
@@ -525,8 +482,6 @@ mod tests {
         }
     }
 
-    /// A DCS transmission through an inverted discriminator is its inverse-pair partner, not
-    /// nothing and not the same code — which is why there is no polarity switch to get wrong.
     #[test]
     fn an_inverted_dcs_transmission_reads_as_the_partner_code() {
         let inverted: Vec<f32> = dcs_audio(23, SUBAUDIBLE, RATE, TONE_LEN)
@@ -538,8 +493,6 @@ mod tests {
         assert_eq!(statuses.last().and_then(|s| s.dcs_code), Some(47));
     }
 
-    /// The carrier is never exactly on frequency, and the tuning error arrives as DC on the
-    /// discriminator — right where a DCS slicer's decision threshold is.
     #[test]
     fn dcs_decodes_through_a_carrier_offset() {
         for offset_hz in [-400.0f64, 250.0] {
@@ -556,7 +509,6 @@ mod tests {
         }
     }
 
-    /// The gate, both ways round: the tone it was told to open on, and the one it was not.
     #[test]
     fn ctcss_squelch_passes_only_its_own_tone() {
         for (sent, open) in [(88.5, true), (91.5, false)] {
@@ -564,7 +516,6 @@ mod tests {
             let mut chan = tone_channel(tone_params(NfmToneMode::Ctcss, Some(88.5), None));
             let (statuses, audio) = run_tone(&mut chan, &iq);
             assert_eq!(statuses.last().map(|s| s.open), Some(open), "{sent} Hz");
-            // Muted, not skipped: the client's jitter buffer still gets its samples.
             assert_eq!(audio.len(), iq.len(), "{sent} Hz");
             let settled = rms(&audio[audio.len() / 2..]);
             if open {
@@ -587,8 +538,6 @@ mod tests {
         }
     }
 
-    /// The tone must not be audible in what it lets through — that is the difference between
-    /// tone squelch and a 67 Hz hum on every transmission.
     #[test]
     fn the_subaudible_tone_is_taken_out_of_the_audio_it_opens() {
         let iq = signalling_iq(&ctcss_audio(88.5, SUBAUDIBLE, RATE, TONE_LEN));
@@ -599,7 +548,6 @@ mod tests {
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "voice-to-rest ratio {ratio}");
 
-        // The same channel with the tone path off keeps the 88.5 Hz component it was carrying.
         let mut plain = channel();
         let (_, plain_audio) = run_tone(&mut plain, &iq);
         let plain_settled = &plain_audio[plain_audio.len() / 2..];
@@ -611,7 +559,6 @@ mod tests {
         );
     }
 
-    /// Energy below 300 Hz, measured with the same correlator the detector uses.
     fn subaudible_rms(audio: &[f32]) -> f32 {
         let mut correlator = sdrmm_dsp::ToneCorrelator::new(RATE, 88.5, (RATE * 0.1) as usize);
         audio
@@ -635,8 +582,6 @@ mod tests {
         assert_eq!(statuses.last().and_then(|s| s.ctcss_hz), None);
     }
 
-    /// Continuous signalling would otherwise be a continuous event: one per block, forty a
-    /// second, forever.
     #[test]
     fn only_changes_are_reported() {
         let iq = signalling_iq(&ctcss_audio(88.5, SUBAUDIBLE, RATE, TONE_LEN));
@@ -645,8 +590,6 @@ mod tests {
         assert_eq!(statuses.len(), 1, "{statuses:?}");
     }
 
-    /// Nothing under the carrier is nothing to say, and a channel that opens on silence in
-    /// tone-squelch mode would be a channel with no tone squelch.
     #[test]
     fn a_carrier_with_no_signalling_says_nothing_and_opens_nothing() {
         let iq = signalling_iq(&vec![0.0; TONE_LEN]);
@@ -659,8 +602,6 @@ mod tests {
         assert_eq!(rms(&audio[audio.len() / 2..]), 0.0);
     }
 
-    /// Noise is not a tone: a bank that named the strongest of fifty bins whatever it read
-    /// would open a tone squelch on hiss.
     #[test]
     fn noise_names_no_tone_and_opens_no_gate() {
         let mut chan = tone_channel(tone_params(NfmToneMode::Detect, None, None));
@@ -671,7 +612,6 @@ mod tests {
         }
     }
 
-    /// What the channel accreted belongs to the station it was pointed at.
     #[test]
     fn retuning_forgets_the_tone() {
         let iq = signalling_iq(&ctcss_audio(88.5, SUBAUDIBLE, RATE, TONE_LEN));
@@ -681,7 +621,6 @@ mod tests {
             Some(88.5)
         );
         chan.retuned();
-        // A silent carrier on the new frequency must retract the tone, not keep reporting it.
         let quiet = signalling_iq(&vec![0.0; TONE_LEN]);
         let (statuses, _) = run_tone(&mut chan, &quiet);
         assert_eq!(
@@ -691,7 +630,6 @@ mod tests {
         );
     }
 
-    /// The channel only asks for gated input once it has something to measure under a carrier.
     #[test]
     fn only_a_tone_mode_needs_the_gated_span() {
         assert!(!channel().needs_gated_input());
@@ -720,7 +658,6 @@ mod tests {
                 matches!(built, Err(ChannelError::InvalidSettings(_))),
                 "{p:?} must be refused"
             );
-            // And refused on the way in through `apply`, not only at construction.
             let mut chan = channel();
             assert!(matches!(
                 chan.apply(settings(ChannelParams::Nfm(p))),
@@ -741,7 +678,6 @@ mod tests {
         NfmTx::new(ctx(), settings(ChannelParams::Nfm(NfmParams::default()))).unwrap()
     }
 
-    /// The pair's whole reason for existing: what the modulator sends, the demodulator hears.
     #[test]
     fn tx_round_trips_a_tone_through_the_demodulator() {
         for bandwidth_hz in [12_500.0, 25_000.0] {
@@ -776,9 +712,6 @@ mod tests {
         }
     }
 
-    /// Both ends moved to 25 kHz spacing still round-trip at full scale. A transmitter that
-    /// ignored `apply` would still be deviating ±2.5 kHz into a receiver now scaled to ±5 kHz,
-    /// and the tone would come back at half amplitude.
     #[test]
     fn tx_apply_rescales_deviation() {
         let wide = settings(ChannelParams::Nfm(NfmParams {
@@ -831,8 +764,6 @@ mod tests {
         let mut tx = transmitter();
         let mut block = [Complex::new(9.0, 9.0); 64];
         assert_eq!(tx.generate(&mut block), 0);
-        // `generate` writes to the head of the caller's buffer and reports how far it got; the
-        // rest is the caller's, not something to zero-fill.
         assert_eq!(block[0], Complex::new(9.0, 9.0));
     }
 
@@ -851,7 +782,6 @@ mod tests {
             tx.submit(TxPayload::Audio(vec![0.0; over])),
             Err(ChannelError::InvalidPayload(_))
         ));
-        // A refused payload is not a half-queued one.
         let mut block = [Complex::new(0.0, 0.0); 16];
         assert_eq!(tx.generate(&mut block), 0);
     }

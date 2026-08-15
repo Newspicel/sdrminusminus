@@ -4,16 +4,11 @@ use num_complex::Complex;
 
 use super::fm_modulate;
 
-/// Stereo pilot; the difference subcarrier is its second harmonic.
 const PILOT_HZ: f64 = 19_000.0;
-/// Peak deviation of a fully modulated broadcast carrier; [`composite`] returns ±1 for it.
 const DEVIATION_HZ: f64 = 75_000.0;
 const AUDIO_LEVEL: f64 = 0.45;
 const PILOT_LEVEL: f64 = 0.09;
 
-/// The stereo multiplex for `left`/`right` (both in ±1, same length) as a real signal in ±1.
-/// `pilot` false makes it a mono station: no pilot, no difference subcarrier, so a stereo
-/// receiver must fall back to the sum signal on both channels.
 #[must_use]
 pub fn composite(left: &[f32], right: &[f32], pilot: bool, rate: f64) -> Vec<f32> {
     assert_eq!(
@@ -37,8 +32,6 @@ pub fn composite(left: &[f32], right: &[f32], pilot: bool, rate: f64) -> Vec<f32
         .collect()
 }
 
-/// The same multiplex frequency-modulated onto a carrier as complex baseband IQ — what a WFM
-/// channel receives off the air.
 #[must_use]
 pub fn transmission(left: &[f32], right: &[f32], pilot: bool, rate: f64) -> Vec<Complex<f32>> {
     fm_modulate(&composite(left, right, pilot, rate), DEVIATION_HZ, rate)
@@ -57,9 +50,6 @@ mod tests {
         )
     }
 
-    /// Correlating against a reference recovers its share only if that component is present at
-    /// that phase: the pilot at its nominal level, and the difference signal on `−sin(2ωt)`
-    /// rather than the `+sin` or `cos` a sign or quadrature slip would put it on.
     fn correlate(mpx: &[f32], reference: impl Fn(f64) -> f64) -> f64 {
         mpx.iter()
             .enumerate()
@@ -70,7 +60,6 @@ mod tests {
 
     #[test]
     fn composite_carries_the_pilot_and_the_difference_signal_in_the_standard_phase() {
-        // One channel silent, so (L−R)/2 is a plain 1 kHz tone rather than a two-tone mix.
         let len = 24_000;
         let (left, _) = program(len);
         let silent = vec![0.0f32; len];

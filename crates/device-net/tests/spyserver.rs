@@ -1,8 +1,4 @@
 #![allow(clippy::expect_used)]
-//! A harness that cannot bind a loopback socket or clone it has nothing left to assert,
-//! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
-//! the free functions and closures a fake server is built out of.
-//! The SpyServer backend against a fake server (: no hardware in CI, ever).
 mod common;
 
 use std::{
@@ -31,16 +27,11 @@ const SETTING_IQ_FREQUENCY: u32 = 101;
 const SETTING_IQ_DECIMATION: u32 = 102;
 const SETTING_IQ_DIGITAL_GAIN: u32 = 103;
 
-/// Settings a fake server observed, keyed by which connection carried them.
 type Observed = Arc<Mutex<HashMap<usize, Vec<(u32, u32)>>>>;
 
-/// The device dials once to handshake and hangs up, so the capture is always the second connection
-/// and a reconnect the third.
 const CAPTURING: usize = 1;
 const RECONNECTED: usize = 2;
 
-/// The sample value every IQ message in these tests carries, and what it must arrive as: half of
-/// full scale, with no digital gain asked for at the lowest decimation.
 const SENT: i16 = 16_384;
 const EXPECTED: f32 = 0.5;
 
@@ -59,8 +50,6 @@ fn words(values: &[u32]) -> Vec<u8> {
     values.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
 
-/// An RTL-SDR behind a server that will be steered: 8 MS/s, four decimation stages of which the
-/// first is mandatory, a 29-step gain table folded into indices 0..=28.
 fn device_info() -> Vec<u8> {
     words(&[
         3,
@@ -92,14 +81,10 @@ fn client_sync(can_control: bool) -> Vec<u8> {
     ])
 }
 
-/// How a fake server should behave beyond the handshake.
 #[derive(Clone, Copy)]
 struct Behaviour {
     can_control: bool,
-    /// Close the capturing connection after a moment, the way a restarted server would.
     drop_capture: bool,
-    /// Write each IQ message in two writes with a pause between, so the framer has to carry a body
-    /// across reads.
     split_messages: bool,
 }
 
@@ -113,7 +98,6 @@ impl Default for Behaviour {
     }
 }
 
-/// A server that handshakes, records every setting, and streams int16 IQ once it is enabled.
 fn fake_spyserver(behaviour: Behaviour) -> (FakeServer, Observed) {
     let observed: Observed = Arc::new(Mutex::new(HashMap::new()));
     let recorder = observed.clone();
@@ -246,13 +230,10 @@ fn opening_reads_the_capability_set_off_the_handshake() {
     assert_eq!(range.max, 28.0);
     assert_eq!(unit, "index");
 
-    // Opening a receiver somebody else may be listening to must not move it.
     assert_eq!(device.settings().center_hz, Some(100_000_000.0));
     assert_eq!(server.connections(), 1, "the handshake hangs up");
 }
 
-/// A locked server's frequency range genuinely *is* the window it will let this client slide
-/// inside — and offering a gain control it would refuse would be a knob that does nothing.
 #[test]
 fn a_server_that_will_not_be_steered_reports_only_what_it_will_move() {
     let (server, _) = fake_spyserver(Behaviour {
@@ -305,8 +286,6 @@ fn capturing_configures_the_stream_before_enabling_it_and_samples_arrive() {
     device.rx_stop();
 }
 
-/// A TCP read is entitled to split anything; a framer that assumed a message arrives whole would
-/// desynchronise on the first one that does not.
 #[test]
 fn a_message_split_across_reads_is_still_one_block() {
     let (server, _) = fake_spyserver(Behaviour {
@@ -355,8 +334,6 @@ fn a_retune_while_streaming_reaches_the_server() {
     device.rx_stop();
 }
 
-/// The same behaviour a remote radio lives or dies by: the server restarts, and the reconnect sets
-/// the whole stream up again rather than resuming into a server that has forgotten this client.
 #[test]
 fn a_dropped_connection_reconnects_and_replays_the_stream_setup() {
     let (server, observed) = fake_spyserver(Behaviour {
@@ -396,7 +373,6 @@ fn a_dropped_connection_reconnects_and_replays_the_stream_setup() {
     device.rx_stop();
 }
 
-/// A shared receiver must not be left producing for a client that has gone.
 #[test]
 fn stopping_asks_the_server_to_stop_streaming() {
     let (server, observed) = fake_spyserver(Behaviour::default());

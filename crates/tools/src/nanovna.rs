@@ -1,11 +1,3 @@
-//! NanoVNA driver: discovery, guided calibration, and swept S11/S21 over the instrument's USB
-//! serial shell.
-//!
-//! The shell is the whole protocol — a command, its echo, its answer, and a `ch>` prompt — so
-//! everything here is request/response and blocking. Sweeps wider than one scan are stitched
-//! from segments, and the instrument's own settings are read back with every measurement so a
-//! sweep carries the state it was taken under rather than the state it was asked for.
-
 mod device;
 mod discovery;
 mod shell;
@@ -233,8 +225,6 @@ mod tests {
 
     use super::*;
 
-    /// The recorded shell of the NanoVNA-H4 this driver was written against, replayed a couple of
-    /// bytes at a time so the framing is exercised the way a real port delivers it.
     const RECORDED_SESSION: &str = include_str!("../../../fixtures/nanovna/nanovna-h4-session.txt");
 
     struct FixtureConnection {

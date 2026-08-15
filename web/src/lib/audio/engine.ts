@@ -4,30 +4,20 @@ import { LossTracker } from "./loss";
 import { MAX_GAP_FRAMES, SAMPLE_RATE, type WorkletReport } from "./worklet";
 
 export interface AudioSink {
-  /**
-   * `channels` is the packet's own layout (1 = mono, 2 = stereo); it may change mid-stream.
-   * Returns whether the packet was accepted — a refusal owes the buffer a conceal, or the
-   * dropped audio would silently shorten the stream and starve playback.
-   */
   push(opus: Uint8Array, timestampUs: number, channels: number): boolean;
-  /** Insert `frames` of silence for a detected loss gap so depth and timing stay honest. */
   conceal(frames: number): void;
   setVolume(volume: number): void;
-  /** Discard buffered/decoder state; called when a fresh stream id binds to this channel. */
   reset(): void;
   close(): void;
 }
 
 export type SinkFactory = (
-  /** `deviceSet:channel` — the identity the decoded audio is published under, so a display can
-   * watch what a channel is actually playing (`audio/monitor.ts`). */
   key: string,
   volume: number,
   onError: (err: unknown) => void,
   onReport: (report: WorkletReport) => void,
 ) => Promise<AudioSink>;
 
-/** The slice of `SdrSocket` the engine needs; a structural interface so tests can fake it. */
 export interface AudioSocket {
   send(command: ClientCommand): void;
   isConnected(): boolean;
@@ -41,28 +31,17 @@ export interface AudioSocket {
 interface ChannelEntry {
   readonly deviceSet: number;
   readonly channel: number;
-  /** User pressed start and hasn't stopped; survives socket drops so reconnects resubscribe. */
   desired: boolean;
-  /** A SubscribeAudio went out on the current connection, so a stop owes an unsubscribe. */
   requested: boolean;
   streamId: number | null;
   sink: AudioSink | null;
   sinkPending: boolean;
-  /** Bumped by start/stop so an in-flight sink creation can detect it lost the race. */
   generation: number;
   volume: number;
-  /** Why playback stopped without the user asking; shown until dismissed or restarted. */
   lastError: string | null;
   loss: LossTracker;
-  /**
-   * The two halves of a break in the sound, kept apart because they accuse different things:
-   * `lost` is audio the browser never received (the radio dropped it, the encoder or the socket
-   * shed it), `underruns` is audio that arrived and still could not be played on time (this
-   * machine's scheduling, or a clock the buffer could not track).
-   */
   lost: number;
   underruns: number;
-  /** Last count read off the *current* sink's buffer, so a rebuilt sink cannot double-count. */
   sinkUnderruns: number;
 }
 
@@ -75,21 +54,12 @@ function entryKey(deviceSet: number, channel: number): string {
 export class AudioEngine {
   private readonly entries = new Map<string, ChannelEntry>();
   private readonly storeListeners = new Set<() => void>();
-  /**
-   * Subscribes the server has not yet answered, in send order. The wire has no correlation
-   * id, but the server answers subscribes in command order, so the oldest pending entry for
-   * a channel is the one an `AudioStreamStarted` (or an `Error`) answers. Without this, a
-   * Started for a superseded subscribe binds its stale id to the new intent — and the stale
-   * StreamStopped that follows then kills the fresh stream.
-   */
   private readonly pendingSubscribes: { key: string; generation: number }[] = [];
-  /** Reported by the sink layer: false while the platform audio output is suspended. */
   private outputRunning = true;
   private socket: AudioSocket | null = null;
 
   constructor(private readonly createSink: SinkFactory) {}
 
-  /** For useSyncExternalStore; stable identity. */
   readonly subscribe = (listener: () => void): (() => void) => {
     this.storeListeners.add(listener);
     return () => this.storeListeners.delete(listener);
@@ -127,13 +97,11 @@ export class AudioEngine {
     return entry !== undefined && entry.desired && entry.streamId !== null && this.outputRunning;
   }
 
-  /** Start requested but no stream bound yet (subscribe in flight or socket down). */
   isPending(deviceSet: number, channel: number): boolean {
     const entry = this.entries.get(entryKey(deviceSet, channel));
     return entry !== undefined && entry.desired && entry.streamId === null;
   }
 
-  /** Stream bound but the platform suspended the audio output — no sound is produced. */
   isSuspended(deviceSet: number, channel: number): boolean {
     const entry = this.entries.get(entryKey(deviceSet, channel));
     return entry !== undefined && entry.desired && entry.streamId !== null && !this.outputRunning;
@@ -155,17 +123,14 @@ export class AudioEngine {
     return this.entries.get(entryKey(deviceSet, channel))?.volume ?? 1;
   }
 
-  /** Frames of audio that never reached this browser — the stream's own losses. */
   getLostFrames(deviceSet: number, channel: number): number {
     return this.entries.get(entryKey(deviceSet, channel))?.lost ?? 0;
   }
 
-  /** Times playback ran dry on audio that did arrive — this machine's losses. */
   getUnderruns(deviceSet: number, channel: number): number {
     return this.entries.get(entryKey(deviceSet, channel))?.underruns ?? 0;
   }
 
-  /** Reported by the sink layer; while false, bound streams read as suspended, not playing. */
   setOutputRunning(running: boolean): void {
     if (this.outputRunning === running) {
       return;
@@ -174,12 +139,6 @@ export class AudioEngine {
     this.notify();
   }
 
-  /**
-   * `ServerEvent::Error` carries no coordinates, but the server answers each subscribe in
-   * command order — so while a SubscribeAudio is outstanding, an Error is its answer: fail
-   * that entry (visible, retryable) instead of leaving it desired-but-unbound forever.
-   * Returns whether the error was consumed; unclaimed errors belong to the caller.
-   */
   claimServerError(message: string): boolean {
     const pending = this.pendingSubscribes.shift();
     if (!pending) {
@@ -229,15 +188,6 @@ export class AudioEngine {
     this.notify();
   }
 
-  /**
-   * Stop playback for every channel that is no longer on the canvas — a device node unbound
-   * ("forget radio"), a channel deleted, a workspace switched.
-   *
-   * Playback deliberately outlives the panel that started it, so that a remount does not cut the
-   * audio (see `useChannelAudio`); the flip side is that nothing else can ever stop an entry
-   * whose face has gone for good. Without this the stream keeps playing, keeps the server
-   * encoding for it, and has no button left anywhere that could turn it off.
-   */
   retain(live: Iterable<{ deviceSet: number; channel: number }>): void {
     const keep = new Set<string>();
     for (const { deviceSet, channel } of live) {
@@ -271,15 +221,12 @@ export class AudioEngine {
           break;
         }
         entry.streamId = event.data.stream_id;
-        // Fresh stream id ⇒ timestamps restart; stale buffered audio must not play first.
         entry.sink?.reset();
         entry.loss.reset();
         this.notify();
         break;
       }
       case "StreamStopped": {
-        // Spectrum and audio ids come from disjoint ranges, but only (kind, id) names a
-        // stream — a spectrum stop must never tear down an audio entry.
         if (event.data.kind !== "audio") {
           break;
         }
@@ -337,9 +284,6 @@ export class AudioEngine {
       Math.round(Number(frame.timestamp) * US_PER_FRAME),
       frame.chLayout,
     );
-    // A refused packet (decoder backlogged, or a layout swap in flight) is real audio the
-    // buffer will never see: conceal its span so depth and timing stay honest instead of the
-    // loss showing up later as an unexplained underrun.
     if (!accepted) {
       const frames = entry.loss.packetFrames;
       if (frames !== null) {
@@ -437,11 +381,6 @@ export class AudioEngine {
     });
   }
 
-  /**
-   * The playback buffer's own report. Its underrun count is per sink, and a sink is rebuilt on
-   * reconnects and layout swaps, so it accumulates here rather than being copied: the operator
-   * is asking "has this channel been breaking up", not "since which sink".
-   */
   private observe(entry: ChannelEntry, report: WorkletReport): void {
     const since = report.underruns - entry.sinkUnderruns;
     if (since <= 0) {

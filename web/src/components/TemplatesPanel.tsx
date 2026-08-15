@@ -57,9 +57,6 @@ export function TemplatesPanel({
                 {(t.center_hz / 1e6).toFixed(3)} MHz · {(t.sample_rate / 1e6).toFixed(3)} Msps ·{" "}
                 {t.channels.length} channel{t.channels.length === 1 ? "" : "s"}
               </div>
-              {/* Applying a template retunes one radio and replaces its channels, and that is
-                  not undoable — so the button names the radio it is about to do it to, rather
-                  than the drawer stating a target for sections that never had one. */}
               <Button
                 type="button"
                 className={`${BTN} mt-1 max-w-full self-start`}

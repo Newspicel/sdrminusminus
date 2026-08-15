@@ -17,55 +17,31 @@ pub use playback::{FilePlayback, LOOP_SETTING};
 
 const DRIVER_ID: &str = "virtual";
 const SIGGEN_KEY: &str = "siggen";
-/// Playback device keys are `file:<stem>`, so the full id `virtual:file:<stem>` embeds the
-/// recording stem (the registry splits ids on the first `:` only).
 const FILE_KEY_PREFIX: &str = "file:";
-/// Target block duration; the capture thread paces itself to roughly real time.
 const BLOCK_SECS: f64 = 0.025;
 
-/// Offset of the NFM test carrier from the *current* center frequency. All `*_OFFSET_HZ`
-/// are relative to center so the carriers retune with the device and tests can address them
-/// the way channels do: as plain offsets, at any center frequency.
 pub const NFM_CARRIER_OFFSET_HZ: f64 = 300_000.0;
-/// NFM peak deviation of the 1 kHz modulating tone.
 pub const NFM_DEVIATION_HZ: f64 = 2_500.0;
-/// Offset of the AM test carrier from the current center frequency.
 pub const AM_CARRIER_OFFSET_HZ: f64 = -300_000.0;
-/// AM modulation depth of the 1 kHz tone.
 pub const AM_MOD_DEPTH: f64 = 0.6;
-/// Offset of the WFM test carrier from the current center frequency.
 pub const WFM_CARRIER_OFFSET_HZ: f64 = 600_000.0;
-/// WFM peak deviation of the 1 kHz modulating tone.
 pub const WFM_DEVIATION_HZ: f64 = 75_000.0;
-/// Modulating tone shared by all three carriers.
 pub const MOD_TONE_HZ: f64 = 1_000.0;
 
-/// Spacing of the per-stream markers on the multi-stream test radios: stream k's marker sits
-/// at `(k+1) ×` this from center, so no marker lands on center or on another stream's offset.
 pub const STREAM_MARKER_SPACING_HZ: f64 = 50_000.0;
 
-/// Offset from center of `stream`'s marker carrier on the multi-stream test radios. An NFM
-/// carrier ([`NFM_DEVIATION_HZ`], [`MOD_TONE_HZ`]) rather than a bare tone, so a channel on
-/// stream k can *demodulate* its marker, not merely see energy at the offset.
 #[must_use]
 pub fn stream_marker_offset_hz(stream: u32) -> f64 {
     STREAM_MARKER_SPACING_HZ * (f64::from(stream) + 1.0)
 }
 
-/// Comparable to the 0.10–0.30 static tones so the carriers get a similar SNR.
 const MOD_CARRIER_AMP: f64 = 0.20;
 
-/// Tuning the synthetic radios power up with — the same defaults the engine assumes when a
-/// device reports none, so hardware doubles and engine state agree from the first snapshot.
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE_HZ: f64 = 2_048_000.0;
 
-/// The siggen's noise seed; a stream marker generator derives its own from it, so no two
-/// streams are sample-identical even where their markers are muted.
 const NOISE_SEED: u64 = 0x5DEE_CE66_D00D_1234;
 
-/// Driver that exposes developer signal generators when enabled, plus one playback device per
-/// finalized SigMF recording when constructed with a recordings dir.
 pub struct VirtualDriver {
     recordings_dir: Option<PathBuf>,
     synthetic_devices: bool,
@@ -79,20 +55,16 @@ impl Default for VirtualDriver {
 }
 
 impl VirtualDriver {
-    /// A synthetic-only driver for hermetic tests and developer tooling.
     #[must_use]
     pub fn new() -> Self {
         Self::configured(None, true, 1.0)
     }
 
-    /// Synthetic devices plus playback for hermetic tests and developer tooling.
     #[must_use]
     pub fn with_recordings(dir: PathBuf) -> Self {
         Self::configured(Some(dir), true, 1.0)
     }
 
-    /// File playback accelerated for long-protocol integration tests. The sample stream is
-    /// unchanged; only its wall-clock pacing differs.
     #[must_use]
     pub fn with_accelerated_recordings(dir: PathBuf, playback_speed: f64) -> Self {
         assert!(
@@ -102,8 +74,6 @@ impl VirtualDriver {
         Self::configured(Some(dir), true, playback_speed)
     }
 
-    /// The driver policy used by application builds: debug builds expose the synthetic radios,
-    /// while production builds retain only recording playback.
     #[must_use]
     pub fn for_build(recordings_dir: Option<PathBuf>) -> Self {
         Self::configured(recordings_dir, cfg!(debug_assertions), 1.0)
@@ -142,7 +112,6 @@ impl VirtualDriver {
     }
 
     fn playback_info(stem: &Path) -> Option<DeviceInfo> {
-        // Non-UTF-8 stems cannot round-trip through the string device id; skip them.
         let stem_str = stem.to_str()?;
         let name = stem.file_name()?.to_str()?;
         Some(DeviceInfo {
@@ -194,10 +163,6 @@ impl DeviceDriver for VirtualDriver {
     }
 }
 
-/// Deterministically render the first `n` samples of the siggen baseband at `sample_rate` —
-/// the stream a freshly started [`SigGen`] produces. For xtask fixture synthesis and hermetic
-/// tests. The output is center-independent: the modulated carriers sit at Hz offsets from
-/// center, so retuning shifts what the offsets *mean*, never the baseband itself.
 #[must_use]
 pub fn render(sample_rate: f64, n: usize) -> Vec<Complex<f32>> {
     let mut block = vec![Complex::new(0.0, 0.0); n];
@@ -205,13 +170,11 @@ pub fn render(sample_rate: f64, n: usize) -> Vec<Complex<f32>> {
     block
 }
 
-/// Parameters the capture thread reads per block via [`ArcSwap`] (snapshot, no per-sample lock).
 #[derive(Clone, Copy)]
 struct SigParams {
     sample_rate: f64,
 }
 
-/// The virtual signal generator.
 pub struct SigGen {
     capabilities: Capabilities,
     settings: DeviceSettings,
@@ -225,8 +188,6 @@ impl Default for SigGen {
     }
 }
 
-/// What the signal generator can do. A pure table, so the probe can hand it over without
-/// opening anything — the picker filters templates against it like any other radio.
 #[must_use]
 fn siggen_capabilities() -> Capabilities {
     Capabilities {
@@ -283,10 +244,6 @@ fn default_settings() -> DeviceSettings {
     }
 }
 
-/// Validation shared by the synthetic radios. The advertised capabilities are a contract:
-/// accepting a rate or tune outside them would make these backends unfaithful doubles for
-/// hardware that rejects it (device-soapy pre-flights the same checks), hiding the reject
-/// path from every engine/server test.
 fn validate_tune(
     capabilities: &Capabilities,
     settings: &DeviceSettings,
@@ -310,8 +267,6 @@ fn validate_tune(
             "center_hz {f} outside tuner range"
         )));
     }
-    // A per-stream tuner is still this tuner: an override outside the range the radio-wide
-    // dial refuses must be refused too.
     for entry in &settings.streams {
         if let Some(f) = entry.center_hz
             && !in_range(f)
@@ -337,7 +292,6 @@ impl SdrDevice for SigGen {
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         validate_tune(&self.capabilities, settings)?;
         self.settings.merge_from(settings);
-        // Publish the derived params so a live capture thread picks them up next block.
         self.shared.store(Arc::new(SigParams {
             sample_rate: self.sample_rate(),
         }));
@@ -363,7 +317,7 @@ impl SdrDevice for SigGen {
                 if next > now {
                     std::thread::sleep(next - now);
                 } else {
-                    next = now; // fell behind; resync without accumulating debt
+                    next = now;
                 }
             }
         })
@@ -374,21 +328,15 @@ impl SdrDevice for SigGen {
     }
 }
 
-/// One multi-stream test radio's shape. No hardware backend has several streams, so these
-/// virtual radios are what carries the multi-stream path end to end: the matrix covers
-/// rx-only, half- and full-duplex at more than one N×M.
 pub struct MarkerShape {
     pub key: &'static str,
     pub label: &'static str,
     pub duplex: Duplex,
     pub rx_streams: u32,
     pub tx_streams: u32,
-    /// Which settings each lane holds on its own. The matrix spans the cases per-stream
-    /// settings must prove: shared tuning honoured, independent tuning working, none at all.
     pub per_stream: StreamScope,
 }
 
-/// The multi-stream test radios the driver probes, alongside the siggen and recordings.
 pub const MARKER_SHAPES: [MarkerShape; 3] = [
     MarkerShape {
         key: "array4",
@@ -408,8 +356,6 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
         duplex: Duplex::Full,
         rx_streams: 2,
         tx_streams: 2,
-        // A synthesizer per lane: the shape that proves an independent retune moves exactly
-        // one lane's marker.
         per_stream: StreamScope {
             tuning: true,
             gain: true,
@@ -430,8 +376,6 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
     },
 ];
 
-/// Same tuning surface as the siggen — templates that match one match the other — with the
-/// shape's stream counts, duplex and per-stream scope on top.
 fn marker_capabilities(shape: &MarkerShape) -> Capabilities {
     Capabilities {
         duplex: shape.duplex,
@@ -442,12 +386,6 @@ fn marker_capabilities(shape: &MarkerShape) -> Capabilities {
     }
 }
 
-/// Where each lane's marker sits in that lane's own baseband. The marker carrier radiates at
-/// `radio-wide centre + stream_marker_offset_hz(k)` — it rides the radio-wide dial exactly as
-/// the siggen's carriers do — so a lane tuned apart from the radio (per-stream tuning) sees it
-/// displaced by the difference, which is what lets a test prove lane k retuned and the others
-/// did not. Where tuning is shared, `for_stream` resolves every lane to the radio-wide centre
-/// and no marker ever moves.
 fn marker_offsets(settings: &DeviceSettings, capabilities: &Capabilities) -> Vec<f64> {
     let radio_center = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
     (0..capabilities.rx_streams)
@@ -461,14 +399,6 @@ fn marker_offsets(settings: &DeviceSettings, capabilities: &Capabilities) -> Vec
         .collect()
 }
 
-/// A multi-stream test radio: stream k carries the shared noise floor plus its own NFM
-/// marker at [`stream_marker_offset_hz`]`(k)` from the *radio-wide* centre, so a test can
-/// prove stream k reached channel k by demodulating the marker's 1 kHz tone (or by band power
-/// at the offset). On a shape with per-stream tuning, a lane tuned apart from the radio sees
-/// its marker displaced by the difference ([`marker_offsets`]) — the observable that proves a
-/// per-stream retune reached exactly one lane. The transmit side of the duplex-capable shapes
-/// is declared but inert — like every radio's, `tx_start` stays behind the
-/// authorized-use gate nothing above the device crates crosses.
 pub struct MarkerGen {
     capabilities: Capabilities,
     settings: DeviceSettings,
@@ -476,8 +406,6 @@ pub struct MarkerGen {
     worker: Worker,
 }
 
-/// Parameters the marker capture thread reads per block: the shared clock — one radio, one
-/// clock domain, whatever the lanes are tuned to — and each lane's [`marker_offsets`] entry.
 struct MarkerParams {
     sample_rate: f64,
     marker_offsets: Vec<f64>,
@@ -544,12 +472,7 @@ impl SdrDevice for MarkerGen {
                 let params = shared.load_full();
                 let n = ((params.sample_rate * BLOCK_SECS).round() as usize).max(1);
                 block.resize(n, Complex::new(0.0, 0.0));
-                // One block round fills every lane from the same clock, so the streams stay
-                // sample-aligned — what "coherent array" promises.
                 for (stream, (generator, sink)) in lanes.iter_mut().enumerate() {
-                    // Both vecs are sized from `rx_streams`, so `get` always hits; the
-                    // unshifted default keeps a lane audible rather than a panic on the
-                    // capture thread if that invariant ever breaks.
                     let offset = params
                         .marker_offsets
                         .get(stream)
@@ -576,14 +499,9 @@ impl SdrDevice for MarkerGen {
     }
 }
 
-/// A modulated test carrier at a fixed Hz offset from center (unlike the fraction-of-fs
-/// tones, so channels can address it identically at any sample rate).
 struct ModCarrier {
     offset_hz: f64,
     amp: f64,
-    /// `amp` while the occupied band fits under Nyquist at the block's sample rate, else 0.0.
-    /// Scratch recomputed per [`Generator::fill`], so a variable carrier count needs no
-    /// per-block allocation on the capture thread.
     block_amp: f64,
     kind: ModKind,
     carrier_phase: f64,
@@ -608,7 +526,6 @@ impl ModCarrier {
         }
     }
 
-    /// Carson-rule half-width for FM; carrier ± one sideband for AM.
     fn occupied_half_width_hz(&self) -> f64 {
         match self.kind {
             ModKind::Fm { deviation_hz } => deviation_hz + MOD_TONE_HZ,
@@ -617,15 +534,9 @@ impl ModCarrier {
     }
 }
 
-/// Baseband IQ synthesis state: continuous-phase tone oscillators, the modulated test
-/// carriers, and a noise source. Phases are `f64` so they stay accurate across long runs;
-/// output is cast to `f32` at the edge.
 struct Generator {
-    /// (offset as fraction of fs, amplitude, phase) for the static tones.
     tones: Vec<(f64, f64, f64)>,
-    /// Drift tone amplitude; 0.0 in generators that carry no drift tone.
     drift_amp: f64,
-    /// Drifting tone phase and LFO phase for its slow frequency sweep.
     drift_phase: f64,
     lfo_phase: f64,
     carriers: Vec<ModCarrier>,
@@ -663,11 +574,6 @@ impl Generator {
         }
     }
 
-    /// The baseband one rx stream of a multi-stream test radio produces: the shared noise
-    /// floor plus one NFM marker at [`stream_marker_offset_hz`]. NFM because a bare tone
-    /// demodulates to silence — the marker exists so a test can demodulate stream k's 1 kHz
-    /// tone, not merely see energy at the offset. The seed varies per stream, so no two
-    /// streams are ever sample-identical.
     fn stream_marker(stream: u32) -> Self {
         Self {
             tones: Vec::new(),
@@ -684,19 +590,12 @@ impl Generator {
         }
     }
 
-    /// Move the marker carrier of a [`Generator::stream_marker`] (its only carrier) to a new
-    /// baseband offset. Phase accumulates across the change, as a real synthesizer's would —
-    /// a reset would put an undemodulatable click at every retune.
     fn set_marker_offset_hz(&mut self, offset_hz: f64) {
         for carrier in &mut self.carriers {
             carrier.offset_hz = offset_hz;
         }
     }
 
-    /// Fill `block` with one block of IQ at `sample_rate`. Every oscillator accumulates
-    /// phase per sample and carries it across calls — FM with phase resets at block edges
-    /// would be undemodulatable — and nothing here allocates, keeping the capture thread
-    /// real-time.
     fn fill(&mut self, block: &mut [Complex<f32>], sample_rate: f64) {
         use std::f64::consts::TAU;
 
@@ -705,8 +604,6 @@ impl Generator {
         let noise_amp = 0.012;
         let mod_w = MOD_TONE_HZ * hz_to_w;
 
-        // A carrier whose occupied band would cross Nyquist is muted rather than allowed to
-        // alias bogus energy into the spectrum at low sample rates.
         let nyquist = 0.5 * sample_rate;
         for carrier in &mut self.carriers {
             carrier.block_amp =
@@ -756,7 +653,6 @@ impl Generator {
             *slot = Complex::new(re as f32, im as f32);
         }
 
-        // Keep phases bounded.
         for (_, _, phase) in &mut self.tones {
             *phase = phase.rem_euclid(TAU);
         }
@@ -769,8 +665,6 @@ impl Generator {
     }
 }
 
-/// Small deterministic PRNG (xorshift64*) — avoids a `rand` dependency and keeps the noise
-/// floor reproducible for tests.
 struct Xorshift(u64);
 
 impl Xorshift {
@@ -778,14 +672,13 @@ impl Xorshift {
         Self(seed | 1)
     }
 
-    /// Uniform value in roughly `[-1.0, 1.0)`.
     fn next_bipolar(&mut self) -> f64 {
         let mut x = self.0;
         x ^= x >> 12;
         x ^= x << 25;
         x ^= x >> 27;
         self.0 = x;
-        let bits = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f64; // 24 bits
+        let bits = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f64;
         bits / (1u64 << 23) as f64 - 1.0
     }
 }
@@ -802,10 +695,8 @@ mod tests {
 
     use super::*;
 
-    /// 2.4 Msps keeps the fraction-of-fs tones (+360 kHz, +120 kHz, -720 kHz) and the drift
-    /// sweep (below ~190 kHz for the first half second) clear of every carrier band under test.
     const SPECTRUM_FS: f64 = 2_400_000.0;
-    const SPECTRUM_LEN: usize = 1 << 20; // ~437 ms
+    const SPECTRUM_LEN: usize = 1 << 20;
 
     fn power_spectrum(n: usize, sample_rate: f64) -> Vec<f64> {
         let mut generator = Generator::new();
@@ -820,7 +711,6 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, s)| {
-                // Hann window keeps tone leakage out of the quiet reference bands.
                 let w = 0.5 - 0.5 * (TAU * i as f64 / n as f64).cos();
                 Complex::new(f64::from(s.re) * w, f64::from(s.im) * w)
             })
@@ -877,8 +767,6 @@ mod tests {
     fn modulation_bandwidths_are_roughly_right() {
         let power = shared_spectrum();
 
-        // β = 75 WFM spreads energy across roughly ±(75 + 1) kHz (Carson), so a ±10 kHz
-        // slice holds a minority of it; NFM (±3.5 kHz) and AM (±1 kHz) fit inside ±10 kHz.
         let wfm_wide = band_power(power, SPECTRUM_FS, WFM_CARRIER_OFFSET_HZ, 100_000.0);
         let wfm_narrow = band_power(power, SPECTRUM_FS, WFM_CARRIER_OFFSET_HZ, 10_000.0);
         assert!(
@@ -904,8 +792,6 @@ mod tests {
 
         let mut generator = Generator::new();
         let mut chunked = vec![Complex::new(0.0f32, 0.0f32); 8192];
-        // 999 is deliberately misaligned with the 1 kHz modulator period so a phase reset
-        // at block edges cannot hide.
         for chunk in chunked.chunks_mut(999) {
             generator.fill(chunk, fs);
         }
@@ -979,7 +865,6 @@ mod tests {
             sdrmm_recorder::SigmfWriter::create(&stem, 250_000.0, 100_000_000.0, "test").unwrap();
         writer.write_block(&[Complex::new(0.5, -0.5)]).unwrap();
         writer.finalize().unwrap();
-        // Crashed recording: only the .tmp breadcrumb exists; it must not be listed.
         drop(
             sdrmm_recorder::SigmfWriter::create(
                 &dir.path().join("crashed"),
@@ -998,10 +883,8 @@ mod tests {
         assert_eq!(recording.id(), format!("virtual:file:{}", stem.display()));
         assert_eq!(recording.label, "capture (recording)");
         assert!(recording.serial.is_none());
-        // The probed info must be openable — the registry's open path re-probes and matches it.
         d.open(recording).unwrap();
 
-        // Production keeps the recording path but neither advertises nor opens a synthetic id.
         let production = VirtualDriver::configured(Some(dir.path().to_path_buf()), false, 1.0);
         let production_infos = production.probe();
         assert_eq!(production_infos.len(), 1);
@@ -1036,8 +919,6 @@ mod tests {
             let info = infos.iter().find(|info| info.key == shape.key).unwrap();
             assert_eq!(info.label, shape.label);
             assert_eq!(info.id(), format!("virtual:{}", shape.key));
-            // The profile must be there at probe time: the picker filters templates against
-            // it without opening the radio, exactly as it does for the siggen.
             let profile = info.profile.as_ref().unwrap();
             assert_eq!(profile.duplex, shape.duplex, "{}", shape.key);
             assert_eq!(profile.rx_streams, shape.rx_streams, "{}", shape.key);
@@ -1070,7 +951,6 @@ mod tests {
         dev.rx_start((0..4).map(|_| RxSink::new(|_| {})).collect())
             .unwrap();
         dev.rx_stop();
-        // A refused start must not have consumed the worker slot.
         dev.rx_start((0..4).map(|_| RxSink::new(|_| {})).collect())
             .unwrap();
         dev.rx_stop();
@@ -1091,7 +971,7 @@ mod tests {
     #[test]
     fn each_stream_carries_its_own_marker() {
         const STREAMS: usize = 4;
-        const N: usize = 1 << 17; // ~64 ms at the default 2.048 Msps
+        const N: usize = 1 << 17;
 
         let mut dev = open_virtual("array4");
         let mut receivers = Vec::new();
@@ -1162,7 +1042,6 @@ mod tests {
             }
             other => panic!("a streams entry on the siggen must be Unsupported, got {other:?}"),
         }
-        // The refused entry must not leak into reported settings.
         assert!(dev.settings().streams.is_empty());
     }
 
@@ -1179,7 +1058,6 @@ mod tests {
         };
         match dev.apply(&retune) {
             Err(DeviceError::Unsupported(message)) => {
-                // Tuning one lane of a coherent array apart is what the array must never do.
                 assert!(message.contains("center_hz"), "{message}");
             }
             other => panic!("a per-stream centre on the array must be Unsupported, got {other:?}"),
@@ -1241,9 +1119,6 @@ mod tests {
         assert_eq!(dev.settings().streams[0].center_hz, Some(433_920_000.0));
     }
 
-    /// Where tuning is per-stream, each lane's marker follows *that lane's* centre: the marker
-    /// radiates at the radio-wide centre + its offset, so a lane tuned apart sees it displaced
-    /// by the difference, and a lane left alone does not.
     #[test]
     fn a_per_stream_retune_moves_only_that_lanes_marker() {
         const N: usize = 1 << 17;
@@ -1285,7 +1160,6 @@ mod tests {
             .collect();
         dev.rx_stop();
 
-        // Lane 0 was not retuned: its marker stays at its own offset, not RETUNE_HZ above it.
         let power = spectrum_of(&lanes[0]);
         let own = band_power(&power, rate, stream_marker_offset_hz(0), 10_000.0);
         let shifted = band_power(
@@ -1313,8 +1187,6 @@ mod tests {
         );
     }
 
-    /// Edge case: a radio-wide retune stays the default for lanes without an override and must
-    /// not wipe overrides that exist — the override keeps displacing that lane's marker.
     #[test]
     fn marker_offsets_follow_each_lanes_own_center() {
         let caps = marker_capabilities(&MARKER_SHAPES[1]);
@@ -1335,8 +1207,6 @@ mod tests {
             center_hz: Some(DEFAULT_CENTER_HZ + 25_000.0),
             ..DeviceSettings::default()
         });
-        // Lane 0 rides the radio-wide dial (offset unchanged); lane 1 keeps its override, now
-        // 75 kHz below the radio, so its marker sits that much higher.
         assert_eq!(marker_offsets(&settings, &caps), vec![50_000.0, 175_000.0]);
 
         let array = marker_capabilities(&MARKER_SHAPES[0]);
@@ -1378,8 +1248,6 @@ mod tests {
         }
         dev.rx_stop();
 
-        // Same tolerance as the block-size test: phase renormalization at block edges keeps
-        // chunked output equal only to ~1e-4, not bit-exact.
         for (i, (a, b)) in rendered.iter().zip(&streamed).enumerate() {
             assert!(
                 (a.re - b.re).abs() < 1e-4 && (a.im - b.im).abs() < 1e-4,
@@ -1411,7 +1279,6 @@ mod tests {
                 "center {bad} must be rejected"
             );
         }
-        // The rejected tunes must not have leaked into settings.
         assert_eq!(dev.settings().center_hz, Some(100_000_000.0));
         dev.apply(&DeviceSettings {
             center_hz: Some(5_900_000_000.0),
@@ -1441,7 +1308,6 @@ mod tests {
         assert_eq!(settings.antenna.as_deref(), Some("RX"));
         assert_eq!(settings.bandwidth, Some(1_500_000.0));
         assert_eq!(settings.gains.len(), 1);
-        // Defaults untouched by the delta must survive.
         assert_eq!(settings.center_hz, Some(100_000_000.0));
     }
 
@@ -1460,7 +1326,6 @@ mod tests {
         })])
         .unwrap();
 
-        // Collect a few blocks, then stop.
         let mut total = 0;
         for _ in 0..3 {
             if let Ok(n) = rx.recv_timeout(Duration::from_secs(2)) {
@@ -1470,7 +1335,6 @@ mod tests {
         dev.rx_stop();
         assert!(total > 0, "expected streamed samples");
 
-        // Second start after stop must succeed (not stuck AlreadyStreaming).
         dev.rx_start(vec![RxSink::new(|_| {})]).unwrap();
         dev.rx_stop();
     }

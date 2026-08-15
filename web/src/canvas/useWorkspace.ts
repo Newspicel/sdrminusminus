@@ -23,31 +23,18 @@ import { WorkspaceDrafts } from "./workspaceDrafts";
 export interface WorkspaceStore {
   workspaces: WorkspaceInfo[];
   active: WorkspaceDetail | null;
-  /** A write that failed — surfaced rather than swallowed, since a rejected write means the
-   * patch on screen is not the one that is stored. */
   error: string | null;
-  /** Edit the active workspace. The edit is a *function* of the current snapshot, not a snapshot:
-   * two changes can land within one round trip (a node drag and the wire it ended on), and the
-   * second must build on the first rather than on what the caller happened to be rendering. */
   save: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
   activate: (id: number) => void;
   create: (name: string) => void;
   remove: (id: number) => void;
   apply: () => void;
   applied: PatchApplyReport | null;
-  /** Step the workspace back through its stored history, or forward again. The history is the
-   * server's and shared, so this undoes for every client — including the engine, which the step
-   * brings along. */
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  /** The list has not answered yet — distinct from "there are no workspaces", which is a real
-   * state the server reports after the last one is deleted. */
   pending: boolean;
-  /** The list could not be read at all, with why. Also distinct from "there are no workspaces":
-   * an unreachable server has told us nothing, so offering to create one would be a button that
-   * can only fail. */
   unreachable: string | null;
 }
 
@@ -57,12 +44,6 @@ export function useWorkspace(): WorkspaceStore {
   const activeId = list.data?.active ?? null;
   const detail = useQuery(workspaceQuery(activeId));
 
-  // A refetch is allowed to replace the query cache while writes are queued (the server emits a
-  // workspace invalidation for every accepted write). Keep the composed local draft outside that
-  // cache until the last queued write settles, or a refetch containing only an earlier edit can
-  // erase a later one before it has been sent.
-  // Keyed by workspace because a switch can put A, B and then A back into the same global write
-  // queue. Settling one workspace must neither discard another's draft nor retain A's old revision.
   const [drafts] = useState(() => new WorkspaceDrafts());
 
   const update = useMutation({
@@ -71,9 +52,6 @@ export function useWorkspace(): WorkspaceStore {
         revision: variables.revision,
         snapshot: variables.snapshot,
       }),
-    // The write's own answer carries the new revision, and the next queued write reads it from
-    // here. Preserve the latest local draft at the same time: the server's answer describes this
-    // write, which may not be the last edit already waiting behind it.
     onSuccess: (info, variables) => {
       const snapshot = drafts.accepted(variables.id, info.revision) ?? variables.snapshot;
       queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], (previous) =>
@@ -102,9 +80,6 @@ export function useWorkspace(): WorkspaceStore {
   });
   const applyMut = useMutation({ mutationFn: applyWorkspace });
   const applyAsync = applyMut.mutateAsync;
-  // The answer is the workspace the step landed on, so it goes straight into the cache: the
-  // `workspaces` invalidation the server emits reaches every *other* client, and this one should
-  // not have to wait a round trip to draw what it just asked for.
   const stepMut = useMutation({
     mutationFn: (variables: { id: number; step: "undo" | "redo" }) =>
       stepWorkspace(variables.id, variables.step),
@@ -117,23 +92,15 @@ export function useWorkspace(): WorkspaceStore {
   const draft = queried === null ? undefined : drafts.get(queried.id);
   const active =
     queried !== null && draft !== undefined ? { ...queried, snapshot: draft.snapshot } : queried;
-  // `save` and `apply` are handed to faces and fire from events, so they read the loaded
-  // workspace here. Written after commit rather than during render, which React may replay or
-  // discard.
   const activeIdRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     activeIdRef.current = active?.id ?? null;
   });
-  // Writes are serialized: each one reads the revision the previous one produced. Issuing them
-  // concurrently would send the same revision twice, and the server — correctly — refuses the
-  // second as stale, which would silently drop whichever change lost the race.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const refreshOwed = useRef(false);
   const finishQueue = useCallback(
     (task: Promise<unknown>) => {
       queue.current = task;
-      // Only the actual tail pays for the authoritative refetch. `apply` uses this same finalizer,
-      // so a save followed by its apply cannot strand the refresh merely because the apply is last.
       void task
         .then(() => {
           if (queue.current === task && refreshOwed.current) {
@@ -157,25 +124,13 @@ export function useWorkspace(): WorkspaceStore {
       if (current === undefined) {
         return;
       }
-      // Compose against the pending draft, not necessarily the query cache. A StateChanged
-      // refetch may have replaced the cache with the last snapshot the server accepted while a
-      // newer local edit is still queued.
       const base = drafts.get(id)?.snapshot ?? current.snapshot;
       const snapshot = fitRack(edit(base));
       const write = drafts.stage(id, snapshot, current.revision);
-      // Applied to the cache *synchronously*, in the same task as the gesture that ended: a
-      // drag's own preview is dropped on pointer-up, and anything that renders the stored
-      // arrangement between the two — one microtask, or one whole round trip when a previous
-      // write is still in flight — is a frame of the face back where it started. That frame is
-      // the flicker. Reading the cache rather than a captured snapshot is what keeps two edits
-      // within one round trip composing: the second sees the first.
       queryClient.setQueryData<WorkspaceDetail>(key, {
         ...current,
         snapshot,
       });
-      // Capture this edit's composed snapshot now. Only the revision is read when its turn comes:
-      // the cache may legitimately refetch before then, but that must not change what this write
-      // means.
       const task = queue.current
         .catch(() => undefined)
         .then(async () => {
@@ -189,7 +144,6 @@ export function useWorkspace(): WorkspaceStore {
               });
             }
           } catch {
-            // `update.error` owns the visible failure; the queue must still clean up and refetch.
           } finally {
             const finished = drafts.finish(id, write.generation);
             refreshOwed.current = refreshOwed.current || finished;
@@ -201,10 +155,6 @@ export function useWorkspace(): WorkspaceStore {
     [drafts, finishQueue, queryClient, update],
   );
 
-  // Apply goes through the same queue as a write, and that ordering is load-bearing: the gesture
-  // that draws a wire saves the patch and then asks for it to be applied, and an apply that
-  // overtook the write would bring the engine up to the *previous* graph — the new channel would
-  // silently never be created.
   const apply = useCallback(() => {
     const id = activeIdRef.current;
     if (id === null) {
@@ -217,9 +167,6 @@ export function useWorkspace(): WorkspaceStore {
     finishQueue(task);
   }, [applyAsync, finishQueue]);
 
-  // Behind the same queue as a write, and for the same reason: a step reads the workspace as it
-  // is stored, so an undo that overtook the save of the gesture being undone would step back out
-  // of the one before it and then have that gesture land on top.
   const step = useCallback(
     (which: "undo" | "redo") => {
       const id = activeIdRef.current;
@@ -237,13 +184,6 @@ export function useWorkspace(): WorkspaceStore {
   const undo = useCallback(() => step("undo"), [step]);
   const redo = useCallback(() => step("redo"), [step]);
 
-  // Applying is idempotent, so it runs once per workspace that becomes active: opening the app on
-  // a workspace whose radios are attached should give you the workspace, not an empty canvas waiting
-  // to be clicked into life.
-  //
-  // Keyed on the *loaded* workspace, not on the id the list reports: `apply` reads the id off the
-  // detail query, which is still resolving on the render the list first names one, so an effect
-  // keyed on that id would fire once into a no-op and mark itself done.
   const applied = useRef<number | null>(null);
   const loaded = active?.id ?? null;
   useEffect(() => {
@@ -270,8 +210,6 @@ export function useWorkspace(): WorkspaceStore {
     applied: applyMut.data ?? null,
     undo,
     redo,
-    // The server's answer, not a guess from the local draft: what a step can reach is a property
-    // of the stored history, which every client edits.
     canUndo: queried?.history?.can_undo ?? false,
     canRedo: queried?.history?.can_redo ?? false,
     pending: list.isPending || (activeId !== null && detail.isPending),
@@ -283,7 +221,6 @@ function errorOf(error: Error | null): string | null {
   return error === null ? null : error.message;
 }
 
-/** The snapshot with its rack re-laid out if it no longer fits the grid (`pruneRack`). */
 function fitRack(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   const rack = pruneRack(snapshot.rack ?? {}, snapshot.graph);
   return rack === snapshot.rack ? snapshot : { ...snapshot, rack };

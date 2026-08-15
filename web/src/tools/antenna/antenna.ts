@@ -24,9 +24,6 @@ export function designLabel(type: AntennaDesignType): string {
   return DESIGN_OPTIONS.find((option) => option.value === type)?.label ?? type;
 }
 
-/** What the panel starts a design at. The server fills in the same numbers for a design sent
- * without settings; these exist so the controls have something to show before the first
- * answer comes back. */
 export function defaultDesign(type: AntennaDesignType): AntennaDesign {
   switch (type) {
     case "inverted_v":
@@ -40,8 +37,6 @@ export function defaultDesign(type: AntennaDesignType): AntennaDesign {
   }
 }
 
-/** Whether the coax velocity factor is part of this design — only the ones that include a
- * matching section made of coax read it. */
 export function usesFeedline(design: AntennaDesign): boolean {
   return design.type === "quad_loop";
 }
@@ -63,14 +58,11 @@ export const UNIT_OPTIONS: Options<LengthUnit> = [
 
 const INCHES_PER_M = 39.370_078_7;
 
-/** A length as something to measure with: metric below a metre goes to centimetres, imperial
- * carries into feet and inches. */
 export function formatLength(meters: number, unit: LengthUnit): string {
   if (!Number.isFinite(meters)) {
     return "—";
   }
   if (unit === "ft") {
-    // Rounded before the carry, or a length a hair under a foot boundary prints as "12.0 in".
     const inches = Math.round(meters * INCHES_PER_M * 10) / 10;
     const feet = Math.floor(inches / 12);
     return feet > 0

@@ -20,16 +20,9 @@ use serde::Deserialize;
 
 use crate::{AppState, store::Store};
 
-/// Spectrum bins returned by `spectrum_snapshot`. Deliberately coarse: an agent wants "what is
-/// on this band", not a 4096-point array per call.
 const SPECTRUM_BINS: usize = 128;
-/// How long `spectrum_snapshot` waits for a frame. The tap runs at ~30 fps, so this only has
-/// to survive a retune settling.
 const SPECTRUM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Mount the MCP endpoint. Returned with the router's state type still open (`nest_service`
-/// binds none), so it merges into the app *before* the auth layer and is gated with everything
-/// else.
 pub(crate) fn router(
     engine: Arc<Engine>,
     store: Arc<Store>,
@@ -56,8 +49,6 @@ pub(crate) fn router(
 struct SdrMcp {
     engine: Arc<Engine>,
     store: Arc<Store>,
-    /// Shared with the REST handlers: a reconcile that interleaves into a delete's
-    /// unlink→row-delete window turns a successful delete into a 404 (see `AppState`).
     recordings_gate: Arc<std::sync::Mutex<()>>,
     tool_router: ToolRouter<Self>,
 }
@@ -78,8 +69,6 @@ impl SdrMcp {
     }
 }
 
-/// Serialize any wire type into a tool result. Structured content, so an agent gets the same
-/// JSON shape the REST API returns rather than a prose summary.
 fn structured<T: serde::Serialize>(value: &T) -> Result<CallToolResult, ErrorData> {
     let json = serde_json::to_value(value)
         .map_err(|e| ErrorData::internal_error(format!("serializing result: {e}"), None))?;
@@ -87,8 +76,6 @@ fn structured<T: serde::Serialize>(value: &T) -> Result<CallToolResult, ErrorDat
 }
 
 fn engine_error(err: sdrmm_engine::EngineError) -> ErrorData {
-    // The engine already distinguishes "your request was wrong" from "something broke"; keep
-    // that distinction so an agent knows whether retrying can help.
     if err.is_not_found() || err.is_bad_request() {
         ErrorData::invalid_params(err.to_string(), None)
     } else {
@@ -98,105 +85,74 @@ fn engine_error(err: sdrmm_engine::EngineError) -> ErrorData {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct DeviceSetRef {
-    /// Device set id from `get_state`.
     device_set: u32,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct OpenDeviceRequest {
-    /// `driver:key` from `list_devices`, e.g. `rtlsdr:00000001` or `virtual:siggen`.
     device_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct TuneRequest {
     device_set: u32,
-    /// Centre frequency in Hz.
     center_hz: Option<f64>,
-    /// Sample rate in Hz; must be one the device supports.
     sample_rate: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct AddChannelRequest {
     device_set: u32,
-    /// Which of the device's receive streams the channel taps; omit for 0, the only stream a
-    /// single-stream radio has.
     stream: Option<u32>,
-    /// Channel type id from `list_channel_types`, e.g. `nfm`, `wfm`, `adsb`, `pocsag`.
     channel_type: String,
-    /// Offset from the device centre in Hz (the channel's frequency minus the centre).
     offset_hz: f64,
-    /// Squelch threshold in dBFS; omit to leave the gate open.
     squelch_db: Option<f32>,
-    /// Track the channel's noise floor and gate this many dB above it, instead of holding the
-    /// threshold above at a fixed level. Needs `squelch_db` set: it is what the gate falls back
-    /// to when tracking is switched off.
     squelch_auto_db: Option<f32>,
-    /// Mode-specific settings object. Omit for the documented defaults; the accepted keys are
-    /// the ones `list_channel_types` describes for this type.
     settings: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct ChannelRef {
     device_set: u32,
-    /// Channel id from `get_state`.
     channel: u32,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct StartScanRequest {
     device_set: u32,
-    /// Ranges to sweep, each `[start_hz, stop_hz, step_hz]`.
     ranges: Vec<[f64; 3]>,
-    /// Individual frequencies to include on top of the ranges.
     frequencies: Option<Vec<f64>>,
-    /// Level in dBFS at which a frequency counts as active.
     threshold_db: Option<f32>,
-    /// Channel to retune onto a hit so its audio follows the scan.
     hold_channel: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordRequest {
     device_set: u32,
-    /// `true` starts a SigMF recording, `false` stops and finalizes it.
     start: bool,
-    /// Which receive stream a start records — one recording per set, on a named stream; omit
-    /// for 0. Ignored on stop.
     stream: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordChannelAudioRequest {
     device_set: u32,
-    /// Channel id from `get_state`.
     channel: u32,
-    /// `true` starts recording this channel's audio to a WAV file, `false` stops and finishes it.
     start: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SpectrumSnapshotRequest {
     device_set: u32,
-    /// Which receive stream's spectrum; omit for 0.
     stream: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct DecoderLogRequest {
-    /// One decoder kind: `adsb`, `ais`, `aprs`, `pocsag`, `rds`, `rtty` or `morse`.
     kind: Option<String>,
-    /// Restrict to one device set.
     device_set: Option<u32>,
-    /// RFC3339 lower bound, e.g. `2026-08-09T12:00:00Z`.
     since: Option<String>,
-    /// RFC3339 upper bound.
     until: Option<String>,
-    /// Case-insensitive substring match against the station and the summary.
     q: Option<String>,
-    /// Maximum rows (server-clamped).
     limit: Option<u32>,
 }
 
@@ -296,8 +252,6 @@ impl SdrMcp {
         &self,
         Parameters(req): Parameters<AddChannelRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        // Built through the wire enum rather than a parallel MCP-only settings model, so the
-        // accepted keys are exactly the ones REST accepts (CLAUDE.md non-negotiable #1).
         let params: ChannelParams = serde_json::from_value(serde_json::json!({
             "type": req.channel_type,
             "settings": req.settings.unwrap_or_else(|| serde_json::json!({})),
@@ -478,7 +432,6 @@ impl SdrMcp {
         let filter = DecoderLogQuery {
             kind: req.kind,
             device_set: req.device_set,
-            // A wire-scoped filter has no meaning to a caller that is not looking at the canvas.
             nodes: None,
             sources: None,
             since: req.since,
@@ -548,8 +501,6 @@ impl ServerHandler for SdrMcp {
 mod tests {
     use super::*;
 
-    /// The tool list is the MCP contract; a rename is a breaking change for every agent that
-    /// learned it, and a duplicate would silently shadow one implementation.
     #[test]
     fn tool_names_are_unique_and_stable() {
         let tools = SdrMcp::tool_router().list_all();
@@ -582,8 +533,6 @@ mod tests {
         );
     }
 
-    /// An agent picks a tool from its description; an empty one is unusable, and a missing
-    /// input schema means it cannot construct the call at all.
     #[test]
     fn every_tool_is_described_and_has_an_input_schema() {
         for tool in SdrMcp::tool_router().list_all() {

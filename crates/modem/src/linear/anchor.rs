@@ -1,40 +1,20 @@
 use num_complex::Complex;
 
-/// Why an anchor fit was refused. The estimate is only applied when it is believable: a fit
-/// from noise that happened to match a pattern would corrupt exactly the symbols the anchor
-/// exists to protect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnchorError {
-    /// Fewer than two anchors: one names a phase but no slope, and this estimator's whole
-    /// purpose is the pair. Use [`PhaseAnchor::fit_gain_only`] where a single anchor is all
-    /// there is.
     TooFewAnchors(usize),
-    /// The received and expected slices do not pair one to one.
     LengthMismatch,
-    /// Every anchor landed at the origin, so there is no phase to read.
     NoEnergy,
 }
 
-/// A fitted complex gain and frequency offset, and the correction they define.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PhaseAnchor {
-    /// Complex gain: what the channel multiplied the transmitted point by, at index 0.
     pub gain: Complex<f64>,
-    /// Residual carrier offset in cycles per symbol.
     pub freq_cycles_per_symbol: f64,
-    /// RMS distance between the corrected anchors and what was sent, relative to the
-    /// transmitted RMS — the fit's own residual, which is how a caller decides whether to
-    /// believe it (the CPM hook's `misfit_bound`, in the units this domain has).
     pub misfit: f64,
 }
 
 impl PhaseAnchor {
-    /// Fits gain and frequency from anchors at the given symbol indices. `indices`, `received`
-    /// and `expected` pair up one to one; indices must ascend (they are positions in the symbol
-    /// stream, and the slope is read across their gaps).
-    ///
-    /// # Errors
-    /// [`AnchorError`] — see its variants.
     pub fn fit(
         indices: &[usize],
         received: &[Complex<f32>],
@@ -100,12 +80,6 @@ impl PhaseAnchor {
         })
     }
 
-    /// The single-anchor case: gain only, no slope. A block whose known symbols are one
-    /// contiguous word short enough that no offset accumulates across it wants this — and so
-    /// does any caller with exactly one pilot.
-    ///
-    /// # Errors
-    /// [`AnchorError::LengthMismatch`] or [`AnchorError::NoEnergy`].
     pub fn fit_gain_only(
         received: &[Complex<f32>],
         expected: &[Complex<f32>],
@@ -136,9 +110,6 @@ impl PhaseAnchor {
         })
     }
 
-    /// The correction at symbol index `k`: undo the slope, then the gain. Applying it to the
-    /// anchors themselves returns the transmitted points up to noise, which is what
-    /// [`Self::misfit`] measures.
     #[must_use]
     pub fn correct(&self, index: usize, y: Complex<f32>) -> Complex<f32> {
         let theta = -std::f64::consts::TAU * self.freq_cycles_per_symbol * index as f64;
@@ -147,7 +118,6 @@ impl PhaseAnchor {
         Complex::new(z.re as f32, z.im as f32)
     }
 
-    /// [`Self::correct`] across a whole block in place, indices counted from `first_index`.
     pub fn correct_block(&self, first_index: usize, symbols: &mut [Complex<f32>]) {
         for (k, s) in symbols.iter_mut().enumerate() {
             *s = self.correct(first_index + k, *s);
@@ -209,8 +179,6 @@ mod tests {
             .collect()
     }
 
-    /// The noiseless fit is exact: gain and slope come back to f32 precision, and the residual
-    /// says so.
     #[test]
     fn a_clean_fit_recovers_gain_and_frequency_exactly() {
         let x = known_word(24, 0xa9c);
@@ -225,8 +193,6 @@ mod tests {
         assert!(fit.misfit < 1e-5, "{fit:?}");
     }
 
-    /// What the anchor is *for*: a block carrying a rotation and a wrong scale comes back on
-    /// the table, at positions the fit never saw.
     #[test]
     fn the_correction_lands_a_whole_block_back_on_the_table() {
         let table = tables::qam_square(16).unwrap();
@@ -251,9 +217,6 @@ mod tests {
         assert!(worst < 1e-3, "worst residual {worst}");
     }
 
-    /// Under noise the fit must still beat the blind alternative it exists to replace: scaling
-    /// the block to unit mean power leaves the √(1 + 1/SNR) bias documented at the module head,
-    /// and the data-aided fit does not.
     #[test]
     fn the_data_aided_gain_beats_blind_power_normalisation() {
         let table = tables::qam_square(16).unwrap();
@@ -283,17 +246,6 @@ mod tests {
         assert!((aided - 1.0).abs() < (blind_scale - 1.0).abs());
     }
 
-    /// The slope estimator under noise, which is what the Kay weighting is for: a real offset
-    /// must come back accurately enough that de-sloping the *far end* of the fitted word is
-    /// still correct — the failure mode a flat average has, where the slope's own scatter
-    /// rotates the block it was fitted on.
-    ///
-    /// The known word is QPSK even though the payload is 16-QAM, and that is the finding rather
-    /// than a convenience: on a 16-QAM word the same fit scatters by 3.1e-3 cycles/symbol, an
-    /// order past the constant-modulus case, because a 16-QAM inner point carries a tenth of the
-    /// mean energy and its phase is nearly unreadable at the SNR the outer points are fine at.
-    /// Real standards put constant-modulus preambles in front of QAM payloads for exactly this
-    /// reason, and an entry that hands this fit an amplitude-varying word gets the worse number.
     #[test]
     fn the_slope_survives_noise_well_enough_to_deslope_its_own_block() {
         let qpsk = tables::psk_rotated(4, std::f64::consts::FRAC_PI_4).unwrap();
@@ -306,8 +258,6 @@ mod tests {
         Awgn::with_sigma((0.05f64).sqrt()).apply(&mut received, &mut rng);
         let indices: Vec<usize> = (0..word.len()).collect();
         let fit = PhaseAnchor::fit(&indices, &received, &word).unwrap();
-        // A slope error of 1/(4·63) ≈ 4e-3 cycles/symbol would already turn the word's far end
-        // by a quarter turn; the estimator must stay well inside that.
         let error = (fit.freq_cycles_per_symbol - freq).abs();
         assert!(error < 5e-4, "slope error {error} cycles/symbol ({fit:?})");
         assert!((fit.gain.norm() - 1.0).abs() < 0.05, "{fit:?}");
@@ -327,8 +277,6 @@ mod tests {
         );
     }
 
-    /// The M-fold ambiguity, which is the anchor's headline job: a QPSK block rotated by a
-    /// whole table symmetry is indistinguishable to any blind loop, and the fit undoes it.
     #[test]
     fn the_fit_resolves_a_whole_table_symmetry() {
         let table = tables::psk(4).unwrap();
@@ -346,8 +294,6 @@ mod tests {
         }
     }
 
-    /// The stated unwrapping bound: contiguous anchors cover any offset, and a gap of Δk halves
-    /// the reach Δk times. Measured at exactly the edge on each side of it.
     #[test]
     fn the_slope_estimate_wraps_where_the_docs_say_it_does() {
         let x = known_word(16, 0x2b0);
@@ -355,7 +301,6 @@ mod tests {
         let y = impose(&x, Complex::new(1.0, 0.0), 0.3, 0);
         let fit = PhaseAnchor::fit(&indices, &y, &x).unwrap();
         assert!((fit.freq_cycles_per_symbol - 0.3).abs() < 1e-6, "{fit:?}");
-        // Spread four apart: the same offset is past ±1/8 and aliases, as documented.
         let spread: Vec<usize> = (0..x.len()).map(|k| 4 * k).collect();
         let y: Vec<Complex<f32>> = spread
             .iter()

@@ -1,10 +1,3 @@
-//! Manual hardware check. Ignored by default: CI has no instrument on a serial port.
-//!
-//! Run with a NanoVNA attached:
-//! `NANOVNA_PORT=/dev/cu.usbmodem4001 cargo test -p sdrmm-tools --test hardware_nanovna -- --ignored --nocapture`
-
-// `allow-expect-in-tests` only reaches `#[cfg(test)]` modules, and an integration test is its
-// own binary; a failed expectation here is the test failing, which is what it is for.
 #![allow(clippy::expect_used)]
 
 use sdrmm_tools::{NanoVnaTool, Tool};

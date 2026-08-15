@@ -8,13 +8,6 @@ import { PaletteEntry } from "../NodePalette";
 import { channelPicker, filterPalette, firstPaletteItem, type PaletteItem } from "../palette";
 import type { ScopePick } from "./scopePick";
 
-/**
- * Choosing the mode for a channel drawn at a picked frequency.
- *
- * A dialog rather than a list inside the scope's own menu: a node is not a viewport, so a list
- * there is a scroll box a few rows tall sitting on a surface the canvas pans and zooms with the
- * same wheel. Portalled out of the node, the wheel scrolls the list and nothing else.
- */
 export function ChannelPicker({
   pick,
   channelTypes,
@@ -23,9 +16,7 @@ export function ChannelPicker({
   onClose,
 }: {
   pick: ScopePick;
-  /** Every mode and decoder a channel can be drawn as, as the server describes them. */
   channelTypes: readonly ChannelDescriptor[];
-  /** The mode the picker pins first, already resolved (`channelTypeAt`). */
   suggested: string;
   onChannel: (channelType: string) => void;
   onClose: () => void;

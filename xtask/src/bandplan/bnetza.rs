@@ -9,17 +9,10 @@ pub(super) static TARGET: &Target = &Target {
     kind: "regulatory",
 };
 
-/// German service names, longest-qualified first: "FESTER FUNKDIENST ÜBER SATELLITEN" is a
-/// satellite service, not a fixed one, and matching "fester funkdienst" first would lose that.
-/// Order matters throughout: the first substring to match wins, so a qualified name has to come
-/// before the bare one it contains. Extended from the importer's own "fell through to `other`"
-/// report, which is what that report is for.
 static SERVICES: &[(&str, &str)] = &[
     ("(nicht zugewiesen)", "other"),
     ("funknachrichten", "mobile"),
     ("erde)", "satellite"),
-    // Satellite first: "FESTER FUNKDIENST ÜBER SATELLITEN" is a satellite service, not a fixed
-    // one, and matching "fester funkdienst" first would lose that.
     ("über satelliten", "satellite"),
     ("im satellitenfunk", "satellite"),
     ("satellitenfunk", "satellite"),
@@ -89,8 +82,6 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
 
         for (start_hz, stop_hz) in ranges(&range)? {
             rows.push(Row {
-                // The Radio Regulations write a primary service in capitals. Rows named from
-                // `Frequenznutzung` are not ITU services at all, so they are not primary ones.
                 primary: service_name
                     .as_deref()
                     .is_some_and(|name| name == name.to_uppercase()),
@@ -160,8 +151,6 @@ fn field(record: &str, label: &str) -> Option<String> {
     None
 }
 
-/// Where `needle` starts in `line`, only where it is a whole label — otherwise looking for
-/// `Nutzung:` would find the tail of `Frequenznutzung:` and read the wrong field.
 fn label_at(line: &str, needle: &str) -> Option<usize> {
     let mut from = 0usize;
     while let Some(found) = line[from..].find(needle) {
@@ -174,15 +163,12 @@ fn label_at(line: &str, needle: &str) -> Option<usize> {
     None
 }
 
-/// The offset of the next `Label:` in `text`, i.e. where the current value stops.
 fn next_label(text: &str) -> Option<usize> {
     let colon = text.find(':')?;
     let before = &text[..colon];
     Some(before.rfind(char::is_whitespace).map_or(0, |at| at + 1))
 }
 
-/// Every `a - b unit` range in a value. Plural because `Frequenzteilbereich(e)` is, and a record
-/// that lists two sub-bands means both. Split on `;` only: a comma is a German decimal point.
 fn ranges(value: &str) -> Result<Vec<(f64, f64)>> {
     let mut out = Vec::new();
     for part in value.split(';') {
@@ -202,8 +188,6 @@ fn ranges(value: &str) -> Result<Vec<(f64, f64)>> {
     Ok(out)
 }
 
-/// German decimal commas: "148,5" is 148.5, and reading it as 1485 would put a broadcast band in
-/// the wrong part of the spectrum entirely.
 fn german(text: &str) -> Option<f64> {
     let cleaned: String = text
         .chars()
@@ -222,14 +206,11 @@ fn scale(unit: &str) -> Option<f64> {
     }
 }
 
-/// A value like "9 kHz" or "12,5 kHz".
 fn hertz(value: &str) -> Option<f64> {
     let unit = value.split_whitespace().last().and_then(scale)?;
     german(value).map(|number| number * unit)
 }
 
-/// What the record says the band is used for, which is the closest thing it has to a note. The
-/// conditions prose is often a page of licence text, so only the usage line travels.
 fn notes(record: &str, usage: Option<&str>) -> Option<String> {
     let usage = usage?;
     let bandwidth = field(record, "Kanalbandbreite")
@@ -259,8 +240,6 @@ mod tests {
         assert_eq!(broadcast.channel_step_hz, Some(9_000.0));
     }
 
-    /// The case the whole model change was forced by: BNetzA gives 435–472 kHz to three
-    /// different services in three records.
     #[test]
     fn keeps_every_record_that_shares_one_range() {
         let rows = parse(FIXTURE).expect("parse");
@@ -306,7 +285,6 @@ mod tests {
             ranges("27,5 - 10000 MHz").unwrap(),
             vec![(27_500_000.0, 10_000_000_000.0)]
         );
-        // Not a range: refused rather than guessed at.
         assert!(ranges("siehe Anhang").unwrap().is_empty());
     }
 

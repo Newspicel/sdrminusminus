@@ -8,8 +8,6 @@ import {
   withToken,
 } from "./auth";
 
-/** Minimal `Storage`, so these tests need no DOM environment — the same fake-object style the
- * audio tests use for sockets and sinks. */
 class FakeStorage {
   private readonly items = new Map<string, string>();
   get length(): number {
@@ -51,8 +49,6 @@ describe("token storage", () => {
     expect(getToken()).toBeNull();
   });
 
-  // An empty string would otherwise be sent as `?token=`, which the server rejects — the same
-  // failure as no token at all, but with a stored value that hides the prompt.
   it("treats an empty token as no token", () => {
     setToken("");
     expect(getToken()).toBeNull();
@@ -84,7 +80,6 @@ describe("rejectToken", () => {
     expect(getToken()).toBeNull();
     expect(notified).toBe(1);
 
-    // Nothing stored: a 401 on an unauthenticated server must not prompt for a token.
     rejectToken();
     expect(notified).toBe(1);
     stop();

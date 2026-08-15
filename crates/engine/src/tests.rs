@@ -48,7 +48,6 @@ fn empty_capabilities() -> Capabilities {
     }
 }
 
-/// Driver whose device streams a few blocks and then dies with an I/O error.
 struct DyingDriver;
 
 impl DeviceDriver for DyingDriver {
@@ -107,9 +106,6 @@ impl SdrDevice for DyingDevice {
     }
 }
 
-/// Driver whose device reports a fatal error synchronously inside `rx_start`, so the fault
-/// is on the drainer's queue before `create_device_set` can insert the set — the
-/// stash-then-apply window made deterministic.
 struct InstantFailDriver;
 
 impl DeviceDriver for InstantFailDriver {
@@ -156,8 +152,6 @@ impl SdrDevice for InstantFailDevice {
     fn rx_stop(&mut self) {}
 }
 
-/// Driver whose probe result can be emptied mid-test, simulating an unplug the capture
-/// thread never notices (the Soapy case).
 struct VanishingDriver {
     present: Arc<AtomicBool>,
 }
@@ -183,7 +177,6 @@ impl DeviceDriver for VanishingDriver {
     }
 }
 
-/// Radio that will not say what rate it is running at.
 struct RatelessDriver;
 
 impl DeviceDriver for RatelessDriver {
@@ -203,7 +196,6 @@ impl DeviceDriver for RatelessDriver {
     }
 }
 
-/// Device that streams nothing and never raises a fault on its own.
 struct SilentDevice {
     capabilities: Capabilities,
     settings: DeviceSettings,
@@ -229,8 +221,6 @@ impl SdrDevice for SilentDevice {
     fn rx_stop(&mut self) {}
 }
 
-/// Driver whose device floods the capture ring in a single oversized push before the
-/// DSP thread can drain, guaranteeing a deterministic overrun count.
 struct FloodingDriver;
 
 impl DeviceDriver for FloodingDriver {
@@ -270,7 +260,6 @@ impl SdrDevice for FloodingDevice {
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
         let mut sink = single_rx_sink(sinks)?;
-        // 2× the ring in one push: at most RING_CAPACITY fits, the rest must be counted.
         let block = vec![Complex::new(0.0f32, 0.0); crate::runtime::RING_CAPACITY * 2];
         sink.push(&block);
         Ok(())
@@ -279,8 +268,6 @@ impl SdrDevice for FloodingDevice {
     fn rx_stop(&mut self) {}
 }
 
-/// Driver whose device streams small paced blocks until told to die, so tests can fault
-/// a capture mid-recording at a chosen moment.
 struct FaultOnDemandDriver {
     die: Arc<AtomicBool>,
 }
@@ -352,8 +339,6 @@ impl SdrDevice for FaultOnDemandDevice {
     }
 }
 
-/// Driver whose device blocks inside `apply` for rate-bearing deltas until released,
-/// so tests can hold a rate patch mid-flight deterministically.
 struct BlockingApplyDriver {
     entered_tx: mpsc::Sender<()>,
     release_rx: Mutex<Option<mpsc::Receiver<()>>>,
@@ -412,15 +397,9 @@ impl SdrDevice for BlockingApplyDevice {
     fn rx_stop(&mut self) {}
 }
 
-/// Absolute frequency of [`SignalDriver`]'s synthesized carrier.
 const SIGNAL_HZ: f64 = 100_100_000.0;
-/// [`SignalDriver`]'s fixed rate. Small so the spectrum tap's hop (rate/30) is short and a
-/// dwell sees several frames while the mock pushes faster than real time.
 const SIGNAL_RATE_HZ: f64 = 240_000.0;
 
-/// Driver whose device synthesizes one carrier at a fixed *absolute* frequency: retuning
-/// moves the carrier within the passband and out of it, which is what a scan reacts to.
-/// Without this a scanner test could only assert that it stepped, not that it heard.
 struct SignalDriver;
 
 impl DeviceDriver for SignalDriver {
@@ -458,7 +437,6 @@ impl DeviceDriver for SignalDriver {
 struct SignalDevice {
     capabilities: Capabilities,
     settings: DeviceSettings,
-    /// Read by the capture thread every block so a retune takes effect immediately.
     center: Arc<Mutex<f64>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
@@ -615,9 +593,6 @@ impl SdrDevice for AdsbTestDevice {
     }
 }
 
-/// Driver whose device quantises what it is asked for, the way real tuners do: a HackRF's
-/// LNA moves in 8 dB steps and an RTL-SDR's resampler lands on achievable ratios, so the
-/// value the hardware holds is routinely not the value that was requested.
 struct SnappingDriver;
 
 const SNAPPED_RATE: f64 = 2_400_000.0;
@@ -675,8 +650,6 @@ impl SdrDevice for SnappingDevice {
     fn rx_stop(&mut self) {}
 }
 
-/// Driver whose device can only be open once at a time — which every USB backend is, and
-/// which is what makes releasing the handle on fault load-bearing for replug recovery.
 struct ExclusiveDriver {
     claimed: Arc<AtomicBool>,
     die: Arc<AtomicBool>,
@@ -761,8 +734,6 @@ impl SdrDevice for ExclusiveDevice {
     }
 }
 
-/// Driver that opens exactly once and then refuses, so a reconnect attempt against a
-/// present-but-claimed device can be driven deterministically.
 struct UnopenableDriver {
     opens: AtomicUsize,
 }
@@ -789,7 +760,6 @@ impl DeviceDriver for UnopenableDriver {
     }
 }
 
-/// Driver whose probe result grows after the first call, simulating an attach.
 struct FlappingDriver {
     probes: AtomicUsize,
 }
@@ -851,11 +821,8 @@ async fn device_fault_surfaces_and_removal_completes() {
         "fault message must surface: {:?}",
         snap.device_sets[0].error
     );
-    // registry.open must have carried the probed info through, not a synthesized one.
     assert_eq!(snap.device_sets[0].device.label, "Mock dying");
     assert_eq!(snap.device_sets[0].device.serial.as_deref(), Some("MOCK-1"));
-    // ...but not its probe-time profile: the set reports what the opened radio said, and a
-    // second capability answer beside it is one a reader can pick by accident.
     assert!(snap.device_sets[0].device.profile.is_none());
 
     let removal = {
@@ -876,9 +843,6 @@ async fn fault_raised_before_insert_still_surfaces() {
     let engine = Engine::with_registry(registry, None);
     let ds = engine.create_device_set("mock:instafail").unwrap();
 
-    // The fault was sent before the insert; whether the drainer processed it before the
-    // insert (stashed in pending_faults) or after (marked directly), the set must converge
-    // to Error instead of staying Running forever.
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         let snap = engine.snapshot();
@@ -1025,7 +989,6 @@ async fn one_radio_opens_into_one_device_set() {
     assert!(refused.is_bad_request());
     assert_eq!(engine.snapshot().device_sets.len(), 1);
 
-    // Closing it hands the radio back: the refusal is about the set holding it, not the device.
     engine.remove_device_set(ds).unwrap();
     engine.create_device_set("virtual:siggen").unwrap();
 }
@@ -1196,9 +1159,6 @@ async fn add_channel_rejects_out_of_passband_offset() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Settings the DSP thread cannot refuse must be refused here: a filter corner outside the
-/// audio band or a notch nobody bounded is a pole outside the unit circle by the time it
-/// reaches a biquad.
 #[tokio::test]
 async fn add_channel_rejects_audio_settings_outside_their_controls() {
     let engine = virtual_engine();
@@ -1242,8 +1202,6 @@ async fn add_channel_rejects_audio_settings_outside_their_controls() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A data decoder has no audio for the chain to work on, so asking for one there is a mistake
-/// worth naming rather than a set of controls that quietly do nothing.
 #[tokio::test]
 async fn a_channel_with_no_audio_refuses_an_audio_chain() {
     let engine = virtual_engine();
@@ -1263,8 +1221,6 @@ async fn a_channel_with_no_audio_refuses_an_audio_chain() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// The chain has to reach the DSP thread on a settings patch too — same-type edits go through
-/// `apply`, not through a pipeline rebuild.
 #[tokio::test]
 async fn patching_the_audio_chain_reaches_the_running_channel() {
     let engine = virtual_engine();
@@ -1298,7 +1254,6 @@ async fn rate_change_stranding_a_channel_is_rejected_before_device_io() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
-    // At 250 ksps the ±125 kHz passband cannot contain a channel at +900 kHz.
     let err = engine
         .patch_device(
             ds,
@@ -1309,7 +1264,6 @@ async fn rate_change_stranding_a_channel_is_rejected_before_device_io() {
         )
         .unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
-    // The rejected patch must not have reached the device.
     assert_eq!(
         engine.snapshot().device_sets[0].settings.sample_rate,
         Some(2_048_000.0)
@@ -1317,11 +1271,6 @@ async fn rate_change_stranding_a_channel_is_rejected_before_device_io() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// The engine used to send a rate-change rebuild's Remove+Add from a stale snapshot
-/// outside `inner`: a concurrent DELETE could interleave, its channel got re-added on
-/// the DSP thread as a zombie holding a live PCM sender, and the DELETE's encoder join
-/// hung forever. Commands now go out under `inner` with membership re-checked, so this
-/// loop must never wedge.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_rate_rebuild_and_remove_never_strands_a_channel() {
     let engine = virtual_engine();
@@ -1380,7 +1329,6 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
     engine.hotplug_tick(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
-    // No further growth: the next tick must stay quiet instead of re-announcing.
     let mut quiet = engine.subscribe_events();
     engine.hotplug_tick(&mut known, &mut missing_once);
     assert!(
@@ -1390,8 +1338,6 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Hermetic recording engine: virtual driver + a scoped temp recordings dir shared by
-/// `start_recording` and the driver's playback probe.
 fn recording_engine(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
     registry.register(
@@ -1401,7 +1347,6 @@ fn recording_engine(dir: &Path) -> Arc<Engine> {
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 
-/// The virtual device is real-time paced, so recording progress needs polling.
 async fn wait_for_recorded_samples(engine: &Engine, ds: u32, min: u64) -> RecordingStatus {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -1595,9 +1540,6 @@ async fn rate_patch_is_rejected_while_recording_center_retune_is_captured() {
         "rejected patch must not kill the recording"
     );
 
-    // A center retune stays allowed and lands as a capture segment. Blocks are stamped
-    // with the meta center at drain time, so waiting out a full ring of samples (the
-    // largest possible in-flight drain) plus margin guarantees post-retune blocks.
     engine
         .patch_device(
             ds,
@@ -1635,9 +1577,6 @@ async fn device_fault_finalizes_the_recording() {
     engine.start_recording(ds, 0).unwrap();
     let live = wait_for_recorded_samples(&engine, ds, 1).await;
 
-    // The fault event is emitted only after the writer join, so the pair is finalized
-    // once it arrives. The implicit stop must also announce the Recordings scope, or
-    // clients never refetch the library for a fault-stopped recording.
     let mut events = engine.subscribe_events();
     die.store(true, Ordering::SeqCst);
     let mut saw_recordings = false;
@@ -1715,14 +1654,11 @@ async fn start_during_rate_patch_cannot_commit_a_wrong_rate_recording() {
             )
         })
     };
-    // The device is now blocked inside `apply`, with the pre-validation (and the
-    // rate-patch claim) already committed.
     entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
 
     let err = engine.start_recording(ds, 0).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(err.to_string().contains("in flight"), "{err}");
-    // The rejected attempt must leave no files behind.
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 
     release_tx.send(()).unwrap();
@@ -1793,7 +1729,6 @@ async fn shutdown_finalizes_recordings_emits_scopes_and_is_idempotent() {
     }
     sdrmm_recorder::SigmfReader::open(&dir.path().join(&live.file)).unwrap();
 
-    // Second call (and the Drop-driven third) must be no-ops, not double teardowns.
     engine.shutdown();
     drop(engine);
 }
@@ -1846,7 +1781,6 @@ async fn record_start_on_a_missing_set_is_not_found_even_without_a_recordings_di
 
 #[tokio::test]
 async fn record_start_io_failure_is_a_server_error_not_a_bad_request() {
-    // The recordings dir nests under a regular file, so create_dir_all must fail.
     let blocker = tempfile::NamedTempFile::new().unwrap();
     let mut registry = DeviceRegistry::new();
     registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
@@ -1900,8 +1834,6 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(engine.snapshot().device_sets[0].channels.is_empty());
 
-    // The same configs fit once their occupied band stays inside the passband — the
-    // check must not become a blunt nominal-width rejection.
     engine.add_channel(ds, 0, usb(-124_000.0)).unwrap();
     engine.add_channel(ds, 0, wide_nfm(112_000.0)).unwrap();
     engine.remove_device_set(ds).unwrap();
@@ -1927,9 +1859,6 @@ async fn patch_retunes_without_error() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A device set that faulted and whose device is attached again must come back with its
-/// tuning and its channels — including live audio subscriptions, which is the whole point
-/// of preserving the channel's PCM identity across the swap ( M5).
 #[tokio::test]
 async fn faulted_set_reconnects_and_restores_its_channels() {
     let die = Arc::new(AtomicBool::new(false));
@@ -1961,8 +1890,6 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
         .unwrap();
     let mut audio = engine.subscribe_audio(ds, ch).unwrap();
 
-    // Subscribe only now: `patch_device` and `add_channel` emit this same scope, so an
-    // earlier subscription would satisfy the wait below before the device ever died.
     let mut events = engine.subscribe_events();
     die.store(true, Ordering::SeqCst);
     loop {
@@ -1985,8 +1912,6 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
     assert_eq!(set.channels[0].id, ch);
     assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
 
-    // The rebuilt pipeline feeds the same encoder, so a subscription taken before the
-    // fault keeps delivering without being re-established.
     let packet = tokio::time::timeout(Duration::from_secs(10), audio.recv())
         .await
         .expect("audio within timeout")
@@ -1995,10 +1920,6 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// The client renders `DeviceSet.settings` as the truth about the radio, so a patch must
-/// report what the device *holds*, not what was asked for. Found on a HackRF: asking for
-/// 13 dB of LNA gain (a value its 8 dB grid cannot express) reported 13 dB back while the
-/// radio sat at 16.
 #[tokio::test]
 async fn a_patch_reports_what_the_device_holds_not_what_was_asked() {
     let mut registry = DeviceRegistry::new();
@@ -2032,8 +1953,6 @@ async fn a_patch_reports_what_the_device_holds_not_what_was_asked() {
         "the request was echoed instead of the device's own value"
     );
 
-    // A field the device reports nothing about must survive: the request is the base, and
-    // only what the device actually speaks for is laid over it.
     engine
         .patch_device(
             ds,
@@ -2093,9 +2012,6 @@ async fn a_snapped_rate_is_what_channels_are_rebuilt_on() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A faulted set must let go of its device. Every USB backend claims its interface for as
-/// long as the handle lives, so a set that kept it would make the replug recovery try to
-/// re-open a radio it is itself still holding — and fail, forever.
 #[tokio::test]
 async fn a_faulted_set_releases_its_device_so_the_replug_can_reopen_it() {
     let claimed = Arc::new(AtomicBool::new(false));
@@ -2135,8 +2051,6 @@ async fn a_faulted_set_releases_its_device_so_the_replug_can_reopen_it() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A device that stays unopenable must not thrash: the set keeps its live reason and the
-/// retry emits only when that reason changes (clients refetch on every emit).
 #[tokio::test]
 async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
     let mut registry = DeviceRegistry::new();
@@ -2166,7 +2080,6 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
         "the first failure must reach clients"
     );
 
-    // Second identical failure: same reason, so no further invalidation.
     while events.try_recv().is_ok() {}
     engine.hotplug_tick(&mut known, &mut missing_once);
     assert!(
@@ -2176,8 +2089,6 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// End-to-end scan against a synthesized carrier: the sweep must find it, park on it,
-/// retune the hold channel onto it, and refuse client retunes while it owns the device.
 #[tokio::test]
 async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
     let mut registry = DeviceRegistry::new();
@@ -2213,7 +2124,6 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
     let status = engine.start_scan(ds, settings).unwrap();
     assert_eq!(status.targets, 9);
 
-    // While a scan owns the tuning, a client retune is refused rather than fought over.
     let err = engine
         .patch_device(
             ds,
@@ -2273,8 +2183,6 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Removing a set with a scan running must not hang: the scan thread takes the engine
-/// lock on every step, so teardown has to signal it and join outside that lock.
 #[tokio::test]
 async fn removing_a_scanning_set_tears_the_scan_down() {
     let mut registry = DeviceRegistry::new();
@@ -2290,7 +2198,6 @@ async fn removing_a_scanning_set_tears_the_scan_down() {
                     stop_hz: 100_400_000.0,
                     step_hz: 25_000.0,
                 }],
-                // Never trips, so the sweep keeps retuning for the whole test.
                 threshold_db: 100.0,
                 dwell_ms: 40,
                 ..sdrmm_wire::ScanSettings::default()
@@ -2322,7 +2229,6 @@ async fn scan_rejects_targets_the_tuner_cannot_reach() {
         err.to_string().contains("tuning range"),
         "unhelpful message: {err}"
     );
-    // A hold channel that does not exist is a not-found, not a silent scan without audio.
     let err = engine
         .start_scan(
             ds,
@@ -2337,8 +2243,6 @@ async fn scan_rejects_targets_the_tuner_cannot_reach() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// The metering path end to end: a channel on a signal generator measures a level, and that level
-/// reaches clients as its own event rather than as a state invalidation.
 #[tokio::test]
 async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
     let engine = virtual_engine();
@@ -2360,8 +2264,6 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
         )
         .expect("channel");
 
-    // The generator is always transmitting, so the meter has something to read within a block or
-    // two of the pipeline starting.
     let mut measured = f32::NEG_INFINITY;
     for _ in 0..200 {
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -2386,7 +2288,6 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
         "the peak sits below the level it is a peak of"
     );
 
-    // And the tick pushes it as its own event. Drain what the set-up already queued first.
     while events.try_recv().is_ok() {}
     engine.level_tick();
     let mut pushed = None;
@@ -2404,11 +2305,8 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
     assert_eq!(levels.len(), 1);
     assert_eq!(levels[0].channel, channel);
 
-    // A set that does not exist reads as no levels rather than as an error the poller would
-    // have to handle every tick.
     assert!(engine.channel_levels(ds + 999).is_empty());
 
-    // And a set whose channels are gone drops out of the poller's list entirely.
     engine.remove_channel(ds, channel).expect("remove channel");
     assert!(!engine.device_sets_with_channels().contains(&ds));
     assert!(engine.channel_levels(ds).is_empty());

@@ -10,8 +10,6 @@ import {
   stepDial,
 } from "./dial";
 
-/** The `f` shortcut focuses the dial from anywhere; an id is the one handle a global binding
- * can hold without threading a ref through the whole shell. */
 export const DIAL_ID = "frequency-dial";
 
 const DIGIT_SIZE =
@@ -29,11 +27,7 @@ export function FrequencyDial({
   range: Range;
   onTune: (hz: number) => void;
   disabled?: boolean;
-  /** Whether a wheel over a digit tunes it. False while the dial's node is not the active face:
-   * the camera owns the wheel there, and one notch must not tune the radio *and* pan the patch. */
   wheelTunes?: boolean;
-  /** An id has to be unique, and the canvas draws one dial per device node, so a face passes its
-   * own (`deviceDialId`). */
   id?: string;
 }) {
   const places = useMemo(() => dialPlaces(range.max), [range.max]);
@@ -45,8 +39,6 @@ export function FrequencyDial({
   const index = Math.min(active, places.length - 1);
   const place = places[index] ?? 6;
 
-  // React marks its delegated wheel listener passive, so the scroll has to be intercepted
-  // natively or the page scrolls while the dial tunes.
   useEffect(() => {
     const dial = dialRef.current;
     if (dial === null || draft !== null || disabled || !wheelTunes) {
@@ -99,9 +91,6 @@ export function FrequencyDial({
       onTune(setDialDigit(hz, place, Number(key), range));
       setActive(Math.min(places.length - 1, index + 1));
     } else if (key === "Enter") {
-      // Direct entry is the keyboard's, and only the keyboard's: a pointer gesture that opened
-      // it swallowed the second press of a double-click on a digit, which is the fastest way to
-      // step one — the control fighting the gesture.
       event.preventDefault();
       setDraft("");
     }
@@ -115,8 +104,6 @@ export function FrequencyDial({
       id={id}
       role="spinbutton"
       tabIndex={0}
-      // The dial's own arrows move between digits; the shell's global bindings must not also
-      // fire while it is focused.
       data-hotkeys="off"
       aria-label="Tuned frequency"
       aria-disabled={disabled || undefined}
@@ -170,14 +157,10 @@ function Digit({
         } ${
           armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
         } ${active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : ""}`}
-        // The press both selects the digit for the keyboard and steps it, so a pointer user
-        // never has to aim twice to move the radio one unit.
         onPointerDown={(event) => {
           onSelect();
           onStep(halfAt(event.currentTarget, event.clientY));
         }}
-        // A touch pointer has no hover, so the tint only ever shows for a mouse; the press
-        // itself reads the same half either way.
         onPointerMove={(event) => {
           const half = halfAt(event.currentTarget, event.clientY);
           if (half !== armed) {
@@ -185,8 +168,6 @@ function Digit({
           }
         }}
         onPointerLeave={() => setArmed(null)}
-        // Steps live on the digit rather than only on the group so a pointer user gets the
-        // same decade-at-a-time control the keyboard has.
         onKeyDown={(event) => {
           if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.stopPropagation();
@@ -214,7 +195,6 @@ function Digit({
   );
 }
 
-/** +1 in the upper half of the target, −1 in the lower. */
 function halfAt(target: HTMLElement, clientY: number): number {
   const rect = target.getBoundingClientRect();
   return clientY < rect.top + rect.height / 2 ? 1 : -1;
@@ -236,9 +216,6 @@ function DirectEntry({
       autoFocus
       aria-label="Tune to frequency"
       placeholder="145.5 · 433800k · 2.4g"
-      // Deliberately below the digits it replaces: this is a field being typed into for a
-      // second, not the readout being watched, and at dial size it reads as if the instrument
-      // itself had been swapped for a text box.
       className={`h-9 w-[15ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[16px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint @min-[22rem]:text-[20px] ${
         empty || parsed !== null ? "border-accent" : "border-danger"
       }`}

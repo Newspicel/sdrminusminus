@@ -2,12 +2,6 @@ use sdrmm_wire::{Direction, Duplex};
 
 use crate::DeviceError;
 
-/// Which directions are claimed right now, and the rule that decides whether one more may be.
-///
-/// A claim is held for as long as a stream runs and released when it ends. Releasing one
-/// direction never touches the other — that is the whole point of tracking them separately, and
-/// the bug this type replaces: a `stop` that cleared "the active direction" would silence a
-/// transmit burst that a *receive* teardown had no business ending.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DuplexState {
     duplex: Duplex,
@@ -16,7 +10,6 @@ pub struct DuplexState {
 }
 
 impl DuplexState {
-    /// A radio with nothing claimed.
     #[must_use]
     pub const fn new(duplex: Duplex) -> Self {
         Self {
@@ -26,13 +19,11 @@ impl DuplexState {
         }
     }
 
-    /// What the hardware can do.
     #[must_use]
     pub const fn duplex(&self) -> Duplex {
         self.duplex
     }
 
-    /// Whether `direction` is claimed.
     #[must_use]
     pub const fn is_active(&self, direction: Direction) -> bool {
         match direction {
@@ -41,18 +32,11 @@ impl DuplexState {
         }
     }
 
-    /// Whether nothing at all is running.
     #[must_use]
     pub const fn is_idle(&self) -> bool {
         !self.rx && !self.tx
     }
 
-    /// Take `direction` for a stream that is about to start.
-    ///
-    /// # Errors
-    /// [`DeviceError::Unsupported`] if the hardware has no such direction,
-    /// [`DeviceError::AlreadyStreaming`] if it is already claimed, and
-    /// [`DeviceError::DuplexConflict`] if the other direction holds a half-duplex radio.
     pub fn claim(&mut self, direction: Direction) -> Result<(), DeviceError> {
         if !self.duplex.supports(direction) {
             return Err(DeviceError::Unsupported(format!(
@@ -73,7 +57,6 @@ impl DuplexState {
         Ok(())
     }
 
-    /// Give `direction` back. Idempotent, and never clears the other one.
     pub const fn release(&mut self, direction: Direction) {
         self.set(direction, false);
     }
@@ -111,7 +94,6 @@ mod tests {
         assert!(state.claim(Direction::Tx).is_ok());
     }
 
-    /// The HackRF rule: one transceiver, one data path, so the second direction has to wait.
     #[test]
     fn half_duplex_admits_one_direction_at_a_time() {
         let mut state = DuplexState::new(Duplex::Half);
@@ -156,8 +138,6 @@ mod tests {
         }
     }
 
-    /// The finding this type exists for: tearing down a receive stream must not silence a
-    /// transmit burst that is still on the air.
     #[test]
     fn releasing_one_direction_leaves_the_other_claimed() {
         let mut state = DuplexState::new(Duplex::Full);
@@ -165,7 +145,6 @@ mod tests {
         state.claim(Direction::Rx).expect("rx");
         state.release(Direction::Rx);
         assert!(state.is_active(Direction::Tx), "tx must survive an rx stop");
-        // Releasing a direction that was never claimed is a no-op, not a way to clear the other.
         state.release(Direction::Rx);
         assert!(state.is_active(Direction::Tx));
         state.release(Direction::Tx);

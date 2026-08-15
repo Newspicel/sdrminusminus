@@ -13,26 +13,10 @@ pub const RATE: f64 = 48_000.0;
 pub const BAUD: f64 = 4_800.0;
 pub const SPS: f64 = 10.0;
 
-/// Filler symbols ahead of the unique word: enough that the word's position has to be found
-/// rather than assumed, short enough to stay cheap in Eb.
 pub const LEAD: usize = 16;
-/// Symbols past the nominal word position the search covers — the residual an impaired chain
-/// (sample-clock error, a timing offset the whole-sample estimate rounds) can shift the frame by.
 pub const SEARCH: usize = 8;
-/// Payload symbols per trial: 2048 symbols is 2048/4096/6144 information bits at M = 2/4/8. The
-/// length is chosen against the Eb accounting rather than the runtime — the 40 framing symbols
-/// are charged to Eb, and at 512 payload symbols that overhead alone was 0.32 dB of the measured
-/// distance from the closed form. At 2048 it is 0.08 dB, so the oracle gate reads the detector
-/// rather than the frame.
 pub const PAYLOAD_SYMBOLS: usize = 2_048;
 
-/// The 24-symbol unique word as octal digits, reduced modulo M per alphabet. Chosen by search
-/// over base-8 sequences for the property that has to hold at *every* alphabet it reduces to:
-/// worst shifted agreement against a data-like context 13 of 24 at M = 2 — where the reduction
-/// is harshest and a random position already agrees on 12 — 7 of 24 at M = 4 and 4 of 24 at
-/// M = 8, against a true position that agrees on 24. The failure this avoids is the one the
-/// GMSK substrate recorded: a word whose halves repeat anchors whole trials one period early at
-/// high Eb/N0, and the resulting floor reads as a detector bug.
 pub const UW: [u8; 24] = [
     5, 3, 1, 0, 0, 6, 1, 2, 7, 2, 1, 5, 6, 3, 5, 4, 5, 7, 7, 3, 6, 2, 6, 4,
 ];
@@ -42,14 +26,11 @@ pub fn params(m: usize) -> MfskParams {
     MfskParams::orthogonal(m, SPS)
 }
 
-/// The entry's unique word at alphabet M.
 #[must_use]
 pub fn unique_word(m: usize) -> Vec<u8> {
     UW.iter().map(|&s| s % m as u8).collect()
 }
 
-/// Lead filler: data-like symbols from a fixed seed, so the estimator meets the same statistics
-/// ahead of the word as inside the payload and a trial still reproduces from its own seed.
 #[must_use]
 pub fn filler(m: usize, len: usize) -> Vec<u8> {
     let mut state = 0x9e37_79b9u32;
@@ -72,8 +53,6 @@ pub fn modulate(m: usize, symbols: &[u8]) -> Vec<Complex<f32>> {
     out
 }
 
-/// Best word position in `lo..=hi` by symbol Hamming distance — the crate's searched-alignment
-/// idiom. No threshold: a chain too degraded to place its word scores its garbage as bit errors.
 #[must_use]
 pub fn find_word(symbols: &[u8], lo: usize, hi: usize, word: &[u8]) -> Option<usize> {
     let last = hi.min(symbols.len().checked_sub(word.len())?);
@@ -85,11 +64,6 @@ pub fn find_word(symbols: &[u8], lo: usize, hi: usize, word: &[u8]) -> Option<us
     })
 }
 
-/// One alphabet's payload-to-payload chain: filler + unique word + payload through [`MfskMod`],
-/// feedforward timing, searched word alignment, payload read off the argmax.
-///
-/// `payload_symbols` is [`PAYLOAD_SYMBOLS`] for the committed curves; the level-1 E2E runs the
-/// same chain with shorter payloads.
 #[must_use]
 pub fn link_sized(m: usize, payload_symbols: usize) -> Link {
     let bits_per_symbol = m.trailing_zeros() as usize;
@@ -111,8 +85,6 @@ pub fn link_sized(m: usize, payload_symbols: usize) -> Link {
             modulate(m, &symbols)
         }),
         demodulate: Box::new(move |wave| {
-            // The estimator reads the frame's own tones — there is no preamble to read
-            // instead, and none is needed: every symbol carries one dominant tone.
             let offset = demod.estimate_offset(wave, LEAD + word.len());
             let mut symbols = Vec::new();
             demod.demodulate(
@@ -157,15 +129,8 @@ pub const M2_SEED: u64 = 0x0f52;
 pub const M4_SEED: u64 = 0x0f54;
 pub const M8_SEED: u64 = 0x0f58;
 
-/// Trial-bit cap per committed point. A trial is 512–1536 bits behind a 40-symbol frame, so
-/// this clears several thousand whole trials at the steep high-SNR points.
 pub const FULL_CAP: u64 = 4_000_000;
 
-/// Worst horizontal distance from the exact noncoherent orthogonal closed form the committed
-/// curves are held to, across the whole grid. Measured: +0.148 dB at M = 2, +0.219 at M = 4,
-/// +0.168 at M = 8 — of which 0.08 dB is the framing overhead charged to Eb per the labels. The
-/// gate is set at twice the worst measured value, so it fails on a detector regression rather
-/// than on the counting noise of a high-SNR point.
 pub const ORACLE_TOLERANCE_DB: f64 = 0.4;
 
 pub const M2_AWGN: &str = "orthogonal/mfsk2_noncoherent_awgn";
@@ -213,9 +178,6 @@ pub const MEASUREMENTS: &[Measurement] = &[
 mod tests {
     use super::*;
 
-    /// The unique word's reduction property, at every alphabet it is reduced to: no shifted
-    /// overlap may agree well enough to out-score the true position under noise. Measured as
-    /// the best shifted agreement against a data-like context, the way the search sees it.
     #[test]
     fn the_unique_word_stays_aperiodic_at_every_alphabet() {
         for (m, worst_allowed) in [(2usize, 14), (4, 9), (8, 6)] {
@@ -241,8 +203,6 @@ mod tests {
         }
     }
 
-    /// The chain round-trips with no noise at all — a defect in framing, alignment or bit
-    /// packing is loud before any statistics are involved.
     #[test]
     fn every_alphabet_round_trips_on_a_clean_channel() {
         for m in [2usize, 4, 8] {

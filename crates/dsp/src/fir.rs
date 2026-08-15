@@ -38,9 +38,6 @@ pub fn design_bandpass(taps: usize, low: f64, high: f64) -> Vec<f32> {
         .collect()
 }
 
-/// Gaussian pulse-shaping / matched filter for GMSK (AIS): `sps` samples per symbol, `bt` the
-/// bandwidth-time product (0.4 for AIS/GMSK), `span` symbol periods. The tap count is
-/// `span·sps` rounded up to odd so the pulse has a true center tap. Normalized to unity DC gain.
 #[must_use]
 pub fn design_gaussian(sps: f64, bt: f64, span: usize) -> Vec<f32> {
     assert!(sps > 1.0, "need more than one sample per symbol");
@@ -66,11 +63,6 @@ pub fn design_gaussian(sps: f64, bt: f64, span: usize) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
-/// Root-raised-cosine matched filter: `sps` samples per symbol, `alpha` the roll-off (0.2 for
-/// the C4FM digital-voice modes, 0.5 for M17), `span` symbol periods either side of the pulse.
-/// The tap count is `2·span·sps` rounded up to odd, so the pulse has a true centre tap.
-/// Normalized to unity DC gain, which keeps a demodulator's level estimate meaning what it did
-/// before the filter.
 #[must_use]
 pub fn design_rrc(sps: f64, alpha: f64, span: usize) -> Vec<f32> {
     assert!(sps > 1.0, "need more than one sample per symbol");
@@ -97,9 +89,6 @@ pub fn design_rrc(sps: f64, alpha: f64, span: usize) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
-/// The RRC impulse response at `t` symbol periods, with its two removable singularities —
-/// at the origin, and at `t = ±1/(4α)` where the closed form divides by zero — evaluated as
-/// the limits they are.
 fn rrc_pulse(t: f64, alpha: f64) -> f64 {
     if t.abs() < 1e-9 {
         return 1.0 - alpha + 4.0 * alpha / PI;
@@ -126,7 +115,6 @@ fn blackman(k: usize, n: usize) -> f64 {
     0.42 - 0.5 * x.cos() + 0.08 * (2.0 * x).cos()
 }
 
-/// Sample types the streaming FIR cores operate on.
 pub(crate) trait Sample: Copy + Add<Output = Self> {
     fn zero() -> Self;
 }
@@ -143,13 +131,8 @@ impl Sample for Complex<f32> {
     }
 }
 
-/// Streaming FIR with an integer output stride. History carries across calls, so arbitrary
-/// block splits yield bit-identical output; no per-call allocation once buffers reach steady
-/// capacity. `factor > 1` evaluates the filter only at the retained instants — the polyphase
-/// decimator identity (never compute what decimation would discard).
 #[derive(Clone, Debug)]
 pub(crate) struct StreamFir<T, C> {
-    /// Stored newest-sample-first so each output is a forward dot product over the window.
     rev_taps: Vec<C>,
     factor: usize,
     buf: Vec<T>,
@@ -163,18 +146,12 @@ where
     pub(crate) fn new(taps: &[C], factor: usize) -> Self {
         assert!(!taps.is_empty(), "taps must not be empty");
         assert!(factor >= 1, "factor must be >= 1");
-        // With factor > taps the post-emit stride can pass the buffer end and the drain
-        // panics mid-stream on block-size-dependent input; the combination is meaningless
-        // for an anti-alias filter anyway, so fail at construction like the other
-        // precondition violations.
         assert!(factor <= taps.len(), "factor must not exceed the tap count");
         let mut rev_taps = taps.to_vec();
         rev_taps.reverse();
         Self {
             rev_taps,
             factor,
-            // Zero pre-history: the long-run output count then tracks input/factor exactly
-            // instead of running a constant filter-length deficit behind it.
             buf: vec![T::zero(); taps.len() - 1],
         }
     }
@@ -201,8 +178,6 @@ mod tests {
     use super::*;
     use crate::testutil::{real_tone, rms_r};
 
-    /// Steady-state amplitude gain of `h` at `freq`, measured on a real tone (unit-amplitude
-    /// sine, so RMS 1/√2) with the filter's transient skipped.
     fn tone_gain(h: &[f32], freq: f64) -> f32 {
         let mut fir = StreamFir::<f32, f32>::new(h, 1);
         let mut out = Vec::new();
@@ -249,8 +224,6 @@ mod tests {
 
     #[test]
     fn bandpass_passes_its_band_and_rejects_outside() {
-        // 255 taps → Blackman transition half-width 2.75/255 ≈ 0.011, so the passband is flat
-        // over 0.031..0.049 and the stopband is reached below 0.009 / above 0.071.
         let h = design_bandpass(255, 0.02, 0.06);
         for &f in &[0.031, 0.04, 0.049] {
             let gain = tone_gain(&h, f);

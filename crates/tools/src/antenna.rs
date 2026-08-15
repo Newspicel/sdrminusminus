@@ -1,10 +1,3 @@
-//! Antenna calculator: resonant element lengths for the designs an operator actually builds.
-//!
-//! Every length is free-space wavelength scaled by the element's end-effect factor — the
-//! `468/f` rule generalised, with the factor exposed instead of baked in, because it is the one
-//! number that changes with wire diameter, insulation and height. Feedpoint impedances are
-//! free-space estimates: a real antenna at a real height is trimmed, not computed.
-
 mod geometry;
 
 use geometry::BoomElement;
@@ -21,12 +14,8 @@ use crate::{Tool, ToolError};
 
 const SPEED_OF_LIGHT_M_S: f64 = 299_792_458.0;
 
-/// Radials are cut long: they are not the resonant element, and a slightly long radial pulls
-/// the feedpoint impedance the right way.
 const RADIAL_OVERSHOOT: f64 = 1.05;
 
-/// A five-eighths vertical takes no radial count from the operator: four is what the design
-/// assumes, and the loading coil is the part that gets adjusted.
 const FIVE_EIGHTHS_RADIALS: u8 = 4;
 
 pub struct AntennaTool;
@@ -55,10 +44,6 @@ impl Tool for AntennaTool {
     }
 }
 
-/// Work out one design.
-///
-/// # Errors
-/// [`ToolError::Invalid`] when a number is outside the range the wire types declare.
 pub fn report(request: &AntennaRequest) -> Result<AntennaReport, ToolError> {
     validate(request)?;
     let lengths = Lengths {
@@ -97,17 +82,14 @@ struct Lengths {
 }
 
 impl Lengths {
-    /// A conductor that has to resonate, so the end-effect factor applies.
     fn resonant(&self, wavelengths: f64) -> f64 {
         wavelengths * self.wavelength_m * self.velocity_factor
     }
 
-    /// A spacing or a boom run: geometry in free space, uncorrected.
     fn free(&self, wavelengths: f64) -> f64 {
         wavelengths * self.wavelength_m
     }
 
-    /// A length of coax, where the cable's own velocity factor is what counts.
     fn line(&self, wavelengths: f64) -> f64 {
         wavelengths * self.wavelength_m * self.feedline_velocity_factor
     }
@@ -604,8 +586,6 @@ mod tests {
             .unwrap_or_else(|| panic!("{name} is one of the parts"))
     }
 
-    /// The classic 468/f(MHz) rule in feet, which is a half wave at a 0.951 factor. The
-    /// default 0.95 must land on it to within the width of the rule itself.
     #[test]
     fn a_dipole_matches_the_468_over_f_rule() {
         let report = at(14_200_000.0, AntennaDesign::Dipole);
@@ -643,8 +623,6 @@ mod tests {
         assert!((slow.wavelength_m - default.wavelength_m).abs() < 1e-12);
     }
 
-    /// A flat inverted V is a dipole; closing the apex shortens the legs and drops the
-    /// feedpoint impedance towards 50 Ω.
     #[test]
     fn an_inverted_v_converges_on_a_dipole_as_it_opens() {
         let flat = at(
@@ -772,8 +750,6 @@ mod tests {
         assert!((part_named(&report, "Boom").length_m - spacing).abs() < 1e-9);
     }
 
-    /// The loop is closed, so the wire end-effect factor must not touch it — only the coax
-    /// matching section follows a velocity factor, and it follows the feedline's.
     #[test]
     fn a_quad_loop_ignores_the_wire_factor_and_the_matching_line_does_not() {
         let request = AntennaRequest {
@@ -817,8 +793,6 @@ mod tests {
         );
     }
 
-    /// The coil, not the rod, sets the match, so quoting a feedpoint impedance would be a
-    /// number the builder cannot use.
     #[test]
     fn a_five_eighths_vertical_reports_no_feedpoint_impedance() {
         let report = at(145_500_000.0, AntennaDesign::FiveEighthsVertical);
@@ -907,8 +881,6 @@ mod tests {
         }
     }
 
-    /// The drawing and the cutting list are the same numbers: wherever a segment carries a
-    /// part's name, it is exactly as long as that part.
     #[test]
     fn a_segment_named_after_a_part_is_exactly_that_long() {
         for design in every_design() {

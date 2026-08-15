@@ -142,9 +142,6 @@ fn write_sinad_curve(curve: &SinadCurve, dir: &Path, stem: &str) -> Result<()> {
     Ok(())
 }
 
-/// Every measurement of the entry, each judged on its own line, with the entry's verdict the
-/// worst of them. All of them run even after one fails: the point of landing files is to look
-/// at the whole entry, and stopping at the first bad curve would hide the rest.
 fn measure(root: &Path, entry: &Entry, dir: &Path, full: bool) -> Result<()> {
     let mut failures = Vec::new();
     for m in entry.measurements {
@@ -206,8 +203,6 @@ fn judge(root: &Path, m: &Measurement, curve: &Curve) -> std::result::Result<(),
             }
             None => faults.push(format!("{}: the sweep produced no usable point", m.stem)),
         },
-        // Not a fault: this is how a new entry's first curve is created. It is loud, though —
-        // an unjudged curve is a measurement nobody has checked yet.
         Err(_) => println!(
             "{}: no committed artifact at {} — nothing to guard against",
             m.stem,
@@ -265,8 +260,6 @@ fn write_curve(curve: &Curve, dir: &Path, stem: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// The error is the command's usage message, so it must name every registered entry —
-    /// a registry line someone forgets to mention would be undiscoverable from the CLI.
     #[test]
     fn unknown_entry_lists_the_known_ones() {
         let err = run(Path::new("."), "no-such-entry", None, false)
@@ -281,9 +274,6 @@ mod tests {
         }
     }
 
-    /// Two measurements of one entry must not collide in the output directory. Stems are
-    /// registry paths (`cpm/gmsk_bt03_awgn`); this command flattens them into file names, and
-    /// a flattening that lost a distinction would silently overwrite one curve with another.
     #[test]
     fn flattened_stems_stay_unique_within_an_entry() {
         for entry in catalog::ENTRIES {
@@ -299,9 +289,6 @@ mod tests {
         }
     }
 
-    /// The command path end-to-end at the smoke tier: the calibration entry passes its own
-    /// gate and both file formats land where `--out` pointed. The sweeps themselves are tested
-    /// in `sdrmm-modem`; this covers the wiring above them.
     #[test]
     fn bpsk_ideal_smoke_passes_and_writes_both_files() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");

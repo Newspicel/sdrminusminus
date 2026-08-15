@@ -50,7 +50,6 @@ impl MfskParams {
         self.sps
     }
 
-    /// Samples one symbol spans — the matched filter's length.
     #[must_use]
     pub fn window(&self) -> usize {
         self.sps as usize

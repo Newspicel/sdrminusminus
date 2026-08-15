@@ -15,8 +15,6 @@ export function ThemeControl() {
     <Button
       type="button"
       className={ICON_BTN}
-      // The current state first: a control that only named its next state would be a mode you
-      // cannot see you are in.
       aria-label={`Theme: ${NAMES[choice]}. Switch to ${NAMES[next]}`}
       title={`Theme: ${NAMES[choice]} — click for ${NAMES[next]}`}
       onClick={() => setTheme(next)}
@@ -26,8 +24,6 @@ export function ThemeControl() {
   );
 }
 
-/** Sun, moon, and the two of them split down the middle for auto — one 16px grid, so the three
- * states are the same weight of ink and the button never shifts. */
 function ThemeIcon({ choice }: { choice: ThemeChoice }) {
   return (
     <svg

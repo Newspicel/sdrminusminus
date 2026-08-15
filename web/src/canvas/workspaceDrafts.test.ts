@@ -21,8 +21,6 @@ describe("workspace drafts", () => {
     expect(drafts.finish(1, firstA.generation)).toBe(true);
     expect(drafts.get(2)).toEqual(firstB);
 
-    // A refetched after its queue drained. Its next save must start from that current revision,
-    // not from revision 2 retained merely because B was also pending.
     const secondA = drafts.stage(1, snapshot("a2"), 9);
     expect(secondA.revision).toBe(9);
     expect(drafts.finish(2, firstB.generation)).toBe(true);

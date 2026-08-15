@@ -1,7 +1,3 @@
-// The GeoJSON the map's own sources are fed, and the one-shot framing that opens the view on
-// whatever landed first. Kept beside `layers.ts` rather than in `MapPanel.tsx` so the panel file
-// exports only components — a mixed module costs Fast Refresh the component state it would
-// otherwise preserve — and so the shapes can be tested without a map.
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import type { PositionSample } from "../position";
 import type { SignalSurveySample } from "../signalSurvey";
@@ -112,7 +108,6 @@ export function updateSignalSource(
   return collection;
 }
 
-/** Opens on the targets instead of on the whole globe, once, when the first ones land. */
 function frame(map: Pick<MapLibreMap, "fitBounds">, collection: TargetCollection): void {
   let west = Number.POSITIVE_INFINITY;
   let south = Number.POSITIVE_INFINITY;

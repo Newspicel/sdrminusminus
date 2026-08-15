@@ -1,8 +1,3 @@
-//! End-to-end identification: a generated transmission in, a verdict out.
-//!
-//! Every case here runs the same path the engine runs — the whole channel, in ragged blocks —
-//! so what is under test is the five stages composed, not any one of them in isolation.
-
 use std::time::Instant;
 
 use num_complex::Complex;
@@ -15,8 +10,6 @@ use crate::{
     testutil::complex_noise,
 };
 
-/// Half a second per report: long enough for the slowest framing cadence in the digital-voice
-/// family, short enough that a generated transmission produces several.
 const INTERVAL_MS: u32 = 500;
 
 fn params() -> IdentParams {
@@ -36,9 +29,6 @@ fn settings(params: IdentParams) -> ChannelSettings {
     }
 }
 
-/// Feed `iq` through a fresh identifier in deliberately ragged blocks and collect its reports.
-/// The block sizes are the point: the observation window is filled across calls, and a report
-/// must not depend on where a block boundary happened to fall.
 fn run(params: IdentParams, iq: &[Complex<f32>]) -> Vec<sdrmm_wire::IdentReport> {
     let ctx = ChannelCtx {
         input_rate: INPUT_RATE_HZ,
@@ -66,9 +56,6 @@ fn run(params: IdentParams, iq: &[Complex<f32>]) -> Vec<sdrmm_wire::IdentReport>
     reports
 }
 
-/// Repeat `iq` until it is at least `seconds` long, then add noise of amplitude `amp` — no real
-/// signal arrives without any, and a spectrum with a zero floor is not one the detector would
-/// ever see.
 fn in_noise(iq: &[Complex<f32>], seconds: f64, seed: u32, amp: f32) -> Vec<Complex<f32>> {
     let wanted = (seconds * INPUT_RATE_HZ) as usize;
     let mut out = Vec::with_capacity(wanted + iq.len());
@@ -82,12 +69,10 @@ fn in_noise(iq: &[Complex<f32>], seconds: f64, seed: u32, amp: f32) -> Vec<Compl
     out
 }
 
-/// The same at a level nothing has to work for: forty-odd decibels out of the noise.
 fn on_air(iq: &[Complex<f32>], seconds: f64, seed: u32) -> Vec<Complex<f32>> {
     in_noise(iq, seconds, seed, 0.004)
 }
 
-/// Band-limited pseudorandom audio, standing in for programme material.
 fn programme(len: usize, seed: u32) -> Vec<f32> {
     let mut state = seed | 1;
     let mut smoothed = 0.0f32;
@@ -107,7 +92,6 @@ fn best(report: &sdrmm_wire::IdentReport) -> Option<&str> {
     report.best().map(|m| m.name.as_str())
 }
 
-/// The verdict the run settled on: whichever modulation most of its reports agreed about.
 fn consensus(reports: &[sdrmm_wire::IdentReport]) -> Modulation {
     let mut counts: Vec<(Modulation, usize)> = Vec::new();
     for report in reports {
@@ -137,7 +121,6 @@ fn an_empty_channel_reports_nothing_rather_than_guessing() {
 fn reports_arrive_once_per_interval() {
     let noise = complex_noise(0x9c14, 0.02, (INPUT_RATE_HZ * 2.0) as usize);
     let reports = run(params(), &noise);
-    // Two seconds of samples at a 500 ms interval, and the last partial window is not reported.
     assert_eq!(reports.len(), 4);
 }
 
@@ -187,8 +170,6 @@ fn a_dmr_transmission_is_four_level_and_confirmed_by_its_framing() {
     );
 }
 
-/// The point of the framing stage: P25 and DMR are the same waveform, and only the sync says
-/// which one is on the air.
 #[test]
 fn a_p25_transmission_is_told_apart_from_dmr() {
     let iq = on_air(&tgdv::p25::transmission(0x293, INPUT_RATE_HZ), 2.0, 0x33c1);
@@ -199,7 +180,6 @@ fn a_p25_transmission_is_told_apart_from_dmr() {
         .find(|r| r.best().is_some_and(|m| m.confirmed))
         .expect("a P25 transmission carries its own frame sync");
     assert_eq!(best(confirmed), Some("P25 Phase 1"));
-    // The siblings stay on the shortlist, demoted rather than deleted.
     assert!(confirmed.candidates.iter().any(|m| m.name == "DMR"));
 }
 
@@ -229,12 +209,6 @@ fn a_pager_transmission_is_two_level_at_its_own_baud() {
     );
 }
 
-/// A pager at a level an antenna actually hears it at.
-///
-/// Every constant-envelope signal carries the noise's own amplitude spread on its envelope, and
-/// at anything under about twenty decibels that spread alone clears the threshold amplitude
-/// modulation is recognised by. Read as modulation it makes a pager — and narrowband FM, and a
-/// broadcast station — into AM voice, which is the one verdict none of them can be.
 #[test]
 fn a_weak_pager_is_a_shift_and_not_amplitude_modulation() {
     let pages = [testgen::pocsag::Page {
@@ -265,8 +239,6 @@ fn a_weak_pager_is_a_shift_and_not_amplitude_modulation() {
     );
 }
 
-/// The other side of the same threshold: weak FM voice has no symbol clock and no levels worth
-/// the name, and must not be promoted to a keyed mode by the loosened test.
 #[test]
 fn weak_fm_voice_stays_analog() {
     let audio = programme((INPUT_RATE_HZ * 2.2) as usize, 0x4d21);
@@ -308,9 +280,6 @@ fn a_remote_control_is_keyed_rather_than_shifted() {
 
 #[test]
 fn a_broadcast_signal_is_wideband_fm() {
-    // Programme material rather than a single tone: a pure tone modulates an FM carrier into a
-    // spectrum of discrete Bessel lines, which is not what a broadcast station puts on the air
-    // and not what the identifier should be tuned against.
     let audio = programme(48_000, 0x4d21);
     let iq = on_air(
         &testgen::wfm::transmission(&audio, &audio, true, INPUT_RATE_HZ),
@@ -326,8 +295,6 @@ fn a_broadcast_signal_is_wideband_fm() {
     );
 }
 
-/// Retuning throws the observation away: half a window of one signal and half of the next would
-/// be measured as one thing and reported as a protocol neither of them is.
 #[test]
 fn a_retune_discards_the_half_window_it_was_holding() {
     let ctx = ChannelCtx {
@@ -346,8 +313,6 @@ fn a_retune_discards_the_half_window_it_was_holding() {
     );
 }
 
-/// A performance gate, not a benchmark: identification must stay at least twice as fast as the
-/// signal it describes so it has headroom to share a thread with the rest of the radio pipeline.
 #[test]
 fn one_report_costs_far_less_than_the_signal_it_describes() {
     let iq = on_air(
@@ -355,7 +320,6 @@ fn one_report_costs_far_less_than_the_signal_it_describes() {
         2.0,
         0x0f31,
     );
-    // Warm the plan caches and the allocator before the measured pass.
     let _ = run(params(), &iq);
 
     let mut reports = Vec::new();
@@ -375,8 +339,6 @@ fn one_report_costs_far_less_than_the_signal_it_describes() {
     );
 }
 
-/// The cadence is what the operator set; the observation is capped. Past the cap they stop being
-/// the same number, and the cadence is the one that has to hold.
 #[test]
 fn a_long_interval_lengthens_the_cadence_rather_than_the_analysis() {
     let long = IdentParams {

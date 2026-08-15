@@ -1,39 +1,3 @@
-//! The steady-frame substrate the linear entries share: one geometry, one alignment rule, one
-//! shaping, so a difference between two of those curves reads the modulation and nothing else.
-//!
-//! **No channel-selection filter, deliberately.** The CPM entries run behind a ±6 kHz lowpass
-//! because a discriminator eats the whole sample rate as noise without one
-//! ([`framing`](super::framing)). A linear receiver's matched filter *is* its noise-limiting
-//! filter, so adding another would only narrow the pulse the entry is specified with. What that
-//! buys the catalog is that these curves sit against their closed-form oracles with no front end
-//! to attribute a loss to.
-//!
-//! **The shaping is the phase-0 calibration link's**: root-raised cosine α = 0.35, span 8, at 8
-//! samples per symbol — the same taps `ber::reference::ideal_bpsk` measured 0.2 dB from
-//! ½·erfc(√γ) with. The BPSK row below is therefore that link plus framing, timing recovery and
-//! carrier recovery, and the gap between the two curves is exactly what those three cost.
-//!
-//! **Overhead is charged to Eb.** A trial carries 512 acquisition symbols, a 32-symbol unique word
-//! and a 16-symbol tail around its 8192-symbol payload, and the sweep divides the whole waveform's
-//! energy by the *payload* bit count — so every curve here sits 10·log10(8752/8192) = 0.29 dB right
-//! of the same chain with a free preamble. That is the honest accounting (§4.1) and it is identical
-//! across the entries, so it cancels in every comparison between them.
-//!
-//! **Timing is feedforward.** These are bursts, and a burst is what
-//! [`FeedforwardTiming`](crate::linear::FeedforwardTiming) is for: one square-law estimate over
-//! the whole frame instead of a loop walking toward it. The tracking tier is still measured — the
-//! `qam16` entry commits both, which is the §5 item 2 comparison — but it is not what the
-//! high-order rows can be measured on, because its residual jitter walls their waterfalls at 1e-4
-//! and above. With the estimate feedforward the acquisition preamble no longer has to be long
-//! enough for a loop to settle in, which is why the overhead above is 0.12 dB and not 0.5.
-//!
-//! **The unique word is drawn from one radius shell.** [`unique_word`] picks the table's
-//! most-populated equal-radius set and draws from it, which for square QAM is the four corners,
-//! for APSK the outer ring, for any PSK the whole table. The reason is measured, in
-//! [`PhaseAnchor`](crate::linear::PhaseAnchor)'s docs: an amplitude-varying anchor word fits the
-//! carrier slope an order worse, because its low-amplitude points carry almost no phase
-//! information at the SNR the rest of the word is comfortable at.
-
 use num_complex::Complex;
 
 use crate::{
@@ -47,66 +11,31 @@ use crate::{
     symbolcode::{DifferentialSymbolDecoder, DifferentialSymbolEncoder},
 };
 
-/// Reference rate: 48 kHz / 6000 baud, 8 samples per symbol. The engine is rate-free (everything
-/// is sps); the Hz numbers exist so the limits axes read in physical units.
 pub const BAUD: f64 = 6_000.0;
 pub const SPS: usize = 8;
 pub const RATE: f64 = BAUD * SPS as f64;
 
-/// The phase-0 calibration link's shaping, reused verbatim (see the module docs).
 pub const ALPHA: f64 = 0.35;
 pub const SPAN: usize = 8;
 
-/// Steady-frame geometry.
-///
-/// The acquisition run is 512 symbols and the number is the carrier loop's, not the timing
-/// recovery's: with timing feedforward there is no clock to walk to, but a loop at 0.003 cycles per
-/// symbol has a ~330-symbol time constant and it must be *settled* before the unique word, because
-/// the anchor fitted there applies one constant phase to the whole payload. Measured at 64
-/// symbols: the §4.3 static-CFO row read under 2 Hz — the loop was still acquiring when the anchor
-/// was taken, and a transient the anchor cannot remove is indistinguishable from no tracking at
-/// all. The tail keeps the matched filter's group delay from swallowing the last payload symbols.
 pub const PREAMBLE: usize = 512;
 pub const UW: usize = 32;
 pub const TAIL: usize = 16;
 pub const PAYLOAD_SYMBOLS: usize = 8_192;
 
-/// Overhead symbols per trial — the 0.45 dB the module docs charge to Eb.
 pub const OVERHEAD: usize = PREAMBLE + UW + TAIL;
 
-/// The blind power estimate is **held** across these frames — see
-/// [`LinearTiming::BURST`](crate::linear::LinearTiming::BURST) for the measurement behind it. A
-/// burst's transmitter level is constant, so the estimate has nothing to track, and its ripple is
-/// a *scale* error that costs the outermost point of a dense table proportionally: it was
-/// 1024-QAM's error floor until it was frozen. The scale is the §3.4 anchor's job, and the anchor
-/// fits it against symbols whose values are known rather than against the payload's own power.
 pub const POWER_SYMBOLS: f64 = f64::INFINITY;
 
-/// Trial-bit cap per committed point: it bounds the steep high-SNR points, where the error
-/// budget alone would run for hours.
 pub const FULL_CAP: u64 = 4_000_000;
 
-/// The acquisition seed every linear chain starts from (`0x9e37_79b9`, the golden-ratio
-/// constant): one value, so two chains framed this way differ by their modulation only. Shared
-/// with the CPM substrate's [`DATA_LIKE_SEED`](super::framing::DATA_LIKE_SEED) for the same
-/// reason.
 pub const FILLER_SEED: u32 = 0x9e37_79b9;
 
-/// The entry's transmit pulse and matched filter: one function, because they are the same taps.
 #[must_use]
 pub fn rrc() -> Vec<f32> {
     pulse::root_raised_cosine(SPS as f64, ALPHA, SPAN, Norm::Energy)
 }
 
-/// A table a catalog entry names by construction. The `tables` generators return a `Result`
-/// because a *caller* can ask for an order a family does not define; a row in this crate's own
-/// entry list cannot, and its validity is already proven by that module's tests. So this converts
-/// the impossible case into a loud abort naming the entry, rather than an error type every
-/// registry row would have to thread — and it keeps the crate's no-`unwrap` rule intact where the
-/// rule is about runtime conditions, which this is not.
-///
-/// # Panics
-/// If the table is not one its family defines — an authoring bug in this crate.
 #[must_use]
 pub fn table(what: &str, built: Result<Constellation, ConstellationError>) -> Constellation {
     match built {
@@ -115,16 +44,6 @@ pub fn table(what: &str, built: Result<Constellation, ConstellationError>) -> Co
     }
 }
 
-/// A linear entry at the substrate's shaping and rate.
-///
-/// Takes the table generator's `Result` rather than a table, so an entry states its geometry in
-/// one line and the one place a catalog configuration can be wrong reports it in one place.
-///
-/// # Panics
-/// If the table is not one its family defines, or the table and pulse do not make a valid
-/// parameter set. Both are authoring bugs in this crate's own entry list — a `tables` generator's
-/// validity is proven by that module's tests — so they abort loudly at construction rather than
-/// becoming an error type every registry row would have to thread.
 #[must_use]
 pub fn params(
     table: Result<Constellation, ConstellationError>,
@@ -142,11 +61,6 @@ pub fn params(
     }
 }
 
-// --- Symbols and bits ---------------------------------------------------------------------------
-
-/// Payload bits to constellation labels, `k` bits per symbol, least significant first — the same
-/// order [`labels_to_bits`] reads them back in, and the order the sweep runner's payload
-/// generator produces them in.
 #[must_use]
 pub fn bits_to_labels(bits: &[bool], bits_per_symbol: usize) -> Vec<u32> {
     bits.chunks(bits_per_symbol)
@@ -159,7 +73,6 @@ pub fn bits_to_labels(bits: &[bool], bits_per_symbol: usize) -> Vec<u32> {
         .collect()
 }
 
-/// Labels back to payload bits, `k` per symbol.
 #[must_use]
 pub fn labels_to_bits(labels: &[u32], bits_per_symbol: usize) -> Vec<bool> {
     let mut bits = Vec::with_capacity(labels.len() * bits_per_symbol);
@@ -171,8 +84,6 @@ pub fn labels_to_bits(labels: &[u32], bits_per_symbol: usize) -> Vec<bool> {
     bits
 }
 
-/// Deterministic filler labels — one xorshift stream, advanced by the caller, so a frame's
-/// leading and trailing filler are different symbols rather than the same block twice.
 fn filler_from(state: &mut u32, len: usize, m: u32) -> Vec<u32> {
     (0..len)
         .map(|_| {
@@ -184,25 +95,16 @@ fn filler_from(state: &mut u32, len: usize, m: u32) -> Vec<u32> {
         .collect()
 }
 
-/// Data-like acquisition filler: labels drawn uniformly from the whole table, because an
-/// acquisition sequence must look like the data the loops will have to hold. The rule is the same
-/// one the CPM substrate records ([`framing`](super::framing)), arrived at there by measurement.
 #[must_use]
 pub fn data_like(table: &Constellation, len: usize, seed: u32) -> Vec<u32> {
     filler_from(&mut { seed }, len, table.len() as u32)
 }
 
-/// Labels of the table's most-populated equal-radius shell, in table order. For square QAM that
-/// is the four corners, for DVB-S2 32-APSK the outer sixteen, for any PSK the whole table. Ties
-/// go to the larger radius: a farther shell carries more energy per anchor, which is exactly what
-/// a phase fit wants.
 #[must_use]
 pub fn shell_labels(table: &Constellation) -> Vec<u32> {
     let radii: Vec<f64> = table.points().iter().map(|p| f64::from(p.norm())).collect();
     let mut best: Option<(usize, f64)> = None;
     for &r in &radii {
-        // 0.1 % of the radius: several orders above trigonometric rounding, several below the
-        // gap between any two shells in the catalog's tables.
         let count = radii.iter().filter(|&&q| (q - r).abs() <= 1e-3 * r).count();
         if best.is_none_or(|(n, best_r)| count > n || (count == n && r > best_r)) {
             best = Some((count, r));
@@ -218,30 +120,8 @@ pub fn shell_labels(table: &Constellation) -> Vec<u32> {
         .collect()
 }
 
-/// Candidate words the [`unique_word`] search considers. 256 draws is enough that the best
-/// candidate's sidelobe stops improving on every table here, and cheap enough to run at link
-/// construction.
 const WORD_CANDIDATES: u32 = 256;
 
-/// The unique word: `len` labels chosen so the receiver's correlator has a peak to find.
-///
-/// Two properties, both load-bearing and both measured rather than assumed.
-///
-/// *Constant modulus.* The labels come from [`shell_labels`], so the anchor fit that follows the
-/// correlation sees one radius whatever the payload's table looks like — an amplitude-varying
-/// anchor word fits the carrier an order worse
-/// ([`PhaseAnchor`](crate::linear::PhaseAnchor)'s tests). A table with no shell of two or more
-/// points — OOK, whose only nonzero radius holds one point — falls back to the whole table,
-/// because a word of one repeated symbol has no correlation peak at all.
-///
-/// *Aperiodic autocorrelation.* An arbitrary draw is not good enough, and this is the failure it
-/// causes: with a random 32-symbol word, one BPSK trial in eight anchored at the wrong position
-/// and decoded its whole payload as noise — at 12 dB Eb/N0, where the bit errors should have been
-/// a handful. The CPM substrate found the same thing and answered it with a hand-searched
-/// constant ([`framing::UW24`](super::framing::UW24)); here the word depends on the table, so the
-/// search is done at construction: [`WORD_CANDIDATES`] deterministic draws, scored by the worst
-/// shifted-overlap sidelobe of their normalised autocorrelation, best one wins. Ties go to the
-/// earlier candidate, so the choice is a function of the table and the seed alone.
 #[must_use]
 pub fn unique_word(table: &Constellation, len: usize, seed: u32) -> Vec<u32> {
     let shell = shell_labels(table);
@@ -279,10 +159,6 @@ pub fn unique_word(table: &Constellation, len: usize, seed: u32) -> Vec<u32> {
         .unwrap_or_default()
 }
 
-/// Worst normalised aperiodic autocorrelation sidelobe of a word: the largest
-/// `|Σ x_k·conj(x_{k+s})| / Σ|x_k|²` over every nonzero shift, counting partial overlaps. The
-/// magnitude — not the real part — because the receiver's correlator is rotation-invariant, so a
-/// sidelobe it could mistake for the peak is one of any phase.
 #[must_use]
 pub fn worst_sidelobe(word: &[Complex<f32>]) -> f64 {
     let n = word.len();
@@ -304,13 +180,6 @@ pub fn worst_sidelobe(word: &[Complex<f32>]) -> f64 {
     worst
 }
 
-/// The table points a label sequence maps to — what the receiver correlates and fits against.
-///
-/// Deliberately *unrotated*, even for an entry that carries a per-symbol rotation: the
-/// demodulator removes the rotation schedule before anything downstream sees a symbol, so the
-/// word arrives on the plain table. Correlating against the transmitted (rotated) points instead
-/// is a defect that costs nothing at rotation 0 and destroys π/2-BPSK and π/4-DQPSK outright —
-/// measured, when it did.
 #[must_use]
 pub fn table_points(table: &Constellation, labels: &[u32]) -> Vec<Complex<f32>> {
     labels
@@ -326,19 +195,6 @@ pub fn table_points(table: &Constellation, labels: &[u32]) -> Vec<Complex<f32>> 
         .collect()
 }
 
-// --- Alignment ----------------------------------------------------------------------------------
-
-/// Best position of a known word in `lo..=hi`, by *normalised* correlation magnitude
-/// `|Σ y·conj(x)|² / (Σ|y|²·Σ|x|²)`.
-///
-/// Rotation-invariant on purpose: a blind carrier loop locks to some rotation of the table
-/// (`linear::carrier`), so a metric that compared against the word's absolute phase would fail on
-/// three quarters of QPSK acquisitions. Normalised on purpose too: a bare dot product rewards a
-/// loud stretch of payload over a correctly-matched word, which was measured mis-anchoring whole
-/// trials on the CPM substrate.
-///
-/// No threshold: a chain too degraded to place its word scores its garbage as bit errors, which
-/// is the honest outcome for a sweep point.
 #[must_use]
 pub fn find_word(
     symbols: &[Complex<f32>],
@@ -368,8 +224,6 @@ pub fn find_word(
     (lo..=last).max_by(|&a, &b| score(a).total_cmp(&score(b)))
 }
 
-/// [`find_word`] for the envelope tier, where the symbols are real amplitudes and there is no
-/// phase to be invariant to: least squared distance to the word's own amplitudes.
 #[must_use]
 pub fn find_word_amplitude(
     amplitudes: &[f32],
@@ -391,9 +245,6 @@ pub fn find_word_amplitude(
     (lo..=last).min_by(|&a, &b| misfit(a).total_cmp(&misfit(b)))
 }
 
-// --- Links ----------------------------------------------------------------------------------------
-
-/// Frame a payload: acquisition filler, unique word, payload, trailing filler.
 fn frame(table: &Constellation, uw: &[u32], payload: &[u32]) -> Vec<u32> {
     let mut state = FILLER_SEED;
     let m = table.len() as u32;
@@ -404,12 +255,6 @@ fn frame(table: &Constellation, uw: &[u32], payload: &[u32]) -> Vec<u32> {
     s
 }
 
-/// One coherent-tier link: bits → labels → frame → `LinearMod` → (channel) → `LinearDemod` with
-/// its carrier loop → locate the unique word → anchor the block's gain and phase on it → slice
-/// the payload.
-///
-/// The anchor is what turns a blind loop's arbitrary lock into the right one; without it a QPSK
-/// entry would decode a quarter of its trials correctly and rotate the rest.
 #[must_use]
 pub fn coherent_link(
     label: &str,
@@ -419,8 +264,6 @@ pub fn coherent_link(
     coherent_link_with_power(label, params, carrier, POWER_SYMBOLS)
 }
 
-/// [`coherent_link`] with the blind power estimate's time constant stated — the axis the
-/// high-order rows are sensitive to, and the one the grid probe sweeps.
 #[must_use]
 pub fn coherent_link_with_power(
     label: &str,
@@ -450,13 +293,6 @@ pub fn coherent_link_with_power(
     }
 }
 
-/// A coherent chain over a *differentially encoded* payload: the carrier is recovered and the
-/// symbols sliced against the table, and the differential decode then runs on the recovered
-/// symbol *indices* rather than on the received phases. That is what buys back the differential
-/// tier's ~3 dB — the decision is made once per symbol against the whole table instead of against
-/// a noisy reference — and what it costs is the phase ambiguity, which the unique-word anchor
-/// inside [`coherent_link`]'s decode resolves. Without an anchor this tier would not decode at
-/// all, which is the honest statement of what the §3.4 hook is worth here.
 #[must_use]
 pub fn coherent_differential_link(
     label: &str,
@@ -486,8 +322,6 @@ pub fn coherent_differential_link(
             let mut demod = LinearBurstDemod::new(&params, &rx, POWER_SYMBOLS, carrier());
             let mut symbols = Vec::new();
             demod.process(wave, &mut symbols);
-            // One extra symbol is sliced: the reference the first payload difference is taken
-            // against is the last unique-word symbol, so the decode starts one position early.
             let Some(sliced) = slice_from_word(table, &symbols, PAYLOAD_SYMBOLS + 1, 1) else {
                 return Vec::new();
             };
@@ -497,24 +331,6 @@ pub fn coherent_differential_link(
     }
 }
 
-/// Differentially encode a payload for a ring × phase table.
-///
-/// The rule is *phase-differential, amplitude-absolute*, and it is what the detector's algebra
-/// forces rather than a choice: the product `y_k·conj(y_{k−1})/|y_{k−1}|` carries the phase
-/// *step* but `y_k`'s own radius, so a ring index has to be transmitted absolutely while the
-/// phase index accumulates. For M-PSK there is one ring and this reduces to the familiar
-/// "add the data index mod M" ([`DifferentialSymbolEncoder`], the crate's one implementation of
-/// that rule).
-///
-/// Encoding both indices differentially — the obvious generalisation — is wrong, and measured
-/// wrong: the 16-star table is not closed under multiplication, so the product of two of its
-/// points is not one of its points, and the star row decoded at 41 % BER on a noiseless channel
-/// until the rule was split this way.
-///
-/// `reference` is the label of the symbol the first payload difference is taken against — the
-/// last symbol of the unique word. Without it the first difference measures the distance from
-/// the encoder's arbitrary initial state instead of from what was actually transmitted, which
-/// costs exactly one symbol per frame: an error floor at 1/payload, measured at 2.4e-4.
 fn differential_encode(
     table: &Constellation,
     phase_positions: u32,
@@ -529,7 +345,6 @@ fn differential_encode(
             .unwrap_or_default() as u32
     };
     let mut encoder = DifferentialSymbolEncoder::new(phase_positions);
-    // Prime the accumulator with the reference symbol's phase.
     let _ = encoder.encode(index_of(reference) % phase_positions);
     data.iter()
         .map(|&label| {
@@ -541,9 +356,6 @@ fn differential_encode(
         .collect()
 }
 
-/// The inverse of [`differential_encode`], for a coherent tier that slices absolute symbols and
-/// then takes the differences: `sliced[0]` is the reference symbol and carries no data, so the
-/// result is one label shorter than its input.
 fn differential_decode(table: &Constellation, phase_positions: u32, sliced: &[u32]) -> Vec<u32> {
     let index_of = |label: u32| {
         table
@@ -566,8 +378,6 @@ fn differential_decode(table: &Constellation, phase_positions: u32, sliced: &[u3
     out
 }
 
-/// Locate the unique word, anchor on it, and slice `count` symbols starting `before` positions
-/// ahead of where the payload begins.
 fn slice_from_word(
     table: &Constellation,
     symbols: &[Complex<f32>],
@@ -587,9 +397,6 @@ fn slice_from_word(
     )
 }
 
-/// The same coherent chain on the **tracking** timing tier — the §5 item 2 comparison the
-/// feedforward tier is measured against. Identical in every other respect, so the two curves
-/// differ by the timing recovery alone.
 #[must_use]
 pub fn coherent_tracked_link(
     label: &str,
@@ -619,8 +426,6 @@ pub fn coherent_tracked_link(
     }
 }
 
-/// Locate the unique word, anchor the block on it, slice the payload — the tail every coherent
-/// link shares, whichever timing tier placed the symbols.
 fn decode_coherent(
     table: &Constellation,
     symbols: &[Complex<f32>],
@@ -642,14 +447,6 @@ fn decode_coherent(
     labels_to_bits(&labels, bits_per_symbol)
 }
 
-/// One differential-tier link. The payload's symbol *indices* are differentially encoded before
-/// the table lookup ([`DifferentialSymbolEncoder`], the crate's one implementation of that rule),
-/// so the receiver reads the data straight off the product of consecutive symbols and never needs
-/// an absolute phase — which is why this link runs its demodulator open-loop.
-///
-/// `difference_table` is where the products live: `psk(M)` for the DPSK family, and for an entry
-/// carrying a per-symbol rotation the same table, because the demodulator has already undone the
-/// rotation before the product is formed.
 #[must_use]
 pub fn differential_link(
     label: &str,
@@ -680,9 +477,6 @@ pub fn differential_link(
             demod.process(wave, &mut symbols);
             let mut products = Vec::new();
             differential_detect(&symbols, &mut products);
-            // Alignment runs on the *products*, which carry no absolute phase at all — the
-            // strongest form of the rotation invariance `find_word` provides for the coherent
-            // rows. The word's own differences are the pattern searched for.
             let uw = unique_word(params.constellation(), UW, FILLER_SEED);
             let word_points = table_points(params.constellation(), &uw);
             let mut word_products = Vec::new();
@@ -690,8 +484,6 @@ pub fn differential_link(
             let Some(at) = find_word(&products, 0, PREAMBLE * 2, &word_products) else {
                 return Vec::new();
             };
-            // Product `at + UW - 1` pairs the last word symbol with the first payload symbol,
-            // which is the first data-carrying difference.
             let payload = at + UW - 1;
             let labels: Vec<u32> = (0..PAYLOAD_SYMBOLS)
                 .filter_map(|k| products.get(payload + k))
@@ -702,8 +494,6 @@ pub fn differential_link(
     }
 }
 
-/// One noncoherent envelope-tier link: the same framing through [`EnvelopeDemod`], aligned on the
-/// unique word's amplitudes and sliced against the table's.
 #[must_use]
 pub fn envelope_link(
     label: &str,
@@ -756,20 +546,14 @@ mod tests {
             assert_eq!(labels.len(), bits.len() / k);
             assert_eq!(labels_to_bits(&labels, k), bits);
         }
-        // Explicit ordering, so a silent endianness change is a failure and not a shrug.
         assert_eq!(bits_to_labels(&[true, false, true, false], 2), [0b01, 0b01]);
     }
 
-    /// The shell the anchor word is drawn from must be a genuine equal-radius set, and the
-    /// largest one the table has — getting it wrong would quietly hand the phase fit an
-    /// amplitude-varying word, which the anchor's own tests measure as an order of accuracy.
     #[test]
     fn the_unique_word_shell_is_the_most_populated_radius() {
         for (name, table, want) in [
             ("psk8", tables::psk(8).unwrap(), 8usize),
-            // 16-QAM's biggest shell is the eight (±1, ±3) edge points, not the four corners.
             ("qam16", tables::qam_square(16).unwrap(), 8),
-            // 64-QAM: the twelve points at radius² = 50, i.e. (±1,±7), (±5,±5), (±7,±1).
             ("qam64", tables::qam_square(64).unwrap(), 12),
             ("apsk32", tables::apsk32_dvbs2(2.84, 5.27).unwrap(), 16),
             ("star16", tables::qam_star(&[1.0, 2.0], 8).unwrap(), 8),
@@ -789,7 +573,6 @@ mod tests {
                     radius_of(l)
                 );
             }
-            // No other radius is more populated.
             let biggest = table
                 .points()
                 .iter()
@@ -809,8 +592,6 @@ mod tests {
         }
     }
 
-    /// The word must be found at its own position and nowhere else, through an arbitrary
-    /// rotation — the property that lets a blind carrier loop lock wherever it likes.
     #[test]
     fn the_word_is_located_through_any_rotation() {
         let table = tables::qam_square(16).unwrap();
@@ -832,8 +613,6 @@ mod tests {
         }
     }
 
-    /// Framing lengths are the Eb accounting: a change that quietly moved one would shift every
-    /// curve on this substrate with no gate noticing.
     #[test]
     fn the_frame_is_the_documented_geometry() {
         let table = tables::psk(4).unwrap();
@@ -842,7 +621,6 @@ mod tests {
         let s = frame(&table, &uw, &payload);
         assert_eq!(s.len(), OVERHEAD + PAYLOAD_SYMBOLS);
         assert_eq!(&s[PREAMBLE..PREAMBLE + UW], &uw[..]);
-        // The documented 0.45 dB of overhead, from the geometry itself.
         let charged = 10.0 * ((OVERHEAD + PAYLOAD_SYMBOLS) as f64 / PAYLOAD_SYMBOLS as f64).log10();
         assert!(
             (charged - 0.287).abs() < 0.005,

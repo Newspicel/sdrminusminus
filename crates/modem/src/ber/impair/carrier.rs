@@ -1,9 +1,3 @@
-//! Carrier-path impairments: static CFO, linear frequency drift, and Wiener phase noise —
-//! everything a receive LO does to a signal short of losing it. All three are pure phase
-//! multiplications, so they share one discipline: the phase register is `f64` and wrapped to
-//! [0, 1) cycles every sample, because an unwrapped accumulator loses precision exactly when
-//! the waveform gets long enough for a sweep to care.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -20,9 +14,6 @@ fn rotate(s: &mut Complex<f32>, cycles: f64) {
     s.im = (re * sin + im * cos) as f32;
 }
 
-/// Static carrier frequency offset. Stored normalised (cycles per sample) so the model is
-/// rate-free; the Hz constructor exists because limits tables state the axis in Hz at a
-/// stated sample rate.
 #[derive(Clone, Copy, Debug)]
 pub struct Cfo {
     cycles_per_sample: f64,
@@ -53,8 +44,6 @@ impl Impairment for Cfo {
     }
 }
 
-/// Linear frequency drift: instantaneous frequency `drift · t` Hz, i.e. quadratic phase.
-/// Stored as cycles/sample² so, like [`Cfo`], the model itself is rate-free.
 #[derive(Clone, Copy, Debug)]
 pub struct Drift {
     cycles_per_sample2: f64,
@@ -76,8 +65,6 @@ impl Impairment for Drift {
         let mut acc = 0.0f64;
         for s in x.iter_mut() {
             rotate(s, acc);
-            // Trapezoidal step keeps φ[n] = d·n²/2 exactly: the half-step is the average
-            // frequency across the sample interval, not an approximation.
             acc += freq + 0.5 * d;
             acc -= acc.floor();
             freq += d;
@@ -85,14 +72,6 @@ impl Impairment for Drift {
     }
 }
 
-/// Wiener (random-walk) phase noise: `φ[n] = φ[n-1] + w[n]`, `w ~ N(0, q)`. The mask shape is
-/// 1/f² — the far tail of a free-running oscillator's Lorentzian, which is the part that
-/// stresses a carrier loop; flicker and floor regions are deliberately not modelled.
-///
-/// The stated level is the *integrated* RMS in degrees over the whole waveform, ensemble
-/// sense: `E[(1/N)·Σ φ[n]²] = rms²`. A single walk realisation scatters widely around that —
-/// which is exactly the realisation-to-realisation behaviour a limits sweep should average
-/// over, so the level is defined on the ensemble and calibrated the same way.
 #[derive(Clone, Copy, Debug)]
 pub struct PhaseNoise {
     rms_deg: f64,
@@ -111,8 +90,6 @@ impl Impairment for PhaseNoise {
             return;
         }
         let rms_cycles = self.rms_deg / 360.0;
-        // E[φ[n]²] = n·q, so the mean over n of the expected square is q·(N−1)/2; solving for
-        // the stated integrated RMS gives the per-step variance.
         let q = 2.0 * rms_cycles * rms_cycles / (x.len() - 1) as f64;
         let step = q.sqrt();
         let mut acc = 0.0f64;
@@ -137,9 +114,6 @@ mod tests {
         rng::Rng,
     };
 
-    /// Applied == measured: the phase slope read back off the rotated waveform is the
-    /// constructed offset. Tolerance is set by f32 sample storage (~1e-7 rad/sample,
-    /// averaged down over 50k samples).
     #[test]
     fn cfo_phase_slope_reads_back() {
         let applied = Cfo::from_hz(1234.5, 48_000.0);
@@ -154,8 +128,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured via the phase's second difference: for quadratic phase it is the
-    /// constant 2π·d cycles/sample², rate-scaled back to Hz/s.
     #[test]
     fn drift_second_difference_reads_back() {
         let rate = 48_000.0;
@@ -172,10 +144,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured on the ensemble the level is defined over: the RMS of the walk's
-    /// phase trajectory, unwrapped from the waveform and pooled across 600 realisations.
-    /// A single walk's integrated RMS has ~unit relative variance, so the pooling is what
-    /// brings the estimator inside the 5% gate (~2% expected error at M=600).
     #[test]
     fn phase_noise_integrated_rms_reads_back() {
         let rms_deg = 10.0;

@@ -12,49 +12,26 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-/// The passband is a third of the sample rate, so the transition band is enormous and a short
-/// filter is enough — which matters at 250 kHz, where every tap is 250 k multiplies a second.
 const CHANNEL_TAPS: usize = 63;
 
-/// Envelope smoothing. One time constant, short against the shortest symbol the channel
-/// accepts, just enough to take the fizz off the magnitude.
 const ENVELOPE_TAU_S: f64 = 20e-6;
 
-/// Nominal FSK deviation. Only sets the discriminator's output scale — the decision is made
-/// against a tracked mean, so a sensor deviating more or less still keys correctly.
 const FSK_DEVIATION_HZ: f64 = 25_000.0;
 
-/// Time constant of the FSK slicing level. It has to ride through the longest run of one tone
-/// inside a frame — the ~10 ms sync gap — without drifting into it, which rules out the fixed
-/// `DcBlocker` pole (a ~1 ms corner at this rate) entirely.
 const FSK_LEVEL_TAU_S: f64 = 50e-3;
 
-/// Edges kept for one frame. A remote sends a few hundred; a signal that keeps keying past
-/// this is a carrier, not a frame, and is dropped rather than truncated into a lie.
 const MAX_EDGES: usize = 600;
 
-/// Raw edge timings carried in the event. Enough to see the shape of an unknown signal,
-/// bounded so a decoder log row never becomes a recording.
 const MAX_REPORTED_TIMINGS: usize = 128;
 
-/// Repeats arriving inside this window collapse into one event. Every one of these devices
-/// transmits its payload several times per button press.
 const COLLAPSE_S: f64 = 0.5;
 
-/// Shortest run of bits a classified frame must carry. Below this a "decode" is a coincidence.
 const MIN_BITS: usize = 8;
 
-/// How far a duration may sit from a whole multiple of the base period and still count as
-/// that multiple. Absolute in units of the base period, so a 3× symbol is held to a tighter
-/// relative tolerance than a 1× one — which is what clock-derived timing actually looks like.
 const QUANTIZE_TOLERANCE: f64 = 0.3;
-/// Longest multiple of the base period a symbol may be. The frame-ending gap is far longer
-/// than this, which is exactly why it ends the frame.
 const MAX_MULTIPLE: u32 = 4;
 
-/// A PT2262 tri-state symbol is two PWM bits, and a 24-bit frame is twelve of them.
 const TRI_STATE_BITS: usize = 24;
-/// EV1527 splits the same 24 bits into a 20-bit transmitter address and 4 button bits.
 const EV1527_ADDRESS_BITS: usize = 20;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -86,8 +63,6 @@ fn params(settings: &ChannelSettings) -> Result<&SubghzParams, ChannelError> {
 
 fn check_params(p: &SubghzParams) -> Result<(), ChannelError> {
     let rate = DESCRIPTOR.input_rate_hz;
-    // Pulse widths are measured off an envelope, so the whole band has to arrive at the same
-    // level — the DDC's flat passband, not the wider band it merely keeps free of aliases.
     let widest = flat_bandwidth_hz(rate);
     if !(p.bandwidth_hz.is_finite() && p.bandwidth_hz > 0.0 && p.bandwidth_hz < widest) {
         return Err(ChannelError::InvalidSettings(format!(
@@ -104,7 +79,6 @@ fn check_params(p: &SubghzParams) -> Result<(), ChannelError> {
     Ok(())
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &SubghzParams) -> (f64, f64) {
     let half = p.bandwidth_hz / 2.0;
     (-half, half)
@@ -129,8 +103,6 @@ enum Detector {
         slicer: KeyingSlicer,
         demod: FmDemod,
         demod_buf: Vec<f32>,
-        /// Slicing level, tracked only while a carrier is present — a gap between frames
-        /// carries no information about where the tone pair sits.
         level: f32,
         level_coeff: f32,
     },
@@ -153,7 +125,6 @@ impl Detector {
         }
     }
 
-    /// Replace `keyed` with one on/off decision per input sample.
     fn process(&mut self, iq: &[Complex<f32>], keyed: &mut Vec<bool>) {
         keyed.clear();
         match self {
@@ -171,8 +142,6 @@ impl Detector {
                 level_coeff,
             } => {
                 demod.process(iq, demod_buf);
-                // One non-finite sample would latch the tracker forever; healing per block
-                // bounds the damage from a driver glitch to a block.
                 if !level.is_finite() {
                     *level = 0.0;
                 }
@@ -192,18 +161,12 @@ impl Detector {
     }
 }
 
-/// Edge timing with a debounce: a state change only counts once it has held for the minimum
-/// pulse width, so one sample of slicer chatter cannot split a symbol into three.
 struct Timing {
     key: bool,
-    /// Samples in the current stable run, including any excursion still being debounced.
     run: u32,
-    /// Samples the opposite state has held for.
     candidate: u32,
     min_pulse: u32,
     frame_gap: u32,
-    /// Durations in samples, pulse first. A leading gap is never recorded, so index 0 is
-    /// always a pulse and the pair structure below can be trusted.
     edges: Vec<u32>,
     overflowed: bool,
 }
@@ -222,8 +185,6 @@ impl Timing {
         }
     }
 
-    /// Feed one keying decision; returns the finished frame's edge durations when a gap long
-    /// enough to separate frames has elapsed.
     fn push(&mut self, key: bool) -> Option<Vec<u32>> {
         self.run = self.run.saturating_add(1);
         if key == self.key {
@@ -232,7 +193,6 @@ impl Timing {
             self.candidate += 1;
             if self.candidate >= self.min_pulse {
                 let held = self.run - self.candidate;
-                // A gap before the first pulse is the silence we were sitting in, not a symbol.
                 if self.key || !self.edges.is_empty() {
                     if self.edges.len() >= MAX_EDGES {
                         self.overflowed = true;
@@ -264,7 +224,6 @@ impl Timing {
     }
 }
 
-/// The held frame awaiting its repeats.
 struct Collapse {
     pending: Option<SubghzFrame>,
     since: u32,
@@ -280,10 +239,6 @@ impl Collapse {
         }
     }
 
-    /// A frame that carries more decoded bits supersedes one that carries fewer, but only
-    /// while the held frame is still a single sighting: a receiver that tuned in mid-burst
-    /// sees a fragment first, and that fragment must not become the log entry. Once a payload
-    /// has repeated it is real, and a different one starts its own event.
     fn offer(&mut self, frame: SubghzFrame, out: &mut ChannelOutputs) {
         self.since = 0;
         match &mut self.pending {
@@ -345,8 +300,6 @@ impl ChannelRx for SubghzChannel {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         check_params(p)?;
-        // Every setting here changes what an edge *means*, so the frame in flight was measured
-        // under rules that no longer apply.
         self.detector = Detector::new(p.modulation, self.rate);
         self.timing = Timing::new(p, self.rate);
         self.timing.reset();
@@ -379,10 +332,6 @@ fn modulation_of(detector: &Detector) -> SubghzModulation {
     }
 }
 
-/// The base period a frame is built from: the mean of its shortest cluster, rather than the
-/// single shortest edge, so one clipped edge does not scale every other symbol. The cluster
-/// stops at 1.5× the shortest edge — Manchester's longest symbol is exactly 2×, and a wider
-/// window would pull those into the average and scale the whole frame wrong.
 fn base_period(edges: &[u32]) -> Option<u32> {
     let min = edges.iter().copied().min()?;
     let cluster: Vec<u32> = edges
@@ -396,7 +345,6 @@ fn base_period(edges: &[u32]) -> Option<u32> {
         .filter(|&d| d > 0)
 }
 
-/// How many base periods a duration is, or `None` when it is not a whole number of them.
 fn multiple(duration: u32, base: u32) -> Option<u32> {
     let ratio = f64::from(duration) / f64::from(base);
     let n = ratio.round();
@@ -462,9 +410,6 @@ fn classify(edges: &[u32], rate: f64, modulation: SubghzModulation) -> SubghzFra
     }
 }
 
-/// Pulse-width coding: each bit is one pulse/gap pair whose halves differ in length, the
-/// shorter half first for a 0. This is the PT2262 / EV1527 / Princeton family and most of what
-/// a 433 MHz remote transmits.
 fn pwm_bits(steps: &[u32]) -> Option<Vec<bool>> {
     let pairs = steps.len() / 2;
     if pairs < MIN_BITS {
@@ -481,8 +426,6 @@ fn pwm_bits(steps: &[u32]) -> Option<Vec<bool>> {
     Some(bits)
 }
 
-/// Manchester: every bit is a transition in the middle of its cell, so the keyed stream is a
-/// run of one- and two-cell durations and each bit is one high/low cell pair.
 fn manchester_bits(steps: &[u32]) -> Option<Vec<bool>> {
     if steps.iter().any(|&n| n > 2) {
         return None;
@@ -495,8 +438,6 @@ fn manchester_bits(steps: &[u32]) -> Option<Vec<bool>> {
         }
         level = !level;
     }
-    // A capture may start half a cell into the first bit, so both alignments are tried and the
-    // one that decodes cleanly wins.
     (0..2)
         .filter_map(|offset| decode_cells(&cells[offset..]))
         .max_by_key(Vec::len)
@@ -512,9 +453,6 @@ fn decode_cells(cells: &[bool]) -> Option<Vec<bool>> {
     Some(bits)
 }
 
-/// PT2262 reading of a 24-bit payload: twelve tri-state symbols, `00` = 0, `11` = 1, `01` = F
-/// (floating). `10` is not a symbol the chip emits, so a frame containing one has no tri-state
-/// reading at all rather than a partly-invented one.
 fn tri_state(bits: &[bool]) -> Option<String> {
     if bits.len() != TRI_STATE_BITS {
         return None;
@@ -531,7 +469,6 @@ fn tri_state(bits: &[bool]) -> Option<String> {
         .collect()
 }
 
-/// Payload as hex, most significant bit first, left-padded to a whole nibble.
 fn hex_of(bits: &[bool]) -> String {
     let pad = (4 - bits.len() % 4) % 4;
     let mut out = String::with_capacity((bits.len() + pad) / 4);
@@ -608,7 +545,6 @@ mod tests {
         decode_blocks(&mut channel(p), iq, &BLOCKS)
     }
 
-    /// A 24-bit EV1527 payload: 20 address bits and 4 button bits.
     const REMOTE: u32 = 0x0A_1B_23;
 
     fn ev1527() -> Pwm {
@@ -621,8 +557,6 @@ mod tests {
         }
     }
 
-    /// A press of a garage remote, end to end: the payload, both readings of it, and the fact
-    /// that six transmissions became one log entry.
     #[test]
     fn decodes_an_ook_remote_and_collapses_its_repeats() {
         let frames = decode(SubghzParams::default(), &pwm(&ev1527(), RATE));
@@ -642,8 +576,6 @@ mod tests {
         assert!(f.repeats >= 5, "collapsed {} of 6 repeats", f.repeats);
     }
 
-    /// The tri-state reading exists only when every bit pair is a symbol a PT2262 can emit —
-    /// a payload with a `10` pair is an EV1527 and must not be dressed up as twelve symbols.
     #[test]
     fn tri_state_is_offered_only_when_every_pair_is_a_symbol() {
         let all_symbols: Vec<bool> = [
@@ -692,8 +624,6 @@ mod tests {
         assert_eq!(frames[0].data, "0A1B23");
     }
 
-    /// A shape the classifier does not know still has to come back as something an operator
-    /// can look at — that is the whole point of the raw capture.
     #[test]
     fn an_unrecognised_burst_is_reported_as_raw_timings() {
         let odd = testgen::subghz::keyed(&[900, 400, 300, 1_700, 250, 260, 1_100, 380, 700], RATE);
@@ -709,14 +639,10 @@ mod tests {
         );
     }
 
-    /// A press captured from the middle: the first frame is a fragment. It must not become
-    /// the log entry the operator sees.
     #[test]
     fn a_fragment_is_superseded_by_the_whole_frames_behind_it() {
         let remote = ev1527();
         let full = pwm(&remote, RATE);
-        // Start one and a half frames into the burst, so the first thing the channel sees is
-        // the back half of a transmission.
         let frame_us: u32 = testgen::subghz::pwm_timings(&remote).iter().sum();
         let cut = (0.05 * RATE) as usize + (1.5 * f64::from(frame_us) * 1e-6 * RATE) as usize;
         let frames = decode(SubghzParams::default(), &full[cut..]);
@@ -777,8 +703,6 @@ mod tests {
 
     #[test]
     fn base_period_ignores_one_clipped_edge() {
-        // Nine edges at ~80 samples and one at 240; the estimate must be the cluster, not the
-        // minimum, and not dragged by the long one.
         let edges = [80, 79, 81, 240, 80, 78, 82, 240, 80, 80];
         let base = base_period(&edges).unwrap();
         assert!((78..=82).contains(&base), "base {base}");

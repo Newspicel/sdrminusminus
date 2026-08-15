@@ -1,21 +1,12 @@
 #[derive(Clone, Debug)]
 pub struct Rng {
     state: [u64; 4],
-    /// Marsaglia polar produces normals in pairs; the undrawn half waits here. It is part of
-    /// the stream contract: draws alternate compute/spare, so interleaving other draw types
-    /// between them is deterministic too.
     spare: Option<f64>,
 }
 
-/// Maps the raw 64-bit draw onto the 2^53 evenly spaced doubles in [0, 1). Using exactly the
-/// 53 bits the mantissa can hold means every value is representable without rounding — no
-/// draw can round up to 1.0, which as a noise or threshold input would be an off-by-one the
-/// channel models must never see.
 const UNIFORM_SCALE: f64 = 1.0 / (1u64 << 53) as f64;
 
 impl Rng {
-    /// A run is named by one u64 (curve labels quote it), expanded to the full 256-bit state
-    /// via SplitMix64 — see the module docs for why direct seeding would be wrong.
     #[must_use]
     pub fn new(seed: u64) -> Self {
         let mut sm = seed;
@@ -30,7 +21,6 @@ impl Rng {
         }
     }
 
-    /// The xoshiro256++ core step; every other draw type is derived from this stream.
     pub fn next_u64(&mut self) -> u64 {
         let result = self.state[0]
             .wrapping_add(self.state[3])
@@ -46,18 +36,10 @@ impl Rng {
         result
     }
 
-    /// Uniform draw in [0, 1) with the full 53 bits of double precision — coarser would
-    /// quantise the tails of everything derived from it, and the normal tail is exactly where
-    /// high-Eb/N0 bit errors come from.
     pub fn uniform(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * UNIFORM_SCALE
     }
 
-    /// Standard normal draw, N(0, 1), by Marsaglia's polar method. Polar over Box–Muller
-    /// because it needs no trig — `sqrt` is correctly rounded by IEEE-754 where `sin`/`cos`
-    /// are not, so this keeps the platform-dependence of the whole stream down to `ln` alone.
-    /// Each accepted polar sample yields two normals; the spare is cached, not discarded, so
-    /// consecutive draws cost one rejection loop between them, not two.
     pub fn normal(&mut self) -> f64 {
         if let Some(z) = self.spare.take() {
             return z;
@@ -66,8 +48,6 @@ impl Rng {
             let u = 2.0 * self.uniform() - 1.0;
             let v = 2.0 * self.uniform() - 1.0;
             let s = u * u + v * v;
-            // Rejection keeps (u, v) strictly inside the unit circle: s ≥ 1 would bend the
-            // distribution, s = 0 would hand ln a zero. ~21.5% of pairs retry.
             if s > 0.0 && s < 1.0 {
                 let m = (-2.0 * s.ln() / s).sqrt();
                 self.spare = Some(v * m);
@@ -76,18 +56,11 @@ impl Rng {
         }
     }
 
-    /// One sample of circularly-symmetric complex noise as an i.i.d. N(0, 1) pair — the two
-    /// normals of one polar acceptance are independent, so I and Q come from a single loop
-    /// pass. Each component has unit variance, so the pair has total power 2: an AWGN channel
-    /// scales each component by √(N0/2) to land at noise power N0 per complex sample.
     pub fn normal_pair(&mut self) -> (f64, f64) {
         (self.normal(), self.normal())
     }
 }
 
-/// SplitMix64: one output per call, advancing `state` by the golden-ratio increment. Only used
-/// to expand seeds — it is a fine generator but its 2^64 period is too short to be the main
-/// stream for a full nightly sweep.
 fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = *state;
@@ -100,8 +73,6 @@ fn splitmix64(state: &mut u64) -> u64 {
 mod tests {
     use super::Rng;
 
-    /// Enough samples that the acceptance bounds below sit at ≥5σ of their estimators —
-    /// a failure means the generator (or an edit to it) is broken, not an unlucky seed.
     const CALIBRATION_SAMPLES: usize = 1_000_000;
 
     #[test]
@@ -111,7 +82,6 @@ mod tests {
         for _ in 0..1000 {
             assert_eq!(a.next_u64(), b.next_u64());
         }
-        // Derived draws too, interleaved, so the spare cache is part of what is compared.
         for _ in 0..1000 {
             assert_eq!(a.uniform().to_bits(), b.uniform().to_bits());
             assert_eq!(a.normal().to_bits(), b.normal().to_bits());
@@ -134,7 +104,6 @@ mod tests {
         }
     }
 
-    /// Adjacent seeds must diverge immediately — sweeps number their runs sequentially.
     #[test]
     fn different_seeds_give_different_streams() {
         for pair in [
@@ -162,16 +131,10 @@ mod tests {
             min = min.min(x);
             max = max.max(x);
         }
-        // The draws should also fill the interval, not huddle in part of it.
         assert!(min < 1e-4, "min uniform {min}");
         assert!(max > 1.0 - 1e-4, "max uniform {max}");
     }
 
-    /// Calibration of the normal path: mean, variance and lag-1 autocorrelation over 1e6
-    /// draws. Estimator standard errors are ~1e-3 for the mean and lag-1 correlation and
-    /// ~1.4e-3 for the variance, so the bounds are ≥5σ. Serial correlation is what a BER
-    /// measurement is most sensitive to — correlated noise samples change the effective
-    /// noise bandwidth and would bias every curve the same direction.
     #[test]
     fn normal_is_calibrated() {
         let mut rng = Rng::new(0xca11b8a7e);
@@ -193,8 +156,6 @@ mod tests {
         assert!(lag1_corr.abs() < 5e-3, "lag-1 autocorrelation {lag1_corr}");
     }
 
-    /// I and Q of the complex-noise helper must be uncorrelated: correlated components make
-    /// the noise elliptical, which is an IQ-imbalance impairment, not AWGN.
     #[test]
     fn normal_pair_components_are_uncorrelated() {
         let mut rng = Rng::new(0x1004);

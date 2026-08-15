@@ -41,7 +41,6 @@ import { deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
-/** One channel wired into a sink, resolved to the engine objects behind it. */
 function useInputs(node: string, port: string): Input[] {
   const workspace = useWorkspaceContext();
   return inputsOf(
@@ -63,7 +62,6 @@ function useWiredDecoders(inputs: readonly Input[]): { input: Input; kind: strin
   });
 }
 
-/** Just the kinds, for the sinks that filter by decoder rather than by channel. */
 function useWiredKinds(inputs: readonly Input[]): string[] {
   return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
 }
@@ -107,7 +105,6 @@ function AudioInput({ input }: { input: Input }) {
           type="button"
           className={audio.playing ? BTN_DANGER : BTN}
           onClick={() => {
-            // iOS resumes output only inside a gesture, so the click does both.
             audio.resumeOutput();
             if (audio.playing) {
               audio.stop();
@@ -135,8 +132,6 @@ function AudioInput({ input }: { input: Input }) {
           Audio is suspended — click to resume
         </Button>
       )}
-      {/* Under the transport, because it is a monitor of what that transport is playing: it
-          carries nothing while the channel is stopped, and says so. */}
       <AudioSpectrogramView
         deviceSet={input.deviceSet}
         channel={input.channel.id}
@@ -152,7 +147,6 @@ function AudioInput({ input }: { input: Input }) {
   );
 }
 
-/** Buffer diagnostics: useful when tuning the jitter buffer, noise for everyone else. */
 function AudioHealth({
   lostFrames,
   underruns,
@@ -221,8 +215,6 @@ export function MapFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** Its own component so it can read whether this face is the active one — the hook only answers
- * inside the shell, and the map has to give its wheel back to the camera until then. */
 function Plot({
   kinds,
   positionNodes,
@@ -240,15 +232,6 @@ function Plot({
   );
 }
 
-/**
- * One readout per connected decoder: the picture a decoder is *holding* — the station it has
- * pieced together, the aircraft it is tracking, the text it has copied — rather than the frames
- * it received, which are a log and belong in one.
- *
- * Several decoders wired in stack their readouts, the way the map stacks layers. Only the ones
- * that hold something get a pane; a channel whose whole output is independent frames is named as
- * being read elsewhere instead of given an empty box.
- */
 export function ReadoutFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
@@ -278,8 +261,6 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
                     input.channel.settings.params.type.toUpperCase()}
                 </span>
               )}
-              {/* Channel ids are allocated per device set, so two sets both have a channel 1;
-                  scoping on the id alone would pour one set's output into this pane. */}
               <DecoderView
                 kind={kind}
                 scope={{ deviceSet: input.deviceSet, channel: input.channel.id }}
@@ -318,9 +299,6 @@ export function VideoFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** The stored log, narrowed to the channels wired in — the wire is the filter, which is the whole
- * reason this is a node rather than a menu item. Two log nodes on different decoders are two
- * different logs, and clearing one clears only its own rows. */
 export function DecoderLogFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   return (
@@ -383,7 +361,6 @@ export function CallRow({ call }: { call: VoiceCall }) {
   );
 }
 
-/** Fronts the decoder-log export API over the same wired channels the log node reads. */
 export function ExportFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const kinds = useWiredKinds(inputs);
@@ -422,8 +399,6 @@ export function ExportFace({ node }: { node: PatchNode }) {
 export function RecorderFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  // The lane this recorder's own wire names: wired to `iq3`, it must record stream 2, not the
-  // radio's first.
   const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
   return (
     <NodeShell
@@ -444,8 +419,6 @@ export function RecorderFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** `deriveRecordControl` owns the two rules this face must not restate: a start needs a running
- * radio, and a faulted recording still reads as recording until it is explicitly stopped. */
 function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
   const record = useMutation({
     mutationFn: (action: RecordAction) => recordDeviceSet(set.id, action, stream),
@@ -503,9 +476,6 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
   );
 }
 
-/** Its own component so the one-second tick re-renders the readout and not the whole face. Once
- * the recording faulted the writer is dead, so the tick stops with it — wall clock would
- * overstate what was captured. */
 function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sampleRate: number }) {
   const faulted = status.error != null;
   const [now, setNow] = useState(() => Date.now());
@@ -532,8 +502,6 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
   );
 }
 
-/** One file per wired channel, so a net recorded across three receivers is three recordings and
- * not one mixdown nobody can separate again. */
 export function AudioRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
   const recording = inputs.filter((input) => input.channel.audio_recording != null).length;
@@ -606,9 +574,6 @@ function AudioRecordInput({ input }: { input: Input }) {
   );
 }
 
-/** The recording's own frame clock rather than the wall clock: a squelched channel writes
- * silence, so what is on disk is exactly the time that has gone by — and if the writer stops,
- * the readout stops with it instead of counting air nothing captured. */
 function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
   return (
     <Readout separated={false}>
@@ -626,7 +591,6 @@ function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
 export function ScannerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  // `DeviceSet.scanner` is absent when no sweep is running, so its presence *is* the ownership.
   const scanning = set?.scanner != null;
   return (
     <NodeShell

@@ -6,24 +6,18 @@ use sdrmm_dsp::{RdsOffset, rds_encode_block};
 use super::fm_modulate;
 
 pub const BIT_RATE: f64 = 1_187.5;
-/// Stereo pilot. The subcarrier is its third harmonic, in phase with it — the standard also
-/// allows quadrature, which a receiver has to resolve on its own either way.
 const PILOT_HZ: f64 = 19_000.0;
 const SUBCARRIER_HZ: f64 = 3.0 * PILOT_HZ;
-/// Peak deviation of a fully modulated broadcast carrier; [`composite`] returns ±1 for it.
 const DEVIATION_HZ: f64 = 75_000.0;
 const AUDIO_LEVEL: f64 = 0.45;
 const PILOT_LEVEL: f64 = 0.09;
 const RDS_LEVEL: f64 = 0.04;
-/// Shaping-pulse truncation, in bit periods either side of its centre. The response decays as
-/// 1/t², so five periods leaves the tails ~60 dB down.
 const SHAPING_SPAN: f64 = 5.0;
 
 const BLOCK_BITS: u32 = 26;
 const GROUP_BITS: f64 = 104.0;
 const PS_LEN: usize = 8;
 const RT_LEN: usize = 64;
-/// Characters a 2A group carries.
 const RT_SEGMENT: usize = 4;
 const RT_TERMINATOR: u8 = 0x0D;
 const AF_COUNT_BASE: u8 = 224;
@@ -32,7 +26,6 @@ const AF_BASE_HZ: f64 = 87_500_000.0;
 const AF_STEP_HZ: f64 = 100_000.0;
 const AF_MAX: usize = 25;
 
-/// The station identity a generated transmission carries.
 #[derive(Clone, Debug)]
 pub struct Station {
     pub pi: u16,
@@ -45,8 +38,6 @@ pub struct Station {
     pub alt_freqs_hz: Vec<f64>,
 }
 
-/// The 104-bit group sequence a station transmits, as `4·count` blocks with their offset
-/// words already added — block A, B, C (or C′) and D of each group in transmission order.
 #[must_use]
 pub fn groups(station: &Station, count: usize) -> Vec<u32> {
     let cycle = cycle(station);
@@ -68,8 +59,6 @@ pub fn groups(station: &Station, count: usize) -> Vec<u32> {
     blocks
 }
 
-/// A complete FM composite at `rate`: 19 kHz pilot, the RDS subcarrier, and an optional mono
-/// audio tone, summed at broadcast deviation shares and returned as a real signal in ±1.
 #[must_use]
 pub fn composite(
     station: &Station,
@@ -91,8 +80,6 @@ pub fn composite(
         .collect()
 }
 
-/// The same composite frequency-modulated onto a carrier as complex baseband IQ — what a WFM
-/// channel receives off the air.
 #[must_use]
 pub fn transmission(
     station: &Station,
@@ -107,7 +94,6 @@ pub fn transmission(
     )
 }
 
-/// One group's three variable blocks; block A always carries the PI code.
 struct Group {
     b: u16,
     c: u16,
@@ -115,8 +101,6 @@ struct Group {
     version_b: bool,
 }
 
-/// The repeating group cycle: the four 0A groups carrying the PS name and the alternative
-/// frequency list, then one 2A group per four RadioText characters.
 fn cycle(station: &Station) -> Vec<Group> {
     let common = (u16::from(station.tp) << 10) | (u16::from(station.pty & 0x1F) << 5);
     let ps = ps_bytes(&station.ps);
@@ -160,7 +144,6 @@ fn rt_bytes(text: &str) -> Vec<u8> {
     if bytes.len() < RT_LEN {
         bytes.push(RT_TERMINATOR);
     }
-    // A 2A group carries four characters, so the message is padded out to a whole segment.
     while !bytes.len().is_multiple_of(RT_SEGMENT) {
         bytes.push(b' ');
     }
@@ -177,8 +160,6 @@ fn af_code(hz: f64) -> Option<u8> {
     (1.0..=204.0).contains(&code).then_some(code as u8)
 }
 
-/// The AF list as the byte pairs successive 0A groups carry: the count first, then the
-/// frequencies, padded to a whole pair with the filler code.
 fn af_pairs(freqs: &[f64]) -> Vec<[u8; 2]> {
     let codes: Vec<u8> = freqs
         .iter()
@@ -228,7 +209,6 @@ fn differential(data: &[bool]) -> Vec<bool> {
         .collect()
 }
 
-/// The shaped biphase data waveform for `len` samples at `rate`, normalised to ±1.
 fn subcarrier(station: &Station, len: usize, rate: f64) -> Vec<f32> {
     let count = (len as f64 * BIT_RATE / (rate * GROUP_BITS)).ceil() as usize + 1;
     let mut raw = Vec::new();
@@ -322,7 +302,6 @@ mod tests {
         for (n, &s) in mpx.iter().enumerate() {
             assert!((-1.0..=1.0).contains(&s), "sample {n} out of range: {s}");
         }
-        // Correlate against the pilot: it must be there at its nominal share, phase 0.
         let corr: f64 = mpx
             .iter()
             .enumerate()

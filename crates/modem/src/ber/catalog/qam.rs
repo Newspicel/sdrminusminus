@@ -15,7 +15,6 @@ use crate::{
     linear::{CarrierLoop, LinearTiming, PhaseDetector},
 };
 
-/// Loop bandwidths by table density, one narrowing step per two bits (see the module docs).
 pub const LOOP_BW_16: f64 = 0.003;
 pub const LOOP_BW_64: f64 = 0.003;
 pub const LOOP_BW_256: f64 = 0.001;
@@ -82,43 +81,29 @@ fn exotic_link(name: &str, table: Result<Constellation, ConstellationError>, loo
     )
 }
 
-/// Cross-QAM 32 — DVB-C's odd-bit order, five bits on a grid with its corners cut away.
 #[must_use]
 pub fn cross32_link() -> Link {
     exotic_link("32-cross-qam", tables::qam_cross(32), LOOP_BW_16)
 }
 
-/// Cross-QAM 128.
 #[must_use]
 pub fn cross128_link() -> Link {
     exotic_link("128-cross-qam", tables::qam_cross(128), LOOP_BW_256)
 }
 
-/// The star-QAM ring ratio. 2.0 is the classic two-ring 16-star, the geometry chosen so amplitude
-/// and phase separate cleanly enough to be detected differentially.
 pub const STAR_RADII: &[f64] = &[1.0, 2.0];
 
-/// Points per ring — the phase alphabet the differential rule accumulates in, while the ring
-/// index rides absolutely (see [`differential_encode`](super::linear)).
 pub const STAR_PHASES: u32 = 8;
 
-/// The star table: two rings of eight, amplitude bit in the high position, phase bits Gray around
-/// each ring.
 pub fn star16_table() -> Result<Constellation, ConstellationError> {
     tables::qam_star(STAR_RADII, STAR_PHASES)
 }
 
-/// Star-QAM 16, coherent tier.
 #[must_use]
 pub fn star16_link() -> Link {
     exotic_link("16-star-qam", star16_table(), LOOP_BW_16)
 }
 
-/// Star-QAM 16, differential tier — the reason the geometry exists. The phase bits ride the
-/// difference between consecutive symbols, so the receiver needs no absolute carrier phase; the
-/// amplitude bit is read from the product's own radius, which
-/// [`differential_detect`](crate::linear::differential_detect) preserves by dividing out the
-/// reference symbol's magnitude rather than squaring it.
 #[must_use]
 pub fn star16_differential_link() -> Link {
     differential_link(
@@ -131,13 +116,8 @@ pub fn star16_differential_link() -> Link {
     )
 }
 
-/// DVB-T's hierarchical α — the ratio of the distance between points carrying different
-/// high-priority bits to the distance within a quadrant. 2.0 is one of the spec's three values
-/// and the catalog's reference configuration.
 pub const HIERARCHICAL_ALPHA: f64 = 2.0;
 
-/// Non-uniform (hierarchical) 16-QAM at α = 2: the same labelling as uniform 16-QAM on warped
-/// rails, which buys the two high-priority bits distance at the low-priority pair's expense.
 #[must_use]
 pub fn hierarchical16_link() -> Link {
     exotic_link(
@@ -147,12 +127,10 @@ pub fn hierarchical16_link() -> Link {
     )
 }
 
-/// DVB-S2 ring ratios at code rate 3/4 (EN 302 307-1 tables 9 and 10).
 pub const APSK16_GAMMA: f64 = 3.15;
 pub const APSK32_GAMMA1: f64 = 2.84;
 pub const APSK32_GAMMA2: f64 = 5.27;
 
-/// DVB-S2 16-APSK: 4 + 12 points, coherent tier.
 #[must_use]
 pub fn apsk16_link() -> Link {
     exotic_link(
@@ -162,7 +140,6 @@ pub fn apsk16_link() -> Link {
     )
 }
 
-/// DVB-S2 32-APSK: 4 + 12 + 16 points.
 #[must_use]
 pub fn apsk32_link() -> Link {
     exotic_link(
@@ -171,11 +148,6 @@ pub fn apsk32_link() -> Link {
         LOOP_BW_256,
     )
 }
-
-//
-// The exotic geometries have no closed form, so their reference is read off the table. Each is a
-// `LazyLock` because `Reference::Oracle` takes a plain `fn` pointer — deliberately, so a
-// reference cannot capture mutable state — and the geometry only has to be measured once.
 
 macro_rules! table_oracle {
     ($lazy:ident, $ber:ident, $table:expr) => {
@@ -263,12 +235,8 @@ pub const APSK32_AWGN: &str = "linear/apsk32_awgn";
 pub const QAM_LIMITS: &str = "linear/qam16_limits";
 pub const QAM_PERF: &str = "linear/qam_perf";
 
-/// Same tolerance and the same reasons as the PSK rows carry.
 pub const ORACLE_TOLERANCE_DB: f64 = 0.75;
 
-/// The table-driven bound is a truncated union bound, so it is an approximation at the shoulder
-/// and asymptotically exact in the tail — a looser tolerance than the closed forms get, and one
-/// that has to hold across the whole grid.
 pub const NEAREST_NEIGHBOUR_TOLERANCE_DB: f64 = 1.25;
 
 const fn oracle_row(
@@ -298,7 +266,6 @@ const fn oracle_row(
     }
 }
 
-/// Square QAM, plus the timing-tier comparison at M = 16.
 pub const SQUARE: &[Measurement] = &[
     oracle_row(
         QAM16_AWGN,
@@ -366,7 +333,6 @@ pub const CROSS: &[Measurement] = &[
     ),
 ];
 
-/// Star-QAM, both tiers.
 pub const STAR: &[Measurement] = &[
     oracle_row(
         STAR16_AWGN,
@@ -386,7 +352,6 @@ pub const STAR: &[Measurement] = &[
     ),
 ];
 
-/// Non-uniform / hierarchical QAM.
 pub const HIERARCHICAL: &[Measurement] = &[oracle_row(
     HIER16_AWGN,
     hierarchical16_link,

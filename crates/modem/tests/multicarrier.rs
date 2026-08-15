@@ -53,7 +53,6 @@ fn sensitivity(stem: &str) -> f64 {
     limits::ebn0_at_ber(&load_curve(stem), 1e-3).expect("committed curve must bracket BER 1e-3")
 }
 
-/// The smoke gate every `cargo test` runs: the front of each committed grid, reproduced.
 #[test]
 fn every_committed_curve_reproduces_its_smoke_prefix() {
     for m in measurements() {
@@ -83,12 +82,6 @@ fn every_oracle_row_sits_on_its_constellation() {
     }
 }
 
-/// **The GFDM row's whole distance from Gray QPSK, attributed rather than tolerated.** It is
-/// commit-and-guard because an inverse amplifies each point differently, so what the curve reads
-/// is an average over a spread of per-point SNRs and not a shift of the closed form. What the two
-/// contributions *are* is still checkable: the block's one cyclic prefix, and the mean row energy
-/// of `A⁻¹` — both computed from the geometry, neither fitted, and together within a tenth of a dB
-/// of the measured gap.
 #[test]
 fn the_zero_forcing_rows_distance_from_qpsk_is_its_own_prefix_and_inverse() {
     let curve = load_curve("multicarrier/gfdm_zf_awgn");
@@ -102,10 +95,6 @@ fn the_zero_forcing_rows_distance_from_qpsk_is_its_own_prefix_and_inverse() {
     );
 }
 
-/// **GFDM's whole trade as two numbers.** Zero forcing removes the self-interference and pays a
-/// noise amplification for it; the matched filter pays nothing and keeps the interference as an
-/// error floor. So the matched tier leads at low Eb/N0 and walls at high, and the crossing is what
-/// makes the pair an entry rather than a preference.
 #[test]
 fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
     let zf = load_curve("multicarrier/gfdm_zf_awgn");
@@ -141,9 +130,6 @@ fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
     );
 }
 
-/// A two-tap echo deep enough to null subcarriers, applied to a whole waveform, plus the channel
-/// response the genie receiver is then told about — so the comparison below isolates the precoder
-/// and measures nothing about channel estimation.
 fn echo(wave: &mut [Complex<f32>], delay: usize, gain: Complex<f32>) {
     for n in (delay..wave.len()).rev() {
         let tap = wave[n - delay];
@@ -164,24 +150,6 @@ fn echo_response(params: &OfdmParams, delay: usize, gain: Complex<f32>) -> Vec<C
         .collect()
 }
 
-/// **The phase's headline, measured — and it is not the one the literature's summary suggests.**
-///
-/// Phase 6 recorded that an uncoded one-tap equaliser loses a nulled subcarrier outright. OTFS
-/// spreads every symbol over every subcarrier, so the intuition is that a null should cost the
-/// frame a little instead of costing one subcarrier everything. The measurement says that depends
-/// entirely on the equaliser, and says so in both directions:
-///
-/// - With **zero forcing**, spreading makes things *worse*. Dividing by a near-null multiplies
-///   that bin's noise by `1/|H|²`, and the despread then shares that amplified noise out over
-///   every symbol in the frame — so instead of one subcarrier's bits being lost, all of them are
-///   degraded.
-/// - With **MMSE**, which bounds the amplification instead of inverting it, the diversity is
-///   there: the null's bin is attenuated rather than amplified, and the despread averages a
-///   bounded loss over the frame.
-///
-/// Both numbers are asserted, because the pair is the finding: **spreading turns a localised
-/// failure into a shared one, and whether that is an improvement is a property of the equaliser
-/// and not of the precoder.**
 #[test]
 fn what_otfs_spreading_buys_depends_entirely_on_the_equaliser() {
     let params = OfdmParams::wifi_like();
@@ -236,10 +204,6 @@ fn what_otfs_spreading_buys_depends_entirely_on_the_equaliser() {
     );
 }
 
-/// A demodulator that reads the *unequalised* subcarriers — the genie is told a flat channel — and
-/// then applies the stated equaliser itself, optionally despreading. Written here rather than in
-/// the registry because a measurement taken through a channel the receiver was told about is a
-/// comparison, not an entry.
 fn equalising_demodulator(
     response: &[Complex<f32>],
     precode: bool,
@@ -302,13 +266,8 @@ fn equalising_demodulator(
     })
 }
 
-/// One level-1 loopback: artifact stem, chain, and the margin above its own sensitivity.
 type Loopback = (&'static str, fn() -> Link, f64);
 
-/// Every entry's payload survives its own link at a stated margin above its committed 1e-3
-/// sensitivity. The matched GFDM tier is exempt and its exemption is the finding: an error floor
-/// is not a sensitivity, so no margin exists at which it is clean — the same shape of exemption
-/// the tracked-timing 16-QAM row carries.
 #[test]
 fn every_entry_loops_back_clean_at_its_stated_margin() {
     let rows: [Loopback; 4] = [
@@ -332,8 +291,6 @@ fn every_entry_loops_back_clean_at_its_stated_margin() {
 
 const LIMITS_TOLERANCE: f64 = 0.2;
 
-/// The axes every multicarrier table carries — one set, so the tables are row-for-row comparable
-/// and the differences between them belong to the waveforms.
 fn axis_rows(link: &Link, op_db: f64, seed: u64, clean: &Curve) -> Vec<LimitRow> {
     let penalty = penalty_criterion(clean, op_db, 1.0).expect("the grid must cover op − 1 dB");
     let probe = |spec: ChannelSpec| limits::measure_ber(link, &spec, op_db, seed, 60, 200_000);
@@ -341,9 +298,6 @@ fn axis_rows(link: &Link, op_db: f64, seed: u64, clean: &Curve) -> Vec<LimitRow>
         limits::measure_axis_row("static CFO", "cycles/sample", penalty, 0.01, 1e-7, |cfo| {
             probe(ChannelSpec::default().cfo(Cfo::from_cycles_per_sample(cfo)))
         }),
-        // A narrow bracket, because these receivers carry no carrier loop at all: a drift of
-        // `d` cycles/sample² turns a 1408-sample frame by `½·d·N²` cycles, so anything a wider
-        // bracket would resolve is already a whole turn.
         limits::measure_axis_row(
             "frequency drift",
             "cycles/sample^2",
@@ -384,8 +338,6 @@ const TABLES: [Table; 2] = [
     (OTFS_LIMITS, "otfs", otfs_link, OTFS_SEED_FOR_LIMITS),
 ];
 
-/// The OTFS table is measured at its own seed rather than the curve's, so the axis searches are
-/// independent realisations of the same chain.
 const OTFS_SEED_FOR_LIMITS: u64 = 0x0_07f6;
 
 const LIMITS_GRID: &[f64] = &[0.0, 2.0, 4.0, 6.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0];

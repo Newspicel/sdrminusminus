@@ -1,6 +1,3 @@
-// The audio chain every voice channel carries. One panel rather than a per-mode control, for the
-// same reason the engine hosts it once: a blanker and a notch are the same things on NFM as on
-// SSB, and an operator who learns them here knows them everywhere.
 import type { AudioAgcMode, AudioProcessing, ChannelSettings, NotchSettings } from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
@@ -66,14 +63,9 @@ export function AudioControls({
         label={
           <>
             Audio
-            {/* Several stages are rows further down or collapsed behind a checkbox, so the
-                block says whether anything at all is being done to the audio. */}
             {audioChainActive(audio) && <span className="text-accent"> on</span>}
           </>
         }
-        // Level with the block's name rather than on a row of its own: adding a notch is
-        // something done *to* the chain, and a row would cost every face the height whether or
-        // not it ever holds one.
         action={
           <Button
             type="button"
@@ -106,8 +98,6 @@ export function AudioControls({
             checked={blanker.enabled ?? false}
             onChange={(enabled) => edit({ blanker: { ...blanker, enabled } })}
           />
-          {/* Drawn whether or not the stage is on, so switching it does not resize the face
-              under the pointer — off, this is the threshold it will cut at. */}
           <Slider
             label="Noise blanker threshold"
             className="min-w-0 flex-1"
@@ -124,9 +114,6 @@ export function AudioControls({
           </span>
         </SettingRow>
 
-        {/* The mode picks how wide a click can be — an FM discriminator's and a static crash
-            through an AM detector are different lengths — so the only control here is how far
-            above the audio's own level something has to sit to count as one. */}
         <SettingRow label="De-click">
           <Checkbox
             label="Click removal"
@@ -213,8 +200,6 @@ export function AudioControls({
 
       {notches.map((notch, index) => (
         <NotchRow
-          // A notch has no identity beyond where it sits in the list, which is also what the
-          // engine builds its filters from.
           key={`notch-${index}`}
           index={index}
           notch={notch}
@@ -226,8 +211,6 @@ export function AudioControls({
   );
 }
 
-/** One notch on one row: two numbers and a way to take it off again. A group with a heading per
- * notch would be three rows for two fields, and four of those is most of a face. */
 function NotchRow({
   index,
   notch,

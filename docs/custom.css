@@ -1,6 +1,3 @@
-/* A small overlay on mdBook's theme, using the same cyan accent and instrument-like numerals as
-   the application. Plain element selectors keep this resilient across mdBook theme updates. */
-
 main a:not(.header) {
   color: #21b0b0;
 }

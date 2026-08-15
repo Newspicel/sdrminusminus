@@ -126,7 +126,6 @@ pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
 mod contract_tests {
     use super::*;
 
-    /// The WS event JSON shape is a contract the generated TS client switches on; lock it.
     #[test]
     fn server_event_is_adjacently_tagged() {
         let ev = ServerEvent::StateChanged {
@@ -156,9 +155,6 @@ mod contract_tests {
         assert_eq!(cmd, back);
     }
 
-    /// Every body that gained a `stream` field must keep reading a payload that predates it as
-    /// stream 0 — the only stream a single-stream radio has — or old clients and stored rows
-    /// would be refused for naming nothing.
     #[test]
     fn stream_fields_default_to_zero_for_older_peers() {
         let cmd: ClientCommand = serde_json::from_str(
@@ -194,8 +190,6 @@ mod contract_tests {
         .unwrap();
         assert_eq!(recording.stream, 0);
 
-        // Stream 0 is stated, never elided: `#[serde(default)]` reads the past, it does not
-        // write it, so a current peer always sees which stream it was given.
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["stream"], 0);
         let json = serde_json::to_value(&recording).unwrap();
@@ -218,8 +212,6 @@ mod contract_tests {
         }
     }
 
-    /// The `{"type": ..., "settings": ...}` tagging is what the generated TS union
-    /// discriminates on; lock it.
     #[test]
     fn channel_params_are_adjacently_tagged() {
         let params = ChannelParams::Ssb(SsbParams {
@@ -235,8 +227,6 @@ mod contract_tests {
         assert_eq!(back, params);
     }
 
-    /// Empty `settings` must deserialize to the documented defaults for every type, and
-    /// those defaults must match the `Default` impls the engine constructs from.
     #[test]
     fn channel_params_default_from_empty_settings() {
         for (json, expected) in [
@@ -290,8 +280,6 @@ mod contract_tests {
         );
     }
 
-    /// A workspace written before the audio chain existed says nothing about it, and the modes
-    /// whose levelling used to live in their own params have to come back with it.
     #[test]
     fn a_payload_that_names_no_audio_chain_gets_its_mode_default() {
         for (type_id, agc) in [
@@ -306,8 +294,6 @@ mod contract_tests {
         }
     }
 
-    /// Stated, even as nothing, means nothing: an operator who switched the AGC off must not
-    /// have it switched back on by the round trip through storage.
     #[test]
     fn an_audio_chain_that_is_stated_is_taken_as_stated() {
         let json = r#"{"params":{"type":"am","settings":{}},"audio":{}}"#;
@@ -334,8 +320,6 @@ mod contract_tests {
         );
     }
 
-    /// An automatic squelch is a channel setting like any other: it has to survive storage, and
-    /// a channel that never had one must not grow one on the way back.
     #[test]
     fn an_automatic_squelch_margin_roundtrips_and_is_absent_by_default() {
         let plain: ChannelSettings =
@@ -353,8 +337,6 @@ mod contract_tests {
         assert_eq!(back, auto);
     }
 
-    /// The live threshold rides with the level, and a channel whose gate is off states no
-    /// threshold at all rather than a number a meter would draw a line at.
     #[test]
     fn a_channel_level_carries_the_gate_it_is_measured_against() {
         let open = ChannelLevel {
@@ -378,8 +360,6 @@ mod contract_tests {
         assert_eq!(back, open);
     }
 
-    /// A channel's audio recording is live status: absent unless one is running, and back to
-    /// absent for a peer that has never heard of the field.
     #[test]
     fn a_channel_states_an_audio_recording_only_while_one_runs() {
         let mut info: ChannelInfo =
@@ -408,8 +388,6 @@ mod contract_tests {
         assert_eq!(back, info);
     }
 
-    /// Every M4 decoder type must deserialize from an empty `settings` object at its
-    /// documented defaults — the client sends exactly that when adding a channel.
     #[test]
     fn decoder_params_default_from_empty_settings() {
         use channel::{
@@ -513,8 +491,6 @@ mod contract_tests {
         );
     }
 
-    /// A decoder frame reaches the client as `{"type":"Decoded","data":{…record…}}`; the
-    /// nested `kind` is what the panel switches on.
     #[test]
     fn decoded_event_shape() {
         let ev = ServerEvent::Decoded(Box::new(decode::DecodedRecord {
@@ -543,10 +519,6 @@ mod contract_tests {
         assert_eq!(lost["data"]["count"], 7);
     }
 
-    /// `has_audio` post-dates M3 and `can_transmit` post-dates it again: snapshots from older
-    /// peers omit both. The audio flag must read back as an audio channel, and the transmit flag
-    /// must read back as receive-only — a peer that cannot say whether it modulates has not
-    /// claimed that it does.
     #[test]
     fn channel_descriptor_flags_default_for_older_peers() {
         let mut json = serde_json::json!({
@@ -606,9 +578,6 @@ mod contract_tests {
         }
     }
 
-    /// A capability set that predates the field describes a radio that never declared a
-    /// frequency correction, and the client must not draw one on that guess — the same rule
-    /// `duplex` follows, where a device cannot advertise a transmitter by omission.
     #[test]
     fn an_undeclared_ppm_capability_reads_as_unsupported() {
         let json = serde_json::to_value(sample_device_set()).unwrap();
@@ -634,9 +603,6 @@ mod contract_tests {
         }
     }
 
-    /// A radio has no transport, and the field is what the client keys its player strip on:
-    /// it must stay off the wire entirely rather than serialize as an explicit null that a
-    /// `!= null` check would read as "this is a recording".
     #[test]
     fn a_set_without_a_transport_omits_the_playback_field() {
         let json = serde_json::to_value(sample_device_set()).unwrap();
@@ -657,8 +623,6 @@ mod contract_tests {
         );
     }
 
-    /// `overruns` was added after M1: snapshots from older peers omit it and must read as 0,
-    /// and every serialized set must carry it so clients can render ring-drop health.
     #[test]
     fn device_set_overruns_default_and_roundtrip() {
         let mut set = sample_device_set();
@@ -671,8 +635,6 @@ mod contract_tests {
         assert_eq!(back.overruns, 0);
     }
 
-    /// `recording` was added in M3: an idle set must not serialize the key, snapshots from
-    /// older peers omit it and must read as `None`, and a live recording must roundtrip.
     #[test]
     fn device_set_recording_default_and_roundtrip() {
         let mut set = sample_device_set();
@@ -700,8 +662,6 @@ mod contract_tests {
         assert_eq!(back.recording, None);
     }
 
-    /// An idle set omits its export for older peers and the canvas's presence check; a live
-    /// status carries the exact interpretation needed for an otherwise unframed stream.
     #[test]
     fn device_set_network_export_default_and_roundtrip() {
         let mut set = sample_device_set();
@@ -741,8 +701,6 @@ mod contract_tests {
         );
     }
 
-    /// `RecordRequest.action` is a bare snake_case string the generated TS union
-    /// discriminates on; lock it.
     #[test]
     fn record_request_action_shape() {
         let json = serde_json::to_value(RecordRequest {
@@ -757,8 +715,6 @@ mod contract_tests {
         assert_eq!(back.action, RecordAction::Start);
     }
 
-    /// `scanner` was added in M5: an idle set must not serialize the key, snapshots from
-    /// older peers omit it and must read as `None`, and a live scan must roundtrip.
     #[test]
     fn device_set_scanner_default_and_roundtrip() {
         let mut set = sample_device_set();
@@ -796,8 +752,6 @@ mod contract_tests {
         assert_eq!(back.scanner, None);
     }
 
-    /// The scanner's defaults are what a client sends when it posts a bare range list;
-    /// they must be the same numbers the engine would have chosen.
     #[test]
     fn scan_settings_default_from_minimal_body() {
         let settings: scan::ScanSettings =
@@ -830,8 +784,6 @@ mod contract_tests {
         assert_eq!(stop.settings, None);
     }
 
-    /// Scanner progress is its own event so it never triggers a state refetch; lock the shape
-    /// the client switches on.
     #[test]
     fn scanner_update_event_shape() {
         let ev = ServerEvent::ScannerUpdate {
@@ -855,8 +807,6 @@ mod contract_tests {
         assert_eq!(back, ev);
     }
 
-    /// `--doctor` and `GET /api/doctor` render the same report; the worst status is what the
-    /// CLI turns into an exit code, so it must not be forgiving.
     #[test]
     fn doctor_report_worst_status_wins() {
         let check = |status| DoctorCheck {
@@ -929,8 +879,6 @@ mod contract_tests {
         assert_eq!(json["data"]["channel"], 2);
     }
 
-    /// A tool call names its tool in the body, and the reply names it back; the client
-    /// switches on both tags.
     #[test]
     fn tool_envelopes_are_adjacently_tagged() {
         let request = ToolRequest::Antenna(AntennaRequest {
@@ -982,8 +930,6 @@ mod contract_tests {
         );
     }
 
-    /// A design's settings must fill in from an empty object, and the request's factors from
-    /// an absent one — the panel sends exactly that when it switches design.
     #[test]
     fn antenna_request_defaults_from_a_minimal_body() {
         let request: AntennaRequest = serde_json::from_str(
@@ -1001,8 +947,6 @@ mod contract_tests {
         assert_eq!(bare.design, AntennaDesign::Dipole);
     }
 
-    /// Spectrum and audio stream ids come from different spaces, so a `StreamStopped`
-    /// without a kind is undecidable client-side; lock the disambiguated shape.
     #[test]
     fn stream_stopped_carries_kind() {
         for (kind, tag) in [

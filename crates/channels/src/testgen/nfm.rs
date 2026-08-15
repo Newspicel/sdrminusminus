@@ -1,23 +1,14 @@
 use sdrmm_dsp::golay23_encode;
 
-/// DCS bit rate (see [`crate::tone_squelch`] for the two figures in the literature).
 const DCS_BAUD: f64 = 134.4;
 const DCS_WORD_BITS: u32 = 23;
-/// The 3 fixed data bits above the code.
 const DCS_SIGNATURE: u16 = 0b100;
 
-/// A CTCSS tone as the modulating waveform: a continuous sinusoid below the voice band.
 #[must_use]
 pub fn ctcss_audio(hz: f64, deviation: f32, rate: f64, len: usize) -> Vec<f32> {
     super::tone_audio(hz, deviation, rate, len)
 }
 
-/// The DCS word for `code` (three octal digits) as the modulating waveform: the 23-bit Golay
-/// codeword keyed as NRZ at 134.4 bit/s and repeated for the whole length, least significant
-/// bit of the word first.
-///
-/// Built from the code here rather than taken from the decoder's table, so a mistyped entry in
-/// that table shows up as a failing test instead of agreeing with itself.
 #[must_use]
 pub fn dcs_audio(code: u16, deviation: f32, rate: f64, len: usize) -> Vec<f32> {
     let digits = u32::from(code);
@@ -36,8 +27,6 @@ pub fn dcs_audio(code: u16, deviation: f32, rate: f64, len: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Sum two modulating waveforms — subaudible signalling under speech — truncated to the
-/// shorter of them.
 #[must_use]
 pub fn mix(a: &[f32], b: &[f32]) -> Vec<f32> {
     a.iter().zip(b).map(|(x, y)| x + y).collect()
@@ -47,8 +36,6 @@ pub fn mix(a: &[f32], b: &[f32]) -> Vec<f32> {
 mod tests {
     use super::*;
 
-    /// The published DCS 023 word, keyed out at one sample per bit: transmission order is the
-    /// word backwards, which is the one thing about DCS that is easy to get wrong.
     #[test]
     fn the_dcs_waveform_is_the_published_word_sent_backwards() {
         let rate = DCS_BAUD;

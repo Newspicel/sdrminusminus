@@ -13,42 +13,19 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-/// The lowest device rate that carries the signal: two samples per bit, one per half-chip.
-/// Below it a half-chip can hold no sample at all and the modulation is simply not there.
 pub(crate) const INPUT_RATE_HZ: f64 = 2_000_000.0;
 pub(crate) const MAX_INPUT_RATE_HZ: f64 = 4_000_000.0;
 
-/// Half-chip: 0.5 µs, the resolution the whole waveform is defined on.
 const CHIP_S: f64 = 0.5e-6;
 const PREAMBLE_CHIPS: usize = 16;
 const PREAMBLE_PULSES: [usize; 4] = [0, 2, 7, 9];
-/// Preamble gaps a whole chip or more from every pulse, which must therefore be quiet. The
-/// gaps *adjacent* to a pulse (1, 3, 6, 8, 10) are deliberately absent: at ~1 sample per chip
-/// a band-limited pulse legitimately leaves up to half its energy in the neighbouring window,
-/// so those are held to be weaker than their pulse, never to a level.
 const PREAMBLE_FAR_GAPS: [usize; 7] = [4, 5, 11, 12, 13, 14, 15];
 const SHORT_BYTES: usize = 7;
 const LONG_BYTES: usize = 14;
-/// Largest ratio tolerated between the strongest and weakest preamble pulse. A real preamble
-/// is four equal pulses; one noise spike plus three background samples is not one.
 const PULSE_SPREAD: f32 = 4.0;
 
-/// Sub-sample phases tried per candidate, `k / PHASE_TABLES` of a sample apart. The scan only
-/// tries whole-sample alignments, so the tables cover the fraction in between; eight bounds
-/// the residual mismatch to a sixteenth of a sample. Four was measured to be not enough — at
-/// an eighth of a sample some bit patterns' first-versus-second margins invert and whole
-/// frames vanish.
 const PHASE_TABLES: usize = 8;
 
-/// One receiver per assumed sub-sample phase: `modem::ppm`'s 2-PPM envelope tier over the
-/// half-chip grid of a long frame, preamble chips included so this decoder's chip numbering and
-/// the grid's slot numbering are the same numbering.
-///
-/// The two properties the grid carries were measured *here*, in the field failure where
-/// off-grid frames at 2.048 Msps decoded 0–6% while every test stayed green (the tests'
-/// generator shared the decoder's grid): boundaries computed per chip rather than stepped, and
-/// energy taken as a fractional-overlap sum rather than a sample peak. They live in
-/// `modem::ppm` now, with this decoder as their first consumer.
 fn phase_tables(input_rate: f64) -> Vec<PpmDemod> {
     PpmDemod::phases(
         2,
@@ -65,9 +42,6 @@ const ME_OFFSET_BITS: usize = 32;
 
 const CAPABILITY_OFFSET_BITS: usize = 5;
 const FLIGHT_STATUS_OFFSET_BITS: usize = 5;
-/// A surveillance reply's header is DF(5) FS(3) DR(5) UM(6), and the 13-bit AC (DF4/20) or ID
-/// (DF5/21) field follows it. The Comm-B message field of a DF20/21 starts where an extended
-/// squitter's ME field does — both follow 32 header bits.
 const REPLY_FIELD_OFFSET_BITS: usize = 19;
 const MB_OFFSET_BITS: usize = ME_OFFSET_BITS;
 
@@ -75,10 +49,6 @@ const BDS_IDENTIFICATION: u64 = 0x20;
 
 const ALL_CALL_PI_MAX: u32 = 0x7F;
 
-/// How long a self-proving frame vouches for its address. An aircraft in range sends all-call
-/// replies at every antenna sweep and extended squitters twice a second, so a minute is many
-/// missed frames — while an address that has gone quiet for one stops admitting replies that
-/// nothing else can attribute.
 const ROLL_CALL_MAX_AGE_S: f64 = 60.0;
 
 const IDENT_CHARSET: &[u8; 64] =
@@ -88,9 +58,6 @@ const AIRBORNE_ZONE_DEG: f64 = 360.0;
 const SURFACE_ZONE_DEG: f64 = 90.0;
 const CPR_SCALE: f64 = 131_072.0;
 
-/// Aircraft held for CPR even/odd pairing. A busy urban receiver hears 30–50 airframes at
-/// once; past that the least recently heard entry is evicted, so an airshow (or a noisy
-/// antenna inventing addresses) cannot grow this without bound.
 const CPR_CACHE_LEN: usize = 64;
 const CPR_PAIR_MAX_AGE_S: f64 = 10.0;
 
@@ -117,11 +84,7 @@ struct Aircraft {
     icao: u32,
     even: Option<CprFix>,
     odd: Option<CprFix>,
-    /// Stream position of the most recent accepted frame — the cache's eviction key.
     last: u64,
-    /// Stream position of the most recent frame that *proved* this address, which is a
-    /// stronger thing than having heard it: only a frame carrying the address in the clear
-    /// may vouch for a reply that carries it nowhere but on the parity.
     proven: Option<u64>,
 }
 
@@ -141,18 +104,11 @@ pub struct AdsbChannel {
     crc_fix: bool,
     configured_reference: Option<(f64, f64)>,
     live_reference: Option<(f64, f64)>,
-    /// Half-chip boundary tables at this radio's rate, one per assumed sub-sample phase —
-    /// the decoder runs at whatever the device gives it (see [`phase_tables`]).
     receivers: Vec<PpmDemod>,
-    /// The longest frame any table spans: the scan bound and the block-boundary carry.
     frame_span: usize,
-    /// How far apart two CPR frames may be and still solve globally, in samples at this rate.
     cpr_pair_max_age: u64,
-    /// How long a proved address vouches for a roll-call reply, in samples at this rate.
     roll_call_max_age: u64,
-    /// Sample magnitudes: the tail of the previous block followed by the current one.
     mag: Vec<f32>,
-    /// Absolute stream index of `mag[0]`.
     stream_pos: u64,
     cpr: Vec<Aircraft>,
 }
@@ -198,30 +154,17 @@ fn valid_longitude(longitude: f64) -> bool {
     longitude.is_finite() && (-180.0..=180.0).contains(&longitude)
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     let half = INPUT_RATE_HZ / 2.0;
     (-half, half)
 }
 
-/// ADS-B keeps the DDC's full output band: the pulses are 0.5 µs, so every extra filter
-/// stage costs rise time the bit slicer needs. The DDC's own anti-alias response is the
-/// channel selectivity here.
 pub(crate) fn channel_filter() -> ChannelFilter {
     ChannelFilter::Passthrough
 }
 
-/// Preamble correlation over one 16-sample window. The accept threshold is derived from the
-/// pulses themselves — receive levels differ by tens of dB between an overhead aircraft and
-/// one at the horizon, so no fixed level can gate this.
 fn preamble_ok(receiver: &PpmDemod, window: &[f32]) -> bool {
     let chip = |index: usize| receiver.grid().energy(window, index);
-    // Cheapest discriminator first: noise fails one of these early most of the time, which is
-    // what keeps the per-sample cost near the magnitude computation itself. The gaps at 1 and
-    // 8 sit *between* two pulses and collect band-limited tails from both sides, so each is
-    // judged against its two pulses jointly — chip-by-chip the margin can shrink to nothing
-    // at the worst sub-sample phases, while the pair keeps a clear one. The outer gaps see
-    // one tail at most and a plain ordering holds.
     if !(chip(0) + chip(2) > 2.0 * chip(1)
         && chip(2) > chip(3)
         && chip(7) > chip(6)
@@ -245,9 +188,6 @@ fn preamble_ok(receiver: &PpmDemod, window: &[f32]) -> bool {
     weakest > threshold && far_gaps.iter().all(|&g| g < threshold)
 }
 
-/// PPM slicing: a 1 is energy in the first half of the bit, a 0 in the second — the library's
-/// 2-PPM argmax, with slot 0 meaning a 1. `window` starts at the frame's first sample, so the
-/// body's half-chips are numbered from the preamble's end.
 fn slice_bits(receiver: &PpmDemod, window: &[f32], frame: &mut [u8; LONG_BYTES]) {
     let mut slots = [0.0f32; 2];
     for (index, byte) in frame.iter_mut().enumerate() {
@@ -272,7 +212,6 @@ fn hex_upper(bytes: &[u8]) -> String {
     out
 }
 
-/// Gray code to binary, for the Gillham altitude fields (any width up to 16 bits).
 fn gray_decode(gray: u32) -> u32 {
     let mut b = gray;
     b ^= b >> 8;
@@ -293,14 +232,10 @@ fn barometric_altitude(ac12: u32) -> Option<i32> {
     gillham_altitude(ac12)
 }
 
-/// Mode C altitude from the 12-bit AC field with Q clear. Field order is
-/// C1 A1 C2 A2 C4 A4 B1 D1 B2 D2 B4 D4 — the 13-bit interrogation field without its M bit.
 fn gillham_altitude(ac12: u32) -> Option<i32> {
     let bit = |index: u32| (ac12 >> (11 - index)) & 1;
     let (c1, a1, c2, a2, c4, a4) = (bit(0), bit(1), bit(2), bit(3), bit(4), bit(5));
     let (b1, b2, d2, b4, d4) = (bit(6), bit(8), bit(9), bit(10), bit(11));
-    // D1 (bit 7 here) is the Q bit and is zero on this path, so the 500 ft Gray code starts
-    // at D2.
     let five_hundreds =
         gray_decode(d2 << 7 | d4 << 6 | a1 << 5 | a2 << 4 | a4 << 3 | b1 << 2 | b2 << 1 | b4);
     let mut hundreds = gray_decode(c1 << 2 | c2 << 1 | c4);
@@ -318,8 +253,6 @@ fn gillham_altitude(ac12: u32) -> Option<i32> {
 }
 
 fn surveillance_altitude(ac13: u32) -> Option<i32> {
-    // All zero is "no altitude information", and the metric encoding M marks is not defined by
-    // the standard — reporting either as an altitude would be inventing one.
     if ac13 == 0 || ac13 & 0x0040 != 0 {
         return None;
     }
@@ -350,9 +283,6 @@ fn capability_on_ground(ca: u64) -> Option<bool> {
     }
 }
 
-/// The 8 six-bit characters starting at `offset_bits`, trailing pad removed. Both the extended
-/// squitter's identification field and the Comm-B identification register spell a callsign this
-/// way, at different offsets in different frames.
 fn callsign(frame: &[u8], offset_bits: usize) -> Option<String> {
     let mut text = String::with_capacity(8);
     for i in 0..8 {
@@ -363,11 +293,6 @@ fn callsign(frame: &[u8], offset_bits: usize) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
-/// Callsign from a DF20/DF21 Comm-B reply, when its MB field reads as BDS 2,0.
-///
-/// A Comm-B register says nowhere which register it is, so this is a guess, checked twice: the
-/// leading octet must be the register's own code, and all 8 characters must be defined ones.
-/// A `#` means some other register was read as this one and the callsign would be an artefact.
 fn comm_b_callsign(frame: &[u8]) -> Option<String> {
     if bits_be(frame, MB_OFFSET_BITS, 8) != BDS_IDENTIFICATION {
         return None;
@@ -407,14 +332,10 @@ fn velocity(frame: &[u8], msg: &mut AdsbMessage) {
     }
 }
 
-/// Positive-remainder modulo. CPR is built on it: `%` would return a negative remainder for
-/// southern latitudes and western longitudes and put the aircraft a zone away.
 fn modulo(a: f64, b: f64) -> f64 {
     a - b * (a / b).floor()
 }
 
-/// Longitude zones as a function of latitude (DO-260B Appendix A table A-2): the table lists
-/// the northern limit of each zone count, from 59 down to 2.
 const NL_BOUNDARIES: [f64; 58] = [
     10.470_471_30,
     14.828_174_37,
@@ -522,8 +443,6 @@ fn cpr_global(even: &CprFix, odd: &CprFix, latest_odd: bool) -> Option<(f64, f64
     Some((lat, lon))
 }
 
-/// Local CPR: one frame plus a reference position within half a zone (±3° airborne,
-/// ±0.75° on the surface) of the aircraft.
 fn cpr_local(fix: &CprFix, odd: bool, ref_lat: f64, ref_lon: f64, zone: f64) -> Option<(f64, f64)> {
     let i = i32::from(odd);
     let lat_cpr = f64::from(fix.lat) / CPR_SCALE;
@@ -546,14 +465,10 @@ fn cpr_local(fix: &CprFix, odd: bool, ref_lat: f64, ref_lon: f64, zone: f64) -> 
     Some((lat, lon))
 }
 
-/// The AA field: the aircraft address as DF11/17/18 transmit it, in the clear.
 fn clear_address(frame: &[u8]) -> u32 {
     bits_be(frame, ICAO_OFFSET_BITS, 24) as u32
 }
 
-/// A DF4/5/20/21 reply to a ground interrogation. The 13-bit field after the header is an
-/// altitude in the altitude formats and an identity code in the identity ones; the Comm-B
-/// formats carry 56 further bits whose register the frame does not name.
 fn surveillance_reply(frame: &[u8], df: u8, msg: &mut AdsbMessage) {
     msg.on_ground = flight_status_on_ground(bits_be(frame, FLIGHT_STATUS_OFFSET_BITS, 3));
     let field = bits_be(frame, REPLY_FIELD_OFFSET_BITS, 13) as u32;
@@ -567,7 +482,6 @@ fn surveillance_reply(frame: &[u8], df: u8, msg: &mut AdsbMessage) {
 }
 
 impl AdsbChannel {
-    /// Cache slot for `icao`, evicting the least recently heard aircraft when full.
     fn slot(&mut self, icao: u32, at: u64) -> Option<&mut Aircraft> {
         if let Some(index) = self.cpr.iter().position(|a| a.icao == icao) {
             return self.cpr.get_mut(index);
@@ -587,7 +501,6 @@ impl AdsbChannel {
         Some(entry)
     }
 
-    /// Record an airborne CPR frame and solve the position when it completes a fresh pair.
     fn pair(&mut self, icao: u32, fix: CprFix, odd: bool) -> Option<(f64, f64)> {
         let entry = self.slot(icao, fix.at)?;
         entry.last = fix.at;
@@ -632,8 +545,6 @@ impl AdsbChannel {
         }
     }
 
-    /// Note that `icao` was heard, and — for a frame carrying it in the clear — that it was
-    /// proved. Only the latter admits roll-call replies (see [`AdsbChannel::vouched`]).
     fn observe(&mut self, icao: u32, at: u64, proved: bool) {
         let Some(entry) = self.slot(icao, at) else {
             return;
@@ -644,11 +555,6 @@ impl AdsbChannel {
         }
     }
 
-    /// Whether a frame recent enough to vouch for a roll-call reply has proved `icao`.
-    ///
-    /// A reply refreshes `last` — it is evidence the aircraft is still there, and the cache
-    /// should not evict it — but never `proven`: proof of identity does not decay into
-    /// hearsay, or one lucky parity match would keep a bogus address alive forever.
     fn vouched(&self, icao: u32, at: u64) -> bool {
         self.cpr.iter().any(|a| {
             a.icao == icao
@@ -674,8 +580,6 @@ impl AdsbChannel {
         msg
     }
 
-    /// The ME field of an extended squitter: what the aircraft chose to broadcast about
-    /// itself, selected by the 5-bit type code.
     fn extended_squitter(&mut self, frame: &[u8], icao: u32, at: u64, msg: &mut AdsbMessage) {
         let type_code = bits_be(frame, ME_OFFSET_BITS, 5) as u8;
         msg.type_code = Some(type_code);
@@ -692,12 +596,6 @@ impl AdsbChannel {
                 self.fill_position(frame, icao, at, AIRBORNE_ZONE_DEG, msg);
             }
             19 => velocity(frame, msg),
-            // The type code selects the altitude *source* (GNSS height above the ellipsoid
-            // rather than barometric), not its encoding: the AC12 field is the same Q-bit /
-            // Gillham code in feet. Reading it as metres is the mode-s.org interpretation
-            // that dump1090, readsb, java-adsb and rs1090 all contradict — and 12 bits of
-            // metres tops out at 13 435 ft, which cannot express the altitude of the
-            // high-integrity GNSS traffic that emits these very type codes.
             20..=22 => {
                 msg.on_ground = Some(false);
                 msg.altitude_ft = barometric_altitude(altitude());
@@ -707,30 +605,13 @@ impl AdsbChannel {
         }
     }
 
-    /// Who sent this frame, and whether the frame itself is proof of it.
-    ///
-    /// `None` rejects the frame. Every accept here is a claim that an aircraft exists, so each
-    /// downlink format is admitted on the strength of its own parity and nothing weaker:
-    ///
-    /// - DF17/18 transmit their parity bare, so a clean frame is a 1-in-16-million coincidence
-    ///   away from certain, and the address sits in the clear beside it.
-    /// - DF11 keys the interrogator identifier onto the parity, leaving 17 bits bare. The
-    ///   address is still in the clear, and the residual 1-in-131-072 is what buys the aircraft
-    ///   that never send an extended squitter at all.
-    /// - DF4/5/20/21 key the *address* onto the parity, so the frame proves nothing by itself:
-    ///   every value reads as valid, and the recovered address has to have been proved
-    ///   already by one of the formats above.
     fn attribute(&self, frame: &mut [u8], df: u8, at: u64) -> Option<(u32, bool)> {
         match df {
             17 | 18 => {
-                if mode_s_overlay(frame)? != 0 {
-                    // A flipped bit inside DF picks the wrong frame length, so the syndrome
-                    // cannot close over the right byte count: such frames are dropped, never
-                    // mis-repaired. Repair is for bare parity only — on an overlaid one it
-                    // would "fix" a real frame into a different aircraft's.
-                    if !self.crc_fix || mode_s_fix_single_bit(frame).is_none() {
-                        return None;
-                    }
+                if mode_s_overlay(frame)? != 0
+                    && (!self.crc_fix || mode_s_fix_single_bit(frame).is_none())
+                {
+                    return None;
                 }
                 Some((clear_address(frame), true))
             }
@@ -743,9 +624,6 @@ impl AdsbChannel {
         }
     }
 
-    /// Try to decode a frame starting at `at` in [`Self::mag`], returning the samples it
-    /// consumed. Every phase table gets its chance and the first accepted frame wins; `None`
-    /// means "not a frame here at any phase" and the scan advances one sample.
     fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
         let stamp = self.stream_pos + at as u64;
         let mut hit = None;
@@ -835,17 +713,6 @@ impl ChannelRx for AdsbChannel {
             at += self.try_frame(at, out).unwrap_or(1);
         }
 
-        // Keep everything a frame could still start in. Only offsets with a full frame (at
-        // the longest phase table) behind them are scanned, and those are exactly the ones
-        // dropped here, so results never depend on where the host cut the block — and no
-        // frame is emitted twice.
-        //
-        // The window is the *long* frame's for every candidate, so a short reply (DF4/5/11)
-        // waits for a long frame's worth of samples — 232 µs — before the scan reaches it.
-        // On a live stream that is latency and nothing else; a capture that ends inside those
-        // 232 µs loses its last short frame. Decoding one earlier means scanning positions
-        // that a later block would have to be stopped from re-scanning, which is a watermark
-        // this decoder does not carry.
         let keep = self.mag.len().saturating_sub(frame_span - 1);
         self.mag.drain(..keep);
         self.stream_pos += keep as u64;
@@ -872,8 +739,6 @@ mod tests {
         testutil::settings,
     };
 
-    /// Berlin: comfortably away from every NL zone boundary, so the decoder's table and the
-    /// generator's closed-form NL cannot disagree for reasons unrelated to the test.
     const LAT: f64 = 52.257_2;
     const LON: f64 = 13.409_1;
     const LEVEL: f32 = 0.5;
@@ -921,7 +786,6 @@ mod tests {
         feed(&mut channel(p), &iq, &[4_096])
     }
 
-    /// Frame body as published in the Mode S literature; parity is appended here.
     fn published(hex: &str) -> Vec<u8> {
         let mut frame: Vec<u8> = hex
             .as_bytes()
@@ -937,11 +801,6 @@ mod tests {
         messages.into_iter().next().unwrap()
     }
 
-    /// The old rule — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
-    /// ADS-B receiver there is: no RTL-SDR can produce 2.000 Msps, and its nearest rate is 2.048.
-    /// The decoder runs at the radio's rate now, so these are the rates a real one offers — and
-    /// the phases: a frame off the sample grid is what the air always sends, and the alignment
-    /// this test's generator would otherwise share with the decoder's own windows.
     #[test]
     fn decodes_at_every_rate_and_phase_a_receiver_actually_offers() {
         for rate in [
@@ -952,12 +811,6 @@ mod tests {
             MAX_INPUT_RATE_HZ,
         ] {
             for phase in [0.0f64, 0.21, 0.43, 0.5, 0.68, 0.9] {
-                // Exactly 2 Msps near a half-sample offset is a blind spot of the rate, not
-                // of the decoder: with one sample per half-chip, every band-limited sample
-                // integrates half a pulse and half a gap and reads the same level whatever
-                // the bits — there is nothing left to decode, which is dump1090's known 2.0
-                // weakness too. The radios the rate range exists for (2.048 up) put a
-                // different fraction of each chip on each sample, so they have no such phase.
                 if rate == INPUT_RATE_HZ && (phase - 0.5).abs() < 0.2 {
                     continue;
                 }
@@ -986,9 +839,6 @@ mod tests {
         }
     }
 
-    /// Off the sample grid *and* with noise under it is what an RTL-SDR at 2.048 Msps
-    /// actually hands this decoder — the condition the field reported as an empty map while
-    /// the grid-aligned tests stayed green.
     #[test]
     fn noisy_off_grid_frames_decode_at_the_rtl_rate() {
         for (index, phase) in [0.05, 0.19, 0.33, 0.47, 0.61, 0.75, 0.89]
@@ -1045,7 +895,6 @@ mod tests {
         assert_eq!(velocity.vertical_rate_fpm, Some(-1_024));
     }
 
-    /// The range is the contract, and a rate outside it is refused rather than decoded badly.
     #[test]
     fn refuses_a_rate_the_slicer_cannot_work_at() {
         for rate in [1_000_000.0, INPUT_RATE_HZ - 1.0, MAX_INPUT_RATE_HZ + 1.0] {
@@ -1073,7 +922,6 @@ mod tests {
         assert_eq!(msg.lat, None);
     }
 
-    /// The identification squitter every Mode S text quotes: ICAO 4840D6, callsign KLM1023.
     #[test]
     fn published_identification_frame_decodes() {
         let msg = only(decode(
@@ -1084,10 +932,6 @@ mod tests {
         assert_eq!(msg.callsign.as_deref(), Some("KLM1023"));
     }
 
-    /// The published even/odd pair for ICAO 40621D at 38 000 ft. A global solution is
-    /// reported at the position of the *later* frame, and the literature quotes the pair
-    /// with the even frame last: 52.25720 N, 3.91937 E. The aircraft moved ~1 km between the
-    /// two transmissions, so the odd-last solution is a different (and equally correct) point.
     #[test]
     fn published_position_pair_solves_globally() {
         let even = published("8D40621D58C382D690C8AC");
@@ -1101,7 +945,6 @@ mod tests {
         assert_eq!(first.icao, "40621D");
         assert_eq!(first.type_code, Some(11));
         assert_eq!(first.altitude_ft, Some(38_000));
-        // A single frame with no reference position cannot be placed.
         assert_eq!(first.lat, None);
         let (lat, lon) = (last.lat.unwrap(), last.lon.unwrap());
         assert!((lat - 52.257_202).abs() < 1e-4, "lat {lat}");
@@ -1187,7 +1030,6 @@ mod tests {
         assert_eq!(channel.live_reference, None);
     }
 
-    /// Southern/western coordinates are where a `%`-based CPR gets the sign wrong.
     #[test]
     fn positions_south_and_west_of_the_meridian_solve() {
         let icao = 0xE8_0000;
@@ -1246,8 +1088,6 @@ mod tests {
         }
     }
 
-    /// The Q bit switches the altitude encoding at 50 175 ft: 25 ft steps below, Gillham
-    /// coded 100 ft steps above.
     #[test]
     fn altitude_decodes_on_both_sides_of_the_q_bit_boundary() {
         for altitude in [
@@ -1279,7 +1119,6 @@ mod tests {
         }
     }
 
-    /// AC12 == 0 is "altitude not available" for every airborne position frame, GNSS or not.
     #[test]
     fn absent_altitude_is_none_on_both_altitude_paths() {
         for tc in [11u64, 21] {
@@ -1333,8 +1172,6 @@ mod tests {
         assert!(feed(&mut channel(AdsbParams::default()), &iq, &[65_536]).is_empty());
     }
 
-    /// The accept threshold is derived from the pulses, so a frame 34 dB weaker than the one
-    /// every other test uses must decode just as well — with noise under it.
     #[test]
     fn a_weak_frame_buried_in_noise_still_decodes() {
         let frame = squitter(0x3C_6444, me_identification("DLH123"));
@@ -1373,7 +1210,6 @@ mod tests {
             LEVEL,
             INPUT_RATE_HZ,
         );
-        // Cut inside the frame: the preamble is in the first block, most bits in the second.
         let cut = (GAP_US * 2.0) as usize + 40;
         let mut chan = channel(AdsbParams::default());
         let mut out = ChannelOutputs::default();
@@ -1394,13 +1230,9 @@ mod tests {
         assert_eq!(chan.cpr.len(), CPR_CACHE_LEN);
     }
 
-    /// An even/odd pair that arrived minutes apart describes two different places; the
-    /// aircraft has flown between them, so the pair must not be solved.
     #[test]
     fn a_stale_even_odd_pair_is_not_paired() {
         let mut chan = channel(AdsbParams::default());
-        // The window is ten seconds of *this radio's* samples, so the test asks the channel
-        // rather than a constant — at 2.4 Msps the same ten seconds is a different number.
         let stale = chan.cpr_pair_max_age;
         let even = published("8D40621D58C382D690C8AC");
         let odd = published("8D40621D58C386435CC412");
@@ -1411,22 +1243,15 @@ mod tests {
         assert_eq!(chan.cpr.first().map(|a| a.icao), Some(0x40_621D));
     }
 
-    /// A proving frame, so the roll-call replies under test have an address to be attributed
-    /// to. Everything after it in the same transmission is inside the vouching window.
     fn proof(icao: u32) -> Vec<u8> {
         squitter(icao, me_identification("DLH123"))
     }
 
-    /// A short frame is only scanned once a long frame's worth of samples sits behind it (see
-    /// [`AdsbChannel::process`]), so a transmission ending on one leaves that much room —
-    /// otherwise "decoded nothing" would mean "the scan never got there".
     fn decode_replies(p: AdsbParams, frames: &[Vec<u8>]) -> Vec<AdsbMessage> {
         let iq = transmission(frames, 300.0, LEVEL, INPUT_RATE_HZ);
         feed(&mut channel(p), &iq, &[4_096])
     }
 
-    /// An all-call reply is self-proving — the address rides in the clear — so it needs no
-    /// help, and it is the only thing a Mode S aircraft that never squitters volunteers.
     #[test]
     fn an_all_call_reply_reports_the_aircraft_and_its_air_ground_state() {
         for (capability, on_ground) in [(4, Some(true)), (5, Some(false)), (6, None), (0, None)] {
@@ -1441,8 +1266,6 @@ mod tests {
         }
     }
 
-    /// The interrogator identifier is keyed onto an all-call reply's parity, so the bits it
-    /// occupies are not evidence — but everything above them still is.
     #[test]
     fn an_all_call_reply_survives_its_interrogator_identifier() {
         for interrogator in [0, 1, 15, ALL_CALL_PI_MAX] {
@@ -1452,8 +1275,6 @@ mod tests {
             ));
             assert_eq!(msg.icao, "40621D", "interrogator {interrogator}");
         }
-        // Past the field the standard defines, the frame is indistinguishable from noise that
-        // happened to slice into 56 bits.
         assert!(
             decode_replies(
                 AdsbParams::default(),
@@ -1463,9 +1284,6 @@ mod tests {
         );
     }
 
-    /// The rule the whole roll-call path rests on. A DF4/5/20/21 reply carries its address
-    /// nowhere but on the parity, so *every* one of them checks out against *some* address —
-    /// decoding one unvouched would put an aircraft on the map that was never on the air.
     #[test]
     fn a_roll_call_reply_is_dropped_until_something_proves_the_address() {
         let icao = 0x3C_6444;
@@ -1483,8 +1301,6 @@ mod tests {
         assert_eq!(msgs[1].altitude_ft, Some(36_000));
     }
 
-    /// Proof expires: an address last seen in the clear a minute ago no longer vouches for a
-    /// reply that nothing else can attribute.
     #[test]
     fn proof_of_an_address_goes_stale() {
         let mut chan = channel(AdsbParams::default());
@@ -1493,16 +1309,10 @@ mod tests {
         assert!(chan.vouched(0x3C_6444, window));
         assert!(!chan.vouched(0x3C_6444, window + 1));
 
-        // A reply refreshes the cache entry but not the proof — otherwise one lucky parity
-        // match would keep an address alive on the strength of frames that prove nothing.
         chan.observe(0x3C_6444, window, false);
         assert!(!chan.vouched(0x3C_6444, window + 1));
     }
 
-    /// Noise cannot become an aircraft, and once one *is* on the whitelist it must not become
-    /// that aircraft's replies either: every 24-bit value is a legal roll-call address, so all
-    /// that stands between noise and a fabricated altitude is the preamble gate and the chance
-    /// of the recovered address being the one address that was proved.
     #[test]
     fn noise_does_not_become_replies_from_an_aircraft_already_known() {
         let mut chan = channel(AdsbParams::default());
@@ -1512,8 +1322,6 @@ mod tests {
         assert!(feed(&mut chan, &iq, &[65_536]).is_empty());
     }
 
-    /// Squawk is four octal digits interleaved bit by bit across the field; check the whole
-    /// code space rather than the three emergency codes everyone remembers.
     #[test]
     fn every_squawk_round_trips_through_an_identity_reply() {
         let icao = 0x3C_6444;
@@ -1537,8 +1345,6 @@ mod tests {
         }
     }
 
-    /// The AC13 field is the squitter's AC12 with an M bit wedged into it, so the same Q-bit
-    /// and Gillham paths have to come out of a different bit layout.
     #[test]
     fn a_surveillance_altitude_reply_decodes_on_both_sides_of_the_q_bit() {
         let icao = 0x3C_6444;
@@ -1552,14 +1358,10 @@ mod tests {
                 "{alt_ft} ft"
             );
         }
-        // An all-zero field is "no altitude information", not sea level.
         assert_eq!(surveillance_altitude(0), None);
-        // M set selects metric units, whose encoding the standard leaves undefined.
         assert_eq!(surveillance_altitude(0x0040 | 0x0010 | 0x0020), None);
     }
 
-    /// Flight status is the only air/ground answer a surveillance reply carries, and two of
-    /// its codes report the ident pulse instead of answering at all.
     #[test]
     fn flight_status_answers_air_ground_only_when_it_says_so() {
         let icao = 0x3C_6444;
@@ -1582,8 +1384,6 @@ mod tests {
         }
     }
 
-    /// Comm-B replies carry the surveillance field *and* 56 bits of register. BDS 2,0 is the
-    /// one worth reading: it is where an aircraft with no extended squitter puts its callsign.
     #[test]
     fn comm_b_replies_carry_the_surveillance_field_and_a_bds20_callsign() {
         let icao = 0x40_621D;
@@ -1609,8 +1409,6 @@ mod tests {
         assert_eq!(identity.on_ground, Some(true));
     }
 
-    /// A Comm-B register does not say which register it is, so reading one as BDS 2,0 is a
-    /// guess — and a guess that would otherwise turn any register into a plausible callsign.
     #[test]
     fn a_register_that_is_not_bds20_yields_no_callsign() {
         let icao = 0x3C_6444;
@@ -1625,8 +1423,6 @@ mod tests {
             None
         );
 
-        // The right code over characters the charset leaves undefined — the `#` the decoder
-        // must refuse rather than print.
         let mut undefined = [0u8; 7];
         undefined[0] = 0x20;
         undefined[1] = 0xFF;
@@ -1641,8 +1437,6 @@ mod tests {
         comm_b_altitude_reply(icao, 10_000, 0, mb)
     }
 
-    /// The NL table is 58 hand-typed constants; check every one of them against the closed
-    /// form it tabulates (DO-260B Appendix A), away from the boundaries themselves.
     #[test]
     fn the_nl_table_matches_its_closed_form() {
         let closed_form = |lat: f64| -> i32 {

@@ -1,24 +1,16 @@
-//! Subaudible signalling under an FM channel's voice: CTCSS tone squelch and DCS.
 use sdrmm_dsp::{BitSync, DcBlocker, RealDecimator, ToneCorrelator, design_lowpass, golay23_ok};
 
 pub(crate) const INPUT_RATE_HZ: f64 = 48_000.0;
 
-/// Rate the detector runs at. Two decades below the input, which puts the whole subaudible
-/// band comfortably inside it and leaves DCS nine samples per bit; a single 48 kHz → 1.2 kHz
-/// stage would need a filter ten times as long for the same stopband, and it buys nothing.
 const TONE_RATE: f64 = 1_200.0;
 const STAGE1_DECIM: usize = 10;
 const STAGE2_DECIM: usize = 4;
 const STAGE1_TAPS: usize = 63;
 const STAGE2_TAPS: usize = 63;
-/// Everything the detector cares about is below this; everything above it would fold into the
-/// band if it were not removed first.
 const TONE_CUTOFF_HZ: f64 = 300.0;
 
-/// Corner of the highpass that keeps the tone out of the audio (see [`sdrmm_dsp::Highpass`]).
 pub(crate) const AUDIO_CORNER_HZ: f64 = 300.0;
 
-/// The 50 standard CTCSS tones (EIA/TIA-603), in Hz.
 pub const CTCSS_TONES_HZ: [f64; 50] = [
     67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8, 97.4, 100.0, 103.5, 107.2,
     110.9, 114.8, 118.8, 123.0, 127.3, 131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2,
@@ -26,27 +18,14 @@ pub const CTCSS_TONES_HZ: [f64; 50] = [
     206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1,
 ];
 
-/// The 83 standard DCS codes, as the three octal digits a radio displays them with.
-///
-/// Only 83 of the 512 possible codes are standard, and the reason is the code itself: Golay
-/// (23,12) is cyclic, so every rotation of a word is also a word, and a receiver sliding over
-/// a continuously repeating transmission finds a valid one at all 23 alignments. The standard
-/// set is chosen so that *at most one* of those readings is ever a standard code — which makes
-/// this table part of the detector, not a list for a dropdown.
 pub const DCS_CODES: [u16; 83] = [
-    23, 25, 26, 31, 32, 43, 47, 51, 54, 65, //
-    71, 72, 73, 74, 114, 115, 116, 125, 131, 132, //
-    134, 143, 152, 155, 156, 162, 165, 172, 174, 205, //
-    223, 226, 243, 244, 245, 251, 261, 263, 265, 271, //
-    306, 311, 315, 331, 343, 346, 351, 364, 365, 371, //
-    411, 412, 413, 423, 431, 432, 445, 464, 465, 466, //
-    503, 506, 516, 532, 546, 565, 606, 612, 624, 627, //
-    631, 632, 654, 662, 664, 703, 712, 723, 731, 732, //
-    734, 743, 754,
+    23, 25, 26, 31, 32, 43, 47, 51, 54, 65, 71, 72, 73, 74, 114, 115, 116, 125, 131, 132, 134, 143,
+    152, 155, 156, 162, 165, 172, 174, 205, 223, 226, 243, 244, 245, 251, 261, 263, 265, 271, 306,
+    311, 315, 331, 343, 346, 351, 364, 365, 371, 411, 412, 413, 423, 431, 432, 445, 464, 465, 466,
+    503, 506, 516, 532, 546, 565, 606, 612, 624, 627, 631, 632, 654, 662, 664, 703, 712, 723, 731,
+    732, 734, 743, 754,
 ];
 
-/// Whether `hz` is one of the standard tones. Compared with a tolerance because the tones are
-/// quoted to a tenth of a hertz and a client may send back a rounded float.
 #[must_use]
 pub fn is_standard_ctcss(hz: f64) -> bool {
     CTCSS_TONES_HZ.iter().any(|&t| (t - hz).abs() < 0.05)
@@ -57,14 +36,12 @@ pub fn is_standard_dcs(code: u16) -> bool {
     DCS_CODES.contains(&code)
 }
 
-/// What the detector believes is under the voice right now.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Subaudible {
     pub ctcss_hz: Option<f64>,
     pub dcs_code: Option<u16>,
 }
 
-/// Both detectors behind one decimation chain.
 pub struct ToneSquelch {
     stage1: RealDecimator,
     stage2: RealDecimator,
@@ -96,7 +73,6 @@ impl ToneSquelch {
         }
     }
 
-    /// Feed one block of discriminator output and report what is under it now.
     pub fn process(&mut self, demodulated: &[f32]) -> Subaudible {
         self.stage1.process(demodulated, &mut self.stage1_out);
         self.stage2.process(&self.stage1_out, &mut self.decimated);
@@ -110,8 +86,6 @@ impl ToneSquelch {
         }
     }
 
-    /// Forget everything: the channel moved, and what was accreted describes the frequency it
-    /// left.
     pub fn reset(&mut self) {
         self.ctcss = CtcssBank::new();
         self.dcs = DcsDecoder::new();
@@ -124,33 +98,17 @@ impl Default for ToneSquelch {
     }
 }
 
-/// Correlator window, in seconds. The closest pair of standard tones is 2.3 Hz apart, so the
-/// window has to resolve better than that: half a second puts the neighbour 18 dB down in the
-/// winner's bin. It is also the acquisition time — half a second before a tone is named, which
-/// is the same order as the 250 ms a radio takes.
 const CTCSS_WINDOW_S: f64 = 0.5;
-/// How often the bank picks a winner. Every sample would be fifty comparisons per sample for
-/// an answer that cannot change faster than the window slides.
 const CTCSS_DECISION_SAMPLES: usize = (TONE_RATE * 0.05) as usize;
-/// Amplitude the winner must reach, as a fraction of full deviation. A CTCSS tone is keyed at
-/// 10–15 % of deviation and this is well under the weakest of them.
 const CTCSS_MIN_LEVEL: f32 = 0.02;
-/// How far the winner must be above the runner-up. Voice energy leaking into the band is
-/// broadband and lifts every bin together, so a clear winner is the evidence that a *tone* is
-/// there rather than noise.
 const CTCSS_MARGIN: f32 = 3.0;
-/// Decisions agreeing before a tone is named, and disagreeing before it is dropped. Naming
-/// takes two (100 ms) and losing takes four (200 ms), so the gate does not chatter through a
-/// syllable that briefly swamps the bank.
 const CTCSS_ACQUIRE: u32 = 2;
 const CTCSS_RELEASE: u32 = 4;
 
 struct CtcssBank {
     tones: Vec<ToneCorrelator>,
-    /// Latest magnitude per tone, refreshed every sample and read at each decision.
     levels: Vec<f32>,
     since_decision: usize,
-    /// Winner of the last decisions, and how many in a row have agreed.
     candidate: Option<usize>,
     agreements: u32,
     held: Option<usize>,
@@ -185,7 +143,6 @@ impl CtcssBank {
         }
     }
 
-    /// The strongest bin, if it is strong enough and alone enough to be a tone.
     fn winner(&self) -> Option<usize> {
         let mut best = (0usize, 0.0f32);
         let mut runner_up = 0.0f32;
@@ -226,35 +183,20 @@ impl CtcssBank {
     }
 }
 
-/// DCS bit rate. The literature quotes both 134.4 and 134.3 bit/s; they differ by 0.07 %, far
-/// inside what a zero-crossing bit sync tracks over a 23-bit word.
 const DCS_BAUD: f64 = 134.4;
 const DCS_WORD_BITS: u32 = 23;
-/// The 3 data bits above the code, fixed by the standard. They are what tells a receiver it
-/// has the word the right way round: an inverted transmission presents `011` here instead, and
-/// the rotation that *does* present `100` reads out the code's inverse-pair partner — which is
-/// why there is no polarity switch anywhere in this module.
 const DCS_SIGNATURE: u32 = 0b100;
-/// Words that must agree before a code is named. The word repeats six times a second, so this
-/// costs 170 ms and buys a second independent 23-bit agreement against a chance parity match.
 const DCS_CONFIRMATIONS: u32 = 2;
-/// Word times without a standard code before the detector forgets what it had.
 const DCS_TIMEOUT_WORDS: f64 = 3.0;
 
 struct DcsDecoder {
-    /// The discriminator's DC is the receiver's tuning error, not the signal. The word's own
-    /// lowest component is its 5.84 Hz repetition rate, six times the blocker's ~0.95 Hz
-    /// corner at this rate, so removing one does not touch the other.
     dc: DcBlocker,
     sync: BitSync,
-    /// The 23 most recent bits, assembled back into the word's own bit order: transmission is
-    /// least-significant bit first, so each arrival enters at the top and shifts down.
     register: u32,
     bits: u32,
     pending: Option<u16>,
     confirmations: u32,
     held: Option<u16>,
-    /// Samples since the last standard code was read.
     quiet: usize,
     timeout: usize,
 }
@@ -292,8 +234,6 @@ impl DcsDecoder {
         }
     }
 
-    /// Test the window as it stands. Most alignments fail, which is not evidence of anything —
-    /// only a standard code read out of a valid word restarts the clock.
     fn inspect(&mut self) {
         if !golay23_ok(self.register) || self.register >> 20 != DCS_SIGNATURE {
             return;
@@ -328,7 +268,6 @@ impl DcsDecoder {
     }
 }
 
-/// A 9-bit code as the three octal digits it is written with: `0b000_010_011` is `23`.
 fn octal_digits(code: u32) -> u16 {
     ((code >> 6 & 7) * 100 + (code >> 3 & 7) * 10 + (code & 7)) as u16
 }
@@ -339,11 +278,6 @@ mod tests {
 
     use super::*;
 
-    /// The 83 standard codes are exactly the set that survives the code being cyclic. For each
-    /// one, every rotation of its word and of its complement is checked: the *only* standard
-    /// code any of them ever reads out is the code itself. Without that property the detector
-    /// would report a different code depending on where it happened to lock, and the whole
-    /// "confirm the same code twice" rule would ping-pong instead of converging.
     #[test]
     fn no_standard_dcs_code_can_be_read_out_of_another_ones_word() {
         for &code in &DCS_CODES {
@@ -355,9 +289,6 @@ mod tests {
         }
     }
 
-    /// A radio has no polarity switch for DCS and neither does this: an inverted transmission
-    /// simply reads out the code's inverse-pair partner, which is another standard code.
-    /// 023 through an inverted discriminator is 047, and 047's own word is not 023's.
     #[test]
     fn an_inverted_transmission_reads_as_the_inverse_pair_partner() {
         let mut paired = 0;
@@ -406,18 +337,15 @@ mod tests {
     fn the_standard_tables_are_what_they_claim() {
         assert!(is_standard_ctcss(88.5) && is_standard_ctcss(254.1));
         assert!(!is_standard_ctcss(88.0) && !is_standard_ctcss(300.0));
-        // A client that rounded 103.5 to a float a hair off must still be accepted.
         assert!(is_standard_ctcss(103.500_000_1));
         assert!(is_standard_dcs(23) && is_standard_dcs(754));
         assert!(!is_standard_dcs(24) && !is_standard_dcs(999));
-        // Sorted and unique, so a client rendering the table in order gets a sane list.
         assert!(CTCSS_TONES_HZ.windows(2).all(|w| w[0] < w[1]));
         assert!(DCS_CODES.windows(2).all(|w| w[0] < w[1]));
     }
 
     const MASK: u32 = (1 << DCS_WORD_BITS) - 1;
 
-    /// The transmitted word for a code, in the bit order the decoder assembles.
     pub(super) fn dcs_word(code: u16) -> u32 {
         let digits = u32::from(code);
         let raw = (digits / 100 % 10) << 6 | (digits / 10 % 10) << 3 | (digits % 10);
@@ -428,7 +356,6 @@ mod tests {
         (word << by | word >> (DCS_WORD_BITS - by)) & MASK
     }
 
-    /// What [`DcsDecoder::inspect`] would make of a candidate window.
     fn standard_readout(word: u32) -> Option<u16> {
         if !golay23_ok(word) || word >> 20 != DCS_SIGNATURE {
             return None;
@@ -437,7 +364,6 @@ mod tests {
         is_standard_dcs(code).then_some(code)
     }
 
-    /// Every standard code a sliding window over this repeating word can read out.
     fn readouts(word: u32) -> Vec<u16> {
         (0..DCS_WORD_BITS)
             .filter_map(|r| standard_readout(rotate(word, r)))

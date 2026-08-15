@@ -61,7 +61,6 @@ describe("playbackPositionAt", () => {
   });
 
   it("wraps with the loop instead of running past the end", () => {
-    // 1.5 recordings' worth of wall clock from the start of a one-second file.
     const at = playbackPositionAt(status({ position_samples: 0 }), 1_500, 48_000, true);
     expect(at).toBe(24_000);
   });
@@ -77,8 +76,6 @@ describe("playbackPositionAt", () => {
     expect(playbackPositionAt(status({ total_samples: 0 }), 5_000, 48_000, true)).toBe(0);
   });
 
-  /// A position past the end (a torn pair reindexed shorter) must clamp, not report a bar
-  /// wider than its track.
   it("clamps a reported position beyond the recording", () => {
     expect(
       playbackPositionAt(status({ position_samples: 99_999, paused: true }), 0, 48_000, false),
@@ -91,7 +88,6 @@ describe("samplesToSeconds", () => {
     expect(samplesToSeconds(96_000, 48_000)).toBe(2);
   });
 
-  // A set whose rate has not arrived yet must not put NaN in the clock.
   it("is 0 without a rate", () => {
     expect(samplesToSeconds(96_000, 0)).toBe(0);
   });
@@ -121,8 +117,6 @@ describe("isLooping", () => {
     expect(isLooping(set({ settings: { extra: [{ name: "loop", value: true }] } }))).toBe(true);
   });
 
-  // Matches `ExtraSetting::Bool { default: true }` on the playback backend: a set whose extras
-  // have not arrived must not draw the toggle off and then flip it.
   it("defaults to on when the setting is absent or not a boolean", () => {
     expect(isLooping(set())).toBe(true);
     expect(isLooping(set({ settings: { extra: [] } }))).toBe(true);

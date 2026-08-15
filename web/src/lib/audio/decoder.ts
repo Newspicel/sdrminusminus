@@ -1,29 +1,17 @@
 import { SAMPLE_RATE } from "./worklet";
 
 export interface OpusPacketDecoder {
-  /** Channel count this decoder was configured for; interleave of what it emits. */
   readonly channels: number;
-  /** False when the packet was refused (decoder full or closed) — the caller owes a conceal. */
   decode(packet: Uint8Array, timestampUs: number): boolean;
   close(): void;
 }
 
-/**
- * Opus decode is far faster than realtime, so a queue that stays deep means the pipeline is
- * stuck; drop instead of queueing unboundedly (: UI streams are drop-oldest). The cap is
- * ~1.3 s rather than a handful of packets because WebCodecs delivers its output on the main
- * thread: anything that blocks that thread (a render burst, GC) lets the socket queue packets,
- * which then all submit before a single output can come back. Cutting that burst off at the
- * knees would drop audio that had already arrived intact.
- */
 const MAX_DECODE_QUEUE = 64;
 
 function config(channels: number): AudioDecoderConfig {
   return { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: channels };
 }
 
-// Support is per stream config, so the probe is keyed by channel count: a platform may do
-// mono and not stereo, and answering from a mono probe would configure a decoder that throws.
 const webCodecsProbes = new Map<number, Promise<boolean>>();
 
 function webCodecsSupported(channels: number): Promise<boolean> {
@@ -102,7 +90,6 @@ async function createWasmDecoder(
   onPcm: (pcm: Float32Array) => void,
   onError: (err: unknown) => void,
 ): Promise<OpusPacketDecoder> {
-  // Dynamic import so the WASM payload is only fetched when WebCodecs can't do Opus.
   const { OpusDecoder } = await import("opus-decoder");
   const decoder = new OpusDecoder({
     channels,

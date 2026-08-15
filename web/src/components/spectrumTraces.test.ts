@@ -42,7 +42,6 @@ describe("dequantize", () => {
 
 describe("requantize", () => {
   it("keeps a level in place when the window moves under it", () => {
-    // Byte 159 under [−100, −20] is −50 dB. Under [−100, 0] that same level is byte 127.
     const moved = requantize(
       Uint8Array.of(159),
       { min: -100, max: -20 },
@@ -85,7 +84,6 @@ describe("requantizeHistory", () => {
       rows: Uint8Array.of(159, 0, 127, 0),
       count: 2,
       bins: 2,
-      // −50 dB reads as byte 159 under the first window and as 127 under the second.
       meta: [
         { dbMin: -100, dbMax: -20 },
         { dbMin: -100, dbMax: 0 },
@@ -125,7 +123,6 @@ describe("accumulateTraces", () => {
       state = accumulateTraces(state, Float32Array.of(i === 0 ? -20 : -80));
     }
     expect(state?.average[0]).toBeCloseTo(-80, 1);
-    // The peak remembers the burst the average has forgotten — which is the point of having both.
     expect(state?.peak[0]).toBe(-20);
   });
 

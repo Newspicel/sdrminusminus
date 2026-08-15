@@ -1,4 +1,3 @@
-//! Morse/CW decoder ( P2): envelope detection with adaptive element timing.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -13,34 +12,17 @@ const CHANNEL_TAPS: usize = 257;
 
 const ENV_ATTACK_S: f64 = 2e-3;
 const ENV_RELEASE_S: f64 = 2e-3;
-/// Runs shorter than this are slicer chatter, not elements, and are merged into their
-/// neighbours — under a third of a dot even at [`WPM_MAX`].
 const MIN_RUN_S: f64 = 5e-3;
-/// Peak-to-floor ratio a mark must hold throughout to be treated as sent rather than as a
-/// noise crest. The slicer refuses to key below its own floor; re-checking here means a
-/// marginal signal that keys on one crest still produces no characters.
 const MIN_SNR: f32 = 6.0;
-/// Element and gap boundaries in dot units. Nominal Morse is 1/3 for marks and 1/3/7 for
-/// gaps; the boundaries sit off-centre so ±30% sloppy sending still lands on the right side.
 const DASH_MIN_DOTS: f32 = 2.0;
 const LETTER_GAP_DOTS: f32 = 2.0;
 const WORD_GAP_DOTS: f32 = 4.5;
-/// Speed-tracker step. One element moves the estimate 20% of the way to the observation, so a
-/// speed change settles within a few characters without a single mistimed element derailing it.
 const TRACK_ALPHA: f32 = 0.2;
-/// Marks collected before the tracker commits to a dot length. The first mark of a
-/// transmission is measured against a cold peak tracker and reads short, so it is held out.
 const CALIB_MARKS: usize = 9;
-/// Speeds the tracker will settle on. Outside this range the "signal" is not hand-sent CW.
 const WPM_MIN: f32 = 3.0;
 const WPM_MAX: f32 = 80.0;
-/// Key-up time that ends a transmission: the buffered text is emitted even though no word gap
-/// closed it. Longer than a word gap at [`WPM_MIN`] would be, so it never splits a sentence.
 const IDLE_FLUSH_S: f64 = 3.0;
-/// Longest text an event carries. Continuous sending with no word gaps still reports at a
-/// bounded latency instead of growing a buffer forever.
 const MAX_CHUNK_CHARS: usize = 64;
-/// Longest element run the table holds; anything longer cannot be a character.
 const MAX_ELEMENTS: u8 = 8;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -53,8 +35,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-/// Pack an element run into its lookup key: a leading 1 marks the start, then one bit per
-/// element (dash = 1). Unique per run, so the table is a flat `u16` search.
 const fn code(pattern: &str) -> u16 {
     let bytes = pattern.as_bytes();
     let mut key = 1;
@@ -124,12 +104,8 @@ static TABLE: &[(u16, &str)] = &[
     (code("...-.-"), "SK"),
 ];
 
-/// Element runs with no entry in the table are reported rather than dropped, so a garbled
-/// character is visible in the log instead of silently shortening the line.
 const UNKNOWN: &str = "*";
 
-/// One keyed or unkeyed interval, in samples. `clean` is false when the slicer's SNR dipped
-/// below [`MIN_SNR`] anywhere inside a mark.
 #[derive(Clone, Copy)]
 struct Run {
     on: bool,
@@ -139,7 +115,6 @@ struct Run {
 
 pub struct MorseChannel {
     rate: f64,
-    /// `Some` pins the element grid to the operator's stated speed; `None` tracks it.
     fixed_wpm: Option<f32>,
     env: Envelope,
     slicer: KeyingSlicer,
@@ -151,19 +126,13 @@ pub struct MorseChannel {
     run: u32,
     mark_clean: bool,
     idle: u32,
-    /// Held one run back so a chatter run can be merged into its neighbours before it is
-    /// classified.
     pending: Option<Run>,
 
-    /// Dot length in samples; `None` until the tracker has calibrated.
     dot: Option<f32>,
-    /// Runs seen before calibration, replayed once the dot length is known.
     hold: Vec<Run>,
-    /// Swap partner for [`Self::hold`], so replaying it allocates nothing.
     replay: Vec<Run>,
     marks_held: usize,
 
-    /// Current character's element run, packed by [`code`].
     pattern: u16,
     elements: u8,
     overflow: bool,
@@ -201,7 +170,6 @@ fn check_params(p: &MorseParams) -> Result<(), ChannelError> {
     Ok(())
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &MorseParams) -> (f64, f64) {
     let half = p.bandwidth_hz / 2.0;
     (-half, half)
@@ -216,14 +184,11 @@ pub(crate) fn channel_filter(p: &MorseParams) -> Result<ChannelFilter, ChannelEr
     )))
 }
 
-/// PARIS: one dot is 1.2 s / wpm.
 fn dot_samples(wpm: f32, rate: f64) -> f32 {
     (1.2 * rate / f64::from(wpm)) as f32
 }
 
 impl MorseChannel {
-    /// Feed one run to the deglitcher: chatter shorter than [`MIN_RUN_S`] is absorbed into the
-    /// run before it, which then also swallows the same-polarity run that follows.
     fn push_run(&mut self, run: Run, out: &mut ChannelOutputs) {
         match self.pending.take() {
             None => self.pending = Some(run),
@@ -255,8 +220,6 @@ impl MorseChannel {
         self.classify(run, out);
     }
 
-    /// Seed the dot length from the shortest held mark — over [`CALIB_MARKS`] marks of real
-    /// sending at least one is a dot — then replay everything that was waiting on it.
     fn calibrate(&mut self, out: &mut ChannelOutputs) {
         let marks = self.hold.iter().filter(|r| r.on).count();
         let seed = self
@@ -311,10 +274,6 @@ impl MorseChannel {
         }
     }
 
-    /// Adaptation rule: every element that is not a word gap contributes its own estimate of
-    /// the dot length — the interval itself for a dot or an element gap, a third of it for a
-    /// dash or a letter gap — and the estimate moves [`TRACK_ALPHA`] of the way there. Word
-    /// gaps are excluded because operators stretch them at will.
     fn track(&mut self, observed_dot: f32) {
         if self.fixed_wpm.is_some() || !observed_dot.is_finite() {
             return;
@@ -370,8 +329,6 @@ impl MorseChannel {
             .map_or(0.0, |dot| (1.2 * self.rate) as f32 / dot)
     }
 
-    /// The carrier has been down long enough to call the transmission over: settle the run
-    /// still in the deglitcher, calibrate on whatever was held, and emit what was decoded.
     fn on_idle(&mut self, out: &mut ChannelOutputs) {
         if let Some(run) = self.pending.take() {
             self.consume(run, out);
@@ -424,8 +381,6 @@ impl ChannelRx for MorseChannel {
         let p = params(&settings)?;
         check_params(p)?;
         self.fixed_wpm = p.wpm;
-        // Switching to a stated speed overrides the tracker; switching back to tracking keeps
-        // the current estimate as its starting point rather than recalibrating from scratch.
         if let Some(wpm) = p.wpm {
             self.dot = Some(dot_samples(wpm, self.rate));
         }
@@ -481,8 +436,6 @@ mod tests {
         .unwrap()
     }
 
-    /// A transmission with the lead-in the slicer needs to seed its floor and the lead-out
-    /// that ends it, so a test sees exactly what the host would deliver.
     fn burst(text: &str, wpm: f32, tone_hz: f64) -> Vec<Complex<f32>> {
         let mut iq = testgen::silence((0.5 * RATE) as usize);
         iq.extend(testgen::morse::transmission(text, wpm, tone_hz, RATE));
@@ -490,8 +443,6 @@ mod tests {
         iq
     }
 
-    /// Feed `iq` in deliberately ragged blocks; returns the concatenated text and the last
-    /// reported speed.
     fn decode_ragged(chan: &mut MorseChannel, iq: &[Complex<f32>]) -> (String, f32) {
         let mut out = ChannelOutputs::default();
         let (mut text, mut wpm) = (String::new(), 0.0);
@@ -557,7 +508,6 @@ mod tests {
 
     #[test]
     fn continuous_sending_is_chunked_at_the_buffer_size() {
-        // No word gap anywhere, so only the buffer bound can split this.
         let sent = "E".repeat(MAX_CHUNK_CHARS + 4);
         let mut chan = channel(None);
         let mut out = ChannelOutputs::default();

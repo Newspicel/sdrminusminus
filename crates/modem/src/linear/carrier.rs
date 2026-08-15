@@ -1,41 +1,3 @@
-//! Carrier recovery for the linear engine: Costas, FLL, decision-directed and pilot.
-//! One second-order loop — `sdrmm_dsp::LoopFilter`, the crate's only loop filter (§3.2) — driven
-//! at *symbol* rate by a pluggable phase-error detector, optionally aided by a frequency
-//! detector for cold acquisition. The pilot/known-symbol arm of that list is
-//! [`anchor`](super::anchor), which is a block estimator rather than a loop and therefore lives
-//! next door.
-//!
-//! **Two detectors, and why both.**
-//!
-//! - [`PhaseDetector::DecisionDirected`] is the generalised Costas loop: slice the received
-//!   point against the table, and the residual angle between the two *is* the phase error. It
-//!   works for any constellation — that is what makes it the QAM and APSK answer, where no
-//!   power of the signal strips the modulation — but it needs the amplitude scale to be roughly
-//!   right first (a QAM slice against a mis-scaled table decides the wrong ring), and it can
-//!   only pull in from within the table's own angular decision region.
-//! - [`PhaseDetector::MthPower`] raises the symbol to the M-th power, which annihilates an
-//!   M-PSK modulation outright: no decisions, no amplitude dependence, so it acquires from a
-//!   cold start at an SNR where decisions are still mostly wrong. It applies only to a
-//!   constant-modulus M-PSK table, and it strips against *that table's* M-th power rather than
-//!   against 1 — a rotated table's is a fixed phasor, and an unsubtracted constant error is a
-//!   ramp to a type-2 loop rather than an offset it settles at.
-//!
-//! **Ambiguity is not resolved here, deliberately.** Both detectors are blind to a rotation by
-//! a table symmetry — π for BPSK, π/2 for QPSK, 2π/M in general — because the modulation they
-//! strip is exactly what that rotation preserves. Removing the ambiguity is the job of either
-//! differential coding (the DPSK rows carry the data in the *difference*, so the absolute phase
-//! never matters) or the known-symbol anchor. An entry that uses neither has an
-//! M-fold-ambiguous receiver, and that is a property of the entry, not a defect here.
-//!
-//! **The frequency aid.** The PI loop's integrator already tracks a static offset, but its
-//! *pull-in* is bounded by the phase detector's unambiguous range: past ±π/M of accumulated
-//! error per symbol the detector reports the wrong sign and the loop walks away. The FLL
-//! measures the M-th-power signal's rotation between consecutive symbols instead, which is
-//! signed correctly across that whole range, and feeds a separate frequency integrator. It is
-//! offered only with [`PhaseDetector::MthPower`], for the same reason the detector is: nothing
-//! strips a QAM constellation. A QAM entry acquires frequency from its pilots — which is what
-//! fielded QAM links do.
-
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
@@ -43,31 +5,17 @@ use sdrmm_dsp::LoopFilter;
 
 use crate::constellation::Constellation;
 
-/// Loop damping. 1/√2 is the critically-flat second-order response every loop in the workspace
-/// uses; the linear entries gave no measured reason to differ.
 pub const DAMPING: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-/// Integrator clamp, in cycles per symbol. A quarter of a cycle per symbol is far past any
-/// offset a receiver front end leaves behind (the catalog's worst committed CFO row is under
-/// 0.02 cycles/symbol) and still bounds a noise burst from integrating the loop off the signal.
 pub const FREQ_LIMIT_CYCLES_PER_SYMBOL: f64 = 0.25;
 
-/// How the loop measures phase error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhaseDetector {
-    /// Generalised Costas: the angle from the nearest table point to the received one.
     DecisionDirected,
-    /// M-th power modulation stripping, for a constant-modulus M-PSK table.
     MthPower { m: u32 },
 }
 
 impl PhaseDetector {
-    /// The phase error in radians — positive meaning the received point sits *ahead* of where
-    /// the modulation says it should, so the loop must advance its de-rotation by that much.
-    ///
-    /// Returns zero for a symbol carrying no phase at all (an exact origin sample, which OOK
-    /// produces on every off symbol): no vote is the honest reading, and it leaves the loop
-    /// coasting on its integrator rather than jerking it with an arbitrary angle.
     #[must_use]
     pub fn error(self, y: Complex<f32>, table: &Constellation) -> f64 {
         if y.re == 0.0 && y.im == 0.0 {
@@ -86,12 +34,6 @@ impl PhaseDetector {
                 f64::from((y * x.conj()).arg())
             }
             Self::MthPower { m } => {
-                // The table's own M-th power, not 1. `psk(M)` raised to M gives +1, but a
-                // *rotated* M-PSK table gives a fixed phasor instead — and subtracting it is not
-                // cosmetic: an unsubtracted constant error is a ramp to a type-2 loop, which
-                // spins forever rather than locking. Measured, when it did: QPSK in its
-                // two-rails (π/4-rotated) orientation decoded at 6e-2 BER where the same chain
-                // on the unrotated table decoded at 3e-3.
                 let reference = unit_power(table.points()[0], m);
                 let stripped = unit_power(y, m);
                 if reference.norm() <= 0.0 || stripped.norm() <= 0.0 {
@@ -103,8 +45,6 @@ impl PhaseDetector {
     }
 }
 
-/// `(y/|y|)^m` in f64 — the modulation-stripping nonlinearity. Unit-normalised before the power
-/// so a large-amplitude symbol cannot dominate and so m = 8 cannot leave the f32 range.
 fn unit_power(y: Complex<f32>, m: u32) -> Complex<f64> {
     let y = Complex::new(f64::from(y.re), f64::from(y.im));
     let norm = y.norm();
@@ -119,29 +59,17 @@ fn unit_power(y: Complex<f32>, m: u32) -> Complex<f64> {
     acc
 }
 
-/// The tracking loop. Fed one symbol at a time; returns the de-rotated symbol.
 #[derive(Clone, Debug)]
 pub struct CarrierLoop {
     detector: PhaseDetector,
     filter: LoopFilter,
-    /// De-rotation phase in radians, wrapped every symbol so an arbitrarily long transmission
-    /// keeps f64 precision.
     phase: f64,
-    /// Frequency-aid gain (0 disables), and the previous stripped symbol the differential
-    /// detector needs.
     fll_gain: f64,
     fll_freq: f64,
     last_stripped: Option<Complex<f64>>,
 }
 
 impl CarrierLoop {
-    /// `loop_bw` is the loop's natural frequency in cycles per symbol — the entry's data. The
-    /// catalog's coherent rows are measured at 0.01 (fast enough to acquire inside a preamble,
-    /// narrow enough that the loop's own phase jitter costs nothing at sensitivity); a
-    /// slow-fading, high-order entry wants less.
-    ///
-    /// # Panics
-    /// If `loop_bw` is not positive, or `MthPower` is asked for an order below 2.
     #[must_use]
     pub fn new(detector: PhaseDetector, loop_bw: f64) -> Self {
         if let PhaseDetector::MthPower { m } = detector {
@@ -157,12 +85,6 @@ impl CarrierLoop {
         }
     }
 
-    /// Adds the frequency aid at the given gain (cycles per symbol of correction per radian of
-    /// measured per-symbol rotation). 0.01 is the catalog's operating point.
-    ///
-    /// # Panics
-    /// If the detector is not [`PhaseDetector::MthPower`] — nothing strips a QAM constellation,
-    /// so an FLL over one would be measuring the modulation.
     #[must_use]
     pub fn with_frequency_aid(mut self, gain: f64) -> Self {
         assert!(
@@ -177,8 +99,6 @@ impl CarrierLoop {
         self
     }
 
-    /// De-rotate one symbol and advance the loop. Zero allocation — this is the hot path of
-    /// every coherent tier.
     #[must_use]
     pub fn advance(&mut self, y: Complex<f32>, table: &Constellation) -> Complex<f32> {
         let rot = Complex::new((-self.phase).cos() as f32, (-self.phase).sin() as f32);
@@ -192,9 +112,6 @@ impl CarrierLoop {
         out
     }
 
-    /// The frequency detector: how far the stripped symbol rotated since the last one, divided
-    /// back down by M. Its own integrator, added to the phase loop's increment, so the two
-    /// bands stay separable — the PI filter still owns steady-state phase.
     fn advance_frequency_aid(&mut self, y: Complex<f32>) -> f64 {
         let PhaseDetector::MthPower { m } = self.detector else {
             return 0.0;
@@ -214,9 +131,6 @@ impl CarrierLoop {
         self.fll_freq
     }
 
-    /// The loop's current frequency estimate in cycles per symbol — the phase filter's
-    /// integrator plus the frequency aid's. Reading it is how a limits row states what a CFO
-    /// search actually pulled in.
     #[must_use]
     pub fn freq_cycles_per_symbol(&self) -> f64 {
         self.filter.freq_norm() + self.fll_freq / TAU
@@ -230,8 +144,6 @@ impl CarrierLoop {
     }
 }
 
-/// Reduce a phase into `[-π, π)`. Exact for a phasor — `e^(jθ)` is 2π-periodic — so a single
-/// wrap per symbol keeps the accumulator bounded with no drift of its own.
 fn wrap(theta: f64) -> f64 {
     let t = (theta + PI).rem_euclid(TAU);
     t - PI
@@ -259,14 +171,6 @@ mod tests {
         }
     }
 
-    /// Worst per-symbol phase error over the settled tail, in turns, modulo the table symmetry
-    /// no blind detector can resolve (`hard_slice` picks the nearest rotated hypothesis, so what
-    /// is left is the error inside one ambiguity cell).
-    ///
-    /// Deliberately a *worst*, not a mean. A loop that never acquires and cycle-slips forever
-    /// spreads its error uniformly around the circle, and its mean direction is therefore ~0 —
-    /// the same number a perfectly locked loop reports. That coincidence is exactly the failure
-    /// an acquisition test must not miss.
     fn worst_residual_turns(out: &[Complex<f32>], table: &Constellation) -> f64 {
         out[out.len() * 3 / 4..]
             .iter()
@@ -278,9 +182,6 @@ mod tests {
             .fold(0.0, f64::max)
     }
 
-    /// Both detectors must pull a static phase offset out of a clean stream. The M-th-power
-    /// loop does it without ever slicing; the decision-directed one does it for a table no
-    /// power strips — 16-QAM, where its ability to work at all is the whole point.
     #[test]
     fn both_detectors_acquire_a_static_phase_offset() {
         for (name, table, detector, m) in [
@@ -313,8 +214,6 @@ mod tests {
         }
     }
 
-    /// A static frequency offset is what the integrator is for: after settling, the loop's own
-    /// frequency estimate must read the injected offset back.
     #[test]
     fn the_integrator_reads_back_a_static_frequency_offset() {
         let table = tables::psk(4).unwrap();
@@ -331,9 +230,6 @@ mod tests {
         );
     }
 
-    /// Symbols the loop takes to settle: the first index after which every de-rotated symbol
-    /// stays within `tol` turns of a table point for a whole window, so one lucky symbol cannot
-    /// declare lock.
     fn symbols_to_lock(out: &[Complex<f32>], table: &Constellation, tol: f64) -> Option<usize> {
         const WINDOW: usize = 200;
         let error = |y: Complex<f32>| {
@@ -351,16 +247,6 @@ mod tests {
         None
     }
 
-    /// What the frequency aid buys, measured: acquisition of an offset the phase loop alone
-    /// cannot reach. Past the detector's unambiguous range the phase error wraps faster than the
-    /// filter can integrate, and the loop slips indefinitely; the FLL measures the stripped
-    /// signal's rotation between symbols instead, which stays correctly signed across that whole
-    /// range, so the loop starts from the right frequency rather than walking to it.
-    ///
-    /// Measured at 0.1 cycles/symbol against a 0.002 loop bandwidth: the plain loop cycle-slips
-    /// for the whole 20 000-symbol run and never holds a lock, while the aided one settles inside
-    /// a few thousand symbols. (A *mean* residual would have called the slipping loop locked —
-    /// see [`worst_residual_turns`].)
     #[test]
     fn the_frequency_aid_acquires_far_sooner_than_the_phase_loop_alone() {
         let table = tables::psk(4).unwrap();
@@ -386,8 +272,6 @@ mod tests {
         );
     }
 
-    /// An origin sample is no vote, not an arbitrary angle: an OOK stream's off symbols must
-    /// leave the loop where it was rather than driving it with the noise-free zero's phase.
     #[test]
     fn an_origin_symbol_casts_no_vote() {
         let table = tables::ook().unwrap();
@@ -416,7 +300,6 @@ mod tests {
         assert_eq!(loop_.freq_cycles_per_symbol(), 0.0);
     }
 
-    /// §4.2: the symbol-rate path of every coherent tier allocates nothing.
     #[test]
     fn the_loop_allocates_nothing() {
         let table = tables::qam_square(16).unwrap();

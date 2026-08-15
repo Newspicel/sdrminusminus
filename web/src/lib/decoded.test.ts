@@ -135,7 +135,6 @@ describe("stations", () => {
     expect(station?.id).toBe("abc123");
     expect(station?.frames).toBe(2);
     expect(station?.lastSeen).toBe(T0 + 1_000);
-    // The position frame carries no callsign; the identity frame's must survive it.
     expect(station?.event.data).toMatchObject({
       callsign: "DLH400",
       lat: 52.5,
@@ -296,7 +295,6 @@ describe("station capacity", () => {
     store.flush();
     const stations = useDecodedStore.getState().stations.pocsag ?? [];
     expect(stations.length).toBe(STATION_CAPACITY);
-    // The survivors are the newest: the oldest `overflow` addresses went.
     const ids = new Set(stations.map((s) => s.id));
     expect(ids.has("0")).toBe(false);
     expect(ids.has(String(STATION_CAPACITY + overflow - 1))).toBe(true);

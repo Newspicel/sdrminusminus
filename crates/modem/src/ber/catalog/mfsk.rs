@@ -20,26 +20,11 @@ pub const SPS: f64 = 10.0;
 const SPAN: usize = 8;
 const CHANNEL_TAPS: usize = 127;
 
-/// Acquisition takes the timing loop several time constants at the continuous bandwidth
-/// (1/0.003 ≈ 333 symbols), and the tail of the transient bites long after lock looks
-/// achieved — measured on the clean M = 4 chain: a 480-symbol preamble (1.4τ) leaves the
-/// loop's decaying phase/rate overshoot clustering errors hundreds of symbols *into the
-/// payload* (up to ~2e-3 in the worst trials), while 1500 symbols (~4.5τ) leaves a scattered
-/// ~1e-5 residual — the engine's own measured continuous floor. The overhead is amortised by
-/// the long payload and charged to Eb per the labels (~1 dB).
 pub const STEADY_PREAMBLE: usize = 1_500;
-/// Trailing filler past the payload: the front end is a channel filter plus a matched filter
-/// late (~11 symbols), so the transmitter keeps shaping that long or the tail symbols are
-/// never emitted.
 pub const STEADY_TAIL: usize = 40;
 
-/// Quiet-listening warm-up ahead of the steady chains, in samples: the gate's floor-settle
-/// window (4·96 symbol periods) plus margin, at receiver noise 40 dB down — how a receiver
-/// meets a transmission it was tuned to before key-up (the `fsk4`/DMR-baseline convention).
 pub const WARMUP_SAMPLES: usize = (4.0 * 96.0 * SPS) as usize + 300 * SPS as usize;
 
-/// One alphabet's measured configuration: the `CpmParams` data plus the two receiver choices
-/// documented at module level. Everything the committed artifacts were taken with lives here.
 pub struct Entry {
     pub params: CpmParams,
     pub receive_filter: Vec<f32>,
@@ -47,9 +32,6 @@ pub struct Entry {
     pub timing_bw: f64,
 }
 
-/// M = 2 CPFSK at h = ½ (MSK-index 2FSK): rect pulse, integrate-and-dump receive filter —
-/// the POCSAG/RTTY base shape, referenced against noncoherent orthogonal 2-FSK theory plus
-/// the documented discriminator offset.
 pub fn mfsk2() -> Entry {
     Entry {
         params: CpmParams::from_h(Mapping::natural(2), 0.5, pulse::rect(SPS, Norm::Area), SPS),
@@ -63,8 +45,6 @@ pub fn dibit_mapping() -> Mapping {
     Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
 }
 
-/// M = 4, DMR-like: ETSI dibit table, ±1944 Hz outer deviation (h = 0.27), RRC α = 0.2 —
-/// the reference configuration behind the limits table and the perf baseline.
 pub fn mfsk4() -> Entry {
     Entry {
         params: CpmParams::from_deviation(
@@ -104,29 +84,16 @@ pub fn sync4() -> Vec<u8> {
         .collect()
 }
 
-/// 24-symbol binary sync for the M = 2 chain: balanced, aperiodic, no run past four.
 pub const SYNC2: [u8; 24] = [
     1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1,
 ];
 
-/// 16-symbol known pattern for the M = 8 chain — every level visited twice, so the hook's
-/// least-squares fit is conditioned on the whole alphabet.
 pub const SYNC8: [u8; 16] = [7, 0, 5, 2, 6, 1, 4, 3, 0, 7, 3, 4, 1, 6, 2, 5];
 
-/// M = 8 framing: a known pattern every 128 symbols, hook-corrected payload between — the
-/// shape every burst standard embeds, here as pure entry data.
 pub const M8_FRAME: usize = 128;
 pub const M8_PAYLOAD: usize = M8_FRAME - SYNC8.len();
 pub const M8_FRAMES: usize = 48;
 
-/// Steady-chain acquisition preamble: *data-like* fixed pseudo-random symbols, not the
-/// classic alternating outer levels. Measured on the M = 4 chain: an alternating preamble
-/// parks the Gardner loop at that pattern's own ISI equilibrium, and at the continuous
-/// bandwidth (0.003 cy/sym) the re-convergence onto random data takes ~300 symbols — errors
-/// recur at fixed payload positions ~350–720 and floor the clean curve at ~1.3e-4. Random
-/// symbols acquire from cold just as the engine's 20k-symbol test proves, and park the loop
-/// where the payload keeps it: measured at the 480-symbol length, going data-like halved the
-/// floor on its own; [`STEADY_PREAMBLE`]'s length removes the rest.
 pub fn preamble(entry: &Entry, len: usize) -> Vec<u8> {
     let m = entry.params.mapping().m() as u32;
     let mut state = 0x9e37_79b9u32;
@@ -140,10 +107,6 @@ pub fn preamble(entry: &Entry, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Maximally-transitioning filler: the outermost positive and negative levels alternated,
-/// whatever indices the mapping table gave them — the tail shaping and the TDMA dead-slot
-/// filler (where the burst chain's per-burst sync re-anchoring makes the loop equilibrium
-/// argument above moot).
 pub fn alternating(entry: &Entry, len: usize) -> Vec<u8> {
     let levels = entry.params.mapping().levels();
     let hi = (0..levels.len())
@@ -157,8 +120,6 @@ pub fn alternating(entry: &Entry, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Payload bits to symbol indices, MSB first per symbol — the bit order `Mapping::soft_bits`
-/// emits and the DMR dibit convention reads.
 pub fn bits_to_symbols(bits: &[bool], bits_per_symbol: usize) -> Vec<u8> {
     bits.chunks(bits_per_symbol)
         .map(|chunk| chunk.iter().fold(0u8, |acc, &b| (acc << 1) | u8::from(b)))
@@ -171,8 +132,6 @@ pub fn push_symbol_bits(symbol: u8, bits_per_symbol: usize, out: &mut Vec<bool>)
     }
 }
 
-/// Receiver noise at 40 dB below a unit carrier — what the demodulator hears before the
-/// transmission, exactly the `fsk4`/DMR-baseline `listening` convention.
 fn quiet(seed: u64, len: usize) -> Vec<Complex<f32>> {
     let mut rng = Rng::new(seed);
     (0..len)
@@ -184,10 +143,6 @@ fn quiet(seed: u64, len: usize) -> Vec<Complex<f32>> {
         .collect()
 }
 
-/// The receive front end under measurement: channel-selection lowpass into `CpmDemod`, fresh
-/// per trial so every trial reproduces from its own seed alone. `warm_up` is the steady
-/// chains' quiet listening; the burst chain instead carries dead air inside the waveform so
-/// the AWGN axis covers it and the gate measures the floor it will actually gate on.
 pub fn recovered_soft(entry: &Entry, wave: &[Complex<f32>], warm_up: bool) -> Vec<f32> {
     let mut filter = Decimator::new(&entry.channel_taps, 1);
     let mut demod = CpmDemod::new(&entry.params, &entry.receive_filter, entry.timing_bw);
@@ -211,8 +166,6 @@ fn pattern_distance(sliced: &[u8], at: usize, pattern: &[u8]) -> usize {
         .count()
 }
 
-/// Best sync position in `lo..=hi` by symbol Hamming distance — the searched-alignment idiom.
-/// No threshold: a chain too degraded to place its sync scores its garbage as bit errors.
 pub fn find_pattern(sliced: &[u8], lo: usize, hi: usize, pattern: &[u8]) -> Option<usize> {
     let last = hi.min(sliced.len().checked_sub(pattern.len())?);
     (lo..=last).min_by_key(|&at| pattern_distance(sliced, at, pattern))
@@ -226,17 +179,8 @@ pub fn modulate(entry: &Entry, symbols: &[u8]) -> Vec<Complex<f32>> {
     out
 }
 
-/// Payload symbols per steady trial: long enough that the continuous-mode claim is exercised
-/// (well past the ~2000 symbols where the phase-0 chain's wander floor set in), short enough
-/// that one trial stays a breath.
 pub const STEADY_PAYLOAD: usize = 6_144;
 
-/// The continuous chain for M = 2 or M = 4 as one payload-to-payload [`Link`]:
-/// preamble + sync + payload + tail through [`CpmMod`], searched sync alignment, payload
-/// sliced straight off the mapping table. `payload_symbols` is [`STEADY_PAYLOAD`] for the
-/// committed curves; the level-1 E2E runs the same chain with short payloads, because its
-/// property is perfection and the entry's honest continuous residual (~1e-5, the engine's
-/// own measured floor) bounds how many bits perfection can fairly be demanded over.
 pub fn steady_link(
     make_entry: fn() -> Entry,
     sync: Vec<u8>,
@@ -356,12 +300,8 @@ pub fn mfsk8_link_sized(frames: usize) -> Link {
     }
 }
 
-/// Samples of dead air ahead of the first burst, so the gate's floor estimate (settle window
-/// 3840 samples at 10 sps) has measured the channel's true noise before any burst.
 pub const BURST_LEAD_SAMPLES: usize = 12_000;
 
-/// Frames per burst trial in the limits probes: enough payload to amortise the acquisition
-/// frame, cheap enough that a bisection stays fast.
 pub const BURST_FRAMES: usize = 6;
 
 #[derive(Clone, Copy)]
@@ -369,7 +309,6 @@ pub struct BurstRecipe {
     pub payload_symbols: usize,
     pub off_symbols: usize,
     pub payload_frames: usize,
-    /// `BurstModel` level step applied to alternate bursts; negative attenuates.
     pub level_step_db: f64,
 }
 
@@ -391,9 +330,6 @@ impl BurstRecipe {
         self.content() + self.off_symbols
     }
 
-    /// The radiated window per frame, in samples: the content symbols plus the pulse tails
-    /// either side, so keying never robs the matched filter of the tails it is built around
-    /// (the phase-0 recipe's own figure). The one-symbol ramps live inside it.
     fn on_samples(&self) -> usize {
         self.content() * SPS as usize + 150
     }
@@ -406,20 +342,8 @@ impl BurstRecipe {
         2 * self.payload_symbols * self.payload_frames
     }
 
-    /// Frame 0 is the acquisition preamble; frames 1..=payload_frames carry sync + payload.
-    /// Dead slots hold filler the `BurstModel` carves away, so the exciter's phase runs
-    /// continuously — the phase-0 recipe's shape, with one measured change: the acquisition
-    /// frame and filler are *data-like* ([`preamble`]) rather than alternating. Alternating
-    /// content parks the timing loop at its own ISI equilibrium here exactly as on the
-    /// steady chain — measured at 30 dB: 6.2e-3 BER concentrated in the first payload
-    /// bursts, an order down once the filler is data-like.
     fn symbols(&self, entry: &Entry, payload: &[bool]) -> Vec<u8> {
         let frame = self.frame_symbols();
-        // One trailing dead slot past the last burst: the front end is a channel filter
-        // plus a matched filter late (~11 symbols), and a waveform ending at the last
-        // content symbol never emits it — measured at 30 dB as 4–8 errors per trial, all in
-        // the final burst's last bits (the phase-0 recipe shares the truncation; its looser
-        // 2e-2 floor bound masked it).
         let mut symbols = preamble(entry, frame * (self.payload_frames + 1));
         let sync = sync4();
         let dibits = bits_to_symbols(payload, 2);
@@ -432,7 +356,6 @@ impl BurstRecipe {
         symbols
     }
 
-    /// The impairment template carrying this recipe's TDMA carving; the sweep owns AWGN.
     pub fn channel(&self) -> ChannelSpec {
         let frame_samples = self.frame_symbols() * SPS as usize;
         ChannelSpec::default().burst(BurstModel::new(
@@ -463,9 +386,6 @@ impl BurstRecipe {
         }
     }
 
-    /// Per-burst re-anchoring, as the decoders themselves run: position against slip via a
-    /// local sync search, levels via the known-symbol hook — a burst's own sync knows the
-    /// levels better than any loop can.
     fn demodulate(&self, wave: &[Complex<f32>]) -> Vec<bool> {
         let entry = mfsk4_burst();
         let soft = recovered_soft(&entry, wave, false);
@@ -479,8 +399,6 @@ impl BurstRecipe {
         let mut delay: usize = 0;
         for p in 0..self.payload_frames {
             let expect = lead + frame * (p + 1);
-            // The first burst's sync is searched wide (front-end delay unknown); later bursts
-            // only locally, tracking whatever slip the dead time cost the clock.
             let (lo, hi) = if p == 0 {
                 (expect, expect + 72)
             } else {
@@ -517,19 +435,8 @@ pub const M2_SEED: u64 = 0x2f5c;
 pub const M4_SEED: u64 = 0x4f5c;
 pub const M8_SEED: u64 = 0x8f5c;
 
-/// Trial-bit cap per point. Higher than the steady-frame entries' ([`framing::FULL_CAP`]) for
-/// a mechanical reason, not a statistical one: a trial here is 6144 payload symbols behind a
-/// 1500-symbol acquisition preamble, so the cap has to clear several whole trials at the steep
-/// high-SNR points or a point would be one trial's realisation.
-///
-/// [`framing::FULL_CAP`]: super::framing::FULL_CAP
 pub const FULL_CAP: u64 = 6_000_000;
 
-/// The measured discriminator-vs-theory gap for the M = 2 entry: dB the measured curve needs
-/// beyond noncoherent orthogonal 2-FSK theory at BER 1e-3. It includes the chain's stated
-/// overhead (~1.0 dB of preamble + sync energy charged to Eb per the label) — the offset
-/// documents the *chain*, not the bare detector, which is what makes it an honest closed-form
-/// reference for a tier that is neither the coherent nor exactly the noncoherent detector.
 pub const M2_THEORY_OFFSET_DB: f64 = 1.29;
 pub const M2_OFFSET_TOL_DB: f64 = 0.4;
 
@@ -553,7 +460,6 @@ pub const MEASUREMENTS: &[Measurement] = &[
     Measurement::committed(M8_AWGN, mfsk8_link, M8_GRID, M8_SEED, FULL_CAP),
 ];
 
-/// The M = 2 row's closed form, as a plain `fn` so the registry stays a constant.
 fn m2_theory_ber(ebn0_db: f64) -> f64 {
     crate::ber::theory::mfsk_noncoherent_ber(2, ebn0_db)
 }

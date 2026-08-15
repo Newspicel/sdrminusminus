@@ -1,42 +1,26 @@
 import type { StationOf } from "../decoded";
 import type { ChannelParams, DecoderKind } from "../types";
 
-/** The decoder kinds that report a position; the rest of `DecoderKind` never reaches the map. */
 export const MAP_KINDS = ["adsb", "ais", "aprs"] as const satisfies readonly DecoderKind[];
 
 export type MapKind = (typeof MAP_KINDS)[number];
 export type Target = StationOf<MapKind>;
 
-/** Semantic per-kind colours (: one accent, semantic status colours only). Chosen to
- * stay apart under deuteranopia — teal / amber / violet, not a red-green pair — and mid-tone so
- * they read on OpenFreeMap's light basemap and on the dark offline backdrop alike. */
 export const KIND_STYLE: Record<MapKind, { title: string; color: string }> = {
   adsb: { title: "Aircraft", color: "#21b0b0" },
   ais: { title: "Ships", color: "#e0a458" },
   aprs: { title: "APRS", color: "#b07de0" },
 };
 
-/** A target unheard for this long is gone, not stationary: an aircraft out of range simply stops
- * transmitting. Five minutes covers an ADS-B fade and an AIS class-B vessel's three-minute
- * reporting interval without leaving ghosts on the map. */
 export const TARGET_MAX_AGE_MS = 5 * 60_000;
 
-/** How often `MapPanel` calls the store's `ageOut` to drop expired targets. Coarser than the
- * draw tick because it exists to bound memory; `targetCollection` already refuses to draw a
- * stale target in between. */
 export const AGE_OUT_INTERVAL_MS = 15_000;
 
-/** Draw tick: the map re-reads the store and calls `setData` at 2 Hz. Targets move at map scale
- * far slower than that, and it decouples redraw cost from the decoder's frame rate — ADS-B alone
- * can push hundreds of frames a second. */
 export const DRAW_TICK_MS = 500;
 
-// Minimal structural GeoJSON, assignable to the `geojson` types MapLibre's `setData` expects.
-// `@types/geojson` is a transitive dependency of maplibre-gl, not one we may import directly.
 export type TargetProperties = {
   id: string;
   label: string;
-  /** Degrees clockwise from true north; absent when the target reports no course. */
   heading?: number;
 };
 
@@ -94,8 +78,6 @@ export function targetCollection(
   return { type: "FeatureCollection", features };
 }
 
-/** `null` for a target that has not yet produced a position — an ADS-B identity frame arrives
- * long before a CPR pair solves, and a map has nowhere to put it. */
 export function targetFeature(station: Target): TargetFeature | null {
   const coordinates = targetPosition(station);
   if (coordinates === null) {
@@ -109,9 +91,6 @@ export function targetFeature(station: Target): TargetFeature | null {
   return { type: "Feature", geometry: { type: "Point", coordinates }, properties };
 }
 
-/** `[lon, lat]` — GeoJSON order, not the order every decoder reports it in — when the pair is
- * a real fix. AIS and APRS pad an unknown position with out-of-range sentinels (lat 91,
- * lon 181). */
 export function geoPosition(
   lat: number | null | undefined,
   lon: number | null | undefined,
@@ -130,11 +109,6 @@ export function targetPosition(station: Target): [number, number] | null {
   return geoPosition(lat, lon);
 }
 
-/**
- * `[lon, lat]` station fixes from the wired channels' settings. Only ADS-B carries one — its
- * CPR reference is where the antenna stands — and two channels sharing an antenna produce one
- * mark, not two.
- */
 export function referencePositions(params: readonly ChannelParams[]): [number, number][] {
   const seen = new Set<string>();
   const positions: [number, number][] = [];
@@ -258,8 +232,6 @@ function detailRows(station: Target): (readonly [string, string])[] {
   }
 }
 
-/** Drops rows whose value is absent, so a target that reports three fields shows three rows
- * instead of a column of dashes. */
 function kept(
   entries: readonly (readonly [string, string | null])[],
 ): (readonly [string, string])[] {
@@ -285,12 +257,10 @@ function trimmed(value: string | null | undefined): string | null {
   return text === "" ? null : text;
 }
 
-/** ITU-R M.1371: 511 = heading not available. */
 function headingOf(headingDeg: number | null | undefined): number | null {
   return headingDeg == null || headingDeg === 511 ? null : headingDeg;
 }
 
-/** ITU-R M.1371: 360.0 = course not available. */
 function courseOf(cogDeg: number | null | undefined): number | null {
   return cogDeg == null || cogDeg === 360 ? null : cogDeg;
 }

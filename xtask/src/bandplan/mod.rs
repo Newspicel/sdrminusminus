@@ -14,7 +14,6 @@ pub(crate) struct Row {
     pub stop_hz: f64,
     pub service: &'static str,
     pub name: String,
-    /// Omitted when true, which is the common case.
     #[serde(skip_serializing_if = "is_true")]
     pub primary: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,12 +47,9 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
-/// A source document and what it produces.
 struct Source {
-    /// Importer name, recorded in each output's provenance.
     generator: &'static str,
     url: &'static str,
-    /// Cache file name; also the extension `pdftotext` keys off.
     file: &'static str,
     kind: Kind,
 }
@@ -61,7 +57,6 @@ struct Source {
 enum Kind {
     PdfLayout,
     PdfBbox,
-    /// Fetch, parse the bytes as they arrived.
     Text,
 }
 
@@ -94,9 +89,6 @@ static SOURCES: &[Source] = &[
     },
 ];
 
-/// The generated half of a layer document. The curated half — `id`, `name`, `authority` — is
-/// authored here rather than scraped, because a regulator's document does not name itself the
-/// way an operator would.
 struct Target {
     id: &'static str,
     name: &'static str,
@@ -274,17 +266,12 @@ fn pem_certificate(der: &[u8]) -> String {
     format!("-----BEGIN CERTIFICATE-----\n{body}\n-----END CERTIFICATE-----\n")
 }
 
-/// Recorded in each document's provenance: text extraction has shifted between poppler
-/// releases, and a regenerated table that differs for that reason is a different kind of news
-/// from one where the regulator changed something.
 fn poppler_version() -> Option<String> {
     let out = Command::new("pdftotext").arg("-v").output().ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
     text.lines().next().map(|line| line.trim().to_string())
 }
 
-/// Self-written rather than a dependency: this is provenance metadata, not a security boundary,
-/// and FIPS 180-4 is a page and a half.
 fn sha256(bytes: &[u8]) -> String {
     const K: [u32; 64] = [
         0x428a_2f98,
@@ -412,11 +399,6 @@ fn sha256(bytes: &[u8]) -> String {
     h.iter().map(|word| format!("{word:08x}")).collect()
 }
 
-/// Map a source's own service wording onto the ten categories the ruler colours by.
-///
-/// Total with a fallback, and the fallback is *reported*: an unmapped service becomes `other`
-/// and prints a line, so a regulator introducing a new wording shows up in the importer's output
-/// instead of quietly turning a band grey (CLAUDE.md: no silent failure).
 pub(crate) fn service_of(
     name: &str,
     table: &[(&str, &str)],
@@ -450,8 +432,6 @@ pub(crate) fn service_of(
     "other"
 }
 
-/// Print what a run could not classify. Called once per importer so the list is deduplicated and
-/// readable rather than one line per row.
 pub(crate) fn report_unmapped(generator: &str, unmapped: &[String]) {
     if unmapped.is_empty() {
         return;
@@ -469,8 +449,6 @@ pub(crate) fn report_unmapped(generator: &str, unmapped: &[String]) {
 mod tests {
     use super::*;
 
-    /// The digest goes into every generated document's provenance, so it has to be the real one
-    /// — a reviewer comparing against `sha256sum` of the download must see the same string.
     #[test]
     fn sha256_matches_the_published_vectors() {
         assert_eq!(
@@ -481,7 +459,6 @@ mod tests {
             sha256(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        // Crosses the 56-byte padding boundary, which is where a hand-written pad goes wrong.
         assert_eq!(
             sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"

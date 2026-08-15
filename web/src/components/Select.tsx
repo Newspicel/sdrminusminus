@@ -2,9 +2,6 @@ import { Select as Primitive } from "@base-ui/react/select";
 import { FIELD, type Options, SURFACE, segment } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
 
-/** One trigger size everywhere. A dropped list is read top to bottom, so past a point extra width
- * only stretches the trigger away from its label — and `w-full` under the cap is what lets the
- * same trigger shrink inside a node dragged to its minimum instead of overflowing it. */
 const TRIGGER = "w-full max-w-52";
 
 export function Select<T extends string | number>({
@@ -28,8 +25,6 @@ export function Select<T extends string | number>({
       items={options}
       value={value}
       disabled={disabled}
-      // Matching the option back by value keeps the call site's literal union; the change
-      // callback is typed against the widened item value.
       onValueChange={(next) => {
         const picked = options.find((option) => option.value === next);
         if (picked !== undefined) {
@@ -38,8 +33,6 @@ export function Select<T extends string | number>({
       }}
     >
       <Primitive.Trigger
-        // The list owns the arrows and the typeahead letters; without this the tuning layer
-        // would act on them too (`useHotkeys`).
         data-hotkeys="off"
         aria-label={label}
         className={`${FIELD} justify-between ${className}`}
@@ -50,8 +43,6 @@ export function Select<T extends string | number>({
         </Primitive.Icon>
       </Primitive.Trigger>
       <Primitive.Portal container={portalContainer} className="contents">
-        {/* A drop-down, not the macOS overlay Base UI defaults to: a list that opens on top of
-            its own trigger hides the value being changed. */}
         <Primitive.Positioner
           className="z-30"
           alignItemWithTrigger={false}
@@ -63,8 +54,6 @@ export function Select<T extends string | number>({
             data-hotkeys="off"
             className={`${SURFACE} max-w-[calc(100vw-1rem)] min-w-[var(--anchor-width)]`}
           >
-            {/* A column flex, not `w-full` items: the positioner is shrink-to-fit, and a
-                percentage width inside one resolves against the whole viewport. */}
             <Primitive.List className="flex max-h-[var(--available-height)] flex-col overflow-y-auto p-0.5">
               {options.map((option) => (
                 <Primitive.Item

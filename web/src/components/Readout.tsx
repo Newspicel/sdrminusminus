@@ -2,14 +2,12 @@ import type { ReactNode } from "react";
 
 const GRID = "grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1";
 
-/** A block of values the operator reads rather than sets. */
 export function Readout({
   children,
   separated = true,
   className,
 }: {
   children: ReactNode;
-  /** `false` where the block already sits directly under a header. */
   separated?: boolean;
   className?: string;
 }) {

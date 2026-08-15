@@ -5,8 +5,6 @@ const SIZE = 340;
 const CENTER = SIZE / 2;
 const RADIUS = SIZE / 2 - 12;
 
-/** Normalised resistances and reactances the grid is drawn at — the set a printed Smith chart
- * carries, which is what makes one readable at a glance. */
 const RESISTANCES = [0.2, 0.5, 1, 2, 5];
 const REACTANCES = [0.2, 0.5, 1, 2, 5];
 

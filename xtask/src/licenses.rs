@@ -1,5 +1,3 @@
-//! `cargo xtask licenses` — the attribution a release owes, harvested from the build that
-//! produces it.
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -11,24 +9,13 @@ use sdrmm_wire::{Attribution, ComponentSource};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Compiled into `crates/server` and served at `/api/about`.
 pub const NOTICES_JSON: &str = "crates/server/data/notices.json";
-/// The repository-facing rendering of the same harvest.
 pub const NOTICES_MARKDOWN: &str = "THIRD_PARTY_NOTICES.md";
 
-/// Workspace members that are not distributed, and whose dependencies are therefore nobody's
-/// attribution problem. `xtask` is a build tool that no artifact contains.
 const NOT_DISTRIBUTED: &[&str] = &["xtask"];
 
-/// A license file bigger than this is not a license file. The largest real one in the tree is
-/// the GPL at ~35 KB, so the cap only ever catches something that has gone wrong.
 const MAX_LICENSE_BYTES: u64 = 256 * 1024;
 
-/// Where a component needs more than its SPDX id to be understood. Keyed by component name.
-///
-/// Every entry here is a case where reading the id alone would leave a user with the wrong
-/// idea — a separately licensed copyleft library, or a permissive license over a patented
-/// algorithm. Nothing goes in this table that the id already says.
 const NOTES: &[(&str, &str)] = &[
     (
         "codec2",
@@ -65,20 +52,14 @@ const NOTES: &[(&str, &str)] = &[
     ),
 ];
 
-/// One curated hardware-layer component.
 struct Native {
     name: &'static str,
     license: &'static str,
     url: &'static str,
     note: Option<&'static str>,
-    /// File names under `packaging/soapy/licenses` holding this component's text, where one is
-    /// committed. Empty means the text travels only in the installer's own `soapy/licenses`.
     files: &'static [&'static str],
 }
 
-/// The hardware layer. Versions are deliberately absent: these arrive from radioconda packages
-/// pinned at packaging time, and writing a version here would assert something this generator
-/// cannot read.
 const NATIVE: &[Native] = &[
     Native {
         name: "SoapySDR",
@@ -166,9 +147,6 @@ struct NoticesDocument {
     license_text: String,
     repository: String,
     components: Vec<Attribution>,
-    /// Content-addressed license texts, shared across every component that ships an identical
-    /// copy. Several hundred crates offer Apache-2.0 byte-for-byte; each MIT copy differs in
-    /// its copyright line and stays distinct.
     texts: BTreeMap<String, String>,
 }
 
@@ -214,9 +192,6 @@ fn harvest(root: &Path, pnpm: &str) -> Result<NoticesDocument> {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             .then_with(|| a.version.cmp(&b.version))
     });
-    // Native rows carry their own notes from [`NATIVE`]; [`NOTES`] annotates the harvested
-    // rows, which have none of their own. Assigning rather than overwriting keeps the two
-    // tables from silently erasing each other.
     for component in &mut components {
         if let Some((_, note)) = NOTES.iter().find(|(name, _)| *name == component.name) {
             component.note = Some((*note).to_string());
@@ -241,14 +216,12 @@ const fn order(source: ComponentSource) -> u8 {
     }
 }
 
-/// License texts, interned by content so identical copies are stored once.
 #[derive(Default)]
 struct TextPool {
     texts: BTreeMap<String, String>,
 }
 
 impl TextPool {
-    /// Returns the id the text is addressed by, or `None` if there is no text to address.
     fn intern(&mut self, text: &str) -> Option<String> {
         let text = normalize(text);
         if text.is_empty() {
@@ -264,9 +237,6 @@ impl TextPool {
     }
 }
 
-/// Line endings and trailing whitespace are checkout artifacts, not license content. Normalizing
-/// them is what stops a Windows clone from hashing every text differently and rewriting the
-/// whole document.
 fn normalize(text: &str) -> String {
     let mut out = text.replace("\r\n", "\n");
     out.truncate(out.trim_end().len());
@@ -292,8 +262,6 @@ fn license_files(dir: &Path, pool: &mut TextPool) -> Result<Vec<String>> {
         if !metadata.is_file() || metadata.len() > MAX_LICENSE_BYTES {
             continue;
         }
-        // A non-UTF-8 "license" is not a license text; skipping it is more honest than
-        // lossily transcoding somebody's copyright line.
         if let Ok(text) = std::fs::read_to_string(entry.path())
             && let Some(id) = pool.intern(&text)
         {
@@ -341,7 +309,6 @@ struct MetaDep {
 
 #[derive(Debug, Deserialize)]
 struct MetaDepKind {
-    /// `null` for a normal dependency, `"dev"` or `"build"` otherwise.
     kind: Option<String>,
 }
 
@@ -396,8 +363,6 @@ fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>>
         }
         let Some(node) = nodes.get(id) else { continue };
         for dep in &node.deps {
-            // A crate pulled in only as a dev-dependency ships nowhere. One that is *also* a
-            // normal or build dependency does, so the test is "every edge is dev", not "any".
             if dep
                 .dep_kinds
                 .iter()
@@ -449,11 +414,6 @@ struct PnpmPackage {
     homepage: Option<String>,
 }
 
-/// The npm packages bundled into the built UI.
-///
-/// `--prod` is the whole point: Vite, Biome and Playwright are how the bundle is built and
-/// checked, not what is in it, and listing them would pad the notices with a few hundred
-/// packages no user ever receives.
 fn web_components(root: &Path, pnpm: &str, pool: &mut TextPool) -> Result<Vec<Attribution>> {
     let output = Command::new(pnpm)
         .args(["--dir", "web", "licenses", "list", "--json", "--prod"])
@@ -491,12 +451,6 @@ fn web_components(root: &Path, pnpm: &str, pool: &mut TextPool) -> Result<Vec<At
     Ok(components)
 }
 
-/// The repository-facing rendering: what a reader with no binary to run gets.
-///
-/// The noted components come first and the bulk tables after, because the ordering is the
-/// message. Six hundred permissive rows say nothing a reader needs to act on; the handful with
-/// a copyleft obligation or a patent behind them do, and burying those in alphabetical order
-/// among the rest is how a notices file becomes something nobody reads.
 fn markdown(document: &NoticesDocument) -> String {
     use std::fmt::Write as _;
 
@@ -572,11 +526,6 @@ fn markdown(document: &NoticesDocument) -> String {
     out
 }
 
-/// The curated hardware layer, with the license texts that are committed for it.
-///
-/// Each row takes only its own texts. Attaching the whole directory to every row would make
-/// the HackRF GPL look like it covers SoapySDR, which is the single most misleading thing this
-/// file could say.
 fn native_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>> {
     let dir = root.join("packaging/soapy/licenses");
     let mut components = Vec::new();

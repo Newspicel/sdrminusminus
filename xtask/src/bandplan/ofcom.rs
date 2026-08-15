@@ -1,4 +1,3 @@
-//! The UK Frequency Allocation Table, from Ofcom's own JSON.
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
@@ -11,7 +10,6 @@ pub(super) static TARGET: &Target = &Target {
     kind: "regulatory",
 };
 
-/// Ofcom's own field names, kept verbatim so the mapping to ours is visible in one place.
 #[derive(Deserialize)]
 struct Document {
     bands: Vec<Band>,
@@ -22,26 +20,19 @@ struct Document {
 #[derive(Deserialize)]
 struct Band {
     id: String,
-    /// `p` primary, `s` secondary.
     cat: String,
-    /// Lower and upper frequency, in Hz.
     lf: f64,
     uf: f64,
-    /// Service name.
     s: String,
 }
 
 #[derive(Deserialize)]
 struct Footnote {
-    /// The band `id` it belongs to.
     id: String,
-    /// The footnote's own identifier, e.g. `5.54A`.
     cid: String,
     t: String,
 }
 
-/// Ofcom writes ITU service names in title case, which makes them a short and stable table.
-/// Ordered: the first substring to match wins, so the qualified names come before the bare ones.
 static SERVICES: &[(&str, &str)] = &[
     ("amateur", "amateur"),
     ("broadcasting", "broadcast"),
@@ -76,8 +67,6 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
     let mut rows: Vec<Row> = doc
         .bands
         .iter()
-        // A zero-width band is a data artefact, not an allocation, and would resolve into a
-        // block nothing can be drawn in.
         .filter(|band| band.uf > band.lf)
         .map(|band| Row {
             primary: band.cat != "s",
@@ -97,9 +86,6 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
-/// Ofcom attaches ITU and UK footnotes per row. They are the only prose the document has, and
-/// they are what an operator actually wants to read at a frequency, so they become the note —
-/// truncated, because some of them run to a page and a popover is not a document viewer.
 fn notes_for(id: &str, footnotes: &[Footnote]) -> Option<String> {
     const LIMIT: usize = 400;
     let joined = footnotes
@@ -115,7 +101,6 @@ fn notes_for(id: &str, footnotes: &[Footnote]) -> Option<String> {
         return Some(joined);
     }
     let cut: String = joined.chars().take(LIMIT).collect();
-    // Break on a word so the ellipsis does not land mid-word.
     let end = cut.rfind(' ').unwrap_or(cut.len());
     Some(format!("{}…", &cut[..end]))
 }
@@ -130,8 +115,6 @@ mod tests {
     fn reads_ranges_services_and_the_row_id_that_is_its_provenance() {
         let rows = parse(FIXTURE).expect("parse");
         let first = &rows[0];
-        // 8.3–9 kHz in Hz: the document's units are Hz, and reading them as kHz would put every
-        // UK allocation a thousand times too high.
         assert_eq!(first.start_hz, 8_300.0);
         assert_eq!(first.stop_hz, 9_000.0);
         assert_eq!(first.name, "Meteorological Aids");
@@ -139,7 +122,6 @@ mod tests {
         assert_eq!(first.reference.as_deref(), Some("FREQ_00001"));
     }
 
-    /// The property that forced the model change: one range, several services, all kept.
     #[test]
     fn keeps_every_service_sharing_one_range() {
         let rows = parse(FIXTURE).expect("parse");

@@ -11,7 +11,6 @@ import {
   samplesPerSymbol,
 } from "./baseband";
 
-/** Cells a grid has been painted into, as `{x, y}` pairs. */
 function lit(grid: ReturnType<typeof createBasebandGrid>): { x: number; y: number }[] {
   const hits: { x: number; y: number }[] = [];
   for (let y = 0; y < grid.height; y++) {
@@ -24,7 +23,6 @@ function lit(grid: ReturnType<typeof createBasebandGrid>): { x: number; y: numbe
   return hits;
 }
 
-/** Interleave complex pairs. */
 function iq(...pairs: [number, number][]): Float32Array {
   return Float32Array.from(pairs.flat());
 }
@@ -64,8 +62,6 @@ describe("addConstellation", () => {
 
   it("plots only every nth sample when decimating to the symbol points", () => {
     const grid = createBasebandGrid(11, 11);
-    // Symbols at ±1 with a transition sample between them; taking every second sample from
-    // offset 0 keeps only the symbols.
     addConstellation(grid, iq([1, 0], [0, 0], [-1, 0], [0, 0]), 1, 2);
     expect(lit(grid)).toEqual([
       { x: 0, y: 5 },
@@ -99,13 +95,11 @@ describe("addConstellation", () => {
 describe("addEye", () => {
   it("overlays every window on the same two-period span", () => {
     const grid = createBasebandGrid(9, 9);
-    // A square wave at period 2: four windows of four samples across an eight-sample burst.
     const samples = iq([1, 0], [1, 0], [-1, 0], [-1, 0], [1, 0], [1, 0], [-1, 0], [-1, 0]);
     addEye(grid, samples, 2, "i", 1);
 
     const columns = new Set(lit(grid).map((hit) => hit.x));
     expect(columns).toEqual(new Set([0, 3, 5, 8]));
-    // Only the two rails, top and bottom — an eye that is fully open.
     expect(new Set(lit(grid).map((hit) => hit.y))).toEqual(new Set([0, 8]));
   });
 
@@ -123,7 +117,6 @@ describe("addEye", () => {
   });
 
   it("reads a rotating phasor as a steady frequency", () => {
-    // A quarter turn per sample is +0.5 in units of π radians per sample.
     const pairs: [number, number][] = [];
     for (let i = 0; i < 16; i++) {
       pairs.push([Math.cos((i * Math.PI) / 2), Math.sin((i * Math.PI) / 2)]);
@@ -131,10 +124,8 @@ describe("addEye", () => {
     const grid = createBasebandGrid(9, 9);
     addEye(grid, iq(...pairs), 2, "frequency", 1);
 
-    // +0.5 of full scale sits a quarter of the way down from the top: row 2 of 0…8.
     const rows = new Set(lit(grid).map((hit) => hit.y));
     expect(rows.has(2)).toBe(true);
-    // The very first sample has no predecessor and reads zero, so the centre row is touched once.
     expect([...rows].every((row) => row === 2 || row === 4)).toBe(true);
   });
 });

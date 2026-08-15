@@ -1,6 +1,3 @@
-//! Ensure the embedded-UI directory exists before `rust-embed` expands, so the server crate
-//! compiles on a fresh clone before the frontend has ever been built. Real builds populate
-//! `web/dist` via `cargo xtask` and the assets are embedded in release binaries.
 #![allow(clippy::expect_used)]
 
 fn main() {

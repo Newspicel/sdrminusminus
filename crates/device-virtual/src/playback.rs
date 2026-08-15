@@ -1,8 +1,3 @@
-//! SigMF file playback: replays a finalized recording as if it were a live capture, paced to
-//! real time. Capabilities pin the recorded center and rate (min == max range, single-entry
-//! rate list), so the generic capability UI shows the true tuning and `apply` rejects retunes
-//! with the same validation shape as the siggen; the only real knob is the `loop` toggle.
-
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
@@ -21,16 +16,13 @@ use sdrmm_wire::{
 
 use crate::{BLOCK_SECS, DRIVER_ID, FILE_KEY_PREFIX};
 
-/// The one extra setting: wrap to sample 0 at end of data (true) or park silent (false).
 pub const LOOP_SETTING: &str = "loop";
 
-/// Parameters the playback thread reads per block via [`ArcSwap`] (snapshot, no lock).
 #[derive(Clone, Copy)]
 struct PlaybackParams {
     looping: bool,
 }
 
-/// An opened SigMF recording streaming as a device.
 pub struct FilePlayback {
     stem: PathBuf,
     sample_rate: f64,
@@ -50,14 +42,11 @@ impl FilePlayback {
     pub(crate) fn open_at_speed(stem: &Path, playback_speed: f64) -> Result<Self, DeviceError> {
         let reader = SigmfReader::open(stem).map_err(|err| open_error(stem, err))?;
         let meta = reader.meta();
-        // `core:sample_rate` is optional in SigMF, but playback cannot pace without one.
         let Some(sample_rate) = meta.global.sample_rate else {
             return Err(DeviceError::Unsupported(
                 "recording has no core:sample_rate".to_string(),
             ));
         };
-        // A non-positive or non-finite rate would poison the pacing arithmetic
-        // (`Duration::from_secs_f64` panics on non-finite input).
         if !sample_rate.is_finite() || sample_rate <= 0.0 {
             return Err(DeviceError::Unsupported(format!(
                 "recorded sample_rate {sample_rate}"
@@ -111,9 +100,6 @@ impl FilePlayback {
             capabilities,
             settings,
             shared: Arc::new(ArcSwap::from_pointee(PlaybackParams { looping: true })),
-            // From the data file, not the metadata: a crash-truncated pair must report the
-            // length that can actually be replayed, or the transport bar promises samples the
-            // reader will never reach.
             transport: Arc::new(PlaybackShared::new(reader.total_samples())),
             worker: Worker::new(),
         })
@@ -194,8 +180,6 @@ impl SdrDevice for FilePlayback {
         let sample_rate = self.sample_rate;
         let playback_speed = self.playback_speed;
         self.worker.start("sdrmm-playback-rx", move |running| {
-            // Opened on the worker so a file that vanished since `open` surfaces through the
-            // fault channel like any other dead capture, not as an rx_start error.
             let mut reader = match SigmfReader::open(&stem) {
                 Ok(reader) => reader,
                 Err(err) => {
@@ -203,10 +187,6 @@ impl SdrDevice for FilePlayback {
                     return;
                 }
             };
-            // [`BLOCK_SECS`] of wall clock, not of recorded time: a block that stayed
-            // real-time-sized would make an accelerated stream wake `speed` times as often for
-            // the same recording, and per-wake scheduler slack, not the requested speed, would
-            // decide how fast the tape ran.
             let n = ((sample_rate * BLOCK_SECS * playback_speed).round() as usize).max(1);
             let mut block = vec![Complex::new(0.0f32, 0.0); n];
             let mut next = Instant::now();
@@ -219,9 +199,6 @@ impl SdrDevice for FilePlayback {
                     sink.fail(DeviceError::Io(err.to_string()));
                     return;
                 }
-                // A paused transport consumes nothing and emits nothing — the spectrum freezes
-                // where it stood, which is the honest picture of a stopped tape. It still has
-                // to wake on a resume, a seek or a stop, so the park is one block long.
                 if transport.paused() {
                     std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));
                     next = Instant::now();
@@ -230,7 +207,6 @@ impl SdrDevice for FilePlayback {
                 let mut filled = 0;
                 while filled < block.len() {
                     match reader.read_block(&mut block[filled..]) {
-                        // An empty recording must park below, not spin on rewind.
                         Ok(0) if params.looping && reader.total_samples() > 0 => {
                             if let Err(err) = reader.rewind() {
                                 sink.fail(DeviceError::Io(err.to_string()));
@@ -250,9 +226,6 @@ impl SdrDevice for FilePlayback {
                 }
                 transport.set_position(reader.position(), position_generation);
                 if filled < block.len() {
-                    // End of data with looping off: hold silent (the spectrum freezes —
-                    // honest idle), but keep watching so re-enabling `loop`, or scrubbing back
-                    // into the recording, resumes it.
                     while running.load(Ordering::Acquire) {
                         std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));
                         if shared.load_full().looping || transport.seek_pending() {
@@ -352,8 +325,6 @@ mod tests {
         }
     }
 
-    /// Pause has to stop the tape, not mute it: a paused transport that kept reading would run
-    /// off the end of the recording while the operator was looking at a frozen spectrum.
     #[test]
     fn pause_stops_consuming_and_play_resumes_where_it_stopped() {
         let dir = TempDir::new().unwrap();
@@ -368,7 +339,6 @@ mod tests {
         let before = collect(&rx, 1);
         control.control(&transport(PlaybackAction::Pause, None));
 
-        // Whatever block was already in flight may still land; after that, silence.
         while rx.recv_timeout(Duration::from_millis(200)).is_ok() {}
         let at_pause = control.status();
         assert!(at_pause.paused);
@@ -403,14 +373,11 @@ mod tests {
         assert!(stopped.paused);
         assert_eq!(stopped.position_samples, 0);
 
-        // Playing again yields the head of the recording, not the middle.
         control.control(&transport(PlaybackAction::Play, None));
         assert_bits_eq(&recorded[..1_000], &collect(&rx, 1_000)[..1_000]);
         dev.rx_stop();
     }
 
-    /// A seek must land on the sample asked for, so the samples that follow are the ones the
-    /// operator scrubbed to — an off-by-a-block transport is worse than none.
     #[test]
     fn a_seek_replays_from_exactly_that_sample() {
         let dir = TempDir::new().unwrap();
@@ -419,7 +386,6 @@ mod tests {
 
         let mut dev = FilePlayback::open(&stem).unwrap();
         let control = dev.playback().unwrap();
-        // Paused first, so the seek is not raced by the block the worker is already reading.
         control.control(&transport(PlaybackAction::Pause, None));
         let rx = start(&mut dev);
         while rx.recv_timeout(Duration::from_millis(200)).is_ok() {}
@@ -432,8 +398,6 @@ mod tests {
         dev.rx_stop();
     }
 
-    /// Parked at the end with looping off, a scrub backwards has to wake the worker — the park
-    /// only watched the `loop` flag, so a seek would have sat there unnoticed.
     #[test]
     fn seeking_back_wakes_a_transport_parked_at_the_end() {
         let dir = TempDir::new().unwrap();
@@ -452,8 +416,6 @@ mod tests {
         dev.rx_stop();
     }
 
-    /// The position is what the progress bar draws; it has to track the samples actually
-    /// delivered, and wrap with the recording rather than run past its end.
     #[test]
     fn the_reported_position_follows_playback_and_wraps_with_the_loop() {
         let dir = TempDir::new().unwrap();
@@ -469,7 +431,6 @@ mod tests {
         assert!(status.position_samples > 0);
         assert!(status.position_samples <= 50_000, "never past the end");
 
-        // Two full passes: looping is on by default, so the position wraps instead of running on.
         collect(&rx, 100_000);
         assert!(control.status().position_samples <= 50_000);
         dev.rx_stop();
@@ -518,10 +479,6 @@ mod tests {
         }
     }
 
-    /// An accelerated playback carries `speed` times as many samples per block as a real-time
-    /// one, so both wake the same number of times per second and the samples are unchanged.
-    /// A 20× stream sized in recorded time woke 20× as often, which is how a loaded runner
-    /// came to replay it at a third of the speed the test had asked for.
     #[test]
     fn accelerated_playback_keeps_the_real_time_wake_up_rate() {
         const SPEED: f64 = 8.0;
@@ -559,8 +516,6 @@ mod tests {
             &caps.extra[..],
             [ExtraSetting::Bool { name, default: true }] if name == LOOP_SETTING
         ));
-        // The recorded centre is a single point and there is no oscillator to correct, so the
-        // dial and the ppm field are both readouts on this device, not controls.
         assert_eq!(caps.freq_ranges[0].min, caps.freq_ranges[0].max);
         assert!(!caps.ppm);
         assert_eq!(dev.settings().center_hz, Some(100_000_000.0));
@@ -610,7 +565,6 @@ mod tests {
                 "must reject {bad:?}"
             );
         }
-        // Rejected deltas must not leak into settings.
         assert!(dev.looping());
 
         dev.apply(&DeviceSettings {

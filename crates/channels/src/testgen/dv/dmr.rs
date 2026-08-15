@@ -1,13 +1,8 @@
-//! DMR reference transmitter (ETSI TS 102 361-1): builds the bursts of a whole transmission —
-//! voice LC header, a voice superframe carrying its link control in the embedded field, and a
-//! terminator — and modulates them as a direct-mode radio would.
-
 use num_complex::Complex;
 use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, crc16_msb, rs129_parity};
 
 use super::{bits, dibits, filler};
 
-/// Direct-mode slot 1 sync patterns, which name their timeslot on the wire.
 const VOICE_SYNC: u64 = 0x5D57_7F77_57FF;
 const DATA_SYNC: u64 = 0xF7FD_D5DD_FD55;
 const BS_VOICE_SYNC: u64 = 0x755F_D7DF_75F7;
@@ -23,14 +18,9 @@ const BAUD: f64 = 4_800.0;
 const DEVIATION_HZ: f64 = 1_944.0;
 const RRC_ALPHA: f64 = 0.2;
 
-/// Symbols in a 30 ms timeslot, of which the 264-bit burst is 132 (27.5 ms). A direct-mode
-/// radio keys off for the remaining 2.5 ms of guard time and for the whole of the other
-/// slot — so it transmits 132 symbols in every 288, and this generator has to key off for the
-/// other 156 or it would not be exercising a TDMA receiver at all.
 const SLOT_SYMBOLS: usize = 144;
 const BURST_SYMBOLS: usize = 132;
 
-/// One call, as its transmitter would key it.
 pub struct Call {
     pub color_code: u8,
     pub group: bool,
@@ -52,7 +42,6 @@ impl Default for Call {
 }
 
 impl Call {
-    /// The 72-bit full link control this call is described by.
     #[must_use]
     pub fn link_control(&self) -> Vec<bool> {
         let flco = u64::from(!self.group) * 3;
@@ -65,9 +54,6 @@ impl Call {
     }
 }
 
-/// The voice LC header a radio sends at the head of a call, a voice superframe whose embedded
-/// link control repeats the same addressing, and a terminator — each keyed for its own 30 ms
-/// slot with the rest of the 60 ms TDMA frame dead, as a direct-mode radio transmits.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     let voice: [[bool; 216]; 6] = std::array::from_fn(|_| {
@@ -79,13 +65,11 @@ pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     transmission_with_voice(call, &voice, rate)
 }
 
-/// A base-station transmission with a Golay/Hamming-protected CACH naming the repeater slot.
 #[must_use]
 pub fn repeater_transmission(call: &Call, slot: u8, rate: f64) -> Vec<Complex<f32>> {
     repeater_calls(call, None, slot, rate)
 }
 
-/// Two simultaneous repeater calls, one state machine per timeslot.
 #[must_use]
 pub fn dual_slot_transmission(slot_one: &Call, slot_two: &Call, rate: f64) -> Vec<Complex<f32>> {
     repeater_calls(slot_one, Some(slot_two), 1, rate)
@@ -196,9 +180,6 @@ fn cach(slot: u8) -> Vec<bool> {
     .to_vec()
 }
 
-/// The same independently-framed transmission with caller-provided, already encoded vocoder
-/// sockets. This seam lets receive tests generate AMBE frames without putting a production
-/// encoder in the channel.
 #[must_use]
 pub(crate) fn transmission_with_voice(
     call: &Call,
@@ -228,7 +209,6 @@ pub(crate) fn transmission_with_voice(
     tx.modulate(rate)
 }
 
-/// A single CSBK burst — the signalling that travels outside a call.
 #[must_use]
 pub fn csbk(
     color_code: u8,
@@ -268,9 +248,6 @@ pub(crate) fn csbk_with_fid(
     tx.modulate(rate)
 }
 
-/// A Tier III absolute channel definition: the broadcast MBC header that announces one, and the
-/// continuation carrying the frequencies. They are only meaningful as the pair the transmitter
-/// sends them as, so the generator emits nothing else.
 #[must_use]
 pub fn channel_definition(
     color_code: u8,
@@ -282,8 +259,6 @@ pub fn channel_definition(
     multi_block(color_code, channel, tx_hz, rx_hz, false, rate)
 }
 
-/// The same pair with an unrelated CSBK burst between the two halves — which the standard does
-/// not allow, and a receiver must not read as a definition.
 #[must_use]
 pub fn interrupted_channel_definition(
     color_code: u8,
@@ -307,7 +282,6 @@ fn multi_block(
 
     let mut header = vec![false; 80];
     write(&mut header, 2, 6, OPCODE);
-    // Announcement type 0b00101: "broadcast channel frequency".
     write(&mut header, 16, 5, 0b00101);
     write(&mut header, 68, 12, u64::from(channel));
     let header = with_crc(header, 0xAAAA);
@@ -353,8 +327,6 @@ fn with_crc(mut payload: Vec<bool>, mask: u16) -> Vec<bool> {
     payload
 }
 
-/// The symbol stream a direct-mode radio puts on the air: its own burst, then the guard time
-/// and the other radio's slot, which it spends keyed off.
 #[derive(Default)]
 struct Keyed {
     symbols: Vec<Option<u8>>,
@@ -373,16 +345,11 @@ impl Keyed {
         let mut noise = Noise(0x5d5d_7f77);
         super::c4fm_keyed(&self.symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
             .into_iter()
-            // The receiver's own noise is on the channel whether the transmitter is keyed or
-            // not. A generated signal without it reads as digitally silent between bursts,
-            // which is not something any receiver sees — and a carrier detector has nothing
-            // to measure a noise floor from.
             .map(|sample| sample + noise.sample())
             .collect()
     }
 }
 
-/// A receiver's noise floor, 40 dB below a unit-magnitude carrier.
 struct Noise(u32);
 
 impl Noise {
@@ -398,8 +365,6 @@ impl Noise {
     }
 }
 
-/// The 96-bit signalling block of a link control frame: 72 bits of addressing and the
-/// Reed-Solomon parity, masked by frame type.
 fn lc_with_parity(call: &Call, mask: [u8; 3]) -> Vec<bool> {
     let lc = call.link_control();
     let parity = rs129_parity(&pack(&lc));
@@ -410,8 +375,6 @@ fn lc_with_parity(call: &Call, mask: [u8; 3]) -> Vec<bool> {
     out
 }
 
-/// The 77 bits a BPTC(128,77) embedded block carries: the link control with its five-bit
-/// checksum threaded through column 10 of rows 2 to 6.
 fn embedded_block(call: &Call) -> [bool; Bptc128::DATA_BITS] {
     let lc = call.link_control();
     let checksum = pack(&lc).iter().map(|&b| u32::from(b)).sum::<u32>() % 31;
@@ -429,8 +392,6 @@ fn embedded_block(call: &Call) -> [bool; Bptc128::DATA_BITS] {
     out
 }
 
-/// A 264-bit data burst: BPTC payload either side of the sync, with the Golay slot type in
-/// between.
 fn data_burst(call: &Call, data_type: u8, payload: &[bool]) -> Vec<bool> {
     let mut block = [false; Bptc196::DATA_BITS];
     for (slot, &bit) in block.iter_mut().zip(payload) {
@@ -448,8 +409,6 @@ fn data_burst(call: &Call, data_type: u8, payload: &[bool]) -> Vec<bool> {
     burst
 }
 
-/// A 264-bit voice burst: filler where the vocoder frames go, and either the sync (burst A) or
-/// an embedded signalling field with one quarter of the link control (bursts B to F).
 fn voice_burst(call: &Call, embedded: Option<(u8, Vec<bool>)>, vocoder: &[bool; 216]) -> Vec<bool> {
     let mut burst = vocoder[..108].to_vec();
     match embedded {

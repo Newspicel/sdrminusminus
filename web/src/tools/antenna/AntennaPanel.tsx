@@ -184,8 +184,6 @@ function Row({
   );
 }
 
-/** The controls a design adds to the common ones. A design with no choices adds nothing, which
- * is why this returns null rather than an empty group. */
 function DesignSettings({
   design,
   onChange,

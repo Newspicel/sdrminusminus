@@ -17,9 +17,6 @@ import {
 } from "./frame";
 import type { ClientCommand, ServerEvent } from "./types";
 
-/** First reconnect delay; each further failure doubles it up to [`RECONNECT_MAX_MS`]. A fixed
- * 1 s retry turned a stopped server — or a wrong token, which the browser reports as a plain
- * close — into a 1 Hz request flood for as long as the tab stayed open. */
 const RECONNECT_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 
@@ -43,8 +40,6 @@ export class SdrSocket {
     this.path = path;
   }
 
-  /** Built per connection, not once: the token can be entered after the socket exists, and the
-   * browser WebSocket API has no way to send it as a header. */
   private url(): string {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return withToken(`${proto}//${window.location.host}${this.path}`);
@@ -114,8 +109,6 @@ export class SdrSocket {
     this.detach();
   }
 
-  /** Silence and close the current socket, so nothing it does afterwards reaches this
-   * instance's handlers. */
   private detach(): void {
     const ws = this.ws;
     this.ws = null;
@@ -130,9 +123,6 @@ export class SdrSocket {
   }
 
   private open(): void {
-    // Detach the previous socket first: a close that arrives after its replacement exists
-    // would otherwise schedule a *second* reconnect, and both sockets would fan duplicate
-    // frames into the same handlers.
     this.detach();
     const ws = new WebSocket(this.url());
     ws.binaryType = "arraybuffer";
@@ -231,8 +221,6 @@ export class SdrSocket {
     }, delay);
   }
 
-  /** Reconnect now, resetting the backoff — for when the reason it was failing is known to be
-   * fixed (a token was just entered). */
   retryNow(): void {
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);

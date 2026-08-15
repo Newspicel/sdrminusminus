@@ -34,8 +34,6 @@ describe("frozenRow", () => {
 
     expect(frozenRow(frozen, 0)?.db[0]).toBe(-100);
     expect(frozenRow(frozen, 0)?.db[1]).toBe(-20);
-    // The second row was measured under a window that had already moved; reading it under the
-    // first one's would put the same bytes 40 dB away from where they were measured.
     expect(frozenRow(frozen, 1)?.db[0]).toBe(-60);
     expect(frozenRow(frozen, 1)?.db[1]).toBe(0);
   });

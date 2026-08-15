@@ -1,4 +1,3 @@
-//! System Fusion (YSF) decoder: C4FM at 4800 symbols per second in 12.5 kHz, 100 ms frames.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -20,20 +19,11 @@ pub(crate) const DEVIATION_HZ: f64 = 1_944.0;
 pub(crate) const RRC_ALPHA: f64 = 0.2;
 pub(crate) const BANDWIDTH_HZ: f64 = 12_500.0;
 
-/// The sync every frame opens with: 0xD471C9634D, 40 bits.
 pub(crate) const SYNC: u64 = 0x00D4_71C9_634D;
 pub(crate) const SYNC_BITS: u32 = 40;
-/// Looser than the other modes' roughly-a-tenth, and measured: a transmission's first sync
-/// meets a cold front end whose clock and level scale are still converging, and unlike the
-/// all-outer-symbol syncs of DMR and P25 this pattern mixes ±1 and ±3 — acquisition ISI was
-/// measured putting six bit errors into it where the steady state puts zero. YSF can afford
-/// the width, alone in the family: everything reported stands behind the FICH's three codes,
-/// so a chance match costs a hundred symbols of hunting and never a frame.
 pub(crate) const SYNC_TOLERANCE: u32 = 6;
 
-/// The FICH occupies the 100 symbols after the sync.
 const FICH_SYMBOLS: usize = 100;
-/// Its 200 coded bits carry 96 after the convolutional code, and 48 after the Golay blocks.
 const FICH_CODED_BITS: usize = 200;
 const FICH_INFO_BITS: usize = 96;
 const FICH_BYTES: usize = 6;
@@ -76,7 +66,6 @@ fn params(settings: &ChannelSettings) -> Result<&YsfParams, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
@@ -111,8 +100,6 @@ impl ChannelRx for YsfChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         for &symbol in &self.symbols {
@@ -124,13 +111,11 @@ impl ChannelRx for YsfChannel {
 struct Decoder {
     window: SymbolWindow,
     viterbi: Viterbi5,
-    /// Symbols still to arrive before the FICH of a matched frame is complete.
     countdown: usize,
     hunting: bool,
     soft: Vec<i16>,
     coded: Vec<i16>,
     info: Vec<bool>,
-    /// Frame type last reported, so a 100 ms heartbeat does not become a log entry per frame.
     last_kind: Option<DvFrameKind>,
     bits: Vec<bool>,
     half_vocoder: MbeDecoder,
@@ -188,7 +173,6 @@ impl Decoder {
         }
     }
 
-    /// Decode the 100-symbol FICH immediately before the payload now at the window tail.
     fn fich(&mut self) -> Option<(DvFrame, u8)> {
         self.window
             .soft_bits(PAYLOAD_SYMBOLS, FICH_SYMBOLS, &mut self.soft);
@@ -201,7 +185,6 @@ impl Decoder {
         self.info.clear();
         self.viterbi.decode(&self.coded, &mut self.info);
 
-        // Four Golay(24,12,8) blocks, 12 information bits each.
         let mut fich = [0u8; FICH_BYTES];
         let mut errors = 0;
         let mut value = 0u64;
@@ -257,8 +240,6 @@ impl Decoder {
                     );
                 }
             }
-            // Five 20-symbol DCH blocks alternating with 52-symbol, repetition-protected
-            // natural-order AMBE+2 frames.
             2 => {
                 if kind != DvFrameKind::Voice {
                     return;
@@ -332,7 +313,6 @@ impl Decoder {
     }
 }
 
-/// The four payload layouts a YSF transmission can use (the FICH "DT" field).
 fn data_mode_name(dt: u8) -> &'static str {
     match dt {
         0 => "V/D mode 1",
@@ -382,8 +362,6 @@ mod tests {
         );
     }
 
-    /// Three communication frames arrive between the header and the terminator, and they say
-    /// the same thing; the log gets one line, not three.
     #[test]
     fn a_run_of_identical_frames_is_reported_once() {
         let iq = tx::transmission(&tx::Fich::default(), INPUT_RATE_HZ);

@@ -2,7 +2,6 @@ use num_complex::Complex;
 
 use crate::fir::StreamFir;
 
-/// Decimator for complex IQ.
 #[derive(Clone, Debug)]
 pub struct Decimator {
     core: StreamFir<Complex<f32>, f32>,
@@ -16,13 +15,11 @@ impl Decimator {
         }
     }
 
-    /// Replaces `out` with the output samples fully computable from history + `input`.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.core.process(input, out);
     }
 }
 
-/// Decimator for real samples (audio-rate paths).
 #[derive(Clone, Debug)]
 pub struct RealDecimator {
     core: StreamFir<f32, f32>,
@@ -36,7 +33,6 @@ impl RealDecimator {
         }
     }
 
-    /// Replaces `out` with the output samples fully computable from history + `input`.
     pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
         self.core.process(input, out);
     }
@@ -125,8 +121,6 @@ mod tests {
     fn factor_equal_to_tap_count_streams_without_panic() {
         let mut d = Decimator::new(&[0.25, 0.5, 0.25], 3);
         let mut out = Vec::new();
-        // The block split that drove the post-emit stride past the buffer end when the
-        // factor exceeded the tap count.
         d.process(&complex_tone(0.01, 6), &mut out);
         d.process(&complex_tone(0.01, 3), &mut out);
     }

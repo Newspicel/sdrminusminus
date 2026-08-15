@@ -5,8 +5,6 @@ import { getToken, onTokenRejected, setToken } from "../lib/auth";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 
-/** Renders `children` once the server is reachable without a prompt, or the prompt itself when
- * a token is required and none is stored. */
 export function TokenGate({ onToken, children }: { onToken: () => void; children: ReactNode }) {
   const queryClient = useQueryClient();
   const auth = useQuery(authQuery());
@@ -14,8 +12,6 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
   const [saved, setSaved] = useState(getToken() !== null);
   const [refused, setRefused] = useState(false);
 
-  // The token the browser had was refused (wrong, or the server's was changed). Come back and
-  // ask, rather than leaving every request failing behind a UI that looks fine.
   useEffect(
     () =>
       onTokenRejected(() => {
@@ -25,9 +21,6 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
     [],
   );
 
-  // While the probe is in flight the app renders: the probe is the only unauthenticated call,
-  // so a slow one must not blank the UI, and every other request will 401 harmlessly until it
-  // resolves.
   if (auth.data?.token_required !== true || saved) {
     return children;
   }

@@ -5,7 +5,6 @@ pub struct Agc {
     target: f32,
     max_gain: f32,
     gain: f32,
-    /// Smoothed mean-square power of the input.
     env: f32,
     env_coeff: f32,
     attack_coeff: f32,
@@ -19,8 +18,6 @@ impl Agc {
             rate > 0.0 && target_rms > 0.0 && attack_s > 0.0 && release_s > 0.0 && max_gain > 0.0,
             "agc parameters must be positive"
         );
-        // The envelope only has to average over an audio cycle; the user-facing dynamics are
-        // the gain time constants, so keep it fast relative to both.
         let env_tau = f64::from(attack_s.min(release_s)).clamp(4e-4, 8e-3) / 4.0;
         Self {
             target: target_rms,
@@ -39,8 +36,6 @@ impl Agc {
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
-        // A non-finite sample latches `env` (NaN reads as rms 0 → gain pinned at max even
-        // after the input recovers); heal per block so the fault costs one block.
         if !self.env.is_finite() {
             self.env = 0.0;
         }
@@ -109,8 +104,6 @@ mod tests {
             .collect();
         agc.process(&mut quiet);
 
-        // Step to −6 dBFS RMS; gain must collapse from ~25 on the attack constant, not the
-        // release constant (which would still be ~11x at this point).
         let mut loud: Vec<f32> = real_tone(1_000.0 / RATE, 9_600)
             .iter()
             .map(|v| v * 0.5 * std::f32::consts::SQRT_2)
@@ -128,8 +121,6 @@ mod tests {
         poisoned[0] = f32::NAN;
         agc.process(&mut poisoned);
 
-        // A loud tone after the fault must converge back to target — not stay pinned at
-        // max_gain by a latched NaN envelope.
         let mut loud: Vec<f32> = real_tone(1_000.0 / RATE, 9_600)
             .iter()
             .map(|v| v * 0.5 * std::f32::consts::SQRT_2)

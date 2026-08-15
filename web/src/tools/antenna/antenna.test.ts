@@ -92,7 +92,6 @@ describe("formatLength", () => {
     expect(formatLength(0.2, "ft")).toBe("7.9 in");
   });
 
-  /** A length a hair under a foot boundary must not print as twelve inches. */
   it("rounds before it carries", () => {
     expect(formatLength(12 * 3.99 * 0.0254, "ft")).toBe("3 ft 11.9 in");
     expect(formatLength(4 * 0.3048 - 0.0001, "ft")).toBe("4 ft 0.0 in");

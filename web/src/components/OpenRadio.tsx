@@ -16,8 +16,6 @@ import {
 } from "./devices";
 import { Select } from "./Select";
 
-/** Naming a radio that is somewhere else. Folded away by default: it is the rarer path, and an
- * address field above the list of what is actually plugged in would read as the main one. */
 function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: boolean }) {
   const [driver, setDriver] = useState<string>(NETWORK_BACKENDS[0].driver);
   const [address, setAddress] = useState("");
@@ -132,9 +130,6 @@ function RecordingChoices({
   );
 }
 
-/** The discovered devices, one button each, with the states discovery itself can be in — plus the
- * one radio no discovery can find, which is the one on another machine. The caller decides what
- * choosing one does. */
 export function DeviceChoices({
   onChoose,
   onAddNetwork,
@@ -146,7 +141,6 @@ export function DeviceChoices({
   onAddNetwork: (deviceId: string) => void;
   busy?: boolean;
   error?: string | null;
-  /** Radios other nodes already name, which this one may not name a second time. */
   claimed?: readonly DeviceRef[];
 }) {
   const devices = useQuery(devicesQuery());
@@ -211,7 +205,6 @@ export function DeviceChoices({
   );
 }
 
-/** The `--doctor` report, rendered where a stuck first-time user will actually look for it. */
 function Doctor() {
   const doctor = useQuery(doctorQuery(true));
   if (doctor.isPending) {

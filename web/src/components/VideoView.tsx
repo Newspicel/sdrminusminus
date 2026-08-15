@@ -2,14 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { VideoFrame } from "../lib/frame";
 import { videoHub } from "../lib/video";
 
-/** A raster is transmitted for a 4:3 screen, and what a channel samples out of it is however many
- * pixels its bandwidth resolved along the line — far fewer than its 576 rows. So the canvas is
- * drawn at the picture's own size and *displayed* at the shape it was scanned for; stretching in
- * CSS is what keeps the source honest. */
 const DISPLAY_ASPECT = 4 / 3;
 
-/** No picture for this long and the readout says so. Longer than the gap between fields by a wide
- * margin, so a momentary loss of sync does not flicker the label. */
 const STALE_MS = 2_000;
 
 interface Geometry {
@@ -17,9 +11,6 @@ interface Geometry {
   height: number;
 }
 
-/** Which channel's pictures to draw. A concrete pair, unlike a decoder view's `DecoderScope`,
- * which is a filter over a shared store: a video stream is subscribed to, and there is no such
- * thing as subscribing to "every channel". */
 export interface VideoScope {
   deviceSet: number;
   channel: number;
@@ -35,14 +26,10 @@ export function VideoView({ scope }: { scope: VideoScope }) {
     if (canvas === null) {
       return;
     }
-    // `willReadFrequently` is deliberately absent: this context is written every field and never
-    // read back, which is the case the GPU-backed path is for.
     const ctx = canvas.getContext("2d");
     if (ctx === null) {
       return;
     }
-    // Reused across frames: an ImageData per field would be a 60 kB allocation fifty times a
-    // second, and the geometry only changes when the standard does.
     let image: ImageData | null = null;
     let stale = 0;
 
@@ -75,8 +62,6 @@ export function VideoView({ scope }: { scope: VideoScope }) {
       stale = window.setTimeout(() => setLive(false), STALE_MS);
     };
 
-    // The last picture this channel sent, so a face that has just remounted opens on the raster
-    // it was showing rather than on a blank canvas for a field period.
     const held = videoHub.latest(scope.deviceSet, scope.channel);
     if (held !== null) {
       draw(held);

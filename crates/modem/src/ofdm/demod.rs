@@ -1,4 +1,3 @@
-//! The OFDM receiver: acquire, estimate, equalise, track, demap.
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -14,20 +13,6 @@ use crate::{
     soft::Llr,
 };
 
-/// Samples every transform window is moved earlier into the cyclic prefix.
-///
-/// The window has to sit inside `[delay spread, cp]` relative to the symbol to be ISI-free, and
-/// the two ends of that interval buy different things: the far end maximises delay-spread
-/// tolerance, an earlier one buys tolerance to a *late* timing estimate — which is not
-/// symmetrical, because a window one sample early is a cyclic shift (a phase ramp the estimate
-/// itself absorbs, since the training is read through the same backoff) while a window one sample
-/// late is inter-symbol interference no equaliser of this shape removes.
-///
-/// So the default is not zero, and the number is measured rather than chosen: a quarter of the
-/// prefix costs nothing on the multipath row that matters (the committed two-ray limit is still
-/// the prefix minus the backoff) and takes the acquiring rows' distance from their closed form
-/// down by ~0.5 dB, because the long-training correlation's peak in noise is occasionally a
-/// sample late.
 pub const DEFAULT_BACKOFF: usize = 4;
 
 #[derive(Clone)]
@@ -45,22 +30,15 @@ pub struct OfdmDemod {
     tracker: PilotTracker,
     cfo: f64,
     data_start: usize,
-    /// Per-training-bin scratch for the two repeats the estimate and the noise variance are
-    /// formed from.
     first: Vec<Complex<f32>>,
     second: Vec<Complex<f32>>,
     pilot_offsets: Vec<i32>,
     pilot_errors: Vec<Complex<f32>>,
     pilot_weights: Vec<f32>,
-    /// One symbol's equalised data points — what `demodulate` streams out of.
     points: Vec<Complex<f32>>,
 }
 
 impl OfdmDemod {
-    /// A receiver at the default tier: the long training's estimate with pilot tracking on.
-    ///
-    /// # Panics
-    /// As [`PreambleSync::new`].
     #[must_use]
     pub fn new(params: OfdmParams) -> Self {
         let fft_size = params.fft();
@@ -107,17 +85,12 @@ impl OfdmDemod {
         self
     }
 
-    /// Moves every transform window this many samples earlier into the prefix (see
-    /// [`DEFAULT_BACKOFF`]).
     #[must_use]
     pub fn with_window_backoff(mut self, samples: usize) -> Self {
         self.backoff = samples.min(self.params.cp());
         self
     }
 
-    /// Turns the per-symbol pilot fit on or off. Off is the genie comparison's configuration and
-    /// nothing else: a chain that acquires needs it, because a residual carrier offset of a
-    /// millionth of a cycle per sample is still 4° of common phase by the end of a frame.
     #[must_use]
     pub fn with_pilot_tracking(mut self, on: bool) -> Self {
         self.pilot_tracking = on;
@@ -144,15 +117,6 @@ impl OfdmDemod {
         self.data_start
     }
 
-    /// Finds the frame in `x` (searching the first `search` samples for its start), measures the
-    /// carrier offset, and forms the channel estimate and noise variance. Every later call reads
-    /// the state this leaves behind.
-    ///
-    /// `None` only when the buffer is too short to hold a preamble — the honest "nothing to
-    /// answer with". A *bad* acquisition is never reported as a failure: the crate's standing
-    /// rule is that a chain too degraded to place its frame scores its garbage as bit errors
-    /// rather than declining, so a threshold here would only hide the same errors behind a
-    /// shorter output.
     pub fn acquire(&mut self, x: &[Complex<f32>], search: usize) -> Option<Acquisition> {
         let acquisition = self.sync.acquire(x, search)?;
         self.cfo = acquisition.cfo;
@@ -165,14 +129,6 @@ impl OfdmDemod {
         Some(acquisition)
     }
 
-    /// The comparison receiver: frame origin, carrier offset, channel and residual phase all
-    /// *given*. `channel` is one gain per occupied subcarrier in the map's own ascending order.
-    /// What separates a curve measured through this from one measured through
-    /// [`acquire`](Self::acquire) is the cost of acquisition, which is the number the catalog's
-    /// genie row exists to commit.
-    ///
-    /// # Panics
-    /// If `channel` is not one value per occupied subcarrier.
     pub fn genie(&mut self, data_start: usize, channel: &[Complex<f32>], noise_var: f64) {
         assert_eq!(
             channel.len(),
@@ -199,7 +155,6 @@ impl OfdmDemod {
         out.copy_from_slice(&self.points);
     }
 
-    /// `symbols` consecutive data symbols, appended to `out`.
     pub fn demodulate(&mut self, x: &[Complex<f32>], symbols: usize, out: &mut Vec<Complex<f32>>) {
         out.reserve(symbols * self.params.data_subcarriers());
         for symbol in 0..symbols {
@@ -218,7 +173,6 @@ impl OfdmDemod {
         }
     }
 
-    /// Reads one data symbol into [`Self::points`].
     fn read_symbol(&mut self, x: &[Complex<f32>], symbol: usize) {
         let start = self.data_start + symbol * self.params.symbol_samples() + self.params.cp()
             - self.backoff;
@@ -228,8 +182,6 @@ impl OfdmDemod {
         } else {
             PilotFit::default()
         };
-        // The correction is a line in subcarrier offset, so it is stepped rather than evaluated:
-        // one `sin_cos` per symbol instead of one per subcarrier.
         let data = self.params.map().data();
         let mut offset = data[0].offset;
         let (mut rot, step) = phase_line(fit.common_rad, fit.slope_rad_per_bin, offset);
@@ -244,7 +196,6 @@ impl OfdmDemod {
         }
     }
 
-    /// Equalises the pilots of one symbol and fits their residual phases.
     fn fit_pilots(&mut self, symbol: usize) -> PilotFit {
         for (index, c) in self.params.map().pilots().iter().enumerate() {
             let z = self.channel.equalize(c.bin, self.grid[c.bin]);
@@ -256,9 +207,6 @@ impl OfdmDemod {
             .fit(&self.pilot_offsets, &self.pilot_errors, &self.pilot_weights)
     }
 
-    /// De-rotates one transform length by the measured carrier offset and transforms it. Samples
-    /// past the end of `x` read as zero: a truncated burst scores low rather than panicking,
-    /// which is the sweep runner's rule that lost bits are errors and never fewer trials.
     fn transform_window(&mut self, x: &[Complex<f32>], start: usize) {
         let (mut rot, step) = rotor(self.cfo, start);
         for n in 0..self.params.fft() {
@@ -274,12 +222,8 @@ impl OfdmDemod {
         }
     }
 
-    /// Tier 1: least squares over the long training's two repeats.
     fn estimate_long(&mut self, x: &[Complex<f32>], long_start: usize) {
         let fft = self.params.fft();
-        // The same backoff the data windows take, so the cyclic shift it introduces is common to
-        // the estimate and to every symbol equalised with it — and therefore cancels exactly
-        // rather than becoming a phase ramp for the pilots to chase.
         let long_start = long_start - self.backoff.min(self.params.preamble().long_guard);
         self.read_training(x, long_start, long_start + fft, |params, index| {
             (
@@ -289,31 +233,19 @@ impl OfdmDemod {
         });
     }
 
-    /// Tier 2: least squares over the short training's comb, then interpolation across the band.
-    /// The windows are taken at the *end* of the short training so that at least one repeat
-    /// period precedes each — which is what makes the channel's response circular over them, the
-    /// same argument the cyclic prefix makes for a data symbol.
     fn estimate_comb(&mut self, x: &[Complex<f32>], long_start: usize) {
         let fft = self.params.fft();
         let preamble = self.params.preamble();
         let short_samples = preamble.short_repeats * preamble.short_period(fft);
-        // Saturating, because a badly placed acquisition may put the long training earlier than a
-        // whole preamble into the buffer; reading from sample 0 then measures the wrong thing
-        // loudly (as bit errors) instead of panicking on a subtraction.
         let short_start = long_start
             .saturating_sub(preamble.long_guard)
             .saturating_sub(short_samples);
-        // Backed off exactly as the long training and the data windows are: the short training
-        // is periodic, so the shift is a phase ramp common to the estimate and to every symbol
-        // equalised with it, and it cancels instead of accumulating.
         let base = short_start + (short_samples - 2 * fft) - self.backoff;
         self.read_training(x, base, base + fft, |params, index| {
             (params.short_bins()[index].bin, params.short_training(index))
         });
     }
 
-    /// Two repeats of a known symbol into a channel estimate and a noise variance. `known` maps
-    /// a training index to its bin and the value transmitted there.
     fn read_training(
         &mut self,
         x: &[Complex<f32>],
@@ -341,14 +273,11 @@ impl OfdmDemod {
             self.channel
                 .set(bin, mean * value.conj() / value.norm_sqr());
         }
-        // The backoff's own ramp is known, so the interpolation is told about it rather than
-        // asked to follow it.
         let ramp = -(self.backoff as f64) / self.params.fft() as f64;
         self.channel.finish(self.params.map(), noise_var, ramp);
     }
 }
 
-/// The rotor for `e^{-j(a + b·k)}` at `k = first`, and the step per unit of `k`.
 fn phase_line(common: f64, slope: f64, first: i32) -> (Complex<f64>, Complex<f64>) {
     (
         Complex::from_polar(1.0, -(common + slope * f64::from(first))),
@@ -410,8 +339,6 @@ mod tests {
         let points = payload(params, seed);
         let mut wave = vec![Complex::new(0.0, 0.0); lead];
         OfdmMod::new(params.clone()).frame(&points, &mut wave);
-        // A frame's worth of trailing silence: the delaying impairments shift the burst right and
-        // a receiver reading past the end would otherwise be reading the harness, not the signal.
         wave.resize(wave.len() + 128, Complex::new(0.0, 0.0));
         (points, wave)
     }
@@ -431,8 +358,6 @@ mod tests {
         out
     }
 
-    /// The round trip, both estimators: what the modulator mapped is what the argmin reads, at
-    /// every lead-in the search covers.
     #[test]
     fn every_estimator_round_trips_a_clean_frame() {
         let params = OfdmParams::wifi_like();
@@ -452,8 +377,6 @@ mod tests {
         }
     }
 
-    /// The DMT configuration through the same receiver, unchanged — the Hermitian flag's claim
-    /// that it is a transmitter property and not a second chain.
     #[test]
     fn the_dmt_configuration_decodes_through_the_same_receiver() {
         let params = OfdmParams::dmt_like();
@@ -463,8 +386,6 @@ mod tests {
         assert_eq!(errors(&sent, &got), 0);
     }
 
-    /// A carrier offset the preamble measures and the receiver removes — through a whole frame,
-    /// where an offset left uncorrected would rotate the last symbol far past any slicing margin.
     #[test]
     fn a_carrier_offset_is_removed_across_a_whole_frame() {
         let params = OfdmParams::wifi_like();
@@ -478,10 +399,6 @@ mod tests {
         }
     }
 
-    /// The prefix's whole point, as a threshold: an echo inside it is a per-bin gain the one tap
-    /// removes, and an echo past it is inter-symbol interference no equaliser of this shape can.
-    /// The measured boundary is the prefix length, which is the claim the multipath limits row
-    /// commits.
     #[test]
     fn multipath_inside_the_prefix_is_equalised_and_past_it_is_not() {
         let params = OfdmParams::wifi_like();
@@ -497,10 +414,6 @@ mod tests {
             let mut demod = OfdmDemod::new(params.clone());
             errors(&sent, &decode(&mut demod, &wave))
         };
-        // The window sits `cp - DEFAULT_BACKOFF` into the symbol, so that — not the prefix
-        // itself — is the interval an echo has to land inside. The backoff is bought from this
-        // budget deliberately (see `DEFAULT_BACKOFF`), and the committed multipath row reads the
-        // remainder.
         for delay in [1usize, 4, 8, 12] {
             assert_eq!(
                 echo(delay),
@@ -514,16 +427,6 @@ mod tests {
         );
     }
 
-    /// The comb tier's own limit, and the reason both tiers are committed rather than one: what
-    /// tier 2 buys in the noise (its twelve bins carry a whole symbol's energy, repeated ten
-    /// times) it gives back in frequency resolution. A delay of `d` samples turns the channel's
-    /// phase by `2πd/fft` per bin, so a line drawn between anchors four bins apart is faithful
-    /// only while `d` is a small fraction of `fft/stride` — measured here as: two samples of echo
-    /// is error-free and twelve is not, where the long training equalises both.
-    ///
-    /// QPSK rather than the 16-QAM the other tests use, deliberately: what limits the tier is the
-    /// interpolation's *gain* error near the band's midpoints, and a table with a third of the
-    /// slicing margin reports the same finding at a third of the delay.
     #[test]
     fn the_comb_tier_trades_delay_spread_for_estimator_noise() {
         let params = OfdmParams::wifi_like();
@@ -568,9 +471,6 @@ mod tests {
         );
     }
 
-    /// Pilot tracking earning its keep on the axis it exists for: a sampling clock walks the
-    /// transform window through the prefix, which is a phase ramp across the band, and the
-    /// fitted slope is what removes it.
     #[test]
     fn pilot_tracking_is_what_survives_a_sampling_clock_error() {
         let params = OfdmParams::wifi_like();
@@ -588,10 +488,6 @@ mod tests {
         );
     }
 
-    /// Soft output: the sign is the hard decision's, and the magnitude follows the *bin's* own
-    /// post-equalisation noise — the same point on a faded subcarrier comes back less believable
-    /// than on a strong one, which is the whole reason the demapper is handed a per-bin variance
-    /// rather than the band's average.
     #[test]
     fn llr_confidence_follows_the_per_bin_channel() {
         let params = OfdmParams::wifi_like();
@@ -607,8 +503,6 @@ mod tests {
         truth[faded] = Complex::new(0.25, 0.0);
         demod.genie(params.data_offset(), &truth, 0.01);
 
-        // The identical point on every subcarrier, so the only thing that can separate two
-        // subcarriers' LLRs is the channel.
         let points = vec![table.points()[6]; params.data_subcarriers()];
         let bits = table.bits_per_symbol();
         let mut llrs = vec![Llr(0.0); points.len() * bits];
@@ -636,9 +530,6 @@ mod tests {
         }
     }
 
-    /// The genie entry point is the *same* receiver told the answer: on a clean channel it must
-    /// agree with the acquiring one point for point, or the comparison the catalog's genie row
-    /// makes would be measuring two receivers instead of one acquisition.
     #[test]
     fn the_genie_receiver_agrees_with_the_acquiring_one_on_a_clean_frame() {
         let params = OfdmParams::wifi_like();
@@ -663,9 +554,6 @@ mod tests {
 
         assert_eq!(errors(&sent, &a), 0);
         assert_eq!(errors(&sent, &b), 0);
-        // Not merely both correct — the same points, to the noise the estimate carries.
-        // The two differ by the channel estimate's own noise and nothing else: two averaged
-        // repeats at σ = 0.02 leave σ/√2 per bin, so the worst of 768 points sits near 4σ/√2.
         let worst = a
             .iter()
             .zip(&b)

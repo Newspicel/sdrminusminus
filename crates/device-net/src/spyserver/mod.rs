@@ -1,22 +1,3 @@
-//! The SpyServer client backend: an Airspy, Airspy HF+ or RTL-SDR published over Airspy's
-//! SpyServer protocol.
-//!
-//! Layers, in dependency order:
-//!
-//! - [`proto`] — the wire format: the handshake, the settings, the message header.
-//! - [`caps`] — the pure translation to the wire capability model, and what `apply` will accept.
-//! - [`stream`] — message framing and the conversion from each quantisation.
-//! - this module — `DeviceDriver`/`SdrDevice` over `sdrmm-device`'s shared capture machinery.
-//!
-//! Unlike rtl_tcp, this protocol describes the radio behind it, so the capability set is read
-//! rather than assumed — including the one thing a SpyServer has that no local radio does: it may
-//! refuse to be steered at all. A server with `CanControl` clear is somebody else's receiver, and
-//! this client's whole frequency range is then the slice of spectrum it is allowed to slide
-//! inside, which is what [`caps::capabilities`] reports so the dial cannot promise otherwise.
-//!
-//! The connection is held only while capturing, for the same reason it is on rtl_tcp: a SpyServer
-//! counts connected clients and this backend should occupy a slot exactly while it is using one.
-
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
@@ -48,13 +29,8 @@ mod stream;
 
 pub(crate) const DRIVER_ID: &str = "spyserver";
 
-/// What a server operator sees this client listed as.
 const CLIENT_NAME: &str = "sdr--";
 
-/// Driver for receivers published over the SpyServer protocol.
-///
-/// Like rtl_tcp's, it probes nothing on its own: the protocol has no discovery, so what it reports
-/// is what it has been told about ([`DeviceDriver::resolve`]).
 #[derive(Debug, Default)]
 pub struct SpyServerDriver {
     adopted: Adopted,
@@ -72,13 +48,7 @@ fn device_info(endpoint: &Endpoint) -> WireDeviceInfo {
         driver: DRIVER_ID.to_string(),
         key: endpoint.to_string(),
         label: format!("SpyServer {endpoint}"),
-        // Not the far side's `DeviceSerial`: what identifies this radio is the endpoint it answers
-        // on, and a serial would also merge it with the same receiver seen locally — which is a
-        // different radio to everything above here. Servers that report a serial of zero would
-        // merge with each other, too.
         serial: None,
-        // Everything about this receiver comes from a handshake, which is what an absent profile
-        // says: not known until it is opened.
         profile: None,
     }
 }
@@ -109,10 +79,6 @@ impl DeviceDriver for SpyServerDriver {
     }
 }
 
-/// Fill `buf` completely or give up at `deadline`.
-///
-/// Only the handshake uses this. The capture thread must never block for a whole message — it has
-/// a stop flag to look at — which is why [`SpyStream`] frames incrementally instead.
 fn read_exact(
     connection: &Connection,
     buf: &mut [u8],
@@ -139,10 +105,6 @@ fn read_exact(
     Ok(())
 }
 
-/// Say hello and read back what the server says about itself and about this client.
-///
-/// Both messages arrive unprompted once the handshake lands, in either order, possibly behind
-/// others — so this reads messages until it has the two it needs.
 fn handshake(connection: &Connection) -> Result<(DeviceInfo, ClientSync), DeviceError> {
     connection.send(&hello(CLIENT_NAME))?;
     let deadline = Instant::now() + CONNECT_TIMEOUT;
@@ -164,27 +126,22 @@ fn handshake(connection: &Connection) -> Result<(DeviceInfo, ClientSync), Device
     }
     match (info, sync) {
         (Some(info), Some(sync)) => Ok((info, sync)),
-        // The loop only exits with both, but saying so in the type is cheaper than a panic.
         _ => Err(DeviceError::Io(
             "the SpyServer handshake ended without a device info and client sync".to_string(),
         )),
     }
 }
 
-/// Dial the endpoint and complete the handshake.
 fn connect(endpoint: &Endpoint) -> Result<(Connection, DeviceInfo, ClientSync), DeviceError> {
     let connection = Connection::new(endpoint.connect()?);
     let (info, sync) = handshake(&connection)?;
     Ok((connection, info, sync))
 }
 
-/// The radio as the shared capture supervisor sees it.
 #[derive(Debug)]
 struct SpyRadio {
     endpoint: Endpoint,
     info: DeviceInfo,
-    /// Present exactly while a capture is running; its absence is what makes `apply` a recording
-    /// rather than a send.
     connection: Mutex<Option<Arc<Connection>>>,
     remote: Mutex<Remote>,
     coding: Coding,
@@ -192,8 +149,6 @@ struct SpyRadio {
 }
 
 impl SpyRadio {
-    /// Send a batch on the live connection. A device that is not capturing has none, and the batch
-    /// is already recorded for the next `arm` to replay.
     fn send(&self, batch: &[(Setting, u32)]) -> Result<(), DeviceError> {
         let Some(connection) = lock(&self.connection).clone() else {
             return Ok(());
@@ -211,13 +166,6 @@ impl CaptureRadio for SpyRadio {
     fn arm(&self) -> Result<SpyStream, DeviceError> {
         let (connection, _, sync) = connect(&self.endpoint)?;
         let connection = Arc::new(connection);
-        // A fresh connection is a server that has never heard of this client: every setting has to
-        // be sent again, and streaming is only enabled at the end of it.
-        //
-        // The replay and the publication are one step, under the guard `apply` also holds. This
-        // runs on the supervisor's restart thread while `apply` runs on the control thread, and a
-        // setting recorded into `remote` after this replay read it would find no connection to go
-        // out on — leaving the radio a setting behind what `settings()` reports, silently.
         let remote = lock(&self.remote);
         for (target, value) in remote.replay(self.info) {
             connection.send(&setting(target, value))?;
@@ -236,9 +184,6 @@ impl CaptureRadio for SpyRadio {
         ))
     }
 
-    /// Ask the server to stop before hanging up, so a shared receiver is not left producing for a
-    /// client that has gone. Closing the connection is what actually enforces it, and what unblocks
-    /// a capture thread parked in a read.
     fn disarm(&self) {
         if let Some(connection) = lock(&self.connection).take() {
             let _ = connection.send(&setting(Setting::StreamingEnabled, 0));
@@ -247,7 +192,6 @@ impl CaptureRadio for SpyRadio {
     }
 }
 
-/// A receiver reached over a SpyServer.
 pub struct SpyServerDevice {
     radio: Arc<SpyRadio>,
     capabilities: Capabilities,
@@ -256,16 +200,9 @@ pub struct SpyServerDevice {
 }
 
 impl SpyServerDevice {
-    /// Dial `endpoint`, complete the handshake, and hang up.
-    ///
-    /// # Errors
-    /// [`DeviceError::NotFound`] when the host does not resolve, [`DeviceError::Io`] when nothing
-    /// answers or what answers does not speak this protocol, [`DeviceError::Unsupported`] when the
-    /// server forces a sample format this backend cannot decode.
     fn open(endpoint: Endpoint) -> Result<Self, DeviceError> {
         let (connection, info, sync) = connect(&endpoint)?;
         connection.close();
-        // A forced format is the server's, not a preference: it is the only one it will send.
         let formats = match IqFormat::forced(info.forced_iq_format)? {
             Some(forced) => vec![forced],
             None => vec![IqFormat::Uint8, IqFormat::Int16, IqFormat::Float32],
@@ -315,14 +252,8 @@ impl SdrDevice for SpyServerDevice {
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
-        // Held across the send, because `arm` replays this same state into a fresh connection
-        // under it: that is what makes a batch either reach the live connection or be replayed by
-        // the restart that is taking its place, and never neither.
         let mut remote = lock(&self.radio.remote);
         let (next, batch) = caps::validate(settings, &self.capabilities, self.radio.info, *remote)?;
-        // Recorded before the send and kept even when it fails: a failed write means the connection
-        // is dying, and the reconnect that follows replays this state into the fresh one. The error
-        // is still returned, because until that happens the radio is not where the caller expects.
         *remote = next;
         self.settings = next.wire(self.radio.info, &self.capabilities);
         self.radio.send(&batch)?;
@@ -370,6 +301,4 @@ mod tests {
         assert!(driver.resolve("spy.local:port").is_none());
         assert!(driver.probe().is_empty());
     }
-
-    // Opening and streaming are exercised against a fake server in `tests/spyserver.rs`.
 }

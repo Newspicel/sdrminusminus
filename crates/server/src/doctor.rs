@@ -1,8 +1,3 @@
-//! Environment diagnostics: `sdrmm --doctor` prints backends, USB permissions, and paths.
-//! Split in two on purpose: [`collect`] does the I/O and [`render`] is a pure function over the
-//! report. The same [`DoctorReport`] is served as `GET /api/doctor`, so the
-//! CLI and the web UI never disagree about what is wrong.
-
 use std::path::Path;
 
 use sdrmm_wire::{CheckStatus, DoctorCheck, DoctorReport};
@@ -13,8 +8,6 @@ pub fn collect(db_path: Option<&Path>, recordings_dir: Option<&Path>) -> DoctorR
     report(&registry, db_path, recordings_dir)
 }
 
-/// [`collect`] against an existing registry — what the server uses so it never enumerates
-/// twice at once.
 #[must_use]
 pub fn report(
     registry: &sdrmm_device::DeviceRegistry,
@@ -53,8 +46,6 @@ pub fn report(
     }
 }
 
-/// Which backends this build can open devices through. Derived from the registry, so it
-/// cannot drift from what the server actually registers.
 fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     let mut ids: Vec<&str> = registry
         .driver_ids()
@@ -146,10 +137,6 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
     }
 }
 
-/// SDRplay is the one supported radio whose driver arrives in two halves: the module is staged
-/// with the rest of the Soapy tree, and the vendor API underneath it is installed by the
-/// operator. This reports which halves are present, and never worse than `Ok` — an install with
-/// no SDRplay hardware is not a degraded install.
 #[cfg(feature = "soapy")]
 fn sdrplay_check(
     info: &sdrmm_device_soapy::RuntimeInfo,
@@ -185,7 +172,6 @@ fn sdrplay_check(
     })
 }
 
-/// Where each platform's SDRplay installer leaves the vendor library.
 #[cfg(all(feature = "soapy", not(test)))]
 fn sdrplay_api_library() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "macos")]
@@ -211,8 +197,6 @@ fn sdrplay_api_library() -> Option<std::path::PathBuf> {
 
 fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     let devices = registry.probe_all();
-    // Recording playback is virtual too; in a production build the count may be zero because
-    // synthetic radios are absent and there are no recordings yet.
     let hardware: Vec<String> = devices
         .iter()
         .filter(|d| d.driver != "virtual")
@@ -243,10 +227,6 @@ fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     }
 }
 
-/// Ask every hardware radio for each rate it advertises and record what it says it then holds.
-///
-/// Opens and retunes devices, so it is deliberately not part of [`report`] — `GET /api/doctor`
-/// would otherwise disturb radios that are in use. `sdrmm --doctor-rates` is the only caller.
 #[must_use]
 pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
     let checks = registry
@@ -291,8 +271,6 @@ fn hold_rate(device: &mut dyn sdrmm_device::SdrDevice, rate: f64) -> Option<f64>
     device.settings().sample_rate
 }
 
-/// Above this relative gap the radio is not on the rate it was asked for, and every DDC ratio,
-/// symbol clock and recorded `core:sample_rate` derived from the request would be wrong.
 const RATE_TOLERANCE: f64 = 1e-6;
 
 fn rate_check(id: &str, label: &str, held: &[(f64, Option<f64>)]) -> DoctorCheck {
@@ -339,8 +317,6 @@ fn rate_check(id: &str, label: &str, held: &[(f64, Option<f64>)]) -> DoctorCheck
     }
 }
 
-/// USB access is the single most common reason a plugged-in SDR does not appear. Only Linux
-/// has a rule to point at; macOS grants USB access to any process.
 fn usb_checks() -> Vec<DoctorCheck> {
     #[cfg(target_os = "linux")]
     {
@@ -390,10 +366,6 @@ fn usb_checks() -> Vec<DoctorCheck> {
     }
 }
 
-/// Whether a configured path names a file or the directory itself. Never inferred from the
-/// extension: `--db /data/sdrmm` would be read as a directory and the probe would *create* one
-/// where the database belongs, and a recordings directory called `sdr.captures` would be read
-/// as a file and its parent probed instead. The caller always knows which it is.
 #[derive(Clone, Copy)]
 enum PathKind {
     File,
@@ -416,8 +388,6 @@ fn path_check(
             hint: None,
         };
     };
-    // The directory is what has to be writable: the file itself may not exist yet, and the
-    // engine creates the recordings directory on the first recording.
     let dir = match kind {
         PathKind::File => path.parent().unwrap_or(path),
         PathKind::Directory => path,
@@ -439,8 +409,6 @@ fn path_check(
     }
 }
 
-/// Probe writability by actually creating and removing a file: permission bits alone lie on
-/// read-only mounts, ACLs and container overlays.
 fn writable(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let probe = dir.join(".sdrmm-doctor-probe");
@@ -448,7 +416,6 @@ fn writable(dir: &Path) -> std::io::Result<()> {
     std::fs::remove_file(&probe)
 }
 
-/// Render for a terminal. Pure, so it is the part that gets tested.
 #[must_use]
 pub fn render(report: &DoctorReport) -> String {
     let mut out = format!("sdr-- {} ({})\n\n", report.version, report.platform);
@@ -534,13 +501,11 @@ mod tests {
         assert!(text.contains("[ok  ] Check a"));
         assert!(text.contains("[warn] Check b"));
         assert!(text.contains("[FAIL] Check c"));
-        // Multi-line details must stay aligned under their check, not collapse into one line.
         assert_eq!(text.matches("       line one").count(), 3);
         assert_eq!(text.matches("       line two").count(), 3);
         assert!(text.contains("       → do the thing"));
     }
 
-    /// A missing path is a warning with the consequence spelled out, not a bare "none".
     #[test]
     fn path_check_reports_absence_and_writability() {
         let absent = path_check("x", "X", None, PathKind::File, "nothing persists");
@@ -561,8 +526,6 @@ mod tests {
         );
     }
 
-    /// The old heuristic keyed on the extension: an extension-less database path was read as a
-    /// directory and *created* as one, and a dotted recordings directory had its parent probed.
     #[test]
     fn path_kind_is_told_not_guessed() {
         let root = tempfile::TempDir::new().expect("tempdir");
@@ -589,8 +552,6 @@ mod tests {
         );
     }
 
-    /// A build with only the virtual driver can decode recordings but cannot receive; that
-    /// has to read as a warning with a way out, not as "all good".
     #[test]
     fn backends_check_warns_when_only_the_virtual_driver_is_compiled_in() {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -658,8 +619,6 @@ mod tests {
         assert!(check.hint.is_none());
     }
 
-    /// A package without the vendor API is the normal case for everyone who owns no RSP, so the
-    /// missing half is explained and the report stays green.
     #[cfg(feature = "soapy")]
     #[test]
     fn sdrplay_check_explains_a_missing_vendor_api_without_warning() {

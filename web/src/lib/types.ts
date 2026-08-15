@@ -1,5 +1,3 @@
-// Convenience aliases over the generated OpenAPI schema. These are the ONLY wire types —
-// hand-writing a mirror of a Rust struct is forbidden (CLAUDE.md #1); regenerate instead.
 import type { components, operations } from "../generated/schema";
 
 export type StateSnapshot = components["schemas"]["StateSnapshot"];
@@ -159,19 +157,13 @@ export type DoctorReport = components["schemas"]["DoctorReport"];
 export type DoctorCheck = components["schemas"]["DoctorCheck"];
 export type CheckStatus = components["schemas"]["CheckStatus"];
 
-// `DecoderLogQuery` is flattened into the operation's query parameters by utoipa, so it has no
-// `components.schemas` entry — deriving it from `operations` keeps it generated either way.
 export type DecoderLogFilter = NonNullable<operations["list_decoder_log"]["parameters"]["query"]>;
 
-// Discriminant and per-variant projections of the generated `DecoderEvent` union, so a panel or
-// store can be typed on one decoder without re-declaring its payload.
 export type DecoderKind = DecoderEvent["kind"];
 export type DecoderEventOf<K extends DecoderKind> = Extract<DecoderEvent, { kind: K }>;
 export type DecodedRecordOf<K extends DecoderKind> = Omit<DecodedRecord, "event"> & {
   event: DecoderEventOf<K>;
 };
 
-// The node body narrowed to one kind, so a face is typed on the payload it renders without
-// re-declaring it.
 export type NodeBodyOf<K extends NodeKind> = Extract<NodeBody, { kind: K }>;
 export type PatchNodeOf<K extends NodeKind> = Omit<PatchNode, keyof NodeBody> & NodeBodyOf<K>;

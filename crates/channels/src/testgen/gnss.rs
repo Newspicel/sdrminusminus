@@ -6,8 +6,6 @@ use crate::gnss::sampled_code;
 
 pub const RATE: f64 = 2_048_000.0;
 
-/// Ideal GPS L1 C/A baseband for acquisition fixtures. Navigation data is held at +1; the
-/// acquisition event is intentionally independent of telemetry framing.
 #[must_use]
 pub fn acquisition(
     prn: u8,

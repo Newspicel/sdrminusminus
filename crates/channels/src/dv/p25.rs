@@ -1,4 +1,3 @@
-//! P25 Phase 1 decoder (TIA-102.BAAA): C4FM at 4800 symbols per second in 12.5 kHz.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -17,7 +16,6 @@ pub(crate) const DEVIATION_HZ: f64 = 1_944.0;
 pub(crate) const RRC_ALPHA: f64 = 0.2;
 pub(crate) const BANDWIDTH_HZ: f64 = 12_500.0;
 
-/// Frame sync: 0x5575F5FF77FF, 48 bits.
 pub(crate) const SYNC: u64 = 0x5575_F5FF_77FF;
 pub(crate) const SYNC_BITS: u32 = 48;
 pub(crate) const SYNC_TOLERANCE: u32 = 4;
@@ -25,13 +23,11 @@ pub(crate) const SYNC_TOLERANCE: u32 = 4;
 const STATUS_START: usize = 70;
 const STATUS_STRIDE: usize = 72;
 
-/// The NID is 64 bits, and the two status bits sitting inside it make 66 on the wire.
 const NID_BITS: usize = 64;
 const NID_SYMBOLS: usize = (NID_BITS + 2) / 2;
 const MAX_FRAME_BITS: usize = 1_728;
 const MAX_FRAME_SYMBOLS: usize = MAX_FRAME_BITS / 2;
 
-/// Status-free dibit offsets of the nine 144-bit IMBE frames after the 64-bit NID.
 const IMBE_OFFSETS: [usize; 9] = [0, 72, 164, 256, 348, 440, 532, 624, 712];
 
 const DUID_HEADER: u8 = 0x0;
@@ -68,7 +64,6 @@ fn params(settings: &ChannelSettings) -> Result<&P25Params, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
@@ -103,8 +98,6 @@ impl ChannelRx for P25Channel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         for &symbol in &self.symbols {
@@ -118,10 +111,7 @@ struct Decoder {
     countdown: usize,
     hunting: bool,
     bits: Vec<bool>,
-    /// The data unit id last reported, so the six voice frames of a transmission produce one
-    /// "call in progress" line rather than one every 180 ms.
     last_duid: Option<u8>,
-    /// Once the NID has named an LDU, its complete frame is collected before audio extraction.
     pending_duid: Option<u8>,
     pending_nac: u16,
     pending_errors: u32,
@@ -201,11 +191,8 @@ impl Decoder {
         }
     }
 
-    /// Decode the network identifier that follows the sync.
     fn nid(&mut self) -> Option<(u8, Option<DvFrame>)> {
         self.window.bits(0, NID_SYMBOLS, &mut self.bits);
-        // The sync ended at frame bit 48, so the status dibit at frame bits 70 and 71 sits at
-        // offset 22 of what follows.
         let mut word = 0u64;
         for (i, &bit) in self.bits.iter().enumerate() {
             let frame_bit = SYNC_BITS as usize + i;
@@ -548,8 +535,6 @@ fn decode_p25_trellis(coded: &[bool]) -> Option<[bool; 96]> {
     Some(payload)
 }
 
-/// Undo the 98-dibit P25 data interleave. Four adjacent bits remain a trellis symbol; the
-/// interleaver writes those symbols down four columns separated by 48 bits on the air.
 fn p25_data_deinterleave(coded: &[bool]) -> Option<[bool; 196]> {
     let coded: &[bool; 196] = coded.try_into().ok()?;
     let mut output = [false; 196];
@@ -695,8 +680,6 @@ mod tests {
         .expect("p25 channel")
     }
 
-    /// The status symbols the transmitter interleaves into the frame are what make this test
-    /// worth having: leave them in and the network identifier is not a codeword at all.
     #[test]
     fn decodes_the_network_identifier_of_a_transmission() {
         let iq = tx::transmission(0x293, INPUT_RATE_HZ);

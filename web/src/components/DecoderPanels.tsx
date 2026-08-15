@@ -40,8 +40,6 @@ import {
 const PANE = "flex flex-col gap-2 p-3";
 const EMPTY = "text-sm text-ink-dim";
 
-/** Targets and pager/APRS ages are wall-clock relative, so the views need a clock. One shared
- * 1 Hz tick drives every age column — this is a re-render of local state, not a refetch. */
 function useNow(periodMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -281,8 +279,6 @@ function TextView({
     }
   }, [text]);
 
-  // `navigator.clipboard` is absent outside a secure context, so the failure has to surface as a
-  // banner rather than an unhandled rejection (CLAUDE.md: no silent failure).
   const copy = (): void => {
     void (async () => {
       try {
@@ -319,8 +315,6 @@ function TextView({
 
       <pre
         ref={paneRef}
-        // The transcript is a live tail the user can scroll back through; `tabIndex` keeps that
-        // reachable from the keyboard.
         tabIndex={0}
         aria-label={`${kind} transcript`}
         className="max-h-72 min-h-32 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-panel px-2 py-1.5 font-mono text-xs text-ink"
@@ -338,15 +332,11 @@ function kindLabel(kind: "rtty" | "morse" | "psk31" | "psk63"): string {
   return { rtty: "RTTY", morse: "Morse", psk31: "PSK31", psk63: "PSK63" }[kind];
 }
 
-/** Stable `ageOut` binding: the targets view drives the store's horizon so a target that stopped
- * transmitting eventually leaves the table instead of dimming forever. */
 function useDecodedStoreAgeOut(): (nowMs: number) => void {
   const ageOut = useDecodedStore((s) => s.ageOut);
   return useCallback((nowMs: number) => ageOut(TARGET_MAX_AGE_MS, nowMs), [ageOut]);
 }
 
-/** Subaudible signalling is a property of the channel right now, not a stream of messages, so
- * this is a status line rather than a list — the decoder log already holds the history. */
 function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   const records = recordsInScope(useDecodedKind("tone"), scope);
   const latest = records[0];
@@ -376,13 +366,6 @@ function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
-/**
- * What the identifier made of the frequency, as of its last look at it.
- *
- * A status readout rather than a list: each report describes one observation window, and the
- * useful question is what is on the air *now*. The history is in the decoder log, which is where
- * a report that has scrolled past belongs.
- */
 function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   const records = recordsInScope(useDecodedKind("ident"), scope);
   const latest = records[0];
@@ -445,15 +428,6 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
-/**
- * The readout each decoder kind is watched in, and `null` for the kinds that have none.
- *
- * Keyed on the generated `DecoderKind`, so a decoder added to `wire` fails to compile here until
- * it has been placed — and `null` is a placement, not an omission: a POCSAG page, an APRS packet,
- * a NAVTEX broadcast, an ACARS block, a sub-GHz burst and a digital-voice call are each complete
- * on arrival and accumulate into nothing, so a live pane of them would be a second, worse copy of
- * the decoder log. They are read there.
- */
 const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
   rds: (scope) => <RdsView scope={scope} />,
   adsb: (scope) => <TargetsView kind="adsb" scope={scope} />,
@@ -479,20 +453,14 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   gnss: null,
 };
 
-// `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this
-// client can name a decoder there is no view for.
 function isDecoderKind(kind: string): kind is DecoderKind {
   return Object.hasOwn(VIEWS, kind);
 }
 
-/** Whether this decoder has a live readout at all — what a readout node asks before it offers a
- * pane for a channel wired into it. */
 export function hasDecoderView(kind: string): boolean {
   return isDecoderKind(kind) && VIEWS[kind] !== null;
 }
 
-/** The live readout for one decoder, scoped to one channel; nothing for a decoder that is read in
- * the log instead, or one this client is too old to know. */
 export function DecoderView({ kind, scope }: { kind: string; scope: DecoderScope }) {
   return isDecoderKind(kind) ? (VIEWS[kind]?.(scope) ?? null) : null;
 }

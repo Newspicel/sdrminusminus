@@ -60,8 +60,6 @@ export function PaletteEntry({ item, onAdd }: { item: PaletteItem; onAdd: () => 
       onClick={onAdd}
     >
       <span className="w-full truncate text-xs text-ink">{item.name}</span>
-      {/* Hidden from the accessible name, which must read as the action alone: the bandwidth is a
-          hint about where this will fit, and the face states it again once the node is drawn. */}
       {item.type !== undefined && (
         <span
           aria-hidden

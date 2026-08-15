@@ -1,5 +1,3 @@
-//! The sample half of a SpyServer connection: message framing on the capture thread, and the
-//! conversion from whichever quantisation the samples crossed the network in.
 use std::{
     sync::{
         Arc, Mutex,
@@ -16,16 +14,8 @@ use crate::{
     spyserver::proto::{HEADER_LEN, IqFormat, MessageHeader, STREAM_TYPE_IQ},
 };
 
-/// The largest digital gain worth honouring. The flag is sixteen bits of dB and this backend never
-/// asks for more than a few, so anything beyond this is a server that means something else by the
-/// field — and dividing by 10^(6000/20) would turn every sample into zero.
 const MAX_DIGITAL_GAIN_DB: u16 = 96;
 
-/// How each block is to be read, published by the framer and consumed by the converter.
-///
-/// One word rather than a lock: it is written once per message on the capture thread and read once
-/// per block on the same thread, and packing it keeps the pair — format and the gain that came
-/// with *that* format — impossible to tear apart.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Coding(Arc<AtomicU32>);
 
@@ -48,22 +38,14 @@ impl Coding {
     }
 }
 
-/// Undo the gain the server applied before quantising.
 fn scale(gain_db: u16) -> f32 {
     1.0 / 10f32.powf(f32::from(gain_db) / 20.0)
 }
 
-/// SpyServer IQ to `cf32`.
-///
-/// Allocation-free after the first block, and with no carry byte: unlike a raw byte stream, every
-/// block here is exactly one message, and a message contains whole samples — so a block can never
-/// end mid-sample and there is nothing to hold back.
 #[derive(Debug)]
 pub(crate) struct SpyConverter {
     coding: Coding,
     out: Vec<Sample>,
-    /// The 8-bit lookup, rebuilt only when the digital gain changes — which is never, in a session
-    /// where nothing is retuned.
     table: [f32; 256],
     table_gain: Option<u16>,
 }
@@ -106,7 +88,6 @@ impl SampleConverter for SpyConverter {
                 );
             }
             IqFormat::Int16 => {
-                // Full scale is 32 768, so a 16-bit sample divides by that and by the server's gain.
                 let scale = scale(gain_db) / 32_768.0;
                 let (pairs, _) = bytes.as_chunks::<4>();
                 self.out.extend(pairs.iter().map(|iq| {
@@ -130,11 +111,9 @@ impl SampleConverter for SpyConverter {
         &self.out
     }
 
-    /// Nothing to forget: every block is a whole message.
     fn reset(&mut self) {}
 }
 
-/// Where the framer is in the message it is reading.
 #[derive(Debug)]
 enum Phase {
     Header {
@@ -157,16 +136,12 @@ impl Phase {
     }
 }
 
-/// A connection being drained for IQ messages.
 #[derive(Debug)]
 pub(crate) struct SpyStream {
     connection: Arc<Connection>,
     pool: BlockPool,
     coding: Coding,
-    /// Whether an IQ message this backend cannot decode has already been reported. Without it, a
-    /// server sending `INT24_IQ` would present as a stream that simply goes quiet.
     warned: AtomicBool,
-    /// Touched only by the capture thread; a mutex because the trait's `next_block` takes `&self`.
     phase: Mutex<Phase>,
 }
 
@@ -190,9 +165,6 @@ impl CaptureStream for SpyStream {
         self.connection.stop_handle()
     }
 
-    /// One read per call, advancing the frame by whatever arrived. Anything but a completed IQ
-    /// message reads as [`Next::Idle`], which is also what a run of status messages with no samples
-    /// behind them looks like — and the supervisor's silence timeout is right to fault that.
     fn next_block(&self, timeout: Duration) -> Next<Block> {
         let mut phase = lock(&self.phase);
         match &mut *phase {
@@ -207,8 +179,6 @@ impl CaptureStream for SpyStream {
                 }
                 let header = match MessageHeader::parse(bytes) {
                     Ok(header) => header,
-                    // A frame that cannot be parsed leaves the byte stream at an unknown offset;
-                    // only a fresh connection can recover, which is what ending it asks for.
                     Err(e) => {
                         self.connection.fail(e.to_string());
                         return Next::Ended;
@@ -242,8 +212,6 @@ impl CaptureStream for SpyStream {
                     None if header.stream_type == STREAM_TYPE_IQ
                         && !self.warned.swap(true, Ordering::Relaxed) =>
                     {
-                        // Otherwise this presents as a stream that simply goes quiet, and the
-                        // supervisor's silence timeout names the symptom rather than the cause.
                         tracing::warn!(
                             message_type = header.kind,
                             "SpyServer is sending IQ in a format sdr-- cannot decode; skipping it"
@@ -256,17 +224,11 @@ impl CaptureStream for SpyStream {
                 else {
                     unreachable!("the phase was matched as a body")
                 };
-                // Everything else — the device info and client sync a fresh connection opens with,
-                // a pong, an FFT frame from a server that was left in another mode — is read to
-                // its end and dropped, which is what keeps the stream framed.
                 if iq { Next::Block(block) } else { Next::Idle }
             }
         }
     }
 
-    /// Always zero. This is a TCP stream: nothing is lost in flight, and a server that cannot keep
-    /// up stops sending rather than skipping — which arrives as the end of the stream and is
-    /// counted as a restart, not as dropped blocks.
     fn dropped(&self) -> u64 {
         0
     }
@@ -304,8 +266,6 @@ mod tests {
         assert!((float[0].re - 0.5).abs() < 1e-6);
     }
 
-    /// The header's flags say how far the server scaled the samples up before quantising; a client
-    /// that ignored them would report every level 6 dB high.
     #[test]
     fn the_servers_digital_gain_is_divided_back_out() {
         let plain = converted(IqFormat::Int16, 0, &16_384i16.to_le_bytes().repeat(2));
@@ -318,7 +278,6 @@ mod tests {
         assert!((scaled[0].re - plain[0].re / 10f32.powf(0.3)).abs() < 1e-6);
     }
 
-    /// A server that reports a gain this backend never asked for must not silently mute the radio.
     #[test]
     fn an_absurd_digital_gain_is_clamped_rather_than_believed() {
         let samples = converted(

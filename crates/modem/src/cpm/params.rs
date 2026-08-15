@@ -3,18 +3,12 @@ use crate::soft::SoftBit;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mapping {
     levels: Vec<f32>,
-    /// Levels in ascending order, for the nearest-level slicer.
     sorted: Vec<(f32, u8)>,
     max_level: f32,
     min_spacing: f32,
 }
 
 impl Mapping {
-    /// A caller-supplied table. See the type docs for the conventions.
-    ///
-    /// # Panics
-    /// If M is not a power of two of at least 2, or any level is non-finite, or two levels
-    /// coincide (a slicer cannot tell them apart, so the table cannot mean anything).
     #[must_use]
     pub fn new(levels: Vec<f32>) -> Self {
         let m = levels.len();
@@ -47,8 +41,6 @@ impl Mapping {
         }
     }
 
-    /// Natural binary order: index `i` transmits level `2i − (M−1)` — ascending odd integers,
-    /// so index 0 is the most negative level and index M−1 the most positive.
     #[must_use]
     pub fn natural(m: usize) -> Self {
         Self::new(
@@ -58,8 +50,6 @@ impl Mapping {
         )
     }
 
-    /// Binary-reflected Gray order over the ascending odd-integer levels: adjacent levels
-    /// differ in one bit of their symbol index, so a one-level slicing error costs one bit.
     #[must_use]
     pub fn gray(m: usize) -> Self {
         let mut levels = vec![0.0f32; m];
@@ -87,34 +77,23 @@ impl Mapping {
         &self.levels
     }
 
-    /// The level symbol index `index` transmits; indices are taken modulo M, mirroring
-    /// `fsk4::level`'s masking, so a sliced index is always valid to look up.
     #[must_use]
     pub fn level(&self, index: u8) -> f32 {
         self.levels[index as usize & (self.levels.len() - 1)]
     }
 
-    /// Largest |level| — the scale the demodulator's peak estimate normalises to.
     #[must_use]
     pub fn max_level(&self) -> f32 {
         self.max_level
     }
 
-    /// Smallest gap between adjacent levels — the scale slicing margins and the known-symbol
-    /// hook's plausibility bounds are measured against.
     #[must_use]
     pub fn min_spacing(&self) -> f32 {
         self.min_spacing
     }
 
-    /// Nearest-level hard decision: the symbol index whose level is closest to `y`. For the
-    /// DMR table this reproduces `fsk4::slice`'s thresholds at ±2 and 0 exactly.
     #[must_use]
     pub fn slice(&self, y: f32) -> u8 {
-        // Binary search on the sorted levels, then compare the two bracketing neighbours —
-        // O(log M) with no allocation, and total_cmp keeps a NaN input from panicking (it
-        // sorts above every level and slices to the top one, which the demodulator's
-        // finiteness guard makes unreachable anyway).
         let at = self.sorted.partition_point(|&(l, _)| l < y);
         match (self.sorted.get(at.wrapping_sub(1)), self.sorted.get(at)) {
             (Some(&(lo, i)), Some(&(hi, j))) => {
@@ -125,20 +104,10 @@ impl Mapping {
                 }
             }
             (Some(&(_, i)), None) | (None, Some(&(_, i))) => i,
-            // Unreachable: construction guarantees at least two levels.
             (None, None) => 0,
         }
     }
 
-    /// Per-bit soft decisions for a normalised soft symbol, appended MSB-first — the bit order
-    /// `SymbolWindow::bits` reads dibits in. Max-log over the level table: for bit `k`, the
-    /// squared distance to the nearest level whose index has bit `k` clear, minus the same for
-    /// bit `k` set — positive means 1 (crate convention).
-    ///
-    /// Scale: half the level spacing of boundary distance reads as ±0.5 and a full spacing
-    /// saturates at ±1.0 — the `fsk4::soft_bits` calibration kept (a clean inner symbol's
-    /// outer-bit reads ±0.5 there too), so an over-deviated burst cannot out-vote the rest of
-    /// a frame.
     pub fn soft_bits(&self, y: f32, out: &mut Vec<SoftBit>) {
         let scale = 0.5 / (self.min_spacing * self.min_spacing);
         for k in (0..self.bits_per_symbol()).rev() {
@@ -165,12 +134,6 @@ pub struct CpmParams {
 }
 
 impl CpmParams {
-    /// From the modulation index directly.
-    ///
-    /// # Panics
-    /// If `h` is not positive and finite, `sps` is below 2 (the timing recovery's floor), the
-    /// outer deviation would exceed Nyquist (`h·max_level ≥ sps`), or `freq_pulse` is empty or
-    /// not unit-area.
     #[must_use]
     pub fn from_h(mapping: Mapping, h: f64, freq_pulse: Vec<f32>, sps: f64) -> Self {
         assert!(
@@ -181,8 +144,6 @@ impl CpmParams {
             sps.is_finite() && sps >= 2.0,
             "need at least two samples per symbol"
         );
-        // h·L·baud/2 is the outer level's frequency; past rate/2 it aliases and no
-        // discriminator can read it back.
         assert!(
             h * f64::from(mapping.max_level()) < sps,
             "outer deviation exceeds Nyquist: h·max_level = {} at {sps} samples/symbol",
@@ -206,13 +167,6 @@ impl CpmParams {
         }
     }
 
-    /// From a deviation set: `deviation_hz` is the outermost level's frequency offset (DMR's
-    /// ±1944 Hz is the ±3 level, AIS's ±2400 Hz the ±1). Conversion:
-    /// `h = 2·deviation_hz / (max_level·baud)` — for the conventional odd-integer table this
-    /// is the textbook `2d/((M−1)·baud)`.
-    ///
-    /// # Panics
-    /// As [`Self::from_h`], plus if `deviation_hz` or `baud` is not positive and finite.
     #[must_use]
     pub fn from_deviation(
         mapping: Mapping,
@@ -235,8 +189,6 @@ impl CpmParams {
         &self.mapping
     }
 
-    /// The canonical modulation index: a symbol at level L advances the carrier phase by
-    /// π·h·L over its pulse.
     #[must_use]
     pub fn h(&self) -> f64 {
         self.h
@@ -302,9 +254,6 @@ mod tests {
 
     #[test]
     fn an_inverted_two_level_table_demaps_through_the_table_not_the_sign() {
-        // Bell-202 through a discriminator: bit 1 (mark, 1200 Hz) sits BELOW the 1700 Hz
-        // centre, so its level is −1 — the demap must follow the table, not assume
-        // positive level means 1.
         let map = Mapping::new(vec![1.0, -1.0]);
         let mut out = Vec::new();
         map.soft_bits(-1.0, &mut out);
@@ -390,7 +339,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "Nyquist")]
     fn a_deviation_past_nyquist_is_rejected() {
-        // h·max_level = 12 at 8 samples/symbol: the outer tone would alias.
         let _ = CpmParams::from_h(Mapping::natural(4), 4.0, pulse::rect(8.0, Norm::Area), 8.0);
     }
 }

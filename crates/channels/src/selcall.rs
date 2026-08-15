@@ -1,5 +1,3 @@
-//! Five-tone sequential selective calling over narrowband FM: CCIR-1 and ZVEI-1.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;

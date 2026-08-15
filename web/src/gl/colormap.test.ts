@@ -39,8 +39,6 @@ describe("sampleColormap", () => {
   });
 });
 
-/** The shader is generated from the same tables the CPU sampler reads, so the only thing left to
- * check is that every ramp reached the generated source under the index the CPU side uses. */
 describe("COLORMAP_GLSL", () => {
   it("branches on each polynomial ramp's index", () => {
     for (const map of ["magma", "inferno", "plasma", "viridis"] as const) {

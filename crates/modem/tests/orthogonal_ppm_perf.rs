@@ -16,16 +16,11 @@ use sdrmm_modem::{
     ppm::{PpmDemod, SlotDetector},
 };
 
-/// This test binary's allocation counter — `#[global_allocator]` binds per binary, so the
-/// library cannot install it on anyone's behalf (see `ber::perf`).
 #[global_allocator]
 static ALLOC: CountingAlloc = CountingAlloc::new();
 
 const MFSK_RATE: f64 = orthogonal::RATE;
-/// Symbols per measured block: a quarter second at 4800 baud, and the same block the M-FSK
-/// entry's own trials are shaped from.
 const MFSK_SYMBOLS: usize = 1_200;
-/// Symbols per measured PPM block: 4096 slots at 8 samples each, ~4 ms of 1 Mslot/s traffic.
 const PPM_SYMBOLS: usize = 2_048;
 
 fn mfsk_signal() -> Vec<Complex<f32>> {
@@ -118,8 +113,6 @@ fn the_filterbank_hot_path_allocates_nothing() {
     });
 }
 
-/// The PPM hot path, both tiers: slot statistics into a caller's slice, and the argmax loop
-/// over a reserved sink.
 #[test]
 fn the_slot_detectors_allocate_nothing() {
     let iq = ppm_signal();
@@ -143,8 +136,6 @@ fn the_slot_detectors_allocate_nothing() {
     }
 }
 
-/// The attachment's scan path: pre-computed magnitudes through the envelope tier, which is what
-/// `channels::adsb` runs per candidate sample of a wideband stream.
 #[test]
 fn the_magnitude_scan_path_allocates_nothing() {
     let iq = ppm_signal();
@@ -162,8 +153,6 @@ fn the_magnitude_scan_path_allocates_nothing() {
     });
 }
 
-/// Rewrites both committed baselines. Run deliberately, on the reference machine:
-/// `cargo test -p sdrmm-modem --release --test orthogonal_ppm_perf write_ -- --ignored`.
 #[test]
 #[ignore = "rewrites the committed baselines; run explicitly in release on the reference host"]
 fn write_phase5_perf_baselines() {
@@ -186,8 +175,6 @@ fn write_phase5_perf_baselines() {
     }
 }
 
-/// The nightly perf gate: measured against committed, failing past [`REGRESSION_FRACTION`].
-/// Compared only in release and only on the host that wrote the baseline.
 #[test]
 #[ignore = "nightly perf gate; run in release: cargo test -p sdrmm-modem --release --test orthogonal_ppm_perf compare_ -- --ignored"]
 fn compare_phase5_perf_baselines() {

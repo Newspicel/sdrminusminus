@@ -18,23 +18,13 @@ use sdrmm_wire::{
 };
 use tempfile::TempDir;
 
-/// Playback is real-time paced, so a case's transmission length is also its wall-clock cost;
-/// the timeout has to cover a full loop pass plus scheduler slack on a loaded CI box.
 const DECODE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Device rate for the narrowband decoders: 5× their 48 kHz channel rate, so the DDC really
-/// mixes and decimates instead of passing through.
 const NARROW_DEVICE_RATE: f64 = 240_000.0;
-/// Device rate for the audio-rate decoders (RTTY, Morse run at 8 kHz).
 const AUDIO_DEVICE_RATE: f64 = 48_000.0;
-/// ADS-B fills its whole 2 Msps channel, so it cannot be resampled into place. GNSS below has
-/// the same native-rate constraint at 2.048 Msps; the narrow modes deliberately exercise DDC.
 const ADSB_DEVICE_RATE: f64 = 2_000_000.0;
 const GNSS_DEVICE_RATE: f64 = 2_048_000.0;
 const CENTER_HZ: f64 = 145_000_000.0;
-/// The AX.25 burst a station would key for `frame`, straight out of the modulator that pairs
-/// with the decoder under test. A modulator produces its own channel rate and nothing else, so
-/// the caller resamples it to whatever the device replays at.
 fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
     let mut tx = AprsTx::new(
         ChannelCtx {
@@ -77,9 +67,6 @@ fn accelerated_engine_for(dir: &Path) -> Arc<Engine> {
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 
-/// Write `iq` as a finalized SigMF pair and return the `virtual:file:` device id that replays
-/// it. Padding to at least `rate` samples keeps a short burst from looping so tightly that the
-/// decoder never sees a clean lead-in.
 fn plant(dir: &Path, stem: &str, mut iq: Vec<Complex<f32>>, rate: f64) -> String {
     let min_len = rate as usize;
     if iq.len() < min_len {
@@ -92,9 +79,6 @@ fn plant(dir: &Path, stem: &str, mut iq: Vec<Complex<f32>>, rate: f64) -> String
     format!("virtual:file:{}", path.display())
 }
 
-/// Open `device_id`, add one channel, and wait for the first decoded record that `want`
-/// accepts. Tears the set down before returning so a failing assertion cannot leave a
-/// real-time playback thread running.
 async fn decode_first(
     engine: &Arc<Engine>,
     device_id: &str,
@@ -111,7 +95,6 @@ async fn decode_first(
             match rx.recv().await {
                 Ok(record) if want(&record.event) => return record,
                 Ok(_) => {}
-                // Drop-oldest is the contract for this stream; a starved runner may lag.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     panic!("decoded stream closed")
@@ -130,8 +113,6 @@ async fn decode_first(
         CENTER_HZ + offset_hz,
         "record carries the absolute frequency the channel was tuned to"
     );
-    // The pump stamps wall-clock time off the DSP thread; the log's index is a text
-    // comparison over exactly this string, so the format is part of the contract.
     assert!(
         record.at.ends_with('Z') && record.at.len() == "2026-08-09T12:00:00.000000000Z".len(),
         "unexpected timestamp format: {}",
@@ -281,8 +262,6 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
     );
 }
 
-/// Mic-E's position is split between the destination callsign and a binary information field,
-/// so the whole pipeline has to carry both halves for either to mean anything.
 #[tokio::test]
 async fn a_mic_e_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -339,9 +318,6 @@ async fn a_mic_e_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!((lon - 13.4).abs() < 1e-3, "lon {lon}");
 }
 
-/// Subaudible signalling is the one decoder whose events describe a channel rather than a
-/// message, and the one that shares a channel with audio — so the plumbing worth proving is
-/// that it reaches the decoded stream at all while the NFM audio path goes on working.
 #[tokio::test]
 async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -456,7 +432,6 @@ async fn freedv_recording_survives_the_virtual_device_and_acquires_sync() {
     assert_eq!(frame.opcode.as_deref(), Some("1600"));
 }
 
-/// ADS-B end to end at 2 Msps, the lowest rate that carries it — one sample per half-chip.
 #[tokio::test]
 async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -507,9 +482,6 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
 async fn gps_ca_acquisition_survives_virtual_device_playback() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    // A full second of continuous C/A, not a burst: the channel joins a paced stream wherever
-    // playback has reached, and the decoder only searches one millisecond in twenty, so a
-    // burst would be acquired at one lucky join alignment and never at any other.
     let iq = testgen::gnss::acquisition(7, 1_000.0, 317, 1_000);
     let device = plant(dir.path(), "gps-l1-ca", iq, GNSS_DEVICE_RATE);
     let record = decode_first(
@@ -537,9 +509,6 @@ async fn gps_ca_acquisition_survives_virtual_device_playback() {
     assert!(frame.cn0_db_hz > 40.0);
 }
 
-/// A roll-call reply carries its address only on the parity, so it is decodable only in the
-/// company of the frames that proved that address. The whole transmission has to reach the
-/// decoder in order for the last frame in it to mean anything.
 #[tokio::test]
 async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -551,8 +520,6 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
         testgen::adsb::identity_reply(icao, "7421", 0),
         testgen::adsb::altitude_reply(icao, 24_000, 0),
     ];
-    // A generous gap: a short frame is only scanned once a long frame's worth of samples sits
-    // behind it, so the transmission must not end on one.
     let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, ADSB_DEVICE_RATE);
 
     let device = plant(dir.path(), "modes", iq, ADSB_DEVICE_RATE);
@@ -865,8 +832,6 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert_eq!(message.text, "ENGINE E2E");
 }
 
-/// The widest channel in the registry: 250 kHz out of a 500 kHz device, so the DDC decimates
-/// hard while the decoder is still timing 320 µs edges off the result.
 #[tokio::test]
 async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
     const SUBGHZ_DEVICE_RATE: f64 = 500_000.0;
@@ -911,8 +876,6 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
 }
 
-/// The identifier is handed a transmission nobody told it about, at an offset and a device rate
-/// it has to be resampled out of, and has to arrive at the mode by measurement alone.
 #[tokio::test]
 async fn ident_names_an_unknown_transmission_end_to_end() {
     const IDENT_DEVICE_RATE: f64 = 480_000.0;
@@ -958,7 +921,6 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
         "symbol rate {:?}",
         report.symbol_rate_hz
     );
-    // The channel was tuned exactly onto it, so the identifier should not think otherwise.
     assert!(
         report.center_offset_hz.abs() < 1_000.0,
         "off tune by {} Hz",
@@ -1177,10 +1139,6 @@ async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
     assert_eq!(message.altitude_ft, Some(38_000));
 }
 
-/// Above its range ADS-B is refused with an actionable message rather than run: the scan costs
-/// a magnitude per sample, and a 20 Msps receiver would spend the DSP thread on samples no
-/// slicer can use. A refusal that names the range is the difference between a setting to change
-/// and a receiver that looks broken.
 #[tokio::test]
 async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
     let dir = TempDir::new().unwrap();
@@ -1214,9 +1172,6 @@ async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// RDS rides on the WFM channel rather than a channel type of its own, so this case also
-/// proves the two halves coexist: the station's identity arrives on the decoded stream while
-/// the audio keeps demodulating.
 #[tokio::test]
 async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -1279,9 +1234,6 @@ async fn next_rds(rx: &mut tokio::sync::broadcast::Receiver<DecodedRecord>) -> R
     .expect("an RDS update within the timeout")
 }
 
-/// A retune is a different station. The engine sends no settings command for an offset-only
-/// patch, so `DspCommand::Retune` is the only path a decoder learns it moved — this drives
-/// exactly that path and asserts the accreted RDS picture did not follow the channel.
 #[tokio::test]
 async fn retuning_resets_the_decoder_through_the_engine_path() {
     let dir = TempDir::new().unwrap();

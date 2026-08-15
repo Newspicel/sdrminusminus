@@ -3,25 +3,17 @@ use utoipa::ToSchema;
 
 use crate::{channel::ChannelSettings, device::DeviceSettings};
 
-/// Shape version of a stored [`WorkspaceState`]. Read like [`crate::WORKSPACE_SNAPSHOT_VERSION`]:
-/// a row this build did not produce is discarded rather than guessed at. Discarding is safe here
-/// in a way it is not for a workspace — the workspace still opens, just at defaults, which is
-/// exactly the behavior that predates this file.
 pub const WORKSPACE_STATE_VERSION: u32 = 1;
 
-/// Settings for one workspace's nodes, as last observed on the engine.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceState {
-    /// [`WORKSPACE_STATE_VERSION`] at the time of writing.
     pub version: u32,
     #[serde(default)]
     pub devices: Vec<WorkspaceDevice>,
 }
 
-/// One device node's radio settings, and the channels hanging off it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceDevice {
-    /// [`crate::PatchNode::id`] of the device node these settings belong to.
     pub node: String,
     pub settings: DeviceSettings,
     #[serde(default)]
@@ -30,13 +22,11 @@ pub struct WorkspaceDevice {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceChannel {
-    /// [`crate::PatchNode::id`] of the channel node these settings belong to.
     pub node: String,
     pub settings: ChannelSettings,
 }
 
 impl WorkspaceState {
-    /// An empty state at the current version.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -45,7 +35,6 @@ impl WorkspaceState {
         }
     }
 
-    /// The stored state, or an empty one if it was written by a different build.
     #[must_use]
     pub fn current(self) -> Self {
         if self.version == WORKSPACE_STATE_VERSION {
@@ -55,13 +44,11 @@ impl WorkspaceState {
         }
     }
 
-    /// The device entry for a node, if one was saved.
     #[must_use]
     pub fn device(&self, node: &str) -> Option<&WorkspaceDevice> {
         self.devices.iter().find(|device| device.node == node)
     }
 
-    /// The channel entry for a node, if one was saved.
     #[must_use]
     pub fn channel(&self, node: &str) -> Option<&WorkspaceChannel> {
         self.devices
@@ -70,11 +57,6 @@ impl WorkspaceState {
             .find(|channel| channel.node == node)
     }
 
-    /// Replace the entries for `captured`'s nodes, keeping every other entry untouched.
-    ///
-    /// A capture only sees the nodes bound *this run*: a radio that is unplugged today contributes
-    /// nothing, and overwriting wholesale would erase where it was tuned yesterday. Absence of a
-    /// node from a capture means "not observed", never "reset it".
     pub fn merge(&mut self, captured: Vec<WorkspaceDevice>) {
         for device in captured {
             match self
@@ -100,8 +82,6 @@ impl WorkspaceState {
         }
     }
 
-    /// Drop entries for nodes the graph no longer contains, so deleting a node eventually forgets
-    /// its settings instead of holding them for the lifetime of the workspace.
     pub fn retain_nodes(&mut self, present: impl Fn(&str) -> bool) {
         self.devices.retain(|device| present(&device.node));
         for device in &mut self.devices {
@@ -147,7 +127,6 @@ mod tests {
             device("b", 200.0, vec![]),
         ]);
 
-        // Only "a" was bound this run; "b" is an unplugged radio.
         state.merge(vec![device("a", 101.0, vec![channel("a1", 2000.0)])]);
 
         assert_eq!(state.devices.len(), 2);

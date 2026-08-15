@@ -57,8 +57,6 @@ impl Mode {
 
     fn hop_samples(self) -> usize {
         match self {
-            // A frame fits wholly inside at least one window even when the receiver was opened
-            // between UTC slot boundaries. The decoder then finds its exact start from sync.
             Self::Ft8 => 24_000,
             Self::Ft4 => 24_000,
             Self::Wspr => 60_000,

@@ -1,8 +1,3 @@
-// The About dialog: what this build is, and what it is built out of.
-//
-// Every license here is delivered, not linked to — the texts are compiled into the server, so
-// the panel works on a machine that has never had a network. That is the whole point of putting
-// the notices in the product rather than in a file in the repository.
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
@@ -48,9 +43,6 @@ export function AboutPanel({
 
           {about.isError && <p className="mt-3 text-xs text-danger">Could not load the notices.</p>}
 
-          {/* One scroll region for the whole body. The noted components alone run past a
-              viewport, so scrolling only the list below them would leave the list clipped off
-              the bottom of the dialog and the reader with no way to reach it. */}
           {about.data && (
             <div className="mt-2 min-h-0 flex-1 overflow-auto">
               <p className="text-xs text-ink-dim">
@@ -114,8 +106,6 @@ export function AboutPanel({
   );
 }
 
-/** The components whose SPDX id is not the whole story, above the alphabetical bulk. A reader
- * who opens this panel to check for copyleft should not have to search for it. */
 function Noted({
   components,
   onOpenText,
@@ -213,8 +203,6 @@ function Row({
   );
 }
 
-/** One license text, fetched on demand. Nested inside the dialog rather than replacing it, so
- * closing it returns the reader to the row they were on. */
 function LicenseText({ id, onClose }: { id: string; onClose: () => void }) {
   const text = useQuery(licenseTextQuery(id));
   return (

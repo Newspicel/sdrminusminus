@@ -1,5 +1,3 @@
-//! D-Star decoder: GMSK at 4800 bit/s in 6.25 kHz — the one two-level mode of the seven, so it
-//! demodulates the way AIS does rather than through the four-level front end.
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -17,39 +15,25 @@ use super::{INPUT_RATE_HZ, vocoder::DstarVocoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 pub(crate) const BAUD: f64 = 4_800.0;
-/// GMSK at ±1200 Hz — h = ½ from the deviation, minimum shift — with a 0.5 bandwidth-time
-/// product, which is what an ICOM radio transmits.
 pub(crate) const DEVIATION_HZ: f64 = 1_200.0;
 pub(crate) const BT: f64 = 0.5;
-/// Total span of the entry's GMSK frequency pulse in symbol periods: the NRZ rect's own symbol
-/// plus a two-symbol truncation of the BT 0.5 premod Gaussian — ample at this BT, where the
-/// pulse concentrates faster than AIS's 0.4.
 pub(crate) const PULSE_SPAN: usize = 3;
-/// Matched-filter truncation, total span in symbol periods — the same `pulse::gaussian` taps
-/// the pre-cpm chain matched with, kept so the migration moves the glue and not the filter.
 pub(crate) const MATCHED_SPAN: usize = 3;
 pub(crate) const BANDWIDTH_HZ: f64 = 6_250.0;
 
-/// The 24-bit frame sync a transmission repeats every 21 voice frames: 0x552D16, sent low bit
-/// first like every other byte in this mode.
 pub(crate) const SYNC: u32 = 0x0055_2D16;
 pub(crate) const SYNC_BITS: u32 = 24;
 pub(crate) const SYNC_TOLERANCE: u32 = 2;
 
-/// A voice frame: 72 bits of vocoder payload and 24 bits of data.
 const FRAME_BITS: usize = 96;
 const DATA_BITS: usize = 24;
-/// Frames between one sync and the next.
 const FRAMES_PER_SUPERFRAME: usize = 21;
 
-/// The slow-data scrambling sequence, applied byte by byte.
 const SCRAMBLER: [u8; 3] = [0x70, 0x4F, 0x93];
 
-/// Slow-data packet types, in the high nibble of the first byte.
 const TYPE_TEXT: u8 = 0x4;
 const TYPE_HEADER: u8 = 0x5;
 
-/// The header a transmission names itself with: flags, four callsigns, a suffix and a CRC.
 const HEADER_BYTES: usize = 41;
 const CALLSIGN_LEN: usize = 8;
 
@@ -65,7 +49,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct DstarChannel {
     demod: CpmDemod,
-    /// The M = 2 level table the soft symbols are sliced against.
     slicer: Mapping,
     decoder: Decoder,
     soft: Vec<f32>,
@@ -91,7 +74,6 @@ fn params(settings: &ChannelSettings) -> Result<&DstarParams, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
@@ -133,8 +115,6 @@ impl ChannelRx for DstarChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.soft.clear();
         self.demod.process(iq, &mut self.soft);
         for &symbol in &self.soft {
@@ -145,20 +125,14 @@ impl ChannelRx for DstarChannel {
 
 struct Decoder {
     register: u32,
-    /// Bits into the current voice frame, once a sync has been found.
     bit: usize,
-    /// Frames since the last sync; the sync itself is frame 0 of a superframe.
     frame: usize,
     synced: bool,
-    /// The 24 data bits of the frame being received.
     data: u32,
     voice_bits: [bool; 72],
-    /// Slow data of the current frame pair; a packet spans two frames.
     packet: Vec<u8>,
-    /// Header bytes reassembled from the slow-data channel.
     header: Vec<u8>,
     text: [u8; 20],
-    /// The call last reported, so a header repeated every second is logged once.
     reported: Option<String>,
     vocoder: DstarVocoder,
 }
@@ -220,21 +194,17 @@ impl Decoder {
         let frame = self.frame;
         self.frame += 1;
         if self.frame >= FRAMES_PER_SUPERFRAME {
-            // The next frame is a sync frame; hunt for it rather than assuming it.
             self.synced = false;
         }
-        // The sync frame's data field is the sync itself, not slow data.
         if !frame.is_multiple_of(FRAMES_PER_SUPERFRAME) {
             self.slow_data(frame, out);
         }
     }
 
-    /// Three descrambled bytes per frame, two frames per packet.
     fn slow_data(&mut self, frame: usize, out: &mut ChannelOutputs) {
         for (i, mask) in SCRAMBLER.into_iter().enumerate() {
             self.packet.push((self.data >> (16 - i * 8)) as u8 ^ mask);
         }
-        // Packets start on odd frames, so a complete one is six bytes gathered from a pair.
         if frame.is_multiple_of(2) && self.packet.len() >= 6 {
             let packet: Vec<u8> = self.packet.drain(..6).collect();
             self.packet.clear();
@@ -249,8 +219,6 @@ impl Decoder {
         let length = usize::from(packet[0] & 0x0F).min(packet.len() - 1);
         match kind {
             TYPE_HEADER => {
-                // Header segments arrive in order and restart at the first one; anything else
-                // is a segment from a transmission this receiver did not hear the start of.
                 if self.header.len() + length > HEADER_BYTES {
                     self.header.clear();
                 }
@@ -273,7 +241,6 @@ impl Decoder {
         }
     }
 
-    /// The reassembled 41-byte header, once its CRC agrees.
     fn header_frame(&mut self) -> Option<DvFrame> {
         let header = std::mem::take(&mut self.header);
         let (body, crc) = header.split_at(HEADER_BYTES - 2);
@@ -322,8 +289,6 @@ mod tests {
         .expect("dstar channel")
     }
 
-    /// The late-entry path: no header transmission is heard at all, and the callsigns come out
-    /// of the slow-data channel that carries the header again while the call runs.
     #[test]
     fn decodes_the_callsigns_from_the_slow_data_channel() {
         let call = tx::Call::default();
@@ -342,7 +307,6 @@ mod tests {
         assert_eq!(header.group_call, Some(true));
     }
 
-    /// The header repeats for as long as the transmission lasts; the log gets one line.
     #[test]
     fn a_repeated_header_is_reported_once() {
         let iq = tx::transmission(&tx::Call::default(), INPUT_RATE_HZ);

@@ -1,34 +1,16 @@
-// The persistence ("digital phosphor") display: a decaying 2D histogram of level against
-// frequency, so how *often* a bin sits at a level becomes visible alongside where it sits now.
-//
-// It is what separates a steady carrier from a noise excursion that happens to peak as high, and
-// it shows modulation structure — skirts, shoulders, the two humps of an FSK pair — that a live
-// trace only flickers through.
-//
-// The grid is deliberately small and fixed: it is scaled up to the plot when drawn, and decaying
-// one cell per plot pixel every animation frame would cost more than the display is worth.
-
 import { type Colormap, sampleColormap } from "../gl/colormap";
 import { type DbWindow, traceUnit } from "./spectrumTraces";
 
-/** Columns of the density grid. Wider than most scope nodes are drawn, so the upscale is mild. */
 export const DENSITY_WIDTH = 480;
-/** Level rows. 192 over a 90 dB window is a shade under half a dB per row. */
 export const DENSITY_HEIGHT = 192;
 
-/** Per-frame multiplier. At 30 fps a cell left alone fades out of sight in about a second. */
 export const DENSITY_DECAY = 0.92;
-/** What one frame's visit to a cell adds. A cell the trace really dwells in saturates in about
- * six frames; a single excursion stays faint, which is the whole distinction being drawn. */
 export const DENSITY_GAIN = 0.17;
 
 export interface DensityGrid {
   width: number;
   height: number;
-  /** `width × height`, row 0 at the top of the plot (the window's ceiling). */
   cells: Float32Array;
-  /** Per-column dB extent of the frame being folded in. Kept here so `addDensity` allocates
-   * nothing on the steady path. */
   lo: Float32Array;
   hi: Float32Array;
 }
@@ -47,27 +29,14 @@ export function clearDensity(grid: DensityGrid): void {
   grid.cells.fill(0);
 }
 
-/** Fade every cell by one frame's worth. */
 export function decayDensity(grid: DensityGrid, factor = DENSITY_DECAY): void {
   const cells = grid.cells;
   for (let i = 0; i < cells.length; i++) {
     const value = (cells[i] ?? 0) * factor;
-    // Snapped to zero rather than left to denormals: a grid nobody is feeding should stop costing
-    // arithmetic, and a cell below this is already the darkest colour the ramp has.
     cells[i] = value < 0.002 ? 0 : value;
   }
 }
 
-/**
- * Paint one frame's levels into the grid.
- *
- * Each column takes the dB extent of every bin that falls in it, and the segment drawn is that
- * extent joined to the previous column's — a trace painted as isolated points breaks into dots
- * wherever it is steep, which is exactly where the interesting signals are.
- *
- * `view` is the visible fraction of the device span, so the display follows a zoom the way the
- * trace above it does.
- */
 export function addDensity(
   grid: DensityGrid,
   db: Float32Array,
@@ -110,7 +79,6 @@ export function addDensity(
       continue;
     }
     if (x > 0) {
-      // Join to the neighbour so a steep edge is a line and not a ladder of dots.
       low = Math.min(low, hi[x - 1] ?? low);
       high = Math.max(high, lo[x - 1] ?? high);
     }
@@ -124,10 +92,6 @@ export function addDensity(
   }
 }
 
-/**
- * Colour the grid into RGBA bytes for `putImageData`. Cells at zero come out fully transparent so
- * the plot's own ground and grid show through where nothing has been drawn.
- */
 export function densityToImage(
   grid: DensityGrid,
   colormap: Colormap,
@@ -146,17 +110,12 @@ export function densityToImage(
     out[at] = lut[entry] ?? 0;
     out[at + 1] = lut[entry + 1] ?? 0;
     out[at + 2] = lut[entry + 2] ?? 0;
-    // Faint cells stay translucent as well as dark. The floor is deliberately low: noise wanders
-    // over a wide band of levels, and a visible floor turns that wander into a speckled slab that
-    // hides the very dwell the display exists to show.
     out[at + 3] = Math.min(255, Math.round(10 + value * 245));
   }
 }
 
 const luts = new Map<Colormap, Uint8Array>();
 
-/** 256 RGB triples for a ramp, built once. Sampling the polynomial per cell would cost twenty
- * multiplies a pixel for a value that only ever takes 256 distinct inputs. */
 export function colormapLut(map: Colormap): Uint8Array {
   const cached = luts.get(map);
   if (cached !== undefined) {

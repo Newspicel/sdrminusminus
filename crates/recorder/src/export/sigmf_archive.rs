@@ -1,17 +1,11 @@
-//! SigMF Archive: a recording's pair packed into one `.sigmf` file.
 use std::{collections::VecDeque, fs::File, path::Path};
 
 use super::{ExportKind, Part, open_pinned};
 use crate::{DATA_SUFFIX, META_SUFFIX, SigmfError, data_path, meta_path};
 
-/// Tar block size: a header is one block, and every payload is padded up to a whole number.
 const BLOCK: u64 = 512;
-/// Two zero blocks mark end-of-archive (POSIX.1-2001).
 const TRAILER: usize = 2 * BLOCK as usize;
 
-/// Longest recording name the header fields can carry. Members are named
-/// `<name>/<name>.sigmf-data`, split across `prefix` (155 bytes) and `name` (100); the file
-/// part binds first, so the limit is 100 less the longest suffix.
 const MAX_NAME: usize = 100 - DATA_SUFFIX.len();
 
 const TYPE_FILE: u8 = b'0';
@@ -43,7 +37,6 @@ pub(super) fn parts(stem: &Path, name: &str) -> Result<VecDeque<Part>, SigmfErro
     Ok(parts)
 }
 
-/// One member: its header block, its bytes verbatim, and the padding up to a whole block.
 fn push_member(
     parts: &mut VecDeque<Part>,
     name: &str,
@@ -67,8 +60,6 @@ fn push_member(
     }
 }
 
-/// One `ustar` header block. A path too long for the 100-byte `name` field is expressed by
-/// moving its directory into `prefix`, which readers rejoin with a `/`.
 fn header(name: &str, prefix: &str, size: u64, mtime: u64, mode: u32, kind: u8) -> Vec<u8> {
     let mut block = vec![0u8; BLOCK as usize];
     block[..name.len()].copy_from_slice(name.as_bytes());
@@ -85,8 +76,6 @@ fn header(name: &str, prefix: &str, size: u64, mtime: u64, mode: u32, kind: u8) 
     block
 }
 
-/// The checksum counts the header's own field as spaces, and is written back as six octal
-/// digits, a NUL and a space (POSIX.1-2001 `ustar` header block).
 fn write_checksum(block: &mut [u8]) {
     block[148..156].fill(b' ');
     let sum: u32 = block.iter().map(|&byte| u32::from(byte)).sum();
@@ -122,7 +111,6 @@ mod tests {
         tests::{drain, recording},
     };
 
-    /// One parsed member, enough to prove the archive is a tar and not merely tar-shaped.
     #[derive(Debug)]
     struct Member {
         path: String,
@@ -131,8 +119,6 @@ mod tests {
         data: Vec<u8>,
     }
 
-    /// A deliberately strict reader: it validates the checksum and the `ustar` magic on every
-    /// block, so a header this crate writes wrongly fails here rather than in someone's tar.
     fn parse(bytes: &[u8]) -> Vec<Member> {
         let mut members = Vec::new();
         let mut at = 0;
@@ -221,8 +207,6 @@ mod tests {
         );
     }
 
-    /// An archive preserves what is on disk, torn tail included — unlike the WAV export,
-    /// which cannot represent a partial frame.
     #[test]
     fn a_torn_data_file_is_archived_verbatim() {
         let dir = TempDir::new().expect("tempdir");
@@ -241,7 +225,6 @@ mod tests {
         assert_eq!(members[2].data.len() as u64, torn);
     }
 
-    /// Padding must land the next header on a block boundary whatever the payload length is.
     #[test]
     fn members_of_any_length_stay_block_aligned() {
         let dir = TempDir::new().expect("tempdir");
@@ -254,8 +237,6 @@ mod tests {
         }
     }
 
-    /// 8 GiB is where the octal `size` field runs out, and an I/Q recording passes it in
-    /// minutes; the base-256 escape is what keeps those archives readable.
     #[test]
     fn sizes_past_the_octal_field_use_the_base_256_form() {
         let mut field = [0u8; 12];

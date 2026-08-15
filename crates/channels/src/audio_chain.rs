@@ -1,47 +1,22 @@
-//! The processing every voice channel carries between its demodulator and the listener, plus
-//! the one stage that has to run before the demodulator.
-//!
-//! It lives here, once, rather than inside each mode: a blanker, a notch and an AGC are the same
-//! things whether the carrier was FM, AM or a sideband, and a mode that grew its own copy would
-//! be a second set of constants to get wrong.
-
 use num_complex::Complex;
 use sdrmm_dsp::{Agc, AutoNotch, Biquad, ClickRemover, NoiseBlanker, SpectralDenoiser};
 use sdrmm_wire::{AudioProcessing, ChannelParams, NotchSettings};
 
 use crate::AUDIO_RATE;
 
-/// What the AGC levels to, in RMS. Well below full scale so a peaky talker has headroom.
 const AGC_TARGET_RMS: f32 = 0.25;
-/// Ceiling on AGC gain: 40 dB is enough to lift a weak signal without turning a silent channel
-/// into a noise generator.
 const AGC_MAX_GAIN: f32 = 100.0;
-/// Butterworth pole `q`s for a cascaded pair, which is the 24 dB/octave skirt an operator
-/// expects when they drag a passband edge onto a neighbouring station.
 const BUTTERWORTH_Q: [f64; 2] = [0.541_196_1, 1.306_562_9];
 
-/// How wide an impulse the click remover has to be able to replace, per detector.
-///
-/// The mode decides this and the operator does not, because it is not a taste: a click is as
-/// long as the demodulator that made it, and a window wider than that is only more audio being
-/// drawn from to patch over one sample.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ClickProfile {
-    /// FM discriminators click once per loop of the noisy IQ vector around the origin: a spike
-    /// of a couple of samples, no more.
     #[default]
     Discriminator,
-    /// Envelope and product detectors pass a static crash through at roughly its own length,
-    /// which is what an atmospheric arrives as after the channel filter has stretched it.
     Detector,
-    /// A vocoder's output is synthesised, so an impulse in it is a decoding artefact rather
-    /// than a click off the air. The narrowest window there is: enough to catch a single bad
-    /// sample, never enough to chew a syllable of speech that was reconstructed on purpose.
     Vocoder,
 }
 
 impl ClickProfile {
-    /// Which detector this channel's audio comes out of.
     #[must_use]
     pub fn for_params(params: &ChannelParams) -> Self {
         match params {
@@ -70,14 +45,11 @@ impl ClickProfile {
     }
 }
 
-/// One channel's audio chain, sized to the interleave the mode produces.
 pub struct AudioChain {
     settings: AudioProcessing,
     iq_rate: f64,
     profile: ClickProfile,
     blanker: Option<NoiseBlanker>,
-    /// One independent set of filters per interleaved audio channel: stereo WFM's two sides are
-    /// two signals, and sharing a filter's state between them would fold one into the other.
     planes: Vec<Plane>,
     deinterleaved: Vec<Vec<f32>>,
 }
@@ -102,12 +74,6 @@ impl AudioChain {
         chain
     }
 
-    /// Rebuild whatever the new settings changed, keeping the state of the stages they did not.
-    /// An operator dragging a noise-reduction slider must not restart the blanker's average.
-    ///
-    /// Runs where the host applies settings, which is the DSP thread, and switching a stage on
-    /// there allocates — the same bounded deviation the channel filter and the demodulators
-    /// beside it already make on a settings change. Steady-state processing allocates nothing.
     pub fn configure(
         &mut self,
         audio_channels: u8,
@@ -129,8 +95,6 @@ impl AudioChain {
             self.planes.resize_with(planes, Plane::default);
         }
         let agc_changed = rebuild || settings.agc != self.settings.agc;
-        // A mode change is a different detector, so the click window it needs is a different
-        // one; nothing else about the stage's state carries over.
         let profile_changed = rebuild || profile != self.profile;
         for plane in &mut self.planes {
             plane.configure(settings, agc_changed, profile, profile_changed);
@@ -140,7 +104,6 @@ impl AudioChain {
         self.profile = profile;
     }
 
-    /// Forget everything accreted from the signal the channel just left.
     pub fn reset(&mut self) {
         if let Some(blanker) = &mut self.blanker {
             blanker.reset();
@@ -150,15 +113,12 @@ impl AudioChain {
         }
     }
 
-    /// The impulse blanker, on the channel's IQ ahead of its selectivity filter.
     pub fn process_iq(&mut self, iq: &mut [Complex<f32>]) {
         if let Some(blanker) = &mut self.blanker {
             blanker.process(iq);
         }
     }
 
-    /// Everything after the demodulator. `pcm` is interleaved at the channel count this chain
-    /// was configured with, and comes back the same length.
     pub fn process_audio(&mut self, pcm: &mut [f32]) {
         if self.planes.is_empty() || pcm.is_empty() {
             return;
@@ -183,7 +143,6 @@ impl AudioChain {
     }
 }
 
-/// The audio stages for one interleaved channel, in the order they run.
 #[derive(Default)]
 struct Plane {
     clicks: Option<ClickRemover>,
@@ -238,8 +197,6 @@ impl Plane {
             (slot, false) => *slot = None,
         }
 
-        // The AGC is rebuilt only when its speed changes: its gain is state, and restarting it
-        // on an unrelated edit would be an audible jump on every slider move.
         match settings.agc.time_constants_s() {
             Some((attack_s, release_s)) if agc_changed || self.agc.is_none() => {
                 self.agc = Some(Agc::new(
@@ -274,8 +231,6 @@ impl Plane {
     }
 
     fn process(&mut self, pcm: &mut [f32]) {
-        // First: an impulse that has been through the passband is already the ringing this
-        // stage exists to prevent.
         if let Some(clicks) = &mut self.clicks {
             clicks.process(pcm);
         }
@@ -342,7 +297,6 @@ mod tests {
         a.iter().zip(b).map(|(x, y)| x + y).collect()
     }
 
-    /// Feed the chain in ragged blocks, as the engine does, and return everything it produced.
     fn run(chain: &mut AudioChain, pcm: &[f32]) -> Vec<f32> {
         let mut out = Vec::with_capacity(pcm.len());
         let mut pos = 0;
@@ -366,8 +320,6 @@ mod tests {
         assert_eq!(output, input);
     }
 
-    /// Length in equals length out for every stage, in ragged blocks — the engine stamps PCM
-    /// by counting samples, so a stage that swallowed or invented one would shift the stream.
     #[test]
     fn every_stage_returns_exactly_what_it_was_given() {
         let settings = AudioProcessing {
@@ -458,7 +410,6 @@ mod tests {
         assert!((0.2..0.3).contains(&level), "levelled to {level}");
     }
 
-    /// The blanker is the one stage on the IQ side, and it must leave a clean channel alone.
     #[test]
     fn the_blanker_cuts_impulses_off_the_iq_only_when_it_is_asked_to() {
         let mut spiked: Vec<Complex<f32>> = complex_tone(1_000.0 / IQ_RATE, 24_000)
@@ -490,8 +441,6 @@ mod tests {
         assert!(peak < 0.2, "impulse survived at {peak}");
     }
 
-    /// Clicks are the one stage a mode configures rather than the operator, so the chain has to
-    /// take them out of the audio the demodulator handed it.
     #[test]
     fn click_removal_takes_the_impulses_out_of_the_audio() {
         let settings = AudioProcessing {
@@ -515,8 +464,6 @@ mod tests {
         );
     }
 
-    /// The window is the detector's, not the operator's: a static crash six samples wide is
-    /// what an AM channel has to remove and an FM one never sees.
     #[test]
     fn a_detector_mode_removes_a_wider_click_than_a_discriminator_does() {
         let settings = AudioProcessing {
@@ -565,8 +512,6 @@ mod tests {
         }
     }
 
-    /// Stereo is two signals sharing one buffer: each side must be filtered by its own state,
-    /// or one channel's history leaks into the other's audio.
     #[test]
     fn stereo_planes_are_filtered_independently() {
         let settings = AudioProcessing {
@@ -608,8 +553,6 @@ mod tests {
         );
     }
 
-    /// Reconfiguring is not restarting: an operator nudging one control must not reset the
-    /// gain the AGC has already found.
     #[test]
     fn an_unrelated_edit_keeps_the_agc_where_it_was() {
         let mut chain = chain(AudioProcessing {

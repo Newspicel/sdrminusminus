@@ -5,8 +5,6 @@ use super::{fm_modulate, silence};
 
 const DEVIATION_HZ: f64 = 2_500.0;
 
-/// A five-tone call with the plan's nominal tone duration and repeat markers inserted as a
-/// real transmitter sends them.
 pub fn transmission(
     system: SelcallSystem,
     code: &str,

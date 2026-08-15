@@ -42,7 +42,6 @@ describe("useLevelStore", () => {
     });
   });
 
-  /** Ten pushes a second must not be ten re-renders a second. */
   it("collapses a burst of readings into one publication", () => {
     let renders = 0;
     const stop = useLevelStore.subscribe(() => {
@@ -66,7 +65,6 @@ describe("useLevelStore", () => {
       ]),
     );
     vi.advanceTimersByTime(FLUSH_MS);
-    // Channel 8 is gone, so the next message simply does not mention it.
     useLevelStore.getState().observe(update(1, [[7, -40, -30]]));
     vi.advanceTimersByTime(FLUSH_MS);
 
@@ -123,7 +121,6 @@ function reading(over: Partial<ChannelLevel> = {}): ChannelLevel {
 
 describe("the gate a level is measured against", () => {
   it("prefers the measured threshold to the setting", () => {
-    // Tracking moves the gate, so the setting is only what it would fall back to.
     expect(gateDb(reading({ squelch_db: -62 }), -100)).toBe(-62);
     expect(gateOpen(reading({ squelch_db: -62 }), -100)).toBe(true);
     expect(gateOpen(reading({ level_db: -70, squelch_db: -62 }), -100)).toBe(false);

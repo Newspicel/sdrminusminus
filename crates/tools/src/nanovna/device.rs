@@ -7,14 +7,10 @@ use sdrmm_wire::{
 
 use super::shell::{Session, first_number, parse_complex, parse_frequencies, reported_value};
 
-/// The firmware's own per-scan ceiling. Wider sweeps are stitched from segments of at most this
-/// many points, which every build in the family accepts.
 const SEGMENT_POINTS: u32 = 101;
 
 const APPLIED_TOKEN: &str = "cal'ed";
 
-/// Everything the instrument will say about itself. A field a given firmware has no command for
-/// is left empty; a port that cannot be talked to at all fails the whole read.
 pub fn describe(session: &mut Session<'_>, port: &str) -> Result<NanoVnaDeviceReport, String> {
     let firmware = session.command("version")?.join(" ");
     if firmware.is_empty() {
@@ -71,8 +67,6 @@ fn value(session: &mut Session<'_>, request: &str) -> Result<Option<String>, Str
     Ok(reported_value(&lines).map(str::to_owned))
 }
 
-/// `bandwidth` answers with an index and the resolution it selects — `bandwidth 3 (1000Hz)` —
-/// and it is the resolution, not the index, that describes the measurement.
 fn bandwidth(session: &mut Session<'_>) -> Result<Option<u32>, String> {
     let lines = session.command("bandwidth")?;
     let Some(line) = lines.iter().find(|line| line.contains('(')) else {
@@ -136,8 +130,6 @@ pub fn calibration_status(
     })
 }
 
-/// Run one calibration move and report the state it left the instrument in, so a panel never has
-/// to assume a step took.
 pub fn calibrate(
     session: &mut Session<'_>,
     port: &str,

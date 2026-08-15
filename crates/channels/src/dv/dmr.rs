@@ -1,5 +1,3 @@
-//! DMR Tier II/III decoder (ETSI TS 102 361-1): 4FSK at 4800 symbols per second in 12.5 kHz,
-//! two 30 ms TDMA slots on one carrier.
 use std::sync::LazyLock;
 
 use blip25_vocoder::{
@@ -28,18 +26,13 @@ pub(crate) const BANDWIDTH_HZ: f64 = 12_500.0;
 const BURST_BITS: usize = 264;
 const BURST_SYMBOLS: usize = BURST_BITS / 2;
 pub(crate) const SYNC_BITS: u32 = 48;
-/// Bits of the burst before the sync field, and so symbols still to arrive when it matches.
 const HALF_PAYLOAD_BITS: usize = 108;
 const TRAILING_SYMBOLS: usize = HALF_PAYLOAD_BITS / 2;
 
 const SLOT_SYMBOLS: usize = 144;
 
-/// One 60 ms TDMA cycle: this burst's slot, then the other's. Bursts B to F of a voice
-/// superframe are found by counting these out from burst A rather than by a sync search.
 const SUPERFRAME_STRIDE: usize = SLOT_SYMBOLS * 2;
 
-/// Bit errors tolerated in a 48-bit sync. Four is under a tenth of the pattern and well inside
-/// what its distance from the other seven allows.
 pub(crate) const SYNC_TOLERANCE: u32 = 4;
 
 const DT_PI_HEADER: u8 = 0x0;
@@ -54,7 +47,6 @@ const DT_RATE_THREE_QUARTER_DATA: u8 = 0x8;
 const DT_RATE_ONE_DATA: u8 = 0xA;
 const DT_UNIFIED_SINGLE_BLOCK_DATA: u8 = 0xB;
 
-/// CRC masks that make a frame type part of its own integrity check (§B.3.11).
 const VOICE_LC_HEADER_MASK: [u8; 3] = [0x96, 0x96, 0x96];
 const TERMINATOR_LC_MASK: [u8; 3] = [0x99, 0x99, 0x99];
 const PI_HEADER_MASK: u16 = 0x6969;
@@ -62,7 +54,6 @@ const CSBK_MASK: u16 = 0xA5A5;
 const MBC_HEADER_MASK: u16 = 0xAAAA;
 const DATA_HEADER_MASK: u16 = 0xCCCC;
 
-/// Full link control: 72 bits of addressing plus 24 of Reed-Solomon parity.
 const LC_BITS: usize = 72;
 const VOCODER_FRAME_BITS: usize = 72;
 const VOCODER_FRAMES_PER_BURST: usize = 3;
@@ -78,12 +69,9 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-/// A sync pattern and what matching it tells the decoder.
 struct Sync {
     bits: u64,
     voice: bool,
-    /// Direct-mode patterns name their timeslot; the repeater and radio ones do not, because
-    /// there the slot lives in the CACH.
     slot: Option<u8>,
 }
 
@@ -130,9 +118,6 @@ const SYNCS: [Sync; 8] = [
     },
 ];
 
-/// The same eight patterns as a bare list, for the signal identifier's mode search. Derived
-/// from the table the decoder hunts with, so the two cannot come to disagree about what a DMR
-/// carrier looks like.
 pub(crate) const SYNC_PATTERNS: [u64; SYNCS.len()] = {
     let mut out = [0; SYNCS.len()];
     let mut i = 0;
@@ -159,7 +144,6 @@ fn params(settings: &ChannelSettings) -> Result<&DmrParams, ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
@@ -191,8 +175,6 @@ impl ChannelRx for DmrChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
-        // the last block have already been decoded.
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         for &symbol in &self.symbols {
@@ -219,12 +201,9 @@ impl DmrChannel {
     }
 }
 
-/// What the decoder is waiting for.
 #[derive(Clone, Copy)]
 enum Pending {
-    /// Nothing; hunting for a sync.
     None,
-    /// A burst whose sync has been seen, waiting for its trailing payload.
     Burst { voice: bool, slot: Option<u8> },
 }
 
@@ -232,10 +211,7 @@ struct Decoder {
     params: DmrParams,
     window: SymbolWindow,
     pending: Pending,
-    /// Symbols still to arrive before the pending burst is complete.
     countdown: usize,
-    /// Independent B-to-F schedules for the two TDMA slots. A repeater can carry two calls and
-    /// the sync in one slot must not blind acquisition of the other.
     followers: [u8; 2],
     follower_countdown: [usize; 2],
     bits: Vec<bool>,
@@ -332,7 +308,6 @@ impl Decoder {
         self.hunt(out);
     }
 
-    /// Look for a sync pattern ending at the symbol just pushed.
     fn hunt(&mut self, out: &mut ChannelOutputs) {
         for sync in &SYNCS {
             if self.window.sync_distance(sync.bits, SYNC_BITS) <= SYNC_TOLERANCE {
@@ -354,9 +329,6 @@ impl Decoder {
         }
     }
 
-    /// Decode the 24-bit CACH immediately preceding a repeater burst. At sync detection the
-    /// burst's first 54 payload symbols and 24 sync symbols are already in the window, placing
-    /// the twelve CACH symbols exactly 78 symbols back.
     fn cach(&mut self, out: &mut ChannelOutputs) -> Option<u8> {
         const CACH_BACK: usize = HALF_PAYLOAD_BITS / 2 + SYNC_BITS as usize / 2;
         self.cach_at(CACH_BACK, out)
@@ -378,7 +350,6 @@ impl Decoder {
         Some(slot)
     }
 
-    /// A burst whose last symbol has just arrived.
     fn burst(&mut self, voice: bool, slot: Option<u8>, out: &mut ChannelOutputs) {
         if voice {
             self.window.bits(0, BURST_SYMBOLS, &mut self.bits);
@@ -421,7 +392,6 @@ impl Decoder {
         self.follower_countdown[index] = SUPERFRAME_STRIDE;
     }
 
-    /// A voice burst B to F, located by counting rather than by a sync.
     fn voice_burst(&mut self, slot: u8, out: &mut ChannelOutputs) {
         let index = usize::from(slot - 1);
         self.cach_at(BURST_SYMBOLS, out);
@@ -444,9 +414,6 @@ impl Decoder {
         payload[..HALF_PAYLOAD_BITS].copy_from_slice(&self.bits[..HALF_PAYLOAD_BITS]);
         payload[HALF_PAYLOAD_BITS..].copy_from_slice(&self.bits[156..]);
         for frame in payload.as_chunks::<VOCODER_FRAME_BITS>().0 {
-            // A late-entry receiver does not know privacy until embedded LC completes in
-            // burst E. Mute that short unknown prefix rather than vocoding ciphertext as
-            // noise; a conventional header establishes Some(false) before burst A.
             let state = &mut self.slots[index];
             state
                 .voice
@@ -463,7 +430,6 @@ impl Decoder {
         }
     }
 
-    /// Slot type and BPTC payload of a data burst.
     fn data_burst(&mut self, index: usize, slot: Option<u8>) -> Option<DvFrame> {
         let slot_type = u64::from(bits_to_u32(&self.bits, 98, 10)) << 10
             | u64::from(bits_to_u32(&self.bits, 156, 10));
@@ -517,8 +483,6 @@ impl Decoder {
                 frame.data = Some(hex_bits(&payload[..80]));
                 frame
             }
-            // A privacy indicator header says the payload that follows is encrypted. Its
-            // undisclosed fields are opaque, but §B.3.11 still requires its masked CRC.
             DT_PI_HEADER => {
                 let mut frame = self.checked_block(&payload, PI_HEADER_MASK, errors)?;
                 frame.kind = DvFrameKind::Header;
@@ -531,8 +495,6 @@ impl Decoder {
                 frame.destination = Some(bits_to_u32(&payload, 56, 24));
                 frame
             }
-            // Rate 1/2, 3/4 and full-rate data blocks, MBC continuations and idle: framed
-            // correctly, but nothing that names a call.
             _ => return None,
         };
         frame.slot = slot;
@@ -541,12 +503,6 @@ impl Decoder {
         Some(frame)
     }
 
-    /// A 96-bit block whose last 16 bits are a mask-XORed CRC-16 over the rest.
-    ///
-    /// `ignore_crc` keeps a block whose CRC fails under an undisclosed mask (Hytera RAS and
-    /// friends), but only when the FEC had nothing to repair: a block the BPTC had to correct
-    /// and whose CRC then disagrees is noise, and the frame is marked unverified either way so
-    /// that nothing acts on it.
     fn checked_block(&mut self, payload: &[bool; 96], mask: u16, errors: u32) -> Option<DvFrame> {
         pack_bytes(&payload[..80], &mut self.bytes);
         let expected = dmr_crc16(&self.bytes) ^ mask;
@@ -559,8 +515,6 @@ impl Decoder {
         Some(frame)
     }
 
-    /// A full link control: 72 bits of addressing under Reed-Solomon(12,9) parity, masked by
-    /// frame type so a header cannot be read as a terminator.
     fn link_control(
         &mut self,
         index: usize,
@@ -588,8 +542,6 @@ impl Decoder {
         if fid != 0 {
             frame.data = Some(hex_bits(&payload[16..80]));
         }
-        // These PDUs place target then source in their final 48 bits. Other opcode layouts
-        // are named but not guessed at: for example ALOHA has only one address there.
         if fid == 0
             && matches!(
                 opcode,
@@ -770,8 +722,6 @@ impl Decoder {
         frame
     }
 
-    /// The embedded signalling field of a voice burst: colour code and the link control
-    /// fragment index, and — once four fragments have arrived — the link control itself.
     fn embedded_signalling(&mut self, index: usize, slot: Option<u8>) -> Option<DvFrame> {
         let emb = u64::from(bits_to_u32(&self.bits, 108, 8)) << 8
             | u64::from(bits_to_u32(&self.bits, 148, 8));
@@ -784,8 +734,6 @@ impl Decoder {
                 self.slots[index].embedded.clear();
                 self.slots[index].embedded_errors = 0;
             }
-            // A continuation or last fragment with nothing before it belongs to a superframe
-            // this receiver did not hear the start of.
             0b10 | 0b11 if !self.slots[index].embedded.is_empty() => {}
             _ => return None,
         }
@@ -802,8 +750,6 @@ impl Decoder {
         let (data, bptc_errors) = Bptc128::decode(&coded)?;
         self.slots[index].embedded.clear();
 
-        // The 77 bits are the 72-bit link control with a five-bit checksum threaded through
-        // column 10 of rows 2 to 6.
         let mut lc = [false; LC_BITS];
         let mut checksum = 0u32;
         let mut written = 0;
@@ -983,7 +929,6 @@ fn activity_name(activity: u8) -> &'static str {
 
 fn csbk_opcode_name(fid: u8, opcode: u8) -> String {
     let name = match (fid, opcode) {
-        // TS 102 361-2 V2.5.1 Annex B.2. The published values are binary, not hex.
         (0, 0b000100) => "unit-to-unit voice service request",
         (0, 0b000101) => "unit-to-unit voice service answer response",
         (0, 0b000111) => "channel timing",
@@ -1019,8 +964,6 @@ fn dmr_vendor(fid: u8) -> Vendor {
     match fid {
         0 => Vendor::Etsi,
         0x06 | 0x10 => Vendor::Motorola,
-        // Display-only assignments from ETSI's public DMR MFID registry. Parsing
-        // is dispatched separately, so a name cannot enable a proprietary layout.
         0x04 => Vendor::FlydeMicro,
         0x05 => Vendor::ProdEl,
         0x08 | 0x68 | 0x88 => Vendor::Hytera,
@@ -1112,8 +1055,6 @@ fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]
     }
 }
 
-/// The four ETSI voice channel grants of TS 102 361-4, whose 12-bit logical channel and slot
-/// bit share one layout.
 fn is_tier_three_grant(opcode: u8) -> bool {
     matches!(opcode, 0b110000..=0b110101)
 }
@@ -1204,9 +1145,6 @@ fn hex_bits(bits: &[bool]) -> String {
     out
 }
 
-/// Decode the 8-state rate-3/4 trellis by maximum-likelihood dynamic programming. The four
-/// transmitted dibits per transition name one constellation point; the final zero tribit is
-/// the flush symbol and is not returned.
 fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; 144]> {
     const NEXT: [[u8; 8]; 8] = [
         [0, 8, 4, 12, 2, 10, 6, 14],
@@ -1299,7 +1237,6 @@ fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; 144]> {
 
 fn decode_rate_one(coded: &[bool; 196]) -> [bool; 192] {
     let mut out = [false; 192];
-    // Rate-one blocks carry 192 uncoded information bits around four zero pad bits.
     out[..96].copy_from_slice(&coded[..96]);
     out[96..].copy_from_slice(&coded[100..]);
     out
@@ -1415,11 +1352,6 @@ fn signed_bits(value: u32, width: u32) -> i32 {
     ((value << shift) as i32) >> shift
 }
 
-/// DMR's AMBE+2 interleave lands the two transmitted bits of each dibit in separate codec code
-/// vectors. Rows are c0..c3 and columns are their LSB-based bit indices (24, 23, 11 and 14 bits).
-/// This mapping belongs to the conventional vocoder fitted to the standard's codec-agnostic
-/// 216-bit socket; it is intentionally separate from the ETSI burst interleave. The schedule
-/// is independently published as the ISC-licensed DSD `dmr_const.h` rW/rX/rY/rZ tables.
 const AMBE_DMR_INTERLEAVE: [[(u8, u8); 2]; 36] = [
     [(0, 23), (0, 5)],
     [(1, 10), (2, 3)],
@@ -1528,9 +1460,6 @@ impl VoiceDecoder {
     }
 }
 
-/// DMR's CRC-16 (ETSI TS 102 361-1 §B.3.10): the un-reflected CCITT register, initialised to
-/// zero and inverted at the end, sent high byte first. Not the reflected X-25 variant the HDLC
-/// modes use, and the difference is not detectable by inspection — only by a frame that fails.
 fn dmr_crc16(data: &[u8]) -> u16 {
     !crc16_msb(0x1021, 0, data)
 }
@@ -1562,10 +1491,6 @@ mod tests {
         }
     }
 
-    /// The absolute channel definition off the air, as the header-and-continuation pair a
-    /// Tier III control channel actually sends it as. This is what tells the trunk follower
-    /// where a logical channel is, so it is asserted through the demodulator and not only
-    /// against a hand-built bit array.
     #[test]
     fn decodes_an_absolute_channel_definition_off_the_air() {
         let iq = tx::channel_definition(3, 811, 451_125_000, 456_250_000, INPUT_RATE_HZ);
@@ -1590,8 +1515,6 @@ mod tests {
         assert_eq!(defined.trunk_protocol, Some(DvTrunkProtocol::TierThree));
     }
 
-    /// A continuation is only ever read against the header directly before it; a burst of any
-    /// other type in between drops the header rather than letting it pair with a later block.
     #[test]
     fn an_interrupted_multi_block_is_not_read_as_a_definition() {
         let iq =
@@ -1659,9 +1582,6 @@ mod tests {
         );
     }
 
-    /// RAS keeps a block whose CRC fails under an undisclosed mask, but the frame says so and
-    /// a block the FEC had to repair is refused outright: an unverified grant would steer a
-    /// receiver onto noise.
     #[test]
     fn ras_mode_marks_an_unverified_block_and_refuses_a_repaired_one() {
         let payload = [false; 96];
@@ -1734,13 +1654,6 @@ mod tests {
         (frames, audio)
     }
 
-    /// A direct-mode call's header, one voice superframe, and its terminator, keyed
-    /// the way a TDMA radio keys: 132 symbols on the air in every 288, the rest dead.
-    ///
-    /// The embedded link control is asserted too — the late-entry path, four consecutive
-    /// bursts of fragments with no burst-level code of their own. That is the part the
-    /// sync-anchored level and centre estimates exist for: bursts B to E carry no sync, so
-    /// they are sliced by what the syncs before them measured.
     #[test]
     fn decodes_a_call_from_header_to_terminator() {
         let call = tx::Call::default();
@@ -1758,8 +1671,6 @@ mod tests {
         assert_eq!(header.destination, Some(call.destination));
         assert_eq!(header.source, Some(call.source));
 
-        // The bound is what the acquisition residual costs: a handful of bits the product code
-        // absorbs, not the tens a mis-framed burst would need.
         let headers: Vec<&DvFrame> = frames
             .iter()
             .filter(|f| f.kind == DvFrameKind::Header)
@@ -1812,8 +1723,6 @@ mod tests {
         );
     }
 
-    /// Privacy is the second service-options bit in the full LC. The embedded PI bit is a
-    /// reverse-channel routing indicator and must not overwrite it; encrypted payload is muted.
     #[test]
     fn encrypted_calls_are_reported_and_muted() {
         let call = tx::Call {
@@ -1833,16 +1742,6 @@ mod tests {
         assert!(audio.iter().all(|&sample| sample == 0.0));
     }
 
-    /// Off the air, which is the only place the front end meets a real TDMA transmitter: a
-    /// direct-mode call on PMR446 channel 1, recorded with an RTL-SDR at 2.048 Msps and
-    /// down-converted to the channel rate (fixtures/dmr_call_48k). The radio keys off for half
-    /// of every 60 ms frame, so between bursts the receiver hears nothing but its own noise —
-    /// and the clock, centre and level estimates have to arrive at each burst holding what the
-    /// transmitter taught them rather than what the dead time did.
-    ///
-    /// The late-entry path is what this proves: the addressing here is recovered from the voice
-    /// superframes alone, four bursts of embedded link control at a time, with no header in
-    /// them at all.
     #[test]
     fn decodes_a_recorded_call() {
         const FIXTURE: &[u8] = include_bytes!("../../../../fixtures/dmr_call_48k.sigmf-data");
@@ -2070,8 +1969,6 @@ mod tests {
         }
     }
 
-    /// The slot filter drops what the operator asked not to see, and the generator transmits
-    /// slot 1 only.
     #[test]
     fn the_slot_filter_selects_what_is_reported() {
         let iq = tx::transmission(&tx::Call::default(), INPUT_RATE_HZ);
@@ -2155,24 +2052,18 @@ mod tests {
         assert_eq!(frame.slot_activity[1].destination_hash, Some(0x5A));
     }
 
-    /// Noise is not a call. Nothing may reach the log from a channel carrying only noise, at
-    /// any level — the product code and the Reed-Solomon parity exist to make that true.
     #[test]
     fn noise_decodes_to_nothing() {
         let noise = crate::testutil::complex_noise(9, 0.5, 400_000);
         assert!(decode(&mut channel(DmrSlots::Both), &noise).is_empty());
     }
 
-    /// A retune abandons the transmitter the decoder was following: whatever it had collected
-    /// describes a call on the frequency it just left.
     #[test]
     fn retuning_forgets_the_call_in_progress() {
         let call = tx::Call::default();
         let iq = tx::transmission(&call, INPUT_RATE_HZ);
         let mut chan = channel(DmrSlots::Both);
         let mut out = ChannelOutputs::default();
-        // Half a transmission, then a retune, then the rest: the embedded link control that
-        // spans the cut must not be assembled out of both halves.
         chan.process(&iq[..iq.len() / 2], &mut out);
         chan.retuned();
         out.reset();

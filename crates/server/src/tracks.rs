@@ -6,41 +6,26 @@ use std::{
 
 use sdrmm_wire::DecodedRecord;
 
-/// Records kept per station. Enough for the frames that carry different fields — an ADS-B contact
-/// spreads identification, position and velocity across separate messages — without turning into
-/// scroll-back, which is the decoder log's job.
 const RECORDS_PER_STATION: usize = 6;
 
-/// Stations kept per decoder kind. Matches the client's own station cap: holding more than the
-/// browser will keep is work nobody reads.
 const STATIONS_PER_KIND: usize = 1_000;
 
-/// How long a silent station stays in the buffer. Matches the map's target age-out, so the backlog
-/// never resurrects a contact the client would have faded anyway.
 const TTL: Duration = Duration::from_secs(300);
 
-/// Ceiling on one backlog message. A thousand-aircraft site would otherwise greet every reload
-/// with megabytes; the newest stations win, because those are the ones still moving.
 const MAX_BACKLOG: usize = 2_000;
 
 #[derive(Debug)]
 struct Station {
-    /// Oldest first, capped at [`RECORDS_PER_STATION`].
     records: Vec<DecodedRecord>,
     last_seen: Instant,
 }
 
-/// The recent past of every station the decoders have identified.
 #[derive(Debug, Default)]
 pub(crate) struct Tracks {
-    /// Keyed by `(decoder kind, station id)`.
     stations: Mutex<HashMap<(&'static str, String), Station>>,
 }
 
 impl Tracks {
-    /// Record a decode. Events with no station identity (RTTY, Morse, and anything whose payload
-    /// carried no address) are not tracked: there is nothing to key them by, and they are
-    /// list-shaped rather than map-shaped in the client too.
     pub(crate) fn observe(&self, record: &DecodedRecord) {
         self.observe_at(record, Instant::now());
     }
@@ -63,10 +48,6 @@ impl Tracks {
         prune(&mut stations, kind, now);
     }
 
-    /// Every record a newly connected client missed, oldest first.
-    ///
-    /// Chronological because the client merges in arrival order: `at` is stamped to fixed
-    /// nine-digit precision by the engine exactly so a text sort is a time sort.
     pub(crate) fn backlog(&self) -> Vec<DecodedRecord> {
         self.backlog_at(Instant::now())
     }
@@ -97,14 +78,6 @@ impl Tracks {
     }
 }
 
-/// Hold one decoder kind to [`STATIONS_PER_KIND`]: drop what has gone silent, then the oldest of
-/// what is left if it is still over.
-///
-/// This runs inside the loop that feeds every connected client, once per decode, so the path that
-/// changes nothing must cost nothing — a count, no allocation, no sweep. Only a kind actually at
-/// its cap pays for the rest. Expiry is not on this path at all: [`Tracks::backlog_at`] filters by
-/// age as it reads, so a silent station is invisible from the moment it goes quiet whether or not
-/// anything has swept it out of the map yet.
 fn prune(
     stations: &mut HashMap<(&'static str, String), Station>,
     kind: &'static str,

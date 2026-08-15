@@ -1,18 +1,9 @@
-//! Driver registry: probes every registered backend and merges results, collapsing
-//! cross-backend duplicates by serial with native drivers winning over Soapy. One backend may
-//! intentionally expose several addresses for a serial (the RSPduo's Soapy operating modes), so
-//! those remain separate. At M0 only `device-virtual` registers, but the merge policy is here
-//! from the start.
-
 use std::collections::HashMap;
 
 use sdrmm_wire::DeviceInfo;
 
 use crate::{DeviceDriver, DeviceError, SdrDevice};
 
-/// Priority when the same physical device is seen through multiple drivers: higher wins
-/// (native RTL/HackRF claim priority over Soapy). Order of registration is the
-/// tie-breaker for equal priority.
 #[derive(Default)]
 pub struct DeviceRegistry {
     drivers: Vec<(u8, Box<dyn DeviceDriver>)>,
@@ -24,21 +15,15 @@ impl DeviceRegistry {
         Self::default()
     }
 
-    /// Register a driver with a merge priority (native backends use a higher value).
     pub fn register(&mut self, priority: u8, driver: Box<dyn DeviceDriver>) {
         self.drivers.push((priority, driver));
     }
 
-    /// Registered driver ids with their merge priorities, in registration order. This is what
-    /// `sdrmm --doctor` prints as "which backends this build has" — derived from the registry
-    /// rather than from a second list of feature flags that could disagree with it.
     #[must_use]
     pub fn driver_ids(&self) -> Vec<(u8, &'static str)> {
         self.drivers.iter().map(|(p, d)| (*p, d.id())).collect()
     }
 
-    /// Probe all drivers and merge, collapsing cross-driver serial duplicates by priority while
-    /// retaining distinct keys a single driver exposes for one serial.
     #[must_use]
     pub fn probe_all(&self) -> Vec<DeviceInfo> {
         let mut by_serial: HashMap<String, (u8, &'static str, Vec<DeviceInfo>)> = HashMap::new();
@@ -83,13 +68,6 @@ impl DeviceRegistry {
         out
     }
 
-    /// Open the device identified by `driver:key` ( `device_id`), returning the probed
-    /// [`DeviceInfo`] alongside it so callers keep the real label/serial instead of
-    /// reconstructing one from the id string.
-    ///
-    /// A key no probe reports is offered to the driver's [`DeviceDriver::resolve`] before this
-    /// gives up, which is how a network receiver — named by an operator, discoverable by nobody —
-    /// is opened the first time.
     pub fn open(&self, device_id: &str) -> Result<(DeviceInfo, Box<dyn SdrDevice>), DeviceError> {
         let (driver, info) = self
             .find(device_id)
@@ -98,12 +76,6 @@ impl DeviceRegistry {
         Ok((info, device))
     }
 
-    /// Adopt a device by `driver:key` without opening it, so a later probe reports it.
-    ///
-    /// What restores a network receiver after a restart: the endpoint lives only in the stored
-    /// workspace that names it, and a driver that has not been told about it would probe empty,
-    /// leaving the node bound to a radio nothing ever offers. `None` for every driver that
-    /// enumerates real hardware, where a key no probe found names a device that is not attached.
     #[must_use]
     pub fn resolve(&self, device_id: &str) -> Option<DeviceInfo> {
         let (driver_id, key) = device_id.split_once(':')?;
@@ -113,9 +85,6 @@ impl DeviceRegistry {
             .find_map(|(_, driver)| driver.resolve(key))
     }
 
-    /// The driver that owns `driver:key` and the device it names: the probe result where there is
-    /// one, an adopted key otherwise. Probes are consulted across every driver sharing the id
-    /// before any of them is asked to adopt, so a discovered device always wins over a named one.
     fn find(&self, device_id: &str) -> Option<(&dyn DeviceDriver, DeviceInfo)> {
         let (driver_id, key) = device_id.split_once(':')?;
         let matching = || {
@@ -145,8 +114,6 @@ mod tests {
     use super::*;
     use crate::{RxSink, lock};
 
-    /// A driver over a fixed probe list, optionally able to adopt any key it is asked for — the
-    /// two shapes the registry has to tell apart (attached hardware, and a named endpoint).
     struct Fake {
         id: &'static str,
         probed: Mutex<Vec<DeviceInfo>>,
@@ -194,8 +161,6 @@ mod tests {
             Ok(Box::new(FakeDevice))
         }
 
-        /// Adopts by lowercasing, so a test can prove callers take the *canonical* key back
-        /// rather than the one they asked with.
         fn resolve(&self, key: &str) -> Option<DeviceInfo> {
             if !self.adopts {
                 return None;
@@ -279,9 +244,6 @@ mod tests {
         assert!(registry.resolve("mock:missing").is_none());
     }
 
-    /// The network-receiver path end to end: an operator names an endpoint no probe could have
-    /// found, and from then on it *is* probed — which is what keeps the engine from faulting the
-    /// running set it belongs to, and what lets a stored workspace bind it again.
     #[test]
     fn an_adopted_key_opens_and_then_appears_in_the_probe() {
         let registry = registry([Fake::adopting("net")]);
@@ -309,8 +271,6 @@ mod tests {
         assert!(registry.resolve("no-colon").is_none());
     }
 
-    /// A driver that adopts anything must not answer for a key another driver actually has: the
-    /// probe list is consulted across every driver before any of them is offered the key.
     #[test]
     fn a_probed_device_wins_over_an_adopting_driver_with_the_same_id() {
         let registry = registry([Fake::adopting("mock"), Fake::new("mock", &["real"])]);

@@ -1,5 +1,3 @@
-// The panel PATCHes full ChannelSettings; widening a partial edit must not lose unrelated
-// fields, or the optimistic cache and the applied server state drift.
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, ChannelSettings } from "../lib/types";
 import {
@@ -56,8 +54,6 @@ describe("mergeChannelSettings", () => {
     expect(mergeChannelSettings(base, {}).squelch_db).toBe(-70);
   });
 
-  // The two squelch fields are edited from two controls, so an edit to one must not decide the
-  // other: turning tracking on keeps the manual threshold the gate falls back to.
   it("keeps the manual threshold when the automatic margin is set, and the reverse", () => {
     const auto = mergeChannelSettings(base, { squelch_auto_db: 8 });
     expect(auto.squelch_auto_db).toBe(8);
@@ -179,7 +175,6 @@ describe("rateMismatch", () => {
     input_rate_hz: 2_000_000,
     native_rate_max_hz: 4_000_000,
   });
-  // The rule ADS-B used to be under, kept because the descriptor can still express it.
   const fixed = descriptor({ type_id: "x", input_rate_hz: 2_000_000, exact_rate_only: true });
 
   it("names the range a native-rate mode runs over when the radio is outside it", () => {

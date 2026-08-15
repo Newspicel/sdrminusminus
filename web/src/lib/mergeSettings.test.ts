@@ -1,5 +1,3 @@
-// Mirrors the `DeviceSettings::merge_from` tests (crates/wire/src/device.rs): the optimistic
-// cache must merge exactly like the server, or accumulated edits drift from the applied state.
 import { describe, expect, it } from "vitest";
 import type { DeviceSettings, StateSnapshot } from "./types";
 import { forStream, mergeSettings, patchTargetExists } from "./useDevicePatch";
@@ -113,8 +111,6 @@ function snapshot(...ids: number[]): StateSnapshot {
   };
 }
 
-// Guards the debounce-flush-after-close path: a patch for a deleted set must be dropped, not
-// sent and then surfaced as a stale "Rejected" banner on the next device.
 describe("patchTargetExists", () => {
   it("is true only for a set present in the snapshot", () => {
     expect(patchTargetExists(snapshot(0, 3), 3)).toBe(true);

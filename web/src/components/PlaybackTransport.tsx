@@ -15,14 +15,11 @@ import {
 } from "./playback";
 import { Slider } from "./Slider";
 
-/** Fast enough that the bar slides rather than steps, and it only re-renders this strip. */
 const TICK_MS = 200;
 
 export function PlaybackTransport({ set, status }: { set: DeviceSet; status: PlaybackStatus }) {
   const queryClient = useQueryClient();
   const { applyPatch } = useDevicePatch();
-  // While a scrub is in flight the bar follows the pointer, not the server: the position it
-  // reports is a block behind, and letting it win mid-drag makes the handle fight the hand.
   const [scrub, setScrub] = useState<number | null>(null);
 
   const drive = useMutation({
@@ -80,8 +77,6 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         className="min-w-0 flex-1"
         value={Math.round(position)}
         min={0}
-        // A recording with no samples has nowhere to scrub to; a one-wide track keeps the
-        // control from dividing by zero while still reading as empty.
         max={Math.max(1, status.total_samples)}
         onChange={setScrub}
         onCommit={(target) => {
@@ -98,10 +93,6 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
   );
 }
 
-/** The position between snapshots. Anchored on each reported value and advanced on the clock,
- * the way `RecordingReadout` runs its elapsed counter — the server emits a state change per
- * transport command, not per block. The tick stops while paused: there is nothing to advance,
- * and a re-render every 200ms to redraw the same number is pure waste. */
 function useLivePosition(status: PlaybackStatus, sampleRate: number, looping: boolean): number {
   const [anchor, setAnchor] = useState(() => ({
     position: status.position_samples,

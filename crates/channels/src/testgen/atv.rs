@@ -1,21 +1,13 @@
-//! Reference ATV transmitter: a standards-timed analog raster, modulated the way the band it
-//! belongs to modulates it.
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
 use sdrmm_wire::{AtvColor, AtvModulation, AtvParams, AtvStandard};
 
-/// Video levels, sync tip to peak white, as the standards define them: blanking sits 30 % of
-/// the way up and the picture occupies everything above it.
 const SYNC: f32 = 0.0;
 const BLANKING: f32 = 0.3;
 
-/// Peak-carrier fraction the picture is keyed down to at peak white. 87.5 % leaves white at
-/// 12.5 % of the sync tip, which is what broadcast negative modulation transmits.
 const AM_DEPTH: f64 = 0.875;
 
-/// Peak deviation of the FM form, in Hz. Small next to real FM ATV on purpose: Carson's rule
-/// has to keep the transmission inside the channel the test then filters it through.
 const FM_DEVIATION_HZ: f64 = 150_000.0;
 const SOUND_DEVIATION_HZ: f64 = 50_000.0;
 const SOUND_LEVEL: f64 = 0.12;
@@ -23,7 +15,6 @@ const EMBEDDED_SOUND_LEVEL: f64 = 0.01;
 const PAL_SUBCARRIER_HZ: f64 = 4_433_618.75;
 const NTSC_SUBCARRIER_HZ: f64 = 3_579_545.0;
 
-/// Luma of the vertical bars [`bars`] transmits, black to white.
 pub const BAR_LEVELS: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
 pub const COLOR_BARS: [[f32; 3]; 8] = [
     [1.0, 1.0, 1.0],
@@ -36,7 +27,6 @@ pub const COLOR_BARS: [[f32; 3]; 8] = [
     [0.0, 0.0, 0.0],
 ];
 
-/// One standard's line, in seconds, and the vertical structure of one of its fields.
 #[derive(Clone, Copy, Debug)]
 struct Layout {
     line_s: f64,
@@ -44,17 +34,11 @@ struct Layout {
     sync_s: f64,
     back_porch_s: f64,
     active_s: f64,
-    /// Half-lines of equalizing pulses before the broad group, of broad pulses, and of
-    /// equalizing pulses after it.
     pre_eq: u16,
     broad: u16,
     post_eq: u16,
-    /// Half-lines in one field: half the frame's lines, counted this way because the vertical
-    /// structure is on a half-line grid and the frame's is not.
     field_half_lines: u16,
-    /// Whole lines of blanking between the vertical group and the first line of picture.
     blank_after_group: u16,
-    /// Lines of picture in one field.
     active_lines: u16,
 }
 
@@ -65,8 +49,6 @@ fn layout(standard: AtvStandard) -> Layout {
             AtvStandard::Eia525 => (4.7, 4.5, 52.6, 6, 6, 6, 11, 240),
             AtvStandard::SystemA405 => (9.0, 5.8, 82.2, 0, 8, 0, 10, 188),
         };
-    // The line period comes from the standard's line rate, not from a rounded figure: a frame
-    // that is a few samples long closes on the wrong sample and drifts a receiver every frame.
     let line_s = 1.0 / standard.line_rate_hz();
     Layout {
         line_s,
@@ -83,21 +65,14 @@ fn layout(standard: AtvStandard) -> Layout {
     }
 }
 
-/// What a segment of the raster carries. Every one is either a half-line of the vertical
-/// structure or a whole line.
 #[derive(Clone, Copy)]
 enum Seg {
-    /// A half-line whose first half-sync marks time through the vertical interval.
     Equalizing,
-    /// A half-line of the broad group: sync for all of it but the last sync width.
     Broad,
-    /// A half-line of plain blanking, which is what carries the interlace offset.
     HalfBlank,
-    /// A whole line, with picture in its active window or blanking instead.
     Line { picture: bool },
 }
 
-/// A transmitter for one set of ATV settings at one sample rate.
 pub struct AtvSource {
     rate: f64,
     layout: Layout,
@@ -122,13 +97,9 @@ impl AtvSource {
         }
     }
 
-    /// The frame's segments. `second` selects the field whose vertical group arrives half a
-    /// line late — the only difference between the two, and the whole of interlace.
     fn field(&self, second: bool) -> Vec<Seg> {
         let l = self.layout;
         let mut segs = Vec::new();
-        // The half-line that displaces this field's line grid. Emitted before the vertical
-        // group so the group itself, and with it the receiver's field-parity test, moves with it.
         if second {
             segs.push(Seg::HalfBlank);
         }
@@ -150,7 +121,6 @@ impl AtvSource {
         segs
     }
 
-    /// Level of one segment at `u` seconds into it, `luma` sampled across the active window.
     fn level(&self, seg: Seg, u: f64, line: u64, pixel: &dyn Fn(f64) -> [f32; 3]) -> f32 {
         let l = self.layout;
         let half = l.line_s / 2.0;
@@ -215,7 +185,6 @@ impl AtvSource {
         }
     }
 
-    /// Render `frames` frames of `luma` as the video waveform, sync tip 0.0 to peak white 1.0.
     fn video(&self, frames: u32, luma: &dyn Fn(f64) -> f32) -> Vec<f32> {
         self.composite(
             frames,
@@ -236,13 +205,9 @@ impl AtvSource {
         let mut segs = Vec::new();
         for _ in 0..frames {
             segs.extend(self.field(false));
-            // A progressive source repeats the same field structure: no half-line displacement,
-            // so a receiver weaves nothing and every vertical sync opens a whole picture.
             segs.extend(self.field(self.interlace));
         }
         let mut out = Vec::new();
-        // Boundaries are tracked in fractional samples and rounded once, so a half-line offset
-        // survives a rate that does not divide the line period.
         let mut start = 0.0f64;
         let mut line = 0u64;
         for seg in segs {
@@ -265,7 +230,6 @@ impl AtvSource {
         out
     }
 
-    /// Modulate a video waveform onto complex baseband.
     fn modulate(&self, video: &[f32], sound_hz: Option<f64>) -> Vec<Complex<f32>> {
         let mut phase = 0.0f64;
         let mut sound_phase = 0.0f64;
@@ -294,7 +258,6 @@ impl AtvSource {
     }
 }
 
-/// `frames` frames of vertical bars at [`BAR_LEVELS`], as complex baseband IQ.
 #[must_use]
 pub fn bars(source: &AtvSource, frames: u32) -> Vec<Complex<f32>> {
     let video = source.video(frames, &|x| {
@@ -304,7 +267,6 @@ pub fn bars(source: &AtvSource, frames: u32) -> Vec<Complex<f32>> {
     source.modulate(&video, None)
 }
 
-/// Eight standard RGB bars and a 1 kHz tone on the configured sound carrier.
 #[must_use]
 pub fn color_bars_with_tone(source: &AtvSource, frames: u32) -> Vec<Complex<f32>> {
     let video = source.composite(
@@ -356,9 +318,6 @@ mod tests {
         )
     }
 
-    /// A frame must be exactly the standard's own duration: the vertical structure is laid out
-    /// in half-lines and the picture in whole ones, and a raster that does not close on itself
-    /// would drift a receiver by a line a frame however good its flywheel is.
     #[test]
     fn a_frame_lasts_exactly_one_frame_period() {
         for standard in [
@@ -377,8 +336,6 @@ mod tests {
         }
     }
 
-    /// The two fields must differ by exactly one half-line, since that displacement is the only
-    /// thing a receiver can tell them apart by.
     #[test]
     fn the_second_field_is_displaced_by_half_a_line() {
         let src = source(AtvStandard::Ccir625);
@@ -407,8 +364,6 @@ mod tests {
         );
     }
 
-    /// Sync must be the lowest level in the waveform and white the highest, with blanking where
-    /// the standards put it — the levels every receiver slices against.
     #[test]
     fn levels_sit_where_the_standards_put_them() {
         let src = source(AtvStandard::Ccir625);
@@ -428,8 +383,6 @@ mod tests {
         assert_eq!(at(line_start + l.front_porch_s + l.sync_s / 2.0), SYNC);
     }
 
-    /// Negative modulation is the claim the AM form makes: peak carrier at the sync tip, and
-    /// white keyed down to a small fraction of it.
     #[test]
     fn am_keys_sync_to_peak_carrier() {
         let src = source(AtvStandard::Ccir625);

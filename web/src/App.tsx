@@ -55,8 +55,6 @@ import { videoHub } from "./lib/video";
 import { SdrSocket } from "./lib/ws";
 import { ToolsDialog } from "./tools/ToolsDialog";
 
-/** Modes the `m` shortcut walks, in the order an operator sweeps them. Decoders are not in the
- * ring: swapping a channel to ADS-B mid-listen is a different intent, not the next mode. */
 const MODE_RING = ["nfm", "wfm", "am", "ssb"] as const;
 
 export function App() {
@@ -101,8 +99,6 @@ export function App() {
     },
     [queryClient],
   );
-  // The socket is built once and outlives every render, so it reads the handler from here.
-  // Written after commit, never during render: React may replay or discard a render.
   const onServerEventRef = useRef(onServerEvent);
   useLayoutEffect(() => {
     onServerEventRef.current = onServerEvent;
@@ -110,13 +106,7 @@ export function App() {
 
   useEffect(() => {
     const s = new SdrSocket();
-    // Wired before `connect()` below, not from a later effect: the first thing a fresh socket is
-    // told is `Hello`, and a handler installed a render later would miss it and leave every
-    // query showing whatever the last session cached.
     s.onEvent = (event) => onServerEventRef.current(event);
-    // The bar carries no link light: a row of chrome spent on "still fine" is a row the patch
-    // does not get. A *lost* link is news, so it is said once, on the transition — every failed
-    // retry closes the socket again, and a toast per attempt would be the light back, blinking.
     let up = false;
     s.onStatus = (now) => {
       if (up && !now) {
@@ -128,8 +118,6 @@ export function App() {
     s.addEventListener(useScannerStore.getState().observe);
     s.addEventListener(usePositionStore.getState().observe);
     s.addEventListener(useLevelStore.getState().observe);
-    // Spectrum, baseband and video are refcounted — per device set and per channel — so several
-    // faces watching the same thing share one stream instead of replacing each other's.
     spectrumHub.attach(s);
     iqHub.attach(s);
     videoHub.attach(s);
@@ -182,9 +170,6 @@ export function App() {
     }
   }, [workspace.applied, graph.nodes]);
 
-  // What the rack draws is the stored layout with anything that no longer fits the grid
-  // re-placed (`pruneRack`) — the same normalisation every write goes through, so the operate
-  // view and the next write cannot disagree about where a face is.
   const rack = useMemo(() => pruneRack(snapshot?.rack ?? {}, graph), [snapshot?.rack, graph]);
   const settings = useMemo(() => snapshot?.settings ?? {}, [snapshot?.settings]);
   const save = workspace.save;
@@ -200,10 +185,6 @@ export function App() {
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
 
-  // Every channel a node on the canvas can still reach. Audio outlives the face that started it
-  // on purpose (a remount must not cut it), so this is what draws the other line: a channel whose
-  // radio is no longer named by any node has no face left to stop it, and playing on would be
-  // sound the operator cannot turn off — with the server still encoding it.
   const reachable = useMemo(
     () =>
       [...devices.values()].flatMap((set) =>
@@ -228,9 +209,6 @@ export function App() {
 
   const selectedNode = graph.nodes.find((node) => node.id === selected) ?? null;
   const selectedChannel = selected === null ? null : (channels.get(selected) ?? null);
-  // The radio the keyboard acts on: the selected node when it is one, otherwise the one its wire
-  // leads to — the same resolver every face uses, so a key and a face never disagree about which
-  // radio a selection is about.
   const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected);
   const selectedSet = selectedDevice === null ? null : (devices.get(selectedDevice) ?? null);
 
@@ -241,8 +219,6 @@ export function App() {
       if (selectedSet === null) {
         return;
       }
-      // Clamped like the dial: a radio at the edge of its range should stop there, not send the
-      // driver a frequency it will refuse and toast about once per keypress.
       const range = tuningRange(selectedSet.capabilities);
       const current = cachedSettings(selectedSet.id)?.center_hz ?? 0;
       const wanted = current + steps * stepHz;
@@ -253,8 +229,6 @@ export function App() {
       const next = Math.min(TUNE_STEPS_HZ.length - 1, Math.max(0, at + direction));
       setStepHz(TUNE_STEPS_HZ[next] ?? stepHz);
     },
-    // One dial per device node, so the binding reaches the *selected* node's dial; with a channel
-    // selected it reaches the radio that channel is wired to.
     focusDial: () => {
       if (selectedDevice !== null) {
         document.getElementById(deviceDialId(selectedDevice))?.focus();
@@ -267,8 +241,6 @@ export function App() {
       const at = MODE_RING.indexOf(
         selectedChannel.settings.params.type as (typeof MODE_RING)[number],
       );
-      // A decoder channel is not on the ring; entering it at the first mode is the only sane
-      // answer, and the settings for the new mode start at the server's defaults.
       const next = MODE_RING[(Math.max(0, at) + direction + MODE_RING.length) % MODE_RING.length];
       if (next === undefined || selected === null) {
         return;
@@ -372,8 +344,6 @@ export function App() {
           <ServerDown reason={workspace.unreachable} onReachable={retrySocket} />
         )}
 
-        {/* Deleting the last workspace leaves the workspace with none, honestly (the server says
-            so rather than inventing one); the only thing to offer is a new one. */}
         {workspace.unreachable === null && workspace.active === null && !workspace.pending && (
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <Button
@@ -399,11 +369,8 @@ export function App() {
   );
 }
 
-/** What the server itself buffers, so the cache cannot outgrow a refetch. */
 const MAX_CACHED_CALLS = 10_000;
 
-/** Newest first, matching what `GET /api/calls` returns, and capped at what the list shows so
- * a busy trunked system cannot grow the cache without bound between refetches. */
 function appendCall(queryClient: QueryClient, call: VoiceCall) {
   queryClient.setQueryData(CALLS_KEY, (previous: VoiceCallsResponse | undefined) => ({
     calls: [call, ...(previous?.calls ?? [])].slice(0, MAX_CACHED_CALLS),
@@ -418,8 +385,6 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
     case "devices":
       void queryClient.invalidateQueries({ queryKey: STATE_KEY });
       void queryClient.invalidateQueries({ queryKey: DEVICES_KEY });
-      // Which templates a radio can run is answered per attached radio, so the gallery goes
-      // stale the moment one is plugged in or unplugged.
       void queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY });
       break;
     case "device_set":
@@ -439,8 +404,6 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       void queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
       break;
     case "decoder_log":
-      // Only structural changes (cleared, pruned) land here; individual decodes arrive as
-      // `Decoded` and are appended client-side, so this never fires per frame.
       void queryClient.invalidateQueries({ queryKey: DECODER_LOG_KEY });
       break;
     case "calls":

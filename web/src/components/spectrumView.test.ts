@@ -179,8 +179,6 @@ describe("clusterMarkers", () => {
     expect(clusters.map((group) => group.map((m) => m.id))).toEqual([[4, 9], [1]]);
   });
 
-  // Measured against the group's first member, so a run of markers each just inside the gap
-  // cannot chain into one group whose label would stand nowhere near half of them.
   it("never spans more than one collision", () => {
     const clusters = clusterMarkers([
       { at: 0, ...wide },

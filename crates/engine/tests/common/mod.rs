@@ -1,7 +1,3 @@
-//! Helpers shared by the engine e2e tests: packet collection, Opus decode, and the Goertzel
-//! tone-dominance assertion. The virtual devices pace themselves to real time, hence the
-//! generous waits.
-
 use std::time::Duration;
 
 use sdrmm_device_virtual::MOD_TONE_HZ;
@@ -10,9 +6,7 @@ use tokio::sync::broadcast;
 
 const AUDIO_RATE: f64 = 48_000.0;
 const WAIT: Duration = Duration::from_secs(10);
-/// One second of packets: bin-aligns 700/1000/1500/2300 Hz probes for leakage-free Goertzel.
 const ONE_SECOND_PACKETS: usize = 50;
-/// Half a second for DDC/demod/AGC transients (and squelch hold) to settle.
 pub const SETTLE_PACKETS: usize = 25;
 
 pub async fn collect_packets(
@@ -26,7 +20,6 @@ pub async fn collect_packets(
             .expect("audio packet within timeout")
         {
             Ok(packet) => out.push(packet),
-            // Drop-oldest contract: a briefly starved test runner may lag; keep collecting.
             Err(broadcast::error::RecvError::Lagged(_)) => {}
             Err(broadcast::error::RecvError::Closed) => panic!("audio stream closed"),
         }
@@ -34,9 +27,6 @@ pub async fn collect_packets(
     out
 }
 
-/// One vector per audio channel, deinterleaved. The layout comes from the packets themselves;
-/// a run whose layout changes part-way through would need two decoders, so it is a test bug
-/// here rather than something to paper over.
 fn decode(packets: &[AudioPacket]) -> Vec<Vec<f32>> {
     let channels = usize::from(packets.first().map_or(1, |p| p.channels));
     assert!(
@@ -74,8 +64,6 @@ fn goertzel_power(samples: &[f32], freq_hz: f64) -> f64 {
     coeff.mul_add(-(s1 * s2), s1 * s1 + s2 * s2)
 }
 
-/// Every channel of the decoded audio must carry the virtual device's tone — a stereo mode
-/// that filled only one of them would still pass a check on the first.
 pub fn assert_tone_dominates(channels: &[Vec<f32>]) {
     assert!(!channels.is_empty(), "no audio channels decoded");
     for (index, audio) in channels.iter().enumerate() {
@@ -90,7 +78,6 @@ pub fn assert_tone_dominates(channels: &[Vec<f32>]) {
     }
 }
 
-/// One second of settled audio, deinterleaved: one vector per channel of the stream's layout.
 pub async fn settle_then_collect_second(
     rx: &mut broadcast::Receiver<AudioPacket>,
 ) -> Vec<Vec<f32>> {

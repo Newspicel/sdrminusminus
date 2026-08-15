@@ -43,8 +43,6 @@ fn committed_path() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{PERF}.json"))
 }
 
-/// Rewrites the committed baseline. Run deliberately, on the reference machine:
-/// `cargo test -p sdrmm-modem --release --test mfsk_perf write_cpm_perf_baseline -- --ignored`.
 #[test]
 #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
 fn write_cpm_perf_baseline() {
@@ -56,8 +54,6 @@ fn write_cpm_perf_baseline() {
     save_baselines(&path, &measured_baselines()).unwrap();
 }
 
-/// The nightly perf gate: measured against committed, failing past [`REGRESSION_FRACTION`].
-/// Compared only in release and only on the host that wrote the baseline.
 #[test]
 #[ignore = "nightly perf gate; run in release: cargo test -p sdrmm-modem --release --test mfsk_perf compare_cpm_perf_baseline -- --ignored"]
 fn compare_cpm_perf_baseline() {

@@ -14,26 +14,16 @@ use sdrmm_wire::PositionFix;
 
 use crate::EngineError;
 
-/// Whole drained slices queue per send, so the headroom before a stalled writer becomes a
-/// surfaced overflow fault is cap × drain cadence: ~1.6 s at the virtual device's 25 ms
-/// blocks, but only ~0.13 s at a real backend's ~2 ms hot-loop drain.
 const REC_CHANNEL_CAP: usize = 64;
 
-/// What [`crate::Engine::stop_recording`] hands back for indexing (: the files are
-/// the source of truth; the server upserts this into its recordings index).
 #[derive(Clone, Debug)]
 pub struct FinalizedRecording {
-    /// Directory-joined extension-less stem, exactly as `sdrmm_recorder::scan_stems` lists it.
     pub stem: PathBuf,
-    /// The rx stream the pair captured, as `RecordingStatus.stream` reported live.
     pub stream: u32,
-    /// RFC3339 UTC.
     pub started_at: String,
     pub samples: u64,
     pub bytes: u64,
     pub overruns: u64,
-    /// The fault that ended the writer, if any; the pair may then be unfinalized (breadcrumb
-    /// meta only) and is never listed.
     pub error: Option<String>,
 }
 
@@ -56,9 +46,6 @@ pub(crate) enum PositionUpdateError {
 }
 
 impl RecordingPosition {
-    /// Position changes share the writer queue with IQ blocks. The channel's receive order is
-    /// therefore the sample boundary the fix belongs to, even when the disk writer is behind.
-    /// Routing must not wait behind a slow disk: a full queue is already a recording failure.
     pub(crate) fn update(&self, fix: Option<PositionFix>) -> Result<(), PositionUpdateError> {
         self.tx
             .try_send(RecMessage::Position(fix.map(Box::new)))
@@ -82,16 +69,11 @@ impl RecordingShared {
         self.error.get().cloned()
     }
 
-    /// First fault wins: a queue overflow that follows a write error must not mask the cause.
-    /// `pub(crate)` so engine tests can inject a writer fault (no honest disk fault is
-    /// portably inducible on a live writer).
     pub(crate) fn fail(&self, message: String) {
         let _ = self.error.set(message);
     }
 }
 
-/// One drained DSP slice bound for the writer. `start_sample` is the DSP thread's total
-/// sample clock (ring drops included), so a gap between blocks marks an upstream overrun.
 #[derive(Debug)]
 pub(crate) struct RecBlock {
     start_sample: u64,
@@ -111,9 +93,6 @@ pub(crate) struct RecorderTap {
 }
 
 impl RecorderTap {
-    /// Hand a slice to the writer. `false` means the recording failed (queue overflow or
-    /// writer death): the cause is already in the shared state and the caller must disarm —
-    /// continuing would write a file with silent holes.
     #[must_use]
     pub(crate) fn push(&self, slice: &[Complex<f32>], start_sample: u64, center_hz: f64) -> bool {
         if slice.is_empty() {
@@ -131,8 +110,6 @@ impl RecorderTap {
                     .fail("recording queue overflow — disk too slow?".to_string());
                 false
             }
-            // The writer only drops the receiver on its own fault, which it reports first;
-            // this fallback covers a panicked writer.
             Err(mpsc::TrySendError::Disconnected(_)) => {
                 self.shared.fail("recording writer stopped".to_string());
                 false
@@ -161,9 +138,6 @@ pub(crate) fn create_tap() -> (
     )
 }
 
-/// The writer thread. Constructed control-side so spawn errors surface on the REST call; it
-/// exits when the tap is gone — dropping the tap is the stop handshake — or on the first
-/// write fault, finalizing either way so already-captured data survives as a playable pair.
 pub(crate) fn spawn_writer(
     writer: SigmfWriter,
     messages: mpsc::Receiver<RecMessage>,
@@ -236,8 +210,6 @@ pub(crate) fn create_writer(
         if !meta_path(&stem).exists() {
             match SigmfWriter::create(&stem, sample_rate, center_hz, hw) {
                 Ok(mut writer) => {
-                    // Stamped even for stream 0, so the meta states the stream rather than
-                    // leaving it implied (b); absent means "predates multi-stream".
                     writer.set_rx_stream(stream);
                     return Ok((writer, name));
                 }
@@ -366,7 +338,6 @@ mod tests {
 
     #[test]
     fn full_queue_surfaces_overflow_instead_of_dropping() {
-        // No writer thread: the queue backs up exactly like a wedged disk would make it.
         let (tap, position, _messages, shared) = create_tap();
         let samples = block(4);
         for i in 0..REC_CHANNEL_CAP as u64 {
@@ -399,15 +370,12 @@ mod tests {
             create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-2");
 
-        // A finalized pair and a crashed attempt (breadcrumb left behind) both claim theirs.
         first.finalize().unwrap();
         drop(second);
         let (_third, name) =
             create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-3");
 
-        // A meta-only stem (data file removed by hand) is never reclaimed: finalize would
-        // rename over the surviving meta.
         std::fs::remove_file(data_path(&base_stem)).unwrap();
         let (_fourth, name) =
             create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();

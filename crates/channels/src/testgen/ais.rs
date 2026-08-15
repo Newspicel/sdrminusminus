@@ -8,23 +8,14 @@ use sdrmm_modem::{
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
-/// Total span of the GMSK frequency pulse in symbol periods: the NRZ rect's own symbol plus
-/// a four-symbol truncation of the Gaussian premod filter — the same support the pre-cpm
-/// shaping chain had (a span-4 Gaussian applied to the rect NRZ line), kept so the committed
-/// fixture and the migrated generator describe the same transmitter.
 const PULSE_SPAN: usize = 5;
 
 const FLAG: [bool; 8] = [false, true, true, true, true, true, true, false];
 const TRAINING_BITS: usize = 24;
-/// The spec's trailing buffer field, which also gives the shaping filter's group delay the
-/// room it needs to finish the closing flag.
 const BUFFER_BITS: usize = 24;
 
-/// Degrees to the 1/10 000 minute units AIS transmits positions in.
 const COORD_UNITS_PER_DEGREE: f64 = 600_000.0;
 
-/// The subset of a type 1/2/3 or type 18 position report a test cares about; every other
-/// field is transmitted as its "not available" code.
 #[derive(Clone, Copy, Debug)]
 pub struct PositionReport {
     pub mmsi: u32,
@@ -36,7 +27,6 @@ pub struct PositionReport {
     pub nav_status: u8,
 }
 
-/// Payload bits for a type 1 position report.
 #[must_use]
 pub fn position_payload(report: &PositionReport) -> Vec<bool> {
     let mut b = Bits::default();
@@ -44,7 +34,6 @@ pub fn position_payload(report: &PositionReport) -> Vec<bool> {
     b.field(0, 2);
     b.field(u64::from(report.mmsi), 30);
     b.field(u64::from(report.nav_status & 0xF), 4);
-    // Rate of turn: −128 is "not available".
     b.signed(-128, 8);
     b.field(sog_code(report.sog_kt), 10);
     b.field(0, 1);
@@ -52,7 +41,6 @@ pub fn position_payload(report: &PositionReport) -> Vec<bool> {
     b.signed(coord_code(report.lat), 27);
     b.field(cog_code(report.cog_deg), 12);
     b.field(u64::from(report.heading_deg.min(511)), 9);
-    // Time stamp 60 = "not available".
     b.field(60, 6);
     b.field(0, 2);
     b.field(0, 3);
@@ -62,7 +50,6 @@ pub fn position_payload(report: &PositionReport) -> Vec<bool> {
     b.0
 }
 
-/// Payload bits for a type 18 class B position report.
 #[must_use]
 pub fn class_b_payload(report: &PositionReport) -> Vec<bool> {
     let mut b = Bits::default();
@@ -84,7 +71,6 @@ pub fn class_b_payload(report: &PositionReport) -> Vec<bool> {
     b.0
 }
 
-/// Payload bits for a type 5 static and voyage related data report.
 #[must_use]
 pub fn static_payload(mmsi: u32, name: &str, call_sign: &str, destination: &str) -> Vec<bool> {
     let mut b = Bits::default();
@@ -101,7 +87,6 @@ pub fn static_payload(mmsi: u32, name: &str, call_sign: &str, destination: &str)
     b.field(0, 6);
     b.field(0, 6);
     b.field(0, 4);
-    // ETA month / day / hour / minute, all "not available".
     b.field(0, 4);
     b.field(0, 5);
     b.field(24, 5);
@@ -114,8 +99,6 @@ pub fn static_payload(mmsi: u32, name: &str, call_sign: &str, destination: &str)
     b.0
 }
 
-/// Payload bits for the two halves of a type 24 static data report: part A carries the name,
-/// part B the call sign. A class B transmitter sends them as a pair.
 #[must_use]
 pub fn static_data_payloads(mmsi: u32, name: &str, call_sign: &str) -> (Vec<bool>, Vec<bool>) {
     let mut a = Bits::default();
@@ -147,21 +130,11 @@ pub fn static_data_payloads(mmsi: u32, name: &str, call_sign: &str) -> (Vec<bool
     (a.0, b.0)
 }
 
-/// Wrap payload bits into a full HDLC burst (preamble, flags, CRC, stuffing, NRZI) and
-/// GMSK-modulate to complex baseband IQ at `rate`.
-///
-/// # Panics
-/// If `payload` is not a whole number of octets, or `rate` gives under two samples per bit.
 #[must_use]
 pub fn burst(payload: &[bool], rate: f64) -> Vec<Complex<f32>> {
     modulate(&with_fcs(payload), rate)
 }
 
-/// [`burst`], with frame bit `flip` inverted after the FCS has been computed over the clean
-/// payload — a burst that frames perfectly and fails its CRC by exactly one bit.
-///
-/// # Panics
-/// If `flip` is past the end of the payload and its FCS, or as [`burst`] panics.
 #[must_use]
 pub fn corrupted_burst(payload: &[bool], flip: usize, rate: f64) -> Vec<Complex<f32>> {
     let mut framed = with_fcs(payload);
@@ -204,7 +177,6 @@ fn modulate(framed: &[bool], rate: f64) -> Vec<Complex<f32>> {
     .keyed(&symbols)
 }
 
-/// Bit writer for the big-endian fields an AIS message is defined in.
 #[derive(Default)]
 struct Bits(Vec<bool>);
 
@@ -220,7 +192,6 @@ impl Bits {
         self.field(value as u64 & mask, len);
     }
 
-    /// Six-bit ASCII, padded to `chars` with `@` (the alphabet's NUL).
     fn text(&mut self, s: &str, chars: usize) {
         let mut written = 0;
         for c in s.chars().take(chars) {
@@ -233,7 +204,6 @@ impl Bits {
     }
 }
 
-/// Inverse of the AIS six-bit alphabet: 0–31 are `@`–`_`, 32–63 are space–`?`.
 fn six_bit(c: char) -> u8 {
     match c.to_ascii_uppercase() as u32 {
         v @ 64..=95 => (v - 64) as u8,
@@ -246,18 +216,14 @@ fn coord_code(deg: f64) -> i64 {
     (deg * COORD_UNITS_PER_DEGREE).round() as i64
 }
 
-/// 0.1 kt units; 1023 is "not available".
 fn sog_code(kt: f64) -> u64 {
     ((kt * 10.0).round() as i64).clamp(0, 1023) as u64
 }
 
-/// 0.1° units; 3600 is "not available".
 fn cog_code(deg: f64) -> u64 {
     ((deg * 10.0).round() as i64).clamp(0, 3600) as u64
 }
 
-/// Append the HDLC frame check sequence: CRC-16/X-25 over the wire bits packed LSB-first into
-/// octets, sent low octet first with each octet's low bit first.
 fn with_fcs(payload: &[bool]) -> Vec<bool> {
     let crc = crc16_x25(&pack_lsb(payload));
     let mut out = payload.to_vec();
@@ -281,8 +247,6 @@ fn stuff(bits: &[bool]) -> Vec<bool> {
     out
 }
 
-/// NRZI line encode: a 0 bit toggles the line, a 1 holds it (the inverse of
-/// [`sdrmm_dsp::NrziDecoder`], which starts from the same low idle level).
 fn nrzi_encode(bits: &[bool]) -> Vec<bool> {
     let mut level = false;
     bits.iter()
@@ -344,18 +308,11 @@ mod tests {
     fn burst_holds_unit_envelope_between_ramped_edges() {
         let payload = position_payload(&report());
         let iq = burst(&payload, 48_000.0);
-        // 24 training + 8 flag + 184 stuffed data + 8 flag + 24 buffer bits, at 5 samples
-        // per bit plus the pulse tail; the exact stuffed count depends on the payload, so
-        // bound it instead.
         assert!(
             (1_240..1_400).contains(&iq.len()),
             "burst length {}",
             iq.len()
         );
-        // Constant envelope through the body, ramped at the edges: never over unit, exactly
-        // unit away from the keying edges, and no sample-to-sample envelope step anywhere —
-        // a step's splash through the receiver's channel filter is what the ramp exists to
-        // avoid.
         for (k, s) in iq.iter().enumerate() {
             assert!(s.norm() <= 1.0 + 1e-3, "sample {k} magnitude {}", s.norm());
         }

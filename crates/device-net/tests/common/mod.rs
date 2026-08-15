@@ -1,9 +1,4 @@
 #![allow(clippy::expect_used)]
-//! A harness that cannot bind a loopback socket or clone it has nothing left to assert,
-//! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
-//! the free functions and closures a fake server is built out of.
-//! Shared scaffolding for the fake-server tests: a loopback listener whose connections a test
-//! scripts, and the two waits every test here needs.
 use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{
@@ -13,10 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// How long a test will wait for something that should take milliseconds.
 pub const DEADLINE: Duration = Duration::from_secs(10);
 
-/// Poll `check` until it holds, or fail naming what was being waited for.
 pub fn eventually(what: &str, mut check: impl FnMut() -> bool) {
     let deadline = Instant::now() + DEADLINE;
     while Instant::now() < deadline {
@@ -32,11 +25,6 @@ pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A server on a loopback port the OS picked, handing each accepted connection to `handle`.
-///
-/// The listener thread outlives the test process rather than being joined: a test that has
-/// finished asserting has nothing to wait for, and a handler blocked writing to a client that has
-/// gone would only make the run slower.
 pub struct FakeServer {
     addr: SocketAddr,
     connections: Arc<AtomicUsize>,
@@ -59,12 +47,10 @@ impl FakeServer {
         Self { addr, connections }
     }
 
-    /// The `host:port` an operator would type to reach this server.
     pub fn endpoint(&self) -> String {
         self.addr.to_string()
     }
 
-    /// How many connections have been accepted — one per open, and one more per reconnect.
     pub fn connections(&self) -> usize {
         self.connections.load(Ordering::SeqCst)
     }

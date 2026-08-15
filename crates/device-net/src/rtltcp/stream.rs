@@ -1,20 +1,11 @@
-//! The sample half of an rtl_tcp connection: an unframed byte stream of interleaved unsigned
-//! 8-bit IQ, and the table that turns those codes into `cf32`.
 use std::{sync::Arc, time::Duration};
 
 use sdrmm_device::{CaptureStream, LutConverter, Next, StreamFailure};
 
 use crate::socket::{Block, BlockPool, Connection, Read, SocketStop};
 
-/// Bytes per read. Two per sample, so this is the capture supervisor's default push size of
-/// 32 768 samples — one block in, one block out, with no re-chunking on the sample path.
 const BLOCK_BYTES: usize = 65_536;
 
-/// Mid-scale of the RTL2832U's 8-bit ADC. It is 127.4, not the arithmetic 127.5: librtlsdr's own
-/// tools and SoapyRTLSDR centre on this measured DC bias, and the mid-point leaves a visible DC
-/// spike in the centre bin. The same constants and table as the in-tree RTL-SDR driver's
-/// `convert` module — deliberately a second copy rather than a dependency on that crate, which
-/// would drag a USB stack into a build that only speaks TCP.
 const DC_OFFSET: f32 = 127.4;
 const FULL_SCALE: f32 = 127.5;
 
@@ -30,12 +21,10 @@ const fn build_table() -> [f32; 256] {
     table
 }
 
-/// A converter for one capture thread, sized so a whole block fits without growing.
 pub(crate) fn converter() -> LutConverter {
     LutConverter::new(&CODE_TO_F32, BLOCK_BYTES / 2)
 }
 
-/// A connection being drained for samples.
 #[derive(Debug)]
 pub(crate) struct RtlTcpStream {
     connection: Arc<Connection>,
@@ -68,9 +57,6 @@ impl CaptureStream for RtlTcpStream {
         }
     }
 
-    /// Always zero. rtl_tcp has no way to say it dropped anything: osmocom's server closes a
-    /// client it cannot keep up with rather than skipping samples, so a gap arrives as the end of
-    /// the stream and is counted as a restart, not as dropped blocks.
     fn dropped(&self) -> u64 {
         0
     }
@@ -102,8 +88,6 @@ mod tests {
         }
     }
 
-    /// The dongle on the far side is the one the in-tree driver reads over USB, so a block has to
-    /// arrive as the same samples whichever transport carried it.
     #[test]
     fn a_block_arrives_as_interleaved_complex_samples() {
         let samples = converter().convert(&[0, 255, 127, 128]).to_vec();

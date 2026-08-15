@@ -1,7 +1,3 @@
-// Regression for the dead-backend path: the dev proxy answers 502 with an empty (or HTML)
-// body while the server is down, which openapi-fetch surfaces as `{ error: undefined }` /
-// a plain string — previously read as success, crashing on `data.id` and reporting deletes
-// as applied.
 import { keepPreviousData } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -76,8 +72,6 @@ describe("recordingDownloadUrl", () => {
     expect(recordingDownloadUrl(7, "wav")).toBe("/api/recordings/7/download?format=wav");
   });
 
-  // The browser navigates to this href, so it cannot carry an Authorization header; against a
-  // tokened server the download 401s unless the token rides in the query.
   it("carries the token, joining an existing query correctly", () => {
     setToken("s3cret/token");
     expect(recordingDownloadUrl(7, "sigmf")).toBe(

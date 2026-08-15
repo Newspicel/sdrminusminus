@@ -3,11 +3,8 @@ import { useSyncExternalStore } from "react";
 export type ThemeChoice = "system" | "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
 
-/** The order the one theme control walks. Auto first because it is where an install starts, then
- * the two explicit choices in the order a night bench reaches for them. */
 export const THEME_CYCLE: readonly ThemeChoice[] = ["system", "dark", "light"];
 
-/** The choice one press of the theme control moves to. */
 export function nextTheme(choice: ThemeChoice): ThemeChoice {
   const at = THEME_CYCLE.indexOf(choice);
   return THEME_CYCLE[(at + 1) % THEME_CYCLE.length] ?? "system";
@@ -23,12 +20,8 @@ const LIGHT = "(prefers-color-scheme: light)";
 const DEFAULT: ThemeState = { choice: "system", resolved: "dark" };
 
 const listeners = new Set<() => void>();
-// `useSyncExternalStore` compares snapshots by identity, so this is rebuilt only on a real
-// change. Nothing touches the DOM until `initTheme` runs, which keeps the module importable
-// from a non-browser test.
 let state: ThemeState = DEFAULT;
 
-/** Applied before React mounts so the first paint is already in the right theme. */
 export function initTheme(): void {
   state = { choice: read(), resolved: DEFAULT.resolved };
   apply();
@@ -42,9 +35,7 @@ export function initTheme(): void {
 export function setTheme(next: ThemeChoice): void {
   try {
     localStorage.setItem(KEY, next);
-  } catch {
-    // A blocked or full store costs the preference on the next load, not this session.
-  }
+  } catch {}
   state = { ...state, choice: next };
   apply();
 }
@@ -53,8 +44,6 @@ export function useTheme(): ThemeState {
   return useSyncExternalStore(onThemeChange, snapshot, serverSnapshot);
 }
 
-/** Fires whenever the resolved theme changes — how canvases pick up new token values without
- * re-reading `getComputedStyle` every frame. */
 export function onThemeChange(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

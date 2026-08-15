@@ -26,42 +26,19 @@ const OUT_CHANNEL_CAP: usize = 256;
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
-/// Browser geolocation can be configured for high accuracy and may produce bursts. Keep one
-/// socket from turning those into unbounded store lookups and routing work.
 const MIN_POSITION_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
-/// Per-channel media ids — audio and video alike — live in `MEDIA_ID_BASE..=u16::MAX` and
-/// spectrum ids in `0..MEDIA_ID_BASE`, so no two streams on one connection can collide.
-///
-/// A spectrum id used to *be* the device-set id, which a multi-stream radio broke: several lanes
-/// of one set can be watched at once, and they need ids of their own to be told apart. Every kind
-/// is now allocated per connection and reported in the `…StreamStarted` event that answers the
-/// subscribe.
-///
-/// Audio and video share one range and one allocator rather than splitting it: a client keys a
-/// sink on `(kind, id)`, and one space is what lets a channel's picture and its sound be told
-/// apart from every other channel's without reasoning about which half of the range they fell in.
 const MEDIA_ID_BASE: u16 = 0x8000;
-/// First spectrum id. Ids run `SPECTRUM_ID_BASE..MEDIA_ID_BASE`.
 const SPECTRUM_ID_BASE: u16 = 0;
 
 pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-/// Serialize each decoder frame once for the whole server, not once per connection (
-/// M5 multi-client). Under ADS-B traffic the per-connection cost was N× the same JSON; the
-/// per-connection tasks now clone a `Utf8Bytes`, which is a refcount bump. Runs until the
-/// engine is dropped (the decoded broadcast closes).
 pub(crate) fn start_decoded_encoder(state: &AppState) {
     let mut decoded_rx = state.engine.subscribe_decoded();
     let out = state.decoded_text.clone();
     let tracks = state.tracks.clone();
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        // Building a router with no runtime in context would panic on the `spawn` below. Every
-        // caller in the tree enters one first (`serve` builds inside its own; the desktop shell
-        // enters Tauri's), so this is the guard on a caller that has not been written yet — and
-        // it is loud, because a server whose decoders never reach a client looks like broken
-        // radio hardware from the outside.
         tracing::warn!("no runtime in context: decoder frames will not reach clients");
         return;
     };
@@ -70,14 +47,9 @@ pub(crate) fn start_decoded_encoder(state: &AppState) {
         loop {
             match decoded_rx.recv().await {
                 Ok(record) => {
-                    // Buffered here rather than in a second subscriber: this task already sees
-                    // every record exactly once, and another receiver on the engine's broadcast
-                    // would be another thing that can lag and lose frames.
                     tracks.observe(&record);
                     let _ = out.send(encode_event(&ServerEvent::Decoded(Box::new(record))));
                 }
-                // The encoder is the only consumer of the engine's broadcast now, so its own
-                // lag is server-wide loss: report it once to everyone rather than per socket.
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
                     let _ = out.send(encode_event(&ServerEvent::DecodedLost { count: missed }));
                 }
@@ -104,8 +76,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     });
 
     let event_rx = engine.subscribe_events();
-    // Subscribed alongside the control stream, before the snapshot, for the same reason: a
-    // decode landing in the gap would otherwise never reach this client's live view.
     let decoded_rx = state.decoded_text.subscribe();
     let position_rx = state.gps.subscribe();
     let hello = ServerEvent::Hello {
@@ -116,9 +86,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         let _ = out_tx.send(text_event(&position)).await;
     }
 
-    // Snapshotted after the live subscription above, so the seam repeats a record rather than
-    // dropping one. A repeat is free — merging the same decode onto a station it is already part
-    // of changes nothing — while a gap would leave a contact off the map until it transmits again.
     let backlog = state.tracks.backlog();
     if !backlog.is_empty() {
         let _ = out_tx
@@ -132,8 +99,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let decoded = spawn_decoded(decoded_rx, out_tx.clone());
     let positions = spawn_positions(position_rx, out_tx.clone());
 
-    // Keyed by (device set, receive stream): two scopes on two lanes of one radio are the point
-    // of a multi-stream device, so a subscribe on one lane must not replace another's.
     let mut spectra: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut next_spectrum_id: u16 = SPECTRUM_ID_BASE;
     let mut audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
@@ -153,9 +118,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         bins,
                         stream,
                     }) => {
-                        // subscribe_spectrum takes the per-set runtime mutex, which
-                        // patch/remove hold across device I/O and thread joins — blocking
-                        // pool, like every hardware-reaching call in rest.rs.
                         let subscribe = {
                             let engine = engine.clone();
                             tokio::task::spawn_blocking(move || {
@@ -165,10 +127,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         };
                         match flatten_join(subscribe) {
                             Ok(rx) => {
-                                // Re-subscribing this same lane replaces it, and the old id stops
-                                // loudly first so the client can drop its sink — the audio arm's
-                                // no-silent-termination rule. Other lanes of this set are
-                                // untouched.
                                 if let Some((old_id, old)) = spectra.remove(&(device_set, stream)) {
                                     old.abort();
                                     let stopped = ServerEvent::StreamStopped {
@@ -244,9 +202,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         };
                         match flatten_join(subscribe) {
                             Ok(rx) => {
-                                // Replacing a running stream for this (ds, ch): stop the old
-                                // id loudly first, so the client can tear its sink down
-                                // before the new id starts (no silent termination).
                                 if let Some((old_id, old)) = audio.remove(&(device_set, channel)) {
                                     old.abort();
                                     let stopped = ServerEvent::StreamStopped {
@@ -450,10 +405,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                 }))
                                 .await;
                         } else {
-                            // Device GPS validation reads the active workspace from SQLite. Keep
-                            // that blocking lookup off the WebSocket runtime worker just like the
-                            // engine control operations above. Charge the rate limit per attempt:
-                            // rejected updates cost the same database lookup as accepted ones.
                             let app = state.clone();
                             let publish_node = node.clone();
                             let publish = tokio::task::spawn_blocking(move || {
@@ -515,8 +466,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     engine.emit_scope(StateScope::Clients);
 }
 
-/// Collapse a `spawn_blocking` result into the message for a `ServerEvent::Error`, mirroring
-/// rest.rs's `JoinError` mapping so both surfaces report engine failures the same way.
 fn flatten_join<T>(
     joined: Result<Result<T, sdrmm_engine::EngineError>, tokio::task::JoinError>,
 ) -> Result<T, String> {
@@ -527,13 +476,6 @@ fn flatten_join<T>(
     }
 }
 
-/// Allocate the next stream id from `range`, wrapping within it and skipping ids still bound to a
-/// live stream on this connection, so a long-lived socket can never hand a live id to a second
-/// stream. `None` only once every id in the range is live.
-///
-/// One allocator for every kind: spectrum and the media streams draw from disjoint ranges (see
-/// [`MEDIA_ID_BASE`]) but the rule is identical, and two copies of it would be two places for the
-/// wrap to be wrong.
 fn alloc_stream_id(
     next: &mut u16,
     range: std::ops::RangeInclusive<u16>,
@@ -554,11 +496,6 @@ fn alloc_stream_id(
     None
 }
 
-/// Forward engine control events losslessly. If this receiver ever lags (writer stalled long
-/// enough for the engine's event buffer to wrap), the dropped invalidations are gone for good
-/// and StateChanged carries no revision to detect that — so synthesize a full-scope
-/// invalidation and the client refetches everything instead of rendering stale state forever
-/// (: these events are the only cache-invalidation path).
 fn spawn_events(
     mut event_rx: broadcast::Receiver<ServerEvent>,
     out_tx: mpsc::Sender<Message>,
@@ -637,24 +574,9 @@ fn spawn_positions(
     })
 }
 
-/// Paces admissions to `fps` on the *producer's* sample clock, never on arrival time.
-///
-/// Snapshots do not reach this task evenly: the DSP thread drains a whole USB block at once, so
-/// several frames are broadcast within the same millisecond and then nothing arrives for tens of
-/// milliseconds. Any wall-clock deadline admits whatever lands first in a burst and drops the
-/// rest of it, delivering the *burst* rate rather than the frame rate — measured at 3.5 fps out
-/// of a ~10 fps producer with 30 requested. Each snapshot carries the sample position it was
-/// taken at, which is the cadence the operator actually sees, and is immune to how the frames
-/// were delivered.
-///
-/// The deadline accumulates by exactly one period per admission and is clamped forward to the
-/// frame just admitted, so no send-debt builds up while the producer is slower than requested:
-/// this delivers min(producer, fps).
 struct FrameThrottle {
     fps: f64,
-    /// Sample position the next admitted frame must reach.
     next: u64,
-    /// Last position seen, so a capture restart can be told from a late frame.
     last: u64,
 }
 
@@ -667,10 +589,7 @@ impl FrameThrottle {
         }
     }
 
-    /// `timestamp` is the snapshot's sample position, `sample_rate` its span in Hz.
     fn admit(&mut self, timestamp: u64, sample_rate: f32) -> bool {
-        // A restarted capture rewinds the sample clock to zero; without re-anchoring, the
-        // deadline would sit in the old stream's future and the display would never resume.
         if timestamp < self.last {
             self.next = timestamp;
         }
@@ -686,10 +605,8 @@ impl FrameThrottle {
 
 #[derive(Clone, Copy)]
 struct SpectrumLane {
-    /// Per-connection id the client demuxes frames on.
     stream_id: u16,
     device_set: u32,
-    /// Receive stream within the device set.
     stream: u32,
 }
 
@@ -712,7 +629,6 @@ fn spawn_spectrum(
     tokio::spawn(async move {
         let mut dec = vec![0f32; bins];
         let mut quant = vec![0u8; bins];
-        // Reused across frames so the window's percentile costs no allocation after the first.
         let mut window = Vec::with_capacity(bins);
         let mut throttle = FrameThrottle::new(fps);
 
@@ -723,9 +639,6 @@ fn spawn_spectrum(
                         continue;
                     }
 
-                    // The window is read from the decimated bins, not from `snap.db`: those are
-                    // what the client draws, and max-decimation lifts the floor above the raw
-                    // FFT's.
                     decimate_max(&snap.db, &mut dec);
                     let (db_min, db_max) = adaptive_db_window(&dec, &mut window);
                     quantize_db(&dec, db_min, db_max, &mut quant);
@@ -746,17 +659,8 @@ fn spawn_spectrum(
                         break;
                     }
                 }
-                // Oldest snapshots were shed while this task was backpressured — the
-                // drop-oldest contract; resume with the newest retained.
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => {
-                    // The broadcast closes for two very different reasons: the device set was
-                    // removed, or auto-reconnect ( M5) replaced its whole runtime
-                    // after a replug. Re-subscribing distinguishes them — a set that came
-                    // back hands out a receiver on the new runtime and the stream resumes,
-                    // and only a set that is really gone gets the stop event. On the *same*
-                    // lane: falling back to stream 0 here would silently switch every
-                    // non-zero-stream waterfall on a replug.
                     let engine = engine.clone();
                     let resubscribed =
                         tokio::task::spawn_blocking(move || engine.subscribe_spectrum(ds, stream))
@@ -795,15 +699,10 @@ fn spawn_audio(
                     }
                     .encode();
 
-                    // Awaited on purpose: backpressure lags the broadcast receiver and the
-                    // oldest packets are shed (drop-oldest).
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
                 }
-                // Oldest packets were shed while this task was backpressured. The gap shows
-                // up client-side as a jump in the 48 kHz sample-count timestamp; `seq` is a
-                // plain packet counter, not a resync mechanism.
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => {
                     let stopped = ServerEvent::StreamStopped {
@@ -818,8 +717,6 @@ fn spawn_audio(
     })
 }
 
-/// Whether `id` is bound to a live media stream of any kind on this connection. One check across
-/// every map, because they all draw from [`MEDIA_ID_BASE`].
 fn media_id_live(
     audio: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
@@ -833,11 +730,6 @@ fn media_id_live(
         .any(|(sid, _)| *sid == id)
 }
 
-/// Per-subscription task: forward the channel's baseband bursts as binary [`IqFrame`]s.
-///
-/// Drop-oldest like the others, and here it is the only sane policy: a display that has fallen
-/// behind wants the newest burst of a signal, never a backlog of stale ones. The samples are
-/// interleaved on the way out — the engine holds them as complex pairs, the wire carries f32s.
 fn spawn_iq(
     stream_id: u16,
     mut rx: broadcast::Receiver<IqBlock>,
@@ -882,10 +774,6 @@ fn spawn_iq(
     })
 }
 
-/// Per-subscription task: forward the channel's pictures as binary [`VideoFrame`]s with the same
-/// drop-oldest backpressure as [`spawn_audio`]. A shed picture is simply a frame the client never
-/// draws — unlike audio there is nothing to conceal a gap from, so the next one is the whole
-/// recovery.
 fn spawn_video(
     stream_id: u16,
     mut rx: broadcast::Receiver<VideoPacket>,
@@ -909,8 +797,6 @@ fn spawn_video(
                     }
                     .encode();
 
-                    // Awaited on purpose: backpressure lags the broadcast receiver and the
-                    // oldest pictures are shed (drop-oldest).
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
@@ -936,7 +822,6 @@ fn text_event(ev: &ServerEvent) -> Message {
 fn encode_event(ev: &ServerEvent) -> Utf8Bytes {
     match serde_json::to_string(ev) {
         Ok(json) => json.into(),
-        // Serializing our own enum cannot realistically fail; emit a minimal error frame.
         Err(_) => r#"{"type":"Error","data":{"message":"event serialization failed"}}"#.into(),
     }
 }
@@ -959,7 +844,6 @@ mod tests {
 
     const WAIT: Duration = Duration::from_secs(5);
 
-    /// Hermetic engine: virtual driver only (: no hardware in CI, ever).
     fn test_engine() -> Arc<Engine> {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
@@ -975,8 +859,6 @@ mod tests {
         dial(addr).await
     }
 
-    /// The same server, but handing back its address and state so a test can observe what the
-    /// hub does to shared state (client count) or open a second connection to it.
     async fn serve_ws(engine: Arc<Engine>) -> (std::net::SocketAddr, AppState) {
         let store = Arc::new(crate::Store::open(None).expect("in-memory store"));
         let state = AppState::new(engine, store);
@@ -1005,7 +887,6 @@ mod tests {
             .expect("send");
     }
 
-    /// Next JSON event, skipping interleaved binary frames.
     async fn next_event(ws: &mut WsClient) -> ServerEvent {
         loop {
             let msg = timeout(WAIT, ws.next())
@@ -1056,7 +937,6 @@ mod tests {
         state.gps.reconcile(state);
     }
 
-    /// Next binary frame's (kind, stream_id) header fields, skipping text events.
     async fn next_frame_header(ws: &mut WsClient) -> (u8, u16) {
         loop {
             let msg = timeout(WAIT, ws.next())
@@ -1091,9 +971,6 @@ mod tests {
         }
     }
 
-    /// The baseband tap's lifecycle. Unlike video there is nothing to refuse — every channel has
-    /// a passband — so what this pins is that its ids share the media range without colliding,
-    /// that frames really arrive, and that a stop is reported under its own kind.
     #[tokio::test(flavor = "multi_thread")]
     async fn iq_lifecycle_shares_the_media_id_space_and_streams_baseband() {
         let engine = test_engine();
@@ -1151,9 +1028,6 @@ mod tests {
             "a live audio id must not be handed to a baseband stream"
         );
 
-        // The tap sends nothing until something subscribes, so a frame arriving at all is proof
-        // that the subscription reached the DSP thread and not merely the server. The audio
-        // stream is still running, so its frames are stepped over.
         loop {
             let (kind, stream_id) = next_frame_header(&mut ws).await;
             if kind == sdrmm_wire::FrameKind::IqF32 as u8 {
@@ -1179,10 +1053,6 @@ mod tests {
         }
     }
 
-    /// The video subscription's lifecycle, and the rule that keeps a panel honest: a channel that
-    /// scans out pictures gets an id from the same media range audio does — never one already in
-    /// use by an audio stream on this socket — and a channel that scans out nothing is refused
-    /// rather than handed a stream that would stay empty.
     #[tokio::test(flavor = "multi_thread")]
     async fn video_lifecycle_shares_the_media_id_space_and_refuses_silent_channels() {
         let engine = test_engine();
@@ -1259,7 +1129,6 @@ mod tests {
             other => panic!("expected StreamStopped, got {other:?}"),
         }
 
-        // A mode with no picture: the refusal has to name the mode, not just say no.
         send(
             &mut ws,
             &ClientCommand::SubscribeVideo {
@@ -1276,10 +1145,6 @@ mod tests {
         }
     }
 
-    /// Two scopes on two lanes of one radio is the whole point of a multi-stream device, so the
-    /// two subscriptions must coexist: distinct ids, independent frames, and unsubscribing one
-    /// leaving the other running. A spectrum id used to *be* the device-set id, which made the
-    /// second subscribe replace the first and made unsubscribe ambiguous.
     #[tokio::test(flavor = "multi_thread")]
     async fn two_lanes_of_one_radio_stream_independently() {
         let engine = test_engine();
@@ -1320,7 +1185,6 @@ mod tests {
         let lane2 = subscribe(2).await;
         assert_ne!(lane0, lane2, "each lane needs an id of its own to demux on");
 
-        // Both lanes deliver, which they cannot do if one replaced the other.
         let mut seen = std::collections::HashSet::new();
         while seen.len() < 2 {
             let (kind, stream_id) = next_frame_header(&mut ws).await;
@@ -1345,8 +1209,6 @@ mod tests {
             }
         }
 
-        // The surviving lane is still delivering: unsubscribing one scope must not silence the
-        // other, which keying by device set alone did.
         for _ in 0..8 {
             let (_, stream_id) = next_frame_header(&mut ws).await;
             if stream_id == lane2 {
@@ -1379,9 +1241,6 @@ mod tests {
             },
         )
         .await;
-        // The id is allocated per connection, so the frames and the stop event are matched
-        // against what StreamStarted handed out — not against the device-set id, which stopped
-        // being the stream id when one radio could have several lanes watched at once.
         let allocated = match next_event(&mut ws).await {
             ServerEvent::StreamStarted {
                 stream_id,
@@ -1414,7 +1273,6 @@ mod tests {
             other => panic!("expected StreamStopped, got {other:?}"),
         }
 
-        // A set id inside the reserved audio range must be refused, not aliased.
         send(
             &mut ws,
             &ClientCommand::SubscribeSpectrum {
@@ -1431,9 +1289,6 @@ mod tests {
         ));
     }
 
-    /// The lane is the client's to name: a stream this radio does not have must come back as
-    /// an engine refusal, which only happens if the subscribe carries the stream it asked for
-    /// instead of quietly landing on lane 0.
     #[tokio::test(flavor = "multi_thread")]
     async fn spectrum_subscribe_routes_the_named_stream_to_the_engine() {
         let engine = test_engine();
@@ -1502,7 +1357,6 @@ mod tests {
             other => panic!("expected AudioStreamStarted, got {other:?}"),
         };
 
-        // Duplicate subscribe: the old stream must stop loudly before the new one starts.
         send(&mut ws, &subscribe).await;
         match next_event(&mut ws).await {
             ServerEvent::StreamStopped { stream_id, kind } => {
@@ -1561,9 +1415,6 @@ mod tests {
         );
     }
 
-    /// The producer emits every `rate / 30` samples whatever the wall clock does. Requesting at
-    /// or above that must deliver every frame, and below it must decimate exactly — this is the
-    /// whole point of pacing on the sample clock, and the arrival pattern never enters into it.
     #[test]
     fn throttle_paces_on_the_sample_clock_not_on_arrival() {
         const RATE: f32 = 2_000_000.0;
@@ -1583,16 +1434,12 @@ mod tests {
         }
     }
 
-    /// The regression this replaced a wall-clock throttle for: a USB block carries several hops,
-    /// so the frames it produces are broadcast back to back. Every one of them must still be
-    /// admitted at the requested rate.
     #[test]
     fn throttle_admits_a_whole_burst_of_frames() {
         const RATE: f32 = 2_000_000.0;
         let hop = (RATE / 30.0) as u64;
         let mut throttle = FrameThrottle::new(30);
         let mut admitted = 0;
-        // Eight hops per block, ten blocks: 80 frames arriving in ten bursts.
         for i in 0..80u64 {
             if throttle.admit(i * hop, RATE) {
                 admitted += 1;
@@ -1601,8 +1448,6 @@ mod tests {
         assert_eq!(admitted, 80, "a burst must not be collapsed to one frame");
     }
 
-    /// A replugged device restarts its sample clock at zero; the stream has to resume rather
-    /// than wait out the old capture's deadline.
     #[test]
     fn throttle_reanchors_when_the_capture_restarts() {
         const RATE: f32 = 2_000_000.0;
@@ -1615,9 +1460,6 @@ mod tests {
         assert!(throttle.admit(hop, RATE));
     }
 
-    /// Regression for drop-newest backpressure: with a stalled writer, the newest frame must
-    /// survive (the old try_send path shed it) and the stale backlog must be bounded by the
-    /// broadcast capacity, not the out-queue capacity.
     #[tokio::test(flavor = "multi_thread")]
     async fn audio_forwarder_sheds_oldest_and_delivers_newest() {
         let (tx, rx) = broadcast::channel::<AudioPacket>(4);
@@ -1682,9 +1524,6 @@ mod tests {
         );
     }
 
-    /// The layout byte is the packet's own, not a constant: a channel that switches to stereo
-    /// mid-stream (WFM's stereo toggle) has to be announced frame by frame, or the client
-    /// keeps decoding the new packets with the old channel count.
     #[tokio::test(flavor = "multi_thread")]
     async fn audio_frames_carry_each_packets_channel_layout() {
         let (tx, rx) = broadcast::channel::<AudioPacket>(4);
@@ -1706,13 +1545,10 @@ mod tests {
         }
 
         drop(tx);
-        // Drain the StreamStopped the closed broadcast produces so the task can finish.
         let _ = timeout(WAIT, out_rx.recv()).await;
         task.await.expect("forwarder task");
     }
 
-    /// Connections are counted for every client and released on disconnect, and each change
-    /// invalidates the `clients` scope — a count that only ever grew would be worse than none.
     #[tokio::test]
     async fn client_count_tracks_connections_and_invalidates() {
         let engine = test_engine();
@@ -1846,9 +1682,6 @@ mod tests {
         }
     }
 
-    /// Auto-reconnect replaces a device set's whole runtime, which closes the spectrum
-    /// broadcast every subscriber is holding. The stream must survive that: before this, a
-    /// replug left every client's waterfall frozen until it re-opened the page.
     #[tokio::test(flavor = "multi_thread")]
     async fn spectrum_survives_a_reconnect_instead_of_stopping() {
         let die = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1915,8 +1748,6 @@ mod tests {
         }
     }
 
-    /// Streams paced blocks until told to die, and probes present throughout — an unplug the
-    /// hotplug tick can recover from.
     struct FaultingDriver {
         die: Arc<std::sync::atomic::AtomicBool>,
     }
@@ -2021,8 +1852,6 @@ mod tests {
         }
     }
 
-    /// Decoder frames are serialized once for the whole server; every connection must still
-    /// receive the identical frame (the shared-encoder path is the only one that runs now).
     #[tokio::test]
     async fn decoded_frames_reach_every_connection_from_one_encoding() {
         let engine = test_engine();
@@ -2045,8 +1874,6 @@ mod tests {
         let encoded = encode_event(&ServerEvent::Decoded(Box::new(record.clone())));
         state.decoded_text.send(encoded).expect("subscribers");
 
-        // A fresh connection also gets a Hello and the connect/disconnect scope events; skip
-        // to the frame under test rather than asserting on the ordering of unrelated ones.
         for ws in [&mut a, &mut b] {
             loop {
                 if let ServerEvent::Decoded(got) = next_event(ws).await {
@@ -2089,7 +1916,6 @@ mod tests {
         }
     }
 
-    /// Nothing heard yet means no message at all, not an empty one.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_silent_server_sends_no_backlog() {
         let engine = test_engine();
@@ -2100,8 +1926,6 @@ mod tests {
             ServerEvent::Hello { .. }
         ));
 
-        // A frame published after connect proves the socket is live and that nothing came before
-        // it: a backlog message would have had to arrive in between.
         let record = sdrmm_wire::DecodedRecord {
             device_set: 0,
             channel: 0,
@@ -2133,12 +1957,9 @@ mod tests {
         }
     }
 
-    /// A lagged event receiver has lost invalidations for good; the forwarder must synthesize
-    /// a full-scope StateChanged so the client refetches instead of going permanently stale.
     #[tokio::test(flavor = "multi_thread")]
     async fn event_forwarder_lag_synthesizes_full_invalidation() {
         let (tx, rx) = broadcast::channel::<ServerEvent>(2);
-        // Overflow the buffer before the forwarder first polls: guaranteed Lagged on recv.
         for i in 0..5 {
             tx.send(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(i),

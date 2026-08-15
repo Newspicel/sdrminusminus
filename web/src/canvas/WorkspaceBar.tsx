@@ -18,8 +18,6 @@ const VIEWS: Options<View> = [
   { value: "rack", label: "Rack" },
 ];
 
-/** The footprint a channel about to be added will take, so the drop leaves room for the face the
- * operator is actually going to see. Every other kind is the size its kind is. */
 function channelDrop(
   kind: NodeKind,
   channelType: string | undefined,
@@ -111,8 +109,6 @@ export function WorkspaceBar({
 
   return (
     <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-panel px-2">
-      {/* Decorative: the wordmark beside it is the accessible name, and a second one would
-          make every screen reader say the product twice before the first control. */}
       <img src="/icon.svg" alt="" width={20} height={20} className="shrink-0" />
       <span className="mr-1 font-mono text-sm font-medium tracking-tight text-accent">SDR--</span>
 
@@ -140,9 +136,6 @@ export function WorkspaceBar({
 
       <Rule />
 
-      {/* Two plain bar buttons like the ones either side of them — the fill marks the view you
-          are in, and the rules around the pair are what say the two belong together. A boxed
-          segmented control was tried here and read as a foreign object in a row of flat text. */}
       <span className="flex items-center" role="group" aria-label="View">
         {VIEWS.map((option) => (
           <Button
@@ -153,9 +146,6 @@ export function WorkspaceBar({
             onClick={() => onView(option.value)}
           >
             {option.label}
-            {/* How many faces are on the rack, so pinning one from the patch view has an answer
-                without switching to it. Hidden from the accessible name — the button is still
-                "Rack", and the count is read from the rack itself. */}
             {option.value === "rack" && pinned > 0 && (
               <span aria-hidden className="text-[10px] text-ink-faint tabular-nums">
                 {pinned}
@@ -179,8 +169,6 @@ export function WorkspaceBar({
       </Popover>
 
       <span className="ml-auto flex items-center gap-1">
-        {/* Disabled from the server's own answer: the history is the workspace's, so a step
-            another client took is what these buttons offer next. */}
         <span className="flex items-center" role="group" aria-label="History">
           <Button
             type="button"
@@ -209,8 +197,6 @@ export function WorkspaceBar({
           width="w-[46rem]"
           padded={false}
         >
-          {/* A tool opens over whatever view is up and leaves the graph exactly as it was, so the
-              drawer that launched it gets out of the way first. */}
           {(close) => (
             <Library
               onOpenTool={(id) => {
@@ -235,8 +221,6 @@ export function WorkspaceBar({
   );
 }
 
-/** The separator between the bar's groups. Decorative — the groups are already named by their
- * controls, and a role="separator" would be one more thing read out on the way past. */
 function Rule() {
   return <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />;
 }

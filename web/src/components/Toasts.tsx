@@ -2,20 +2,14 @@ import { Toast } from "@base-ui/react/toast";
 import { type ToastData, toastManager } from "../lib/toasts";
 import { ICON_BTN } from "./controls";
 
-/** Long enough to notice and read a server message, short enough that a stale one is not still
- * on screen when the next thing goes wrong. */
 const LIFETIME_MS = 12_000;
 
-/** Past this the stack is taller than it is readable. Over the limit the oldest cards are
- * marked `limited` and hidden, so a burst of failures never pushes the newest off the screen. */
 const STACK_LIMIT = 4;
 
 export function Toasts() {
   return (
     <Toast.Provider toastManager={toastManager} timeout={LIFETIME_MS} limit={STACK_LIMIT}>
       <Toast.Portal>
-        {/* A flat column, not Base UI's stack: steady state is zero motion, and a
-            card the operator has to hover to read is a card they will not read. */}
         <Toast.Viewport className="fixed right-3 bottom-3 z-50 flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2">
           <ToastList />
         </Toast.Viewport>

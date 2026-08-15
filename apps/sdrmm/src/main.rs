@@ -5,11 +5,9 @@ use clap::Parser;
 use sdrmm_engine::Engine;
 use sdrmm_server::{Config, ServerOptions, serve};
 
-/// sdr-- headless SDR server.
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
 struct Args {
-    /// Address to bind (LAN-trusted by default).
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: SocketAddr,
     #[arg(long)]
@@ -20,11 +18,8 @@ struct Args {
     recordings_dir: Option<PathBuf>,
     #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]
     token: Option<String>,
-    /// Print environment diagnostics (backends, devices, USB permissions, paths) and exit.
     #[arg(long)]
     doctor: bool,
-    /// Ask every radio for each sample rate it advertises, report what it actually holds, and
-    /// exit. Opens and retunes the radios, so nothing else may be using them.
     #[arg(long)]
     doctor_rates: bool,
 }
@@ -40,8 +35,6 @@ fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
 }
 
-/// The absolute recordings dir, resolved like [`resolve_db_path`]. Not created here: the
-/// engine creates it on the first recording, and an absent dir just means no recordings yet.
 fn resolve_recordings_dir(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = match cli {
         Some(path) => path,
@@ -66,8 +59,6 @@ async fn main() -> anyhow::Result<()> {
     let db_path = resolve_db_path(args.db)?;
     let recordings_dir = resolve_recordings_dir(args.recordings_dir)?;
     if args.doctor {
-        // Before anything opens a device: probing enumerates every backend, and overlapping
-        // enumerates are what crashed libusb in the post-M2 field sessions.
         print!(
             "{}",
             sdrmm_server::doctor::render(&sdrmm_server::doctor::collect(
@@ -109,8 +100,6 @@ async fn main() -> anyhow::Result<()> {
         res = handle.join() => res.context("server task failed")?,
         _ = tokio::signal::ctrl_c() => tracing::info!("shutting down"),
     }
-    // A live recording only finalizes through the writer join in here; exiting without it
-    // would leave a breadcrumb-only pair that is never listed again.
     engine.shutdown();
     Ok(())
 }
@@ -119,8 +108,6 @@ async fn main() -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
-    /// Regression: the default used to be cwd-relative "sdrmm.db", so launching from a
-    /// different directory silently opened a fresh empty database.
     #[test]
     fn default_db_path_is_absolute_and_in_the_data_dir() {
         let path = resolve_db_path(None).expect("resolve");

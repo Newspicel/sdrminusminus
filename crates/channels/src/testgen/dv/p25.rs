@@ -1,6 +1,3 @@
-//! P25 Phase 1 reference transmitter: sync, a BCH-coded network identifier with the status
-//! symbols a transmitter interleaves into the frame, and filler for the rest.
-
 use num_complex::Complex;
 use sdrmm_dsp::{CyclicCode, ParityCode, crc16_msb, rs64_encode};
 
@@ -21,13 +18,11 @@ fn frame_bits(duid: u8) -> usize {
     }
 }
 
-/// A transmission: header, two voice frames, terminator.
 #[must_use]
 pub fn transmission(nac: u16, rate: f64) -> Vec<Complex<f32>> {
     transmission_inner(nac, None, 0x80, rate)
 }
 
-/// A transmission whose two LDUs contain caller-supplied Annex-H IMBE frames.
 #[must_use]
 #[allow(dead_code)]
 pub(crate) fn transmission_with_voice(
@@ -61,9 +56,6 @@ fn transmission_inner(
             _ => None,
         };
         if duid == 0x3 {
-            // Conventional transmitters may leave a short unkeyed/idle interval before the
-            // terminator; it also prevents the reference waveform's final LDU tail from being
-            // the only acquisition lead-in the terminator test sees.
             symbols.extend(dibits(&filler(400, 89)));
         }
         symbols.extend(frame(nac, duid, voice, algorithm));
@@ -72,7 +64,6 @@ fn transmission_inner(
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
 }
 
-/// A single trunking block frame, which is what a control channel transmits continuously.
 #[must_use]
 pub fn trunking(nac: u16, rate: f64) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 41));
@@ -81,8 +72,6 @@ pub fn trunking(nac: u16, rate: f64) -> Vec<Complex<f32>> {
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
 }
 
-/// One frame: sync, network identifier, payload — with a status di-bit inserted after every 35
-/// payload di-bits, starting at bit 70.
 fn frame(nac: u16, duid: u8, voice: Option<&[[bool; 144]; 9]>, algorithm: u8) -> Vec<u8> {
     const IMBE_OFFSETS: [usize; 9] = [0, 72, 164, 256, 348, 440, 532, 624, 712];
     let total = frame_bits(duid);

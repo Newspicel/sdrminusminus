@@ -1,6 +1,3 @@
-//! Analytic signal + spectrum helpers shared by the demodulator tests (compiled only for
-//! tests). Mirrors `sdrmm-dsp`'s private test utilities, which this crate cannot import.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -28,8 +25,6 @@ pub(crate) fn complex_tone(freq_norm: f64, len: usize) -> Vec<Complex<f32>> {
         .collect()
 }
 
-/// Phase-accumulated FM of an `f_mod` cosine at peak deviation `deviation_hz`: an ideal
-/// discriminator scaled to that deviation returns a unit-amplitude cosine.
 pub(crate) fn fm_iq(rate: f64, f_mod: f64, deviation_hz: f64, len: usize) -> Vec<Complex<f32>> {
     let mut phase = 0.0f64;
     (0..len)
@@ -40,8 +35,6 @@ pub(crate) fn fm_iq(rate: f64, f_mod: f64, deviation_hz: f64, len: usize) -> Vec
         .collect()
 }
 
-/// Envelope-modulated carrier at complex baseband: `1 + depth·cos(2π·f_mod·t)`, which an ideal
-/// envelope detector returns as a `depth`-amplitude tone once the carrier's DC is blocked.
 pub(crate) fn am_iq(rate: f64, f_mod: f64, depth: f32, len: usize) -> Vec<Complex<f32>> {
     (0..len)
         .map(|k| {
@@ -51,9 +44,6 @@ pub(crate) fn am_iq(rate: f64, f_mod: f64, depth: f32, len: usize) -> Vec<Comple
         .collect()
 }
 
-/// Magnitude of the component of `iq` at `freq_hz` — a single-bin DFT, which needs no
-/// power-of-two length and lets a test name the frequency it cares about. A unit complex
-/// exponential at that frequency reads 1.0.
 pub(crate) fn component(iq: &[Complex<f32>], freq_hz: f64, rate: f64) -> f64 {
     let step = TAU * freq_hz / rate;
     let sum: Complex<f64> = iq
@@ -67,8 +57,6 @@ pub(crate) fn component(iq: &[Complex<f32>], freq_hz: f64, rate: f64) -> f64 {
     sum.norm() / iq.len() as f64
 }
 
-/// Feed `iq` through the channel in deliberately ragged blocks and concatenate the audio,
-/// checking the advertised rate on every producing block.
 pub(crate) fn run_ragged(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<f32> {
     let mut out = ChannelOutputs::default();
     let mut audio = Vec::new();
@@ -89,7 +77,6 @@ pub(crate) fn run_ragged(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<f
     audio
 }
 
-/// Split interleaved two-channel PCM into its left and right halves.
 pub(crate) fn split_stereo(pcm: &[f32]) -> (Vec<f32>, Vec<f32>) {
     assert_eq!(pcm.len() % 2, 0, "interleaved stereo needs whole frames");
     (
@@ -98,7 +85,6 @@ pub(crate) fn split_stereo(pcm: &[f32]) -> (Vec<f32>, Vec<f32>) {
     )
 }
 
-/// Deterministic uniform complex noise in roughly `±amp` (xorshift32, like `sdrmm-dsp`'s).
 pub(crate) fn complex_noise(seed: u32, amp: f32, len: usize) -> Vec<Complex<f32>> {
     let mut state = seed | 1;
     let mut next = move || {
@@ -110,8 +96,6 @@ pub(crate) fn complex_noise(seed: u32, amp: f32, len: usize) -> Vec<Complex<f32>
     (0..len).map(|_| Complex::new(next(), next())).collect()
 }
 
-/// Amplitude of the `freq_hz` component of a real signal, by direct correlation — no window and
-/// no bin to land on, so a test names the frequency it cares about at any length.
 pub(crate) fn tone_amplitude(audio: &[f32], freq_hz: f64, rate: f64) -> f32 {
     let step = TAU * freq_hz / rate;
     let (mut re, mut im) = (0.0f64, 0.0f64);
@@ -126,7 +110,6 @@ pub(crate) fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|&v| f64::from(v) * f64::from(v)).sum::<f64>() / x.len() as f64).sqrt() as f32
 }
 
-/// Power spectrum of a real signal over its half spectrum, bin 0 included.
 fn half_spectrum(audio: &[f32]) -> Vec<f64> {
     let n = audio.len();
     let mut buf: Vec<Complex<f32>> = audio.iter().map(|&v| Complex::new(v, 0.0)).collect();
@@ -137,16 +120,12 @@ fn half_spectrum(audio: &[f32]) -> Vec<f64> {
         .collect()
 }
 
-/// Power within ±3 bins of `bin`. Callers keep the tone on a bin center so leakage stays in
-/// the guard.
 fn bin_power(power: &[f64], bin: usize) -> f64 {
     let lo = bin.saturating_sub(3);
     let hi = (bin + 3).min(power.len() - 1);
     power[lo..=hi].iter().sum()
 }
 
-/// Dominant tone of a real signal: `(peak frequency in Hz, peak±3-bin power over the rest of
-/// the half spectrum)`.
 pub(crate) fn dominant_tone(audio: &[f32], rate: f64) -> (f64, f64) {
     let power = half_spectrum(audio);
     let peak = power
@@ -161,8 +140,6 @@ pub(crate) fn dominant_tone(audio: &[f32], rate: f64) -> (f64, f64) {
     (peak as f64 * rate / audio.len() as f64, signal / rest)
 }
 
-/// Share of a real signal's total power sitting within ±3 bins of `freq_hz` — says a named
-/// tone is present when it is not the only one, which `dominant_tone` cannot.
 pub(crate) fn tone_power(audio: &[f32], freq_hz: f64, rate: f64) -> f64 {
     let power = half_spectrum(audio);
     let bin = (freq_hz * audio.len() as f64 / rate).round() as usize;

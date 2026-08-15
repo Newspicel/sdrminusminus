@@ -4,16 +4,11 @@ use num_complex::Complex;
 
 use super::{Constellation, ConstellationError};
 
-/// Binary-reflected Gray code of `i`. Consecutive values differ in exactly one bit, which is
-/// the whole property the PAM/PSK/QAM labellings are built from.
 #[must_use]
 pub fn gray(i: u32) -> u32 {
     i ^ (i >> 1)
 }
 
-/// Order validity shared by every generator: a power of two in `2..=1024`. The upper bound is
-/// the largest square-QAM row in the catalog; nothing here needs to reject a bigger table on
-/// principle, but a generator asked for 2^20 points is a caller bug worth naming.
 fn check_order(family: &'static str, m: u32, ok: bool) -> Result<(), ConstellationError> {
     if ok && m >= 2 && m.is_power_of_two() && m <= 1024 {
         return Ok(());
@@ -21,15 +16,6 @@ fn check_order(family: &'static str, m: u32, ok: bool) -> Result<(), Constellati
     Err(ConstellationError::UnsupportedOrder { family, m })
 }
 
-/// Gray-labelled bipolar M-PAM on the real axis: points at the odd integers
-/// ±1, ±3, …, ±(M−1), label `gray(i)` on the i-th point counting up from the most negative.
-/// Construction normalises to mean Es = 1, so the stored table is the classic ±1/√5, ±3/√5 at
-/// M = 4.
-///
-/// `pam(2)` is the crate's BPSK table (see the module docs on polarity).
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is a power of two in 2..=1024.
 pub fn pam(m: u32) -> Result<Constellation, ConstellationError> {
     check_order("PAM", m, true)?;
     let n = m as usize;
@@ -39,59 +25,28 @@ pub fn pam(m: u32) -> Result<Constellation, ConstellationError> {
     Constellation::from_points(points, (0..m).map(gray).collect())
 }
 
-/// Gray-labelled unipolar M-ASK: amplitudes 0, 1, …, M−1 on the real axis, label `gray(i)` on
-/// amplitude i. The *unipolar* family — a transmitter that keys its carrier on and off rather
-/// than inverting it — so the mean energy carried into the normalisation is (2M−1)(M−1)/6,
-/// not the PAM value, and an ASK entry's Eb/N0 is worse than the PAM of the same order by the
-/// familiar amount. That difference is the point of having both.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is a power of two in 2..=1024.
 pub fn ask(m: u32) -> Result<Constellation, ConstellationError> {
     check_order("ASK", m, true)?;
     let points = (0..m).map(|i| Complex::new(i as f32, 0.0)).collect();
     Constellation::from_points(points, (0..m).map(gray).collect())
 }
 
-/// The crate's BPSK table, infallibly. [`pam`] returns a `Result` because a caller can ask for an
-/// order the family does not define; 2 is not such an order, and the several call sites that want
-/// *this* table — the calibration link's polarity, RDS's slicer — should not each carry an
-/// unreachable error branch.
 #[must_use]
 pub fn bpsk() -> Constellation {
     match pam(2) {
         Ok(table) => table,
-        // `pam` rejects only non-powers of two and orders outside 2..=1024.
         Err(_) => unreachable!("pam(2) is a valid table by construction"),
     }
 }
 
-/// On-off keying: [`ask`] at M = 2 — the off state carries no energy at all, so normalisation
-/// puts the on state at √2 and the table's mean Es is still 1. Named because the whole envelope
-/// tier and two repo channels (morse, subghz) speak of it by this name.
-///
-/// # Errors
-/// Never in practice; the signature matches the family for uniform call sites.
 pub fn ook() -> Result<Constellation, ConstellationError> {
     ask(2)
 }
 
-/// Gray-labelled M-PSK on the unit circle: point i at angle 2πi/M, label `gray(i)`. Unit radius
-/// is already mean Es = 1, so the normalisation is a no-op here up to f32 rounding.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is a power of two in 2..=1024.
 pub fn psk(m: u32) -> Result<Constellation, ConstellationError> {
     psk_rotated(m, 0.0)
 }
 
-/// [`psk`] with every point rotated by `phase_rad` — the offset axis π/2-BPSK (π/2), QPSK in
-/// its two-independent-rails orientation (π/4) and π/4-DQPSK's odd-symbol grid all live on.
-/// A rotation is a table transform, not a new modulation, which is why it is a parameter here
-/// rather than a family below.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is a power of two in 2..=1024.
 pub fn psk_rotated(m: u32, phase_rad: f64) -> Result<Constellation, ConstellationError> {
     check_order("PSK", m, true)?;
     let points = (0..m)
@@ -103,17 +58,6 @@ pub fn psk_rotated(m: u32, phase_rad: f64) -> Result<Constellation, Constellatio
     Constellation::from_points(points, (0..m).map(gray).collect())
 }
 
-/// Gray-labelled square M-QAM for M ∈ {4, 16, 64, 256, 1024}: two independent √M-PAM rails,
-/// the I rail in the low `k/2` label bits and the Q rail in the high ones. Every
-/// nearest-neighbour pair differs in one bit because each rail's labelling does, which is the
-/// premise of [`theory::mqam_ber`](crate::ber::theory::mqam_ber).
-///
-/// M = 4 is Gray QPSK — the (±1, ±1)/√2 orientation, i.e. [`psk_rotated`] at π/4 up to a
-/// permutation of the two label bits.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is a power of two with an even number of
-/// bits, in 4..=1024.
 pub fn qam_square(m: u32) -> Result<Constellation, ConstellationError> {
     check_order("square QAM", m, m >= 4 && m.ilog2().is_multiple_of(2))?;
     let side = 1u32 << (m.ilog2() / 2);
@@ -132,7 +76,6 @@ pub fn qam_square(m: u32) -> Result<Constellation, ConstellationError> {
 
 pub fn qam_cross(m: u32) -> Result<Constellation, ConstellationError> {
     check_order("cross QAM", m, m == 32 || m == 128)?;
-    // 32 → 6×6 grid, corner blocks 1 wide; 128 → 12×12, corner blocks 2 wide.
     let (side, corner) = if m == 32 { (6i32, 1i32) } else { (12i32, 2i32) };
     let coord = |i: i32| (2 * i - (side - 1)) as f32;
     let mut points = Vec::with_capacity(m as usize);
@@ -150,18 +93,6 @@ pub fn qam_cross(m: u32) -> Result<Constellation, ConstellationError> {
     Constellation::from_points(points, labels)
 }
 
-/// Star QAM: `rings` concentric circles of `points_per_ring` points each, radii taken from
-/// `radii` (relative — construction rescales the whole table to mean Es = 1). The classic
-/// differentially-detectable geometry: amplitude and phase are separable, so the label is a
-/// product — Gray over the ring index in the high bits, Gray over the phase index in the low
-/// ones — and a differential detector can carry the phase bits without ever knowing the
-/// absolute carrier phase.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] when the ring count or points-per-ring is not a
-/// power of two, or their product is outside 2..=1024. Radii must be positive and strictly
-/// increasing, or the table is not a star: that is reported as an unsupported order too, since
-/// a mis-ordered radius list describes no constellation.
 pub fn qam_star(radii: &[f64], points_per_ring: u32) -> Result<Constellation, ConstellationError> {
     let rings = u32::try_from(radii.len()).unwrap_or(u32::MAX);
     let m = rings.saturating_mul(points_per_ring);
@@ -198,8 +129,6 @@ pub fn qam_hierarchical(m: u32, alpha: f64) -> Result<Constellation, Constellati
     let side = 1u32 << (m.ilog2() / 2);
     let half = m.ilog2() / 2;
     let quadrant = side / 2;
-    // Index i counts up from the most negative rail position; |offset from centre| within a
-    // quadrant is 0, 1, 2, … so the coordinate magnitude is α + 2·(that).
     let coord = |i: u32| -> f32 {
         let (sign, step) = if i < quadrant {
             (-1.0, f64::from(quadrant - 1 - i))
@@ -219,8 +148,6 @@ pub fn qam_hierarchical(m: u32, alpha: f64) -> Result<Constellation, Constellati
     Constellation::from_points(points, labels)
 }
 
-/// One ring of an [`apsk`] table: how many points, at what relative radius, starting at what
-/// angle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ApskRing {
     pub points: u32,
@@ -252,12 +179,6 @@ pub fn apsk(rings: &[ApskRing]) -> Result<Constellation, ConstellationError> {
     Constellation::from_points(points, labels)
 }
 
-/// DVB-S2 16-APSK: 4 inner points at π/4 + kπ/2 and 12 outer at kπ/6, ring ratio `gamma`
-/// = R2/R1. The spec tabulates γ per code rate (EN 302 307-1 Table 9); 3.15 is the rate-3/4
-/// value and the catalog's reference configuration.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] when `gamma` is not a finite ratio above 1.
 pub fn apsk16_dvbs2(gamma: f64) -> Result<Constellation, ConstellationError> {
     if !(gamma.is_finite() && gamma > 1.0) {
         return Err(ConstellationError::UnsupportedOrder {
@@ -279,14 +200,6 @@ pub fn apsk16_dvbs2(gamma: f64) -> Result<Constellation, ConstellationError> {
     ])
 }
 
-/// DVB-S2 32-APSK: 4 + 12 + 16 points at ring ratios `gamma1` = R2/R1 and `gamma2` = R3/R1.
-/// The rate-3/4 pair from EN 302 307-1 Table 10 is (2.84, 5.27) — the catalog's reference
-/// configuration. Ring phases follow the spec's staggering: π/4 + kπ/2 inner, π/12 + kπ/6
-/// middle, kπ/8 outer.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] when the ratios are not finite and strictly
-/// increasing above 1.
 pub fn apsk32_dvbs2(gamma1: f64, gamma2: f64) -> Result<Constellation, ConstellationError> {
     if !(gamma1.is_finite() && gamma2.is_finite() && gamma1 > 1.0 && gamma2 > gamma1) {
         return Err(ConstellationError::UnsupportedOrder {
@@ -313,55 +226,17 @@ pub fn apsk32_dvbs2(gamma1: f64, gamma2: f64) -> Result<Constellation, Constella
     ])
 }
 
-/// π/2-BPSK and π/4-DQPSK carry a per-symbol rotation rather than a rotated table; this is the
-/// rotation each uses, exported so an entry states it once. The value is π/M for an M-point
-/// PSK: it puts every odd symbol exactly between two even-symbol points, which is what removes
-/// the through-origin transitions that make a linear amplifier's job hard.
 #[must_use]
 pub fn offset_rotation(m: u32) -> f64 {
     PI / f64::from(m.max(2))
 }
 
-/// π/2 — [`offset_rotation`] at M = 2, named for the π/2-BPSK row.
 pub const PI_2_ROTATION: f64 = FRAC_PI_2;
 
-/// π/4 — [`offset_rotation`] at M = 4, named for the π/4-DQPSK row.
 pub const PI_4_ROTATION: f64 = FRAC_PI_4;
 
-/// Passes the descent may take. Every table in the catalog converges in well under ten; the cap
-/// exists so a pathological geometry terminates rather than spins.
 const MAX_PASSES: usize = 64;
 
-/// A Gray-like labelling for a table no closed-form Gray code fits (cross-QAM, APSK).
-///
-/// **The objective.** At high SNR a symbol is mistaken for another with probability falling as
-/// `exp(-d^2/N0)`, and each such mistake costs the Hamming distance between the two labels. The
-/// cost minimised here is exactly that expectation with the noise scale pinned to the table's
-/// own minimum distance:
-///
-/// ```text
-/// cost = sum over i<j of  hamming(label_i, label_j) * exp(-d_ij^2 / d_min^2)
-/// ```
-///
-/// A *nearest-neighbour-only* cost — count the closest shell, ignore everything else — is the
-/// textbook statement of the same idea and is what the closed-form Gray families achieve
-/// exactly, but it is degenerate on the geometries that need this function: DVB-S2 16-APSK's
-/// closest shell is the four inner-ring pairs and nothing else, so 28 of the 32 confusions that
-/// actually happen would carry no weight at all. The exponential keeps every pair, ordered by
-/// how likely the confusion is.
-///
-/// **The search.** Each of the [`seed_orders`] starting labellings is refined by a 2-opt
-/// descent — scan every label pair in a fixed order, swap when that strictly lowers the cost,
-/// repeat until a pass changes nothing — and the cheapest result wins, ties going to the earlier
-/// seed. Seeds matter more than the descent does: from natural binary, cross-32 settles at 1.66
-/// weighted bits per confusion where a traversal seed reaches 1.30, because no single swap can
-/// undo a globally wrong ordering. The seeds are traversals that visit the geometry in
-/// near-adjacent order, Gray-coded so consecutive positions already differ in one bit.
-///
-/// **Determinism.** Fixed seeds, fixed scan order, strict improvement, no RNG and no wall clock,
-/// so the table is a property of the geometry alone. The penalty reached for each catalog table
-/// is pinned by test: this is a local optimum, not a proven global one, and pinning the number
-/// is what turns "good enough" into a fact that cannot silently change.
 #[must_use]
 pub fn label_by_descent(points: &[Complex<f32>]) -> Vec<u32> {
     let weights = pair_weights(points);
@@ -373,15 +248,9 @@ pub fn label_by_descent(points: &[Complex<f32>]) -> Vec<u32> {
             best = Some((cost, labels));
         }
     }
-    // `seed_orders` always yields at least the table order, so the option is inhabited; the
-    // fallback keeps the function total rather than panicking on an empty table.
     best.map_or_else(|| (0..points.len() as u32).collect(), |(_, labels)| labels)
 }
 
-/// The committed quality metric: the descent's cost divided by the total confusion weight —
-/// *expected bit errors per symbol error*, weighted by how likely each confusion is. A perfect
-/// Gray labelling of a regular geometry sits a little above 1 (its second shell contributes two
-/// bits at a small weight); a random labelling of a k-bit table tends to k/2.
 #[must_use]
 pub fn gray_penalty(c: &Constellation) -> f64 {
     let weights = pair_weights(c.points());
@@ -389,8 +258,6 @@ pub fn gray_penalty(c: &Constellation) -> f64 {
     total_cost(c.labels(), &weights) / total
 }
 
-/// Confusion weights `exp(-d_ij^2 / d_min^2)` as a flat n x n matrix, zero on the diagonal.
-/// Distances accumulate in f64, as everywhere the geometry is read.
 fn pair_weights(points: &[Complex<f32>]) -> Vec<f64> {
     let n = points.len();
     let d2 = |a: usize, b: usize| {
@@ -415,17 +282,9 @@ fn pair_weights(points: &[Complex<f32>]) -> Vec<f64> {
     w
 }
 
-/// Deterministic traversals of the point set, each a permutation giving the visiting order.
-/// Table order is first (for APSK that is ring by ring, phase by phase — already adjacent);
-/// then a row-major snake and a column-major snake, which are the near-adjacent traversals of a
-/// grid geometry like cross-QAM; then an angular sweep, which is the one for a ring geometry
-/// whose table order is not already it.
 fn seed_orders(points: &[Complex<f32>]) -> Vec<Vec<usize>> {
     let n = points.len();
     let natural: Vec<usize> = (0..n).collect();
-    // Coordinates quantised to 1e-4 so points nominally on one row sort as one row despite
-    // trigonometric rounding, and so the sort keys are integers — no float comparison decides
-    // a traversal.
     let q = |x: f32| (f64::from(x) * 1e4).round() as i64;
     let snake = |horizontal: bool| -> Vec<usize> {
         let key = |i: usize| -> (i64, i64) {
@@ -437,7 +296,6 @@ fn seed_orders(points: &[Complex<f32>]) -> Vec<Vec<usize>> {
         };
         let mut order = natural.clone();
         order.sort_by_key(|&i| key(i));
-        // Reverse alternate rows so the traversal never jumps the full width between steps.
         let mut out: Vec<usize> = Vec::with_capacity(n);
         let (mut row_start, mut rows) = (0usize, 0usize);
         while row_start < n {
@@ -468,8 +326,6 @@ fn seed_orders(points: &[Complex<f32>]) -> Vec<Vec<usize>> {
     vec![natural, rows, columns, angular]
 }
 
-/// Gray-coded labels along a traversal: position `order[i]` gets `gray(i)`, so consecutive
-/// points on the traversal start exactly one bit apart.
 fn seed_labels(order: &[usize]) -> Vec<u32> {
     let mut labels = vec![0u32; order.len()];
     for (i, &pos) in order.iter().enumerate() {
@@ -478,9 +334,6 @@ fn seed_labels(order: &[usize]) -> Vec<u32> {
     labels
 }
 
-/// Improvement a swap must show to be taken. Costs here are sums of a few thousand terms below
-/// 32, so 1e-9 is far above any rounding residue and far below any real improvement — it exists
-/// so a pair of swaps can never each look like progress and cycle forever.
 const MIN_IMPROVEMENT: f64 = 1e-9;
 
 fn descend(mut labels: Vec<u32>, weights: &[f64], n: usize) -> Vec<u32> {
@@ -506,16 +359,12 @@ fn descend(mut labels: Vec<u32>, weights: &[f64], n: usize) -> Vec<u32> {
     labels
 }
 
-/// Weighted Hamming cost of the edges incident on `i`. A swap of `i` and `j` changes only the
-/// edges touching either, and the `i`–`j` edge is counted in both terms before and after, so
-/// comparing the sums is exact.
 fn point_cost(labels: &[u32], weights: &[f64], n: usize, i: usize) -> f64 {
     (0..n)
         .map(|j| f64::from((labels[i] ^ labels[j]).count_ones()) * weights[i * n + j])
         .sum()
 }
 
-/// The whole objective, each pair counted once.
 fn total_cost(labels: &[u32], weights: &[f64]) -> f64 {
     let n = labels.len();
     (0..n)
@@ -529,7 +378,6 @@ mod tests {
     use super::*;
     use crate::ber::perf::assert_no_alloc;
 
-    /// Mean symbol energy of a table, in f64 — the invariant construction promises.
     fn mean_energy(c: &Constellation) -> f64 {
         c.points()
             .iter()
@@ -550,10 +398,6 @@ mod tests {
         min
     }
 
-    /// Mean Hamming distance over the strict nearest-neighbour shell — the number a perfect
-    /// Gray labelling drives to exactly 1. Test-local, and deliberately *not* the descent's
-    /// objective: this is the textbook statement, which the closed-form families satisfy
-    /// exactly and the exotic geometries cannot satisfy at all.
     fn mean_neighbour_hamming(c: &Constellation) -> f64 {
         let p = c.points();
         let d2 = |a: usize, b: usize| f64::from((p[a] - p[b]).norm_sqr());
@@ -588,8 +432,6 @@ mod tests {
         );
     }
 
-    /// Every generated table is a valid constellation at unit mean energy — the invariant the
-    /// whole Eb/N0 accounting rests on, checked once across the catalog rather than per family.
     #[test]
     fn every_catalog_table_is_normalised_and_valid() {
         let tables: Vec<(String, Constellation)> = catalog_tables();
@@ -605,8 +447,6 @@ mod tests {
         }
     }
 
-    /// Every table the catalog's linear rows are measured on, built once for the invariants
-    /// above and the descent pin below.
     fn catalog_tables() -> Vec<(String, Constellation)> {
         let mut v = vec![
             ("ook".to_string(), ook().unwrap()),
@@ -632,8 +472,6 @@ mod tests {
         v
     }
 
-    /// The infallible BPSK constructor is the same table `pam(2)` builds, which is what makes it a
-    /// convenience rather than a second definition.
     #[test]
     fn the_bpsk_shortcut_is_pam_2() {
         assert_eq!(bpsk(), pam(2).unwrap());
@@ -653,8 +491,6 @@ mod tests {
         assert!(bpsk.points()[1].re > 0.0);
     }
 
-    /// OOK's off state is genuinely off, and the on state carries the whole table's energy —
-    /// the 3 dB an on-off keyer gives away against antipodal signalling, visible in the table.
     #[test]
     fn ook_keys_one_point_to_the_origin() {
         let c = ook().unwrap();
@@ -677,8 +513,6 @@ mod tests {
         assert!(pam(2).unwrap().points()[0].re < 0.0);
     }
 
-    /// Square QAM at M = 4 is Gray QPSK: the same four points as π/4-rotated 4-PSK, and a
-    /// labelling that is Gray in both readings.
     #[test]
     fn square_qam_4_is_gray_qpsk() {
         let a = qam_square(4).unwrap();
@@ -692,8 +526,6 @@ mod tests {
         assert!((mean_neighbour_hamming(&a) - 1.0).abs() < 1e-12);
     }
 
-    /// The closed-form families are exactly Gray: every nearest-neighbour pair differs in one
-    /// bit. This is the premise of the `SER/log2(M)` oracles, so it is asserted, not assumed.
     #[test]
     fn closed_form_families_are_exactly_gray() {
         let exact: Vec<(String, Constellation)> = vec![
@@ -718,10 +550,6 @@ mod tests {
         }
     }
 
-    /// α = 1 is the spec's uniform case, so the hierarchical generator must reproduce square
-    /// QAM point-for-point and label-for-label; α > 1 must open the quadrant gap and shrink the
-    /// within-quadrant spacing (normalisation keeps the mean energy fixed, so one grows only at
-    /// the other's expense).
     #[test]
     fn hierarchical_qam_reduces_to_uniform_at_alpha_one() {
         let uniform = qam_hierarchical(16, 1.0).unwrap();
@@ -744,9 +572,6 @@ mod tests {
         assert!(min_distance(&warped) < min_distance(&uniform));
     }
 
-    /// Cross-QAM's defining geometry, read back off the normalised table: the points sit on the
-    /// odd-integer grid (in units of half the minimum distance), and every corner block of the
-    /// enclosing square is empty.
     #[test]
     fn cross_qam_removes_exactly_the_corner_blocks() {
         for (m, side, corner) in [(32u32, 6i32, 1i32), (128, 12, 2)] {
@@ -774,7 +599,6 @@ mod tests {
         }
     }
 
-    /// DVB-S2's ring populations and ratios, read back off the built table.
     #[test]
     fn dvbs2_apsk_carries_its_ring_structure() {
         let c = apsk16_dvbs2(3.15).unwrap();
@@ -790,9 +614,6 @@ mod tests {
         assert!((r32[10] / r32[0] - 2.84).abs() < 1e-4);
     }
 
-    /// The descent's reached cost, pinned. These are local optima of a deterministic search:
-    /// the numbers cannot drift without something in the geometry or the search changing, and
-    /// a labelling that got *worse* would quietly cost every affected curve a fraction of a dB.
     #[test]
     fn descent_labellings_hold_their_committed_penalty() {
         for (name, want) in [
@@ -814,8 +635,6 @@ mod tests {
         }
     }
 
-    /// The descent must beat what it started from and stay well under a random labelling — the
-    /// two bounds that say the search did something, independently of the pinned numbers above.
     #[test]
     fn descent_beats_its_seeds_on_every_exotic_table() {
         for (name, c) in [
@@ -841,8 +660,6 @@ mod tests {
         }
     }
 
-    /// Two builds of the same table are the same table — the property that makes a committed
-    /// curve reproducible at all, and the one a randomised labeller would break.
     #[test]
     fn tables_are_reproducible() {
         assert_eq!(qam_cross(32).unwrap(), qam_cross(32).unwrap());

@@ -64,7 +64,6 @@ function PortGlyph({ type }: { type: PortType }) {
       {type === "iq" || type === "position" || type === "tx" ? (
         <circle cx="6" cy="6" r="4.5" {...common} />
       ) : type === "baseband" ? (
-        // A half disc: derived from the IQ circle, because it is half of what that carries.
         <path d="M10.5 6 A4.5 4.5 0 0 1 1.5 6 Z" {...common} />
       ) : type === "audio" ? (
         <path d="M6 1 11 6 6 11 1 6Z" {...common} />
@@ -81,14 +80,10 @@ function PortGlyph({ type }: { type: PortType }) {
 
 export interface NodeShellProps {
   node: PatchNode;
-  /** Default caption for the kind; the node's own label wins. */
   title: string;
   category: NodeCategory;
-  /** One short line under the title — what this node is bound to, or why it is not. */
   subtitle?: ReactNode;
-  /** `false` renders the node dimmed: named a radio that is not attached, or waiting for one. */
   live?: boolean;
-  /** Right-aligned controls in the header, before the shell's own pin and remove. */
   actions?: ReactNode;
   children: ReactNode;
 }
@@ -128,10 +123,6 @@ export function NodeShell({
             handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
           />
         )}
-        {/* The one place the node can be dragged from, so the one place that says so: the grab
-          cursor is the affordance, and it appears only once the gesture is really there — an
-          unselected face is not draggable yet, and a hand over it would promise a move that
-          instead goes to the camera. The buttons in here keep their own pointer. */}
         <header
           className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
             surface === "canvas" && selected ? "cursor-grab active:cursor-grabbing" : ""
@@ -144,10 +135,6 @@ export function NodeShell({
           )}
           <span className={`flex items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}>
             {actions}
-            {/* On the rack or not is a state of the *patch*, and the rack is a view you may not be
-              looking at — so it is carried by three things at once: a filled glyph against an
-              empty one, the accent, and the pressed fill every other toggle in the kit uses.
-              Colour alone would not survive a monochrome eye (). */}
             <Button
               type="button"
               aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
@@ -177,25 +164,12 @@ export function NodeShell({
           </span>
         </header>
 
-        {/* React Flow claims pointer drags and wheel gestures anywhere on a node unless a subtree
-          opts out: without `nodrag nowheel`, dragging a gain slider drags the node and scrolling
-          a digit zooms the canvas instead of tuning. The header keeps both, so the node is
-          dragged by its title bar — the patch-editor convention.
-          `nodrag` is unconditional: a face is not a drag handle whether or not it is selected,
-          and a body that quietly moved the card was what put a grab cursor on every control in
-          it. `nopan nowheel` stay conditional — over an inactive face the wheel and the drag
-          belong to the camera, so the patch stays navigable from wherever the pointer is. */}
         <div
           className={`relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
             active ? "nopan nowheel" : ""
           }`}
         >
           <Active value={active}>{children}</Active>
-          {/* A face answers the pointer only once its node is the selected one. Without this the
-            same press both panned the patch and moved whatever sat under it — a gain slider a
-            camera drag crossed came out somewhere else. The sheet takes the press instead and
-            lets it bubble, so the click still selects the node and the drag still belongs to the
-            camera; the second press, on a face that is now active, reaches the control. */}
           {!active && <span aria-hidden className="absolute inset-0 z-20" />}
         </div>
 
@@ -212,8 +186,6 @@ export function NodeShell({
   );
 }
 
-/** The face's own ✕. The engine call goes first (`closeEngineObjects`); only once it has landed
- * does the node leave the patch. */
 function useRemoveNode(node: PatchNode): () => void {
   const workspace = useWorkspaceContext();
   const drop = useMutation({
@@ -229,22 +201,12 @@ function useRemoveNode(node: PatchNode): () => void {
   return () => drop.mutate();
 }
 
-/** Position among the ports on the same side, so the two sides stack independently. */
 function indexOnSide(ports: readonly PortSpec[], index: number): number {
   const side = ports[index]?.direction;
   return ports.slice(0, index).filter((port) => port.direction === side).length;
 }
 
-function PortHandle({
-  port,
-  label,
-  offset,
-}: {
-  port: PortSpec;
-  /** What the port is called on screen; the wire name stays `port.name` (`portLabel`). */
-  label: string;
-  offset: number;
-}) {
+function PortHandle({ port, label, offset }: { port: PortSpec; label: string; offset: number }) {
   const out = port.direction === "out";
   const description =
     port.note == null ? `${label} (${port.port_type})` : `${label} — ${port.note}`;
@@ -261,14 +223,6 @@ function PortHandle({
       >
         <PortGlyph type={port.port_type} />
       </Handle>
-      {/* : hue + marker shape + a *text* label, because with colour removed the graph
-          must still be unambiguous.
-          Outside the face rather than inset: a label over the body sits on whatever the instrument
-          draws there, and a gutter wide enough for the longest port name would cost every face
-          that much width. Level with its own handle, so the eye pairs the two without counting
-          rows — and stacked over the wires rather than under them, on the canvas ground, so a
-          connection running beneath stays readable. Inert, so a drag beginning here still belongs
-          to the handle. */}
       <span
         aria-hidden
         style={{ top: offset }}
@@ -282,8 +236,6 @@ function PortHandle({
   );
 }
 
-/** The body wrapper a face uses when its content scrolls. React Flow gives a node no scroll
- * container, exactly as a dock panel did not. */
 export function FaceBody({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${scroll ? "overflow-y-auto" : ""}`}>
@@ -292,16 +244,10 @@ export function FaceBody({ children, scroll = true }: { children: ReactNode; scr
   );
 }
 
-/** What a face shows instead of its instrument when there is nothing behind it yet. */
 export function FaceEmpty({ children }: { children: ReactNode }) {
   return <p className="p-3 text-sm text-ink-dim">{children}</p>;
 }
 
-/**
- * The strip along the bottom of a face where what it *does* lives — open, forget, record, scan,
- * export, clear. One place per face, always the same place, so an action is never mistaken for a
- * setting and is never hunted for among them. Sits below the body whatever the body's height.
- */
 export function FaceFooter({ children }: { children: ReactNode }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line p-2">

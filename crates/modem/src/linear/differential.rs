@@ -1,13 +1,5 @@
 use num_complex::Complex;
 
-/// Differentially detect a symbol stream in place-free form: output `k` is the normalised
-/// product of input `k+1` with the conjugate of input `k`, so the result is one symbol shorter
-/// than the input. The first input symbol is a phase reference and carries no data — which is
-/// exactly the one symbol of overhead differential coding costs, and it is charged to the
-/// entry's Eb accounting by its framing, not hidden here.
-///
-/// A zero reference symbol (an origin sample) yields a zero product rather than an infinity: no
-/// vote, the same convention the carrier loop's detectors use.
 pub fn differential_detect(symbols: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
     for pair in symbols.windows(2) {
         let (previous, current) = (pair[0], pair[1]);
@@ -20,8 +12,6 @@ pub fn differential_detect(symbols: &[Complex<f32>], out: &mut Vec<Complex<f32>>
     }
 }
 
-/// The streaming form: keeps the last symbol across calls, so a transmission may be detected in
-/// blocks and any split gives the same products.
 #[derive(Clone, Debug, Default)]
 pub struct DifferentialDetector {
     previous: Option<Complex<f32>>,
@@ -33,7 +23,6 @@ impl DifferentialDetector {
         Self::default()
     }
 
-    /// Detect a block, appending one product per symbol *after the first ever seen*.
     pub fn process(&mut self, symbols: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         for &current in symbols {
             if let Some(previous) = self.previous {
@@ -62,8 +51,6 @@ mod tests {
         symbolcode::{DifferentialSymbolDecoder, DifferentialSymbolEncoder},
     };
 
-    /// The tier's defining property: differentially encoded indices survive an arbitrary,
-    /// unknown carrier phase — the ambiguity a coherent loop cannot resolve by itself.
     #[test]
     fn an_unknown_carrier_phase_costs_nothing() {
         let table = tables::psk(4).unwrap();
@@ -95,16 +82,12 @@ mod tests {
                 })
                 .collect();
             let mut decoder = DifferentialSymbolDecoder::new(4);
-            // The detector's products *are* the differences, so the step sequence is the data
-            // directly; the decoder is applied to the transmitted indices to prove the pairing.
             let via_decoder: Vec<u32> = decoder.decode_all(&sent)[1..].to_vec();
             assert_eq!(steps, data, "phase {phase_turns}: steps");
             assert_eq!(via_decoder, data, "phase {phase_turns}: decoder pairing");
         }
     }
 
-    /// π/4-DQPSK's difference alphabet, checked by construction: the transmitted symbols walk an
-    /// 8-PSK grid, and every product lands on the π/4-rotated QPSK table.
     #[test]
     fn pi4_dqpsk_differences_land_on_the_rotated_qpsk_table() {
         let differences = tables::psk_rotated(4, tables::PI_4_ROTATION).unwrap();
@@ -132,8 +115,6 @@ mod tests {
         }
     }
 
-    /// Amplitude is restored, not squared: a star-QAM difference must be read at the radius of
-    /// the symbol itself, or its amplitude bits are demapped against the wrong ring.
     #[test]
     fn the_product_carries_the_current_symbols_amplitude() {
         let a = Complex::new(2.0f32, 0.0);

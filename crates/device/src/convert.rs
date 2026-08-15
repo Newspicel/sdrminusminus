@@ -1,37 +1,19 @@
 use crate::Sample;
 
-/// Turns raw device bytes into samples for one capture thread.
-///
-/// Implementations are stateful — a block can end mid-sample — and must be cheap: this runs on
-/// the capture thread for every block, at the full sample rate.
 pub trait SampleConverter: Send + 'static {
-    /// Convert one block. The returned slice may borrow a buffer the converter reuses.
     fn convert(&mut self, bytes: &[u8]) -> &[Sample];
 
-    /// Forget any partial sample.
-    ///
-    /// Called when the stream is re-armed: a block that stalled can complete on an *odd* length,
-    /// and the byte left over belongs to a sample whose other half is never coming. Carried into
-    /// the fresh stream it would swap I and Q for good.
     fn reset(&mut self);
 }
 
-/// Interleaved 8-bit IQ to `cf32` through a 256-entry table.
-///
-/// Allocation-free after the first block: the output buffer is reused, and `convert` hands out a
-/// borrow of it.
 #[derive(Debug)]
 pub struct LutConverter {
-    /// One entry per ADC code, in the radio's own coding.
     table: &'static [f32; 256],
     out: Vec<Sample>,
-    /// A block whose length is odd ends mid-sample. Dropping that byte would swap I and Q for
-    /// the entire rest of the stream, so it is held back and prepended to the next block.
     carry: Option<u8>,
 }
 
 impl LutConverter {
-    /// A converter over `table`, with room for `samples` before it has to grow.
     #[must_use]
     pub fn new(table: &'static [f32; 256], samples: usize) -> Self {
         Self {
@@ -41,7 +23,6 @@ impl LutConverter {
         }
     }
 
-    /// One ADC code as its sample value.
     #[must_use]
     pub fn code(&self, code: u8) -> f32 {
         self.table[code as usize]
@@ -84,8 +65,6 @@ impl SampleConverter for LutConverter {
 mod tests {
     use super::*;
 
-    /// A table with a recognisable shape: code `n` becomes `n` as an `f32`, so a test can name
-    /// the byte it expects instead of a normalised fraction.
     static IDENTITY: [f32; 256] = {
         let mut table = [0.0f32; 256];
         let mut code = 0usize;
@@ -114,8 +93,6 @@ mod tests {
         assert!(converter().convert(&[]).is_empty());
     }
 
-    /// The rule the carry exists for: a short block must not shift every later sample by one
-    /// byte, which would swap I and Q for the rest of the stream.
     #[test]
     fn an_odd_block_carries_its_last_byte_into_the_next() {
         let mut converter = converter();
@@ -145,13 +122,10 @@ mod tests {
         assert_eq!(converter.convert(&[8]), [Sample::new(7.0, 8.0)]);
     }
 
-    /// However a stream is cut into blocks, the samples that come out are the same ones. This is
-    /// the property the carry exists for, stated directly.
     #[test]
     fn any_split_of_a_stream_yields_the_same_samples() {
         let bytes: Vec<u8> = (0..64u16).map(|b| b as u8).collect();
         let whole = converter().convert(&bytes).to_vec();
-        // 7 and 5 are odd, so every block but the first starts mid-sample.
         for split in [7, 5, 1] {
             let mut converter = converter();
             let mut pieces = Vec::new();

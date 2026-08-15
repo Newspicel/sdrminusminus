@@ -32,7 +32,6 @@ function fakeSocket() {
   return {
     socket,
     sent,
-    /** What the server sends when it answers a subscribe: the id it allocated for that channel. */
     started: (streamId: number, deviceSet: number, channel: number) =>
       events?.({
         type: "VideoStreamStarted",
@@ -61,7 +60,6 @@ function fakeSocket() {
 const subscribes = (sent: ClientCommand[]) => sent.filter((c) => c.type === "SubscribeVideo");
 const unsubscribes = (sent: ClientCommand[]) => sent.filter((c) => c.type === "UnsubscribeVideo");
 
-/** Past the release grace, whatever it is set to. */
 const waitOutGrace = () => vi.advanceTimersByTime(60_000);
 
 describe("VideoHub", () => {
@@ -119,7 +117,6 @@ describe("VideoHub", () => {
 
     fake.push(0x8000, 104);
     fake.push(0x8001, 164);
-    // An id the server never announced belongs to nobody; it must not fan out to everyone.
     fake.push(0x9999, 8);
 
     expect(one).toEqual([104]);
@@ -147,8 +144,6 @@ describe("VideoHub", () => {
     hub.subscribe(3, 4, () => {});
     expect(subscribes(fake.sent)).toHaveLength(2);
 
-    // Ids from the old connection are meaningless on the new one, so a frame carrying one must
-    // not be delivered until the new StreamStarted names it.
     fake.started(0x8000, 1, 2);
     fake.reconnect();
     const after: number[] = [];

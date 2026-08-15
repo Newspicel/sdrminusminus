@@ -7,44 +7,29 @@ import type {
   ChannelParams,
 } from "../lib/types";
 
-/** A block clipped to the visible window, in screen fractions. */
 export interface BandSpan {
   block: BandBlock;
   allocation: BandAllocation;
-  /** Left edge as a fraction of the window; already clamped into [0, 1]. */
   left: number;
   width: number;
-  /** Whether the block's own start/stop are inside the window, so the ruler knows which of its
-   * edges are real band edges and which are just where the screen ran out. */
   startsInside: boolean;
   endsInside: boolean;
 }
 
-/** One search result: the named allocation, and which lane it was found in. */
 export interface BandMatch {
   laneId: string;
   laneName: string;
   allocation: BandAllocation;
 }
 
-/** What is at a frequency, one entry per lane that has anything to say. */
 export interface BandIdentity {
   laneId: string;
   laneName: string;
   block: BandBlock;
-  /** The winner over that block. */
   allocation: BandAllocation;
-  /** Everything else covering it — co-allocations from the same layer first, then the layers
-   * underneath. A regulator routinely gives one range to several services, so this is not an
-   * edge case: it is most of the spectrum. */
   covered: BandAllocation[];
 }
 
-/** Blocks of `lane` that intersect the window, clipped to it and ordered by frequency.
- *
- * Linear rather than a binary search on purpose: a lane is a few hundred blocks and this runs
- * once per render, not per frame — the render is what is throttled, and a bisect here would buy
- * microseconds at the cost of an off-by-one nobody would notice until a band went missing. */
 export function spansIn(
   plan: BandPlan,
   lane: BandLane,
@@ -151,10 +136,6 @@ export function searchPlan(plan: BandPlan, query: string, limit = 40): BandMatch
   return scored.slice(0, limit).map((entry) => entry.match);
 }
 
-/** A frequency written the way an operator says it: "145.5", "433 MHz", "77.5 kHz", "1.09 GHz".
- * A bare number is megahertz, which is the unit the dial reads in. Returns `null` for anything
- * that is not just a number and an optional unit — "20 m" is a band name, not 20 metres of
- * frequency. */
 export function parseFrequency(query: string): number | null {
   const match = /^\s*(\d+(?:[.,]\d+)?)\s*(ghz|mhz|khz|hz)?\s*$/i.exec(query);
   if (match?.[1] === undefined) {
@@ -176,10 +157,6 @@ export function parseFrequency(query: string): number | null {
   }
 }
 
-/** A block's body: its service hue at a quarter, so the ruler reads as tinted ground and the
- * name written across it keeps contrast against the app's own background. Written out per
- * service rather than composed, because Tailwind only emits classes it can literally see —
- * `bg-band-${service}` would compile to nothing at all. */
 const FILL: Record<BandService, string> = {
   amateur: "bg-band-amateur/25",
   broadcast: "bg-band-broadcast/25",
@@ -193,8 +170,6 @@ const FILL: Record<BandService, string> = {
   other: "bg-band-other/25",
 };
 
-/** A real band edge, at full chroma. Only drawn where the band actually starts — an edge at the
- * window's rim would claim a boundary that is only where the screen ran out. */
 const EDGE: Record<BandService, string> = {
   amateur: "bg-band-amateur",
   broadcast: "bg-band-broadcast",
@@ -221,8 +196,6 @@ export function serviceLabel(service: BandService): string {
 }
 
 function haystackOf(allocation: BandAllocation): string {
-  // "ham" is not an alias anyone would author on fifty amateur rows, and it is what half the
-  // world calls the service.
   const service = allocation.service === "amateur" ? "amateur ham" : allocation.service;
   return `${allocation.name} ${(allocation.aliases ?? []).join(" ")} ${service}`.toLowerCase();
 }

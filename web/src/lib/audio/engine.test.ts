@@ -48,9 +48,7 @@ class FakeSink implements AudioSink {
   volume: number;
   resets = 0;
   closed = false;
-  /** Flip to make the next pushes read as refused (decoder backlogged, layout swapping). */
   accept = true;
-  /** The playback buffer's channel back to the engine, as the worklet's port would be. */
   report: (report: { underruns: number }) => void = () => {};
 
   constructor(
@@ -158,8 +156,6 @@ describe("AudioEngine", () => {
     expect(sinks[1]?.pushed).toEqual([{ opus: [3], timestampUs: 500_000, channels: 1 }]);
   });
 
-  // Layout is per frame, and the timestamps stay in sample frames across a change of it —
-  // so a stereo packet must not read as a loss gap on the frame clock.
   it("hands each frame's channel layout to the sink without disturbing the clock", async () => {
     engine.start(1, 2);
     await flush();
@@ -187,7 +183,6 @@ describe("AudioEngine", () => {
     socket.emit(stopped(10));
     expect(engine.isPlaying(1, 2)).toBe(false);
     expect(sinks[0]?.closed).toBe(true);
-    // Server-initiated stop: no UnsubscribeAudio and no resubscribe on reconnect.
     expect(socket.sent).toEqual([]);
     socket.setConnected(false);
     socket.setConnected(true);
@@ -234,7 +229,6 @@ describe("AudioEngine", () => {
     ]);
 
     socket.emit(started(1, 2, 0x8000));
-    // The stale id must not bind to the new intent.
     expect(engine.isPlaying(1, 2)).toBe(false);
     socket.emit(stopped(0x8000));
     socket.emit(started(1, 2, 0x8001));
@@ -243,7 +237,6 @@ describe("AudioEngine", () => {
 
     socket.onAudio(audioFrame(0x8001, 0n, [7]));
     expect(sinks[1]?.pushed).toEqual([{ opus: [7], timestampUs: 0, channels: 1 }]);
-    // The stale Stopped must not have cancelled the still-owed subscription.
     expect(socket.sent).toHaveLength(3);
   });
 
@@ -262,7 +255,6 @@ describe("AudioEngine", () => {
 
     socket.emit(started(1, 2, 20));
     expect(engine.isPlaying(1, 2)).toBe(true);
-    // The rebind resets the sink: stale pre-disconnect audio must not play first.
     expect(sinks[0]?.resets).toBe(resetsAfterFirstBind + 1);
     socket.onAudio(audioFrame(20, 0n, [5]));
     expect(sinks[0]?.pushed).toEqual([{ opus: [5], timestampUs: 0, channels: 1 }]);
@@ -342,7 +334,6 @@ describe("AudioEngine", () => {
     expect(engine.isPlaying(1, 2)).toBe(false);
     expect(sinks[0]?.closed).toBe(true);
 
-    // Intent was cleared: a reconnect must not resubscribe the failed stream.
     socket.setConnected(false);
     socket.setConnected(true);
     expect(socket.sent.filter((c) => c.type === "SubscribeAudio")).toHaveLength(1);
@@ -400,7 +391,6 @@ describe("AudioEngine", () => {
     socket.onAudio(audioFrame(10, 3_840n, [4]));
     expect(sinks[0]?.conceals).toEqual([960]);
 
-    // A hole wider than the jitter cap cannot be concealed: drop and rebuffer.
     socket.onAudio(audioFrame(10, 34_800n, [5]));
     expect(sinks[0]?.resets).toBe(resetsAfterBind + 1);
     expect(sinks[0]?.pushed).toHaveLength(5);
@@ -424,8 +414,6 @@ describe("AudioEngine", () => {
     expect(engine.getUnderruns(1, 2)).toBe(3);
     expect(engine.getLostFrames(1, 2)).toBe(960);
 
-    // Stop/start builds a fresh sink whose buffer counts from zero again — the channel's
-    // history must not restart with it.
     engine.stop(1, 2);
     engine.start(1, 2);
     await flush();
@@ -486,7 +474,6 @@ describe("AudioEngine", () => {
     engine.stop(1, 2);
     engine.start(1, 2);
     await flush();
-    // The first creation lost the race and was closed; the retry serves the new start.
     expect(sinks[0]?.closed).toBe(true);
     expect(sinks[1]?.closed).toBe(false);
     expect(socket.sent.filter((c) => c.type === "SubscribeAudio")).toEqual([

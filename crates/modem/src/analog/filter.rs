@@ -5,13 +5,6 @@ use sdrmm_dsp::{Decimator, FirC, design_lowpass};
 
 pub const MAX_TAPS: usize = 1_023;
 
-/// A complex band filter ahead of a detector — the receiver's IF selectivity, stated by its
-/// two edges in cycles per sample so an asymmetric band (single sideband, vestigial sideband)
-/// is expressible without a second type.
-///
-/// `low` may be negative and `high` must exceed it; a band symmetric about the carrier is the
-/// ordinary double-sideband case and is built as a real-tap filter, which is half the
-/// multiplies of the general one.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BandFilter {
     pub low: f64,
@@ -20,7 +13,6 @@ pub struct BandFilter {
 }
 
 impl BandFilter {
-    /// A band of half-width `half_width` about the carrier — the double-sideband case.
     #[must_use]
     pub fn symmetric(half_width: f64, taps: usize) -> Self {
         Self {
@@ -30,14 +22,8 @@ impl BandFilter {
         }
     }
 
-    /// Builds the runner. Edges are clamped into `(-½, ½)` and the tap count into
-    /// `3..=MAX_TAPS` rather than rejected: a band filter is selectivity, and a receiver whose
-    /// configuration asks for more than Nyquist holds should pass everything it has, not fail.
     #[must_use]
     pub fn build(&self) -> Band {
-        // The lower edge is held a guard width below the upper one, so a band asked for *at*
-        // Nyquist still leaves `high`'s clamp a range to work in. Without it a `low` of 0.4999
-        // hands `clamp` a floor above its ceiling, which panics.
         const EDGE: f64 = 0.4999;
         const GUARD: f64 = 1e-6;
         let low = self.low.clamp(-EDGE, EDGE - GUARD);
@@ -53,24 +39,18 @@ impl BandFilter {
         }
     }
 
-    /// Group delay in samples — what an engine must skip before its output means anything, and
-    /// what a measurement window must be offset by.
     #[must_use]
     pub fn delay(&self) -> usize {
         (self.taps.clamp(3, MAX_TAPS) | 1) / 2
     }
 }
 
-/// A built [`BandFilter`]. Two variants for one reason: a band centred on the carrier has real
-/// taps, and running it as a complex filter would double the arithmetic on the hot path of
-/// every double-sideband entry in the catalog.
 pub enum Band {
     Real(Decimator),
     Complex(FirC),
 }
 
 impl Band {
-    /// Replaces `out` with one filtered sample per input sample.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         match self {
             Self::Real(f) => f.process(iq, out),
@@ -79,10 +59,6 @@ impl Band {
     }
 }
 
-/// A whole-sample delay line — the in-phase half of a Hilbert pair, whose only job is to lose
-/// exactly as many samples as the quadrature filter does. Written rather than approximated with
-/// a filter of its own, because "exactly" is the requirement: a delay off by one sample turns
-/// the sideband rejection of a phasing exciter into a frequency-dependent leak.
 pub struct Delay {
     buf: Vec<f32>,
     pos: usize,
@@ -97,8 +73,6 @@ impl Delay {
         }
     }
 
-    /// Replaces `out` with `x` delayed, one sample per input sample. A zero-sample delay is a
-    /// pass-through, not a one-sample delay.
     pub fn process(&mut self, x: &[f32], out: &mut Vec<f32>) {
         out.clear();
         if self.buf.is_empty() {
@@ -156,15 +130,6 @@ fn blackman(taps: usize) -> Vec<f64> {
         .collect()
 }
 
-/// A Hilbert transformer: `taps` odd, unit magnitude and −90° across the passband, so that
-/// `x + j·H{x}` is the analytic signal of a real `x` delayed by `taps/2`.
-///
-/// The ideal response `h[n] = 2/(πn)` for odd `n` and 0 for even is windowed rather than
-/// truncated, and its even taps are *exactly* zero — which is what makes the in-phase path a
-/// pure delay of `taps/2` samples with no filter of its own to match.
-///
-/// # Panics
-/// If `taps` is even, below 3, or above [`MAX_TAPS`].
 #[must_use]
 pub fn design_hilbert(taps: usize) -> Vec<f32> {
     assert!(
@@ -185,19 +150,6 @@ pub fn design_hilbert(taps: usize) -> Vec<f32> {
         .collect()
 }
 
-/// The vestigial-sideband response: the upper sideband in full out to `upper`, the lower one
-/// carved away over a raised-sine slope of half-width `vestige` about the carrier, all in
-/// cycles per sample.
-///
-/// The slope's shape is the whole point. `½·(1 + sin(π f / 2v))` satisfies
-/// `H(−f) + H(+f) = 1` across the vestige, so the two sidebands of every message component
-/// inside it add back to one — a synchronous detector then recovers the message undistorted
-/// from a spectrum that carries barely more than half of it. A plain band edge would not, and
-/// the difference is a low-frequency droop no equaliser downstream can distinguish from the
-/// programme material.
-///
-/// # Panics
-/// If the vestige is not positive and smaller than `upper`, or `taps` is out of range.
 #[must_use]
 pub fn design_vestigial(taps: usize, vestige: f64, upper: f64) -> Vec<Complex<f32>> {
     assert!(
@@ -222,8 +174,6 @@ mod tests {
 
     use super::*;
 
-    /// Response of `taps` at normalised frequency `f`, by direct evaluation of the DTFT —
-    /// small, exact, and free of any FFT convention to get wrong.
     fn response(taps: &[Complex<f32>], f: f64) -> Complex<f64> {
         taps.iter()
             .enumerate()
@@ -239,8 +189,6 @@ mod tests {
         response(&complex, f)
     }
 
-    /// A symmetric band is built with real taps and an offset one with complex taps — the
-    /// arithmetic saving that variant exists for.
     #[test]
     fn a_symmetric_band_is_a_real_filter_and_an_offset_one_is_not() {
         assert!(matches!(
@@ -258,8 +206,6 @@ mod tests {
         ));
     }
 
-    /// A band asked for past Nyquist is clamped, not rejected and not a panic — including the
-    /// degenerate case where both edges land on the same side of the clamp.
     #[test]
     fn a_band_at_the_nyquist_edge_still_builds() {
         for (low, high) in [(0.4999, 0.5), (0.6, 0.7), (-0.7, -0.6), (0.5, 0.4)] {
@@ -309,8 +255,6 @@ mod tests {
         assert!(level(0.25) < 0.01, "stopband {}", level(0.25));
     }
 
-    /// The transformer's defining property, read straight off its response: unit magnitude and
-    /// a quarter turn, one way below the carrier and the other above.
     #[test]
     fn the_hilbert_response_is_a_quarter_turn_each_way() {
         let taps = design_hilbert(129);

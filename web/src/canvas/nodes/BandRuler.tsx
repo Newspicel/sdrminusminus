@@ -15,12 +15,7 @@ import { type SpectrumView, spanToOffset, viewWidth } from "../../components/spe
 import type { ChannelParams } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 
-/** Row height. Two lanes plus their rules cost 34px of a scope face — enough for a 10px name
- * and no more, because everything it takes comes off the waterfall. */
 const ROW_H = 16;
-/** Below this fraction of the window a block has no room for its name; the popover is how it is
- * read. Not a measurement — a fraction is all the geometry knows — but the ruler is at least
- * 200px wide in any face that fits a scope, so 7% is ~14px. */
 const LABEL_MIN = 0.07;
 
 export function BandRuler({
@@ -32,18 +27,12 @@ export function BandRuler({
   centerHz: number;
   spanHz: number;
   view: SpectrumView;
-  /** Tune to this frequency, applying the band's suggested mode when it has one. */
   onTune: (hz: number, suggested: ChannelParams | null) => void;
 }) {
   const { plan, ruler } = useBandPlan();
   const [pick, setPick] = useState<{ hz: number; at: number; frame: string } | null>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
 
-  // A pan or a zoom moves the spectrum out from under an open popover, and a card still naming
-  // the old frequency is worse than no card. The view is the trigger, not the pointer, so this
-  // also closes it when the *radio* is retuned by someone else. Stamping the pick with the frame
-  // it was taken in — rather than clearing it from an effect — is what keeps the stale card off
-  // the paint that follows the pan, instead of showing it for the frame before the effect runs.
   const frame = `${centerHz}:${spanHz}:${view.start}:${view.end}`;
   const picked = pick?.frame === frame ? pick : null;
 
@@ -118,9 +107,6 @@ export function BandRuler({
   );
 }
 
-/** What is at the clicked frequency, one section per lane, most authoritative first. Anchored to
- * the click but kept inside the face: a card that hangs off the edge of a node is unreadable and
- * a node is not a viewport. */
 function IdentifyCard({
   hz,
   at,
@@ -138,10 +124,6 @@ function IdentifyCard({
 }) {
   const suggested = suggestedAt(found);
   const cardRef = useRef<HTMLDivElement>(null);
-  // A dialog the keyboard cannot reach is a dialog whose Escape never fires and which a screen
-  // reader announces but never enters, so opening one moves focus into it and closing one hands
-  // focus back to the lane that was clicked. Keyed on `hz`: picking a second frequency while the
-  // card is open re-opens it somewhere else, which is a new dialog to the operator.
   useLayoutEffect(() => {
     const returnTo = document.activeElement;
     cardRef.current?.focus();
@@ -184,7 +166,6 @@ function IdentifyCard({
           key={entry.laneId}
           entry={entry}
           layerName={layerName}
-          // Only the winning lane's own stack is worth unrolling; an overlay covers nothing.
           covered={entry.laneId === found[0]?.laneId}
         />
       ))}
@@ -230,9 +211,6 @@ function BandDetail({
           </span>
         )}
       </div>
-      {/* The regulator's own wording, under the operator's. It is the citable one and the one a
-          reader checking against the source document will search for — and where the friendly
-          name came from an annotation, this is the line that says what was actually allocated. */}
       {allocation.official_name !== allocation.name && (
         <span className="truncate font-mono text-[11px] text-ink-dim">
           {allocation.official_name}

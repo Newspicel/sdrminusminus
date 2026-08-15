@@ -13,18 +13,10 @@ const FEC_SLOTS: usize = 5;
 const ALPHA: u8 = 0x0F;
 const REP: u8 = 0x66;
 
-/// Phasing pairs sent before the message. A real station phases for seconds; this is the
-/// shortest run that still lets a receiver acquire and settle its matched filter.
 const PHASING_PAIRS: usize = 12;
 
-/// Idle pairs after the last character. A station returns to phasing when it stops talking,
-/// and a receiver needs it to: a one-symbol matched filter delays the stream by half a bit, so
-/// without a tail the final character's slicing instant would fall past the end of the
-/// transmission and the closing `NNNN` would never complete.
 const IDLE_TAIL_PAIRS: usize = 4;
 
-/// CCIR 476 codes for `text`, including the shift characters. SITOR tracks the shift strictly
-/// — a space does not unshift.
 #[must_use]
 pub fn encode(text: &str) -> Vec<u8> {
     ita2_codes(text, false)
@@ -33,9 +25,6 @@ pub fn encode(text: &str) -> Vec<u8> {
         .collect()
 }
 
-/// Lay `codes` into the mode-B slot stream, preceded by `phasing_pairs` REP/ALPHA pairs.
-/// Slots no character claims keep the idle pattern, which is what a station transmits between
-/// messages.
 #[must_use]
 pub fn slots(codes: &[u8], phasing_pairs: usize) -> Vec<u8> {
     let base = 2 * phasing_pairs;
@@ -54,7 +43,6 @@ pub fn slots(codes: &[u8], phasing_pairs: usize) -> Vec<u8> {
     slots
 }
 
-/// Seven bits per slot, least significant first (ITU-R M.476 transmission order).
 #[must_use]
 pub fn bits(slots: &[u8]) -> Vec<bool> {
     let mut out = Vec::with_capacity(slots.len() * CHAR_BITS);
@@ -76,13 +64,11 @@ pub fn modulate(bits: &[bool], rate: f64) -> Vec<Complex<f32>> {
     iq
 }
 
-/// A complete broadcast: phasing, then `text` with its repeat copies interleaved.
 #[must_use]
 pub fn transmission(text: &str, rate: f64) -> Vec<Complex<f32>> {
     modulate(&bits(&slots(&encode(text), PHASING_PAIRS)), rate)
 }
 
-/// `seconds` of the bare phasing signal — what a station sends when it has nothing to say.
 #[must_use]
 pub fn phasing(seconds: f64, rate: f64) -> Vec<Complex<f32>> {
     let pairs = (seconds * BAUD / (2.0 * CHAR_BITS as f64)).max(1.0) as usize;
@@ -100,9 +86,6 @@ mod tests {
         }
     }
 
-    /// The interleave is the protocol's whole error-correction budget; a spacing bug here
-    /// would still round-trip if the decoder made the same mistake, so it is asserted on the
-    /// slot stream directly.
     #[test]
     fn each_character_is_repeated_five_slots_later() {
         let codes = encode("NAUTICAL");

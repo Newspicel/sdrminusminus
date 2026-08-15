@@ -1,8 +1,5 @@
 use sdrmm_wire::{NanoVnaDevice, NanoVnaMatch};
 
-/// USB ids the VNA families ship with. Every one of these is a stock microcontroller CDC id
-/// shared with unrelated boards, so an id alone never confirms an instrument — it only makes
-/// one worth offering.
 const KNOWN_IDS: &[(u16, u16)] = &[
     (0x0483, 0x5740),
     (0x16c0, 0x0483),
@@ -10,11 +7,8 @@ const KNOWN_IDS: &[(u16, u16)] = &[
     (0x0403, 0x6001),
 ];
 
-/// Product or vendor strings that do confirm one. Matched case-insensitively against both, so
-/// a board that names itself in either field is recognised.
 const NAME_MARKERS: &[&str] = &["nanovna", "litevna", "deepvna", "sysjoint", "vna"];
 
-/// The instruments among the serial ports, and the names of the ports that are something else.
 pub fn partition(ports: Vec<serialport::SerialPortInfo>) -> (Vec<NanoVnaDevice>, Vec<String>) {
     let mut devices = Vec::new();
     let mut ignored = Vec::new();
@@ -33,9 +27,6 @@ pub fn partition(ports: Vec<serialport::SerialPortInfo>) -> (Vec<NanoVnaDevice>,
     (devices, ignored)
 }
 
-/// macOS publishes every USB serial device twice — `/dev/cu.X` to call out on and `/dev/tty.X`
-/// to answer on — and the dial-in node blocks on carrier detect, so it is the wrong one to hand
-/// an instrument. Listing both would offer the same NanoVNA under two names, one of which hangs.
 fn callout_nodes(ports: Vec<serialport::SerialPortInfo>) -> Vec<serialport::SerialPortInfo> {
     let callouts: Vec<String> = ports
         .iter()
@@ -89,7 +80,6 @@ fn names_a_vna(field: Option<&str>) -> bool {
     NAME_MARKERS.iter().any(|marker| field.contains(marker))
 }
 
-/// USB product strings carry underscores where the board's own name has spaces or hyphens.
 fn tidy(product: &str) -> String {
     product.replace('_', "-").trim().to_owned()
 }
@@ -149,7 +139,6 @@ mod tests {
         );
     }
 
-    /// The same instrument must not be offered twice under the two nodes macOS gives it.
     #[test]
     fn the_dial_in_twin_of_a_call_out_node_is_dropped() {
         let (devices, ignored) = partition(vec![

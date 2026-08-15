@@ -1,37 +1,13 @@
 use super::params::{CpmParams, Mapping};
 
-/// Detections the estimate averages over — MMDVM's figure (DMRDMORX.cpp keeps four). One
-/// fit carries whatever its own burst put on it: the centre the data mean dragged, the
-/// transient of the keying edge. Four bursts' worth averages that away while still following
-/// a fading transmitter.
 const ANCHORS: usize = 4;
 
-/// Fitted gains a detection is believed at. The symbols arrive already normalised by
-/// [`CpmDemod`](super::CpmDemod), so a real transmitter's residual sits near one; a fit
-/// outside two-to-one either way is a pattern that noise matched by chance, and folding it in
-/// would mis-slice the very bursts the anchor exists to protect.
 const GAIN_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
-/// Data-aided centre and gain correction, anchored to known-symbol detections. Until a
-/// detection has anchored — and again once the last one has expired — the correction is the
-/// identity, so acquisition still runs on the demodulator's own estimates.
 pub struct KnownSymbols {
     levels: Vec<f32>,
-    /// Largest fitted |centre| believed, in mapping-level units: half the level spacing. A
-    /// centre past that would have sliced half the known symbols wrong — the match that led
-    /// here could only have been chance.
     centre_bound: f32,
-    /// Largest RMS misfit believed, same units and the same half-spacing: a sequence is
-    /// matched by Hamming distance under a tolerance, which noise clears now and then — but
-    /// noise that matched the pattern's indices still does not *fit* its levels, missing them
-    /// by the better part of a level spacing, while any signal clean enough to have matched at
-    /// all fits within a fraction of one.
     misfit_bound: f32,
-    /// Symbols an anchored estimate survives without a fresh detection. Protocol timing, so
-    /// caller data: the longest gap the entry's standard leaves between known sequences (DMR's
-    /// 360 ms voice superframe is 1728 symbols; `fsk4` allowed 4800). Past it the channel is
-    /// between transmissions, and the next transmitter must meet the demodulator's own
-    /// estimates rather than the last transmitter's correction.
     timeout_symbols: u32,
     anchors: [(f32, f32); ANCHORS],
     count: usize,
@@ -42,17 +18,11 @@ pub struct KnownSymbols {
 }
 
 impl KnownSymbols {
-    /// The hook for an entry. Convenience over [`from_mapping`](Self::from_mapping) — the fit
-    /// reads nothing but the symbol table.
     #[must_use]
     pub fn new(params: &CpmParams, timeout_symbols: u32) -> Self {
         Self::from_mapping(params.mapping(), timeout_symbols)
     }
 
-    /// The hook for a symbol table alone. The waveform is irrelevant to a least-squares fit
-    /// against known levels, so several entries that differ in baud, deviation and pulse but
-    /// share one mapping — the six four-level digital-voice modes are exactly that — share one
-    /// hook construction instead of nominating an arbitrary one of themselves.
     #[must_use]
     pub fn from_mapping(mapping: &Mapping, timeout_symbols: u32) -> Self {
         let half_spacing = mapping.min_spacing() / 2.0;
@@ -70,7 +40,6 @@ impl KnownSymbols {
         }
     }
 
-    /// Account one recovered symbol against the anchor's lifetime; call once per symbol.
     pub fn tick(&mut self) {
         if self.count == 0 {
             return;
@@ -81,13 +50,6 @@ impl KnownSymbols {
         }
     }
 
-    /// One detection: `pattern[i]` is the known symbol index transmitted where `measured[i]`
-    /// was received — any consistent order, the fit only needs the pairing. An implausible fit
-    /// is discarded rather than folded in (see the field docs for each gate).
-    ///
-    /// # Panics
-    /// If the slices differ in length — the pairing *is* the measurement, so a mismatch is a
-    /// caller bug, not a condition to guess through.
     pub fn anchor(&mut self, pattern: &[u8], measured: &[f32]) {
         assert_eq!(
             pattern.len(),
@@ -105,8 +67,6 @@ impl KnownSymbols {
             sxy += x * y;
         }
         let det = n * sxx - sx * sx;
-        // A pattern of one repeated level fits any gain; no real sync is one. Scale-free form
-        // of fsk4's absolute guard, so a table in unusual units changes nothing.
         if det <= 1e-6 * n * sxx {
             return;
         }
@@ -137,13 +97,11 @@ impl KnownSymbols {
         self.gain = averaged.iter().map(|&(_, g)| g).sum::<f32>() / n;
     }
 
-    /// The symbol re-scaled by what the last detections taught; the identity until one has.
     #[must_use]
     pub fn correct(&self, symbol: f32) -> f32 {
         (symbol - self.centre) / self.gain
     }
 
-    /// Forget the anchors — the channel moved, and they describe the transmitter it left.
     pub fn reset(&mut self) {
         self.count = 0;
         self.next = 0;
@@ -185,8 +143,6 @@ mod tests {
             .collect()
     }
 
-    /// The waveform reaches the fit through nothing but the table, so two entries that share a
-    /// mapping and agree on nothing else must produce the identical correction.
     #[test]
     fn only_the_mapping_reaches_the_fit() {
         let params = dmr_params();
@@ -214,8 +170,6 @@ mod tests {
         }
     }
 
-    /// The tolerance a sync is matched at lets noise through now and then; a fit no real
-    /// transmitter under a matched sync can produce must not be believed.
     #[test]
     fn an_implausible_fit_is_discarded() {
         let params = dmr_params();
@@ -232,7 +186,6 @@ mod tests {
         );
     }
 
-    /// Noise that cleared the index-matching tolerance still does not *fit* the levels.
     #[test]
     fn a_chance_match_that_does_not_fit_the_levels_is_discarded() {
         let params = dmr_params();
@@ -246,7 +199,6 @@ mod tests {
         assert_eq!(hook.correct(1.0), 1.0, "a scattered fit was believed");
     }
 
-    /// A pattern of one repeated level fits any gain, whatever units the table uses.
     #[test]
     fn a_degenerate_pattern_is_rejected() {
         let params = dmr_params();
@@ -255,8 +207,6 @@ mod tests {
         assert_eq!(hook.correct(1.0), 1.0);
     }
 
-    /// Four detections is the whole memory: a transmitter that moved is fully forgotten four
-    /// bursts later, and each correction is the average of what is in the ring.
     #[test]
     fn the_estimate_averages_the_last_four_detections() {
         let params = dmr_params();
@@ -271,8 +221,6 @@ mod tests {
         assert!(corrected.abs() < 1e-4, "stale centre survived: {corrected}");
     }
 
-    /// A channel this long without a detection is between transmissions; the next transmitter
-    /// must not be sliced by the last one's levels.
     #[test]
     fn an_anchor_expires_between_transmissions() {
         let params = dmr_params();
@@ -285,8 +233,6 @@ mod tests {
         assert_eq!(hook.correct(0.8), 0.8, "the correction outlived its sync");
     }
 
-    /// Any M, any pattern length: an 8-level hook over a 15-symbol training sequence, with the
-    /// same half-spacing gates scaled off the 8-level table.
     #[test]
     fn an_eight_level_pattern_anchors_too() {
         let params = CpmParams::from_h(Mapping::natural(8), 0.3, pulse::rect(8.0, Norm::Area), 8.0);

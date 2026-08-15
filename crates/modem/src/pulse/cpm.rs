@@ -1,17 +1,9 @@
-//! The finite-support pulse family: CPM frequency pulses (rect/LREC, LRC, Gaussian) and the
-//! closed-support amplitude pulses (half-sine, the Gaussian premod filter). Naming and
-//! formulas follow Anderson, Aulin & Sundberg, *Digital Phase Modulation* — the source of the
-//! LREC/LRC vocabulary and of the phase-pulse convention `q(∞) = ½` that [`phase_pulse`]
-//! implements.
 use std::f64::consts::PI;
 
 use sdrmm_dsp::design_gaussian;
 
 use super::{Norm, normalise, renorm_designed};
 
-/// Samples a shape given on the normalised support `u ∈ (0, 1)` at interval midpoints,
-/// `u = (k + ½)/n` with `n = round(L·sps)` taps: exactly even-symmetric for symmetric shapes
-/// at any tap count, and no zero endpoint taps spent on shapes that vanish at the edges.
 fn midpoint_taps(sps: f64, l: usize, shape: impl Fn(f64) -> f64) -> Vec<f64> {
     assert!(sps > 1.0, "need more than one sample per symbol");
     assert!(l >= 1, "pulse must cover at least one symbol");
@@ -23,40 +15,21 @@ fn midpoint_taps(sps: f64, l: usize, shape: impl Fn(f64) -> f64) -> Vec<f64> {
     (0..n).map(|k| shape((k as f64 + 0.5) / n as f64)).collect()
 }
 
-/// Rectangular pulse over one symbol — 1REC: the frequency pulse of plain CPFSK and of MSK
-/// (h = ½), and the shape behind every unfiltered FSK mode in the catalog (POCSAG, RTTY,
-/// navtex). Under [`Norm::Energy`] it is the integrate-and-dump matched filter.
-///
-/// Implemented as [`lrec`] with L = 1 — the identity `LREC(1) = rect` holds by construction,
-/// not by parallel code.
 #[must_use]
 pub fn rect(sps: f64, norm: Norm) -> Vec<f32> {
     lrec(sps, 1, norm)
 }
 
-/// LREC(L): the rectangular partial-response CPM frequency pulse, `g(t) = const` over
-/// `[0, L·T]` (Anderson/Aulin/Sundberg). L = 1 is CPFSK/MSK; L > 1 trades bandwidth for a
-/// controlled-ISI phase trellis the MLSE tier resolves.
 #[must_use]
 pub fn lrec(sps: f64, l: usize, norm: Norm) -> Vec<f32> {
     normalise(midpoint_taps(sps, l, |_| 1.0), norm)
 }
 
-/// LRC(L): the raised-cosine *frequency* pulse `g(t) ∝ 1 − cos(2πt/(L·T))` over `[0, L·T]`
-/// (Anderson/Aulin/Sundberg) — a namesake of, and not to be confused with, the Nyquist
-/// raised-cosine *amplitude* pulse in `nyquist.rs`: LRC shapes a CPM phase trajectory, has no
-/// zero-ISI property, and its smooth edges buy spectral roll-off. L = 1 appears as
-/// full-response 1RC in the CPM literature; L ≥ 2 is the classic partial-response smoothing.
 #[must_use]
 pub fn lrc(sps: f64, l: usize, norm: Norm) -> Vec<f32> {
     normalise(midpoint_taps(sps, l, |u| 1.0 - (2.0 * PI * u).cos()), norm)
 }
 
-/// Half-sine over one symbol, `h(t) = sin(πt/T)` on `[0, T]` — MSK's pulse seen from either
-/// side: as the amplitude pulse of MSK's linear OQPSK representation (Pasupathy, "Minimum
-/// Shift Keying: A Spectrally Efficient Modulation", IEEE Comm. Mag. 1979) and as the chip
-/// shape of IEEE 802.15.4 O-QPSK. [`Norm::Energy`] for those linear uses; [`Norm::Area`]
-/// reads it as a full-response CPM frequency pulse (1HCS in parts of the literature).
 #[must_use]
 pub fn half_sine(sps: f64, norm: Norm) -> Vec<f32> {
     normalise(midpoint_taps(sps, 1, |u| (PI * u).sin()), norm)
@@ -85,11 +58,6 @@ pub fn gaussian_freq(sps: f64, bt: f64, span: usize, norm: Norm) -> Vec<f32> {
     normalise(g, norm)
 }
 
-/// The CPM phase pulse `q(t) = ∫₀ᵗ g(τ) dτ` in the Aulin/Sundberg normalisation `q(∞) = ½`:
-/// `q[n] = ½·Σ_{k≤n} g[k]`, so a unit-area frequency pulse reaches exactly ½ and the phase
-/// step per symbol is `2πh·q(∞) = πh`. The ½ lives here, once, rather than in every
-/// frequency-pulse table — handing the CPM engine a pulse that is *not* unit-area produces a
-/// proportionally wrong modulation index, which is why the Area tests pin every pulse above.
 #[must_use]
 pub fn phase_pulse(freq: &[f32]) -> Vec<f32> {
     let mut acc = 0.0f64;

@@ -1,6 +1,3 @@
-//! Noise processing: the impulse blanker that runs on IQ, and the two audio-domain cleaners —
-//! an adaptive notch that hunts carriers down by itself, and a spectral subtractor for hiss.
-
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -8,44 +5,22 @@ use rustfft::{Fft, FftPlanner};
 
 use crate::{iir::one_pole_coeff, window::hann};
 
-/// Impulse noise blanker, on the IQ ahead of the channel filter.
-///
-/// Ahead of it deliberately: ignition noise and switching-supply hash arrive as pulses far
-/// shorter than the channel's impulse response, and a narrow filter smears one of them across
-/// milliseconds of audio. Caught in the wide baseband it is still a pulse, and a pulse can be
-/// cut out; caught after the filter it is already the ringing it was supposed to prevent.
-///
-/// Detection is a magnitude threshold against a slow average of the magnitude, held still while
-/// blanking so a burst cannot raise the level it is measured against. The output is delayed by
-/// half the blanking window so the cut is centred on the pulse rather than starting after it.
 #[derive(Clone, Debug)]
 pub struct NoiseBlanker {
-    /// Ring of undelivered samples, one blanking half-window long.
     delay: Vec<Complex<f32>>,
     write: usize,
     average: f32,
     coeff: f32,
     threshold: f32,
-    /// Output samples still to be blanked; the whole window while a pulse is being cut out.
     remaining: usize,
     window: usize,
-    /// Samples blanked since construction, which is what tells an operator whether the
-    /// threshold is set anywhere useful.
     blanked: u64,
 }
 
 impl NoiseBlanker {
-    /// Half-width of the cut, in seconds. Long enough to contain an ignition pulse and the
-    /// receiver's own rise time, short enough that voice through it is inaudible.
     const HALF_WINDOW_S: f64 = 40e-6;
-    /// Time constant of the magnitude average. Well above a syllable so speech does not raise
-    /// its own detection threshold, well below a fade so the blanker follows the band.
     const AVERAGE_TAU_S: f64 = 0.05;
 
-    /// `threshold` is a multiple of the average magnitude; a sample above it starts a cut.
-    ///
-    /// # Panics
-    /// If `rate` is not positive.
     #[must_use]
     pub fn new(rate: f64, threshold: f32) -> Self {
         assert!(rate > 0.0, "rate must be positive");
@@ -66,7 +41,6 @@ impl NoiseBlanker {
         self.threshold = threshold.max(1.0);
     }
 
-    /// Samples cut out since construction — the only honest answer to "is this doing anything?".
     #[must_use]
     pub fn blanked_samples(&self) -> u64 {
         self.blanked
@@ -95,10 +69,6 @@ impl NoiseBlanker {
 
             let magnitude = input.norm();
             if self.remaining == 0 {
-                // A channel that has no level yet — the first block, or one that has just come
-                // back from digital silence — must adopt what it hears rather than measure it
-                // against nothing: every sample is above a threshold of zero, and a blanker
-                // that latched there would mute the channel instead of cleaning it.
                 if self.average <= 0.0 {
                     self.average = magnitude;
                 } else {
@@ -119,28 +89,10 @@ impl NoiseBlanker {
     }
 }
 
-/// Impulse ("click") removal in the demodulated audio.
-///
-/// The blanker above cannot catch these: an FM discriminator makes its own clicks, one per time
-/// the noisy IQ vector loops the origin, and they exist only after the detector. A lightning
-/// crash through an envelope or product detector arrives the same way — a spike of a few tens of
-/// microseconds sitting on top of speech that is otherwise unremarkable.
-///
-/// A sample is judged against a slow average of the audio's own magnitude and, when it stands out
-/// from that, against the median of the samples around it. Both have to agree before anything is
-/// replaced: a loud consonant is above the average too, but it is not an outlier among its
-/// neighbours, and a stage that cut on level alone would take the transients out of the speech it
-/// is meant to be cleaning up. What replaces a click is that same median, which is a value the
-/// signal actually had — blanking to zero would only substitute one impulse for another.
-///
-/// The window is the mode's to choose: it has to be wider than the clicks that mode produces and
-/// no wider, since everything inside it is what a replacement is drawn from.
 #[derive(Clone, Debug)]
 pub struct ClickRemover {
-    /// Ring of the last `span` samples; the one being judged sits in the middle of it.
     window: Vec<f32>,
     write: usize,
-    /// Sorted copy of the window, kept here so a click costs no allocation.
     sorted: Vec<f32>,
     half: usize,
     average: f32,
@@ -150,15 +102,8 @@ pub struct ClickRemover {
 }
 
 impl ClickRemover {
-    /// Time constant of the magnitude average. Above a syllable, so speech does not raise the
-    /// level it is judged against, and below a fade, so the stage follows the band.
     const AVERAGE_TAU_S: f64 = 0.05;
 
-    /// `width_s` is the longest impulse this instance has to remove, `threshold` how far above
-    /// the audio's own average magnitude a sample must sit to be one.
-    ///
-    /// # Panics
-    /// If `rate` is not positive.
     #[must_use]
     pub fn new(rate: f64, width_s: f64, threshold: f32) -> Self {
         assert!(rate > 0.0, "rate must be positive");
@@ -180,13 +125,11 @@ impl ClickRemover {
         self.threshold = threshold.max(1.0);
     }
 
-    /// Samples of delay this stage adds — half a window, since the judged sample is its centre.
     #[must_use]
     pub fn latency(&self) -> usize {
         self.half
     }
 
-    /// Samples replaced since construction; the only honest answer to "is this doing anything?".
     #[must_use]
     pub fn removed_samples(&self) -> u64 {
         self.removed
@@ -198,7 +141,6 @@ impl ClickRemover {
         self.average = 0.0;
     }
 
-    /// Replaces `samples` in place; same length out as in, block sizes and all.
     pub fn process(&mut self, samples: &mut [f32]) {
         if !self.average.is_finite() {
             self.reset();
@@ -211,9 +153,6 @@ impl ClickRemover {
 
             let centre = self.window[(self.write + self.half + 1) % span];
             let magnitude = centre.abs();
-            // A channel with no level yet adopts what it hears: against an average of zero
-            // every sample is an impulse, and the stage would median-filter the audio instead
-            // of cleaning it.
             if self.average <= 0.0 {
                 self.average = magnitude;
             } else {
@@ -235,8 +174,6 @@ impl ClickRemover {
         }
     }
 
-    /// Only ever called for a sample that already stands out by level, so the sort stays off the
-    /// path every clean sample takes.
     fn median(&mut self) -> f32 {
         self.sorted.copy_from_slice(&self.window);
         self.sorted.sort_unstable_by(f32::total_cmp);
@@ -244,20 +181,9 @@ impl ClickRemover {
     }
 }
 
-/// Adaptive notch: a normalized-LMS predictor of the audio against a delayed copy of itself.
-///
-/// A carrier is predictable from its own past and speech is not, so the predictor converges on
-/// whatever steady tones are present and the prediction *error* — which is what this outputs —
-/// is the audio with them removed. That is the whole trick: nothing has to be told where the
-/// heterodyne is, and several at once cost no more than one.
-///
-/// The decorrelation delay is what makes it selective. Broadband noise correlates with itself
-/// only over a sample or two, so delaying the reference past that leaves the filter nothing to
-/// predict except the periodic content.
 #[derive(Clone, Debug)]
 pub struct AutoNotch {
     weights: Vec<f32>,
-    /// Power-of-two ring so the tap walk is a mask rather than a modulo.
     history: Vec<f32>,
     write: usize,
     delay: usize,
@@ -265,13 +191,8 @@ pub struct AutoNotch {
 }
 
 impl AutoNotch {
-    /// Predictor length. Enough resolution to place a deep null on a tone without the filter
-    /// taking so long to converge that it chases speech.
     const TAPS: usize = 64;
-    /// Decorrelation delay in samples, past the correlation length of band-limited hiss.
     const DELAY: usize = 4;
-    /// NLMS step size: a time constant of a few tens of milliseconds. Fast enough to catch a
-    /// heterodyne as an operator tunes across it, slow enough not to start predicting a vowel.
     const MU: f32 = 0.02;
 
     #[must_use]
@@ -326,28 +247,12 @@ impl Default for AutoNotch {
     }
 }
 
-/// Spectral noise reduction: weighted overlap-add STFT with a per-bin Wiener gain over a noise
-/// floor tracked from the signal itself.
-///
-/// The floor drops to whatever a bin does at its quietest and climbs back only slowly, so it
-/// settles on the level between syllables — the noise — rather than on the speech above it.
-/// Gains are smoothed across frames before they are applied, which is what keeps the residue a
-/// quieter hiss instead of the warbling tones a bin-by-bin subtraction produces.
-///
-/// Anything genuinely stationary is noise by this definition, an unbroken carrier included;
-/// removing one of those on purpose is [`AutoNotch`]'s job, not this one's.
-///
-/// Analysis and synthesis both window with the square root of a periodic Hann, whose product
-/// sums to one at this hop, so a strength of zero returns the input unchanged.
 pub struct SpectralDenoiser {
     fft: Arc<dyn Fft<f32>>,
     ifft: Arc<dyn Fft<f32>>,
     window: Vec<f32>,
     pending: Vec<f32>,
-    /// Overlap-add accumulator, one frame long, drained a hop at a time.
     overlap: Vec<f32>,
-    /// Output already reconstructed, plus the priming zeros that make this stage return exactly
-    /// as many samples as it is given.
     ready: Vec<f32>,
     read: usize,
     smoothed: Vec<f32>,
@@ -359,29 +264,14 @@ pub struct SpectralDenoiser {
 }
 
 impl SpectralDenoiser {
-    /// 512 samples at 48 kHz is a 10.7 ms window: long enough to resolve the pitch of a voice,
-    /// short enough that a transient is not smeared across it.
     pub const FRAME: usize = 512;
     pub const HOP: usize = Self::FRAME / 2;
-    /// Floor on the per-bin gain. A gate that closed completely would sound like a stream of
-    /// dropouts; −20 dB is enough reduction to hear through and still leaves noise as noise.
     const GAIN_FLOOR: f32 = 0.1;
-    /// Frame-to-frame smoothing of the measured bin power, so the tracked minimum settles on a
-    /// level rather than on the single quietest frame of the last second.
     const POWER_SMOOTHING: f32 = 0.3;
-    /// How far the floor closes on the bin each frame while the bin stays above it — a time
-    /// constant near two seconds, which follows a band that is getting noisier without
-    /// following a talker who is still talking.
     const FLOOR_RISE: f32 = 0.003;
-    /// Frame-to-frame smoothing of the applied gain.
     const GAIN_SMOOTHING: f32 = 0.5;
-    /// What the tracked minimum is multiplied by before it is subtracted. A minimum is not a
-    /// mean: bin power fluctuates hard even in steady noise, and the floor settles near the
-    /// bottom of that spread rather than in the middle of it, so subtracting it as measured
-    /// would leave most of the hiss behind.
     const FLOOR_BIAS: f32 = 5.0;
 
-    /// `strength` in `0.0..=1.0` scales how much of the tracked floor is subtracted.
     #[must_use]
     pub fn new(strength: f32) -> Self {
         let mut planner = FftPlanner::<f32>::new();
@@ -411,7 +301,6 @@ impl SpectralDenoiser {
         self.strength = strength.clamp(0.0, 1.0);
     }
 
-    /// Samples of delay this stage adds, which is the priming that keeps it one-for-one.
     #[must_use]
     pub fn latency(&self) -> usize {
         Self::FRAME
@@ -428,7 +317,6 @@ impl SpectralDenoiser {
         self.gains.fill(1.0);
     }
 
-    /// Replaces `samples` in place; same length out as in, block sizes and all.
     pub fn process(&mut self, samples: &mut [f32]) {
         if self.read > 0 {
             self.ready.drain(..self.read.min(self.ready.len()));
@@ -520,7 +408,6 @@ mod tests {
             .collect()
     }
 
-    /// A carrier with ignition-style pulses on top of it: what the blanker exists for.
     fn with_impulses(len: usize, period: usize, amplitude: f32) -> Vec<Complex<f32>> {
         let mut iq = carrier(len);
         for n in (period..len).step_by(period) {
@@ -540,8 +427,6 @@ mod tests {
             .map(|s| s.norm())
             .fold(0.0f32, f32::max);
         assert!(peak < 0.2, "impulse survived at {peak}");
-        // The wanted signal must still be there: a blanker that muted the channel would also
-        // have passed the test above.
         let kept = rms_c(&blanked[settled..]);
         let original = rms_c(&carrier(24_000)[settled..]);
         assert!(
@@ -595,7 +480,6 @@ mod tests {
         assert!(rms_c(&back[8_000..]) > 0.09, "channel stayed muted");
     }
 
-    /// An FM click's width, and the settings a mode would hand the stage for one.
     const CLICK_WIDTH_S: f64 = 100e-6;
     const CLICK_THRESHOLD: f32 = 6.0;
 
@@ -603,7 +487,6 @@ mod tests {
         ClickRemover::new(RATE, CLICK_WIDTH_S, CLICK_THRESHOLD)
     }
 
-    /// Speech-like audio with discriminator clicks dropped into it.
     fn speech_with_clicks(len: usize, period: usize, amplitude: f32) -> Vec<f32> {
         let mut audio = real_tone(700.0 / RATE, len)
             .iter()
@@ -635,15 +518,11 @@ mod tests {
         let peak = output[settled..].iter().fold(0.0f32, |a, s| a.max(s.abs()));
         assert!(peak < 0.3, "a click survived at {peak}");
         assert!(remover.removed_samples() > 0);
-        // The tone under the clicks has to come through at its own amplitude, delayed by the
-        // stage's half window — a "click remover" that dulled the audio would pass the line above.
         let latency = remover.latency();
         let kept = tone_amplitude(&output[settled + latency..], 700.0);
         assert!((kept - 0.2).abs() < 0.02, "audio was chewed up: {kept}");
     }
 
-    /// The failure that matters more than any click: audio nobody complained about must come
-    /// back sample for sample, only delayed.
     #[test]
     fn clean_audio_passes_through_untouched() {
         let mut rng = XorShift32(0x4B7C_1E39);
@@ -665,11 +544,8 @@ mod tests {
         assert_eq!(remover.removed_samples(), 0);
     }
 
-    /// A syllable is loud but it is not an outlier among its neighbours, so the level test alone
-    /// must not be enough to cut it.
     #[test]
     fn a_loud_transient_that_is_not_an_impulse_is_left_alone() {
-        // Silence, then a tone burst twenty times the level the average has settled on.
         let mut input = vec![0.0f32; 24_000];
         input.extend(real_tone(500.0 / RATE, 24_000).iter().map(|s| s * 0.4));
         let mut remover = click_remover();
@@ -679,7 +555,6 @@ mod tests {
         assert!(burst > 0.35, "the burst was cut down to {burst}");
     }
 
-    /// The engine's audio clock counts samples: every block out is as long as the block in.
     #[test]
     fn click_removal_returns_one_sample_for_every_sample_it_is_given() {
         let mut remover = click_remover();
@@ -701,7 +576,6 @@ mod tests {
 
     #[test]
     fn a_wider_window_removes_a_wider_click() {
-        // Six samples of impulse: past what a 100 µs window can replace, inside a 400 µs one.
         let mut input = real_tone(700.0 / RATE, 48_000)
             .iter()
             .map(|s| s * 0.2)
@@ -736,7 +610,6 @@ mod tests {
         assert!(rms_r(&back[8_000..]) > 0.1, "audio stayed muted");
     }
 
-    /// Amplitude of `freq_hz` in `x`, by direct correlation — no window, no bin to land on.
     fn tone_amplitude(x: &[f32], freq_hz: f64) -> f32 {
         let w = std::f64::consts::TAU * freq_hz / RATE;
         let (mut re, mut im) = (0.0f64, 0.0f64);
@@ -767,8 +640,6 @@ mod tests {
         assert!(after < 0.2 * before, "tone {before} -> {after}");
     }
 
-    /// The other half of the claim: the noise the carrier was sitting in is still there, or the
-    /// "notch" is a lowpass with extra steps.
     #[test]
     fn auto_notch_keeps_the_noise_the_carrier_was_in() {
         let mut rng = XorShift32(0x77AA_0913);
@@ -801,8 +672,6 @@ mod tests {
         out
     }
 
-    /// The engine's audio clock counts samples, so this is not a detail: every block out must
-    /// be exactly as long as the block in, ragged sizes and all.
     #[test]
     fn denoiser_returns_one_sample_for_every_sample_it_is_given() {
         let mut denoiser = SpectralDenoiser::new(0.5);
@@ -822,8 +691,6 @@ mod tests {
         assert_eq!(produced, input.len());
     }
 
-    /// Zero strength is the identity, delayed. Anything else and the "off" position of the
-    /// control would still be colouring the audio.
     #[test]
     fn denoiser_at_zero_strength_reconstructs_the_input() {
         let mut denoiser = SpectralDenoiser::new(0.0);
@@ -841,8 +708,6 @@ mod tests {
         }
     }
 
-    /// Speech is not stationary and hiss is: bursts of tone in constant noise, and the gaps
-    /// between them have to get much quieter while the bursts do not.
     fn bursts_in_hiss(len: usize) -> Vec<f32> {
         let mut rng = XorShift32(0x2C41_66B7);
         let burst = (RATE * 0.2) as usize;
@@ -864,8 +729,6 @@ mod tests {
         let burst = (RATE * 0.2) as usize;
         let latency = denoiser.latency();
 
-        // Well inside the fifth burst and the gap after it, so neither window straddles an edge
-        // or the stage's own delay.
         let inside = |index: usize| {
             let start = index * burst + burst / 4 + latency;
             start..start + burst / 2

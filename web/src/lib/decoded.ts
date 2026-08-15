@@ -8,34 +8,20 @@ import type {
   ServerEvent,
 } from "./types";
 
-/** Frames kept per decoder kind, oldest dropped first. Far more than any view renders, and it
- * bounds the store to a few MB even with every decoder running at once. */
 export const RING_CAPACITY = 2000;
 
-/** Stations retained per decoder kind. `ageOut` is the intended bound, but only the views that
- * show a target table drive it — a POCSAG-only session would otherwise accumulate one entry per
- * distinct pager address for as long as the tab is open. This is the backstop: least recently
- * seen goes first, which is also the one a table would have shown last. */
 export const STATION_CAPACITY = 1000;
 
-/** Frames are staged on arrival and published to the store at most this often, so the re-render
- * rate every subscribed component sees is 10 Hz regardless of the decoder's frame rate. */
 export const FLUSH_MS = 100;
 
-/** The latest picture of one emitter, accumulated across frames. */
 export interface Station {
   kind: DecoderKind;
-  /** Emitter identity within the decoder: ICAO address, MMSI, source callsign, pager RIC. */
   id: string;
-  /** Fields merged forward: ADS-B splits identity, callsign, altitude and position across
-   * different frame types, so a target's row must accumulate rather than replace. */
   event: DecoderEvent;
-  /** ms since the epoch, from the record's server-stamped `at`. */
   lastSeen: number;
   freqHz: number;
   deviceSet: number;
   channel: number;
-  /** Frames merged into this row — a target seen once is not a target being tracked. */
   frames: number;
 }
 
@@ -52,37 +38,16 @@ export interface DecodedState {
   stations: StationsByKind;
   lost: number;
   received: number;
-  /** Stages a frame. Nothing renders until the next flush (at most `FLUSH_MS` later). */
   push: (record: DecodedRecord) => void;
-  /** Rebuilds the station picture from what the server heard before this client connected
-   * (`ServerEvent::DecodedBacklog`), so a reload does not start with an empty map.
-   *
-   * Stations only — these records are already in the stored decoder log, and staging them as
-   * frames too would show every one of them twice in a log panel that renders the stored page
-   * with a live tail on top.
-   *
-   * A reconnect re-merges a backlog into stations that survived the disconnect, so `frames`
-   * counts a handful of records twice per reconnect. Left alone: it reads as "seen once vs.
-   * being tracked", and a target the server still remembers is exactly one being tracked. */
   hydrate: (records: readonly DecodedRecord[]) => void;
   reportLost: (count: number) => void;
   observe: (event: ServerEvent) => void;
-  /** Publishes staged frames immediately. Called by the flush timer; exposed so a caller that
-   * must see a frame synchronously (tests, a panel closing a view) can force it. */
   flush: () => void;
-  /** Drops stations unseen for longer than `maxAgeMs`. The UI decides the horizon — an aircraft
-   * out of range stops transmitting, it does not announce that it is gone. */
   ageOut: (maxAgeMs: number, nowMs?: number) => void;
-  /** Drops staged and published frames matching `match`, and returns how many went. Clearing the
-   * stored decoder log has to take the tail with it, or the rows the server just deleted keep
-   * rendering out of this ring until they age out. Stations are left standing: they are a picture
-   * of what is on the air, not log rows. */
   dropFrames: (match: (record: DecodedRecord) => boolean) => number;
   clear: () => void;
 }
 
-// Staging lives outside the store on purpose: writing it through `set` would publish — and
-// re-render — on every single frame, which is exactly what the flush interval exists to avoid.
 const pending: DecodedRecord[] = [];
 const stationIndex = new Map<DecoderKind, Map<string, Station>>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -152,7 +117,6 @@ export const useDecodedStore = create<DecodedState>((set) => ({
       }
     }
     if (expired.length === 0) {
-      // No write, so a periodic age-out tick costs nothing while every target is fresh.
       return;
     }
     set((state) => {
@@ -198,8 +162,6 @@ export const useDecodedStore = create<DecodedState>((set) => ({
 }));
 
 export function useDecodedKind<K extends DecoderKind>(kind: K): readonly DecodedRecordOf<K>[] {
-  // Per-kind slices keep their array identity when other decoders produce frames, so a panel
-  // re-renders only for the decoder it draws.
   return useDecodedStore((state) => state.frames[kind] ?? NO_FRAMES);
 }
 
@@ -229,8 +191,6 @@ function publish(): void {
     const frames = { ...state.frames };
     const stations = { ...state.stations };
     for (const [kind, added] of byKind) {
-      // Newest first, mirroring `GET /api/decoderlog`, so a panel renders the live tail and the
-      // stored history with the same code. `added` is ours to reverse in place.
       added.reverse();
       const next = added.concat(state.frames[kind] ?? NO_FRAMES);
       if (next.length > RING_CAPACITY) {
@@ -252,7 +212,6 @@ function cancelFlush(): void {
   }
 }
 
-/** Whether the record belonged to a tracked station and was merged into it. */
 function mergeStation(record: DecodedRecord): boolean {
   const id = stationId(record.event);
   if (id === null) {
@@ -265,8 +224,6 @@ function mergeStation(record: DecodedRecord): boolean {
     stationIndex.set(kind, stations);
   }
   const previous = stations.get(id);
-  // Re-setting an existing key keeps its insertion position, so rows do not jump around a table
-  // as frames arrive; ordering is the view's business.
   stations.set(id, {
     kind,
     id,
@@ -281,9 +238,6 @@ function mergeStation(record: DecodedRecord): boolean {
   return true;
 }
 
-/** Drop least-recently-seen stations down to [`STATION_CAPACITY`]. Insertion order is not
- * recency (a re-set key keeps its position, deliberately, so table rows do not jump), so the
- * victim is chosen by `lastSeen`. */
 function evictOldest(stations: Map<string, Station>): void {
   if (stations.size <= STATION_CAPACITY) {
     return;
@@ -294,8 +248,6 @@ function evictOldest(stations: Map<string, Station>): void {
   }
 }
 
-/** `null` for decoders whose output is a stream of independent messages rather than a target
- * being tracked. */
 function stationId(event: DecoderEvent): string | null {
   switch (event.kind) {
     case "adsb":
@@ -308,10 +260,6 @@ function stationId(event: DecoderEvent): string | null {
       return String(event.data.address);
     case "rds":
       return event.data.pi ?? null;
-    // Message-shaped decoders name an emitter in the log, but they do not *accumulate* into a
-    // picture of it the way a tracked target does — each NAVTEX broadcast, ACARS block and
-    // sub-GHz burst stands alone, and merging them forward would splice unrelated messages
-    // into one row. They render as lists of frames instead.
     case "navtex":
     case "acars":
     case "subghz":
@@ -323,14 +271,8 @@ function stationId(event: DecoderEvent): string | null {
     case "ft8":
     case "ft4":
     case "wspr":
-    // Subaudible signalling describes the channel, not a station on it — the transmitter it
-    // belongs to is whoever is keying up right now, and nothing in the event names them.
     case "tone":
-    // A digital-voice frame is an event in a call — a start, an end, a signalling block — and
-    // merging them forward would blur two calls from the same radio into one row.
     case "dv":
-    // An identification describes one observation window of whatever is on the frequency; the
-    // transmitter it belongs to is what the report is trying to work out.
     case "ident":
     case "broadcast":
     case "radio_clock":
@@ -339,8 +281,6 @@ function stationId(event: DecoderEvent): string | null {
   }
 }
 
-/** A frame that does not carry a field must not erase what an earlier frame established — an
- * ADS-B position frame has no callsign — so absent and null both mean "unchanged", not "gone". */
 function mergeForward(previous: DecoderEvent, next: DecoderEvent): DecoderEvent {
   const data: Record<string, unknown> = { ...previous.data };
   for (const [key, value] of Object.entries(next.data)) {
@@ -351,7 +291,6 @@ function mergeForward(previous: DecoderEvent, next: DecoderEvent): DecoderEvent 
   return { kind: next.kind, data } as DecoderEvent;
 }
 
-/** A record whose timestamp the server could not stamp must not be born already stale. */
 function recordTime(record: DecodedRecord): number {
   const at = Date.parse(record.at);
   return Number.isNaN(at) ? Date.now() : at;
@@ -362,9 +301,6 @@ function snapshotStations(kind: DecoderKind): readonly Station[] {
   return stations === undefined ? NO_STATIONS : [...stations.values()];
 }
 
-// Keying by a runtime `kind` erases the kind-to-payload correlation TypeScript tracks in
-// `FramesByKind`/`StationsByKind`. Every write funnels through these two, and the values always
-// come from a record of that same kind, so the invariant holds where it cannot be expressed.
 function assignFrames(target: FramesByKind, kind: DecoderKind, value: readonly DecodedRecord[]) {
   (target as Record<string, readonly DecodedRecord[]>)[kind] = value;
 }

@@ -1,22 +1,14 @@
-//! `cargo xtask icons` — every icon this repo ships, rendered from `assets/icon.svg`.
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use resvg::{tiny_skia, usvg};
 
-/// The mark, at the size the SVG declares.
 const SOURCE: &str = "assets/icon.svg";
 
-/// Windows shells pick the nearest entry and scale; giving them 24 and 48 keeps the taskbar
-/// and the medium-icons view off a downscale of 256.
 const ICO_SIZES: &[u32] = &[16, 24, 32, 48, 64, 128, 256];
 
-/// A browser only ever asks `/favicon.ico` for the tab and the bookmark bar. Modern ones take
-/// the SVG instead — this is the legacy path, and it does not need to be complete.
 const FAVICON_SIZES: &[u32] = &[16, 32, 48];
 
-/// `.icns` chunk types that carry a PNG payload, with the pixel size each one means.
-/// The `@2x` types (`ic11`–`ic14`) are what a Retina Dock actually draws.
 const ICNS_ENTRIES: &[(&[u8; 4], u32)] = &[
     (b"ic11", 32),
     (b"ic12", 64),
@@ -28,21 +20,14 @@ const ICNS_ENTRIES: &[(&[u8; 4], u32)] = &[
     (b"ic10", 1024),
 ];
 
-/// macOS icons are drawn inside a fixed grid: a rounded rect 824 units wide on a 1024 canvas,
-/// the rest transparent margin. Baked in here because `.icns` carries no such convention —
-/// full-bleed art is simply drawn too large in the Dock, next to every native app.
-/// Windows and Linux want the opposite, so only the `.icns` renders are inset.
 const MACOS_SCALE: f32 = 824.0 / 1024.0;
 
-/// Render every icon in the repo. Paths are relative to the workspace root.
 pub fn icons(root: &Path) -> Result<()> {
     let source = root.join(SOURCE);
     let svg = std::fs::read(&source).with_context(|| format!("read {}", source.display()))?;
     let tree = usvg::Tree::from_data(&svg, &usvg::Options::default())
         .with_context(|| format!("parse {}", source.display()))?;
 
-    // Vite serves `web/public` and mdBook serves `docs/src`, so both need the file itself —
-    // copying it is what keeps either copy from becoming a second drawing.
     let copies = [
         root.join("web/public/icon.svg"),
         root.join("docs/src/icon.svg"),
@@ -75,8 +60,6 @@ pub fn icons(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Rasterise the mark into a square of `size` pixels, the drawing scaled to `fill` of it and
-/// centred in whatever margin that leaves.
 fn raster(tree: &usvg::Tree, size: u32, fill: f32) -> Result<tiny_skia::Pixmap> {
     let mut pixmap = tiny_skia::Pixmap::new(size, size).context("allocate pixmap")?;
     #[expect(
@@ -99,13 +82,6 @@ fn render(tree: &usvg::Tree, size: u32, fill: f32) -> Result<Vec<u8>> {
     raster(tree, size, fill)?.encode_png().context("encode PNG")
 }
 
-/// A Windows `.ico`: a 6-byte header, one 16-byte directory entry per size, then the images.
-///
-/// The mixed encoding below is not a preference. Windows itself reads PNG entries at any size,
-/// but this file is also parsed by the *resource compiler* when `tauri-build` embeds it into
-/// the exe, and that toolchain is only dependable on PNG at 256 — the split every icon writer
-/// in the field uses, including the one `tauri icon` ships. Getting it wrong fails on release
-/// day, on the one platform this repo's CI cannot open the artifact from.
 fn ico(tree: &usvg::Tree, sizes: &[u32]) -> Result<Vec<u8>> {
     const PNG_FROM: u32 = 256;
     let images = sizes
@@ -120,22 +96,21 @@ fn ico(tree: &usvg::Tree, sizes: &[u32]) -> Result<Vec<u8>> {
         .collect::<Result<Vec<_>>>()?;
 
     let mut out = Vec::new();
-    out.extend_from_slice(&0u16.to_le_bytes()); // reserved
-    out.extend_from_slice(&1u16.to_le_bytes()); // 1 = icon, 2 = cursor
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
     out.extend_from_slice(&u16::try_from(images.len())?.to_le_bytes());
 
     const HEADER: usize = 6;
     const ENTRY: usize = 16;
     let mut offset = HEADER + ENTRY * images.len();
     for (&size, image) in sizes.iter().zip(&images) {
-        // 256 is written as 0: the field is one byte and the format predates the size.
         let dim = u8::try_from(size % 256).context("ico entry larger than 256px")?;
         out.push(dim);
         out.push(dim);
-        out.push(0); // palette size — 0 for direct colour
-        out.push(0); // reserved
-        out.extend_from_slice(&1u16.to_le_bytes()); // colour planes
-        out.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+        out.push(0);
+        out.push(0);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&32u16.to_le_bytes());
         out.extend_from_slice(&u32::try_from(image.len())?.to_le_bytes());
         out.extend_from_slice(&u32::try_from(offset)?.to_le_bytes());
         offset += image.len();
@@ -146,23 +121,17 @@ fn ico(tree: &usvg::Tree, sizes: &[u32]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// One `.ico` entry as a bottom-up 32-bit DIB: a `BITMAPINFOHEADER`, BGRA rows, then the 1-bit
-/// AND mask the format still requires. Windows has honoured the alpha channel over that mask
-/// since Vista, so it is written all-zero — every pixel "opaque", alpha decides.
-///
-/// The header lies about the height on purpose: it declares image + mask, which is how a
-/// reader finds the mask without being told where it starts.
 fn dib(pixmap: &tiny_skia::Pixmap) -> Vec<u8> {
     let (width, height) = (pixmap.width(), pixmap.height());
     let mut out = Vec::new();
-    out.extend_from_slice(&40u32.to_le_bytes()); // BITMAPINFOHEADER size
+    out.extend_from_slice(&40u32.to_le_bytes());
     out.extend_from_slice(&width.to_le_bytes());
     out.extend_from_slice(&(height * 2).to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // planes
-    out.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
-    out.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB, uncompressed
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
     out.extend_from_slice(&(width * height * 4).to_le_bytes());
-    out.extend_from_slice(&[0; 16]); // pixels/metre and palette counts, all unused here
+    out.extend_from_slice(&[0; 16]);
 
     let (width, height) = (width as usize, height as usize);
     let pixels = pixmap.pixels();
@@ -179,8 +148,6 @@ fn dib(pixmap: &tiny_skia::Pixmap) -> Vec<u8> {
     out
 }
 
-/// An Apple `.icns`: the `icns` magic, the total length, then one length-prefixed chunk per
-/// icon type. Both lengths are big-endian and count their own 8-byte header.
 fn icns(tree: &usvg::Tree) -> Result<Vec<u8>> {
     let mut body = Vec::new();
     for &(kind, size) in ICNS_ENTRIES {
@@ -205,9 +172,6 @@ fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Every icon reader in the wild is somebody else's code, and a container this file gets wrong
-/// fails at install time on a platform CI cannot open. Assert the two tables against the
-/// format instead.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,8 +277,6 @@ mod tests {
 
     #[test]
     fn macos_renders_keep_apple_s_margin() {
-        // The inset is the whole reason `.icns` is rendered separately: transparent edges,
-        // opaque middle. A full-bleed render would make both of these opaque.
         let png = render(&tree(), 64, MACOS_SCALE).expect("render");
         let pixmap = tiny_skia::Pixmap::decode_png(&png).expect("decode");
         assert_eq!(pixmap.pixel(0, 32).expect("left edge").alpha(), 0);

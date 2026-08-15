@@ -13,8 +13,6 @@ import {
   vswr,
 } from "./nanovna";
 
-/** Every quantity one frequency of a sweep carries, derived once so the marker table, the
- * charts and the exports all read the same numbers. */
 export interface PointReadout {
   index: number;
   frequencyHz: number;
@@ -67,8 +65,6 @@ export function readouts(points: readonly NanoVnaPoint[]): PointReadout[] {
   });
 }
 
-/** A contiguous run either side of a reference point that stays within a limit. `truncated`
- * says the run reached the edge of the sweep, so the real band is wider than the numbers. */
 export interface Band {
   startHz: number;
   stopHz: number;
@@ -90,10 +86,8 @@ export interface SweepAnalysis {
   transmitting: boolean;
 }
 
-/** How far below the peak the transmission band is measured — the half-power points. */
 const HALF_POWER_DB = 3;
 
-/** Below this the S21 path is reading noise, not a signal, and a "peak" in it means nothing. */
 const S21_NOISE_FLOOR_DB = -70;
 
 const VSWR_LIMITS = [1.5, 2, 3];
@@ -200,8 +194,6 @@ export function bandSpan(
   };
 }
 
-/** Where the trace crosses the limit between two measured points, read off the straight line
- * between them — the band edge almost never lands on a sample. */
 function crossing(
   frequencies: readonly number[],
   values: readonly number[],

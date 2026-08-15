@@ -69,7 +69,6 @@ describe("recordingElapsedS", () => {
 
   it("freezes at the captured duration once the recording faulted", () => {
     const faulted = { ...status, error: "recording queue overflow" };
-    // 2.4M samples at 2.4 MS/s = 1 s captured, no matter how far the wall clock has run on.
     expect(recordingElapsedS(faulted, startMs + 120_000, rate)).toBe(1);
     expect(recordingElapsedS(faulted, startMs + 240_000, rate)).toBe(1);
     expect(recordingElapsedS(faulted, startMs + 120_000, 0)).toBe(0);

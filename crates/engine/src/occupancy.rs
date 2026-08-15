@@ -1,41 +1,19 @@
-//! Band-occupancy analytics: how much of the time each slice of spectrum is actually in use.
-//!
-//! Fed from the same spectrum snapshots the waterfall is drawn from, so it costs no extra DSP. A
-//! bin counts as occupied when it stands far enough above that frame's own noise floor — the
-//! floor is measured per frame rather than configured, because it moves with the gain, the
-//! antenna and the band.
-//!
-//! Accumulated against *absolute* frequency, not against the display span: the radio retunes, a
-//! scanner retunes constantly, and the question this answers — "when is this frequency busy" —
-//! outlives any one tuning.
-//!
-//! The hour-of-day histogram is the point of the whole thing. A single duty-cycle number says a
-//! repeater is used 8% of the time; the histogram says it is used at seven in the morning.
-
 use std::collections::HashMap;
 
 use sdrmm_wire::{OccupancyBucket, OccupancyReport};
 
-/// Width of one frequency bucket. 12.5 kHz is the narrowest channel spacing in common use, so a
-/// bucket holds at most one channel and never straddles two.
 pub const BUCKET_HZ: u64 = 12_500;
 
-/// How far above the frame's noise floor a bin must sit to count as occupied. Wide enough that
-/// floor wander does not register as traffic, narrow enough to catch a weak signal.
 pub const OCCUPIED_MARGIN_DB: f32 = 10.0;
 
-/// Frequency buckets kept. A day of scanning a busy band reaches a few thousand; past this the
-/// least recently seen are dropped, so an unattended server cannot grow without bound.
 pub const MAX_BUCKETS: usize = 8192;
 
 const HOURS: usize = 24;
 
 #[derive(Clone, Debug, Default)]
 struct Bucket {
-    /// Observations, and how many of them were occupied, per hour of the day (UTC).
     seen: [u64; HOURS],
     occupied: [u64; HOURS],
-    /// Milliseconds since the epoch, for the retention sweep and the report.
     last_seen_ms: i64,
 }
 
@@ -45,11 +23,9 @@ impl Bucket {
     }
 }
 
-/// Rolling occupancy statistics, keyed by frequency bucket.
 #[derive(Debug, Default)]
 pub struct Occupancy {
     buckets: HashMap<u64, Bucket>,
-    /// When the accumulator started collecting, for the report's `since`.
     started_ms: Option<i64>,
 }
 
@@ -59,11 +35,6 @@ impl Occupancy {
         Self::default()
     }
 
-    /// Fold one spectrum frame in.
-    ///
-    /// `db` is DC-centred, so bin `i` sits at `center_hz + (i - n/2) · span/n`. `now_ms` is the
-    /// wall clock the observation is filed under — passed in rather than read here so the whole
-    /// accumulator stays testable without a clock.
     pub fn observe(&mut self, db: &[f32], center_hz: f64, span_hz: f32, now_ms: i64) {
         let n = db.len();
         if n == 0 || !span_hz.is_finite() || span_hz <= 0.0 || !center_hz.is_finite() {
@@ -78,9 +49,6 @@ impl Occupancy {
         let bin_hz = f64::from(span_hz) / n as f64;
         let first_hz = center_hz - f64::from(span_hz) / 2.0;
 
-        // One pass over the bins, folding each into its bucket. Several bins share a bucket at any
-        // sane span, so the bucket is occupied if *any* of them is: a narrow carrier does not stop
-        // being traffic because the bucket around it is quiet.
         let mut current: Option<(u64, bool)> = None;
         for (i, &level) in db.iter().enumerate() {
             if !level.is_finite() {
@@ -117,8 +85,6 @@ impl Occupancy {
         bucket.last_seen_ms = now_ms;
     }
 
-    /// Drop the least recently seen buckets once the cap is passed. Batched — evicting one per
-    /// insertion would scan the whole map on every frame of a scan.
     fn evict(&mut self) {
         if self.buckets.len() <= MAX_BUCKETS {
             return;
@@ -134,10 +100,6 @@ impl Occupancy {
         }
     }
 
-    /// What has been seen, busiest first.
-    ///
-    /// `min_samples` drops buckets too thinly observed to mean anything — a scanner that swept
-    /// past a frequency twice has not measured its duty cycle.
     #[must_use]
     pub fn report(&self, min_samples: u64) -> OccupancyReport {
         let mut buckets: Vec<OccupancyBucket> = self
@@ -195,9 +157,6 @@ impl Occupancy {
     }
 }
 
-/// The frame's noise floor: the level a quarter of its bins sit below. The same shape of estimate
-/// the display's own dB window uses, and for the same reason — a mean would be dragged upward by
-/// the very carriers being detected.
 fn noise_floor(db: &[f32]) -> Option<f32> {
     let mut finite: Vec<f32> = db.iter().copied().filter(|v| v.is_finite()).collect();
     let last = finite.len().checked_sub(1)?;
@@ -221,7 +180,6 @@ fn stamp(now_ms: i64) -> String {
 mod tests {
     use super::*;
 
-    /// A flat noise floor with a carrier planted in one bin.
     fn frame(n: usize, carrier: Option<usize>) -> Vec<f32> {
         let mut db = vec![-100.0f32; n];
         if let Some(at) = carrier {
@@ -235,14 +193,12 @@ mod tests {
     #[test]
     fn a_carrier_reads_as_occupied_and_the_noise_around_it_does_not() {
         let mut occupancy = Occupancy::new();
-        // 128 bins over 1.6 MHz centred on 100 MHz: 12.5 kHz per bin, one bin per bucket.
         occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
 
         let report = occupancy.report(1);
         let busy: Vec<&OccupancyBucket> = report.buckets.iter().filter(|b| b.duty > 0.0).collect();
         assert_eq!(busy.len(), 1, "more than the carrier read as occupied");
         assert_eq!(busy[0].duty, 1.0);
-        // Bin 64 of 128 is the centre bin, which starts at the centre frequency.
         assert!(
             (busy[0].freq_hz as f64 - 100e6).abs() <= BUCKET_HZ as f64,
             "carrier filed at {} Hz",
@@ -266,8 +222,6 @@ mod tests {
         assert_eq!(carrier.samples, 10);
     }
 
-    /// The reason the histogram exists: a frequency busy only in the morning must read as busy
-    /// only in the morning, not as uniformly quiet.
     #[test]
     fn the_hour_histogram_separates_a_busy_hour_from_a_quiet_one() {
         let mut occupancy = Occupancy::new();
@@ -287,9 +241,7 @@ mod tests {
         assert_eq!(carrier.by_hour.len(), 24);
         assert_eq!(carrier.by_hour[7], 1.0);
         assert_eq!(carrier.by_hour[3], 0.0);
-        // An hour never observed reads zero rather than as a hole.
         assert_eq!(carrier.by_hour[12], 0.0);
-        // And the overall figure is the average of the two, not either one.
         assert!((carrier.duty - 0.5).abs() < 1e-6);
     }
 
@@ -297,7 +249,6 @@ mod tests {
     fn retuning_files_observations_under_absolute_frequency() {
         let mut occupancy = Occupancy::new();
         occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
-        // The radio moves; the same carrier is now at a different *bin*, same frequency.
         occupancy.observe(&frame(128, Some(32)), 100.4e6, 1.6e6, 0);
 
         let report = occupancy.report(1);
@@ -318,7 +269,6 @@ mod tests {
     fn the_report_leads_with_the_busiest() {
         let mut occupancy = Occupancy::new();
         for i in 0..10 {
-            // One carrier always on, another on a third of the time.
             occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
             occupancy.observe(&frame(128, (i < 3).then_some(96)), 100e6, 1.6e6, 0);
         }
@@ -347,11 +297,9 @@ mod tests {
         assert!(occupancy.report(1).since.is_empty());
     }
 
-    /// An unattended server sweeping for days must not grow without bound.
     #[test]
     fn the_oldest_buckets_are_dropped_once_the_cap_is_passed() {
         let mut occupancy = Occupancy::new();
-        // Each frame is a fresh megahertz, so every one brings new buckets.
         for step in 0..(MAX_BUCKETS / 64 + 40) {
             let center = 100e6 + step as f64 * 800e3;
             occupancy.observe(&frame(64, None), center, 800e3, step as i64 * 1000);
@@ -361,7 +309,6 @@ mod tests {
             "grew to {} buckets",
             occupancy.len()
         );
-        // And what survived is the recent end, not an arbitrary slice.
         let report = occupancy.report(1);
         let highest = report.buckets.iter().map(|b| b.freq_hz).max().unwrap_or(0);
         assert!(
@@ -375,8 +322,6 @@ mod tests {
         assert_eq!(hour_of_day(0), 0);
         assert_eq!(hour_of_day(7 * HOUR_MS), 7);
         assert_eq!(hour_of_day(25 * HOUR_MS), 1);
-        // Before the epoch is not a real timestamp here, but it must not panic or index out of
-        // range if a clock ever hands one over.
         assert!(hour_of_day(-HOUR_MS) < 24);
     }
 }

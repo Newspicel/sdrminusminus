@@ -5,8 +5,6 @@ use std::{
 
 use sdrmm_wire::NanoVnaComplex;
 
-/// Long enough for a 401-point segment at the narrowest IF bandwidth, which is the slowest
-/// single command the instrument answers.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const PROMPT: &[u8] = b"ch>";
@@ -15,9 +13,6 @@ pub trait Connection: Read + Write + Send {}
 
 impl<T: Read + Write + Send> Connection for T {}
 
-/// A line-oriented conversation with the instrument's shell. The device echoes the command,
-/// answers, and prints `ch>`; nothing else delimits a response, so the prompt is the frame and
-/// whatever follows it belongs to the next command.
 pub struct Session<'a> {
     connection: &'a mut dyn Connection,
     pending: Vec<u8>,
@@ -79,8 +74,6 @@ impl<'a> Session<'a> {
             .collect())
     }
 
-    /// A command whose only correct answer is silence. Anything the device prints back is its
-    /// way of refusing, so it is surfaced instead of being read past.
     pub fn silent(&mut self, request: &str) -> Result<(), String> {
         let response = self.command(request)?;
         if response.is_empty() {
@@ -93,9 +86,6 @@ impl<'a> Session<'a> {
     }
 }
 
-/// The value a settings command reports for itself. Firmware answers either bare (`edelay`) or
-/// as a usage line followed by `current: N`, and one build's missing command must leave the
-/// field empty rather than fail the whole read.
 pub fn reported_value(lines: &[String]) -> Option<&str> {
     if let Some(current) = lines
         .iter()
@@ -110,8 +100,6 @@ pub fn reported_value(lines: &[String]) -> Option<&str> {
         .map(String::as_str)
 }
 
-/// The first run of digits in a line, for answers that carry their unit inline (`4177 mV`,
-/// `bandwidth 3 (1000Hz)`).
 pub fn first_number(text: &str) -> Option<u64> {
     let start = text.find(|character: char| character.is_ascii_digit())?;
     let rest = &text[start..];

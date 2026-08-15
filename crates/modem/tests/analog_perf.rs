@@ -20,18 +20,12 @@ use sdrmm_modem::{
     },
 };
 
-/// This test binary's allocation counter — `#[global_allocator]` binds per binary, so the library
-/// cannot install it on anyone's behalf (see `ber::perf`).
 #[global_allocator]
 static ALLOC: CountingAlloc = CountingAlloc::new();
 
-/// Samples one bench call consumes. A tenth of a second of voice audio: long enough that the
-/// per-call setup disappears into the measurement, short enough to iterate.
 const BLOCK: usize = 4_096;
 const TONE_HZ: f64 = 1_000.0;
 
-/// Filter length the deployed rows are benched at — what `channels`'s analog modes configure,
-/// and what a real-time factor is therefore a claim about.
 const CHANNEL_TAPS: usize = 129;
 
 const AM_STEM: &str = "analog/analog_perf";
@@ -83,7 +77,6 @@ fn angle_waveform(params: &AngleParams, rate_hz: f64) -> Vec<Complex<f32>> {
     out
 }
 
-/// Runs `demod` twice to reach steady-state buffer capacity, then measures it.
 fn throughput(iters: u64, wave: &[Complex<f32>], mut demod: impl FnMut(&[Complex<f32>])) -> f64 {
     demod(wave);
     demod(wave);
@@ -216,7 +209,6 @@ fn the_am_envelope_path_allocates_nothing() {
     assert_eq!(sink.len(), wave.len());
 }
 
-/// And the synchronous one, whose carrier loop is the state an allocation would hide behind.
 #[test]
 fn the_am_synchronous_path_allocates_nothing() {
     let params = voice_am(AmMode::Suppressed);
@@ -234,8 +226,6 @@ fn the_am_synchronous_path_allocates_nothing() {
     assert!(demod.lock() > 0.0);
 }
 
-/// Both sideband detectors, since they are different code paths: one filter, or two mixers
-/// around a lowpass.
 #[test]
 fn both_sideband_detectors_allocate_nothing() {
     let params = voice_ssb();
@@ -250,7 +240,6 @@ fn both_sideband_detectors_allocate_nothing() {
     }
 }
 
-/// Both angle detectors, at both kinds — four paths, because the reader is chosen by the pair.
 #[test]
 fn every_angle_path_allocates_nothing() {
     let kinds = [
@@ -279,7 +268,6 @@ fn every_angle_path_allocates_nothing() {
     }
 }
 
-/// The transmitters too: `tx.rs` drives them from the same hot path a receiver runs on.
 #[test]
 fn the_modulators_allocate_nothing() {
     let audio = voice_audio();
@@ -359,14 +347,6 @@ fn compare_analog_perf_baseline() {
     }
 }
 
-/// Every *deployed* analog receiver must clear its own rate by a wide margin, or a channel could
-/// not run several of them at once — which is what the repo actually does. Asserted in release
-/// only: a debug build measures the profile, not the engine.
-///
-/// The acceptance row is held to its own floor and the reason is that it is not a deployment: it
-/// runs the SINAD curves' 1023-tap filters, which the reference host clears by about 10% of the
-/// deployed floor. Holding it to the same number would make a slower CI host report a machine as
-/// a regression, and the committed baseline is what actually watches this row for drift.
 #[test]
 fn every_analog_receiver_clears_real_time() {
     if cfg!(debug_assertions) {

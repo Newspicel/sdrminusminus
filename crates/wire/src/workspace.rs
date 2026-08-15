@@ -7,21 +7,12 @@ pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
 
 pub const MAX_NAME_LEN: usize = 64;
 
-/// Vertical gap between an existing workspace and a patch merged under it, in canvas units.
 const MERGE_GAP: f32 = 120.0;
 
-/// Height to assume for a node that has never been resized. `size` is `None` until the operator
-/// drags a corner, so without this the merge offset would measure to the *top* of the lowest node
-/// and drop the new block on top of it. A face is as tall as its instrument now
-/// (`web/src/canvas/graph.ts`, `NODE_SIZE`), so this is a generous stand-in for the tallest of
-/// them — erring high only opens a gap, erring low overlaps two workspaces.
 const NATURAL_NODE_H: f32 = 380.0;
 
-/// The stored body of a workspace (: one JSON snapshot per row, like presets — written
-/// atomically, read whole, never queried by inner field).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceSnapshot {
-    /// [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
     pub version: u32,
     pub graph: PatchGraph,
     #[serde(default)]
@@ -30,14 +21,10 @@ pub struct WorkspaceSnapshot {
     pub settings: WorkspaceSettings,
 }
 
-/// Bound on a band region id, which is a slug the server hands out (`itu1`, `us`, …) and the
-/// client hands back. Long enough for any of them, short enough that a corrupt snapshot cannot
-/// carry a document in this field.
 pub const MAX_REGION_ID_LEN: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceSettings {
-    /// [`crate::BandRegion::id`], or `None` to follow the server's default for this install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub band_region: Option<String>,
     #[serde(default = "default_band_ruler")]
@@ -92,7 +79,6 @@ impl From<PatchError> for WorkspaceError {
 }
 
 impl WorkspaceSnapshot {
-    /// A snapshot holding `graph` and `rack` at this build's version, with default settings.
     #[must_use]
     pub fn new(graph: PatchGraph, rack: RackLayout) -> Self {
         Self {
@@ -103,9 +89,6 @@ impl WorkspaceSnapshot {
         }
     }
 
-    /// Structural bounds a stored workspace must satisfy. Client-built graphs come from a canvas
-    /// the same rules already policed at drag time, so a malformed one is a client bug or a
-    /// corrupt row — either way it is refused at the API edge rather than half-applied.
     pub fn validate(&self) -> Result<(), WorkspaceError> {
         if self.version != WORKSPACE_SNAPSHOT_VERSION {
             return Err(WorkspaceError::Version(self.version));
@@ -120,18 +103,11 @@ impl WorkspaceSnapshot {
         Ok(())
     }
 
-    /// A workspace with nothing on it. What `POST /api/workspaces` creates unless the caller
-    /// sends a snapshot: a new workspace is a clean bench, and an operator who wanted a device
-    /// and a scope on it would rather draw them than delete someone else's guess.
     #[must_use]
     pub fn empty() -> Self {
         Self::new(PatchGraph::default(), RackLayout::default())
     }
 
-    /// The workspace a fresh install opens on: one empty device node feeding a scope, with a
-    /// speaker waiting for a channel. Empty rather than pre-populated because the device node
-    /// *is* the "open a radio" invitation — picking a device in it is the first gesture. Only the
-    /// seeded first workspace starts here; every later one starts [`empty`](Self::empty).
     #[must_use]
     pub fn starter() -> Self {
         let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
@@ -241,15 +217,6 @@ impl WorkspaceSnapshot {
         }
     }
 
-    /// Drop every node this prefix owns, and everything that referenced them.
-    ///
-    /// One exception: a *device* node this prefix created may since have become the radio
-    /// another template's channels hang off, and taking it away would unwire them. It is kept,
-    /// and the merge that follows finds it again by its [`DeviceRef`] — so the re-applied
-    /// template wires into the same box instead of drawing a second one for one antenna.
-    ///
-    /// Returns where the prefix's first node was, so the caller can put its replacement back
-    /// there.
     fn remove_prefixed(&mut self, prefix: &str) -> Option<usize> {
         let shared: Vec<String> = self
             .graph
@@ -274,8 +241,6 @@ impl WorkspaceSnapshot {
         at
     }
 
-    /// Where a merged block starts: under everything already drawn, so a template never lands on
-    /// top of the workspace it is being added to.
     fn merge_offset(&self) -> f32 {
         self.graph
             .nodes
@@ -287,44 +252,29 @@ impl WorkspaceSnapshot {
     }
 }
 
-/// `GET /api/workspaces` list entry — the projection a switcher needs, without the workspace.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceInfo {
     pub id: i64,
     pub name: String,
-    /// RFC3339 UTC.
     pub created_at: String,
-    /// RFC3339 UTC.
     pub updated_at: String,
-    /// Bumped on every stored change. An update carrying a stale revision is refused rather than
-    /// silently overwriting another client's arrangement.
     pub revision: u64,
-    /// Node count, denormalized so the switcher can describe a workspace without parsing its
-    /// graph.
     pub nodes: u32,
 }
 
-/// `GET /api/workspaces`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspacesResponse {
     pub workspaces: Vec<WorkspaceInfo>,
-    /// The active workspace, or `None` when the last one was deleted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active: Option<i64>,
 }
 
-/// What undo and redo can reach right now.
-///
-/// The history belongs to the workspace, not to a browser: every client works on the same
-/// arrangement, so they share the steps that lead back out of it. Undoing in one window is a
-/// change like any other, and the rest see it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceHistory {
     pub can_undo: bool,
     pub can_redo: bool,
 }
 
-/// `GET /api/workspaces/{id}` — the row plus its workspace.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceDetail {
     #[serde(flatten)]
@@ -334,20 +284,15 @@ pub struct WorkspaceDetail {
     pub history: WorkspaceHistory,
 }
 
-/// `POST /api/workspaces`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreateWorkspaceRequest {
     pub name: String,
-    /// Workspace to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a
-    /// clean bench. Only the first workspace a fresh install seeds opens on a starter workspace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<WorkspaceSnapshot>,
 }
 
-/// `PUT /api/workspaces/{id}` — rename, re-patch, or both.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct UpdateWorkspaceRequest {
-    /// The revision the client last saw. A mismatch is a `409`, never a silent overwrite.
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -361,19 +306,10 @@ pub struct PatchBinding {
     pub device_set: u32,
 }
 
-/// `POST /api/workspaces/{id}/apply` — what applying the workspace did.
-///
-/// Apply is additive and idempotent: it opens the radios the graph names and adds the channels it
-/// draws, and never closes or deletes anything. Removing a node is a gesture with its own
-/// endpoint; a reconciler that also deleted would turn "this workspace has fewer nodes" into
-/// "close that operator's radio".
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PatchApplyReport {
-    /// Every device node that now has a running device set.
     pub bound: Vec<PatchBinding>,
-    /// Device sets opened by this call.
     pub opened: u32,
-    /// Channels created by this call.
     pub created: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub absent: Vec<String>,
@@ -381,7 +317,6 @@ pub struct PatchApplyReport {
     pub refused: Vec<PatchRefusal>,
 }
 
-/// One node apply could not satisfy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PatchRefusal {
     pub node: String,
@@ -424,7 +359,6 @@ mod tests {
         }
     }
 
-    /// An airband-style template: a device, two channels and a speaker.
     fn template() -> PatchGraph {
         PatchGraph {
             nodes: vec![
@@ -536,7 +470,6 @@ mod tests {
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         snap.validate().expect("still valid after a merge");
 
-        // The workspace's own device was unbound, so the template drew its own — bound.
         let ids: Vec<&str> = snap.graph.nodes.iter().map(|n| n.id.as_str()).collect();
         assert!(ids.contains(&"template:airband:ch"));
         assert!(ids.contains(&"template:airband:dev"));
@@ -560,14 +493,11 @@ mod tests {
         );
     }
 
-    /// A second template wires into the device the first one drew. Re-applying the first must
-    /// not take that device — and the channels hanging off it — away with its own block.
     #[test]
     fn re_applying_a_template_keeps_a_receiver_another_template_is_using() {
         let mut snap = WorkspaceSnapshot::starter();
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         snap.merge_patch(&template(), "template:marine:", Some(&rtlsdr()));
-        // The second template reused the first's device rather than drawing its own.
         assert!(snap.graph.node("template:marine:dev").is_none());
         assert_eq!(
             snap.graph
@@ -593,8 +523,6 @@ mod tests {
         );
     }
 
-    /// A node that was never resized still occupies space; measuring to its top would drop the
-    /// merged block on top of it.
     #[test]
     fn merge_offset_clears_a_node_that_has_never_been_resized() {
         let mut snap = WorkspaceSnapshot::starter();
@@ -630,8 +558,6 @@ mod tests {
         snap.validate().expect("valid after a re-apply");
     }
 
-    /// One radio, one box: a template applied to a device the workspace already draws wires into
-    /// that node instead of adding a second one for the same hardware.
     #[test]
     fn merging_reuses_a_device_node_that_already_names_the_radio() {
         let mut snap = WorkspaceSnapshot::starter();

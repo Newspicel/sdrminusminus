@@ -1,17 +1,10 @@
-//! `sdrmm-device` — the `DeviceDriver`/`SdrDevice` traits, capability model (re-exported from
-//! `wire`), and the `RxSink` that carries `cf32` from a device thread into the engine's ring.
-//! Backends (SoapySDR, network receivers, and virtual devices) implement
-//! these; nothing here does I/O itself.
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use num_complex::Complex;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, StreamScope};
 
-/// Sample delivered by every backend: interleaved IQ as `Complex<f32>` (: one format
-/// end-to-end, conversion happens at the device edge only).
 pub type Sample = Complex<f32>;
 
-/// Errors a driver or device can raise.
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceError {
     #[error("device not found: {0}")]
@@ -22,32 +15,17 @@ pub enum DeviceError {
     Io(String),
     #[error("device is already streaming")]
     AlreadyStreaming,
-    /// The radio has both directions but cannot run them together (: half duplex).
     #[error("device is {active} and cannot start {requested} until that stops")]
     DuplexConflict {
-        /// The direction holding the radio.
         active: Direction,
-        /// The direction that was refused.
         requested: Direction,
     },
 }
 
-/// Take a lock whose poisoning carries no meaning.
-///
-/// A backend's device mutex is only ever held across control transfers, so a poisoned one holds
-/// no half-written state worth refusing — and refusing would mean losing the radio for the rest
-/// of the session over a panic somewhere else.
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The one sink a single-stream backend takes from [`SdrDevice::rx_start`]'s per-stream list.
-///
-/// # Errors
-/// [`DeviceError::Unsupported`] unless the count is exactly one: a silently dropped extra sink
-/// would strand its stream's consumers waiting on samples that never come, and the engine sizes
-/// the list from the same `rx_streams` the backend advertised, so a mismatch is a bug worth
-/// naming.
 pub fn single_rx_sink(sinks: Vec<RxSink>) -> Result<RxSink, DeviceError> {
     let count = sinks.len();
     match sinks.into_iter().next() {
@@ -58,17 +36,6 @@ pub fn single_rx_sink(sinks: Vec<RxSink>) -> Result<RxSink, DeviceError> {
     }
 }
 
-/// Pre-flight every backend's `apply` runs on the delta's `streams` entries, against the
-/// [`StreamScope`] its capabilities declare.
-///
-/// Shared here rather than left to each backend because the failure it prevents is silent: a
-/// backend that ignored an entry it cannot honour would merge the override into its reported
-/// settings and change nothing — one lane of a coherent array told it retuned while the tuner
-/// never moved. On every single-stream backend the scope is all-false, so any entry is refused.
-///
-/// # Errors
-/// [`DeviceError::Unsupported`] naming the refused entry: a stream the radio does not have, any
-/// entry on a radio that declares nothing per-stream, or a field the scope keeps radio-wide.
 pub fn check_stream_settings(
     settings: &DeviceSettings,
     capabilities: &Capabilities,
@@ -106,13 +73,7 @@ pub fn check_stream_settings(
     Ok(())
 }
 
-/// The engine hands a device an `RxSink`; the device's capture thread pushes blocks of IQ into
-/// it. The closure typically writes into an SPSC ring and counts overruns — devices never see
-/// the ring directly, so this crate stays free of a transport dependency. The push is per
-/// *block*, not per sample, so the indirect call is off the sample-rate hot path.
-/// The per-block delivery closure behind an [`RxSink`].
 type PushFn = Box<dyn FnMut(&[Sample]) + Send>;
-/// The one-shot unrecoverable-error report behind [`RxSink::fail`].
 type FatalFn = Box<dyn FnOnce(DeviceError) + Send>;
 
 pub struct RxSink {
@@ -121,8 +82,6 @@ pub struct RxSink {
 }
 
 impl RxSink {
-    /// Sink without a fatal handler — for tests and simple captures. [`RxSink::fail`] then
-    /// discards the error, so real backends must get the engine-wired sink instead.
     #[must_use]
     pub fn new(push_fn: impl FnMut(&[Sample]) + Send + 'static) -> Self {
         Self {
@@ -131,8 +90,6 @@ impl RxSink {
         }
     }
 
-    /// Sink whose [`RxSink::fail`] reports to `fatal_fn` (the engine's fault channel), so a
-    /// dead capture surfaces as device-set state instead of vanishing with its thread.
     #[must_use]
     pub fn with_fatal_handler(
         push_fn: impl FnMut(&[Sample]) + Send + 'static,
@@ -144,13 +101,10 @@ impl RxSink {
         }
     }
 
-    /// Deliver one block of captured samples downstream.
     pub fn push(&mut self, samples: &[Sample]) {
         (self.push_fn)(samples);
     }
 
-    /// Report an unrecoverable stream error, right before the capture thread exits. Cold path;
-    /// the handler is one-shot, so a second call is a no-op rather than a double report.
     pub fn fail(&mut self, err: DeviceError) {
         if let Some(fatal_fn) = self.fatal_fn.take() {
             fatal_fn(err);
@@ -165,42 +119,16 @@ impl std::fmt::Debug for RxSink {
 }
 
 pub trait DeviceDriver: Send + Sync {
-    /// Stable driver id, such as `"virtual"`, `"soapy"`, `"rtltcp"`, or `"spyserver"`.
     fn id(&self) -> &'static str;
-    /// Enumerate currently-attached devices.
     fn probe(&self) -> Vec<DeviceInfo>;
-    /// Open one device for exclusive use.
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError>;
 
-    /// Adopt a device this driver can address but no probe can find, from its key alone.
-    ///
-    /// A network receiver is named, not discovered: neither rtl_tcp nor SpyServer has a
-    /// discovery protocol, so the only thing that can produce `10.0.0.5:1234` is an operator
-    /// typing it. Everything above this crate still works in probe results — a device set is
-    /// faulted when its device leaves the probe list, and a stored workspace binds by matching
-    /// one — so a driver that adopts a key must also report it from [`DeviceDriver::probe`]
-    /// afterwards, for as long as it is willing to open it.
-    ///
-    /// The key returned in [`DeviceInfo::key`] is the canonical one and may differ from the key
-    /// asked for (a defaulted port, a lowercased host). Callers must use it rather than the one
-    /// they passed, or the id they hold will not be the id the probe reports.
-    ///
-    /// The default refuses everything, which is right for every backend that enumerates real
-    /// hardware: there, a key no probe found names a device that is not attached.
     fn resolve(&self, _key: &str) -> Option<DeviceInfo> {
         None
     }
 }
 
 pub trait TxStream: Send {
-    /// Queue `samples` for transmission, returning how many were accepted.
-    ///
-    /// A short return means `timeout` expired with the queue full; the caller keeps the rest and
-    /// calls again. `end_burst` marks the samples as the end of a burst, so a radio that
-    /// distinguishes "the host finished" from "the host fell behind" can be told which happened.
-    ///
-    /// # Errors
-    /// [`DeviceError::Io`] if the transmit path gave up, or the stream is already stopped.
     fn write(
         &mut self,
         samples: &[Sample],
@@ -210,11 +138,6 @@ pub trait TxStream: Send {
         self.write_channels(&[samples], timeout, end_burst)
     }
 
-    /// Queue one equally-sized sample slice for every channel opened on this stream.
-    ///
-    /// # Errors
-    /// [`DeviceError::Unsupported`] when the channel count or lengths do not match the stream,
-    /// and [`DeviceError::Io`] for transport errors and reported underflows.
     fn write_channels(
         &mut self,
         channels: &[&[Sample]],
@@ -222,53 +145,24 @@ pub trait TxStream: Send {
         end_burst: bool,
     ) -> Result<usize, DeviceError>;
 
-    /// Send everything queued, then stop transmitting. Idempotent.
-    ///
-    /// # Errors
-    /// [`DeviceError::Io`] if the queue could not be drained. The radio stops radiating either
-    /// way — leaving it on the air is never the right outcome.
     fn stop(&mut self) -> Result<(), DeviceError>;
 }
 
 pub trait SdrDevice: Send {
     fn capabilities(&self) -> &Capabilities;
-    /// Currently-applied settings.
     fn settings(&self) -> &DeviceSettings;
-    /// Apply a settings delta (retune, gain, rate…). Absent fields are unchanged.
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError>;
-    /// Begin streaming, pushing captured IQ blocks into `sinks` — one per rx stream, in stream
-    /// order — from the device's own thread(s).
-    ///
-    /// # Errors
-    /// [`DeviceError::Unsupported`] when the sink count is not [`Capabilities::rx_streams`]
-    /// (single-stream backends via [`single_rx_sink`]): dropping an extra sink would strand its
-    /// stream's consumers silently.
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError>;
-    /// Stop streaming and join the capture thread.
     fn rx_stop(&mut self);
 
-    /// Which directions this radio has, and whether it can run them at once.
-    ///
-    /// Read off [`Capabilities::duplex`], which the client already renders from, so the
-    /// arbitration and the picture of the radio cannot disagree — a backend that overrode this
-    /// and forgot its capabilities would refuse a direction the UI had just drawn a port for.
-    /// The capability defaults to receive-only, so a backend that says nothing still cannot
-    /// advertise a transmitter by omission.
     fn duplex(&self) -> Duplex {
         self.capabilities().duplex
     }
 
-    /// Claim the radio for transmit.
-    ///
-    /// # Errors
-    /// [`DeviceError::Unsupported`] on a receive-only radio — the default, so only a backend
-    /// with a transmitter has to think about this — or [`DeviceError::DuplexConflict`] while a
-    /// half-duplex radio is receiving.
     fn tx_start(&mut self) -> Result<Box<dyn TxStream>, DeviceError> {
         self.tx_start_channels(&[0])
     }
 
-    /// Claim and start the named transmit channels without silently substituting channel 0.
     fn tx_start_channels(&mut self, _channels: &[u32]) -> Result<Box<dyn TxStream>, DeviceError> {
         Err(DeviceError::Unsupported(
             "this device does not transmit".to_string(),

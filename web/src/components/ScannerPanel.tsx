@@ -61,7 +61,6 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const stopMut = useMutation({
     mutationFn: stopScan,
     onSuccess: (_status, deviceSet) => {
-      // The pushed status outlives the scan; drop it or the panel keeps showing the last step.
       clearLive(deviceSet);
     },
     onError: (e) => pushToast(e.message),

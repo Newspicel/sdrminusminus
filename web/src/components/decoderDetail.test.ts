@@ -3,7 +3,6 @@ import type { DecoderEvent, DecoderKind } from "../lib/types";
 import { eventDetail } from "./decoderDetail";
 import { DECODER_KINDS } from "./decoderLog";
 
-/** The fields as a lookup, which is how every assertion below wants to read them. */
 function fieldsOf(event: DecoderEvent): Record<string, string> {
   return Object.fromEntries(eventDetail(event).fields);
 }
@@ -304,7 +303,6 @@ describe("eventDetail", () => {
       Repeats: "×6",
     });
     expect(detail.fields.map(([label]) => label)).not.toContain("PT2262 tri-state");
-    // An odd count is a pulse with no gap measured after it, which must not print "undefined".
     expect(detail.body).toBe("320/960  960/320  320");
   });
 

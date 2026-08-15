@@ -3,8 +3,6 @@ use sdrmm_dsp::window::hann;
 
 use super::ook;
 
-/// Longest edge transition, in seconds. Real CW transmitters shape the key line at roughly
-/// this rate to keep the click sidebands inside a few hundred Hz.
 const RISE_S: f64 = 5e-3;
 
 const TABLE: &[(char, &str)] = &[
@@ -69,9 +67,6 @@ fn pattern(ch: char) -> Option<&'static str> {
     TABLE.iter().find(|(c, _)| *c == upper).map(|(_, p)| *p)
 }
 
-/// Ideal on/off keying envelope for `text` at `wpm`: marks at 1.0, gaps at 0.0, with the
-/// standard 1/3/7 dot-unit element, letter and word spacing. Characters outside the table are
-/// skipped. No lead-in or lead-out — callers add their own silence.
 #[must_use]
 pub fn envelope(text: &str, wpm: f32, rate: f64) -> Vec<f32> {
     assert!(wpm > 0.0 && wpm.is_finite(), "wpm must be positive");
@@ -82,8 +77,6 @@ pub fn envelope(text: &str, wpm: f32, rate: f64) -> Vec<f32> {
     let mut t = 0.0f64;
     let mut run = |out: &mut Vec<f32>, units: f64, level: f32| {
         t += units * dot;
-        // Accumulating in time and rounding at each boundary keeps the element grid free of
-        // the drift a per-element `round(units * dot)` would compound.
         out.resize((t.round() as usize).max(out.len()), level);
     };
 
@@ -110,17 +103,12 @@ pub fn envelope(text: &str, wpm: f32, rate: f64) -> Vec<f32> {
     out
 }
 
-/// `text` keyed onto a `tone_hz` carrier as complex baseband IQ, with raised-cosine edges so
-/// the spectrum stays inside a CW filter.
 #[must_use]
 pub fn transmission(text: &str, wpm: f32, tone_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let key = envelope(text, wpm, rate);
     ook(&shape_edges(&key, wpm, rate), tone_hz, rate)
 }
 
-/// Smooth the hard keying envelope with a symmetric raised-cosine kernel. Symmetry matters:
-/// it puts the half-amplitude point exactly on the ideal element boundary, so shaping does
-/// not bias the durations a decoder measures.
 fn shape_edges(key: &[f32], wpm: f32, rate: f64) -> Vec<f32> {
     let dot = 1.2 * rate / f64::from(wpm);
     let taps = ((RISE_S * rate).min(dot / 4.0).round() as usize).max(1) | 1;
@@ -151,7 +139,6 @@ mod tests {
 
     const RATE: f64 = 8_000.0;
     const WPM: f32 = 20.0;
-    /// 20 wpm ⇒ 60 ms dots.
     const DOT: usize = 480;
 
     #[test]

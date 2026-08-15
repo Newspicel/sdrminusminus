@@ -1,6 +1,3 @@
-// The protocol list a DMR trunk face offers and the guidance it prints under it. Kept out of
-// `DmrTrunkFace.tsx` so that file exports only components — a mixed module costs Fast Refresh the
-// component state it would otherwise preserve.
 import type { DmrTrunkProtocol, DvTrunkProtocol } from "../../lib/types";
 
 export const DMR_TRUNK_PROTOCOLS: readonly { value: DmrTrunkProtocol; label: string }[] = [

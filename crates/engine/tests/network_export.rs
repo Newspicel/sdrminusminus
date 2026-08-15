@@ -1,4 +1,3 @@
-// Tests may unwrap/expect (AGENTS.md); clippy's test allowance does not cover every helper.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::{

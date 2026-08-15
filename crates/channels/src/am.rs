@@ -1,5 +1,3 @@
-//! AM envelope detector: 48 kHz IQ → magnitude → DC block → lowpass. Levelling is the
-//! channel's shared audio chain, which every voice mode carries (see `sdrmm_wire::AudioProcessing`).
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -61,18 +59,12 @@ pub(crate) fn channel_filter(p: &AmParams) -> Result<ChannelFilter, ChannelError
     )))
 }
 
-// A `bandwidth_hz`-wide AM signal carries audio to bandwidth/2, so the post-detection
-// lowpass is the matched half of the host's RF channel filter, not a duplicate of it.
-// `dsp` has no factor-1 real-FIR runner; `RealDecimator` at 1:1 is exactly that.
 fn audio_lowpass(p: &AmParams) -> Result<RealDecimator, ChannelError> {
     check_bandwidth(p)?;
     let cutoff = p.bandwidth_hz / 2.0 / DESCRIPTOR.input_rate_hz;
     Ok(RealDecimator::new(&design_lowpass(AUDIO_TAPS, cutoff), 1))
 }
 
-/// The library waveform this channel is an attachment to. The depth is the transmitter's
-/// ([`MODULATION_DEPTH`]); an envelope detector never reads it, but the entry is one waveform and
-/// stating it here is what keeps the two ends describing the same thing.
 fn waveform(p: &AmParams) -> Result<AmWaveform, ChannelError> {
     check_bandwidth(p)?;
     let mut waveform = AmWaveform::new(
@@ -123,17 +115,9 @@ impl ChannelRx for AmChannel {
     }
 }
 
-/// Modulation index the transmitter keys. Below 1.0 by the margin broadcast practice leaves,
-/// so a peaking talker never folds the envelope through zero — past that point the audio is
-/// inverted around the trough and no envelope detector can undo it.
 const MODULATION_DEPTH: f32 = 0.8;
 
-/// AM modulator: queued voice → `1 + depth·audio` on a real baseband envelope.
-///
-/// Written against the audio bandwidth [`AmChannel`] detects, and sharing that constant with
-/// it, but no code.
 pub struct AmTx {
-    /// Band-limited by [`audio_lowpass`] on the way in, so `generate` only scales.
     queue: TxQueue<f32>,
     audio_lp: RealDecimator,
     filtered: Vec<f32>,
@@ -168,10 +152,6 @@ impl ChannelTx for AmTx {
             ));
         };
         self.queue.accept(pcm.len())?;
-        // Band-limited here rather than in `generate` — the hot path may not allocate — and
-        // clamped after the filter rather than before it: what may not pass ±1 is what reaches
-        // the envelope, and a filter's overshoot is as capable of over-modulating it as a
-        // caller's over-range audio is.
         self.audio_lp.process(&pcm, &mut self.filtered);
         clamp_full_scale(&mut self.filtered);
         self.queue.extend(self.filtered.iter().copied());
@@ -185,9 +165,6 @@ impl ChannelTx for AmTx {
                 break;
             };
             let audio = self.queue.pop().unwrap_or(0.0);
-            // Normalized by the modulation peak, so a full-scale talker leaves the transmitter
-            // at unit amplitude rather than at `1 + depth` — what an unmodulated carrier gives
-            // up in level, the peaks would otherwise take out of the device's headroom.
             let modulated = (1.0 + MODULATION_DEPTH * audio) / (1.0 + MODULATION_DEPTH);
             *slot = Complex::new(envelope * modulated, 0.0);
             written += 1;
@@ -226,7 +203,6 @@ mod tests {
         let (freq, ratio) = dominant_tone(window, RATE);
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
-        // 50 % depth → 0.5-amplitude tone once the carrier DC is blocked.
         let amplitude = rms(window);
         assert!((0.32..0.39).contains(&amplitude), "rms {amplitude}");
     }
@@ -270,7 +246,6 @@ mod tests {
         AmTx::new(ctx(), tx_params()).unwrap()
     }
 
-    /// The pair's whole reason for existing: what the modulator sends, the detector hears.
     #[test]
     fn tx_round_trips_a_tone_through_the_detector() {
         let mut tx = transmitter();
@@ -289,13 +264,9 @@ mod tests {
         assert!((0.28..0.35).contains(&amplitude), "rms {amplitude}");
     }
 
-    /// The trough never reaches zero and the peak never passes full scale, whatever the audio:
-    /// below the trough an envelope detector folds the audio over, above the peak the device's
-    /// converter clips it.
     #[test]
     fn tx_keeps_the_envelope_between_the_trough_and_full_scale() {
         let mut tx = transmitter();
-        // Deliberately over-range audio: `submit` clamps it rather than over-modulating.
         tx.submit(TxPayload::Audio(tone_audio(1_000.0, 4.0, RATE, 24_000)))
             .unwrap();
         let iq = burst(&mut tx);
@@ -320,7 +291,6 @@ mod tests {
             "last sample {}",
             iq[iq.len() - 1].norm()
         );
-        // Silence between the ramps is an unmodulated carrier, not silence.
         for (k, s) in iq[ramp..iq.len() - ramp].iter().enumerate() {
             let unmodulated = 1.0 / (1.0 + MODULATION_DEPTH);
             assert!(

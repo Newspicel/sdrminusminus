@@ -50,10 +50,6 @@ fn args_key(args: &soapysdr::Args) -> String {
     args.get("serial").map_or_else(
         || args.to_string(),
         |serial| match args.get("mode") {
-            // SoapySDRPlay3 enumerates each RSPduo operating mode as a separate device with the
-            // same serial. The mode is part of the address upstream too (`serial@mode` in its
-            // claimed-device cache), so keep it in our probe key or every choice opens the first
-            // mode returned by the module.
             Some(mode) => format!("{serial}@{mode}"),
             None => serial.to_string(),
         },
@@ -410,10 +406,6 @@ pub struct SoapyDevice {
     duplex: Arc<Mutex<DuplexState>>,
 }
 
-/// Most Soapy modules accept one stream containing every requested channel. SoapySDRPlay3 is
-/// deliberately different for the RSPduo: it exposes two channels but requires one stream handle
-/// per channel. Keep the combined path where it exists and fall back to split handles when the
-/// module refuses it.
 enum RxStreams {
     Combined(soapysdr::RxStream<Sample>),
     Split(Vec<soapysdr::RxStream<Sample>>),
@@ -645,7 +637,6 @@ impl SdrDevice for SoapyDevice {
             return Err(error);
         }
         self.settings.merge_from(delta);
-        // Merged, not assigned: ppm is not read back and would be erased.
         let actual = read_settings(&self.device, &self.capabilities);
         warn_coerced_rate(delta.sample_rate, actual.sample_rate);
         self.settings.merge_from(&actual);

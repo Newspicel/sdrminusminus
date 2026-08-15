@@ -81,7 +81,6 @@ describe("IqHub", () => {
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(1);
 
-    // One face letting go must not stop the other's feed.
     dropFirst();
     vi.advanceTimersByTime(10_000);
     expect(fake.sent).toHaveLength(1);
@@ -109,7 +108,6 @@ describe("IqHub", () => {
     hub.attach(fake.socket);
     hub.subscribe(1, 7, () => {})();
 
-    // A remount inside the grace: the stream never stopped, so nothing is sent.
     hub.subscribe(1, 7, () => {});
     vi.advanceTimersByTime(10_000);
     expect(fake.sent).toEqual([{ type: "SubscribeIq", data: { device_set: 1, channel: 7 } }]);
@@ -167,7 +165,6 @@ describe("IqHub", () => {
     fake.reconnect();
     expect(fake.sent).toEqual([{ type: "SubscribeIq", data: { device_set: 1, channel: 7 } }]);
 
-    // The old connection's ids mean nothing now, so a frame carrying one is not delivered.
     const seen: IqFrame[] = [];
     hub.subscribe(1, 7, (frame) => seen.push(frame));
     fake.push(0x8000);

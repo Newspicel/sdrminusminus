@@ -8,9 +8,6 @@ import { runTool } from "../../lib/api";
 import type { NanoVnaCalibration, NanoVnaStandard, NanoVnaSweepState } from "../../lib/types";
 import { type CalibrationStep, nanoVnaCalibrateRequest, nanoVnaCalibration } from "./nanovna";
 
-/** The one-port standards, in the order the wizard walks them. Open, short and load are what a
- * reflection calibration needs; thru and isolation only matter once something is connected to
- * the second port. */
 const ONE_PORT: ReadonlyArray<{
   standard: NanoVnaStandard;
   step: CalibrationStep;

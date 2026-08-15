@@ -82,8 +82,6 @@ impl Default for GpsHub {
         let route_latest = latest.clone();
         let clear_before_route = Arc::new(AtomicBool::new(false));
         let route_clear = clear_before_route.clone();
-        // Capacity one deliberately coalesces bursts: each wake reads the entire latest-state
-        // table, so another queued wake represents every fix that arrived behind it.
         let (route_signal, route_rx) = std::sync::mpsc::sync_channel::<RouteState>(1);
         let route_worker = match std::thread::Builder::new()
             .name("sdrmm-gps-route".to_owned())
@@ -143,8 +141,6 @@ impl GpsHub {
             .collect()
     }
 
-    /// Make the running providers match the active workspace. Device-geolocation nodes are
-    /// driven by their WebView and therefore need no server task.
     pub(crate) fn reconcile(self: &Arc<Self>, state: &AppState) {
         let active = match state.store.active_workspace() {
             Ok(active) => active,
@@ -481,9 +477,6 @@ fn route_position(state: &RouteState, source: &str, fix: Option<PositionFix>) {
     }
 }
 
-/// A removed/repointed wire must not leave a decoder or recording using its final fix forever.
-/// Clear every live consumer once when GPS topology changes, then `route_current` reapplies the
-/// fixes that are still wired according to the new graph.
 fn clear_position_consumers(state: &RouteState) {
     let snapshot = state.engine.snapshot();
     for set in snapshot.device_sets {
@@ -689,19 +682,6 @@ where
     })
 }
 
-/// The serial ports a GPS node may be pointed at.
-///
-/// Two passes, because a serial port list is mostly not receivers. First the ports nothing can be
-/// received from at all: macOS publishes a dial-in twin (`/dev/tty.*`) of each callout device,
-/// which blocks on carrier detect and so never yields a sentence, plus pseudo-ports with no
-/// hardware behind them. Then, of what is left, the ports that identify themselves as a
-/// receiver — a laptop lists a monitor's control channel and a dev board's virtual COM port beside
-/// the GPS puck, and offering those as position sources is offering wrong answers.
-///
-/// The whole list is offered only when nothing identifies itself: a receiver wired to a generic
-/// USB-serial adapter reports the adapter's identity rather than its own, and an empty picker
-/// would strand it. Short of opening every port and listening for sentences — which resets some
-/// boards and disturbs others — the descriptor is all there is to go on.
 pub(crate) fn nmea_devices() -> Result<NmeaDevicesResponse, String> {
     let ports = tokio_serial::available_ports()
         .map_err(|error| format!("list serial devices: {error}"))?
@@ -732,7 +712,6 @@ fn offered_ports(mut ports: Vec<NmeaDeviceInfo>) -> Vec<NmeaDeviceInfo> {
     }
 }
 
-/// Port names macOS lists that are not a serial device anyone can receive from.
 const PSEUDO_PORTS: [&str; 4] = [
     "Bluetooth-Incoming-Port",
     "debug-console",
@@ -742,23 +721,17 @@ const PSEUDO_PORTS: [&str; 4] = [
 
 fn is_openable_port(info: &SerialPortInfo) -> bool {
     let name = info.port_name.rsplit('/').next().unwrap_or(&info.port_name);
-    // The dot is the macOS marker: Linux names (`ttyUSB0`, `ttyAMA0`) carry none, so only the
-    // `tty.` twin of a `cu.` callout device is dropped here.
     !name.starts_with("tty.") && !PSEUDO_PORTS.iter().any(|pseudo| name.contains(pseudo))
 }
 
-/// USB vendors whose serial ports are receivers rather than generic adapters.
-const GNSS_USB_VIDS: [u16; 2] = [0x1546, 0x091e]; // u-blox, Garmin
+const GNSS_USB_VIDS: [u16; 2] = [0x1546, 0x091e];
 
 const GNSS_WORDS: [&str; 10] = [
     "gps", "gnss", "glonass", "galileo", "beidou", "u-blox", "ublox", "garmin", "sirf", "navilock",
 ];
 
-/// The rank a port has to hold to be offered on its own (`nmea_devices`).
 const RECEIVER: u8 = 0;
 
-/// A puck first, then anything else on USB, then the legacy ports a machine always has: the
-/// receiver is what the picker exists to name, and a 16550 port is what it is least likely to be.
 fn receiver_rank(device: &NmeaDeviceInfo) -> u8 {
     let described = device
         .product
@@ -998,7 +971,6 @@ mod tests {
         };
         assert_eq!(receiver_rank(&port(Some("u-blox GNSS receiver"), None)), 0);
         assert_eq!(receiver_rank(&port(None, Some(0x1546))), 0);
-        // What the picker was offering as position sources beside the puck.
         assert_eq!(
             receiver_rank(&port(Some("LG Monitor Controls"), Some(1))),
             1
@@ -1036,8 +1008,6 @@ mod tests {
             ["/dev/cu.usbmodem11401"]
         );
 
-        // A receiver on a generic adapter reports the adapter, so an all-anonymous list is offered
-        // whole rather than leaving the picker with nothing to name.
         assert_eq!(offered_ports(vec![monitor, board]).len(), 2);
         assert!(offered_ports(Vec::new()).is_empty());
     }

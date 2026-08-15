@@ -19,10 +19,6 @@ import { releaseRadio } from "../remove";
 import { deviceDialId, refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
-/** Its own component so it can read whether this face is the active one: the dial's wheel belongs
- * to the camera until the node is clicked (`useFaceActive`), or one notch would tune the radio and
- * pan the patch at once. It is also where the dial's `@container` sits — the digits size off the
- * node, never off the viewport (see `DIGIT_SIZE`). */
 function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning: boolean }) {
   const { applyPatch } = useDevicePatch();
   const active = useFaceActive();
@@ -32,8 +28,6 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
     <div className="@container flex flex-col gap-1 border-b border-line p-2">
       {tunerDials(set).map((dial) => (
         <div key={dial.stream} className="flex flex-col">
-          {/* The `legend` class uppercases, so the label renders exactly as the port handle
-              beside it does: `iq2` on the wire is IQ2 on the dial. */}
           {dial.port !== null && <span className="legend">{dial.port}</span>}
           <FrequencyDial
             id={deviceDialId(node, dial.stream)}
@@ -63,8 +57,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   const open = useMutation({
     mutationFn: createDeviceSet,
     onSuccess: () => workspace.apply(),
-    // Naming the radio has already flipped this face to its disconnected state by the time a
-    // refusal lands, so the inline error below is no longer on screen to carry it.
     onError: (error: Error) => pushToast(error.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
@@ -77,10 +69,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       ),
     }));
 
-  // Letting go of a radio closes it: leaving it open would keep the USB device claimed — no
-  // other app, and no other node, can have it — with nothing on the canvas pointing at it. The
-  // node and its wires stay, and this node's device settings are stored, so naming a radio here
-  // again reopens it exactly as it was.
   const forget = useMutation({
     mutationFn: () => releaseRadio(workspace, node.id, () => nameRadio(null)),
     onError: (error: Error) => pushToast(error.message),
@@ -97,11 +85,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     }
   };
 
-  // A network radio is named rather than discovered, so unlike `bind` there is no probe result to
-  // name the node from — and the address that was typed is not necessarily the key the server will
-  // probe it under, because it canonicalizes the endpoint (a defaulted port, a lower-cased host).
-  // Opening it first and reading the device back off the set it created is what keeps the stored
-  // reference and the probe list the same string.
   const openNetwork = useMutation({
     mutationFn: async (id: string): Promise<DeviceInfo | null> => {
       const created = await createDeviceSet(id);

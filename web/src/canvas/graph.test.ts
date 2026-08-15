@@ -175,9 +175,6 @@ function workspace(): PatchGraph {
 
 const port = (n: string, p: string) => ({ node: n, port: p });
 
-/** A device node bound to an attached radio, carrying the three things the rules read off one:
- * the rate the live rate warning measures a channel against, whether there is a transmitter to
- * draw an input for, and how many receive streams there are to draw outputs for. */
 const bound = (node: string, radio: { rate?: number; tx?: boolean; rx?: number }) =>
   new Map([
     [
@@ -231,8 +228,6 @@ describe("ports", () => {
     expect(portsOf(context, graph, atv).map((p) => p.name)).toEqual(["iq", "video"]);
   });
 
-  /** A condition this build cannot answer is not a port: a handle drawn on a guess accepts a wire
-   * the server then refuses (mirrors `PortSpec::applies_to`). */
   it("leaves off a port whose condition it does not know", () => {
     const graph = workspace();
     const nfm = graph.nodes[2];
@@ -259,8 +254,6 @@ describe("ports", () => {
     expect(portsOf(context, graph, ghost).map((p) => p.name)).toEqual(["iq"]);
   });
 
-  /** An RTL-SDR has no transmitter, so the node standing for one has no socket to key. The port
-   * follows the radio, not the node kind — which is why it is answered from the binding. */
   it("draws a transmit input only on a radio that has one", () => {
     const graph = workspace();
     const dev = deviceNode(graph);
@@ -270,8 +263,6 @@ describe("ports", () => {
     const transceiver = { ...context, bound: bound("dev", { tx: true }) };
     expect(portsOf(transceiver, graph, dev).map((p) => p.name)).toEqual(["control", "tx", "iq"]);
 
-    // Nothing is attached: a radio out of reach keeps the ports the patch can vouch for, and the
-    // one it cannot is left off rather than promised.
     expect(portsOf(context, graph, dev).map((p) => p.name)).toEqual(["control", "iq"]);
   });
 
@@ -290,8 +281,6 @@ describe("ports", () => {
     expect(portsOf({ ...context, bound: bound("dev", { rx: 99 }) }, graph, dev)).toHaveLength(17);
   });
 
-  /** The critical unbound case: a workspace laid out against a four-stream radio keeps its wires
-   * while the radio is away — a port with no handle is an edge React Flow will not draw. */
   it("keeps the streams stored wires name while the radio is absent", () => {
     const graph = addEdge(workspace(), {
       from: { node: "dev", port: "iq3" },
@@ -313,9 +302,6 @@ describe("ports", () => {
     }
   });
 
-  /** Ports sit at `PORT_TOP_PX + PORT_STEP_PX × index`, so a kind with more ports than its base
-   * floor has rows for must refuse to shrink past its lowest handle — a clipped port is a wire
-   * that cannot be grabbed. The two sides stack independently, so it is the deeper of them. */
   it("grows the resize floor with the port count", () => {
     const deep = Array.from({ length: 20 }, (_, index) => ({
       name: `events${index}`,
@@ -330,7 +316,6 @@ describe("ports", () => {
     expect(nodeMinSize("decoder_log", deep.slice(0, 1))).toEqual(NODE_MIN_SIZE.decoder_log);
   });
 
-  /** A face that is a column of controls is the size its kind is; only the instruments resize. */
   it("resizes the viewports and nothing else", () => {
     const viewports: NodeKind[] = ["scope", "map", "signal_map", "readout", "decoder_log", "video"];
     const controls: NodeKind[] = [
@@ -348,8 +333,6 @@ describe("ports", () => {
     expect(controls.filter(isResizable)).toEqual([]);
   });
 
-  /** A face carrying the audio chain is a taller column than one that only decodes, and the
-   * whole point of stating it here is that the two are not the same box. */
   it("opens an audio channel taller than a data one", () => {
     const nfm = node("nfm", { kind: "channel", data: { channel_type: "nfm" } });
     const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
@@ -358,8 +341,6 @@ describe("ports", () => {
     expect(naturalSize(nfm, context).w).toBe(NODE_SIZE.channel.w);
   });
 
-  /** Both surfaces place a channel before its type list has arrived, and a face that opened
-   * short and grew would move every node the drop was measured against. */
   it("assumes the taller face while the channel type is unknown", () => {
     const unknown = node("x", { kind: "channel", data: { channel_type: "wefax" } });
     expect(naturalSize(unknown, context)).toEqual(channelSize(true));
@@ -371,7 +352,6 @@ describe("ports", () => {
     }
   });
 
-  /** The floor for a fixed kind is its size: nothing may shrink it, so the two must not drift. */
   it("floors every fixed kind at its own size", () => {
     for (const [kind, size] of Object.entries(NODE_SIZE) as [NodeKind, typeof NODE_SIZE.scope][]) {
       if (!isResizable(kind)) {
@@ -431,9 +411,9 @@ describe("connectionRefusal", () => {
         node("dev2", { kind: "device", data: {} }),
       ],
     };
-    expect(connectionRefusal(context, graph, port("scan", "control"), port("dev", "control"))) //
-      .toBeNull();
-    // Ownership does not fan out: the engine runs one sweep per radio, either way round.
+    expect(
+      connectionRefusal(context, graph, port("scan", "control"), port("dev", "control")),
+    ).toBeNull();
     const driving = addEdge(graph, {
       from: { node: "scan", port: "control" },
       to: { node: "dev", port: "control" },
@@ -461,8 +441,6 @@ describe("connectionRefusal", () => {
     );
   });
 
-  /// : the rate rule is a fault *on* the wire, not a refusal of it — the rate is one
-  /// setting away, and the face at the end of the wire offers that setting.
   it("allows a wideband channel on a rate outside its range and marks the wire instead", () => {
     const graph = {
       ...workspace(),
@@ -520,8 +498,6 @@ describe("editing", () => {
     const migrated = migrateSnapshot(stored);
     expect(migrateSnapshot(migrated)).toBe(migrated);
 
-    // Ownership is exclusive at both ends, so a sweep that fanned across two radios keeps the
-    // first: the alternative is a snapshot the server refuses on the next write.
     const fanned = scanning([
       { from: { node: "dev", port: "iq" }, to: { node: "scan", port: "iq" } },
       { from: { node: "dev2", port: "iq" }, to: { node: "scan", port: "iq" } },
@@ -551,7 +527,6 @@ describe("the rack", () => {
     expect(rack.slots).toEqual([{ node: "scope", x: 0, y: 0, w: 6, h: 4 }]);
     rack = pin(rack, "nfm");
     expect(rack.slots?.[1]).toEqual({ node: "nfm", x: 6, y: 0, w: 6, h: 4 });
-    // A third face wraps to the next row rather than overlapping.
     rack = pin(rack, "spk");
     expect(rack.slots?.[2]).toEqual({ node: "spk", x: 0, y: 4, w: 6, h: 4 });
 
@@ -589,7 +564,6 @@ describe("the rack", () => {
       w: 6,
       h: 4,
     });
-    // Off the grid, and onto two faces at once, are both refused rather than clamped.
     expect(moveSlot(rack, "a", { x: RACK_COLS - 1, y: 0 })).toBe(rack);
     const three = placeSlot(pin(rack, "c"), "c", { x: 6, y: 4, w: 6, h: 4 });
     expect(moveSlot(three, "a", { x: 5, y: 2 })).toBe(three);
@@ -603,7 +577,6 @@ describe("the rack", () => {
       { node: "b", x: 8, y: 0, w: 4, h: 4 },
     ]);
     expect(resizeSlot(wider, "b", "w", -2)).toEqual(rack);
-    // A face never shrinks below a cell, and the drag is refused whole rather than half-applied.
     expect(resizeSlot(rack, "a", "e", 6)).toBe(rack);
     expect(resizeSlot(rack, "a", "s", 2).slots?.[0]?.h).toBe(6);
     expect(resizeSlot(rack, "a", "s", 6)).toBe(rack);

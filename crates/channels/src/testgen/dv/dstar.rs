@@ -1,5 +1,3 @@
-//! D-Star reference transmitter: GMSK voice frames whose slow-data channel repeats the header,
-//! which is the path a receiver joining a call in progress actually reads.
 use num_complex::Complex;
 use sdrmm_dsp::crc16_x25;
 use sdrmm_modem::{
@@ -8,22 +6,15 @@ use sdrmm_modem::{
 };
 
 const BAUD: f64 = 4_800.0;
-/// ±1200 Hz at 4800 bit/s is h = ½ — minimum shift — under a BT 0.5 premod Gaussian: what an
-/// ICOM radio transmits.
 const DEVIATION_HZ: f64 = 1_200.0;
 const BT: f64 = 0.5;
-/// Total span of the GMSK frequency pulse in symbol periods: the NRZ rect's own symbol plus a
-/// two-symbol truncation of the BT 0.5 Gaussian.
 const PULSE_SPAN: usize = 3;
 const SYNC: u32 = 0x0055_2D16;
 const FRAME_BITS: usize = 96;
 const HEADER_BYTES: usize = 41;
 const SCRAMBLER: [u8; 3] = [0x70, 0x4F, 0x93];
-/// The standardized AMBE 3,600 x 2,400 null frame used by D-STAR radios while no speech is
-/// available. Keeping it valid makes the reference waveform exercise the native vocoder too.
 const AMBE_NULL: [u8; 9] = [0x9E, 0x8D, 0x32, 0x88, 0x26, 0x1A, 0x3F, 0x61, 0xE8];
 
-/// One call, as the header names it.
 pub struct Call {
     pub urcall: String,
     pub mycall: String,
@@ -42,7 +33,6 @@ impl Default for Call {
     }
 }
 
-/// A transmission long enough for the header to come round twice in the slow-data channel.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     let header = header(call);
@@ -72,9 +62,6 @@ pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     gmsk(&bits, rate)
 }
 
-/// GMSK-modulate one bit per symbol to complex baseband at `rate`. Continuously keyed
-/// (modulate + flush): D-Star is push-to-talk, one carrier for the whole transmission.
-/// Index 1 is the +1 level, the +1200 Hz mark tone `true` rides on.
 fn gmsk(bits: &[bool], rate: f64) -> Vec<Complex<f32>> {
     let sps = rate / BAUD;
     let mut tx = CpmMod::new(CpmParams::from_deviation(
@@ -112,7 +99,6 @@ fn build_packet(header: u8, payload: &[u8]) -> [u8; 6] {
     packet
 }
 
-/// A standardized 72-bit AMBE null frame and 24 bits of data.
 fn voice_frame(data: &[u8; 3], _seed: usize) -> Vec<bool> {
     let mut bits = Vec::with_capacity(FRAME_BITS);
     for &byte in &AMBE_NULL {
@@ -128,7 +114,6 @@ fn voice_frame(data: &[u8; 3], _seed: usize) -> Vec<bool> {
     bits
 }
 
-/// The 41-byte header: flags, the four callsigns, and a CRC over the rest.
 fn header(call: &Call) -> Vec<u8> {
     let field = |text: &str, len: usize| {
         let mut bytes = text.as_bytes().to_vec();

@@ -792,44 +792,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description `GET /api/about` — the running build and everything it owes attribution to. */
         AboutResponse: {
-            /** @description Third-party components, ordered by source and then by name. */
             components: components["schemas"]["Attribution"][];
-            /** @description SPDX id of sdr-- itself. */
             license: string;
-            /** @description The project's own `LICENSE`, in full. */
             license_text: string;
             name: string;
             repository: string;
-            /**
-             * @description `CARGO_PKG_VERSION` of the running server, not of the generated notices: the notices are
-             *     committed and the version is stamped at release, so only one of the two can be trusted
-             *     to say which build this is.
-             */
             version: string;
         };
-        /**
-         * @description One ACARS block (: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
-         *     the standard's, so a message here reads the same as in every other ACARS tool.
-         */
         AcarsMessage: {
-            /** @description Technical acknowledgement: the block being acknowledged, or `None` for a NAK. */
             ack?: string | null;
-            /** @description Block identifier. `0`–`9` marks a downlink (aircraft to ground). */
             block_id: string;
             downlink: boolean;
-            /** @description Flight number, on downlinks only. */
             flight?: string | null;
-            /** @description Two-character label identifying the message type (`5Z`, `H1`, `_d` …). */
             label: string;
-            /** @description Mode character — `2` is VHF category A. */
             mode: string;
-            /** @description The block ended with ETB rather than ETX: another block of the same message follows. */
             more: boolean;
-            /** @description Aircraft registration with the standard `.` padding removed. */
             registration: string;
-            /** @description Message sequence number, on downlinks only. */
             seq_no?: string | null;
             text: string;
         };
@@ -837,75 +816,42 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
         };
-        /**
-         * @description One decoded Mode S / ADS-B frame (: preamble correlation + Mode S CRC).
-         *     Fields are `Option` because which ones a frame carries depends on its type code — a
-         *     position frame has no callsign, an identification frame has no altitude.
-         */
         AdsbMessage: {
             /** Format: int32 */
             altitude_ft?: number | null;
             callsign?: string | null;
-            /**
-             * Format: int32
-             * @description Downlink Format (17 = ADS-B extended squitter, 11 = all-call reply).
-             */
+            /** Format: int32 */
             df: number;
             /** Format: double */
             ground_speed_kt?: number | null;
-            /** @description ICAO 24-bit address as 6 hex digits — the aircraft's identity across frames. */
             icao: string;
-            /**
-             * Format: double
-             * @description Latitude in degrees, once a CPR even/odd pair has been solved.
-             */
+            /** Format: double */
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
             on_ground?: boolean | null;
-            /** @description The raw frame as hex — the interop format every Mode S tool speaks. */
             raw: string;
             squawk?: string | null;
             /** Format: double */
             track_deg?: number | null;
-            /**
-             * Format: int32
-             * @description Extended-squitter type code, when the frame has an ME field.
-             */
+            /** Format: int32 */
             type_code?: number | null;
             /** Format: int32 */
             vertical_rate_fpm?: number | null;
         };
         AdsbParams: {
-            /**
-             * @description Repair single-bit errors the Mode S CRC localizes. Off trades sensitivity for a
-             *     lower false-frame rate on a noisy antenna.
-             */
             crc_fix?: boolean;
-            /**
-             * Format: double
-             * @description Reference position for locally-decoded (single-frame) CPR positions, in degrees.
-             *     Without one, a position needs a matching even/odd frame pair.
-             */
+            /** Format: double */
             ref_lat?: number | null;
             /** Format: double */
             ref_lon?: number | null;
         };
-        /**
-         * @description Which of the two AIS channels a receiver is parked on. Only the label travels with the
-         *     decoded message — the tuning itself is the channel's `offset_hz`.
-         * @enum {string}
-         */
+        /** @enum {string} */
         AisChannel: "a" | "b";
-        /** @description One decoded AIS message (: GMSK/NRZI over HDLC framing). */
         AisMessage: {
-            /** @description Which of the two AIS channels the burst arrived on (`A` = 161.975 MHz). */
             ais_channel: string;
             call_sign?: string | null;
-            /**
-             * Format: double
-             * @description Course over ground in degrees.
-             */
+            /** Format: double */
             cog_deg?: number | null;
             destination?: string | null;
             /** Format: int32 */
@@ -914,28 +860,15 @@ export interface components {
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
-            /**
-             * Format: int32
-             * @description Maritime Mobile Service Identity — the vessel's identity across messages.
-             */
+            /** Format: int32 */
             mmsi: number;
-            /**
-             * Format: int32
-             * @description ITU-R M.1371 message type (1–3 position report, 5 static data, 18/19 class B …).
-             */
+            /** Format: int32 */
             msg_type: number;
             name?: string | null;
-            /**
-             * Format: int32
-             * @description Navigational status code (0 = under way using engine …).
-             */
+            /** Format: int32 */
             nav_status?: number | null;
-            /** @description The `!AIVDM` sentence — the interop format every AIS tool speaks. */
             nmea: string;
-            /**
-             * Format: double
-             * @description Speed over ground in knots.
-             */
+            /** Format: double */
             sog_kt?: number | null;
         };
         AisParams: {
@@ -945,20 +878,14 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
         };
-        /**
-         * @description The antenna to cut. Adjacently tagged like [`crate::ChannelParams`]: the designs that take
-         *     no choices are bare tags, the rest carry their settings.
-         */
         AntennaDesign: {
             /** @enum {string} */
             type: "dipole";
         } | {
-            /** @description A dipole with its legs sloped down from a single support. */
             settings: components["schemas"]["InvertedVParams"];
             /** @enum {string} */
             type: "inverted_v";
         } | {
-            /** @description Quarter-wave vertical over radials. */
             settings: components["schemas"]["GroundPlaneParams"];
             /** @enum {string} */
             type: "ground_plane";
@@ -972,7 +899,6 @@ export interface components {
             /** @enum {string} */
             type: "j_pole";
         } | {
-            /** @description Reflector, driven element and directors on a boom. */
             settings: components["schemas"]["YagiParams"];
             /** @enum {string} */
             type: "yagi";
@@ -983,35 +909,20 @@ export interface components {
             /** @enum {string} */
             type: "end_fed_half_wave";
         };
-        /** @description The antenna as a shape: enough to draw it to scale from any angle. */
         AntennaGeometry: {
-            /** @description Where the feedline attaches. */
             feed: components["schemas"]["AntennaPoint"];
             segments: components["schemas"]["AntennaSegment"][];
         };
-        /** @description One thing to cut, bend or buy. */
         AntennaPart: {
-            /**
-             * Format: int32
-             * @description How many of this part the design needs.
-             */
+            /** Format: int32 */
             count: number;
             detail?: string | null;
             /** Format: double */
             length_m: number;
             name: string;
-            /**
-             * Format: double
-             * @description Where it sits along the boom, measured from the reflector. Only the designs that have
-             *     a boom set it.
-             */
+            /** Format: double */
             position_m?: number | null;
         };
-        /**
-         * @description A point on the antenna, in metres from the origin. `x` runs along the elements, `y` is up,
-         *     `z` is the boom's depth. The origin is the feedpoint, or the base of anything that stands on
-         *     one.
-         */
         AntennaPoint: {
             /** Format: double */
             x_m: number;
@@ -1020,88 +931,48 @@ export interface components {
             /** Format: double */
             z_m: number;
         };
-        /** @description What the calculator worked out. */
         AntennaReport: {
-            /** @description Whether the feedpoint is balanced, and so wants a balun ahead of coax. */
             balanced: boolean;
-            /** @description The design that produced this, echoed so a cached report can name itself. */
             design: components["schemas"]["AntennaDesign"];
-            /**
-             * Format: double
-             * @description Estimated feedpoint impedance in free space. `None` where the design's own matching
-             *     network sets it and a raw figure would mislead.
-             */
+            /** Format: double */
             feedpoint_ohms?: number | null;
             /** Format: double */
             frequency_hz: number;
-            /** @description The same design as a shape, to scale, for a drawing of it. */
             geometry: components["schemas"]["AntennaGeometry"];
-            /**
-             * @description Everything the numbers alone do not say: what to trim, what to match with, what the
-             *     estimate assumes.
-             */
             notes: string[];
             parts: components["schemas"]["AntennaPart"][];
             /** Format: double */
             velocity_factor: number;
-            /**
-             * Format: double
-             * @description Free-space wavelength, before any correction factor.
-             */
+            /** Format: double */
             wavelength_m: number;
         };
-        /** @description `POST /api/tools/run` with `"tool": "antenna"`. */
         AntennaRequest: {
             design: components["schemas"]["AntennaDesign"];
-            /**
-             * Format: double
-             * @description Velocity factor of the coax, used only by designs that include a matching section.
-             *     Solid polyethylene is 0.66, foam 0.80, PTFE 0.70.
-             */
+            /** Format: double */
             feedline_velocity_factor?: number;
             /** Format: double */
             frequency_hz: number;
-            /**
-             * Format: double
-             * @description End-effect factor applied to every resonant element.
-             */
+            /** Format: double */
             velocity_factor?: number;
         };
-        /** @description One straight piece of the antenna, as drawn. */
         AntennaSegment: {
             from: components["schemas"]["AntennaPoint"];
-            /**
-             * @description The part this piece is. Where the report lists a part under the same name, the segment is
-             *     exactly that long.
-             */
             label: string;
             role: components["schemas"]["AntennaSegmentRole"];
             to: components["schemas"]["AntennaPoint"];
         };
-        /**
-         * @description What a drawn piece does, so a view can colour it without reading its name.
-         * @enum {string}
-         */
+        /** @enum {string} */
         AntennaSegmentRole: "driven" | "parasitic" | "radial" | "matching" | "feedline" | "structure";
-        /** @description Uniform error body for REST failures. */
         ApiError: {
             detail?: string | null;
             error: string;
         };
-        /** @description Apply a built-in template to a live device set. */
         ApplyTemplateRequest: {
             /** Format: int32 */
             device_set: number;
         };
-        /**
-         * @description AX.25 physical layer (: AFSK1200 + 9600 G3RUH).
-         * @enum {string}
-         */
+        /** @enum {string} */
         AprsMode: "afsk1200" | "g3ruh9600";
-        /**
-         * @description One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them
-         *     (: AFSK1200 + 9600 G3RUH).
-         */
         AprsPacket: {
             /** Format: int32 */
             altitude_ft?: number | null;
@@ -1109,28 +980,17 @@ export interface components {
             /** Format: double */
             course_deg?: number | null;
             destination: string;
-            /** @description Raw information field. */
             info: string;
             /** Format: double */
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
-            /**
-             * @description The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7
-             *     standard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's
-             *     own word for a packet whose three message bits mix the standard and custom tables.
-             *     Absent on every packet that is not Mic-E.
-             */
             mic_e_message?: string | null;
-            /** @description Digipeater path, in order. */
             path?: string[];
-            /** @description Source callsign with SSID, e.g. `DL1ABC-9`. */
             source: string;
             /** Format: double */
             speed_kt?: number | null;
-            /** @description APRS symbol as `table` + `code`, e.g. `/>` for a car. */
             symbol?: string | null;
-            /** @description TNC2 monitor line (`SRC>DEST,PATH:info`) — the interop format. */
             tnc2: string;
         };
         AprsParams: {
@@ -1138,7 +998,6 @@ export interface components {
             bandwidth_hz?: number;
             mode?: components["schemas"]["AprsMode"];
         };
-        /** @description Lossless wire representation of SoapySDR's `ArgInfo`. */
         ArgumentInfo: {
             default: string;
             description?: string | null;
@@ -1149,137 +1008,49 @@ export interface components {
             units?: string | null;
             value_type: components["schemas"]["ArgumentType"];
         };
-        /** @description One labelled value in a driver's discrete option list. */
         ArgumentOption: {
             label?: string | null;
             value: string;
         };
-        /**
-         * @description The exact type SoapySDR declares for an argument. This stays separate from
-         *     [`ExtraSetting`], which is the compact control shape used by the existing receiver UI.
-         * @enum {string}
-         */
+        /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
-        /** @description One third-party component the release distributes. */
         Attribution: {
-            /**
-             * @description The SPDX expression the component declares for itself, verbatim. Not normalized:
-             *     `MIT/Apache-2.0` and `MIT OR Apache-2.0` are the same offer, but only one of them is
-             *     what the package actually says, and the notice should say what the package says.
-             */
             license: string;
             name: string;
-            /**
-             * @description Set only where the SPDX id is not the whole story: a copyleft relink offer, a patent
-             *     encumbrance, a library that is loaded but never linked.
-             */
             note?: string | null;
             source: components["schemas"]["ComponentSource"];
-            /**
-             * @description Ids of the license texts this component ships, resolvable through
-             *     `GET /api/about/licenses/{id}`. Empty when the component declares an SPDX expression but
-             *     publishes no license file of its own — common for crates that rely on the SPDX id alone.
-             *
-             *     Always serialized, empty included: a client that has to tell "no texts" apart from "the
-             *     field was omitted" is a client that will one day render neither.
-             */
             texts: string[];
             url?: string | null;
-            /** @description Absent for native libraries, whose version is whatever the platform package pinned. */
             version?: string | null;
         };
-        /**
-         * @description Colour encoding carried on the composite-video subcarrier. Monochrome leaves the
-         *     subcarrier untouched and works at the lower sample rates used by narrow-band ATV.
-         * @enum {string}
-         */
+        /** @enum {string} */
         AtvColor: "monochrome" | "pal" | "ntsc";
-        /**
-         * @description How an analog television transmission carries its video, and with it the polarity the
-         *     demodulated signal arrives in (: ATV).
-         * @enum {string}
-         */
+        /** @enum {string} */
         AtvModulation: "am" | "fm";
         AtvParams: {
-            /**
-             * Format: double
-             * @description Video channel width in Hz. This *is* the horizontal resolution — a picture cannot carry
-             *     more detail per line than the bandwidth that delivered it — so it is the one knob worth
-             *     opening up when the channel is clean, bounded by the mode's IQ rate.
-             */
+            /** Format: double */
             bandwidth_hz?: number;
-            /**
-             * @description Composite colour system. PAL and NTSC need a device rate wide enough to contain their
-             *     4.43 MHz or 3.58 MHz subcarrier respectively.
-             */
             color?: components["schemas"]["AtvColor"];
-            /**
-             * @description Weave the two fields into one frame at their real line positions. Off decodes each
-             *     vertical sync as a whole progressive frame, which is what non-interlaced amateur and
-             *     camera sources send.
-             */
             interlace?: boolean;
-            /**
-             * @description Invert the video polarity, for a transmission that keys the opposite way round from its
-             *     modulation's convention (see [`AtvModulation`]). A picture that comes out as a photographic
-             *     negative, with the sync tracker never locking, is what this fixes.
-             */
             invert?: boolean;
             modulation?: components["schemas"]["AtvModulation"];
-            /**
-             * Format: double
-             * @description FM sound carrier above the picture carrier, in Hz. Common values are 4.5, 5.5, 6.0 and
-             *     6.5 MHz. `None` keeps ATV usable on receivers that only cover the luma channel.
-             */
+            /** Format: double */
             sound_subcarrier_hz?: number | null;
             standard?: components["schemas"]["AtvStandard"];
         };
-        /**
-         * @description Scanning standard the transmission follows: how many lines make a frame and how fast they
-         *     go by. Everything else the demodulator needs — porch widths, active window, blanked lines —
-         *     derives from these two numbers plus the standard's own timings.
-         * @enum {string}
-         */
+        /** @enum {string} */
         AtvStandard: "ccir625" | "eia525" | "system_a405";
-        /**
-         * @description How hard the audio AGC rides the level. The speeds are the ones a radio's own switch offers,
-         *     because they are the ones that suit the modes: slow for SSB speech, fast for a band being
-         *     tuned across, medium for everything else.
-         * @enum {string}
-         */
+        /** @enum {string} */
         AudioAgcMode: "off" | "slow" | "medium" | "fast";
-        /**
-         * @description Adjustable audio passband — the "narrow the filter until only the voice is left" control,
-         *     after demodulation rather than in the RF channel.
-         */
         AudioFilterSettings: {
             enabled?: boolean;
-            /**
-             * Format: double
-             * @description High cut. Hiss and splatter live above it.
-             */
+            /** Format: double */
             high_hz?: number;
-            /**
-             * Format: double
-             * @description Low cut. Rumble, hum and the subaudible band live below this.
-             */
+            /** Format: double */
             low_hz?: number;
         };
-        /**
-         * @description Everything a voice channel does to its audio after the demodulator, plus the one stage that
-         *     has to run before it.
-         *
-         *     Stages run in the order they are declared: the blanker on IQ, then click removal, passband,
-         *     notches, adaptive notch, noise reduction and AGC on the demodulated audio. Impulses go first,
-         *     because a filter turns one into the ringing it was supposed to prevent; filtering next keeps
-         *     the junk outside the passband out of everything downstream; and the AGC runs last so what it
-         *     levels is what the listener actually hears.
-         *
-         *     Every stage is off by default, which is what a channel had before this existed.
-         */
         AudioProcessing: {
             agc?: components["schemas"]["AudioAgcMode"];
-            /** @description Remove steady carriers without being told where they are. */
             auto_notch?: boolean;
             blanker?: components["schemas"]["NoiseBlankerSettings"];
             click_removal?: components["schemas"]["ClickRemovalSettings"];
@@ -1287,114 +1058,47 @@ export interface components {
             filter?: components["schemas"]["AudioFilterSettings"];
             notches?: components["schemas"]["NotchSettings"][];
         };
-        /**
-         * @description One finished audio recording in the library. There is no index row behind this: a WAV
-         *     describes itself, so the directory listing *is* the library (: the files on disk are
-         *     the source of truth) and the file name is the id.
-         */
         AudioRecordingInfo: {
             /** Format: int64 */
             bytes: number;
             /** Format: int32 */
             channels: number;
-            /**
-             * @description RFC3339 UTC, from the file's own modification time — a WAV has nowhere to keep the
-             *     wall clock, and the name carries the start only as a second-resolution stamp.
-             */
             created_at: string;
             /** Format: double */
             duration_s: number;
-            /**
-             * @description File name inside the audio-recordings directory, extension included. Also the path
-             *     segment that downloads or deletes it.
-             */
             file: string;
             /** Format: int64 */
             frames: number;
             /** Format: int32 */
             sample_rate: number;
         };
-        /** @description `GET /api/audiorecordings`. */
         AudioRecordingsResponse: {
             recordings: components["schemas"]["AudioRecordingInfo"][];
         };
-        /**
-         * @description Live audio recording on one channel: what the listener hears, written to a WAV file as it is
-         *     produced. Its own status rather than a second [`RecordingStatus`] because the two record
-         *     different things — one the radio's raw IQ, the other one channel's demodulated audio — and
-         *     they run independently of each other.
-         */
         AudioRecordingStatus: {
             /** Format: int64 */
             bytes: number;
-            /**
-             * Format: int32
-             * @description Interleave the file was opened with. A WAV header states its channel count once, so this
-             *     is also what the recording is pinned to: a mode switched to a different layout mid-file
-             *     ends the recording with an `error` rather than writing frames no reader can interpret.
-             */
+            /** Format: int32 */
             channels: number;
-            /**
-             * @description Fatal fault (queue overflow, disk error, layout change); the writer has stopped and the
-             *     file has been finalized, but the cause stays visible (CLAUDE.md no-silent-failure).
-             */
             error?: string | null;
-            /** @description File name inside the server's audio-recordings directory, extension included. */
             file: string;
-            /**
-             * Format: int64
-             * @description Sample frames written so far; at 48 kHz these are the recording's own clock.
-             */
+            /** Format: int64 */
             frames: number;
-            /** @description RFC3339 UTC. */
             started_at: string;
         };
-        /**
-         * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
-         *     its first real request (: optional single shared token).
-         */
         AuthInfo: {
-            /** @description Whether this server rejects requests without the shared token. */
             token_required: boolean;
         };
-        /** @description What a stretch of spectrum is allocated to, as one layer states it. */
         BandAllocation: {
-            /**
-             * @description Other names the explorer matches on — wavelengths ("70 cm"), colloquialisms ("CB"),
-             *     and the service spelled the long way ("marine", "maritime mobile").
-             */
             aliases?: string[];
-            /**
-             * Format: double
-             * @description Channel raster, where the band is channelized.
-             */
+            /** Format: double */
             channel_step_hz?: number | null;
             id: string;
-            /** @description [`BandLayerInfo::id`] this entry came from. */
             layer: string;
-            /**
-             * @description What an operator calls it: "2 m amateur", "Marine VHF", "Airband". From the annotations
-             *     overlay where one applies, otherwise the same as [`Self::official_name`].
-             */
             name: string;
             notes?: string | null;
-            /**
-             * @description Exactly what the source document calls it — "MOBILER SEEFUNKDIENST", "MARITIME MOBILE".
-             *     Kept beside the friendly name rather than replaced by it: the regulator's wording is the
-             *     citable one, and it is what a reader checking against the source will search for.
-             */
             official_name: string;
-            /**
-             * @description Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as
-             *     capitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a
-             *     secondary service must accept interference from every primary one, which is the
-             *     difference between "this band is yours" and "you may use it if nobody else is".
-             */
             primary?: boolean;
-            /**
-             * @description Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,
-             *     a page number. `None` for the curated layers, which are their own provenance.
-             */
             reference?: string | null;
             service: components["schemas"]["BandService"];
             /** Format: double */
@@ -1404,11 +1108,6 @@ export interface components {
             suggested?: null | components["schemas"]["ChannelParams"];
         };
         BandBlock: {
-            /**
-             * @description Everything else covering it, most specific first — co-allocations from the winner's own
-             *     layer, then the layers underneath. This is what lets the identify popover say "BNetzA
-             *     calls it X, over ITU's Y", and what keeps a co-primary service from vanishing.
-             */
             covered?: number[];
             /** Format: int32 */
             of: number;
@@ -1417,98 +1116,48 @@ export interface components {
             /** Format: double */
             stop_hz: number;
         };
-        /**
-         * @description A row of the ruler. The regulatory layers merge into one lane by most-specific-wins; an
-         *     overlay is a lane of its own, because it describes the same spectrum from a different angle
-         *     rather than contradicting it.
-         */
         BandLane: {
-            /**
-             * @description Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the
-             *     source tables are full of.
-             */
             blocks: components["schemas"]["BandBlock"][];
             id: string;
             name: string;
-            /** @description Whether the lane is supplementary and may be switched off without losing the allocation. */
             overlay: boolean;
         };
-        /**
-         * @description One source of allocations: a table someone published, identified so a block can say where it
-         *     came from. Adding a region is adding one of these plus its entries ('s "pluggable
-         *     importers"); nothing else in the resolution knows the difference.
-         */
         BandLayerInfo: {
-            /** @description Who publishes it — "ITU", "BNetzA", "Ofcom", "IARU Region 1". */
             authority: string;
             generator?: string;
-            /** @description Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]. */
             id: string;
             kind: components["schemas"]["BandLayerKind"];
             name: string;
-            /**
-             * Format: int32
-             * @description Least-specific first: where this layer sits when two of them cover one frequency. Ties
-             *     cannot happen — every layer in a region has a distinct rank.
-             */
+            /** Format: int32 */
             rank: number;
-            /**
-             * @description The document and edition the entries were taken from, so a stale table is visible rather
-             *     than merely wrong.
-             */
             source: string;
         };
         /** @enum {string} */
         BandLayerKind: "world" | "regulatory" | "amateur";
         BandPlan: {
-            /**
-             * @description Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]
-             *     index into this; it is also what the explorer searches, which is why search needs no
-             *     deduplication of its own.
-             */
             allocations: components["schemas"]["BandAllocation"][];
             lanes: components["schemas"]["BandLane"][];
-            /** @description Every layer the lanes reference, so a block's `layer` id resolves without a second call. */
             layers: components["schemas"]["BandLayerInfo"][];
             region: components["schemas"]["BandRegion"];
         };
-        /** @description A region the operator can select: the ITU region plus whichever regulator applies there. */
         BandRegion: {
-            /**
-             * @description ISO 3166-1 alpha-2 where the region is one country; `None` for the bare ITU regions and
-             *     for CEPT.
-             */
             country?: string | null;
             id: string;
             itu_region: components["schemas"]["ItuRegion"];
-            /** @description Layer ids, least specific first. */
             layers: string[];
             name: string;
             overlays?: string[];
         };
         BandRegionMatch: {
-            /**
-             * @description True when only the ITU region could be decided — the coordinate is outside every
-             *     national footprint this build ships, so the answer is coarse and the UI should say so.
-             */
             approximate: boolean;
             itu_region: components["schemas"]["ItuRegion"];
-            /**
-             * @description The most specific region whose footprint contains the coordinate; never empty, because
-             *     the three ITU regions cover the globe.
-             */
             region: string;
         };
         BandRegionsResponse: {
-            /** @description What a client with no stored preference should select. */
             default_region: string;
             regions: components["schemas"]["BandRegion"][];
         };
-        /**
-         * @description The service category a block belongs to. Drives the ruler's colour, so it is deliberately
-         *     coarse: ten categories a reader can hold in their head, not the ITU's full service list.
-         * @enum {string}
-         */
+        /** @enum {string} */
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
         Bookmark: {
             /** Format: double */
@@ -1517,13 +1166,8 @@ export interface components {
             /** Format: int64 */
             id: number;
             label: string;
-            /** @description Suggested channel type id (e.g. `"nfm"`), if any. */
             mode?: string | null;
         };
-        /**
-         * @description Periodic acquisition report from a wideband digital-broadcast channel. These values describe
-         *     the RF lock itself; absent service fields mean the multiplex has not been decoded.
-         */
         BroadcastStatus: {
             /** Format: int32 */
             ensemble_id?: number | null;
@@ -1539,64 +1183,25 @@ export interface components {
             symbol_rate?: number | null;
             system: components["schemas"]["BroadcastSystem"];
         };
-        /**
-         * @description Broadcast waveform identified by a standards-specific synchronizer.
-         * @enum {string}
-         */
+        /** @enum {string} */
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
             directional?: null | components["schemas"]["DirectionalCapabilities"];
-            /**
-             * @description Which directions this radio has, and whether it can run them together. Receive-only
-             *     unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
-             *     This is the *hardware's* shape, not a permission: transmit stays behind an
-             *     authorized-use switch that does not exist, so a `half` radio still transmits nothing.
-             */
             duplex?: components["schemas"]["Duplex"];
             extra?: components["schemas"]["ExtraSetting"][];
-            /** @description Tunable center-frequency ranges in Hz (multiple = discontiguous tuner ranges). */
             freq_ranges: components["schemas"]["Range"][];
             gains: components["schemas"]["GainStage"][];
-            /**
-             * @description Which settings each receive stream holds on its own. Which settings are per-stream is a
-             *     property of the *radio* — a coherent array shares one tuning by definition while a
-             *     two-daughterboard USRP genuinely has two — so the radio declares it, the same way it
-             *     declares gains and antennas.
-             */
             per_stream?: components["schemas"]["StreamScope"];
-            /**
-             * @description Whether the radio has a frequency-correction setting at all. Several do not — HackRF has
-             *     no correction register, SpyServer's protocol carries no such field, a Soapy tuner without
-             *     a `CORR` component cannot apply one — and their backends already refuse `ppm` outright,
-             *     while a recording and the signal generator swallow it and do nothing. Without this the
-             *     client drew the control on every device, so a knob that could only error, or only lie,
-             *     looked exactly like one that worked.
-             *
-             *     Defaults to *unsupported* for the same reason `duplex` defaults to receive-only: a
-             *     capability must be declared, never advertised by omission.
-             */
             ppm?: boolean;
-            /**
-             * Format: int32
-             * @description How many independent receive streams this radio delivers at once. One for an ordinary
-             *     SDR; a KrakenSDR is five coherent channels on one USB device, which is why this is a
-             *     count and not a bool. A device node draws one IQ output per stream.
-             */
+            /** Format: int32 */
             rx_streams?: number;
             sample_rate_range?: null | components["schemas"]["Range"];
-            /** @description Supported sample rates in samples/s. Empty means "continuous", use `sample_rate_range`. */
             sample_rates: number[];
-            /**
-             * Format: int32
-             * @description How many independent transmit streams it accepts. Reported for symmetry and for the
-             *     device picker; the canvas still draws a single reserved transmit input, because there is
-             *     nothing to wire into it until transmit lands.
-             */
+            /** Format: int32 */
             tx_streams?: number;
         };
-        /** @description Capabilities of one hardware channel in one signal direction. */
         ChannelCapabilities: {
             antennas: string[];
             bandwidth_ranges: components["schemas"]["Range"][];
@@ -1621,109 +1226,42 @@ export interface components {
             stream_formats?: string[];
         };
         ChannelDescriptor: {
-            /**
-             * Format: double
-             * @description Nominal RF bandwidth the channel needs, in Hz.
-             */
+            /** Format: double */
             bandwidth_hz: number;
             can_transmit?: boolean;
-            /**
-             * @description [`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client
-             *     uses it to pick the panel that renders the events.
-             */
             decoder_kind?: string | null;
             exact_rate_only?: boolean;
-            /**
-             * @description Whether the channel produces listenable audio. Data decoders ( wave 1) do
-             *     not, so the client hides their audio controls instead of offering a silent stream.
-             *     Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
-             */
             has_audio?: boolean;
-            /**
-             * @description Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
-             *     rather than as decoder events (ATV). The client subscribes and mounts a video
-             *     panel on the channel's face when this is set. Defaults to `false`, which is every mode
-             *     that predates the video transport.
-             */
             has_video?: boolean;
-            /**
-             * Format: double
-             * @description IQ rate the demod expects from the DDC, in Hz.
-             */
+            /** Format: double */
             input_rate_hz: number;
-            /** @description Display name, e.g. `"NFM"`, `"WFM (broadcast)"`. */
             name: string;
-            /**
-             * Format: double
-             * @description Set when the channel is handed the device's **own** samples — mixed to its offset, never
-             *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
-             *     highest, so a receiver is set anywhere in that range rather than to one exact number.
-             *
-             *     ADS-B preserves pulse timing, ATV retains wide chroma and sound subcarriers, and GNSS
-             *     retains chip timing. Mutually exclusive with `exact_rate_only`.
-             */
+            /** Format: double */
             native_rate_max_hz?: number | null;
-            /** @description Whether this channel accepts a live station position input. */
             needs_position?: boolean;
-            /** @description Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`. */
             type_id: string;
         };
-        /** @description A live channel instance inside a device set. */
         ChannelInfo: {
             audio_recording?: null | components["schemas"]["AudioRecordingStatus"];
             /** Format: int32 */
             id: number;
             settings: components["schemas"]["ChannelSettings"];
-            /**
-             * Format: int32
-             * @description Which of the device's receive streams feeds this channel. Defaults to 0 because a peer
-             *     that predates multi-stream devices names no stream and means the only one its radio has.
-             */
+            /** Format: int32 */
             stream?: number;
         };
-        /**
-         * @description One channel's live signal level.
-         *
-         *     Its own message rather than a field of [`crate::ChannelInfo`]: a level changes continuously,
-         *     and carrying it in the state snapshot would make every reading a state invalidation. Levels
-         *     are dBFS of the channel's filtered passband, where unit-magnitude IQ is 0 dBFS — the same
-         *     scale the squelch threshold is set on, so the two are directly comparable.
-         */
         ChannelLevel: {
             /** Format: int32 */
             channel: number;
-            /**
-             * Format: float
-             * @description Smoothed level: fast to rise, slow to fall.
-             */
+            /** Format: float */
             level_db: number;
-            /**
-             * Format: float
-             * @description Loudest recent level, held then decayed.
-             */
+            /** Format: float */
             peak_db: number;
-            /**
-             * Format: float
-             * @description Where the gate is actually opening, in the same dBFS as the levels above; absent while
-             *     the squelch is off. It rides with the level rather than with the channel's settings
-             *     because an automatic threshold *is* a measurement — it moves with the noise floor, and a
-             *     settings field that changed on its own would be a state invalidation per reading.
-             */
+            /** Format: float */
             squelch_db?: number | null;
         };
-        /**
-         * @description A channel node's payload. The *type* is topology — it decides the node's ports — while the
-         *     settings behind it stay on the engine's channel (module docs).
-         */
         ChannelNode: {
-            /** @description [`ChannelDescriptor::type_id`]: `"nfm"`, `"adsb"`, `"subghz"`, … */
             channel_type: string;
         };
-        /**
-         * @description Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
-         *     discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
-         *     every field at its default.
-         */
         ChannelParams: {
             settings: components["schemas"]["NfmParams"];
             /** @enum {string} */
@@ -1861,44 +1399,17 @@ export interface components {
             /** @enum {string} */
             type: "gnss";
         };
-        /**
-         * @description `POST /api/devicesets/{ds}/channels/{ch}/record` — start or stop recording one channel's
-         *     audio. The stream is not named here the way [`RecordRequest`] names one: a channel already
-         *     sits on exactly one of them.
-         */
         ChannelRecordRequest: {
             action: components["schemas"]["RecordAction"];
         };
-        /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
-            /**
-             * @description Blanker, filters, noise reduction and AGC. Shared by every voice mode rather than
-             *     written into each one's params, so what an operator learns on one channel is the same
-             *     control on the next.
-             */
             audio?: components["schemas"]["AudioProcessing"];
-            /**
-             * Format: double
-             * @description Offset from the device center frequency, in Hz.
-             */
+            /** Format: double */
             offset_hz?: number;
             params: components["schemas"]["ChannelParams"];
-            /**
-             * Format: float
-             * @description Track the channel's own noise floor and gate this many dB above it. Only means anything
-             *     while the squelch is on: `squelch_db: None` is a gate held open, and there is nothing for
-             *     a threshold to do in it.
-             */
+            /** Format: float */
             squelch_auto_db?: number | null;
-            /**
-             * Format: float
-             * @description Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied
-             *     bandwidth, not the full DDC passband); `None` = squelch open.
-             *
-             *     With `squelch_auto_db` set this is what the gate falls back to when the operator switches
-             *     tracking off again, not what it is currently gating on — the live threshold travels with
-             *     the channel's level, in [`crate::ChannelLevel::squelch_db`].
-             */
+            /** Format: float */
             squelch_db?: number | null;
         };
         ChannelTypesResponse: {
@@ -1918,60 +1429,27 @@ export interface components {
             /** @enum {string} */
             service: "matrix";
         };
-        /**
-         * @description How a check came out. `Warn` is "works, but something is degraded or absent"; `Fail` is
-         *     "this will not work as configured".
-         * @enum {string}
-         */
+        /** @enum {string} */
         CheckStatus: "ok" | "warn" | "fail";
-        /**
-         * @description Impulse removal in the demodulated audio: FM's own discriminator clicks, and the static
-         *     crashes that reach an envelope or product detector.
-         *
-         *     How wide a click can be is the *mode's* to say — a demodulator's clicks are as long as that
-         *     demodulator makes them — so the only thing set here is how far above the audio's own level a
-         *     sample has to sit before it is treated as one.
-         */
         ClickRemovalSettings: {
             enabled?: boolean;
-            /**
-             * Format: float
-             * @description Multiple of the audio's average magnitude. Lower cuts more, and eventually starts taking
-             *     the edge off consonants.
-             */
+            /** Format: float */
             threshold?: number;
         };
         ClientCommand: {
-            /** @description Start receiving spectrum frames for a device set at the requested rate/resolution. */
             data: {
-                /**
-                 * Format: int32
-                 * @description Requested display bins (≤ 4096); server clamps.
-                 */
+                /** Format: int32 */
                 bins: number;
                 /** Format: int32 */
                 device_set: number;
-                /**
-                 * Format: int32
-                 * @description Requested frame rate; server clamps to its supported range.
-                 */
+                /** Format: int32 */
                 fps: number;
-                /**
-                 * Format: int32
-                 * @description Which receive stream's spectrum. Defaults to 0 so a client that predates
-                 *     multi-stream devices keeps its subscription; which stream a binary frame carries is
-                 *     implicit in this subscription, never a frame header field.
-                 */
+                /** Format: int32 */
                 stream?: number;
             };
             /** @enum {string} */
             type: "SubscribeSpectrum";
         } | {
-            /**
-             * @description Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates
-             *     multi-stream radios ends the subscription it started; without it, unsubscribing one scope
-             *     would silence every other lane of the same radio on this connection.
-             */
             data: {
                 /** Format: int32 */
                 device_set: number;
@@ -1981,7 +1459,6 @@ export interface components {
             /** @enum {string} */
             type: "UnsubscribeSpectrum";
         } | {
-            /** @description Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`. */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -1991,7 +1468,6 @@ export interface components {
             /** @enum {string} */
             type: "SubscribeAudio";
         } | {
-            /** @description Stop the audio stream for a channel. */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -2001,11 +1477,6 @@ export interface components {
             /** @enum {string} */
             type: "UnsubscribeAudio";
         } | {
-            /**
-             * @description Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);
-             *     answered with `VideoStreamStarted`. A channel with no video refuses rather than opening a
-             *     stream that would never carry a frame.
-             */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -2015,7 +1486,6 @@ export interface components {
             /** @enum {string} */
             type: "SubscribeVideo";
         } | {
-            /** @description Stop the video stream for a channel. */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -2025,14 +1495,6 @@ export interface components {
             /** @enum {string} */
             type: "UnsubscribeVideo";
         } | {
-            /**
-             * @description Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at
-             *     the channel's own rate; answered with `IqStreamStarted`.
-             *
-             *     The burst size and cadence are the server's, not the client's: they are what bounds the
-             *     bandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a
-             *     per-subscriber choice would have several clients of one channel disagree about them.
-             */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -2042,7 +1504,6 @@ export interface components {
             /** @enum {string} */
             type: "SubscribeIq";
         } | {
-            /** @description Stop the baseband stream for a channel. */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -2052,10 +1513,6 @@ export interface components {
             /** @enum {string} */
             type: "UnsubscribeIq";
         } | {
-            /**
-             * @description A fix from the desktop WebView's geolocation provider. The server accepts this only for
-             *     a device-position node in the active workspace.
-             */
             data: {
                 error?: string | null;
                 fix?: null | components["schemas"]["PositionFix"];
@@ -2064,26 +1521,12 @@ export interface components {
             /** @enum {string} */
             type: "PublishPosition";
         };
-        /**
-         * @description `GET /api/clients` — how many clients share this server right now ( M5
-         *     multi-client). Includes the caller.
-         */
         ClientsResponse: {
             /** Format: int32 */
             clients: number;
         };
-        /**
-         * @description Which part of the product a component arrives through.
-         *
-         *     The distinction is about how it reaches the user, not about language: [`Native`] components
-         *     are shipped as libraries next to the binary and loaded at runtime, so their obligations
-         *     attach to the installer rather than to the executable.
-         *
-         *     [`Native`]: ComponentSource::Native
-         * @enum {string}
-         */
+        /** @enum {string} */
         ComponentSource: "rust" | "web" | "native";
-        /** @description `POST /api/bookmarks`. */
         CreateBookmarkRequest: {
             /** Format: double */
             freq_hz: number;
@@ -2091,73 +1534,49 @@ export interface components {
             label: string;
             mode?: string | null;
         };
-        /** @description `POST /api/devicesets/{ds}/channels` — add a channel to a device set. */
         CreateChannelRequest: {
             settings: components["schemas"]["ChannelSettings"];
-            /**
-             * Format: int32
-             * @description Which of the device's receive streams the channel taps. Defaults to 0 so a client that
-             *     predates multi-stream devices keeps meaning the only stream its radio has; out of range
-             *     is a bad request naming the count, never a silent fallback.
-             */
+            /** Format: int32 */
             stream?: number;
         };
-        /** @description `POST /api/devicesets` — open a device into a new device set. */
         CreateDeviceSetRequest: {
-            /** @description `driver:key`, matching a [`DeviceInfo`] from `GET /api/devices`. */
             device_id: string;
         };
-        /** @description Identifier returned when an engine resource (device set, channel) is created. */
         CreatedId: {
             /** Format: int32 */
             id: number;
         };
-        /** @description Identifier returned when a persistence row (preset, bookmark) is created. */
         CreatedRowId: {
             /** Format: int64 */
             id: number;
         };
-        /** @description `POST /api/presets` — snapshot the active workspace's radios under a name. */
         CreatePresetRequest: {
             name: string;
         };
-        /** @description `POST /api/workspaces`. */
         CreateWorkspaceRequest: {
             name: string;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
-        /**
-         * @description DAB generations share the same EN 300 401 Mode I RF waveform. `Auto` reports the ensemble
-         *     without assuming which audio component type its FIC will eventually announce.
-         * @enum {string}
-         */
+        /** @enum {string} */
         DabMode: "auto" | "dab" | "dab_plus";
         DabParams: {
             mode?: components["schemas"]["DabMode"];
         };
         DatvParams: {
             standard?: components["schemas"]["DatvStandard"];
-            /**
-             * Format: double
-             * @description Symbol rate in baud. The channel rate supports narrow-band amateur television carriers
-             *     through 1 MBd; wider transponders need a receiver stream wider than this channel type.
-             */
+            /** Format: double */
             symbol_rate?: number;
         };
         /** @enum {string} */
         DatvStandard: "dvb_s" | "dvb_s2";
         DecodedRecord: {
-            /** @description RFC3339 UTC. */
             at: string;
             /** Format: int32 */
             channel: number;
             /** Format: int32 */
             device_set: number;
             event: components["schemas"]["DecoderEvent"];
-            /**
-             * Format: double
-             * @description Absolute RF frequency of the channel when the frame arrived, in Hz.
-             */
+            /** Format: double */
             freq_hz: number;
         };
         DecoderEvent: {
@@ -2249,13 +1668,7 @@ export interface components {
             /** @enum {string} */
             kind: "gnss";
         };
-        /**
-         * @description One stored decoder frame (: decoder logs are queryable and exportable, not
-         *     scroll-back-only). The typed `event` is stored verbatim so an export loses nothing;
-         *     `kind`, `summary` and `station` are the indexed projections the list view filters on.
-         */
         DecoderLogEntry: {
-            /** @description RFC3339 UTC. */
             at: string;
             /** Format: int32 */
             channel: number;
@@ -2266,90 +1679,53 @@ export interface components {
             freq_hz: number;
             /** Format: int64 */
             id: number;
-            /** @description [`crate::DecoderEvent::kind`] of `event`. */
             kind: string;
             node?: string | null;
-            /** @description Emitter identity within the decoder (ICAO, MMSI, callsign, pager address). */
             station?: string | null;
             summary: string;
         };
-        /** @description `GET /api/decoderlog` — newest first, bounded by the requested `limit`. */
         DecoderLogResponse: {
-            /**
-             * Format: int64
-             * @description Frames dropped on the way to the log since the server started, because a consumer
-             *     fell behind (: bounded queues surface their loss).
-             */
+            /** Format: int64 */
             dropped: number;
             entries: components["schemas"]["DecoderLogEntry"][];
-            /**
-             * Format: int64
-             * @description Rows matching the filter, ignoring `limit`.
-             */
+            /** Format: int64 */
             total: number;
         };
-        /** @description `DELETE /api/decoderlog` — how many rows the filtered clear removed. */
         DeletedCount: {
             /** Format: int64 */
             deleted: number;
         };
-        /** @description Spectral noise reduction. */
         DenoiseSettings: {
             enabled?: boolean;
-            /**
-             * Format: float
-             * @description How much of the tracked noise floor is subtracted, `0.0..=1.0`. Past the middle of the
-             *     range the residue starts to sound processed, which is a taste, not a fault.
-             */
+            /** Format: float */
             strength?: number;
         };
         DeviceInfo: {
-            /** @description Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, … */
             driver: string;
-            /** @description Stable per-device key within a driver (serial, index, or file path). */
             key: string;
-            /** @description Human label for the device picker. */
             label: string;
             profile?: null | components["schemas"]["DeviceProfile"];
-            /** @description Serial number when the driver exposes one (used to collapse probe duplicates). */
             serial?: string | null;
         };
         DeviceNode: {
             device?: null | components["schemas"]["DeviceRef"];
         };
-        /**
-         * @description The part of a radio's capability that is a property of the model rather than the unit.
-         *
-         *     Split out so it can be answered twice from one declaration: by a probe, which has only a USB
-         *     descriptor, and by [`Capabilities::profile`] on a radio that is already open. Nothing
-         *     constructs it by hand — it is always a projection of a full capability set, which is what
-         *     keeps the two from drifting.
-         */
         DeviceProfile: {
             duplex: components["schemas"]["Duplex"];
-            /** @description Tunable centre-frequency ranges in Hz (multiple = discontiguous tuner ranges). */
             freq_ranges: components["schemas"]["Range"][];
-            /**
-             * @description Which settings each stream holds on its own — a property of the model, so the picker can
-             *     tell a coherent array from a bank of independent tuners without opening the radio.
-             */
             per_stream?: components["schemas"]["StreamScope"];
             /** Format: int32 */
             rx_streams: number;
             sample_rate_range?: null | components["schemas"]["Range"];
-            /** @description Supported sample rates in samples/s. Empty means "continuous", use `sample_rate_range`. */
             sample_rates: number[];
             /** Format: int32 */
             tx_streams: number;
         };
         DeviceRef: {
-            /** @description Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`. */
             backend: string;
-            /** @description Per-driver key, used without a serial or to distinguish variants sharing one serial. */
             key?: string | null;
             serial?: string | null;
         };
-        /** @description One opened device and everything hosted on it (: "one device set per opened device"). */
         DeviceSet: {
             capabilities: components["schemas"]["Capabilities"];
             channels: components["schemas"]["ChannelInfo"][];
@@ -2358,12 +1734,7 @@ export interface components {
             /** Format: int32 */
             id: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
-            /**
-             * Format: int64
-             * @description Cumulative device samples dropped at the capture ring since the set opened. Growth
-             *     means the DSP thread cannot keep up — audio and spectrum have gaps even while
-             *     `status` stays `running` ( backpressure; CLAUDE.md no-silent-failure).
-             */
+            /** Format: int64 */
             overruns?: number;
             playback?: null | components["schemas"]["PlaybackStatus"];
             recording?: null | components["schemas"]["RecordingStatus"];
@@ -2371,18 +1742,11 @@ export interface components {
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
         };
-        /**
-         * @description Runtime status of a device set's capture.
-         * @enum {string}
-         */
+        /** @enum {string} */
         DeviceSetStatus: "idle" | "running" | "error";
-        /** @description A mutation applied to a device. Absent fields are left unchanged ( PATCH device). */
         DeviceSettings: {
             antenna?: string | null;
-            /**
-             * Format: double
-             * @description Hardware baseband filter bandwidth in Hz.
-             */
+            /** Format: double */
             bandwidth?: number | null;
             /** Format: double */
             center_hz?: number | null;
@@ -2392,24 +1756,13 @@ export interface components {
             ppm?: number | null;
             /** Format: double */
             sample_rate?: number | null;
-            /**
-             * @description Per-stream overrides, by stream index. Only the fields [`Capabilities::per_stream`] marks
-             *     as per-stream are read here; the rest are the radio's and live above.
-             */
             streams?: components["schemas"]["StreamSettings"][];
         };
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
         };
-        /**
-         * @description One signal direction.
-         * @enum {string}
-         */
+        /** @enum {string} */
         Direction: "rx" | "tx";
-        /**
-         * @description Directional and runtime capabilities that cannot be represented by the legacy channel-0
-         *     receiver fields on [`Capabilities`].
-         */
         DirectionalCapabilities: {
             clock_source?: string | null;
             clock_sources?: string[];
@@ -2431,11 +1784,7 @@ export interface components {
             ignore_crc?: boolean;
             slots?: components["schemas"]["DmrSlots"];
         };
-        /**
-         * @description Which DMR timeslot a channel reports and plays. Both slots share one 12.5 kHz carrier in
-         *     30 ms alternation, so the receiver always hears both; this decides what reaches its outputs.
-         * @enum {string}
-         */
+        /** @enum {string} */
         DmrSlots: "both" | "one" | "two";
         DmrTrunkNode: {
             protocol?: components["schemas"]["DmrTrunkProtocol"];
@@ -2444,50 +1793,28 @@ export interface components {
         };
         /** @enum {string} */
         DmrTrunkProtocol: "auto" | "capacity_plus" | "hytera_xpt" | "tier_three";
-        /** @description One diagnostic line. */
         DoctorCheck: {
-            /** @description What was actually found. */
             detail: string;
-            /** @description What to do about it, when there is something to do. */
             hint?: string | null;
-            /** @description Short stable identifier, e.g. `"backend.rtlsdr"`. */
             id: string;
-            /** @description Human label, e.g. `"RTL-SDR (native)"`. */
             name: string;
             status: components["schemas"]["CheckStatus"];
         };
-        /** @description `GET /api/doctor` / `sdrmm --doctor`. */
         DoctorReport: {
             checks: components["schemas"]["DoctorCheck"][];
-            /** @description `os/arch` of the running build. */
             platform: string;
-            /** @description Server version (`CARGO_PKG_VERSION`). */
             version: string;
         };
-        /** @description dPMR (C4FM, 2400 symbols/s, 6.25 kHz). */
         DpmrParams: Record<string, never>;
         /** @enum {string} */
         DrmMode: "auto" | "drm30" | "drm_plus";
         DrmParams: {
-            /**
-             * Format: double
-             * @description Occupied bandwidth in Hz. DRM30 accepts the standardized 4.5–20 kHz occupancies;
-             *     DRM+ and `Auto` use a 100 kHz slice so automatic mode can search both waveform families.
-             */
+            /** Format: double */
             bandwidth_hz?: number;
             mode?: components["schemas"]["DrmMode"];
         };
-        /** @description D-Star (GMSK, 4800 bit/s). */
         DstarParams: Record<string, never>;
-        /**
-         * @description What a radio's hardware can do, and whether it can do it at once.
-         *
-         *     It lives here rather than in the device crate because it is the answer to "what *kind* of
-         *     radio is this" that a workspace template filters on and the canvas draws ports from — the
-         *     arbitration that uses it ([`sdrmm-device`'s `DuplexState`]) is a separate thing, and stays
-         *     with the backends.
-         * @enum {string}
-         */
+        /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         DvChannelDefinition: {
             /** Format: int32 */
@@ -2502,44 +1829,20 @@ export interface components {
         DvFrame: {
             /** Format: int32 */
             algorithm_id?: number | null;
-            /**
-             * Format: int32
-             * @description Logical or absolute channel number named by trunking signalling.
-             */
+            /** Format: int32 */
             channel?: number | null;
             channel_definition?: null | components["schemas"]["DvChannelDefinition"];
-            /**
-             * Format: int32
-             * @description The mode's network discriminator, under whichever name it publishes: DMR colour code,
-             *     NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
-             */
+            /** Format: int32 */
             color_code?: number | null;
-            /**
-             * @description Whether the frame's own CRC matched. `Some(false)` survived only because the channel was
-             *     told to ignore the check, so nothing may act on it.
-             */
             crc_verified?: boolean | null;
-            /** @description Decoded packet text, or hexadecimal when its application format is not understood. */
             data?: string | null;
-            /**
-             * Format: int32
-             * @description Numeric destination: talkgroup for a group call, radio ID for a private one.
-             */
+            /** Format: int32 */
             destination?: number | null;
             destination_call?: string | null;
             emergency?: boolean | null;
-            /**
-             * @description Set when the frame says its payload is encrypted. `Some(false)` is a positive statement
-             *     that it is in the clear; `None` means the frame did not say.
-             */
             encrypted?: boolean | null;
-            /**
-             * Format: int32
-             * @description Bit errors the frame's error-correcting codes repaired — the honest signal-quality
-             *     readout, since a mode with no audio has no other.
-             */
+            /** Format: int32 */
             errors_corrected: number;
-            /** @description True for a talkgroup call, false for a call addressed to one radio. */
             group_call?: boolean | null;
             /** Format: int32 */
             key_id?: number | null;
@@ -2551,67 +1854,35 @@ export interface components {
             lon?: number | null;
             /** Format: int32 */
             manufacturer_id?: number | null;
-            /** @description P25 encryption message indicator as the 72-bit hexadecimal value on the wire. */
             message_indicator?: string | null;
             mode: components["schemas"]["DvMode"];
             /** Format: int32 */
             network_id?: number | null;
-            /**
-             * @description Name of the signalling opcode for a control frame — "group voice channel grant",
-             *     "preamble", … — as its specification names it.
-             */
             opcode?: string | null;
             /** Format: int32 */
             position_error_m?: number | null;
-            /**
-             * Format: int32
-             * @description Capacity Plus logical slot number carrying the rest channel.
-             */
+            /** Format: int32 */
             rest_channel?: number | null;
             /** Format: int32 */
             site_id?: number | null;
-            /**
-             * Format: int32
-             * @description TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.
-             */
+            /** Format: int32 */
             slot?: number | null;
             slot_activity?: components["schemas"]["DvSlotActivity"][];
-            /**
-             * Format: int32
-             * @description Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.
-             */
+            /** Format: int32 */
             source?: number | null;
-            /** @description Source callsign — the modes that address by callsign rather than by number. */
             source_call?: string | null;
             /** Format: int32 */
             system_id?: number | null;
-            /** @description DMR talker alias assembled from its header and continuation LCs. */
             talker_alias?: string | null;
-            /**
-             * @description Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta
-             *     field.
-             */
             text?: string | null;
             trunk_protocol?: null | components["schemas"]["DvTrunkProtocol"];
             vendor?: null | components["schemas"]["Vendor"];
-            /** @description The repeater or reflector the call is routed through: D-Star RPT1/RPT2. */
             via?: string | null;
         };
-        /**
-         * @description What the burst was carrying. Every mode distinguishes these four, whatever it calls them:
-         *     the frame that opens a transmission and names the parties, the voice frames that follow,
-         *     the one that closes it, and the signalling that travels outside a call.
-         * @enum {string}
-         */
+        /** @enum {string} */
         DvFrameKind: "header" | "voice" | "terminator" | "control" | "data";
-        /**
-         * @description Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type
-         *     serves all of them because the *question* is the same in every mode — who is talking, to
-         *     whom, on which network — and only the names for it differ.
-         * @enum {string}
-         */
+        /** @enum {string} */
         DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17" | "freedv";
-        /** @description Activity advertised for one DMR timeslot by a Short LC activity update. */
         DvSlotActivity: {
             activity: string;
             /** Format: int32 */
@@ -2619,27 +1890,14 @@ export interface components {
             /** Format: int32 */
             slot: number;
         };
-        /**
-         * @description What the signalling turned out to be. An observation, so it has no "auto" —
-         *     [`crate::DmrTrunkProtocol`] is what an operator asks the node for.
-         * @enum {string}
-         */
+        /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
         EventAudio: {
             media_type: string;
             url: string;
         };
-        /**
-         * @description Export format for `GET /api/decoderlog/export/{format}` (: CSV/JSON). It is a
-         *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
-         *     [`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.
-         * @enum {string}
-         */
+        /** @enum {string} */
         ExportFormat: "csv" | "json";
-        /**
-         * @description A typed device-specific setting the client renders generically when it has no
-         *     first-class UI (: "typed extra settings").
-         */
         ExtraSetting: {
             default: boolean;
             /** @enum {string} */
@@ -2656,10 +1914,6 @@ export interface components {
             /** @enum {string} */
             kind: "enum";
             name: string;
-            /**
-             * @description The values the setting accepts, each carrying the driver's own words for it where it
-             *     has them: `direct_samp` is written as `0`/`1`/`2` and read as Off/I-ADC/Q-ADC.
-             */
             options: components["schemas"]["ArgumentOption"][];
         } | {
             default: string;
@@ -2667,34 +1921,25 @@ export interface components {
             kind: "string";
             name: string;
         };
-        /** @description A value for one [`ExtraSetting`], keyed by its name. `value` is bool/number/string. */
         ExtraValue: {
             name: string;
             value: unknown;
         };
-        /**
-         * @description FreeDV air-interface generation. The initial implementation supports the interoperable
-         *     1600 mode; making the generation explicit prevents a future default change from silently
-         *     selecting an incompatible waveform on a saved channel.
-         * @enum {string}
-         */
+        /** @enum {string} */
         FreeDvMode: "mode1600";
         FreeDvParams: {
             mode?: components["schemas"]["FreeDvMode"];
             sideband?: components["schemas"]["Sideband"];
         };
-        /** @description A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA). */
         GainStage: {
             name: string;
             range: components["schemas"]["Range"];
         };
-        /** @description A gain-stage value in dB, keyed by the stage name from [`GainStage`]. */
         GainValue: {
             stage: string;
             /** Format: double */
             value_db: number;
         };
-        /** @description GPS L1 C/A acquisition state or one parity-checked NAV subframe. */
         GnssFrame: {
             /** Format: float */
             cn0_db_hz: number;
@@ -2712,223 +1957,93 @@ export interface components {
             week?: number | null;
             words?: string[];
         };
-        /** @description Educational GPS L1 C/A acquisition and NAV-message settings. */
         GnssParams: {
-            /**
-             * Format: int32
-             * @description Symmetric acquisition search span around the tuned L1 carrier.
-             */
+            /** Format: int32 */
             doppler_hz?: number;
-            /**
-             * Format: int32
-             * @description Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result
-             *     inspectable and bounds the work done on the DSP thread.
-             */
+            /** Format: int32 */
             prn?: number;
-            /**
-             * Format: float
-             * @description Acquisition peak divided by the mean correlation floor.
-             */
+            /** Format: float */
             threshold?: number;
         };
         GpsNode: {
             source?: components["schemas"]["PositionSource"];
         };
         GroundPlaneParams: {
-            /**
-             * Format: double
-             * @description How far the radials droop below horizontal. Sloping them raises the feedpoint
-             *     impedance from about 36 Ω towards 50 Ω.
-             */
+            /** Format: double */
             radial_slope_deg?: number;
             /** Format: int32 */
             radials?: number;
         };
-        /**
-         * @description The measurements a classification was made from, carried so the decision can be checked
-         *     rather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,
-         *     not just the verdict.
-         */
         IdentFeatures: {
-            /**
-             * Format: float
-             * @description The strongest spectral line over the median of the occupied band, in dB — how much of
-             *     a carrier there is.
-             */
+            /** Format: float */
             carrier_db: number;
-            /**
-             * Format: float
-             * @description Fraction of the observation the carrier was keyed on. 1.0 for a continuous transmission.
-             */
+            /** Format: float */
             duty: number;
-            /**
-             * Format: float
-             * @description Standard deviation of the envelope over its own mean. Zero for a constant-envelope
-             *     mode, large for anything that carries information in amplitude.
-             */
+            /** Format: float */
             envelope_variation: number;
-            /**
-             * Format: int32
-             * @description Instantaneous-frequency levels the discriminator resolved: 2 or 4 for keyed modes, 1
-             *     for a carrier, 0 when the distribution is a continuum.
-             */
+            /** Format: int32 */
             frequency_levels: number;
-            /**
-             * Format: double
-             * @description Spread of the instantaneous frequency, in Hz — the deviation of an analog FM signal,
-             *     and roughly the outer deviation of a keyed one.
-             */
+            /** Format: double */
             frequency_spread_hz: number;
-            /**
-             * Format: float
-             * @description Keyed-on level over keyed-off level, in dB — how deep the keying goes, which is what
-             *     separates a switched carrier from one that is merely fading.
-             */
+            /** Format: float */
             keying_depth_db: number;
-            /**
-             * Format: float
-             * @description The same for the fourth power, which is what QPSK makes.
-             */
+            /** Format: float */
             quartic_line_db: number;
-            /**
-             * Format: float
-             * @description Power imbalance about the strongest spectral line, `(upper − lower) / total`. Zero for
-             *     a symmetric spectrum (AM, FM, most digital modes), ±1 for a single sideband.
-             */
+            /** Format: float */
             spectral_asymmetry: number;
-            /**
-             * Format: float
-             * @description Wiener entropy of the occupied band: 1.0 is white, 0.0 is a single tone.
-             */
+            /** Format: float */
             spectral_flatness: number;
-            /**
-             * Format: float
-             * @description Strength of the spectral line the squared signal produces, over its own floor, in dB.
-             *     A BPSK signal makes one; so does MSK, which is why the FSK tests run first.
-             */
+            /** Format: float */
             square_line_db: number;
         };
-        /**
-         * @description The signal identifier: what to search, how often to answer, and how loud a thing has to be
-         *     before it is one.
-         */
         IdentParams: {
-            /**
-             * Format: double
-             * @description Slice searched for a signal, in Hz. Wide by default because the point of the mode is to
-             *     be pointed at something unknown — narrowing it is what an operator does once they can
-             *     see where the thing actually sits.
-             */
+            /** Format: double */
             bandwidth_hz?: number;
-            /**
-             * Format: int32
-             * @description Milliseconds between reports. Each one analyses the samples since the last, so this is
-             *     both the report cadence and the observation the answer stands on — up to a little over a
-             *     second, past which the cadence keeps lengthening and each report describes the second
-             *     before it rather than the whole gap.
-             */
+            /** Format: int32 */
             interval_ms?: number;
-            /**
-             * Format: float
-             * @description How far above the measured noise floor a bin must sit to be part of a signal, in dB.
-             */
+            /** Format: float */
             threshold_db?: number;
         };
-        /**
-         * @description What the signal identifier made of the slice it was pointed at.
-         *
-         *     Emitted on a cadence rather than per frame: there is no frame here. Each report describes one
-         *     observation window, so a stream of them is a record of what was on the air and when.
-         */
         IdentReport: {
-            /**
-             * Format: double
-             * @description Occupied bandwidth, in Hz.
-             */
+            /** Format: double */
             bandwidth_hz: number;
-            /** @description Protocols that fit, best first. */
             candidates?: components["schemas"]["ProtocolMatch"][];
-            /**
-             * Format: double
-             * @description Where the signal's centre sits relative to the channel's own offset, in Hz — how far
-             *     the operator is off tune.
-             */
+            /** Format: double */
             center_offset_hz: number;
-            /**
-             * Format: float
-             * @description How firmly the classifier held that answer, 0 to 1.
-             */
+            /** Format: float */
             confidence: number;
-            /**
-             * Format: double
-             * @description Peak frequency deviation of a keyed or analog FM signal, in Hz.
-             */
+            /** Format: double */
             deviation_hz?: number | null;
             features: components["schemas"]["IdentFeatures"];
             modulation: components["schemas"]["Modulation"];
             sideband?: null | components["schemas"]["Sideband"];
-            /**
-             * Format: float
-             * @description Signal-to-noise ratio in the occupied band, in dB.
-             */
+            /** Format: float */
             snr_db: number;
-            /**
-             * Format: double
-             * @description Symbols per second, when a symbol clock was found.
-             */
+            /** Format: double */
             symbol_rate_hz?: number | null;
         };
         InvertedVParams: {
-            /**
-             * Format: double
-             * @description Angle between the two legs. 180° is a flat dipole; the legs shorten as it closes.
-             */
+            /** Format: double */
             apex_angle_deg?: number;
         };
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
-        /**
-         * @description `GET /api/about/licenses/{id}` — one license text, addressed by content.
-         *
-         *     Texts are addressed by a hash of themselves because that is what deduplicates them: several
-         *     hundred crates offer Apache-2.0 and ship byte-identical copies of it, while every MIT copy
-         *     differs in its copyright line and none may be collapsed into another. Content addressing
-         *     keeps the first case cheap without lying about the second.
-         */
         LicenseTextResponse: {
             id: string;
             text: string;
         };
-        /** @description M17 (C4FM, 4800 symbols/s, RRC 0.5). */
         M17Params: Record<string, never>;
-        /**
-         * @description The modulation family a [`IdentReport`] settled on.
-         *
-         *     Coarse on purpose. What a receiver can read off an unknown waveform is how its envelope, its
-         *     instantaneous frequency and its spectrum behave, and those separate *families* — they do not
-         *     separate the variants inside one, which is what the protocol candidates are for.
-         * @enum {string}
-         */
+        /** @enum {string} */
         Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "psk2" | "psk4" | "noise_like" | "unknown";
         MorseParams: {
-            /**
-             * Format: double
-             * @description Width of the CW filter around the channel offset, in Hz.
-             */
+            /** Format: double */
             bandwidth_hz?: number;
-            /**
-             * Format: float
-             * @description Fixed sending speed in words per minute; `None` tracks the speed from the signal.
-             */
+            /** Format: float */
             wpm?: number | null;
         };
-        /** @description A run of decoded Morse characters plus the speed the tracker settled on. */
         MorseText: {
             text: string;
-            /**
-             * Format: float
-             * @description Estimated sending speed in words per minute (PARIS standard).
-             */
+            /** Format: float */
             wpm: number;
         };
         NanoVnaCalibrateRequest: components["schemas"]["NanoVnaCalStep"] & {
@@ -2942,10 +2057,6 @@ export interface components {
             raw: string;
             standards: components["schemas"]["NanoVnaStandard"][];
         };
-        /**
-         * @description One move in the guided calibration. Each maps to a `cal` subcommand on the instrument, so a
-         *     panel walking an operator through open/short/load/thru never has to build shell text itself.
-         */
         NanoVnaCalStep: {
             /** @enum {string} */
             step: "status";
@@ -3006,7 +2117,6 @@ export interface components {
             /** Format: int32 */
             usb_vid?: number | null;
         };
-        /** @description Everything the instrument will say about itself, read back over the shell. */
         NanoVnaDeviceReport: {
             /** Format: int32 */
             bandwidth_hz?: number | null;
@@ -3022,10 +2132,7 @@ export interface components {
             harmonic_threshold_hz?: number | null;
             info: string[];
             port: string;
-            /**
-             * Format: int32
-             * @description The drive level the firmware reports, where 255 is its own automatic choice.
-             */
+            /** Format: int32 */
             power?: number | null;
             /** Format: double */
             s21_offset_db?: number | null;
@@ -3033,12 +2140,7 @@ export interface components {
             /** Format: int64 */
             tcxo_hz?: number | null;
         };
-        /**
-         * @description How sure discovery is that a port carries a VNA. USB serial numbers are shared across whole
-         *     families of boards, so a matching id alone is `Probable` and only the product or vendor
-         *     string promotes it to `Confirmed`.
-         * @enum {string}
-         */
+        /** @enum {string} */
         NanoVnaMatch: "confirmed" | "probable";
         NanoVnaPoint: {
             /** Format: int64 */
@@ -3064,11 +2166,6 @@ export interface components {
         });
         NanoVnaResult: {
             devices: components["schemas"]["NanoVnaDevice"][];
-            /**
-             * @description Serial ports that are present but are not a VNA, by name only — the panel lists
-             *     instruments, and an operator whose clone went unrecognised still needs to see that
-             *     the port exists before typing it in.
-             */
             ignored_ports: string[];
             /** @enum {string} */
             kind: "devices";
@@ -3113,62 +2210,30 @@ export interface components {
             /** Format: int64 */
             stop_hz: number;
         };
-        /**
-         * @description One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
-         *     parsed out because that is what a receiver filters on — station, subject and serial are how
-         *     a ship decides whether it has already seen this message.
-         */
         NavtexMessage: {
-            /**
-             * @description True when the broadcast ended with `NNNN`; false when the carrier or the phasing was
-             *     lost and the partial text was flushed instead.
-             */
             complete: boolean;
-            /**
-             * Format: int32
-             * @description Characters the mode-B time diversity repaired from the repeat copy.
-             */
+            /** Format: int32 */
             errors_corrected: number;
-            /**
-             * Format: int32
-             * @description B3B4 — serial number, 00–99, which a receiver uses to suppress repeats.
-             */
+            /** Format: int32 */
             serial?: number | null;
-            /** @description B1 — transmitting station within the NAVAREA. */
             station?: string | null;
-            /** @description B2 — subject indicator. */
             subject?: string | null;
-            /** @description Plain-language meaning of [`NavtexMessage::subject`] (ITU-R M.540 Annex 2). */
             subject_name?: string | null;
             text: string;
         };
-        /**
-         * @description NAVTEX is a single-purpose broadcast: 100 baud, 170 Hz shift, CCIR 476 (ITU-R M.540), so
-         *     there is nothing to tune but the sideband the receiver happens to be on.
-         */
         NavtexParams: {
-            /** @description Swap mark and space (equivalent to reversing the sideband). */
             invert?: boolean;
         };
         /** @enum {string} */
         NetworkExportAction: "start" | "stop";
         NetworkExportNode: components["schemas"]["NetworkExportSettings"];
-        /** @description `POST /api/devicesets/{ds}/network-export`. */
         NetworkExportRequest: {
             action: components["schemas"]["NetworkExportAction"];
-            /** @description Patch-node identity. A set permits one active exporter and only its owner may stop it. */
             node: string;
             settings?: components["schemas"]["NetworkExportSettings"];
             /** Format: int32 */
             stream?: number;
         };
-        /**
-         * @description An unframed, interleaved IQ stream sent to a network analysis tool.
-         *
-         *     UDP preserves datagram boundaries but carries no sequence header. TCP is one continuous byte
-         *     stream. In both cases the receiver must be configured with the radio's sample rate and center
-         *     frequency separately.
-         */
         NetworkExportSettings: {
             /** @default 127.0.0.1:7355 */
             address: string;
@@ -3184,10 +2249,7 @@ export interface components {
             center_hz: number;
             error?: string | null;
             node: string;
-            /**
-             * Format: int64
-             * @description Capture-ring samples lost while this export was active.
-             */
+            /** Format: int64 */
             overruns: number;
             /** Format: int64 */
             packets: number;
@@ -3206,29 +2268,14 @@ export interface components {
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
-            /**
-             * Format: double
-             * @description The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything
-             *     else is refused, because the detector only searches those.
-             */
+            /** Format: double */
             ctcss_hz?: number | null;
-            /**
-             * Format: int32
-             * @description The DCS code to open on, as the three octal digits a radio displays — `23` for 023,
-             *     `754` for 754. One of the 83 standard codes.
-             *
-             *     The standard list is not a convenience: the Golay code DCS is built on is cyclic, so
-             *     only a set with no rotation aliasing between its members can be read back unambiguously
-             *     from a continuously repeating word. A code's *inverse* is another code in the list —
-             *     023 received through an inverted discriminator is 047 — so there is no polarity switch
-             *     here, and none on a radio either.
-             */
+            /** Format: int32 */
             dcs_code?: number | null;
             tone_mode?: components["schemas"]["NfmToneMode"];
         };
         /** @enum {string} */
         NfmToneMode: "off" | "detect" | "ctcss" | "dcs";
-        /** @description One serial port the server can currently offer to an NMEA GPS node. */
         NmeaDeviceInfo: {
             manufacturer?: string | null;
             path: string;
@@ -3264,7 +2311,6 @@ export interface components {
             /** @enum {string} */
             kind: "map";
         } | {
-            /** @description A drive survey of one RF slice, pairing spectrum power with GPS fixes. */
             data: components["schemas"]["SignalMapNode"];
             /** @enum {string} */
             kind: "signal_map";
@@ -3292,7 +2338,6 @@ export interface components {
             /** @enum {string} */
             kind: "audio_recorder";
         } | {
-            /** @description Unframed raw IQ sent over UDP datagrams or a TCP byte stream. */
             data: components["schemas"]["NetworkExportNode"];
             /** @enum {string} */
             kind: "network_export";
@@ -3305,113 +2350,52 @@ export interface components {
         };
         /** @enum {string} */
         NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
-        /**
-         * @description One entry of the node palette the client renders its "add node" menu from (: the client
-         *     renders what the server describes).
-         */
         NodeTypeInfo: {
             category: components["schemas"]["NodeCategory"];
-            /** @description Slug matching [`NodeBody::kind`]. */
             kind: string;
             name: string;
-            /**
-             * @description Channel nodes need a type from `GET /api/channeltypes`; the menu offers one entry per
-             *     descriptor rather than one entry for "channel".
-             */
             needs_channel_type?: boolean;
             ports: components["schemas"]["PortSpec"][];
         };
-        /** @description Impulse blanker, applied to the channel's IQ ahead of its selectivity filter. */
         NoiseBlankerSettings: {
             enabled?: boolean;
-            /**
-             * Format: float
-             * @description How far above the channel's average magnitude a sample has to sit to be cut out, as a
-             *     multiple of it. Lower blanks more, and eventually blanks the signal.
-             */
+            /** Format: float */
             threshold?: number;
         };
-        /** @description One operator-placed notch in the audio. */
         NotchSettings: {
             /** Format: double */
             freq_hz?: number;
-            /**
-             * Format: double
-             * @description −3 dB width of the null. Narrow removes a heterodyne and leaves the voice; wide takes a
-             *     bite out of both.
-             */
+            /** Format: double */
             width_hz?: number;
         };
-        /**
-         * @description The two NXDN channel widths. They are different radios as far as the receiver is
-         *     concerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.
-         * @enum {string}
-         */
+        /** @enum {string} */
         NxdnBandwidth: "narrow" | "wide";
         NxdnParams: {
             bandwidth?: components["schemas"]["NxdnBandwidth"];
         };
-        /** @description One frequency bucket's occupancy statistics ( band-occupancy analytics). */
         OccupancyBucket: {
-            /**
-             * @description Duty per hour of the day, UTC, 24 entries. An hour never observed reads `0.0` — which is
-             *     why `samples` matters.
-             */
             by_hour: number[];
-            /**
-             * Format: float
-             * @description Fraction of observations in which this bucket carried a signal, `0.0..=1.0`.
-             */
+            /** Format: float */
             duty: number;
-            /**
-             * Format: int64
-             * @description Centre of the bucket.
-             */
+            /** Format: int64 */
             freq_hz: number;
-            /** @description RFC 3339 timestamp of the most recent observation. */
             last_seen: string;
-            /**
-             * Format: int64
-             * @description Observations behind that fraction. A duty cycle from three sightings is not a measurement,
-             *     and this is what lets a reader tell the difference.
-             */
+            /** Format: int64 */
             samples: number;
         };
-        /** @description `GET /api/occupancy` — how much of the time each slice of spectrum has been in use. */
         OccupancyReport: {
-            /**
-             * Format: int64
-             * @description Width of one bucket.
-             */
+            /** Format: int64 */
             bucket_hz: number;
-            /** @description Busiest first, then by frequency. */
             buckets: components["schemas"]["OccupancyBucket"][];
-            /** @description RFC 3339 timestamp of the first observation, or empty before there is one. */
             since: string;
         };
-        /** @description P25 Phase 1 (C4FM, 4800 symbols/s). */
         P25Params: Record<string, never>;
-        /**
-         * @description `POST /api/workspaces/{id}/apply` — what applying the workspace did.
-         *
-         *     Apply is additive and idempotent: it opens the radios the graph names and adds the channels it
-         *     draws, and never closes or deletes anything. Removing a node is a gesture with its own
-         *     endpoint; a reconciler that also deleted would turn "this workspace has fewer nodes" into
-         *     "close that operator's radio".
-         */
         PatchApplyReport: {
             absent?: string[];
-            /** @description Every device node that now has a running device set. */
             bound: components["schemas"]["PatchBinding"][];
-            /**
-             * Format: int32
-             * @description Channels created by this call.
-             */
+            /** Format: int32 */
             created: number;
-            /**
-             * Format: int32
-             * @description Device sets opened by this call.
-             */
+            /** Format: int32 */
             opened: number;
             refused?: components["schemas"]["PatchRefusal"][];
         };
@@ -3420,11 +2404,9 @@ export interface components {
             device_set: number;
             node: string;
         };
-        /** @description `GET /api/patch/catalog` — the node palette and its ports. */
         PatchCatalog: {
             nodes: components["schemas"]["NodeTypeInfo"][];
         };
-        /** @description A wire: which stream a node consumes, and from whom. */
         PatchEdge: {
             from: components["schemas"]["PortRef"];
             to: components["schemas"]["PortRef"];
@@ -3433,93 +2415,40 @@ export interface components {
             edges?: components["schemas"]["PatchEdge"][];
             nodes: components["schemas"]["PatchNode"][];
         };
-        /**
-         * @description One node: what it is, where it sits, and what the operator called it.
-         *
-         *     There is no `pinned` flag: rack membership is the single truth for "this face is being
-         *     operated", and two representations of one fact drift.
-         */
         PatchNode: components["schemas"]["NodeBody"] & {
-            /** @description Client-generated, unique within the graph, stable for the node's life. */
             id: string;
-            /** @description User-renamed caption; `None` renders the kind's default name. */
             label?: string | null;
             position: components["schemas"]["Position"];
             size?: null | components["schemas"]["Size"];
         };
-        /** @description One node apply could not satisfy. */
         PatchRefusal: {
             node: string;
             reason: string;
         };
-        /**
-         * @description What a [`PlaybackRequest`] should do.
-         * @enum {string}
-         */
+        /** @enum {string} */
         PlaybackAction: "play" | "pause" | "stop" | "seek";
-        /**
-         * @description `POST /api/devicesets/{ds}/playback` — drive the replay transport of a set whose device is
-         *     a recording. Looping is not an action here: it is the `loop` device setting, applied like
-         *     any other (see [`crate::PlaybackStatus`]).
-         */
         PlaybackRequest: {
             action: components["schemas"]["PlaybackAction"];
-            /**
-             * Format: int64
-             * @description Where [`PlaybackAction::Seek`] should land, in samples from the start; clamped to the
-             *     end of the recording. Ignored by every other action, and absent means the start.
-             */
+            /** Format: int64 */
             position_samples?: number | null;
         };
-        /**
-         * @description Transport of a device set replaying a recording (`virtual:file:`). Absent on a live radio:
-         *     there is no position to seek in a signal that is still arriving.
-         *
-         *     Whether it loops is *not* here — that is `loop` in [`DeviceSettings::extra`], a setting the
-         *     radio carries and a workspace saves. Pause and position are the opposite: reopening a patch
-         *     must not restore a paused transport, so they live only in this live status.
-         */
         PlaybackStatus: {
             paused: boolean;
-            /**
-             * Format: int64
-             * @description Samples replayed from the start of the recording.
-             */
+            /** Format: int64 */
             position_samples: number;
-            /**
-             * Format: int64
-             * @description Samples the recording holds. Read off the data file, so a crash-truncated pair reports
-             *     what can actually be replayed rather than what its metadata claims.
-             */
+            /** Format: int64 */
             total_samples: number;
         };
-        /**
-         * @description Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`
-         *     (the default) locks onto whichever preamble it finds.
-         * @enum {string}
-         */
+        /** @enum {string} */
         PocsagBaud: "auto" | "b512" | "b1200" | "b2400";
-        /** @description One decoded POCSAG page. */
         PocsagMessage: {
-            /**
-             * Format: int32
-             * @description 21-bit receiver address (RIC).
-             */
+            /** Format: int32 */
             address: number;
-            /**
-             * Format: int32
-             * @description Bit rate the batch was decoded at.
-             */
+            /** Format: int32 */
             baud: number;
-            /**
-             * Format: int32
-             * @description Single-bit errors the BCH(31,21) decoder repaired across the message's codewords.
-             */
+            /** Format: int32 */
             errors_corrected: number;
-            /**
-             * Format: int32
-             * @description Function bits 0–3 (the "A/B/C/D" a pager shows).
-             */
+            /** Format: int32 */
             function: number;
             payload: components["schemas"]["PocsagPayload"];
             text: string;
@@ -3528,56 +2457,24 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
             baud?: components["schemas"]["PocsagBaud"];
-            /**
-             * @description Swap mark and space: some transmitters (and some receiver chains) invert the
-             *     discriminator polarity, which turns every codeword into noise.
-             */
             invert?: boolean;
         };
-        /**
-         * @description POCSAG message class (: 512/1200/2400 baud pagers).
-         * @enum {string}
-         */
+        /** @enum {string} */
         PocsagPayload: "tone" | "numeric" | "alpha";
-        /**
-         * @description When a port exists. A conditional port depends on what is *behind* the node — the channel type
-         *     it names, or the radio it is bound to — and those answers live once in [`ChannelDescriptor`]
-         *     and [`Capabilities`]. The catalog states the dependency instead of the client inventing port
-         *     names for it.
-         * @enum {string}
-         */
+        /** @enum {string} */
         PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "channel_needs_position" | "device_is_tx_capable";
-        /**
-         * @description Which side of a node a port sits on.
-         * @enum {string}
-         */
+        /** @enum {string} */
         PortDirection: "in" | "out";
-        /** @description One end of an edge. */
         PortRef: {
             node: string;
-            /** @description [`PortSpec::name`] on that node. */
             port: string;
         };
-        /**
-         * @description How many of a port a node really has. A repeating port is a *family*: the catalog is
-         *     per-build static and cannot see how many streams a radio delivers, so it ships the base spec
-         *     with this flag and whoever can see the backing expands it — one port per stream, named by
-         *     [`stream_port`].
-         * @enum {string}
-         */
+        /** @enum {string} */
         PortRepeat: "once" | "per_rx_stream" | "per_tx_stream";
-        /** @description One port of a node type. */
         PortSpec: {
             condition?: components["schemas"]["PortCondition"];
             direction: components["schemas"]["PortDirection"];
-            /**
-             * @description Whether more than one edge may touch this port. A *stream* output fans out — one device
-             *     feeds N channels, scopes and a recorder, which is today's device set drawn — but an
-             *     ownership output does not: a scanner drives one radio, because one sweep is what the
-             *     engine runs. So arity is stated on both sides and checked on both sides.
-             */
             multi: boolean;
-            /** @description Stable slug, unique within its node and direction; this is what an edge names. */
             name: string;
             note?: string | null;
             port_type: components["schemas"]["PortType"];
@@ -3585,17 +2482,12 @@ export interface components {
         };
         /** @enum {string} */
         PortType: "iq" | "baseband" | "audio" | "events" | "video" | "control" | "position" | "tx";
-        /** @description Canvas position of a node, in React Flow's coordinate space. */
         Position: {
             /** Format: float */
             x: number;
             /** Format: float */
             y: number;
         };
-        /**
-         * @description One live station fix. Optional measurements stay absent when the provider did not report
-         *     them; latitude and longitude are always a complete, validated pair.
-         */
         PositionFix: {
             /** Format: double */
             accuracy_m?: number | null;
@@ -3607,10 +2499,6 @@ export interface components {
             longitude: number;
             /** Format: double */
             speed_mps?: number | null;
-            /**
-             * @description RFC3339 UTC. Providers without their own timestamp are stamped when the server receives
-             *     the fix.
-             */
             time: string;
             /** Format: double */
             track_deg?: number | null;
@@ -3631,29 +2519,15 @@ export interface components {
             /** Format: int32 */
             update_interval_ms?: number;
         };
-        /** @description One device node's radio settings and channels, as the preset captured them. */
         PresetDevice: {
             channels: components["schemas"]["ChannelSettings"][];
-            /**
-             * @description `driver:key` of the radio it was captured on. The fallback match, so a preset still lands
-             *     after the node was redrawn, and what the client names in the list.
-             */
             device_id: string;
-            /**
-             * @description [`crate::PatchNode::id`] of the device node this was captured from — the primary match on
-             *     apply, and the only one that is right when a patch draws two of the same radio.
-             */
             node: string;
             settings: components["schemas"]["DeviceSettings"];
         };
-        /** @description `GET /api/presets` list entry. */
         PresetInfo: {
-            /** @description RFC3339 UTC. */
             created_at: string;
-            /**
-             * Format: int32
-             * @description How many radios the preset carries, denormalized so the list never parses a blob.
-             */
+            /** Format: int32 */
             devices: number;
             /** Format: int64 */
             id: number;
@@ -3661,52 +2535,29 @@ export interface components {
         };
         PresetSnapshot: {
             devices?: components["schemas"]["PresetDevice"][];
-            /**
-             * Format: int32
-             * @description [`PRESET_SNAPSHOT_VERSION`] at the time of writing.
-             */
+            /** Format: int32 */
             version: number;
         };
-        /** @description One protocol the waveform could be, and what says so. */
         ProtocolMatch: {
-            /**
-             * @description Set when the protocol's own framing was found in the signal, not merely resembled. A
-             *     confirmed match is an answer; an unconfirmed one is a shortlist entry.
-             */
             confirmed?: boolean;
             name: string;
-            /**
-             * Format: float
-             * @description How well the measurements fit the protocol's signature, 0 to 1.
-             */
+            /** Format: float */
             score: number;
-            /**
-             * @description The channel type that decodes it, when this build has one — what the client offers to
-             *     switch the channel to.
-             */
             type_id?: string | null;
-            /** @description The evidence, in a phrase: what matched, or what was recognised. */
             why: string;
         };
-        /** @description Receive options shared by the BPSK31 and BPSK63 Varicode channels. */
         PskParams: {
-            /** @description Reverse differential bit polarity for an inverted receive chain. */
             invert?: boolean;
         };
-        /** @description A run of Varicode text decoded from a BPSK31 or BPSK63 carrier. */
         PskText: {
             text: string;
         };
-        /** @description One pinned face on the rack grid. */
         RackCell: {
             /** Format: int32 */
             h: number;
             /** Format: int32 */
             w: number;
-            /**
-             * Format: int32
-             * @description Whole grid cells from the left / top.
-             */
+            /** Format: int32 */
             x: number;
             /** Format: int32 */
             y: number;
@@ -3714,38 +2565,26 @@ export interface components {
         RackLayout: {
             slots?: components["schemas"]["RackSlot"][];
         };
-        /** @description One pinned node and the cells it occupies. */
         RackSlot: components["schemas"]["RackCell"] & {
             node: string;
         };
-        /** @description One complete civil-time minute recovered from a long-wave radio-clock service. */
         RadioClockFrame: {
-            /**
-             * @description ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;
-             *     WWVB is UTC.
-             */
             datetime: string;
             dst?: boolean;
             /** Format: float */
             dut1_seconds?: number | null;
             leap_warning?: boolean;
             standard: components["schemas"]["RadioClockStandard"];
-            /** @description The 60 received symbols (`0`, `1`, `M` marker, `?` invalid). */
             symbols: string;
             /** Format: int32 */
             utc_offset_minutes?: number | null;
         };
         RadioClockParams: {
-            /** @description Reverse the received AM envelope for an inverting receiver or recording. */
             invert?: boolean;
             standard?: components["schemas"]["RadioClockStandard"];
         };
-        /**
-         * @description Long-wave civil time service carried by the radio-clock channel.
-         * @enum {string}
-         */
+        /** @enum {string} */
         RadioClockStandard: "dcf77" | "wwvb" | "msf" | "jjy";
-        /** @description An inclusive numeric range with an optional step, in the setting's native unit. */
         Range: {
             /** Format: double */
             max: number;
@@ -3754,77 +2593,36 @@ export interface components {
             /** Format: double */
             step?: number | null;
         };
-        /**
-         * @description RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a
-         *     slowly-accreting picture rather than a stream of independent frames, so an event is the
-         *     current best view of the station, emitted only when a field actually changed.
-         */
         RdsUpdate: {
-            /** @description Alternative frequencies in Hz, as advertised in group 0A. */
             alt_freqs_hz?: number[];
-            /**
-             * Format: int64
-             * @description Blocks rejected by the syndrome check since the channel started.
-             */
+            /** Format: int64 */
             block_errors: number;
-            /**
-             * Format: int64
-             * @description Groups accepted since the channel started.
-             */
+            /** Format: int64 */
             groups: number;
-            /** @description Music (true) / Speech (false) switch. */
             music?: boolean | null;
-            /** @description Programme Identification, as the 4 hex digits everyone quotes it by. */
             pi?: string | null;
-            /** @description Programme Service name (8 chars), once every segment has been seen. */
             ps?: string | null;
-            /**
-             * Format: int32
-             * @description Programme Type code (0–31).
-             */
+            /** Format: int32 */
             pty?: number | null;
-            /** @description Programme Type name for [`RdsUpdate::pty`] under the RDS (EU) table. */
             pty_name?: string | null;
-            /** @description RadioText (up to 64 chars), once the A/B flag closes a message. */
             radiotext?: string | null;
-            /** @description Traffic Announcement flag. */
             ta?: boolean | null;
-            /** @description Traffic Programme flag. */
             tp?: boolean | null;
         };
-        /**
-         * @description What a [`RecordRequest`] should do.
-         * @enum {string}
-         */
+        /** @enum {string} */
         RecordAction: "start" | "stop";
-        /**
-         * @description Container a recording is downloaded in. A query field rather than a path segment (unlike
-         *     [`ExportFormat`]): the format is optional here, and giving a path segment a default would
-         *     mean two routes for one resource.
-         * @enum {string}
-         */
+        /** @enum {string} */
         RecordingFormat: "sigmf" | "wav";
-        /**
-         * @description One finalized SigMF recording in the library (: the files on disk are the source
-         *     of truth; this row is its SQLite index entry).
-         */
         RecordingInfo: {
             /** Format: int64 */
             bytes: number;
             /** Format: double */
             center_hz: number;
-            /** @description RFC3339 UTC. */
             created_at: string;
-            /**
-             * @description `driver:key` that replays this recording (`virtual:file:<stem>`), usable directly
-             *     in `POST /api/devicesets`.
-             */
             device_id: string;
-            /** @description Label of the device the recording was captured from (SigMF `core:hw`). */
             device_label: string;
             /** Format: double */
             duration_s: number;
-            /** @description Recording stem: file name without directory or `.sigmf-*` extension. */
             file: string;
             /** Format: int64 */
             id: number;
@@ -3833,127 +2631,58 @@ export interface components {
             /** Format: int64 */
             samples: number;
         };
-        /** @description `GET /api/recordings`. */
         RecordingsResponse: {
             recordings: components["schemas"]["RecordingInfo"][];
         };
-        /**
-         * @description Live IQ recording on a device set (: the recording path is lossless, so a writer
-         *     fault must surface here rather than dropping samples silently).
-         */
         RecordingStatus: {
             /** Format: int64 */
             bytes: number;
-            /**
-             * @description Fatal recording fault (queue overflow, disk error); the writer has stopped but the
-             *     cause stays visible (CLAUDE.md no-silent-failure).
-             */
             error?: string | null;
-            /** @description Recording stem: file name without directory or `.sigmf-*` extension. */
             file: string;
             /** Format: int64 */
             overruns: number;
-            /**
-             * Format: int64
-             * @description Samples written to the `.sigmf-data` file so far.
-             */
+            /** Format: int64 */
             samples: number;
-            /** @description RFC3339 UTC. */
             started_at: string;
-            /**
-             * Format: int32
-             * @description Which of the device's receive streams is being recorded. Defaults to 0 because a
-             *     status from before multi-stream devices names no stream and means the only one its
-             *     radio had.
-             */
+            /** Format: int32 */
             stream?: number;
         };
-        /**
-         * @description `POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream
-         *     (: the recording path is lossless).
-         */
         RecordRequest: {
             action: components["schemas"]["RecordAction"];
-            /**
-             * Format: int32
-             * @description Which receive stream a start records — one recording per set, on a named stream.
-             *     Defaults to 0, the only stream a single-stream radio has.
-             */
+            /** Format: int32 */
             stream?: number;
         };
         RttyParams: {
             /** Format: double */
             baud?: number;
-            /** @description Swap mark and space (equivalent to reversing the sideband). */
             invert?: boolean;
-            /**
-             * Format: double
-             * @description Mark/space separation in Hz (170 amateur, 450/850 commercial).
-             */
+            /** Format: double */
             shift_hz?: number;
             stop_bits?: components["schemas"]["RttyStopBits"];
-            /**
-             * @description Return to the letters table after a space — the usual amateur convention, which
-             *     recovers a stream that lost its shift character.
-             */
             unshift_on_space?: boolean;
         };
-        /**
-         * @description RTTY stop-bit length in bit periods. 45.45 baud amateur RTTY uses 1.5.
-         * @enum {string}
-         */
+        /** @enum {string} */
         RttyStopBits: "one" | "one_and_half" | "two";
-        /** @description A run of decoded RTTY characters (: Baudot over FSK). */
         RttyText: {
             text: string;
         };
-        /**
-         * @description What a [`ScanRequest`] should do.
-         * @enum {string}
-         */
+        /** @enum {string} */
         ScanAction: "start" | "stop";
-        /**
-         * @description Live scanner state, projected onto the device set and pushed as
-         *     [`crate::ServerEvent::ScannerUpdate`] while a scan runs.
-         */
         ScannerStatus: {
-            /**
-             * Format: float
-             * @description Measured level of `current_hz` at the last measurement, dBFS.
-             */
+            /** Format: float */
             current_db?: number | null;
-            /**
-             * Format: double
-             * @description Target the scanner is measuring (scanning) or parked on (holding).
-             */
+            /** Format: double */
             current_hz: number;
-            /**
-             * @description Fatal scanner fault (the device stopped accepting retunes); the scan has stopped but
-             *     the cause stays visible (CLAUDE.md no-silent-failure).
-             */
             error?: string | null;
-            /**
-             * Format: int64
-             * @description Targets that broke the threshold since the scan started.
-             */
+            /** Format: int64 */
             hits: number;
             settings: components["schemas"]["ScanSettings"];
             state: components["schemas"]["ScanState"];
-            /**
-             * Format: int64
-             * @description Completed passes over the whole target list.
-             */
+            /** Format: int64 */
             sweeps: number;
-            /**
-             * Format: int32
-             * @description Targets the settings expanded to.
-             */
+            /** Format: int32 */
             targets: number;
         };
-        /**
-         * @description One contiguous span to sweep, expanded to `start_hz, start_hz + step_hz, …` up to and
-         *     including `stop_hz` when it lands on a step.
-         */
         ScanRange: {
             /** Format: double */
             start_hz: number;
@@ -3962,75 +2691,38 @@ export interface components {
             /** Format: double */
             stop_hz: number;
         };
-        /** @description `POST /api/devicesets/{ds}/scanner` — start or stop a scan. */
         ScanRequest: {
             action: components["schemas"]["ScanAction"];
             settings?: null | components["schemas"]["ScanSettings"];
         };
-        /** @description What a scan covers and how it behaves on a hit (: "frequency scanner"). */
         ScanSettings: {
-            /**
-             * Format: int32
-             * @description Measurement window per device tuning. Every target inside the tuning's passband is
-             *     measured from the same spectrum frames, so this is per *tuning*, not per target.
-             */
+            /** Format: int32 */
             dwell_ms?: number;
-            /** @description Individual target frequencies (bookmarks, memory channels). */
             frequencies?: number[];
-            /**
-             * Format: int32
-             * @description Channel retuned onto a hit so its audio (or decoder) follows the scan. `None` scans
-             *     without listening — the hit log alone.
-             */
+            /** Format: int32 */
             hold_channel?: number | null;
-            /**
-             * Format: double
-             * @description Bandwidth measured around each target; also the width the hold channel is judged over.
-             */
+            /** Format: double */
             measure_bw_hz?: number;
-            /** @description Ranges to expand into targets. May be empty if `frequencies` is not. */
             ranges?: components["schemas"]["ScanRange"][];
-            /**
-             * Format: int32
-             * @description How long a held target must stay below the threshold before the sweep resumes.
-             */
+            /** Format: int32 */
             resume_ms?: number;
-            /**
-             * Format: float
-             * @description A target counts as active when its measured power reaches this level, in dBFS on the
-             *     device's spectrum tap.
-             */
+            /** Format: float */
             threshold_db?: number;
         };
-        /**
-         * @description What the scanner is doing right now.
-         * @enum {string}
-         */
+        /** @enum {string} */
         ScanState: "scanning" | "holding";
         SelcallParams: {
             system?: components["schemas"]["SelcallSystem"];
         };
-        /** @description One complete five-tone selective call after the repeat marker has been expanded. */
         SelcallSequence: {
-            /**
-             * @description Five decoded digits/group symbols. Consecutive equal digits are represented literally,
-             *     not by the on-air repeat marker.
-             */
             code: string;
             system: components["schemas"]["SelcallSystem"];
-            /**
-             * Format: int32
-             * @description Median detected tone duration, rounded to milliseconds.
-             */
+            /** Format: int32 */
             tone_ms: number;
         };
-        /**
-         * @description Five-tone sequential selective-calling plan.
-         * @enum {string}
-         */
+        /** @enum {string} */
         SelcallSystem: "ccir1" | "zvei1";
         ServerEvent: {
-            /** @description First frame after connect: current state revision so the client can detect gaps. */
             data: {
                 /** Format: int64 */
                 revision: number;
@@ -4038,21 +2730,12 @@ export interface components {
             /** @enum {string} */
             type: "Hello";
         } | {
-            /** @description Something changed; invalidate the matching query keys and refetch. */
             data: {
                 scope: components["schemas"]["StateScope"];
             };
             /** @enum {string} */
             type: "StateChanged";
         } | {
-            /**
-             * @description A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).
-             *
-             *     The id is allocated per connection, exactly like an audio one: a multi-stream radio can
-             *     have several lanes watched at once, so the device-set id is no longer enough to tell two
-             *     spectra apart. `stream` names the lane this id carries — which is how the client knows
-             *     which of its scopes the frames belong to, since the frame header carries only the id.
-             */
             data: {
                 /** Format: int32 */
                 device_set: number;
@@ -4064,11 +2747,6 @@ export interface components {
             /** @enum {string} */
             type: "StreamStarted";
         } | {
-            /**
-             * @description A subscribed audio stream is now active. Stream ids are allocated per-connection
-             *     from the audio range (see [`StreamKind`]); clients demux binary frames by
-             *     `(kind, stream_id)`.
-             */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -4080,11 +2758,6 @@ export interface components {
             /** @enum {string} */
             type: "AudioStreamStarted";
         } | {
-            /**
-             * @description A subscribed video stream is now active, carrying the channel's pictures as
-             *     [`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so
-             *     the client demuxes on `(kind, stream_id)` exactly as it does there.
-             */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -4096,11 +2769,6 @@ export interface components {
             /** @enum {string} */
             type: "VideoStreamStarted";
         } | {
-            /**
-             * @description A subscribed channel-IQ stream is now active, carrying that channel's baseband as
-             *     [`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video
-             *     use, so the client demuxes on `(kind, stream_id)` exactly as it does there.
-             */
             data: {
                 /** Format: int32 */
                 channel: number;
@@ -4112,10 +2780,6 @@ export interface components {
             /** @enum {string} */
             type: "IqStreamStarted";
         } | {
-            /**
-             * @description A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
-             *     come from different spaces.
-             */
             data: {
                 kind: components["schemas"]["StreamKind"];
                 /** Format: int32 */
@@ -4128,20 +2792,6 @@ export interface components {
             /** @enum {string} */
             type: "Decoded";
         } | {
-            /**
-             * @description What the decoders heard shortly before this client connected, oldest first, sent once
-             *     after [`ServerEvent::Hello`].
-             *
-             *     Decodes are pushed and never replayed, so a reloaded browser used to start with an empty
-             *     map and refill it only as contacts happened to transmit again — a gap in the server, since
-             *     the engine had been decoding the whole time. The server keeps a bounded, in-memory buffer
-             *     of the last few records per station and hands it over on connect.
-             *
-             *     Raw records rather than merged tracks, on purpose: the client already merges a position
-             *     frame onto an earlier identity frame, and replaying what it would have received reaches
-             *     the same state through the same code instead of a second implementation of that rule.
-             *     Records are aggregated by station id, so an event with no identity is never in here.
-             */
             data: {
                 records: components["schemas"]["DecodedRecord"][];
             };
@@ -4155,23 +2805,10 @@ export interface components {
             /** @enum {string} */
             type: "DecodedLost";
         } | {
-            /**
-             * @description Appended client-side for the same reason decodes are: refetching the whole call list per
-             *     call is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`
-             *     still fires for structural changes — retention expiry, audio eviction.
-             */
             data: components["schemas"]["VoiceCall"];
             /** @enum {string} */
             type: "CallCompleted";
         } | {
-            /**
-             * @description Live signal level of every channel on one device set.
-             *
-             *     Its own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move
-             *     continuously, and a `StateChanged` per reading would have every client refetch the whole
-             *     world ten times a second. Nothing downstream is authoritative about these — they are a
-             *     measurement, not state, and a client that misses one simply draws the next.
-             */
             data: {
                 /** Format: int32 */
                 device_set: number;
@@ -4180,12 +2817,6 @@ export interface components {
             /** @enum {string} */
             type: "ChannelLevels";
         } | {
-            /**
-             * @description Live frequency-scanner progress. Its own event rather than a `StateChanged`:
-             *     a scan retunes the device every dwell, and one full-state refetch per step would
-             *     cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
-             *     this mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.
-             */
             data: {
                 /** Format: int32 */
                 device_set: number;
@@ -4194,10 +2825,6 @@ export interface components {
             /** @enum {string} */
             type: "ScannerUpdate";
         } | {
-            /**
-             * @description Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error
-             *     means the source has gone unavailable and consumers stop using its previous fix.
-             */
             data: {
                 error?: string | null;
                 fix?: null | components["schemas"]["PositionFix"];
@@ -4206,7 +2833,6 @@ export interface components {
             /** @enum {string} */
             type: "PositionChanged";
         } | {
-            /** @description Non-fatal server-side error surfaced to the client. */
             data: {
                 message: string;
             };
@@ -4215,7 +2841,6 @@ export interface components {
         };
         /** @enum {string} */
         Sideband: "usb" | "lsb";
-        /** @description The IQ-relative slice a signal survey measures while pairing spectrum frames with positions. */
         SignalMapNode: {
             /**
              * Format: int64
@@ -4228,7 +2853,6 @@ export interface components {
              */
             offset_hz: number;
         };
-        /** @description Face size in canvas units. Absent means the node's natural size. */
         Size: {
             /** Format: float */
             h: number;
@@ -4240,10 +2864,6 @@ export interface components {
             bandwidth_hz?: number;
             sideband?: components["schemas"]["Sideband"];
         };
-        /**
-         * @description Granularity of a `StateChanged` invalidation. The client maps each scope to the
-         *     TanStack Query keys it must invalidate (: the *only* cache-invalidation path).
-         */
         StateScope: {
             /** @enum {string} */
             scope: "all";
@@ -4251,10 +2871,7 @@ export interface components {
             /** @enum {string} */
             scope: "devices";
         } | {
-            /**
-             * Format: int32
-             * @description A single device set changed (settings, status, or its channels).
-             */
+            /** Format: int32 */
             id: number;
             /** @enum {string} */
             scope: "device_set";
@@ -4280,50 +2897,19 @@ export interface components {
             /** @enum {string} */
             scope: "workspaces";
         };
-        /** @description Full state snapshot for initial load ( `GET /api/state`). */
         StateSnapshot: {
             device_sets: components["schemas"]["DeviceSet"][];
-            /**
-             * Format: int64
-             * @description Monotonic revision; bumps on every mutation so clients can detect missed events.
-             */
+            /** Format: int64 */
             revision: number;
             trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
         };
-        /**
-         * @description Which binary stream a control event refers to. Every id is allocated per connection, from a
-         *     range per class, but only the pair `(kind, stream_id)` identifies a stream — events must
-         *     carry the kind or a spectrum stop is indistinguishable from an audio one.
-         * @enum {string}
-         */
+        /** @enum {string} */
         StreamKind: "spectrum" | "audio" | "video" | "iq";
-        /**
-         * @description Which device settings each receive stream holds on its own, rather than sharing with the rest
-         *     of the radio. All-false — the default, and what every capability set from before this field
-         *     describes — is the single-stream radio.
-         *
-         *     Sample rate is deliberately absent and stays shared: one device, one clock domain. Channel
-         *     rate validation, the recorder's SigMF `core:sample_rate` and the DSP lanes all assume it.
-         */
         StreamScope: {
-            /** @description Each stream selects its own antenna port. */
             antenna?: boolean;
-            /**
-             * @description Each stream has its own gain stages. True on nearly every multi-stream radio, including
-             *     the coherent arrays: per-channel gain calibration is how an array is levelled.
-             */
             gain?: boolean;
-            /**
-             * @description Each stream tunes independently. False on a coherent array — the streams share one
-             *     tuner reference and tuning them apart is what a coherent array must never do — and true
-             *     on a radio with a synthesizer per stream.
-             */
             tuning?: boolean;
         };
-        /**
-         * @description One stream's overrides of the radio-wide [`DeviceSettings`]. Absent fields fall back to the
-         *     radio-wide value — [`DeviceSettings::for_stream`] is the one place that resolution lives.
-         */
         StreamSettings: {
             antenna?: string | null;
             /** Format: double */
@@ -4334,165 +2920,72 @@ export interface components {
         };
         /** @enum {string} */
         SubghzEncoding: "pwm" | "manchester" | "raw";
-        /**
-         * @description One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short
-         *     window collapse into one frame with a count, because every one of these devices sends its
-         *     payload several times and a log with eight identical rows is a worse log.
-         */
         SubghzFrame: {
-            /**
-             * Format: int32
-             * @description EV1527 reading of a 24-bit payload: the 20-bit transmitter address.
-             */
+            /** Format: int32 */
             address?: number | null;
-            /**
-             * Format: int32
-             * @description Decoded payload length in bits; 0 for a raw capture.
-             */
+            /** Format: int32 */
             bits: number;
-            /**
-             * Format: int32
-             * @description EV1527 reading of a 24-bit payload: the 4 button bits.
-             */
+            /** Format: int32 */
             button?: number | null;
-            /** @description Payload as hex, MSB first, left-padded to whole bytes. */
             data: string;
             encoding: components["schemas"]["SubghzEncoding"];
             modulation: components["schemas"]["SubghzModulation"];
-            /**
-             * Format: int32
-             * @description How many times the identical payload arrived inside the collapse window.
-             */
+            /** Format: int32 */
             repeats: number;
-            /**
-             * Format: int32
-             * @description The base pulse period the frame was measured against, in µs.
-             */
+            /** Format: int32 */
             short_us: number;
-            /**
-             * @description Raw pulse/gap durations in µs, pulse first — what a Flipper shows for a signal it
-             *     cannot name. Truncated, so this is for inspection, not replay.
-             */
             timings_us?: number[];
-            /** @description PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one. */
             tri_state?: string | null;
         };
         /** @enum {string} */
         SubghzModulation: "ook" | "fsk";
         SubghzParams: {
-            /**
-             * Format: double
-             * @description Detection bandwidth in Hz. Wide by radio standards on purpose: a SAW-controlled remote
-             *     may sit tens of kHz off its nominal 433.92 MHz, and a filter narrow enough to be
-             *     "correct" would simply miss it.
-             */
+            /** Format: double */
             bandwidth_hz?: number;
-            /**
-             * Format: int32
-             * @description Silence that ends a frame, in µs. Must exceed the longest gap *inside* a frame — the
-             *     PT2262/EV1527 sync gap is ~31 short periods, around 10 ms at a 320 µs clock.
-             */
+            /** Format: int32 */
             frame_gap_us?: number;
-            /**
-             * Format: int32
-             * @description Shortest keying edge accepted, in µs. Anything briefer is a noise spike, not a symbol.
-             */
+            /** Format: int32 */
             min_pulse_us?: number;
             modulation?: components["schemas"]["SubghzModulation"];
         };
-        /**
-         * @description One built-in workspace template (: the template gallery). Read-only and
-         *     device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
-         *     applies to whatever hardware is open, provided the device can tune it.
-         */
         TemplateInfo: {
             /** Format: double */
             center_hz: number;
-            /** @description Channels the template creates on the target device set. */
             channels: components["schemas"]["ChannelSettings"][];
-            /** @description One line for the gallery card. */
             description: string;
-            /**
-             * @description Which direction the radio has to have. Every built-in template receives; the field is
-             *     here because "what kind of radio does this need" is the question the picker asks, and a
-             *     transmit template must not be offered on a receiver the day one exists.
-             */
             direction?: components["schemas"]["Direction"];
             exact_rate?: boolean;
             explainer: string;
-            /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
             id: string;
             /** Format: double */
             max_freq_hz: number;
-            /**
-             * Format: double
-             * @description Tuning span the template needs, so the gallery can mark entries the open device
-             *     cannot reach instead of failing on apply.
-             */
+            /** Format: double */
             min_freq_hz: number;
             name: string;
             patch?: null | components["schemas"]["PatchGraph"];
             /** Format: double */
             sample_rate: number;
-            /**
-             * @description Devices this template can actually run on, as `driver:key` handles — the server's answer,
-             *     computed against each probed radio's [`crate::DeviceProfile`], so the gallery offers a
-             *     device only when the template fits it.
-             *
-             *     A radio whose driver reports no profile is *included*: unknown is not the same as
-             *     unsuitable, and hiding a device because its backend cannot answer cheaply would make the
-             *     picker lie. Empty on the static table; filled in per request.
-             *
-             *     Always serialized, unlike the other quiet fields: "no attached radio can run this" is a
-             *     real answer the gallery has to render, and eliding it would make it arrive as the absence
-             *     that means "nobody asked".
-             */
             supported_devices?: string[];
         };
-        /** @description `GET /api/templates`. */
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
         };
         ToneSquelchStatus: {
-            /**
-             * Format: double
-             * @description The CTCSS tone present, in Hz.
-             */
+            /** Format: double */
             ctcss_hz?: number | null;
-            /**
-             * Format: int32
-             * @description The DCS code present, as the three octal digits a radio displays.
-             */
+            /** Format: int32 */
             dcs_code?: number | null;
-            /**
-             * @description Whether audio is passing. Always true unless the channel was told to gate on a tone:
-             *     [`crate::NfmToneMode::Detect`] reports what is there without acting on it.
-             */
             open: boolean;
         };
-        /**
-         * @description What kind of thing a tool is, so the launcher can group them.
-         * @enum {string}
-         */
+        /** @enum {string} */
         ToolCategory: "calculator" | "instrument" | "reference";
-        /** @description One tool the server can run, as advertised by `GET /api/tools`. */
         ToolDescriptor: {
             category: components["schemas"]["ToolCategory"];
-            /** @description Stable id, and the tag of this tool's [`ToolRequest`] variant. */
             id: string;
             name: string;
-            /**
-             * @description Whether running it needs hardware attached. Feature-gated tools are absent from the
-             *     list entirely; this marks the ones that are compiled in but may still find nothing.
-             */
             needs_hardware: boolean;
-            /** @description One line, shown under the name in the launcher. */
             summary: string;
         };
-        /**
-         * @description `POST /api/tools/run` — one call to one tool. The tag is the tool id, so the body names its
-         *     own destination and no path parameter can disagree with it.
-         */
         ToolRequest: {
             request: components["schemas"]["AntennaRequest"];
             /** @enum {string} */
@@ -4502,7 +2995,6 @@ export interface components {
             /** @enum {string} */
             tool: "nanovna";
         };
-        /** @description What a tool answered, tagged with the same id the request carried. */
         ToolResponse: {
             result: components["schemas"]["AntennaReport"];
             /** @enum {string} */
@@ -4512,15 +3004,11 @@ export interface components {
             /** @enum {string} */
             tool: "nanovna";
         };
-        /** @description `GET /api/tools`. */
         ToolsResponse: {
             tools: components["schemas"]["ToolDescriptor"][];
         };
         TrunkFollower: {
-            /**
-             * Format: int32
-             * @description The engine channel doing the following; it has no patch node of its own.
-             */
+            /** Format: int32 */
             channel: number;
             /** Format: int32 */
             device_set: number;
@@ -4531,10 +3019,6 @@ export interface components {
             /** Format: int32 */
             slot: number;
         };
-        /**
-         * @description A grant the follower could not act on — commonly a traffic channel outside the sampled
-         *     bandwidth. Carried in state so the operator sees why a busy system produces no calls.
-         */
         TrunkProblem: {
             /** Format: int32 */
             attempts: number;
@@ -4543,15 +3027,10 @@ export interface components {
             /** Format: int32 */
             logical_channel?: number | null;
             reason: string;
-            /** @description RFC3339 UTC. */
             since: string;
             /** Format: int32 */
             slot: number;
         };
-        /**
-         * @description What one `dmr_trunk` node is following. Also how the client attributes follower channels,
-         *     which have no patch node, to the system that owns them.
-         */
         TrunkSystemStatus: {
             /** Format: int32 */
             carriers: number;
@@ -4560,13 +3039,9 @@ export interface components {
             node: string;
             problems: components["schemas"]["TrunkProblem"][];
         };
-        /** @description `PUT /api/workspaces/{id}` — rename, re-patch, or both. */
         UpdateWorkspaceRequest: {
             name?: string | null;
-            /**
-             * Format: int64
-             * @description The revision the client last saw. A mismatch is a `409`, never a silent overwrite.
-             */
+            /** Format: int64 */
             revision: number;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
@@ -4606,84 +3081,45 @@ export interface components {
             calls: components["schemas"]["VoiceCall"][];
         };
         WfmParams: {
-            /**
-             * Format: float
-             * @description De-emphasis time constant in µs (50 in most of the world, 75 in the Americas).
-             */
+            /** Format: float */
             deemphasis_us?: number;
-            /**
-             * @description Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
-             *     A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
-             */
             stereo?: boolean;
         };
-        /** @description `GET /api/workspaces/{id}` — the row plus its workspace. */
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             history?: components["schemas"]["WorkspaceHistory"];
             snapshot: components["schemas"]["WorkspaceSnapshot"];
         };
-        /**
-         * @description What undo and redo can reach right now.
-         *
-         *     The history belongs to the workspace, not to a browser: every client works on the same
-         *     arrangement, so they share the steps that lead back out of it. Undoing in one window is a
-         *     change like any other, and the rest see it.
-         */
         WorkspaceHistory: {
             can_redo: boolean;
             can_undo: boolean;
         };
-        /** @description `GET /api/workspaces` list entry — the projection a switcher needs, without the workspace. */
         WorkspaceInfo: {
-            /** @description RFC3339 UTC. */
             created_at: string;
             /** Format: int64 */
             id: number;
             name: string;
-            /**
-             * Format: int32
-             * @description Node count, denormalized so the switcher can describe a workspace without parsing its
-             *     graph.
-             */
+            /** Format: int32 */
             nodes: number;
-            /**
-             * Format: int64
-             * @description Bumped on every stored change. An update carrying a stale revision is refused rather than
-             *     silently overwriting another client's arrangement.
-             */
+            /** Format: int64 */
             revision: number;
-            /** @description RFC3339 UTC. */
             updated_at: string;
         };
         WorkspaceSettings: {
-            /** @description [`crate::BandRegion::id`], or `None` to follow the server's default for this install. */
             band_region?: string | null;
             band_ruler?: boolean;
         };
-        /**
-         * @description The stored body of a workspace (: one JSON snapshot per row, like presets — written
-         *     atomically, read whole, never queried by inner field).
-         */
         WorkspaceSnapshot: {
             graph: components["schemas"]["PatchGraph"];
             rack?: components["schemas"]["RackLayout"];
             settings?: components["schemas"]["WorkspaceSettings"];
-            /**
-             * Format: int32
-             * @description [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
-             */
+            /** Format: int32 */
             version: number;
         };
-        /** @description `GET /api/workspaces`. */
         WorkspacesResponse: {
-            /**
-             * Format: int64
-             * @description The active workspace, or `None` when the last one was deleted.
-             */
+            /** Format: int64 */
             active?: number | null;
             workspaces: components["schemas"]["WorkspaceInfo"][];
         };
-        /** @description One CRC-verified FT8 or FT4 message from a synchronized receive slot. */
         WsjtMessage: {
             /** Format: float */
             audio_hz: number;
@@ -4695,10 +3131,6 @@ export interface components {
             /** Format: float */
             time_offset_s: number;
         };
-        /**
-         * @description Audio passband searched by an FT8 or FT4 decoder after a USB receiver is placed on the
-         *     mode's dial frequency.
-         */
         WsjtParams: {
             /** Format: float */
             audio_high_hz?: number;
@@ -4707,7 +3139,6 @@ export interface components {
             /** Format: int32 */
             max_candidates?: number;
         };
-        /** @description Audio passband searched by WSPR after a USB receiver is placed on the WSPR dial frequency. */
         WsprParams: {
             /** Format: float */
             audio_high_hz?: number;
@@ -4716,7 +3147,6 @@ export interface components {
             /** Format: int32 */
             max_candidates?: number;
         };
-        /** @description One WSPR beacon spot recovered from a two-minute receive slot. */
         WsprSpot: {
             /** Format: float */
             audio_hz: number;
@@ -4728,24 +3158,16 @@ export interface components {
             power_dbm: number;
             /** Format: float */
             snr_db: number;
-            /** @description Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign. */
             text: string;
             /** Format: float */
             time_offset_s: number;
         };
         YagiParams: {
-            /**
-             * Format: int32
-             * @description Directors in front of the driven element. Zero is a two-element reflector Yagi.
-             */
+            /** Format: int32 */
             directors?: number;
-            /**
-             * Format: double
-             * @description Boom spacing between neighbouring elements, in wavelengths.
-             */
+            /** Format: double */
             spacing_wavelengths?: number;
         };
-        /** @description System Fusion (C4FM, 4800 symbols/s). */
         YsfParams: Record<string, never>;
     };
     responses: never;
@@ -4913,9 +3335,7 @@ export interface operations {
     locate_band_region: {
         parameters: {
             query: {
-                /** @description Degrees north, −90…90. */
                 lat: number;
-                /** @description Degrees east, −180…180. */
                 lon: number;
             };
             header?: never;
@@ -5183,19 +3603,13 @@ export interface operations {
     list_decoder_log: {
         parameters: {
             query?: {
-                /** @description Restrict to one device set. */
                 device_set?: number;
-                /** @description Restrict to one decoder ([`crate::DecoderEvent::kind`]). */
                 kind?: string;
-                /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
                 nodes?: string;
-                /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
-                /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
                 sources?: string;
-                /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
             };
             header?: never;
@@ -5227,19 +3641,13 @@ export interface operations {
     clear_decoder_log: {
         parameters: {
             query?: {
-                /** @description Restrict to one device set. */
                 device_set?: number;
-                /** @description Restrict to one decoder ([`crate::DecoderEvent::kind`]). */
                 kind?: string;
-                /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
                 nodes?: string;
-                /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
-                /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
                 sources?: string;
-                /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
             };
             header?: never;
@@ -5271,19 +3679,13 @@ export interface operations {
     export_decoder_log: {
         parameters: {
             query?: {
-                /** @description Restrict to one device set. */
                 device_set?: number;
-                /** @description Restrict to one decoder ([`crate::DecoderEvent::kind`]). */
                 kind?: string;
-                /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
                 nodes?: string;
-                /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
-                /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
                 sources?: string;
-                /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
             };
             header?: never;

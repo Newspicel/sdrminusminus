@@ -1,15 +1,10 @@
-//! The feedforward timing tier: one estimate for a whole burst, from the signal's own square-law
-//! spectral line, rather than a loop that walks toward the answer.
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, farrow};
 
 use super::params::LinearParams;
 
-/// Samples per symbol below which the square-law line aliases onto its own image and the
-/// estimate stops meaning anything (Oerder & Meyr's `N ≥ 4`).
 pub const MIN_SPS: usize = 4;
 
-/// Feedforward symbol-timing recovery over a whole burst.
 pub struct FeedforwardTiming {
     matched: Decimator,
     sps: usize,
@@ -17,12 +12,6 @@ pub struct FeedforwardTiming {
 }
 
 impl FeedforwardTiming {
-    /// `receive_filter` is the entry's matched filter as unit-energy taps, as everywhere else in
-    /// this engine.
-    ///
-    /// # Panics
-    /// If `receive_filter` is empty or not unit-energy, or the entry's `sps` is below
-    /// [`MIN_SPS`].
     #[must_use]
     pub fn new(params: &LinearParams, receive_filter: &[f32]) -> Self {
         assert!(!receive_filter.is_empty(), "receive filter must have taps");
@@ -46,11 +35,6 @@ impl FeedforwardTiming {
         }
     }
 
-    /// Matched-filter a burst and sample it at the estimated symbol instants. Returns the symbols
-    /// and the estimated offset in samples, which a caller records as the measurement it is.
-    ///
-    /// One call is one burst: the filter state is not carried, because an estimate made over one
-    /// block and applied to another would be neither feedforward nor correct.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) -> f64 {
         self.matched.process(iq, &mut self.filtered);
         let offset = square_law_offset(&self.filtered, self.sps);
@@ -59,9 +43,6 @@ impl FeedforwardTiming {
     }
 }
 
-/// The Oerder–Meyr estimate: the phase of the square-law spectral line at the symbol rate, as an
-/// offset in samples inside `[0, sps)`. Returns 0 for a burst with no energy — no line, no phase,
-/// and sampling from the block start is as good as anything.
 #[must_use]
 pub fn square_law_offset(filtered: &[Complex<f32>], sps: usize) -> f64 {
     let mut acc = Complex::new(0.0f64, 0.0);
@@ -77,10 +58,6 @@ pub fn square_law_offset(filtered: &[Complex<f32>], sps: usize) -> f64 {
     tau.rem_euclid(sps as f64)
 }
 
-/// Sample `filtered` at `offset + k·sps` for every whole k the block supports, interpolating with
-/// the workspace's one Farrow kernel — the same four-tap parabolic interpolation `SymbolSync`
-/// uses, so a comparison between the two timing tiers reads the estimator and not the
-/// interpolator.
 pub fn resample_at(
     filtered: &[Complex<f32>],
     sps: usize,
@@ -125,9 +102,6 @@ mod tests {
             .collect()
     }
 
-    /// The estimate must read back a *known* sub-sample delay. The delay is injected by
-    /// modulating at a higher oversampling and decimating with an offset, which is an exact
-    /// fractional shift of the transmitted waveform rather than an interpolation of it.
     #[test]
     fn the_estimate_reads_back_an_injected_fractional_delay() {
         let fine = 8usize;
@@ -141,8 +115,6 @@ mod tests {
             let mut filtered = Vec::new();
             matched.process(&coarse, &mut filtered);
             let measured = square_law_offset(&filtered, SPS);
-            // The delay advances the instant by `shift/fine` of a sample; the estimate lives
-            // modulo a symbol, so the comparison does too.
             let want = (-(shift as f64) / fine as f64).rem_euclid(SPS as f64);
             let error = ((measured - want + SPS as f64 / 2.0).rem_euclid(SPS as f64)
                 - SPS as f64 / 2.0)
@@ -158,9 +130,6 @@ mod tests {
         pulse::root_raised_cosine(sps as f64, 0.35, 8, Norm::Energy)
     }
 
-    /// Residual EVM through the whole tier on a clean burst, per table. This is the number the
-    /// high-order rows exist on: 256-QAM's slicing margin is 0.077, and a chain whose own error
-    /// is a third of that has no waterfall left to measure.
     #[test]
     fn the_tier_recovers_every_table_well_inside_its_margin() {
         for (name, table) in [
@@ -186,8 +155,6 @@ mod tests {
         }
     }
 
-    /// …and the comparison that justifies the tier existing: the tracking loop, at its own best
-    /// bandwidth, on the identical burst.
     #[test]
     fn the_feedforward_estimate_beats_the_tracking_loop_on_a_burst() {
         use crate::linear::{LinearDemod, LinearTiming};
@@ -217,8 +184,6 @@ mod tests {
         assert!(a * 3.0 < b, "feedforward {a} vs tracked {b}");
     }
 
-    /// Noise degrades the estimate as 1/√(symbols), so a long burst is barely affected: the same
-    /// 256-QAM burst at its own operating SNR must stay inside its margin.
     #[test]
     fn the_estimate_survives_noise_over_a_long_burst() {
         let table = tables::qam_square(256).unwrap();

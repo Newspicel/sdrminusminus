@@ -16,16 +16,10 @@ const DEL: u8 = 0x7F;
 
 const BSYNC: [u8; 2] = *b"+*";
 
-/// Alternating bits ahead of the block, so the receiver's bit clock and matched filter have
-/// something to settle on before the first sync character.
 const PREKEY_BITS: usize = 128;
 
-/// Depth of the amplitude modulation. ACARS drives the carrier hard; anything shallow enough
-/// to be gentle would also be unlike the signal a real receiver sees.
 const AM_DEPTH: f32 = 0.8;
 
-/// One ARINC 618 block. `registration` is the 7-character address field as transmitted, dots
-/// and all; `seq_no`/`flight` belong to downlink blocks only.
 #[derive(Clone, Copy, Debug)]
 pub struct Block<'a> {
     pub mode: char,
@@ -36,7 +30,6 @@ pub struct Block<'a> {
     pub seq_no: Option<&'a str>,
     pub flight: Option<&'a str>,
     pub text: &'a str,
-    /// End the block with ETB rather than ETX: another block follows.
     pub more: bool,
 }
 
@@ -49,8 +42,6 @@ pub fn odd_parity(byte: u8) -> u8 {
     }
 }
 
-/// The block's characters from the mode through the terminator — exactly the span the CRC
-/// covers.
 #[must_use]
 pub fn block_body(block: &Block<'_>) -> Vec<u8> {
     let mut body = Vec::new();
@@ -82,9 +73,6 @@ pub fn block_body(block: &Block<'_>) -> Vec<u8> {
     body
 }
 
-/// The framed byte stream a receiver sees: sync pair, SOH, the block, its CRC and the closing
-/// DEL. The CRC bytes go out low byte first, which is what makes the receiver's running check
-/// end at zero.
 #[must_use]
 pub fn block_bytes(block: &Block<'_>) -> Vec<u8> {
     let body = block_body(block);
@@ -96,7 +84,6 @@ pub fn block_bytes(block: &Block<'_>) -> Vec<u8> {
     bytes
 }
 
-/// Bits as transmitted: least significant first within each character.
 #[must_use]
 pub fn bits(bytes: &[u8]) -> Vec<bool> {
     let mut out = Vec::with_capacity(bytes.len() * 8);
@@ -108,8 +95,6 @@ pub fn bits(bytes: &[u8]) -> Vec<bool> {
     out
 }
 
-/// Minimum-shift keying: continuous phase, `1` at the upper tone, `0` at the lower. Returns
-/// the real modulating waveform, which is what amplitude-modulates the carrier.
 #[must_use]
 pub fn msk_audio(bits: &[bool], rate: f64) -> Vec<f32> {
     let sps = rate / BAUD;
@@ -132,16 +117,11 @@ pub fn msk_audio(bits: &[bool], rate: f64) -> Vec<f32> {
         .collect()
 }
 
-/// A complete transmission: pre-key, the bit-sync characters, then the framed block, as an AM
-/// carrier at baseband. The `+*` pair is not a sync word a receiver matches on — it is there
-/// because a real transmitter sends it, and a decoder must hunt past it to the sync pair.
 #[must_use]
 pub fn transmission(block: &Block<'_>, rate: f64) -> Vec<Complex<f32>> {
     let mut stream: Vec<bool> = (0..PREKEY_BITS).map(|i| i.is_multiple_of(2)).collect();
     stream.extend(bits(&BSYNC));
     stream.extend(bits(&block_bytes(block)));
-    // ACARS is MSK on an AM carrier: the envelope is `1 + depth·audio`, which is all the
-    // amplitude modulation this mode needs and not enough to be worth a shared helper.
     msk_audio(&stream, rate)
         .iter()
         .map(|&s| Complex::new(1.0 + AM_DEPTH * s, 0.0))
@@ -173,9 +153,6 @@ mod tests {
         }
     }
 
-    /// The receiver validates by running the check bytes through the same register and
-    /// expecting zero; if the byte order were wrong, only a decoder with the same bug would
-    /// agree.
     #[test]
     fn appending_the_check_bytes_zeroes_the_remainder() {
         let bytes = block_bytes(&sample());
@@ -194,9 +171,6 @@ mod tests {
         );
     }
 
-    /// A run of like bits is a steady tone, and counting its cycles says which of the two it
-    /// is. Half a cycle per bit at the lower tone and a whole one at the upper — a quarter
-    /// cycle either side of the 1800 Hz centre, which is MSK's ±90° per symbol.
     #[test]
     fn the_tone_pair_is_where_msk_puts_it() {
         const BITS: usize = 40;

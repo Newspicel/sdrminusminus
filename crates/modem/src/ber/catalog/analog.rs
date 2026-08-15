@@ -12,54 +12,32 @@ use crate::{
     },
 };
 
-/// Samples one analysis window holds. Large enough that a point's SINAD is an average over
-/// hundreds of tone cycles rather than a realisation — a voice-geometry window holds ~1000
-/// independent noise samples, so its estimate's own scatter is ~0.13 dB — and a power of two so
-/// the tone snaps to a bin at any of the rates below.
 pub const WINDOW: usize = 8_192;
 
-/// Samples discarded ahead of the window: filter group delay plus whatever a carrier loop needs
-/// to acquire. Half a window, which is two and a half times the whole [`TAPS`] cascade's group
-/// delay and past the slowest carrier loop's settling.
 pub const SETTLE: usize = 4_096;
 
-/// Realisations summed per committed point. The window already averages; the trials are what
-/// keep a threshold-region point — where the errors are impulsive clicks rather than a steady
-/// hiss — from being one burst's luck.
 pub const TRIALS: usize = 3;
 
-/// Grid points a smoke tier measures, from the front of the committed grid.
 pub const SMOKE_POINTS: usize = 3;
 
-/// Peak audio amplitude every row is driven at. Full scale, so the message power is `½` and the
-/// figures of merit in [`theory`] are read at the `message_power` they are stated for.
 pub const DRIVE: f32 = 1.0;
 
 pub const TAPS: usize = 1_023;
 
-/// The voice geometry: 48 kHz, a 3 kHz message, a 1 kHz test tone.
 pub const VOICE_RATE_HZ: f64 = 48_000.0;
 pub const VOICE_BANDWIDTH: f64 = 3_000.0 / VOICE_RATE_HZ;
 const VOICE_TONE: f64 = 1_000.0 / VOICE_RATE_HZ;
 
-/// The broadcast geometry: 240 kHz, a 15 kHz message, the same 1 kHz tone.
 pub const WIDE_RATE_HZ: f64 = 240_000.0;
 pub const WIDE_BANDWIDTH: f64 = 15_000.0 / WIDE_RATE_HZ;
 const WIDE_TONE: f64 = 1_000.0 / WIDE_RATE_HZ;
 
-/// Modulation depth the two full-carrier rows are measured at — the margin below 1 broadcast
-/// practice leaves, so a peaking talker never folds the envelope through zero.
 pub const DEPTH: f64 = 0.8;
 
 pub const NFM_DEVIATION_HZ: f64 = 2_500.0;
-/// Broadcast FM: ±75 kHz into a 15 kHz message (ITU-R BS.450).
 pub const WFM_DEVIATION_HZ: f64 = 75_000.0;
-/// Peak phase deviation of the PM row, in radians. One radian is the value that makes the
-/// 4.77 dB gap to FM at the same deviation ratio a bare reading of the two forms.
 pub const PM_DEVIATION_RAD: f64 = 1.0;
 
-/// Vestige of the VSB row: 500 Hz of the lower sideband kept, which is the shape a 3 kHz
-/// message and a slope a sixth of it wide gives.
 pub const VSB_VESTIGE_HZ: f64 = 500.0;
 
 fn voice_tone() -> TonePlan {
@@ -70,14 +48,11 @@ fn wide_tone() -> TonePlan {
     TonePlan::new(WIDE_TONE, WINDOW)
 }
 
-/// The two full-carrier AM rows and the suppressed-carrier one, at whichever detector.
 #[must_use]
 pub fn am_link(mode: AmMode, detector: AmDetector, label: &str) -> AnalogLink {
     am_link_at_taps(mode, detector, TAPS, label)
 }
 
-/// The same chain at an arbitrary filter length — what the gap-attribution measurement varies,
-/// and the only reason [`TAPS`] is not simply baked in (see that constant's docs).
 #[must_use]
 pub fn am_link_at_taps(mode: AmMode, detector: AmDetector, taps: usize, label: &str) -> AnalogLink {
     let mut params = AmParams::new(mode, VOICE_BANDWIDTH);
@@ -102,7 +77,6 @@ pub fn am_link_at_taps(mode: AmMode, detector: AmDetector, taps: usize, label: &
     }
 }
 
-/// The vestigial-sideband row: the same engine with a slope carving the lower sideband away.
 #[must_use]
 pub fn vsb_link() -> AnalogLink {
     let mut params = AmParams::new(AmMode::FullCarrier { depth: DEPTH }, VOICE_BANDWIDTH);
@@ -131,8 +105,6 @@ pub fn vsb_link() -> AnalogLink {
     }
 }
 
-/// A single-sideband row: `method` builds the waveform, `detector` reads it — deliberately
-/// crossed for the phasing row (see [`ssb`](crate::analog::ssb)).
 #[must_use]
 pub fn ssb_link(method: SsbMethod, detector: SsbDetector, label: &str) -> AnalogLink {
     let mut params = SsbParams::new(Sideband::Upper, method, VOICE_BANDWIDTH);
@@ -157,7 +129,6 @@ pub fn ssb_link(method: SsbMethod, detector: SsbDetector, label: &str) -> Analog
     }
 }
 
-/// An angle-modulation row at either geometry and either tier.
 #[must_use]
 pub fn angle_link(
     params: AngleParams,
@@ -184,14 +155,8 @@ pub fn angle_link(
     }
 }
 
-/// Loop bandwidth of the FM PLL tier, in cycles per sample: twice the message bandwidth, which
-/// is as wide as a discrete second-order loop can usefully be run at this oversampling. The
-/// consequence is measured rather than hidden — see the module docs and the tier's own row.
 pub const FM_LOOP_BW: f64 = 2.0 * VOICE_BANDWIDTH;
 
-/// Loop bandwidth of the PM tier: a twentieth of the message bandwidth, so the loop tracks the
-/// carrier and *not* the modulation — the opposite requirement to the FM tier's, since here the
-/// message is what the loop must leave in the phase error it reads out.
 pub const PM_LOOP_BW: f64 = 0.05 * VOICE_BANDWIDTH;
 
 #[must_use]
@@ -248,7 +213,6 @@ fn nfm_params() -> AngleParams {
     )
 }
 
-/// An angle-modulation parameterisation at the measured configuration's filter lengths.
 fn angle_params(kind: AngleKind, bandwidth: f64) -> AngleParams {
     let mut params = AngleParams::new(kind, bandwidth);
     params.band_taps = TAPS;
@@ -310,11 +274,7 @@ pub fn pm_link() -> AnalogLink {
 
 #[derive(Clone, Copy, Debug)]
 pub enum AnalogReference {
-    /// Commit-and-guard: the committed artifact is the whole judgement.
     Committed,
-    /// Held to a figure of merit — `SINAD = channel SNR + 10·log₁₀(fom)` — from `from_db`
-    /// upward. The lower bound is not slack: below its detector's threshold no closed form
-    /// describes an analog chain at all, and the knee is committed separately.
     Fom {
         name: &'static str,
         fom: f64,
@@ -324,7 +284,6 @@ pub enum AnalogReference {
 }
 
 impl AnalogReference {
-    /// The oracle as a function of channel SNR, for the rows that have one.
     #[must_use]
     pub fn oracle(&self) -> Option<(&'static str, impl Fn(f64) -> f64 + use<>, f64, f64)> {
         match *self {
@@ -344,10 +303,8 @@ impl AnalogReference {
     }
 }
 
-/// One committed SINAD curve and everything needed to reproduce and judge it.
 #[derive(Clone, Copy, Debug)]
 pub struct AnalogMeasurement {
-    /// Artifact stem under `baselines/`, without extension.
     pub stem: &'static str,
     pub link: fn() -> AnalogLink,
     pub grid: &'static [f64],
@@ -358,7 +315,6 @@ pub struct AnalogMeasurement {
 }
 
 impl AnalogMeasurement {
-    /// This measurement's grid at one tier: the committed one, or its smoke prefix.
     #[must_use]
     pub fn tier(&self, full: bool) -> &'static [f64] {
         if full {
@@ -368,37 +324,22 @@ impl AnalogMeasurement {
         }
     }
 
-    /// Path of the committed artifact relative to the workspace root.
     #[must_use]
     pub fn artifact(&self) -> String {
         format!("{}/{}.json", super::BASELINE_DIR, self.stem)
     }
 }
 
-/// One analog catalog entry as the harness knows it — the name `cargo xtask ber <entry>` takes.
 #[derive(Clone, Copy, Debug)]
 pub struct AnalogEntry {
     pub name: &'static str,
     pub measurements: &'static [AnalogMeasurement],
 }
 
-/// The voice geometry's grid: 0 to 30 dB of channel SNR in 3 dB steps, which brackets every
-/// voice row's threshold at the bottom and leaves four oracle points at the top.
 pub const VOICE_GRID: &[f64] = &[0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0];
 
-/// Broadcast FM's grid, shifted up: its predetection filter is twelve times its message
-/// bandwidth, so the same channel SNR buys 10.8 dB less carrier-to-noise at the detector and
-/// the threshold arrives that much later.
 pub const WIDE_GRID: &[f64] = &[9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0, 33.0, 36.0];
 
-/// Tolerance every figure-of-merit row is held to.
-///
-/// Wider than the linear engine's 0.2 dB, and the reason is measured rather than conceded: every
-/// analog row sits 0.1 to 0.9 dB *above* its oracle, because a figure of merit is stated for a
-/// brick-wall receiver at the message bandwidth and a real filter's transition throws away noise
-/// inside that band which the ideal one keeps. The attribution is a measurement of its own
-/// (`the_oracle_gap_is_the_receive_filters_own_transition`): sharpen the filters and the gap
-/// shrinks toward zero, at the cost of a receiver nothing in `channels` would run.
 pub const FOM_TOLERANCE_DB: f64 = 1.0;
 
 const fn fom(name: &'static str, fom: f64, from_db: f64) -> AnalogReference {
@@ -428,13 +369,9 @@ const fn measurement(
     }
 }
 
-/// `am_fom(0.8, ½)` — the fraction of a broadcast-depth carrier's power that is message.
 const AM_FOM: f64 = 0.242_424_242_424_242_43;
-/// `fm_fom(2.5/3, ½)`.
 const NFM_FOM: f64 = 1.041_666_666_666_666_7;
-/// `fm_fom(5, ½)`.
 const WFM_FOM: f64 = 37.5;
-/// `pm_fom(1, ½)`.
 const PM_FOM: f64 = 0.5;
 
 const AM: &[AnalogMeasurement] = &[
@@ -519,7 +456,6 @@ const PM: &[AnalogMeasurement] = &[measurement(
     fom("β_p²P̄ at β_p = 1 rad", PM_FOM, 15.0),
 )];
 
-/// Every analog entry with a runner, in catalog order.
 pub const ENTRIES: &[AnalogEntry] = &[
     AnalogEntry {
         name: "am",
@@ -547,13 +483,11 @@ pub const ENTRIES: &[AnalogEntry] = &[
     },
 ];
 
-/// The entry registered under `name`, if any.
 #[must_use]
 pub fn find(name: &str) -> Option<&'static AnalogEntry> {
     ENTRIES.iter().find(|entry| entry.name == name)
 }
 
-/// The measurement that owns an artifact stem, whichever entry it belongs to.
 #[must_use]
 pub fn measurement_for(stem: &str) -> Option<&'static AnalogMeasurement> {
     ENTRIES
@@ -573,9 +507,6 @@ mod tests {
 
     use super::*;
 
-    /// The four figure-of-merit constants the registry is built from are the closed forms they
-    /// claim to be — a transcribed number that drifted from its formula would move every gate
-    /// that reads it, silently and in the safe direction.
     #[test]
     fn the_committed_figures_of_merit_are_their_closed_forms() {
         assert!((AM_FOM - theory::am_fom(DEPTH, 0.5)).abs() < 1e-15);
@@ -584,8 +515,6 @@ mod tests {
         assert!((PM_FOM - theory::pm_fom(PM_DEVIATION_RAD, 0.5)).abs() < 1e-15);
     }
 
-    /// Entry names are the command's public surface and stems are file paths: a duplicate of
-    /// either silently shadows a measurement.
     #[test]
     fn entry_names_and_artifact_stems_are_unique() {
         let mut names: Vec<&str> = ENTRIES.iter().map(|e| e.name).collect();

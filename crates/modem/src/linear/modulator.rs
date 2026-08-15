@@ -2,17 +2,10 @@ use num_complex::Complex;
 
 use super::params::LinearParams;
 
-/// Linear modulator. Streaming: [`modulate`](Self::modulate) carries pulse and rotation state
-/// across calls, so a transmission may be produced in blocks and any split gives the same
-/// samples; [`flush`](Self::flush) drains the final symbols' pulse tail.
 #[derive(Clone, Debug)]
 pub struct LinearMod {
     params: LinearParams,
-    /// Symbols accepted so far — the rotation schedule's index, kept as an integer so a long
-    /// transmission's phase is exact rather than accumulated.
     symbols_in: u64,
-    /// Shaped output not yet emitted: the pulse tail of the symbols already accepted, plus the
-    /// stagger's half-symbol of quadrature. Held as samples because both are sample-domain.
     tail: Vec<Complex<f32>>,
 }
 
@@ -31,13 +24,9 @@ impl LinearMod {
         &self.params
     }
 
-    /// The complex point symbol `k` is transmitted at: the table point for `label`, rotated by
-    /// the entry's per-symbol schedule.
     #[must_use]
     pub fn point(&self, k: u64, label: u32) -> Complex<f32> {
         let table = self.params.constellation();
-        // Table order is not label order in general, so the label is looked up rather than
-        // indexed — the exotic tables' labels are a descent's output, not an enumeration.
         let index = table
             .labels()
             .iter()
@@ -51,9 +40,6 @@ impl LinearMod {
         p * Complex::new(theta.cos() as f32, theta.sin() as f32)
     }
 
-    /// Modulate a block of constellation labels, appending complex baseband to `out`. State
-    /// carries across calls; the last pulse span stays inside until more symbols — or
-    /// [`flush`](Self::flush) — push it through.
     pub fn modulate(&mut self, labels: &[u32], out: &mut Vec<Complex<f32>>) {
         let sps = self.params.sps();
         let pulse = self.params.pulse();
@@ -66,8 +52,6 @@ impl LinearMod {
             let s = self.point(self.symbols_in + j as u64, label);
             let base = j * sps;
             for (m, &h) in pulse.iter().enumerate() {
-                // The rails are shaped by the same pulse; the stagger is a pure delay on Q, so
-                // it is applied as an index shift rather than a second filter.
                 self.tail[base + m].re += s.re * h;
                 self.tail[base + m + stagger].im += s.im * h;
             }
@@ -78,19 +62,15 @@ impl LinearMod {
         self.tail.drain(..complete);
     }
 
-    /// Push the held pulse tail out — a transmission that ends mid-tail hands the receiver's
-    /// matched filter a truncated pulse it was not built for.
     pub fn flush(&mut self, out: &mut Vec<Complex<f32>>) {
         out.append(&mut self.tail);
     }
 
-    /// Forget the streaming state. The parameters are immutable, so this is a full reset.
     pub fn reset(&mut self) {
         self.symbols_in = 0;
         self.tail.clear();
     }
 
-    /// One complete transmission in one call — the shape the harness's links and `testgen` use.
     #[must_use]
     pub fn transmission(params: &LinearParams, labels: &[u32]) -> Vec<Complex<f32>> {
         let mut m = Self::new(params.clone());
@@ -127,8 +107,6 @@ mod tests {
             .collect()
     }
 
-    /// The accounting the whole harness rests on: unit-energy pulse times unit-mean-energy table
-    /// means one unit of energy per symbol, hence per k bits.
     #[test]
     fn block_energy_is_one_per_symbol() {
         for m in [4u32, 16, 64] {
@@ -139,7 +117,6 @@ mod tests {
         }
     }
 
-    /// Streaming must be a pure refactor of the one-shot call: any block split, same samples.
     #[test]
     fn any_block_split_gives_the_same_waveform() {
         let p = params(16);
@@ -154,8 +131,6 @@ mod tests {
         assert_eq!(split, whole);
     }
 
-    /// The rotation is a schedule, not a state: symbol k's point is `exp(jkθ)` times the
-    /// table's, read directly off the modulator.
     #[test]
     fn the_rotation_schedule_advances_one_step_per_symbol() {
         let p = params(4).with_rotation(tables::PI_4_ROTATION).unwrap();
@@ -170,8 +145,6 @@ mod tests {
         }
     }
 
-    /// The stagger is exactly half a symbol on Q and nothing on I — checked on a single symbol,
-    /// where the two rails' pulse peaks must land `sps/2` samples apart.
     #[test]
     fn the_stagger_delays_the_quadrature_rail_by_half_a_symbol() {
         let p = params(4).with_offset(true).unwrap();
@@ -196,12 +169,6 @@ mod tests {
         assert_eq!(peak_a(|s| s.im), peak_a(|s| s.re));
     }
 
-    /// Staggering costs no energy and keeps the trajectory away from the origin, which is its
-    /// whole purpose. Stated as *how often* the envelope collapses rather than as a hard floor:
-    /// with root-raised-cosine shaping the bound is statistical, not structural — but a QPSK
-    /// diagonal transition passes through zero by construction, and a staggered one never turns
-    /// more than 90° at a time, so the fraction of the trajectory spent near the origin differs
-    /// by more than an order.
     #[test]
     fn the_stagger_keeps_the_trajectory_off_the_origin() {
         let labels = random_labels(512, 4, 0x0f5e7);
@@ -225,8 +192,6 @@ mod tests {
         assert!((ea / eb - 1.0).abs() < 0.02, "{ea} vs {eb}");
     }
 
-    /// Labels are looked up, not indexed: the descent-labelled tables put label ℓ at a table
-    /// position that is not ℓ, and a modulator that indexed would transmit the wrong point.
     #[test]
     fn labels_index_the_table_by_value() {
         let table = tables::qam_cross(32).unwrap();

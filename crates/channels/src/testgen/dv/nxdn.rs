@@ -1,5 +1,3 @@
-//! NXDN reference transmitter: frame sync word, link information channel, filler payload.
-
 use num_complex::Complex;
 use sdrmm_dsp::fec::conv;
 
@@ -14,7 +12,6 @@ const FACCH_PUNCTURES: [usize; 48] = [
     173, 177, 181, 185, 189,
 ];
 
-/// Which NXDN width the generator is transmitting.
 pub struct Shape {
     pub baud: f64,
     pub deviation_hz: f64,
@@ -29,14 +26,11 @@ impl Default for Shape {
     }
 }
 
-/// A transmission: a signalling frame, three traffic frames and a closing signalling frame.
 #[must_use]
 pub fn transmission(shape: &Shape, rf_channel: u8, outbound: bool, rate: f64) -> Vec<Complex<f32>> {
     transmission_inner(shape, rf_channel, outbound, None, rate)
 }
 
-/// A voice call whose header and release carry FACCH1 addressing, with the same Layer-3
-/// message repeated a quarter at a time over the four intervening SACCH blocks.
 #[must_use]
 pub fn addressed_transmission(
     shape: &Shape,
@@ -185,7 +179,6 @@ fn transmission_inner(
     c4fm(&symbols, rate, shape.baud, shape.deviation_hz, RRC_ALPHA)
 }
 
-/// One 384-bit frame.
 fn frame(
     rf_channel: u8,
     functional: u8,

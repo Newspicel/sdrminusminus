@@ -1,4 +1,3 @@
-//! Does a built macOS artifact still find every library it loads?
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -7,14 +6,8 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 
-/// Prefixes served from the dyld shared cache. Nothing under them exists as a file on disk on a
-/// current macOS, so they are resolved by name — and a dependency outside them that is not in
-/// the artifact is a dependency on the build machine.
 const SYSTEM_PREFIXES: [&str; 3] = ["/usr/lib/", "/System/", "/Library/Frameworks/"];
 
-/// Mach-O magics, little- and big-endian, thin and fat. Read rather than inferred from the
-/// extension: the executable inside a `.app` has none, and a staged tree holds plenty of files
-/// that are not images at all.
 const MAGICS: [[u8; 4]; 4] = [
     [0xcf, 0xfa, 0xed, 0xfe],
     [0xfe, 0xed, 0xfa, 0xcf],
@@ -22,11 +15,6 @@ const MAGICS: [[u8; 4]; 4] = [
     [0xbe, 0xba, 0xfe, 0xca],
 ];
 
-/// Walk every Mach-O file under `path` and fail on any dependency the loader could not find.
-///
-/// `external` holds leaf-name fragments of libraries the artifact deliberately does not carry —
-/// the headless archive links the pinned SoapySDR without shipping it, because the machine it
-/// unpacks on brings its own.
 pub fn check(path: &Path, external: &[String]) -> Result<()> {
     ensure!(path.exists(), "{} does not exist", path.display());
     let images = mach_o_under(path)?;
@@ -96,9 +84,6 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// What `@executable_path` expands to. Inside a bundle it is the app's own executable
-/// directory — which is what the loader uses for every image in the process, not just the main
-/// one — and for a loose binary it is where that binary sits.
 fn executable_dir(path: &Path) -> PathBuf {
     if path.extension().is_some_and(|ext| ext == "app") {
         return path.join("Contents/MacOS");
@@ -109,7 +94,6 @@ fn executable_dir(path: &Path) -> PathBuf {
     path.parent().unwrap_or(Path::new(".")).to_path_buf()
 }
 
-/// Where the loader would find `dependency`, or every path it would try before giving up.
 fn resolve(
     dependency: &str,
     loader_dir: &Path,
@@ -144,9 +128,6 @@ fn resolve(
     }
 }
 
-/// Substitute the loader's two path variables. `@loader_path` is relative to the image that
-/// holds the load command, `@executable_path` to the process's main executable. Both stand
-/// alone as well as prefixing a path — the staged runtime's own rpath is a bare `@loader_path`.
 fn expand(path: &str, loader_dir: &Path, executable_dir: &Path) -> PathBuf {
     for (variable, base) in [
         ("@loader_path", loader_dir),
@@ -166,17 +147,12 @@ fn leaf(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// One image's load commands: what it loads, and where it would look for it.
 struct Image {
     dependencies: Vec<String>,
     rpaths: Vec<String>,
 }
 
 impl Image {
-    /// `otool -l` rather than a Mach-O parser: it ships with the toolchain that built the
-    /// artifact, and a fat file is printed one architecture at a time, so both slices of a
-    /// universal binary are read by the same pass. Both slices name the same libraries, hence
-    /// the dedupe.
     fn read(path: &Path) -> Result<Self> {
         let out = Command::new("otool")
             .arg("-l")
@@ -223,7 +199,6 @@ impl Image {
     }
 }
 
-/// `otool` prints every string field as `<value> (offset N)`.
 fn strip_offset(value: &str) -> String {
     match value.rfind(" (offset ") {
         Some(at) => value[..at].to_string(),
@@ -270,8 +245,6 @@ fn is_mach_o(path: &Path) -> Result<bool> {
 mod tests {
     use super::*;
 
-    /// Trimmed `otool -l` output in the shape the real one has, with the load commands this
-    /// reads interleaved with ones it must not.
     const LISTING: &str = "
 Load command 8
           cmd LC_ID_DYLIB
@@ -316,7 +289,6 @@ Load command 13
         );
     }
 
-    /// A fat binary is listed once per slice; the same library named twice is one dependency.
     #[test]
     fn dedupes_the_slices_of_a_universal_binary() {
         let image = Image::parse(&format!("{LISTING}{LISTING}"));
@@ -339,7 +311,6 @@ Load command 13
         );
     }
 
-    /// The 0.1.2 bundle, reproduced: one rpath, and nothing in it.
     #[test]
     fn missing_rpath_library_reports_every_path_the_loader_would_try() {
         let dir = std::env::temp_dir();
@@ -368,7 +339,6 @@ Load command 13
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A Homebrew or conda install name: present on the machine that linked it, on no other.
     #[test]
     fn an_absolute_path_outside_the_system_is_the_build_machine() {
         let dir = std::env::temp_dir();

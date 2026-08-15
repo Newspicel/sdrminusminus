@@ -1,6 +1,3 @@
-//! dPMR reference transmitter (ETSI TS 102 490): a header frame with both copies of the header
-//! information and the colour code between them, then a superframe and an end frame.
-
 use num_complex::Complex;
 
 use super::{bits, c4fm, dibits, filler};
@@ -13,12 +10,10 @@ const FS1: u64 = 0x57FF_5F75_D577;
 const FS2: u64 = 0x5F_F77D;
 const FS3: u64 = 0x7D_DFF5;
 
-/// One call as a dPMR radio keys it.
 pub struct Call {
     pub colour_code: u16,
     pub called: u32,
     pub own: u32,
-    /// Communication mode: 0 is an individual call, anything else a group.
     pub mode: u8,
 }
 
@@ -33,14 +28,11 @@ impl Default for Call {
     }
 }
 
-/// Preamble, header frame, two superframe halves and an end frame.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     transmission_with_voice(call, &[[false; 72]; 32], rate)
 }
 
-/// Build a call with carrier-interleaved AMBE+2 frames. Every 16 frames form one dPMR
-/// superframe; a partial final superframe is padded with quiet code words.
 #[must_use]
 pub fn transmission_with_voice(call: &Call, voice: &[[bool; 72]], rate: f64) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 67));
@@ -86,7 +78,6 @@ fn colour_code(value: u16) -> Vec<bool> {
     out
 }
 
-/// The 72-bit header information through its CRC, Hamming blocks, interleaver and scrambler.
 fn header_info(call: &Call) -> Vec<bool> {
     let mut info = bits(0, 4);
     info.extend(bits(u64::from(call.called), 24));
@@ -102,14 +93,11 @@ fn header_info(call: &Call) -> Vec<bool> {
         .collect();
     bytes.push(crc8(&bytes));
 
-    // Shortened Hamming(12,8): systematic, so the four parity bits sit after the byte. The
-    // decoder reads only the information half, so the parity is generated but never relied on.
     let mut blocks = Vec::with_capacity(120);
     for &byte in &bytes {
         blocks.extend(bits(u64::from(byte), 8));
         blocks.extend(hamming_parity(byte));
     }
-    // Interleave: ten 12-bit blocks written down the columns, read out along the rows.
     let mut interleaved = vec![false; 120];
     for r in 0..12 {
         for c in 0..10 {

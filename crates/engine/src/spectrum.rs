@@ -1,20 +1,11 @@
-//! Spectrum transform backend selection for the engine.
-//!
-//! Small transforms stay on `rustfft`: submitting work and reading it back costs more than the
-//! arithmetic they save. Large transforms, or enough simultaneous receive lanes to keep a GPU
-//! occupied, share one headless wgpu device. Any adapter/setup/device failure falls back to the
-//! CPU without interrupting capture.
-
 #[cfg(feature = "gpu-fft")]
 use std::sync::{Arc, OnceLock};
 
 use num_complex::Complex;
 use sdrmm_dsp::SpectrumAnalyzer as CpuSpectrumAnalyzer;
 
-/// Below this point a single transform is normally faster without a GPU round trip.
 #[cfg(any(feature = "gpu-fft", test))]
 const GPU_MIN_FFT_SIZE: usize = 16_384;
-/// Several independent lanes can amortize the shared queue even at the default FFT size.
 #[cfg(any(feature = "gpu-fft", test))]
 const GPU_MIN_LANES: usize = 4;
 
@@ -86,7 +77,6 @@ pub(crate) struct SpectrumFrame {
 }
 
 impl SpectrumAnalyzer {
-    /// Submit one spectrum frame and return the metadata of a completed frame, if any.
     pub(crate) fn power_db(
         &mut self,
         input: &[Complex<f32>],
@@ -154,12 +144,8 @@ mod gpu {
     use super::SpectrumFrame;
 
     const WORKGROUP_SIZE: u32 = 256;
-    /// A slow production adapter must fail promptly so its bounded worker can fall back to the
-    /// CPU instead of remaining occupied indefinitely.
     #[cfg(not(test))]
     pub(super) const GPU_FRAME_BUDGET: Duration = Duration::from_millis(50);
-    /// Headless CI deliberately exercises a software Vulkan adapter; give its first dispatch
-    /// enough room to compile and execute without weakening the production deadline above.
     #[cfg(test)]
     pub(super) const GPU_FRAME_BUDGET: Duration = Duration::from_secs(5);
     const DROP_LOG_INTERVAL: Duration = Duration::from_secs(5);

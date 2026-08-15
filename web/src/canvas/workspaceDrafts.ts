@@ -6,7 +6,6 @@ export interface WorkspaceDraft {
   generation: number;
 }
 
-/** Local workspace state that must outlive query-cache refetches while writes are queued. */
 export class WorkspaceDrafts {
   readonly #drafts = new Map<number, WorkspaceDraft>();
 
@@ -34,7 +33,6 @@ export class WorkspaceDrafts {
     return draft.snapshot;
   }
 
-  /** Drop only the last write for this workspace; a newer generation remains the local draft. */
   finish(id: number, generation: number): boolean {
     if (this.#drafts.get(id)?.generation !== generation) {
       return false;

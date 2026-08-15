@@ -1,57 +1,3 @@
-//! Soft-BPTC gain on the DMR chain:
-//! the same testgen C4FM → channel filter → `CpmDemod` chain the committed uncoded `*_cpm`
-//! baselines were measured on, carrying BPTC(196,96)-coded payloads decoded twice from the
-//! *identical* received stream — once hard (`Bptc196::decode` on the signs), once soft
-//! (`Bptc196::decode_soft` on the mapping demapper's output) — so the measured gap between the
-//! two curves is the soft decoder's alone, with the channel realisation, framing overhead and
-//! Eb accounting common to both. The headline number, the horizontal gap at post-FEC BER 1e-3,
-//! is committed in `baselines/dmr/dmr_bptc_gain_cpm.json` and is the regression gate; the
-//! phase-0/1 measurement of the same quantity on the `Fsk4Demod` chain stays committed in
-//! `dmr_bptc_{hard,soft,gain}.json` as the pre-migration reference (its gain: 1.60 dB).
-//!
-//! **Bit→dibit order.** `Bptc196::encode`'s 196 coded bits are mapped pairwise onto 98 dibits,
-//! bit `2k` the dibit's high bit — `tg::dibits`' pairing, and exactly the order the real
-//! channel uses: `dv/dmr.rs::data_burst` reassembles the BPTC block from burst bits 0..98 and
-//! 166..264 in transmission order, and `dv/mod.rs` unpacks every recovered dibit high bit
-//! first. Each coded frame rides the steady framing: 88-symbol preamble, the 24-symbol
-//! BS voice sync, 98 payload symbols, 40-symbol tail.
-//!
-//! **Soft values.** `Mapping::soft_bits` (max-log over the dibit table, positive = 1, ±1
-//! full-confidence) rescaled to the Viterbi/BPTC `Soft` unit by `CONFIDENT` — on the DMR
-//! table this is value-for-value the historical `fsk4::soft_bits` calibration, so the two
-//! generations' soft decoders read the same evidence scale.
-//!
-//! **Eb accounting.** Eb is per *information* bit (crate-root convention): 96 bits against the
-//! whole radiated frame, so the preamble/sync/tail energy (250 symbols carrying 98) and the
-//! code redundancy (196/96) are both charged, as the steady curve charges its own overhead.
-//! That puts this axis ~6.9 dB right of the uncoded steady axis at equal channel SNR; the
-//! gain is a horizontal read between two curves with identical overhead, so none of it
-//! survives into the committed number.
-//!
-//! **Metrics are separate (§4.1).** Each committed file carries three labelled curves:
-//! - `ber`  — residual payload-bit errors over *accepted* frames only (trials = 96 × accepted).
-//!   A refused frame contributes no bits here; folding invented half-wrong frames into BER
-//!   would let the refusal policy masquerade as bit errors.
-//! - `fer`  — refused frames (decode returned `None`, or the sync could not be placed at all)
-//!   over all frames.
-//! - `undetected` — accepted frames carrying at least one wrong payload bit, over accepted
-//!   frames: the rate at which a decoder hands wrong data onward as good.
-//!
-//! **Short independent frames.** One 96-bit frame per trial, fresh front end per trial, at the
-//! burst timing operating point the production channel runs: these 250-symbol frames sit far
-//! inside the clean region of the burst-bandwidth wander documented in `dmr_baseline.rs`.
-//!
-//! **Measured result (full run, release, seed 0xd5f, phase-3 chain):** hard crosses post-FEC
-//! BER 1e-3 at 16.34 dB, soft at 15.00 dB — **gain 1.34 dB**, inside the plan's expected
-//! 1–2 dB order. The phase-0 chain measured 1.60 dB; both crossings moved left-and-right by
-//! tenths with the front end's own improvement, and each carries a ~±0.25 dB horizontal
-//! interval, so the two gains agree within the measurement. Soft again collapses FER across
-//! the whole sweep (44% → 8.7% at 16 dB) and the undetected floor (4.0e-4 → 8.4e-5 at 18 dB).
-//!
-//! The hard decoder's input is the sign of the same soft stream the soft decoder reads
-//! (`soft > 0`), so the decoders are compared on identical evidence; a sub-quantum slicer
-//! difference right at a decision boundary is charged to neither.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -82,23 +28,12 @@ use serde::{Deserialize, Serialize};
 const INFO_BITS: usize = Bptc196::DATA_BITS;
 const PAYLOAD_SYMBOLS: usize = Bptc196::CODED_BITS / 2;
 
-/// Sweep grid bracketing post-FEC BER 1e-3 on *both* curves (probe-placed: soft crosses near
-/// 15 dB, hard near 16.5 dB), with a shoulder either side — the top points show the floor the
-/// accepted-frame BER settles onto, which is part of the committed picture.
 const GRID: [f64; 6] = [13.0, 14.0, 15.0, 16.0, 17.0, 18.0];
 const SEED: u64 = 0x0d5f;
 
-/// Error budget per point, on each decoder's residual-bit count. The `MIN_ERRORS_PER_POINT`
-/// note scales budgets with the local log-slope, and this chain adds clustering: residual bits
-/// arrive ~5–6 to a wrong frame, so the independent count behind a point is its *wrong frames*
-/// — 600 bit errors is ~100 wrong frames, which at the measured ~0.3–0.4 decade/dB waterfall
-/// holds a point's horizontal 95% interval near ±0.25 dB, inside the 0.5 dB gates. The frame
-/// cap bounds the shoulder points where soft errors stop arriving; 30 000 frames still
-/// resolves BER ~1e-4 with a real count rather than a bound.
 const FULL_MIN_ERRORS: u64 = 600;
 const FULL_MAX_FRAMES: u64 = 30_000;
 
-/// The committed gain is read at this post-FEC BER.
 const AT_BER: f64 = 1e-3;
 
 const RECIPE: &str = "96 info bits -> Bptc196 -> tg::dibits -> steady framing \
@@ -106,8 +41,6 @@ const RECIPE: &str = "96 info bits -> Bptc196 -> tg::dibits -> steady framing \
     (Eb per info bit, overhead charged) -> channel filter -> CpmDemod (burst timing bw) -> \
     Mapping::soft_bits x CONFIDENT; hard = decode(sign), soft = decode_soft, same stream; \
     gain = horizontal gap of the accepted-frame BER curves at 1e-3, release";
-
-// --- The coded chain -------------------------------------------------------------------------
 
 fn modulate(coded: &[bool; Bptc196::CODED_BITS]) -> Vec<Complex<f32>> {
     let mut symbols: Vec<u8> = alternating(STEADY_PREAMBLE).collect();
@@ -117,9 +50,6 @@ fn modulate(coded: &[bool; Bptc196::CODED_BITS]) -> Vec<Complex<f32>> {
     tg::c4fm(&symbols, RATE, BAUD, DEVIATION_HZ, RRC_ALPHA)
 }
 
-/// Demodulate, align on the sync (searched, as the steady chain does), and demap the 98
-/// payload symbols to 196 soft values. `None` only when the output is too short to even place
-/// the sync — a frame lost before any decoder saw it, counted as refused by both.
 fn received_soft(wave: &[Complex<f32>]) -> Option<[Soft; Bptc196::CODED_BITS]> {
     let entry = dmr_entry();
     let symbols = recovered_symbols(wave, true, TIMING_BW_BURST);
@@ -140,9 +70,6 @@ fn received_soft(wave: &[Complex<f32>]) -> Option<[Soft; Bptc196::CODED_BITS]> {
     Some(soft)
 }
 
-// --- Per-point measurement -------------------------------------------------------------------
-
-/// One decoder's counts at one point; the three committed metrics read straight off it.
 #[derive(Default, Clone, Copy)]
 struct Tally {
     frames: u64,
@@ -176,8 +103,6 @@ struct PointStats {
     raw_bits: u64,
 }
 
-/// The sweep runner's own seeding convention (`sweep::point_seed`): a golden-ratio stride
-/// keeps `index → seed` injective, so any point regenerates alone from `(seed, index)`.
 fn point_seed(seed: u64, index: usize) -> u64 {
     seed.wrapping_add((index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
@@ -230,9 +155,6 @@ fn measure_point(
     stats
 }
 
-// --- Committed artifacts ---------------------------------------------------------------------
-
-/// One decoder's committed measurement: the three §4.1 metrics as separately labelled curves.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct CodedCurves {
     ber: Curve,
@@ -277,8 +199,6 @@ fn coded_curves(
     }
 }
 
-/// The committed headline: the horizontal gap between the hard and soft accepted-frame BER
-/// curves at [`AT_BER`], re-derivable from the two committed curve files alone.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct GainRecord {
     at_ber: f64,
@@ -301,19 +221,6 @@ fn load<T: for<'de> Deserialize<'de>>(path: &Path) -> T {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-// --- Always-run regression gates -------------------------------------------------------------
-
-/// Harness defects (mis-alignment, wrong bit pairing, sign convention) are loud before any
-/// statistics: at 30 dB one frame must survive both decoders untouched, with zero
-/// corrections, and every raw bit must carry *confident* correct evidence — with one
-/// documented exception. A symbol the RRC-cascade ISI parks within a soft quantum of a
-/// decision boundary (measured on this seed: a +3 arriving at 2.0296, whose outer-bit
-/// evidence truncates to the 0 erasure and reads as the wrong hard bit) is the module-doc
-/// case "charged to neither": the phase-0 chain's ×1.13 level bias pushed outer symbols off
-/// the boundary and hid the class, and the migrated chain's accurate normalisation exposes
-/// it. A harness defect cannot hide there — misaligned or mispaired bits carry confident
-/// wrong evidence and half-random signs, which both this assert and the strict decoder
-/// asserts above it catch.
 #[test]
 fn coded_frame_round_trips_clean_at_high_ebn0() {
     let stats = measure_point(30.0, 0, 0x0c1f, 1, 1);
@@ -323,8 +230,6 @@ fn coded_frame_round_trips_clean_at_high_ebn0() {
         assert_eq!(t.bit_errors, 0, "{name} residual errors on a clean frame");
     }
 
-    // Re-derive the same frame (the tally hides per-bit evidence) and demand every raw
-    // mismatch be a boundary erasure, never a confidently wrong bit.
     let mut rng = Rng::new(point_seed(0x0c1f, 0));
     let channel = ChannelSpec::default()
         .awgn(Awgn::for_ebn0(30.0, INFO_BITS as u64))
@@ -345,11 +250,6 @@ fn coded_frame_round_trips_clean_at_high_ebn0() {
     }
 }
 
-/// Smoke tier of the committed curves: the first two grid points re-measured with the
-/// committed budgets. Point realisations are named by `(seed, index)` (the sweep runner's
-/// convention), so a grid prefix reproduces the committed points bit-identically on one host
-/// and the 0.5 dB slack absorbs only cross-platform float drift. All three metrics gate: at
-/// these low-SNR points every count is in the hundreds, real statistics for each.
 #[test]
 fn coded_curves_match_committed_baselines() {
     let hard: CodedCurves = load(&baseline_path("dmr_bptc_hard_cpm.json"));
@@ -382,9 +282,6 @@ fn coded_curves_match_committed_baselines() {
     }
 }
 
-/// The committed headline number must be exactly what the committed curves say: the gain is
-/// re-derived from the two curve artifacts and compared to the recorded one, so neither can
-/// drift without the other.
 #[test]
 fn committed_gain_re_derives_from_the_committed_curves() {
     let hard: CodedCurves = load(&baseline_path("dmr_bptc_hard_cpm.json"));
@@ -405,13 +302,6 @@ fn committed_gain_re_derives_from_the_committed_curves() {
     );
 }
 
-/// The migration must not cost the soft decoder its measured advantage. Each committed gain
-/// is a difference of two crossings that carry ~±0.25 dB horizontal intervals, so the honest
-/// cross-generation tolerance is the same 0.5 dB slack every curve gate uses — and the gain
-/// must stay at the plan's expected 1–2 dB order (≥ 1 dB), because a collapsed gain would
-/// mean the migration broke the soft path even if the delta squeaked through. Both numbers
-/// are committed artifacts, so this documents the phase-0 → phase-3 delta on the coded axis
-/// the way `dmr_baseline.rs` documents it on the uncoded ones (measured: 1.60 → 1.34 dB).
 #[test]
 fn the_gain_survives_the_migration() {
     let old: GainRecord = load(&baseline_path("dmr_bptc_gain.json"));
@@ -433,8 +323,6 @@ fn the_gain_survives_the_migration() {
     );
 }
 
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ----------------------
-
 fn print_point(p: &PointStats) {
     println!(
         "{:>5.1} dB  raw {:.3e}  hard fer {:.3e} ber {:.3e} undet {}/{}  \
@@ -452,9 +340,6 @@ fn print_point(p: &PointStats) {
     );
 }
 
-/// Point-by-point in rate (the curves are non-monotone on their floors, where a horizontal
-/// read is nonzero even for an identical curve): same-host regeneration reproduces committed
-/// counts bit-for-bit, so the log-ratio allowance is for cross-platform float drift only.
 fn assert_curves_match(name: &str, measured: &CodedCurves, committed: &CodedCurves) {
     for (what, m, c) in [
         ("ber", &measured.ber, &committed.ber),
@@ -479,7 +364,6 @@ fn assert_curves_match(name: &str, measured: &CodedCurves, committed: &CodedCurv
     }
 }
 
-/// Run in release: `cargo test -p sdrmm-channels --release --test dmr_soft_gain -- --ignored`.
 #[test]
 #[ignore = "full sweep (~1e5 coded frames); run in release to (re)generate the committed artifacts"]
 fn measure_soft_bptc_gain_full() {
@@ -531,8 +415,6 @@ fn measure_soft_bptc_gain_full() {
         println!("gain recorded at {}", path.display());
     }
 }
-
-// --- Exploration (never asserted; kept ignored for grid placement) ---------------------------
 
 #[test]
 #[ignore = "prints coarse curves to place the sweep grid; asserts nothing"]

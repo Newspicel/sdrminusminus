@@ -26,8 +26,6 @@ import {
 } from "./geometry";
 
 const HEIGHT = 320;
-/** Kept clear at the foot of the drawing for the dimension line and the ruler, so an
- * annotation never lands on top of an element. */
 const ANNOTATION_BAND = 56;
 const VIEWPORT: Viewport = { width: 640, height: HEIGHT - ANNOTATION_BAND, padding: 34 };
 const DIMENSION_RULE = HEIGHT - 40;
@@ -252,7 +250,6 @@ function Piece({
   );
 }
 
-/** How wide and how tall the antenna itself is, bracketed off the drawing. */
 function Dimensions({
   geometry,
   plan,
@@ -332,7 +329,6 @@ function Dimensions({
   );
 }
 
-/** A square of ground under the antenna, so the 3D view has something to sit on. */
 function groundGrid(bounds: Bounds): [AntennaPoint, AntennaPoint][] {
   const side = Math.max(bounds.x.size, bounds.z.size) * 1.2;
   if (side <= 0) {

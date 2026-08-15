@@ -1,9 +1,3 @@
-// Decoder log browser (: decoder logs are queryable and exportable, not scroll-back-
-// only). The stored page is server state — one TanStack Query keyed by the filter, so changing a
-// filter refetches through the key and a `decoder_log` StateChanged invalidates every filter at
-// once. The WS store's tail is merged into that page, so a frame is on screen the moment it is
-// decoded rather than at the writer's next flush; the log is a live readout, never a page the
-// operator has to ask to be current.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
@@ -36,12 +30,6 @@ const CLEAR_ARM_MS = 3000;
 
 const NO_FRAMES = {};
 
-/**
- * `wires` is the scope: the decoders feeding this log, by patch node and by the coordinates those
- * nodes hold right now. It narrows both the stored page and the live tail, and it is the *whole*
- * of which decoders and which radios this node shows — that is what the patch is for, so the
- * search box and the row cap are the only narrowing offered here.
- */
 export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<LogFilter>(DEFAULT_LOG_FILTER);
@@ -49,12 +37,8 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cleared, setCleared] = useState<number | null>(null);
-  // One row open at a time, keyed by `LogRow.key`: a page of expanded frames is a page nobody
-  // can scan, and the key survives the live tail reordering around it.
   const [opened, setOpened] = useState<string | null>(null);
 
-  // Typing must not key a new query per keystroke; the committed `filter.q` is what the query
-  // key (and every export link) sees.
   useEffect(() => {
     if (search === filter.q) {
       return;
@@ -89,8 +73,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const clearMut = useMutation({
     mutationFn: () => clearDecoderLog(query),
     onSuccess: (deleted) => {
-      // The tail is this browser's copy of rows the server has just deleted; leaving it renders
-      // them for another `RING_CAPACITY` frames, which reads as a Clear that did nothing.
       const live = rows.filter((row) => row.live).length;
       useDecodedStore.getState().dropFrames((record) => matchesFilter(record, filter, wired));
       setError(null);
@@ -163,8 +145,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
             {cleared !== null && <span>{cleared} rows cleared.</span>}
           </div>
 
-          {/* Fills the panel it is docked in: a fixed cap would waste a tall panel and overflow a
-          short one. */}
           <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
             <table className="w-full border-collapse font-mono text-xs">
               <thead className="sticky top-0 bg-panel">
@@ -179,19 +159,12 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
               <tbody>
                 {rows.map((row) => (
                   <Fragment key={row.key}>
-                    {/* The whole row is the control: a summary is truncated by design, and the frame
-                    behind it is what the reader is after. */}
-                    {/* No live/stored distinction is drawn: every row arrives through the tail and
-                    turns into its stored twin within a flush, so marking the difference would be
-                    half a second of tint on every row in the table. */}
                     <tr
                       className="cursor-pointer border-b border-line/50 hover:bg-panel-2 focus-visible:outline focus-visible:outline-accent"
                       aria-expanded={opened === row.key}
                       tabIndex={0}
                       onClick={() => setOpened(opened === row.key ? null : row.key)}
                       onKeyDown={(event) => {
-                        // The row is the control, so it answers the keys a control does. Space
-                        // would scroll the panel out from under the frame it just opened.
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           setOpened(opened === row.key ? null : row.key);
@@ -265,13 +238,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   );
 }
 
-/**
- * Everything the frame carried, under the one line the table had room for.
- *
- * This is where a NAVTEX broadcast, an ACARS body and a sub-GHz pulse train are read. The summary
- * column flattens each of them to a line, and before the log became the one place frames are read
- * they had per-channel panes of their own — which were a second copy of this table.
- */
 function RowDetail({ row }: { row: LogRow }) {
   const detail = eventDetail(row.event);
   return (

@@ -178,7 +178,6 @@
           {
             "name": "lat",
             "in": "query",
-            "description": "Degrees north, −90…90.",
             "required": true,
             "schema": {
               "type": "number",
@@ -188,7 +187,6 @@
           {
             "name": "lon",
             "in": "query",
-            "description": "Degrees east, −180…180.",
             "required": true,
             "schema": {
               "type": "number",
@@ -466,7 +464,6 @@
           {
             "name": "kind",
             "in": "query",
-            "description": "Restrict to one decoder ([`crate::DecoderEvent::kind`]).",
             "required": false,
             "schema": {
               "type": "string"
@@ -475,7 +472,6 @@
           {
             "name": "device_set",
             "in": "query",
-            "description": "Restrict to one device set.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -502,7 +498,6 @@
           {
             "name": "since",
             "in": "query",
-            "description": "Only entries at or after this RFC3339 timestamp.",
             "required": false,
             "schema": {
               "type": "string"
@@ -511,7 +506,6 @@
           {
             "name": "until",
             "in": "query",
-            "description": "Only entries at or before this RFC3339 timestamp.",
             "required": false,
             "schema": {
               "type": "string"
@@ -520,7 +514,6 @@
           {
             "name": "q",
             "in": "query",
-            "description": "Substring match against `station` and `summary`, case-insensitive.",
             "required": false,
             "schema": {
               "type": "string"
@@ -529,7 +522,6 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum rows returned by the list endpoint (server-clamped). Ignored by export.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -567,7 +559,6 @@
           {
             "name": "kind",
             "in": "query",
-            "description": "Restrict to one decoder ([`crate::DecoderEvent::kind`]).",
             "required": false,
             "schema": {
               "type": "string"
@@ -576,7 +567,6 @@
           {
             "name": "device_set",
             "in": "query",
-            "description": "Restrict to one device set.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -603,7 +593,6 @@
           {
             "name": "since",
             "in": "query",
-            "description": "Only entries at or after this RFC3339 timestamp.",
             "required": false,
             "schema": {
               "type": "string"
@@ -612,7 +601,6 @@
           {
             "name": "until",
             "in": "query",
-            "description": "Only entries at or before this RFC3339 timestamp.",
             "required": false,
             "schema": {
               "type": "string"
@@ -621,7 +609,6 @@
           {
             "name": "q",
             "in": "query",
-            "description": "Substring match against `station` and `summary`, case-insensitive.",
             "required": false,
             "schema": {
               "type": "string"
@@ -630,7 +617,6 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum rows returned by the list endpoint (server-clamped). Ignored by export.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -679,7 +665,6 @@
           {
             "name": "kind",
             "in": "query",
-            "description": "Restrict to one decoder ([`crate::DecoderEvent::kind`]).",
             "required": false,
             "schema": {
               "type": "string"
@@ -688,7 +673,6 @@
           {
             "name": "device_set",
             "in": "query",
-            "description": "Restrict to one device set.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -715,7 +699,6 @@
           {
             "name": "since",
             "in": "query",
-            "description": "Only entries at or after this RFC3339 timestamp.",
             "required": false,
             "schema": {
               "type": "string"
@@ -724,7 +707,6 @@
           {
             "name": "until",
             "in": "query",
-            "description": "Only entries at or before this RFC3339 timestamp.",
             "required": false,
             "schema": {
               "type": "string"
@@ -733,7 +715,6 @@
           {
             "name": "q",
             "in": "query",
-            "description": "Substring match against `station` and `summary`, case-insensitive.",
             "required": false,
             "schema": {
               "type": "string"
@@ -742,7 +723,6 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum rows returned by the list endpoint (server-clamped). Ignored by export.",
             "required": false,
             "schema": {
               "type": "integer",
@@ -2492,7 +2472,6 @@
     "schemas": {
       "AboutResponse": {
         "type": "object",
-        "description": "`GET /api/about` — the running build and everything it owes attribution to.",
         "required": [
           "name",
           "version",
@@ -2506,16 +2485,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Attribution"
-            },
-            "description": "Third-party components, ordered by source and then by name."
+            }
           },
           "license": {
-            "type": "string",
-            "description": "SPDX id of sdr-- itself."
+            "type": "string"
           },
           "license_text": {
-            "type": "string",
-            "description": "The project's own `LICENSE`, in full."
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -2524,14 +2500,12 @@
             "type": "string"
           },
           "version": {
-            "type": "string",
-            "description": "`CARGO_PKG_VERSION` of the running server, not of the generated notices: the notices are\ncommitted and the version is stamped at release, so only one of the two can be trusted\nto say which build this is."
+            "type": "string"
           }
         }
       },
       "AcarsMessage": {
         "type": "object",
-        "description": "One ACARS block (: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow\nthe standard's, so a message here reads the same as in every other ACARS tool.",
         "required": [
           "mode",
           "registration",
@@ -2546,12 +2520,10 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Technical acknowledgement: the block being acknowledged, or `None` for a NAK."
+            ]
           },
           "block_id": {
-            "type": "string",
-            "description": "Block identifier. `0`–`9` marks a downlink (aircraft to ground)."
+            "type": "string"
           },
           "downlink": {
             "type": "boolean"
@@ -2560,31 +2532,25 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Flight number, on downlinks only."
+            ]
           },
           "label": {
-            "type": "string",
-            "description": "Two-character label identifying the message type (`5Z`, `H1`, `_d` …)."
+            "type": "string"
           },
           "mode": {
-            "type": "string",
-            "description": "Mode character — `2` is VHF category A."
+            "type": "string"
           },
           "more": {
-            "type": "boolean",
-            "description": "The block ended with ETB rather than ETX: another block of the same message follows."
+            "type": "boolean"
           },
           "registration": {
-            "type": "string",
-            "description": "Aircraft registration with the standard `.` padding removed."
+            "type": "string"
           },
           "seq_no": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Message sequence number, on downlinks only."
+            ]
           },
           "text": {
             "type": "string"
@@ -2602,7 +2568,6 @@
       },
       "AdsbMessage": {
         "type": "object",
-        "description": "One decoded Mode S / ADS-B frame (: preamble correlation + Mode S CRC).\nFields are `Option` because which ones a frame carries depends on its type code — a\nposition frame has no callsign, an identification frame has no altitude.",
         "required": [
           "icao",
           "df",
@@ -2625,7 +2590,6 @@
           "df": {
             "type": "integer",
             "format": "int32",
-            "description": "Downlink Format (17 = ADS-B extended squitter, 11 = all-call reply).",
             "minimum": 0
           },
           "ground_speed_kt": {
@@ -2636,16 +2600,14 @@
             "format": "double"
           },
           "icao": {
-            "type": "string",
-            "description": "ICAO 24-bit address as 6 hex digits — the aircraft's identity across frames."
+            "type": "string"
           },
           "lat": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Latitude in degrees, once a CPR even/odd pair has been solved."
+            "format": "double"
           },
           "lon": {
             "type": [
@@ -2661,8 +2623,7 @@
             ]
           },
           "raw": {
-            "type": "string",
-            "description": "The raw frame as hex — the interop format every Mode S tool speaks."
+            "type": "string"
           },
           "squawk": {
             "type": [
@@ -2683,7 +2644,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "Extended-squitter type code, when the frame has an ME field.",
             "minimum": 0
           },
           "vertical_rate_fpm": {
@@ -2699,16 +2659,14 @@
         "type": "object",
         "properties": {
           "crc_fix": {
-            "type": "boolean",
-            "description": "Repair single-bit errors the Mode S CRC localizes. Off trades sensitivity for a\nlower false-frame rate on a noisy antenna."
+            "type": "boolean"
           },
           "ref_lat": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Reference position for locally-decoded (single-frame) CPR positions, in degrees.\nWithout one, a position needs a matching even/odd frame pair."
+            "format": "double"
           },
           "ref_lon": {
             "type": [
@@ -2721,7 +2679,6 @@
       },
       "AisChannel": {
         "type": "string",
-        "description": "Which of the two AIS channels a receiver is parked on. Only the label travels with the\ndecoded message — the tuning itself is the channel's `offset_hz`.",
         "enum": [
           "a",
           "b"
@@ -2729,7 +2686,6 @@
       },
       "AisMessage": {
         "type": "object",
-        "description": "One decoded AIS message (: GMSK/NRZI over HDLC framing).",
         "required": [
           "mmsi",
           "msg_type",
@@ -2738,8 +2694,7 @@
         ],
         "properties": {
           "ais_channel": {
-            "type": "string",
-            "description": "Which of the two AIS channels the burst arrived on (`A` = 161.975 MHz)."
+            "type": "string"
           },
           "call_sign": {
             "type": [
@@ -2752,8 +2707,7 @@
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Course over ground in degrees."
+            "format": "double"
           },
           "destination": {
             "type": [
@@ -2786,13 +2740,11 @@
           "mmsi": {
             "type": "integer",
             "format": "int32",
-            "description": "Maritime Mobile Service Identity — the vessel's identity across messages.",
             "minimum": 0
           },
           "msg_type": {
             "type": "integer",
             "format": "int32",
-            "description": "ITU-R M.1371 message type (1–3 position report, 5 static data, 18/19 class B …).",
             "minimum": 0
           },
           "name": {
@@ -2807,20 +2759,17 @@
               "null"
             ],
             "format": "int32",
-            "description": "Navigational status code (0 = under way using engine …).",
             "minimum": 0
           },
           "nmea": {
-            "type": "string",
-            "description": "The `!AIVDM` sentence — the interop format every AIS tool speaks."
+            "type": "string"
           },
           "sog_kt": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Speed over ground in knots."
+            "format": "double"
           }
         }
       },
@@ -2845,7 +2794,6 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "Half-wave, centre fed, horizontal.",
             "required": [
               "type"
             ],
@@ -2860,15 +2808,13 @@
           },
           {
             "type": "object",
-            "description": "A dipole with its legs sloped down from a single support.",
             "required": [
               "settings",
               "type"
             ],
             "properties": {
               "settings": {
-                "$ref": "#/components/schemas/InvertedVParams",
-                "description": "A dipole with its legs sloped down from a single support."
+                "$ref": "#/components/schemas/InvertedVParams"
               },
               "type": {
                 "type": "string",
@@ -2880,15 +2826,13 @@
           },
           {
             "type": "object",
-            "description": "Quarter-wave vertical over radials.",
             "required": [
               "settings",
               "type"
             ],
             "properties": {
               "settings": {
-                "$ref": "#/components/schemas/GroundPlaneParams",
-                "description": "Quarter-wave vertical over radials."
+                "$ref": "#/components/schemas/GroundPlaneParams"
               },
               "type": {
                 "type": "string",
@@ -2900,7 +2844,6 @@
           },
           {
             "type": "object",
-            "description": "Five-eighths-wave vertical with a base loading coil.",
             "required": [
               "type"
             ],
@@ -2915,7 +2858,6 @@
           },
           {
             "type": "object",
-            "description": "Half-wave folded dipole, the ~300 Ω driven element of a Yagi.",
             "required": [
               "type"
             ],
@@ -2930,7 +2872,6 @@
           },
           {
             "type": "object",
-            "description": "End-fed half-wave with a quarter-wave matching stub.",
             "required": [
               "type"
             ],
@@ -2945,15 +2886,13 @@
           },
           {
             "type": "object",
-            "description": "Reflector, driven element and directors on a boom.",
             "required": [
               "settings",
               "type"
             ],
             "properties": {
               "settings": {
-                "$ref": "#/components/schemas/YagiParams",
-                "description": "Reflector, driven element and directors on a boom."
+                "$ref": "#/components/schemas/YagiParams"
               },
               "type": {
                 "type": "string",
@@ -2965,7 +2904,6 @@
           },
           {
             "type": "object",
-            "description": "Full-wave square loop (quad), fed at a corner or the middle of a side.",
             "required": [
               "type"
             ],
@@ -2980,7 +2918,6 @@
           },
           {
             "type": "object",
-            "description": "Half-wave wire fed at its high-impedance end through a transformer.",
             "required": [
               "type"
             ],
@@ -2993,20 +2930,17 @@
               }
             }
           }
-        ],
-        "description": "The antenna to cut. Adjacently tagged like [`crate::ChannelParams`]: the designs that take\nno choices are bare tags, the rest carry their settings."
+        ]
       },
       "AntennaGeometry": {
         "type": "object",
-        "description": "The antenna as a shape: enough to draw it to scale from any angle.",
         "required": [
           "segments",
           "feed"
         ],
         "properties": {
           "feed": {
-            "$ref": "#/components/schemas/AntennaPoint",
-            "description": "Where the feedline attaches."
+            "$ref": "#/components/schemas/AntennaPoint"
           },
           "segments": {
             "type": "array",
@@ -3018,7 +2952,6 @@
       },
       "AntennaPart": {
         "type": "object",
-        "description": "One thing to cut, bend or buy.",
         "required": [
           "name",
           "count",
@@ -3028,7 +2961,6 @@
           "count": {
             "type": "integer",
             "format": "int32",
-            "description": "How many of this part the design needs.",
             "minimum": 0
           },
           "detail": {
@@ -3049,14 +2981,12 @@
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Where it sits along the boom, measured from the reflector. Only the designs that have\na boom set it."
+            "format": "double"
           }
         }
       },
       "AntennaPoint": {
         "type": "object",
-        "description": "A point on the antenna, in metres from the origin. `x` runs along the elements, `y` is up,\n`z` is the boom's depth. The origin is the feedpoint, or the base of anything that stands on\none.",
         "required": [
           "x_m",
           "y_m",
@@ -3079,7 +3009,6 @@
       },
       "AntennaReport": {
         "type": "object",
-        "description": "What the calculator worked out.",
         "required": [
           "design",
           "frequency_hz",
@@ -3092,35 +3021,30 @@
         ],
         "properties": {
           "balanced": {
-            "type": "boolean",
-            "description": "Whether the feedpoint is balanced, and so wants a balun ahead of coax."
+            "type": "boolean"
           },
           "design": {
-            "$ref": "#/components/schemas/AntennaDesign",
-            "description": "The design that produced this, echoed so a cached report can name itself."
+            "$ref": "#/components/schemas/AntennaDesign"
           },
           "feedpoint_ohms": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Estimated feedpoint impedance in free space. `None` where the design's own matching\nnetwork sets it and a raw figure would mislead."
+            "format": "double"
           },
           "frequency_hz": {
             "type": "number",
             "format": "double"
           },
           "geometry": {
-            "$ref": "#/components/schemas/AntennaGeometry",
-            "description": "The same design as a shape, to scale, for a drawing of it."
+            "$ref": "#/components/schemas/AntennaGeometry"
           },
           "notes": {
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Everything the numbers alone do not say: what to trim, what to match with, what the\nestimate assumes."
+            }
           },
           "parts": {
             "type": "array",
@@ -3134,14 +3058,12 @@
           },
           "wavelength_m": {
             "type": "number",
-            "format": "double",
-            "description": "Free-space wavelength, before any correction factor."
+            "format": "double"
           }
         }
       },
       "AntennaRequest": {
         "type": "object",
-        "description": "`POST /api/tools/run` with `\"tool\": \"antenna\"`.",
         "required": [
           "frequency_hz",
           "design"
@@ -3152,8 +3074,7 @@
           },
           "feedline_velocity_factor": {
             "type": "number",
-            "format": "double",
-            "description": "Velocity factor of the coax, used only by designs that include a matching section.\nSolid polyethylene is 0.66, foam 0.80, PTFE 0.70."
+            "format": "double"
           },
           "frequency_hz": {
             "type": "number",
@@ -3161,14 +3082,12 @@
           },
           "velocity_factor": {
             "type": "number",
-            "format": "double",
-            "description": "End-effect factor applied to every resonant element."
+            "format": "double"
           }
         }
       },
       "AntennaSegment": {
         "type": "object",
-        "description": "One straight piece of the antenna, as drawn.",
         "required": [
           "label",
           "role",
@@ -3180,8 +3099,7 @@
             "$ref": "#/components/schemas/AntennaPoint"
           },
           "label": {
-            "type": "string",
-            "description": "The part this piece is. Where the report lists a part under the same name, the segment is\nexactly that long."
+            "type": "string"
           },
           "role": {
             "$ref": "#/components/schemas/AntennaSegmentRole"
@@ -3193,7 +3111,6 @@
       },
       "AntennaSegmentRole": {
         "type": "string",
-        "description": "What a drawn piece does, so a view can colour it without reading its name.",
         "enum": [
           "driven",
           "parasitic",
@@ -3205,7 +3122,6 @@
       },
       "ApiError": {
         "type": "object",
-        "description": "Uniform error body for REST failures.",
         "required": [
           "error"
         ],
@@ -3223,7 +3139,6 @@
       },
       "ApplyTemplateRequest": {
         "type": "object",
-        "description": "Apply a built-in template to a live device set.",
         "required": [
           "device_set"
         ],
@@ -3237,7 +3152,6 @@
       },
       "AprsMode": {
         "type": "string",
-        "description": "AX.25 physical layer (: AFSK1200 + 9600 G3RUH).",
         "enum": [
           "afsk1200",
           "g3ruh9600"
@@ -3245,7 +3159,6 @@
       },
       "AprsPacket": {
         "type": "object",
-        "description": "One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them\n(: AFSK1200 + 9600 G3RUH).",
         "required": [
           "source",
           "destination",
@@ -3277,8 +3190,7 @@
             "type": "string"
           },
           "info": {
-            "type": "string",
-            "description": "Raw information field."
+            "type": "string"
           },
           "lat": {
             "type": [
@@ -3298,19 +3210,16 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7\nstandard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's\nown word for a packet whose three message bits mix the standard and custom tables.\nAbsent on every packet that is not Mic-E."
+            ]
           },
           "path": {
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Digipeater path, in order."
+            }
           },
           "source": {
-            "type": "string",
-            "description": "Source callsign with SSID, e.g. `DL1ABC-9`."
+            "type": "string"
           },
           "speed_kt": {
             "type": [
@@ -3323,12 +3232,10 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "APRS symbol as `table` + `code`, e.g. `/>` for a car."
+            ]
           },
           "tnc2": {
-            "type": "string",
-            "description": "TNC2 monitor line (`SRC>DEST,PATH:info`) — the interop format."
+            "type": "string"
           }
         }
       },
@@ -3346,7 +3253,6 @@
       },
       "ArgumentInfo": {
         "type": "object",
-        "description": "Lossless wire representation of SoapySDR's `ArgInfo`.",
         "required": [
           "key",
           "default",
@@ -3400,7 +3306,6 @@
       },
       "ArgumentOption": {
         "type": "object",
-        "description": "One labelled value in a driver's discrete option list.",
         "required": [
           "value"
         ],
@@ -3418,7 +3323,6 @@
       },
       "ArgumentType": {
         "type": "string",
-        "description": "The exact type SoapySDR declares for an argument. This stays separate from\n[`ExtraSetting`], which is the compact control shape used by the existing receiver UI.",
         "enum": [
           "bool",
           "float",
@@ -3428,7 +3332,6 @@
       },
       "Attribution": {
         "type": "object",
-        "description": "One third-party component the release distributes.",
         "required": [
           "name",
           "license",
@@ -3437,8 +3340,7 @@
         ],
         "properties": {
           "license": {
-            "type": "string",
-            "description": "The SPDX expression the component declares for itself, verbatim. Not normalized:\n`MIT/Apache-2.0` and `MIT OR Apache-2.0` are the same offer, but only one of them is\nwhat the package actually says, and the notice should say what the package says."
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -3447,8 +3349,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Set only where the SPDX id is not the whole story: a copyleft relink offer, a patent\nencumbrance, a library that is loaded but never linked."
+            ]
           },
           "source": {
             "$ref": "#/components/schemas/ComponentSource"
@@ -3457,8 +3358,7 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Ids of the license texts this component ships, resolvable through\n`GET /api/about/licenses/{id}`. Empty when the component declares an SPDX expression but\npublishes no license file of its own — common for crates that rely on the SPDX id alone.\n\nAlways serialized, empty included: a client that has to tell \"no texts\" apart from \"the\nfield was omitted\" is a client that will one day render neither."
+            }
           },
           "url": {
             "type": [
@@ -3470,14 +3370,12 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Absent for native libraries, whose version is whatever the platform package pinned."
+            ]
           }
         }
       },
       "AtvColor": {
         "type": "string",
-        "description": "Colour encoding carried on the composite-video subcarrier. Monochrome leaves the\nsubcarrier untouched and works at the lower sample rates used by narrow-band ATV.",
         "enum": [
           "monochrome",
           "pal",
@@ -3486,7 +3384,6 @@
       },
       "AtvModulation": {
         "type": "string",
-        "description": "How an analog television transmission carries its video, and with it the polarity the\ndemodulated signal arrives in (: ATV).",
         "enum": [
           "am",
           "fm"
@@ -3497,20 +3394,16 @@
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Video channel width in Hz. This *is* the horizontal resolution — a picture cannot carry\nmore detail per line than the bandwidth that delivered it — so it is the one knob worth\nopening up when the channel is clean, bounded by the mode's IQ rate."
+            "format": "double"
           },
           "color": {
-            "$ref": "#/components/schemas/AtvColor",
-            "description": "Composite colour system. PAL and NTSC need a device rate wide enough to contain their\n4.43 MHz or 3.58 MHz subcarrier respectively."
+            "$ref": "#/components/schemas/AtvColor"
           },
           "interlace": {
-            "type": "boolean",
-            "description": "Weave the two fields into one frame at their real line positions. Off decodes each\nvertical sync as a whole progressive frame, which is what non-interlaced amateur and\ncamera sources send."
+            "type": "boolean"
           },
           "invert": {
-            "type": "boolean",
-            "description": "Invert the video polarity, for a transmission that keys the opposite way round from its\nmodulation's convention (see [`AtvModulation`]). A picture that comes out as a photographic\nnegative, with the sync tracker never locking, is what this fixes."
+            "type": "boolean"
           },
           "modulation": {
             "$ref": "#/components/schemas/AtvModulation"
@@ -3520,8 +3413,7 @@
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "FM sound carrier above the picture carrier, in Hz. Common values are 4.5, 5.5, 6.0 and\n6.5 MHz. `None` keeps ATV usable on receivers that only cover the luma channel."
+            "format": "double"
           },
           "standard": {
             "$ref": "#/components/schemas/AtvStandard"
@@ -3530,7 +3422,6 @@
       },
       "AtvStandard": {
         "type": "string",
-        "description": "Scanning standard the transmission follows: how many lines make a frame and how fast they\ngo by. Everything else the demodulator needs — porch widths, active window, blanked lines —\nderives from these two numbers plus the standard's own timings.",
         "enum": [
           "ccir625",
           "eia525",
@@ -3539,7 +3430,6 @@
       },
       "AudioAgcMode": {
         "type": "string",
-        "description": "How hard the audio AGC rides the level. The speeds are the ones a radio's own switch offers,\nbecause they are the ones that suit the modes: slow for SSB speech, fast for a band being\ntuned across, medium for everything else.",
         "enum": [
           "off",
           "slow",
@@ -3549,33 +3439,28 @@
       },
       "AudioFilterSettings": {
         "type": "object",
-        "description": "Adjustable audio passband — the \"narrow the filter until only the voice is left\" control,\nafter demodulation rather than in the RF channel.",
         "properties": {
           "enabled": {
             "type": "boolean"
           },
           "high_hz": {
             "type": "number",
-            "format": "double",
-            "description": "High cut. Hiss and splatter live above it."
+            "format": "double"
           },
           "low_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Low cut. Rumble, hum and the subaudible band live below this."
+            "format": "double"
           }
         }
       },
       "AudioProcessing": {
         "type": "object",
-        "description": "Everything a voice channel does to its audio after the demodulator, plus the one stage that\nhas to run before it.\n\nStages run in the order they are declared: the blanker on IQ, then click removal, passband,\nnotches, adaptive notch, noise reduction and AGC on the demodulated audio. Impulses go first,\nbecause a filter turns one into the ringing it was supposed to prevent; filtering next keeps\nthe junk outside the passband out of everything downstream; and the AGC runs last so what it\nlevels is what the listener actually hears.\n\nEvery stage is off by default, which is what a channel had before this existed.",
         "properties": {
           "agc": {
             "$ref": "#/components/schemas/AudioAgcMode"
           },
           "auto_notch": {
-            "type": "boolean",
-            "description": "Remove steady carriers without being told where they are."
+            "type": "boolean"
           },
           "blanker": {
             "$ref": "#/components/schemas/NoiseBlankerSettings"
@@ -3599,7 +3484,6 @@
       },
       "AudioRecordingInfo": {
         "type": "object",
-        "description": "One finished audio recording in the library. There is no index row behind this: a WAV\ndescribes itself, so the directory listing *is* the library (: the files on disk are\nthe source of truth) and the file name is the id.",
         "required": [
           "file",
           "channels",
@@ -3621,16 +3505,14 @@
             "minimum": 0
           },
           "created_at": {
-            "type": "string",
-            "description": "RFC3339 UTC, from the file's own modification time — a WAV has nowhere to keep the\nwall clock, and the name carries the start only as a second-resolution stamp."
+            "type": "string"
           },
           "duration_s": {
             "type": "number",
             "format": "double"
           },
           "file": {
-            "type": "string",
-            "description": "File name inside the audio-recordings directory, extension included. Also the path\nsegment that downloads or deletes it."
+            "type": "string"
           },
           "frames": {
             "type": "integer",
@@ -3646,7 +3528,6 @@
       },
       "AudioRecordingStatus": {
         "type": "object",
-        "description": "Live audio recording on one channel: what the listener hears, written to a WAV file as it is\nproduced. Its own status rather than a second [`RecordingStatus`] because the two record\ndifferent things — one the radio's raw IQ, the other one channel's demodulated audio — and\nthey run independently of each other.",
         "required": [
           "file",
           "started_at",
@@ -3663,35 +3544,29 @@
           "channels": {
             "type": "integer",
             "format": "int32",
-            "description": "Interleave the file was opened with. A WAV header states its channel count once, so this\nis also what the recording is pinned to: a mode switched to a different layout mid-file\nends the recording with an `error` rather than writing frames no reader can interpret.",
             "minimum": 0
           },
           "error": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Fatal fault (queue overflow, disk error, layout change); the writer has stopped and the\nfile has been finalized, but the cause stays visible (CLAUDE.md no-silent-failure)."
+            ]
           },
           "file": {
-            "type": "string",
-            "description": "File name inside the server's audio-recordings directory, extension included."
+            "type": "string"
           },
           "frames": {
             "type": "integer",
             "format": "int64",
-            "description": "Sample frames written so far; at 48 kHz these are the recording's own clock.",
             "minimum": 0
           },
           "started_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           }
         }
       },
       "AudioRecordingsResponse": {
         "type": "object",
-        "description": "`GET /api/audiorecordings`.",
         "required": [
           "recordings"
         ],
@@ -3706,20 +3581,17 @@
       },
       "AuthInfo": {
         "type": "object",
-        "description": "`GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before\nits first real request (: optional single shared token).",
         "required": [
           "token_required"
         ],
         "properties": {
           "token_required": {
-            "type": "boolean",
-            "description": "Whether this server rejects requests without the shared token."
+            "type": "boolean"
           }
         }
       },
       "BandAllocation": {
         "type": "object",
-        "description": "What a stretch of spectrum is allocated to, as one layer states it.",
         "required": [
           "id",
           "layer",
@@ -3734,27 +3606,23 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Other names the explorer matches on — wavelengths (\"70 cm\"), colloquialisms (\"CB\"),\nand the service spelled the long way (\"marine\", \"maritime mobile\")."
+            }
           },
           "channel_step_hz": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Channel raster, where the band is channelized."
+            "format": "double"
           },
           "id": {
             "type": "string"
           },
           "layer": {
-            "type": "string",
-            "description": "[`BandLayerInfo::id`] this entry came from."
+            "type": "string"
           },
           "name": {
-            "type": "string",
-            "description": "What an operator calls it: \"2 m amateur\", \"Marine VHF\", \"Airband\". From the annotations\noverlay where one applies, otherwise the same as [`Self::official_name`]."
+            "type": "string"
           },
           "notes": {
             "type": [
@@ -3763,19 +3631,16 @@
             ]
           },
           "official_name": {
-            "type": "string",
-            "description": "Exactly what the source document calls it — \"MOBILER SEEFUNKDIENST\", \"MARITIME MOBILE\".\nKept beside the friendly name rather than replaced by it: the regulator's wording is the\ncitable one, and it is what a reader checking against the source will search for."
+            "type": "string"
           },
           "primary": {
-            "type": "boolean",
-            "description": "Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as\ncapitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a\nsecondary service must accept interference from every primary one, which is the\ndifference between \"this band is yours\" and \"you may use it if nobody else is\"."
+            "type": "boolean"
           },
           "reference": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,\na page number. `None` for the curated layers, which are their own provenance."
+            ]
           },
           "service": {
             "$ref": "#/components/schemas/BandService"
@@ -3794,8 +3659,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ChannelParams",
-                "description": "The mode to tune with, where the band has an obvious one. Sent to the channel verbatim,\nso \"tune here with the suggested mode\" needs no client-side mode table."
+                "$ref": "#/components/schemas/ChannelParams"
               }
             ]
           }
@@ -3815,8 +3679,7 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
-            },
-            "description": "Everything else covering it, most specific first — co-allocations from the winner's own\nlayer, then the layers underneath. This is what lets the identify popover say \"BNetzA\ncalls it X, over ITU's Y\", and what keeps a co-primary service from vanishing."
+            }
           },
           "of": {
             "type": "integer",
@@ -3835,7 +3698,6 @@
       },
       "BandLane": {
         "type": "object",
-        "description": "A row of the ruler. The regulatory layers merge into one lane by most-specific-wins; an\noverlay is a lane of its own, because it describes the same spectrum from a different angle\nrather than contradicting it.",
         "required": [
           "id",
           "name",
@@ -3847,8 +3709,7 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BandBlock"
-            },
-            "description": "Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the\nsource tables are full of."
+            }
           },
           "id": {
             "type": "string"
@@ -3857,14 +3718,12 @@
             "type": "string"
           },
           "overlay": {
-            "type": "boolean",
-            "description": "Whether the lane is supplementary and may be switched off without losing the allocation."
+            "type": "boolean"
           }
         }
       },
       "BandLayerInfo": {
         "type": "object",
-        "description": "One source of allocations: a table someone published, identified so a block can say where it\ncame from. Adding a region is adding one of these plus its entries ('s \"pluggable\nimporters\"); nothing else in the resolution knows the difference.",
         "required": [
           "id",
           "name",
@@ -3875,15 +3734,13 @@
         ],
         "properties": {
           "authority": {
-            "type": "string",
-            "description": "Who publishes it — \"ITU\", \"BNetzA\", \"Ofcom\", \"IARU Region 1\"."
+            "type": "string"
           },
           "generator": {
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "description": "Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]."
+            "type": "string"
           },
           "kind": {
             "$ref": "#/components/schemas/BandLayerKind"
@@ -3894,12 +3751,10 @@
           "rank": {
             "type": "integer",
             "format": "int32",
-            "description": "Least-specific first: where this layer sits when two of them cover one frequency. Ties\ncannot happen — every layer in a region has a distinct rank.",
             "minimum": 0
           },
           "source": {
-            "type": "string",
-            "description": "The document and edition the entries were taken from, so a stale table is visible rather\nthan merely wrong."
+            "type": "string"
           }
         }
       },
@@ -3924,8 +3779,7 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BandAllocation"
-            },
-            "description": "Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]\nindex into this; it is also what the explorer searches, which is why search needs no\ndeduplication of its own."
+            }
           },
           "lanes": {
             "type": "array",
@@ -3937,8 +3791,7 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BandLayerInfo"
-            },
-            "description": "Every layer the lanes reference, so a block's `layer` id resolves without a second call."
+            }
           },
           "region": {
             "$ref": "#/components/schemas/BandRegion"
@@ -3947,7 +3800,6 @@
       },
       "BandRegion": {
         "type": "object",
-        "description": "A region the operator can select: the ITU region plus whichever regulator applies there.",
         "required": [
           "id",
           "name",
@@ -3959,8 +3811,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "ISO 3166-1 alpha-2 where the region is one country; `None` for the bare ITU regions and\nfor CEPT."
+            ]
           },
           "id": {
             "type": "string"
@@ -3972,8 +3823,7 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Layer ids, least specific first."
+            }
           },
           "name": {
             "type": "string"
@@ -3995,15 +3845,13 @@
         ],
         "properties": {
           "approximate": {
-            "type": "boolean",
-            "description": "True when only the ITU region could be decided — the coordinate is outside every\nnational footprint this build ships, so the answer is coarse and the UI should say so."
+            "type": "boolean"
           },
           "itu_region": {
             "$ref": "#/components/schemas/ItuRegion"
           },
           "region": {
-            "type": "string",
-            "description": "The most specific region whose footprint contains the coordinate; never empty, because\nthe three ITU regions cover the globe."
+            "type": "string"
           }
         }
       },
@@ -4015,8 +3863,7 @@
         ],
         "properties": {
           "default_region": {
-            "type": "string",
-            "description": "What a client with no stored preference should select."
+            "type": "string"
           },
           "regions": {
             "type": "array",
@@ -4028,7 +3875,6 @@
       },
       "BandService": {
         "type": "string",
-        "description": "The service category a block belongs to. Drives the ruler's colour, so it is deliberately\ncoarse: ten categories a reader can hold in their head, not the ITU's full service list.",
         "enum": [
           "amateur",
           "broadcast",
@@ -4071,14 +3917,12 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Suggested channel type id (e.g. `\"nfm\"`), if any."
+            ]
           }
         }
       },
       "BroadcastStatus": {
         "type": "object",
-        "description": "Periodic acquisition report from a wideband digital-broadcast channel. These values describe\nthe RF lock itself; absent service fields mean the multiplex has not been decoded.",
         "required": [
           "system",
           "locked",
@@ -4133,7 +3977,6 @@
       },
       "BroadcastSystem": {
         "type": "string",
-        "description": "Broadcast waveform identified by a standards-specific synchronizer.",
         "enum": [
           "dab",
           "dab_plus",
@@ -4172,14 +4015,12 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DirectionalCapabilities",
-                "description": "Full per-direction, per-channel capability data. Older backends and stored payloads omit\nit; Soapy-backed devices always populate it."
+                "$ref": "#/components/schemas/DirectionalCapabilities"
               }
             ]
           },
           "duplex": {
-            "$ref": "#/components/schemas/Duplex",
-            "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission: transmit stays behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
+            "$ref": "#/components/schemas/Duplex"
           },
           "extra": {
             "type": "array",
@@ -4191,8 +4032,7 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Range"
-            },
-            "description": "Tunable center-frequency ranges in Hz (multiple = discontiguous tuner ranges)."
+            }
           },
           "gains": {
             "type": "array",
@@ -4201,17 +4041,14 @@
             }
           },
           "per_stream": {
-            "$ref": "#/components/schemas/StreamScope",
-            "description": "Which settings each receive stream holds on its own. Which settings are per-stream is a\nproperty of the *radio* — a coherent array shares one tuning by definition while a\ntwo-daughterboard USRP genuinely has two — so the radio declares it, the same way it\ndeclares gains and antennas."
+            "$ref": "#/components/schemas/StreamScope"
           },
           "ppm": {
-            "type": "boolean",
-            "description": "Whether the radio has a frequency-correction setting at all. Several do not — HackRF has\nno correction register, SpyServer's protocol carries no such field, a Soapy tuner without\na `CORR` component cannot apply one — and their backends already refuse `ppm` outright,\nwhile a recording and the signal generator swallow it and do nothing. Without this the\nclient drew the control on every device, so a knob that could only error, or only lie,\nlooked exactly like one that worked.\n\nDefaults to *unsupported* for the same reason `duplex` defaults to receive-only: a\ncapability must be declared, never advertised by omission."
+            "type": "boolean"
           },
           "rx_streams": {
             "type": "integer",
             "format": "int32",
-            "description": "How many independent receive streams this radio delivers at once. One for an ordinary\nSDR; a KrakenSDR is five coherent channels on one USB device, which is why this is a\ncount and not a bool. A device node draws one IQ output per stream.",
             "minimum": 0
           },
           "sample_rate_range": {
@@ -4229,20 +4066,17 @@
             "items": {
               "type": "number",
               "format": "double"
-            },
-            "description": "Supported sample rates in samples/s. Empty means \"continuous\", use `sample_rate_range`."
+            }
           },
           "tx_streams": {
             "type": "integer",
             "format": "int32",
-            "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until transmit lands.",
             "minimum": 0
           }
         }
       },
       "ChannelCapabilities": {
         "type": "object",
-        "description": "Capabilities of one hardware channel in one signal direction.",
         "required": [
           "channel",
           "freq_ranges",
@@ -4364,8 +4198,7 @@
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Nominal RF bandwidth the channel needs, in Hz."
+            "format": "double"
           },
           "can_transmit": {
             "type": "boolean"
@@ -4374,50 +4207,41 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "[`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client\nuses it to pick the panel that renders the events."
+            ]
           },
           "exact_rate_only": {
             "type": "boolean"
           },
           "has_audio": {
-            "type": "boolean",
-            "description": "Whether the channel produces listenable audio. Data decoders ( wave 1) do\nnot, so the client hides their audio controls instead of offering a silent stream.\nDefaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour."
+            "type": "boolean"
           },
           "has_video": {
-            "type": "boolean",
-            "description": "Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames\nrather than as decoder events (ATV). The client subscribes and mounts a video\npanel on the channel's face when this is set. Defaults to `false`, which is every mode\nthat predates the video transport."
+            "type": "boolean"
           },
           "input_rate_hz": {
             "type": "number",
-            "format": "double",
-            "description": "IQ rate the demod expects from the DDC, in Hz."
+            "format": "double"
           },
           "name": {
-            "type": "string",
-            "description": "Display name, e.g. `\"NFM\"`, `\"WFM (broadcast)\"`."
+            "type": "string"
           },
           "native_rate_max_hz": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B preserves pulse timing, ATV retains wide chroma and sound subcarriers, and GNSS\nretains chip timing. Mutually exclusive with `exact_rate_only`."
+            "format": "double"
           },
           "needs_position": {
-            "type": "boolean",
-            "description": "Whether this channel accepts a live station position input."
+            "type": "boolean"
           },
           "type_id": {
-            "type": "string",
-            "description": "Stable type id, e.g. `\"nfm\"`, `\"am\"`, `\"ssb\"`, `\"wfm\"`."
+            "type": "string"
           }
         }
       },
       "ChannelInfo": {
         "type": "object",
-        "description": "A live channel instance inside a device set.",
         "required": [
           "id",
           "settings"
@@ -4429,8 +4253,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/AudioRecordingStatus",
-                "description": "Audio recording running on this channel, if any. Live status, not settings: it is not\npersisted with the channel and a restored workspace comes back not recording."
+                "$ref": "#/components/schemas/AudioRecordingStatus"
               }
             ]
           },
@@ -4445,14 +4268,12 @@
           "stream": {
             "type": "integer",
             "format": "int32",
-            "description": "Which of the device's receive streams feeds this channel. Defaults to 0 because a peer\nthat predates multi-stream devices names no stream and means the only one its radio has.",
             "minimum": 0
           }
         }
       },
       "ChannelLevel": {
         "type": "object",
-        "description": "One channel's live signal level.\n\nIts own message rather than a field of [`crate::ChannelInfo`]: a level changes continuously,\nand carrying it in the state snapshot would make every reading a state invalidation. Levels\nare dBFS of the channel's filtered passband, where unit-magnitude IQ is 0 dBFS — the same\nscale the squelch threshold is set on, so the two are directly comparable.",
         "required": [
           "channel",
           "level_db",
@@ -4466,34 +4287,29 @@
           },
           "level_db": {
             "type": "number",
-            "format": "float",
-            "description": "Smoothed level: fast to rise, slow to fall."
+            "format": "float"
           },
           "peak_db": {
             "type": "number",
-            "format": "float",
-            "description": "Loudest recent level, held then decayed."
+            "format": "float"
           },
           "squelch_db": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "Where the gate is actually opening, in the same dBFS as the levels above; absent while\nthe squelch is off. It rides with the level rather than with the channel's settings\nbecause an automatic threshold *is* a measurement — it moves with the noise floor, and a\nsettings field that changed on its own would be a state invalidation per reading."
+            "format": "float"
           }
         }
       },
       "ChannelNode": {
         "type": "object",
-        "description": "A channel node's payload. The *type* is topology — it decides the node's ports — while the\nsettings behind it stay on the engine's channel (module docs).",
         "required": [
           "channel_type"
         ],
         "properties": {
           "channel_type": {
-            "type": "string",
-            "description": "[`ChannelDescriptor::type_id`]: `\"nfm\"`, `\"adsb\"`, `\"subghz\"`, …"
+            "type": "string"
           }
         }
       },
@@ -5111,12 +4927,10 @@
               }
             }
           }
-        ],
-        "description": "Type-discriminated demod parameters. Adjacently tagged so the generated TS is a\ndiscriminated union on `type`, and `{\"type\":\"nfm\",\"settings\":{}}` deserializes with\nevery field at its default."
+        ]
       },
       "ChannelRecordRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/channels/{ch}/record` — start or stop recording one channel's\naudio. The stream is not named here the way [`RecordRequest`] names one: a channel already\nsits on exactly one of them.",
         "required": [
           "action"
         ],
@@ -5128,19 +4942,16 @@
       },
       "ChannelSettings": {
         "type": "object",
-        "description": "Per-channel settings: where the channel sits and how it demodulates.",
         "required": [
           "params"
         ],
         "properties": {
           "audio": {
-            "$ref": "#/components/schemas/AudioProcessing",
-            "description": "Blanker, filters, noise reduction and AGC. Shared by every voice mode rather than\nwritten into each one's params, so what an operator learns on one channel is the same\ncontrol on the next."
+            "$ref": "#/components/schemas/AudioProcessing"
           },
           "offset_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Offset from the device center frequency, in Hz."
+            "format": "double"
           },
           "params": {
             "$ref": "#/components/schemas/ChannelParams"
@@ -5150,16 +4961,14 @@
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "Track the channel's own noise floor and gate this many dB above it. Only means anything\nwhile the squelch is on: `squelch_db: None` is a gate held open, and there is nothing for\na threshold to do in it."
+            "format": "float"
           },
           "squelch_db": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied\nbandwidth, not the full DDC passband); `None` = squelch open.\n\nWith `squelch_auto_db` set this is what the gate falls back to when the operator switches\ntracking off again, not what it is currently gating on — the live threshold travels with\nthe channel's level, in [`crate::ChannelLevel::squelch_db`]."
+            "format": "float"
           }
         }
       },
@@ -5238,7 +5047,6 @@
       },
       "CheckStatus": {
         "type": "string",
-        "description": "How a check came out. `Warn` is \"works, but something is degraded or absent\"; `Fail` is\n\"this will not work as configured\".",
         "enum": [
           "ok",
           "warn",
@@ -5247,15 +5055,13 @@
       },
       "ClickRemovalSettings": {
         "type": "object",
-        "description": "Impulse removal in the demodulated audio: FM's own discriminator clicks, and the static\ncrashes that reach an envelope or product detector.\n\nHow wide a click can be is the *mode's* to say — a demodulator's clicks are as long as that\ndemodulator makes them — so the only thing set here is how far above the audio's own level a\nsample has to sit before it is treated as one.",
         "properties": {
           "enabled": {
             "type": "boolean"
           },
           "threshold": {
             "type": "number",
-            "format": "float",
-            "description": "Multiple of the audio's average magnitude. Lower cuts more, and eventually starts taking\nthe edge off consonants."
+            "format": "float"
           }
         }
       },
@@ -5263,7 +5069,6 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "Start receiving spectrum frames for a device set at the requested rate/resolution.",
             "required": [
               "data",
               "type"
@@ -5271,7 +5076,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Start receiving spectrum frames for a device set at the requested rate/resolution.",
                 "required": [
                   "device_set",
                   "fps",
@@ -5281,7 +5085,6 @@
                   "bins": {
                     "type": "integer",
                     "format": "int32",
-                    "description": "Requested display bins (≤ 4096); server clamps.",
                     "minimum": 0
                   },
                   "device_set": {
@@ -5292,13 +5095,11 @@
                   "fps": {
                     "type": "integer",
                     "format": "int32",
-                    "description": "Requested frame rate; server clamps to its supported range.",
                     "minimum": 0
                   },
                   "stream": {
                     "type": "integer",
                     "format": "int32",
-                    "description": "Which receive stream's spectrum. Defaults to 0 so a client that predates\nmulti-stream devices keeps its subscription; which stream a binary frame carries is\nimplicit in this subscription, never a frame header field.",
                     "minimum": 0
                   }
                 }
@@ -5313,7 +5114,6 @@
           },
           {
             "type": "object",
-            "description": "Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates\nmulti-stream radios ends the subscription it started; without it, unsubscribing one scope\nwould silence every other lane of the same radio on this connection.",
             "required": [
               "data",
               "type"
@@ -5321,7 +5121,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates\nmulti-stream radios ends the subscription it started; without it, unsubscribing one scope\nwould silence every other lane of the same radio on this connection.",
                 "required": [
                   "device_set"
                 ],
@@ -5348,7 +5147,6 @@
           },
           {
             "type": "object",
-            "description": "Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`.",
             "required": [
               "data",
               "type"
@@ -5356,7 +5154,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`.",
                 "required": [
                   "device_set",
                   "channel"
@@ -5384,7 +5181,6 @@
           },
           {
             "type": "object",
-            "description": "Stop the audio stream for a channel.",
             "required": [
               "data",
               "type"
@@ -5392,7 +5188,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Stop the audio stream for a channel.",
                 "required": [
                   "device_set",
                   "channel"
@@ -5420,7 +5215,6 @@
           },
           {
             "type": "object",
-            "description": "Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);\nanswered with `VideoStreamStarted`. A channel with no video refuses rather than opening a\nstream that would never carry a frame.",
             "required": [
               "data",
               "type"
@@ -5428,7 +5222,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);\nanswered with `VideoStreamStarted`. A channel with no video refuses rather than opening a\nstream that would never carry a frame.",
                 "required": [
                   "device_set",
                   "channel"
@@ -5456,7 +5249,6 @@
           },
           {
             "type": "object",
-            "description": "Stop the video stream for a channel.",
             "required": [
               "data",
               "type"
@@ -5464,7 +5256,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Stop the video stream for a channel.",
                 "required": [
                   "device_set",
                   "channel"
@@ -5492,7 +5283,6 @@
           },
           {
             "type": "object",
-            "description": "Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at\nthe channel's own rate; answered with `IqStreamStarted`.\n\nThe burst size and cadence are the server's, not the client's: they are what bounds the\nbandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a\nper-subscriber choice would have several clients of one channel disagree about them.",
             "required": [
               "data",
               "type"
@@ -5500,7 +5290,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at\nthe channel's own rate; answered with `IqStreamStarted`.\n\nThe burst size and cadence are the server's, not the client's: they are what bounds the\nbandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a\nper-subscriber choice would have several clients of one channel disagree about them.",
                 "required": [
                   "device_set",
                   "channel"
@@ -5528,7 +5317,6 @@
           },
           {
             "type": "object",
-            "description": "Stop the baseband stream for a channel.",
             "required": [
               "data",
               "type"
@@ -5536,7 +5324,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Stop the baseband stream for a channel.",
                 "required": [
                   "device_set",
                   "channel"
@@ -5564,7 +5351,6 @@
           },
           {
             "type": "object",
-            "description": "A fix from the desktop WebView's geolocation provider. The server accepts this only for\na device-position node in the active workspace.",
             "required": [
               "data",
               "type"
@@ -5572,7 +5358,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A fix from the desktop WebView's geolocation provider. The server accepts this only for\na device-position node in the active workspace.",
                 "required": [
                   "node"
                 ],
@@ -5610,7 +5395,6 @@
       },
       "ClientsResponse": {
         "type": "object",
-        "description": "`GET /api/clients` — how many clients share this server right now ( M5\nmulti-client). Includes the caller.",
         "required": [
           "clients"
         ],
@@ -5624,7 +5408,6 @@
       },
       "ComponentSource": {
         "type": "string",
-        "description": "Which part of the product a component arrives through.\n\nThe distinction is about how it reaches the user, not about language: [`Native`] components\nare shipped as libraries next to the binary and loaded at runtime, so their obligations\nattach to the installer rather than to the executable.\n\n[`Native`]: ComponentSource::Native",
         "enum": [
           "rust",
           "web",
@@ -5633,7 +5416,6 @@
       },
       "CreateBookmarkRequest": {
         "type": "object",
-        "description": "`POST /api/bookmarks`.",
         "required": [
           "label",
           "freq_hz"
@@ -5662,7 +5444,6 @@
       },
       "CreateChannelRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/channels` — add a channel to a device set.",
         "required": [
           "settings"
         ],
@@ -5673,27 +5454,23 @@
           "stream": {
             "type": "integer",
             "format": "int32",
-            "description": "Which of the device's receive streams the channel taps. Defaults to 0 so a client that\npredates multi-stream devices keeps meaning the only stream its radio has; out of range\nis a bad request naming the count, never a silent fallback.",
             "minimum": 0
           }
         }
       },
       "CreateDeviceSetRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets` — open a device into a new device set.",
         "required": [
           "device_id"
         ],
         "properties": {
           "device_id": {
-            "type": "string",
-            "description": "`driver:key`, matching a [`DeviceInfo`] from `GET /api/devices`."
+            "type": "string"
           }
         }
       },
       "CreatePresetRequest": {
         "type": "object",
-        "description": "`POST /api/presets` — snapshot the active workspace's radios under a name.",
         "required": [
           "name"
         ],
@@ -5705,7 +5482,6 @@
       },
       "CreateWorkspaceRequest": {
         "type": "object",
-        "description": "`POST /api/workspaces`.",
         "required": [
           "name"
         ],
@@ -5719,8 +5495,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/WorkspaceSnapshot",
-                "description": "Workspace to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a\nclean bench. Only the first workspace a fresh install seeds opens on a starter workspace."
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
               }
             ]
           }
@@ -5728,7 +5503,6 @@
       },
       "CreatedId": {
         "type": "object",
-        "description": "Identifier returned when an engine resource (device set, channel) is created.",
         "required": [
           "id"
         ],
@@ -5742,7 +5516,6 @@
       },
       "CreatedRowId": {
         "type": "object",
-        "description": "Identifier returned when a persistence row (preset, bookmark) is created.",
         "required": [
           "id"
         ],
@@ -5755,7 +5528,6 @@
       },
       "DabMode": {
         "type": "string",
-        "description": "DAB generations share the same EN 300 401 Mode I RF waveform. `Auto` reports the ensemble\nwithout assuming which audio component type its FIC will eventually announce.",
         "enum": [
           "auto",
           "dab",
@@ -5778,8 +5550,7 @@
           },
           "symbol_rate": {
             "type": "number",
-            "format": "double",
-            "description": "Symbol rate in baud. The channel rate supports narrow-band amateur television carriers\nthrough 1 MBd; wider transponders need a receiver stream wider than this channel type."
+            "format": "double"
           }
         }
       },
@@ -5801,8 +5572,7 @@
         ],
         "properties": {
           "at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "channel": {
             "type": "integer",
@@ -5819,8 +5589,7 @@
           },
           "freq_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Absolute RF frequency of the channel when the frame arrived, in Hz."
+            "format": "double"
           }
         }
       },
@@ -6226,7 +5995,6 @@
       },
       "DecoderLogEntry": {
         "type": "object",
-        "description": "One stored decoder frame (: decoder logs are queryable and exportable, not\nscroll-back-only). The typed `event` is stored verbatim so an export loses nothing;\n`kind`, `summary` and `station` are the indexed projections the list view filters on.",
         "required": [
           "id",
           "at",
@@ -6239,8 +6007,7 @@
         ],
         "properties": {
           "at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "channel": {
             "type": "integer",
@@ -6264,8 +6031,7 @@
             "format": "int64"
           },
           "kind": {
-            "type": "string",
-            "description": "[`crate::DecoderEvent::kind`] of `event`."
+            "type": "string"
           },
           "node": {
             "type": [
@@ -6277,8 +6043,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Emitter identity within the decoder (ICAO, MMSI, callsign, pager address)."
+            ]
           },
           "summary": {
             "type": "string"
@@ -6287,7 +6052,6 @@
       },
       "DecoderLogResponse": {
         "type": "object",
-        "description": "`GET /api/decoderlog` — newest first, bounded by the requested `limit`.",
         "required": [
           "entries",
           "total",
@@ -6297,7 +6061,6 @@
           "dropped": {
             "type": "integer",
             "format": "int64",
-            "description": "Frames dropped on the way to the log since the server started, because a consumer\nfell behind (: bounded queues surface their loss).",
             "minimum": 0
           },
           "entries": {
@@ -6309,14 +6072,12 @@
           "total": {
             "type": "integer",
             "format": "int64",
-            "description": "Rows matching the filter, ignoring `limit`.",
             "minimum": 0
           }
         }
       },
       "DeletedCount": {
         "type": "object",
-        "description": "`DELETE /api/decoderlog` — how many rows the filtered clear removed.",
         "required": [
           "deleted"
         ],
@@ -6330,15 +6091,13 @@
       },
       "DenoiseSettings": {
         "type": "object",
-        "description": "Spectral noise reduction.",
         "properties": {
           "enabled": {
             "type": "boolean"
           },
           "strength": {
             "type": "number",
-            "format": "float",
-            "description": "How much of the tracked noise floor is subtracted, `0.0..=1.0`. Past the middle of the\nrange the residue starts to sound processed, which is a taste, not a fault."
+            "format": "float"
           }
         }
       },
@@ -6351,16 +6110,13 @@
         ],
         "properties": {
           "driver": {
-            "type": "string",
-            "description": "Driver id that produced this entry: `\"virtual\"`, `\"soapy\"`, `\"rtlsdr\"`, …"
+            "type": "string"
           },
           "key": {
-            "type": "string",
-            "description": "Stable per-device key within a driver (serial, index, or file path)."
+            "type": "string"
           },
           "label": {
-            "type": "string",
-            "description": "Human label for the device picker."
+            "type": "string"
           },
           "profile": {
             "oneOf": [
@@ -6368,8 +6124,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DeviceProfile",
-                "description": "What the driver can say about this radio *without opening it* — enough to tell whether a\nworkspace template could run here, so the picker offers only the devices that fit.\n\n`None` means \"not known until it is opened\", which is what a backend that has to ask the\nhardware reports (Soapy). Unknown is never read as capable: a device with no profile is\noffered with that said plainly, rather than filtered in on a guess.\n\nIt is deliberately narrower than [`Capabilities`]: everything here is a fact about the\n*model*, so a driver can answer from a table. Gain stages, antennas and the extras are\nthe unit's and are read when it opens — reporting an empty gain list at probe time would\nnot read as \"not asked yet\", it would read as \"no gain control\"."
+                "$ref": "#/components/schemas/DeviceProfile"
               }
             ]
           },
@@ -6377,8 +6132,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Serial number when the driver exposes one (used to collapse probe duplicates)."
+            ]
           }
         }
       },
@@ -6399,7 +6153,6 @@
       },
       "DeviceProfile": {
         "type": "object",
-        "description": "The part of a radio's capability that is a property of the model rather than the unit.\n\nSplit out so it can be answered twice from one declaration: by a probe, which has only a USB\ndescriptor, and by [`Capabilities::profile`] on a radio that is already open. Nothing\nconstructs it by hand — it is always a projection of a full capability set, which is what\nkeeps the two from drifting.",
         "required": [
           "freq_ranges",
           "sample_rates",
@@ -6415,12 +6168,10 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Range"
-            },
-            "description": "Tunable centre-frequency ranges in Hz (multiple = discontiguous tuner ranges)."
+            }
           },
           "per_stream": {
-            "$ref": "#/components/schemas/StreamScope",
-            "description": "Which settings each stream holds on its own — a property of the model, so the picker can\ntell a coherent array from a bank of independent tuners without opening the radio."
+            "$ref": "#/components/schemas/StreamScope"
           },
           "rx_streams": {
             "type": "integer",
@@ -6442,8 +6193,7 @@
             "items": {
               "type": "number",
               "format": "double"
-            },
-            "description": "Supported sample rates in samples/s. Empty means \"continuous\", use `sample_rate_range`."
+            }
           },
           "tx_streams": {
             "type": "integer",
@@ -6459,15 +6209,13 @@
         ],
         "properties": {
           "backend": {
-            "type": "string",
-            "description": "Driver id, matching [`DeviceInfo::driver`]: `\"rtlsdr\"`, `\"hackrf\"`, `\"soapy\"`, `\"virtual\"`."
+            "type": "string"
           },
           "key": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Per-driver key, used without a serial or to distinguish variants sharing one serial."
+            ]
           },
           "serial": {
             "type": [
@@ -6479,7 +6227,6 @@
       },
       "DeviceSet": {
         "type": "object",
-        "description": "One opened device and everything hosted on it (: \"one device set per opened device\").",
         "required": [
           "id",
           "device",
@@ -6518,15 +6265,13 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/NetworkExportStatus",
-                "description": "Active raw-IQ network export, if any."
+                "$ref": "#/components/schemas/NetworkExportStatus"
               }
             ]
           },
           "overruns": {
             "type": "integer",
             "format": "int64",
-            "description": "Cumulative device samples dropped at the capture ring since the set opened. Growth\nmeans the DSP thread cannot keep up — audio and spectrum have gaps even while\n`status` stays `running` ( backpressure; CLAUDE.md no-silent-failure).",
             "minimum": 0
           },
           "playback": {
@@ -6535,8 +6280,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/PlaybackStatus",
-                "description": "Replay transport, on a set whose device is a recording rather than a radio."
+                "$ref": "#/components/schemas/PlaybackStatus"
               }
             ]
           },
@@ -6546,8 +6290,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/RecordingStatus",
-                "description": "Active IQ recording, if any."
+                "$ref": "#/components/schemas/RecordingStatus"
               }
             ]
           },
@@ -6557,8 +6300,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ScannerStatus",
-                "description": "Running frequency scan, if any. While a scan runs the set's\n`settings.center_hz` moves every dwell, so live progress arrives as\n[`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step."
+                "$ref": "#/components/schemas/ScannerStatus"
               }
             ]
           },
@@ -6572,7 +6314,6 @@
       },
       "DeviceSetStatus": {
         "type": "string",
-        "description": "Runtime status of a device set's capture.",
         "enum": [
           "idle",
           "running",
@@ -6581,7 +6322,6 @@
       },
       "DeviceSettings": {
         "type": "object",
-        "description": "A mutation applied to a device. Absent fields are left unchanged ( PATCH device).",
         "properties": {
           "antenna": {
             "type": [
@@ -6594,8 +6334,7 @@
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Hardware baseband filter bandwidth in Hz."
+            "format": "double"
           },
           "center_hz": {
             "type": [
@@ -6634,8 +6373,7 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/StreamSettings"
-            },
-            "description": "Per-stream overrides, by stream index. Only the fields [`Capabilities::per_stream`] marks\nas per-stream are read here; the rest are the radio's and live above."
+            }
           }
         }
       },
@@ -6655,7 +6393,6 @@
       },
       "Direction": {
         "type": "string",
-        "description": "One signal direction.",
         "enum": [
           "rx",
           "tx"
@@ -6663,7 +6400,6 @@
       },
       "DirectionalCapabilities": {
         "type": "object",
-        "description": "Directional and runtime capabilities that cannot be represented by the legacy channel-0\nreceiver fields on [`Capabilities`].",
         "properties": {
           "clock_source": {
             "type": [
@@ -6748,7 +6484,6 @@
       },
       "DmrSlots": {
         "type": "string",
-        "description": "Which DMR timeslot a channel reports and plays. Both slots share one 12.5 kHz carrier in\n30 ms alternation, so the receiver always hears both; this decides what reaches its outputs.",
         "enum": [
           "both",
           "one",
@@ -6779,7 +6514,6 @@
       },
       "DoctorCheck": {
         "type": "object",
-        "description": "One diagnostic line.",
         "required": [
           "id",
           "name",
@@ -6788,23 +6522,19 @@
         ],
         "properties": {
           "detail": {
-            "type": "string",
-            "description": "What was actually found."
+            "type": "string"
           },
           "hint": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "What to do about it, when there is something to do."
+            ]
           },
           "id": {
-            "type": "string",
-            "description": "Short stable identifier, e.g. `\"backend.rtlsdr\"`."
+            "type": "string"
           },
           "name": {
-            "type": "string",
-            "description": "Human label, e.g. `\"RTL-SDR (native)\"`."
+            "type": "string"
           },
           "status": {
             "$ref": "#/components/schemas/CheckStatus"
@@ -6813,7 +6543,6 @@
       },
       "DoctorReport": {
         "type": "object",
-        "description": "`GET /api/doctor` / `sdrmm --doctor`.",
         "required": [
           "version",
           "platform",
@@ -6827,18 +6556,15 @@
             }
           },
           "platform": {
-            "type": "string",
-            "description": "`os/arch` of the running build."
+            "type": "string"
           },
           "version": {
-            "type": "string",
-            "description": "Server version (`CARGO_PKG_VERSION`)."
+            "type": "string"
           }
         }
       },
       "DpmrParams": {
-        "type": "object",
-        "description": "dPMR (C4FM, 2400 symbols/s, 6.25 kHz)."
+        "type": "object"
       },
       "DrmMode": {
         "type": "string",
@@ -6853,8 +6579,7 @@
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Occupied bandwidth in Hz. DRM30 accepts the standardized 4.5–20 kHz occupancies;\nDRM+ and `Auto` use a 100 kHz slice so automatic mode can search both waveform families."
+            "format": "double"
           },
           "mode": {
             "$ref": "#/components/schemas/DrmMode"
@@ -6862,12 +6587,10 @@
         }
       },
       "DstarParams": {
-        "type": "object",
-        "description": "D-Star (GMSK, 4800 bit/s)."
+        "type": "object"
       },
       "Duplex": {
         "type": "string",
-        "description": "What a radio's hardware can do, and whether it can do it at once.\n\nIt lives here rather than in the device crate because it is the answer to \"what *kind* of\nradio is this\" that a workspace template filters on and the canvas draws ports from — the\narbitration that uses it ([`sdrmm-device`'s `DuplexState`]) is a separate thing, and stays\nwith the backends.",
         "enum": [
           "rx_only",
           "tx_only",
@@ -6930,7 +6653,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "Logical or absolute channel number named by trunking signalling.",
             "minimum": 0
           },
           "channel_definition": {
@@ -6949,22 +6671,19 @@
               "null"
             ],
             "format": "int32",
-            "description": "The mode's network discriminator, under whichever name it publishes: DMR colour code,\nNXDN/dPMR RAN or colour code, P25 NAC, YSF has none.",
             "minimum": 0
           },
           "crc_verified": {
             "type": [
               "boolean",
               "null"
-            ],
-            "description": "Whether the frame's own CRC matched. `Some(false)` survived only because the channel was\ntold to ignore the check, so nothing may act on it."
+            ]
           },
           "data": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Decoded packet text, or hexadecimal when its application format is not understood."
+            ]
           },
           "destination": {
             "type": [
@@ -6972,7 +6691,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "Numeric destination: talkgroup for a group call, radio ID for a private one.",
             "minimum": 0
           },
           "destination_call": {
@@ -6991,21 +6709,18 @@
             "type": [
               "boolean",
               "null"
-            ],
-            "description": "Set when the frame says its payload is encrypted. `Some(false)` is a positive statement\nthat it is in the clear; `None` means the frame did not say."
+            ]
           },
           "errors_corrected": {
             "type": "integer",
             "format": "int32",
-            "description": "Bit errors the frame's error-correcting codes repaired — the honest signal-quality\nreadout, since a mode with no audio has no other.",
             "minimum": 0
           },
           "group_call": {
             "type": [
               "boolean",
               "null"
-            ],
-            "description": "True for a talkgroup call, false for a call addressed to one radio."
+            ]
           },
           "key_id": {
             "type": [
@@ -7050,8 +6765,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "P25 encryption message indicator as the 72-bit hexadecimal value on the wire."
+            ]
           },
           "mode": {
             "$ref": "#/components/schemas/DvMode"
@@ -7068,8 +6782,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Name of the signalling opcode for a control frame — \"group voice channel grant\",\n\"preamble\", … — as its specification names it."
+            ]
           },
           "position_error_m": {
             "type": [
@@ -7085,7 +6798,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "Capacity Plus logical slot number carrying the rest channel.",
             "minimum": 0
           },
           "site_id": {
@@ -7102,7 +6814,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.",
             "minimum": 0
           },
           "slot_activity": {
@@ -7117,15 +6828,13 @@
               "null"
             ],
             "format": "int32",
-            "description": "Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.",
             "minimum": 0
           },
           "source_call": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Source callsign — the modes that address by callsign rather than by number."
+            ]
           },
           "system_id": {
             "type": [
@@ -7139,15 +6848,13 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "DMR talker alias assembled from its header and continuation LCs."
+            ]
           },
           "text": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta\nfield."
+            ]
           },
           "trunk_protocol": {
             "oneOf": [
@@ -7155,8 +6862,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DvTrunkProtocol",
-                "description": "Set where the signalling names its own flavour, so a follower keys on a discriminant\nrather than on the wording of [`DvFrame::opcode`]."
+                "$ref": "#/components/schemas/DvTrunkProtocol"
               }
             ]
           },
@@ -7174,14 +6880,12 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "The repeater or reflector the call is routed through: D-Star RPT1/RPT2."
+            ]
           }
         }
       },
       "DvFrameKind": {
         "type": "string",
-        "description": "What the burst was carrying. Every mode distinguishes these four, whatever it calls them:\nthe frame that opens a transmission and names the parties, the voice frames that follow,\nthe one that closes it, and the signalling that travels outside a call.",
         "enum": [
           "header",
           "voice",
@@ -7192,7 +6896,6 @@
       },
       "DvMode": {
         "type": "string",
-        "description": "Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type\nserves all of them because the *question* is the same in every mode — who is talking, to\nwhom, on which network — and only the names for it differ.",
         "enum": [
           "dmr",
           "dstar",
@@ -7206,7 +6909,6 @@
       },
       "DvSlotActivity": {
         "type": "object",
-        "description": "Activity advertised for one DMR timeslot by a Short LC activity update.",
         "required": [
           "slot",
           "activity"
@@ -7232,7 +6934,6 @@
       },
       "DvTrunkProtocol": {
         "type": "string",
-        "description": "What the signalling turned out to be. An observation, so it has no \"auto\" —\n[`crate::DmrTrunkProtocol`] is what an operator asks the node for.",
         "enum": [
           "capacity_plus",
           "hytera_xpt",
@@ -7256,7 +6957,6 @@
       },
       "ExportFormat": {
         "type": "string",
-        "description": "Export format for `GET /api/decoderlog/export/{format}` (: CSV/JSON). It is a\npath segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing\n[`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.",
         "enum": [
           "csv",
           "json"
@@ -7337,8 +7037,7 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/ArgumentOption"
-                },
-                "description": "The values the setting accepts, each carrying the driver's own words for it where it\nhas them: `direct_samp` is written as `0`/`1`/`2` and read as Off/I-ADC/Q-ADC."
+                }
               }
             }
           },
@@ -7364,12 +7063,10 @@
               }
             }
           }
-        ],
-        "description": "A typed device-specific setting the client renders generically when it has no\nfirst-class UI (: \"typed extra settings\")."
+        ]
       },
       "ExtraValue": {
         "type": "object",
-        "description": "A value for one [`ExtraSetting`], keyed by its name. `value` is bool/number/string.",
         "required": [
           "name",
           "value"
@@ -7383,7 +7080,6 @@
       },
       "FreeDvMode": {
         "type": "string",
-        "description": "FreeDV air-interface generation. The initial implementation supports the interoperable\n1600 mode; making the generation explicit prevents a future default change from silently\nselecting an incompatible waveform on a saved channel.",
         "enum": [
           "mode1600"
         ]
@@ -7401,7 +7097,6 @@
       },
       "GainStage": {
         "type": "object",
-        "description": "A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA).",
         "required": [
           "name",
           "range"
@@ -7417,7 +7112,6 @@
       },
       "GainValue": {
         "type": "object",
-        "description": "A gain-stage value in dB, keyed by the stage name from [`GainStage`].",
         "required": [
           "stage",
           "value_db"
@@ -7434,7 +7128,6 @@
       },
       "GnssFrame": {
         "type": "object",
-        "description": "GPS L1 C/A acquisition state or one parity-checked NAV subframe.",
         "required": [
           "prn",
           "doppler_hz",
@@ -7493,24 +7186,20 @@
       },
       "GnssParams": {
         "type": "object",
-        "description": "Educational GPS L1 C/A acquisition and NAV-message settings.",
         "properties": {
           "doppler_hz": {
             "type": "integer",
             "format": "int32",
-            "description": "Symmetric acquisition search span around the tuned L1 carrier.",
             "minimum": 0
           },
           "prn": {
             "type": "integer",
             "format": "int32",
-            "description": "Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result\ninspectable and bounds the work done on the DSP thread.",
             "minimum": 0
           },
           "threshold": {
             "type": "number",
-            "format": "float",
-            "description": "Acquisition peak divided by the mean correlation floor."
+            "format": "float"
           }
         }
       },
@@ -7527,8 +7216,7 @@
         "properties": {
           "radial_slope_deg": {
             "type": "number",
-            "format": "double",
-            "description": "How far the radials droop below horizontal. Sloping them raises the feedpoint\nimpedance from about 36 Ω towards 50 Ω."
+            "format": "double"
           },
           "radials": {
             "type": "integer",
@@ -7539,7 +7227,6 @@
       },
       "IdentFeatures": {
         "type": "object",
-        "description": "The measurements a classification was made from, carried so the decision can be checked\nrather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,\nnot just the verdict.",
         "required": [
           "envelope_variation",
           "duty",
@@ -7555,82 +7242,67 @@
         "properties": {
           "carrier_db": {
             "type": "number",
-            "format": "float",
-            "description": "The strongest spectral line over the median of the occupied band, in dB — how much of\na carrier there is."
+            "format": "float"
           },
           "duty": {
             "type": "number",
-            "format": "float",
-            "description": "Fraction of the observation the carrier was keyed on. 1.0 for a continuous transmission."
+            "format": "float"
           },
           "envelope_variation": {
             "type": "number",
-            "format": "float",
-            "description": "Standard deviation of the envelope over its own mean. Zero for a constant-envelope\nmode, large for anything that carries information in amplitude."
+            "format": "float"
           },
           "frequency_levels": {
             "type": "integer",
             "format": "int32",
-            "description": "Instantaneous-frequency levels the discriminator resolved: 2 or 4 for keyed modes, 1\nfor a carrier, 0 when the distribution is a continuum.",
             "minimum": 0
           },
           "frequency_spread_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Spread of the instantaneous frequency, in Hz — the deviation of an analog FM signal,\nand roughly the outer deviation of a keyed one."
+            "format": "double"
           },
           "keying_depth_db": {
             "type": "number",
-            "format": "float",
-            "description": "Keyed-on level over keyed-off level, in dB — how deep the keying goes, which is what\nseparates a switched carrier from one that is merely fading."
+            "format": "float"
           },
           "quartic_line_db": {
             "type": "number",
-            "format": "float",
-            "description": "The same for the fourth power, which is what QPSK makes."
+            "format": "float"
           },
           "spectral_asymmetry": {
             "type": "number",
-            "format": "float",
-            "description": "Power imbalance about the strongest spectral line, `(upper − lower) / total`. Zero for\na symmetric spectrum (AM, FM, most digital modes), ±1 for a single sideband."
+            "format": "float"
           },
           "spectral_flatness": {
             "type": "number",
-            "format": "float",
-            "description": "Wiener entropy of the occupied band: 1.0 is white, 0.0 is a single tone."
+            "format": "float"
           },
           "square_line_db": {
             "type": "number",
-            "format": "float",
-            "description": "Strength of the spectral line the squared signal produces, over its own floor, in dB.\nA BPSK signal makes one; so does MSK, which is why the FSK tests run first."
+            "format": "float"
           }
         }
       },
       "IdentParams": {
         "type": "object",
-        "description": "The signal identifier: what to search, how often to answer, and how loud a thing has to be\nbefore it is one.",
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Slice searched for a signal, in Hz. Wide by default because the point of the mode is to\nbe pointed at something unknown — narrowing it is what an operator does once they can\nsee where the thing actually sits."
+            "format": "double"
           },
           "interval_ms": {
             "type": "integer",
             "format": "int32",
-            "description": "Milliseconds between reports. Each one analyses the samples since the last, so this is\nboth the report cadence and the observation the answer stands on — up to a little over a\nsecond, past which the cadence keeps lengthening and each report describes the second\nbefore it rather than the whole gap.",
             "minimum": 0
           },
           "threshold_db": {
             "type": "number",
-            "format": "float",
-            "description": "How far above the measured noise floor a bin must sit to be part of a signal, in dB."
+            "format": "float"
           }
         }
       },
       "IdentReport": {
         "type": "object",
-        "description": "What the signal identifier made of the slice it was pointed at.\n\nEmitted on a cadence rather than per frame: there is no frame here. Each report describes one\nobservation window, so a stream of them is a record of what was on the air and when.",
         "required": [
           "modulation",
           "confidence",
@@ -7642,33 +7314,28 @@
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Occupied bandwidth, in Hz."
+            "format": "double"
           },
           "candidates": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ProtocolMatch"
-            },
-            "description": "Protocols that fit, best first."
+            }
           },
           "center_offset_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Where the signal's centre sits relative to the channel's own offset, in Hz — how far\nthe operator is off tune."
+            "format": "double"
           },
           "confidence": {
             "type": "number",
-            "format": "float",
-            "description": "How firmly the classifier held that answer, 0 to 1."
+            "format": "float"
           },
           "deviation_hz": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Peak frequency deviation of a keyed or analog FM signal, in Hz."
+            "format": "double"
           },
           "features": {
             "$ref": "#/components/schemas/IdentFeatures"
@@ -7682,23 +7349,20 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/Sideband",
-                "description": "Which sideband, when the modulation is [`Modulation::Ssb`] and the signal sits wholly to\none side of where the channel is tuned."
+                "$ref": "#/components/schemas/Sideband"
               }
             ]
           },
           "snr_db": {
             "type": "number",
-            "format": "float",
-            "description": "Signal-to-noise ratio in the occupied band, in dB."
+            "format": "float"
           },
           "symbol_rate_hz": {
             "type": [
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "Symbols per second, when a symbol clock was found."
+            "format": "double"
           }
         }
       },
@@ -7707,8 +7371,7 @@
         "properties": {
           "apex_angle_deg": {
             "type": "number",
-            "format": "double",
-            "description": "Angle between the two legs. 180° is a flat dipole; the legs shorten as it closes."
+            "format": "double"
           }
         }
       },
@@ -7722,7 +7385,6 @@
       },
       "LicenseTextResponse": {
         "type": "object",
-        "description": "`GET /api/about/licenses/{id}` — one license text, addressed by content.\n\nTexts are addressed by a hash of themselves because that is what deduplicates them: several\nhundred crates offer Apache-2.0 and ship byte-identical copies of it, while every MIT copy\ndiffers in its copyright line and none may be collapsed into another. Content addressing\nkeeps the first case cheap without lying about the second.",
         "required": [
           "id",
           "text"
@@ -7737,12 +7399,10 @@
         }
       },
       "M17Params": {
-        "type": "object",
-        "description": "M17 (C4FM, 4800 symbols/s, RRC 0.5)."
+        "type": "object"
       },
       "Modulation": {
         "type": "string",
-        "description": "The modulation family a [`IdentReport`] settled on.\n\nCoarse on purpose. What a receiver can read off an unknown waveform is how its envelope, its\ninstantaneous frequency and its spectrum behave, and those separate *families* — they do not\nseparate the variants inside one, which is what the protocol candidates are for.",
         "enum": [
           "none",
           "carrier",
@@ -7763,22 +7423,19 @@
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Width of the CW filter around the channel offset, in Hz."
+            "format": "double"
           },
           "wpm": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "Fixed sending speed in words per minute; `None` tracks the speed from the signal."
+            "format": "float"
           }
         }
       },
       "MorseText": {
         "type": "object",
-        "description": "A run of decoded Morse characters plus the speed the tracker settled on.",
         "required": [
           "text",
           "wpm"
@@ -7789,8 +7446,7 @@
           },
           "wpm": {
             "type": "number",
-            "format": "float",
-            "description": "Estimated sending speed in words per minute (PARIS standard)."
+            "format": "float"
           }
         }
       },
@@ -7976,8 +7632,7 @@
               }
             }
           }
-        ],
-        "description": "One move in the guided calibration. Each maps to a `cal` subcommand on the instrument, so a\npanel walking an operator through open/short/load/thru never has to build shell text itself."
+        ]
       },
       "NanoVnaCalibrateRequest": {
         "allOf": [
@@ -7999,8 +7654,7 @@
                     "type": "null"
                   },
                   {
-                    "$ref": "#/components/schemas/NanoVnaSweepState",
-                    "description": "Applied by [`NanoVnaCalStep::Reset`], which is where a calibration begins: every standard\nafter it has to be measured over the range the measurement will use."
+                    "$ref": "#/components/schemas/NanoVnaSweepState"
                   }
                 ]
               }
@@ -8119,7 +7773,6 @@
       },
       "NanoVnaDeviceReport": {
         "type": "object",
-        "description": "Everything the instrument will say about itself, read back over the shell.",
         "required": [
           "port",
           "firmware",
@@ -8192,7 +7845,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "The drive level the firmware reports, where 255 is its own automatic choice.",
             "minimum": 0
           },
           "s21_offset_db": {
@@ -8224,7 +7876,6 @@
       },
       "NanoVnaMatch": {
         "type": "string",
-        "description": "How sure discovery is that a port carries a VNA. USB serial numbers are shared across whole\nfamilies of boards, so a matching id alone is `Probable` and only the product or vendor\nstring promotes it to `Confirmed`.",
         "enum": [
           "confirmed",
           "probable"
@@ -8363,8 +8014,7 @@
                 "type": "array",
                 "items": {
                   "type": "string"
-                },
-                "description": "Serial ports that are present but are not a VNA, by name only — the panel lists\ninstruments, and an operator whose clone went unrecognised still needs to see that\nthe port exists before typing it in."
+                }
               },
               "kind": {
                 "type": "string",
@@ -8546,7 +8196,6 @@
       },
       "NavtexMessage": {
         "type": "object",
-        "description": "One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is\nparsed out because that is what a receiver filters on — station, subject and serial are how\na ship decides whether it has already seen this message.",
         "required": [
           "text",
           "errors_corrected",
@@ -8554,13 +8203,11 @@
         ],
         "properties": {
           "complete": {
-            "type": "boolean",
-            "description": "True when the broadcast ended with `NNNN`; false when the carrier or the phasing was\nlost and the partial text was flushed instead."
+            "type": "boolean"
           },
           "errors_corrected": {
             "type": "integer",
             "format": "int32",
-            "description": "Characters the mode-B time diversity repaired from the repeat copy.",
             "minimum": 0
           },
           "serial": {
@@ -8569,29 +8216,25 @@
               "null"
             ],
             "format": "int32",
-            "description": "B3B4 — serial number, 00–99, which a receiver uses to suppress repeats.",
             "minimum": 0
           },
           "station": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "B1 — transmitting station within the NAVAREA."
+            ]
           },
           "subject": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "B2 — subject indicator."
+            ]
           },
           "subject_name": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Plain-language meaning of [`NavtexMessage::subject`] (ITU-R M.540 Annex 2)."
+            ]
           },
           "text": {
             "type": "string"
@@ -8600,11 +8243,9 @@
       },
       "NavtexParams": {
         "type": "object",
-        "description": "NAVTEX is a single-purpose broadcast: 100 baud, 170 Hz shift, CCIR 476 (ITU-R M.540), so\nthere is nothing to tune but the sideband the receiver happens to be on.",
         "properties": {
           "invert": {
-            "type": "boolean",
-            "description": "Swap mark and space (equivalent to reversing the sideband)."
+            "type": "boolean"
           }
         }
       },
@@ -8624,7 +8265,6 @@
       },
       "NetworkExportRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/network-export`.",
         "required": [
           "action",
           "node"
@@ -8634,8 +8274,7 @@
             "$ref": "#/components/schemas/NetworkExportAction"
           },
           "node": {
-            "type": "string",
-            "description": "Patch-node identity. A set permits one active exporter and only its owner may stop it."
+            "type": "string"
           },
           "settings": {
             "$ref": "#/components/schemas/NetworkExportSettings"
@@ -8649,7 +8288,6 @@
       },
       "NetworkExportSettings": {
         "type": "object",
-        "description": "An unframed, interleaved IQ stream sent to a network analysis tool.\n\nUDP preserves datagram boundaries but carries no sequence header. TCP is one continuous byte\nstream. In both cases the receiver must be configured with the radio's sample rate and center\nfrequency separately.",
         "properties": {
           "address": {
             "type": "string",
@@ -8708,7 +8346,6 @@
           "overruns": {
             "type": "integer",
             "format": "int64",
-            "description": "Capture-ring samples lost while this export was active.",
             "minimum": 0
           },
           "packets": {
@@ -8763,8 +8400,7 @@
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything\nelse is refused, because the detector only searches those."
+            "format": "double"
           },
           "dcs_code": {
             "type": [
@@ -8772,7 +8408,6 @@
               "null"
             ],
             "format": "int32",
-            "description": "The DCS code to open on, as the three octal digits a radio displays — `23` for 023,\n`754` for 754. One of the 83 standard codes.\n\nThe standard list is not a convenience: the Golay code DCS is built on is cyclic, so\nonly a set with no rotation aliasing between its members can be read back unambiguously\nfrom a continuously repeating word. A code's *inverse* is another code in the list —\n023 received through an inverted discriminator is 047 — so there is no polarity switch\nhere, and none on a radio either.",
             "minimum": 0
           },
           "tone_mode": {
@@ -8791,7 +8426,6 @@
       },
       "NmeaDeviceInfo": {
         "type": "object",
-        "description": "One serial port the server can currently offer to an NMEA GPS node.",
         "required": [
           "path"
         ],
@@ -8907,7 +8541,6 @@
           },
           {
             "type": "object",
-            "description": "Spectrum + waterfall over a device's IQ.",
             "required": [
               "kind"
             ],
@@ -8922,7 +8555,6 @@
           },
           {
             "type": "object",
-            "description": "Client-side audio mix (: the server ships streams, not a mix).",
             "required": [
               "kind"
             ],
@@ -8937,7 +8569,6 @@
           },
           {
             "type": "object",
-            "description": "MapLibre, one layer per connected decoder.",
             "required": [
               "kind"
             ],
@@ -8952,15 +8583,13 @@
           },
           {
             "type": "object",
-            "description": "A drive survey of one RF slice, pairing spectrum power with GPS fixes.",
             "required": [
               "data",
               "kind"
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/SignalMapNode",
-                "description": "A drive survey of one RF slice, pairing spectrum power with GPS fixes."
+                "$ref": "#/components/schemas/SignalMapNode"
               },
               "kind": {
                 "type": "string",
@@ -8972,7 +8601,6 @@
           },
           {
             "type": "object",
-            "description": "The live picture a decoder holds — an RDS station, a table of aircraft, a teleprinter\nroll — one readout per connected decoder. This is the *state* a decoder accumulates, which\nis the half of its output that a log row cannot carry; the frames themselves are read in\n[`NodeBody::DecoderLog`], so nothing here repeats it.",
             "required": [
               "kind"
             ],
@@ -8987,7 +8615,6 @@
           },
           {
             "type": "object",
-            "description": "The stored decoder log, filtered to the decoders wired into it.",
             "required": [
               "kind"
             ],
@@ -9038,7 +8665,6 @@
           },
           {
             "type": "object",
-            "description": "The raster a video channel scans out.",
             "required": [
               "kind"
             ],
@@ -9053,7 +8679,6 @@
           },
           {
             "type": "object",
-            "description": "SigMF recording of a device's IQ.",
             "required": [
               "kind"
             ],
@@ -9068,7 +8693,6 @@
           },
           {
             "type": "object",
-            "description": "WAV recording of what a channel's audio *sounds* like, one file per wired channel. Its\nown kind rather than a mode of the recorder above, because the two record different\nthings from different places in the chain: one the radio's raw IQ, the other one\nchannel's demodulated audio, after everything the channel does to it.",
             "required": [
               "kind"
             ],
@@ -9083,15 +8707,13 @@
           },
           {
             "type": "object",
-            "description": "Unframed raw IQ sent over UDP datagrams or a TCP byte stream.",
             "required": [
               "data",
               "kind"
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/NetworkExportNode",
-                "description": "Unframed raw IQ sent over UDP datagrams or a TCP byte stream."
+                "$ref": "#/components/schemas/NetworkExportNode"
               },
               "kind": {
                 "type": "string",
@@ -9103,7 +8725,6 @@
           },
           {
             "type": "object",
-            "description": "CSV/JSON export of the stored decoder log.",
             "required": [
               "kind"
             ],
@@ -9144,7 +8765,6 @@
       },
       "NodeTypeInfo": {
         "type": "object",
-        "description": "One entry of the node palette the client renders its \"add node\" menu from (: the client\nrenders what the server describes).",
         "required": [
           "kind",
           "name",
@@ -9156,15 +8776,13 @@
             "$ref": "#/components/schemas/NodeCategory"
           },
           "kind": {
-            "type": "string",
-            "description": "Slug matching [`NodeBody::kind`]."
+            "type": "string"
           },
           "name": {
             "type": "string"
           },
           "needs_channel_type": {
-            "type": "boolean",
-            "description": "Channel nodes need a type from `GET /api/channeltypes`; the menu offers one entry per\ndescriptor rather than one entry for \"channel\"."
+            "type": "boolean"
           },
           "ports": {
             "type": "array",
@@ -9176,21 +8794,18 @@
       },
       "NoiseBlankerSettings": {
         "type": "object",
-        "description": "Impulse blanker, applied to the channel's IQ ahead of its selectivity filter.",
         "properties": {
           "enabled": {
             "type": "boolean"
           },
           "threshold": {
             "type": "number",
-            "format": "float",
-            "description": "How far above the channel's average magnitude a sample has to sit to be cut out, as a\nmultiple of it. Lower blanks more, and eventually blanks the signal."
+            "format": "float"
           }
         }
       },
       "NotchSettings": {
         "type": "object",
-        "description": "One operator-placed notch in the audio.",
         "properties": {
           "freq_hz": {
             "type": "number",
@@ -9198,14 +8813,12 @@
           },
           "width_hz": {
             "type": "number",
-            "format": "double",
-            "description": "−3 dB width of the null. Narrow removes a heterodyne and leaves the voice; wide takes a\nbite out of both."
+            "format": "double"
           }
         }
       },
       "NxdnBandwidth": {
         "type": "string",
-        "description": "The two NXDN channel widths. They are different radios as far as the receiver is\nconcerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.",
         "enum": [
           "narrow",
           "wide"
@@ -9221,7 +8834,6 @@
       },
       "OccupancyBucket": {
         "type": "object",
-        "description": "One frequency bucket's occupancy statistics ( band-occupancy analytics).",
         "required": [
           "freq_hz",
           "duty",
@@ -9235,35 +8847,29 @@
             "items": {
               "type": "number",
               "format": "float"
-            },
-            "description": "Duty per hour of the day, UTC, 24 entries. An hour never observed reads `0.0` — which is\nwhy `samples` matters."
+            }
           },
           "duty": {
             "type": "number",
-            "format": "float",
-            "description": "Fraction of observations in which this bucket carried a signal, `0.0..=1.0`."
+            "format": "float"
           },
           "freq_hz": {
             "type": "integer",
             "format": "int64",
-            "description": "Centre of the bucket.",
             "minimum": 0
           },
           "last_seen": {
-            "type": "string",
-            "description": "RFC 3339 timestamp of the most recent observation."
+            "type": "string"
           },
           "samples": {
             "type": "integer",
             "format": "int64",
-            "description": "Observations behind that fraction. A duty cycle from three sightings is not a measurement,\nand this is what lets a reader tell the difference.",
             "minimum": 0
           }
         }
       },
       "OccupancyReport": {
         "type": "object",
-        "description": "`GET /api/occupancy` — how much of the time each slice of spectrum has been in use.",
         "required": [
           "bucket_hz",
           "since",
@@ -9273,29 +8879,24 @@
           "bucket_hz": {
             "type": "integer",
             "format": "int64",
-            "description": "Width of one bucket.",
             "minimum": 0
           },
           "buckets": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/OccupancyBucket"
-            },
-            "description": "Busiest first, then by frequency."
+            }
           },
           "since": {
-            "type": "string",
-            "description": "RFC 3339 timestamp of the first observation, or empty before there is one."
+            "type": "string"
           }
         }
       },
       "P25Params": {
-        "type": "object",
-        "description": "P25 Phase 1 (C4FM, 4800 symbols/s)."
+        "type": "object"
       },
       "PatchApplyReport": {
         "type": "object",
-        "description": "`POST /api/workspaces/{id}/apply` — what applying the workspace did.\n\nApply is additive and idempotent: it opens the radios the graph names and adds the channels it\ndraws, and never closes or deletes anything. Removing a node is a gesture with its own\nendpoint; a reconciler that also deleted would turn \"this workspace has fewer nodes\" into\n\"close that operator's radio\".",
         "required": [
           "bound",
           "opened",
@@ -9312,19 +8913,16 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PatchBinding"
-            },
-            "description": "Every device node that now has a running device set."
+            }
           },
           "created": {
             "type": "integer",
             "format": "int32",
-            "description": "Channels created by this call.",
             "minimum": 0
           },
           "opened": {
             "type": "integer",
             "format": "int32",
-            "description": "Device sets opened by this call.",
             "minimum": 0
           },
           "refused": {
@@ -9354,7 +8952,6 @@
       },
       "PatchCatalog": {
         "type": "object",
-        "description": "`GET /api/patch/catalog` — the node palette and its ports.",
         "required": [
           "nodes"
         ],
@@ -9369,7 +8966,6 @@
       },
       "PatchEdge": {
         "type": "object",
-        "description": "A wire: which stream a node consumes, and from whom.",
         "required": [
           "from",
           "to"
@@ -9416,15 +9012,13 @@
             ],
             "properties": {
               "id": {
-                "type": "string",
-                "description": "Client-generated, unique within the graph, stable for the node's life."
+                "type": "string"
               },
               "label": {
                 "type": [
                   "string",
                   "null"
-                ],
-                "description": "User-renamed caption; `None` renders the kind's default name."
+                ]
               },
               "position": {
                 "$ref": "#/components/schemas/Position"
@@ -9441,12 +9035,10 @@
               }
             }
           }
-        ],
-        "description": "One node: what it is, where it sits, and what the operator called it.\n\nThere is no `pinned` flag: rack membership is the single truth for \"this face is being\noperated\", and two representations of one fact drift."
+        ]
       },
       "PatchRefusal": {
         "type": "object",
-        "description": "One node apply could not satisfy.",
         "required": [
           "node",
           "reason"
@@ -9462,7 +9054,6 @@
       },
       "PlaybackAction": {
         "type": "string",
-        "description": "What a [`PlaybackRequest`] should do.",
         "enum": [
           "play",
           "pause",
@@ -9472,7 +9063,6 @@
       },
       "PlaybackRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/playback` — drive the replay transport of a set whose device is\na recording. Looping is not an action here: it is the `loop` device setting, applied like\nany other (see [`crate::PlaybackStatus`]).",
         "required": [
           "action"
         ],
@@ -9486,14 +9076,12 @@
               "null"
             ],
             "format": "int64",
-            "description": "Where [`PlaybackAction::Seek`] should land, in samples from the start; clamped to the\nend of the recording. Ignored by every other action, and absent means the start.",
             "minimum": 0
           }
         }
       },
       "PlaybackStatus": {
         "type": "object",
-        "description": "Transport of a device set replaying a recording (`virtual:file:`). Absent on a live radio:\nthere is no position to seek in a signal that is still arriving.\n\nWhether it loops is *not* here — that is `loop` in [`DeviceSettings::extra`], a setting the\nradio carries and a workspace saves. Pause and position are the opposite: reopening a patch\nmust not restore a paused transport, so they live only in this live status.",
         "required": [
           "position_samples",
           "total_samples",
@@ -9506,20 +9094,17 @@
           "position_samples": {
             "type": "integer",
             "format": "int64",
-            "description": "Samples replayed from the start of the recording.",
             "minimum": 0
           },
           "total_samples": {
             "type": "integer",
             "format": "int64",
-            "description": "Samples the recording holds. Read off the data file, so a crash-truncated pair reports\nwhat can actually be replayed rather than what its metadata claims.",
             "minimum": 0
           }
         }
       },
       "PocsagBaud": {
         "type": "string",
-        "description": "Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`\n(the default) locks onto whichever preamble it finds.",
         "enum": [
           "auto",
           "b512",
@@ -9529,7 +9114,6 @@
       },
       "PocsagMessage": {
         "type": "object",
-        "description": "One decoded POCSAG page.",
         "required": [
           "address",
           "function",
@@ -9542,25 +9126,21 @@
           "address": {
             "type": "integer",
             "format": "int32",
-            "description": "21-bit receiver address (RIC).",
             "minimum": 0
           },
           "baud": {
             "type": "integer",
             "format": "int32",
-            "description": "Bit rate the batch was decoded at.",
             "minimum": 0
           },
           "errors_corrected": {
             "type": "integer",
             "format": "int32",
-            "description": "Single-bit errors the BCH(31,21) decoder repaired across the message's codewords.",
             "minimum": 0
           },
           "function": {
             "type": "integer",
             "format": "int32",
-            "description": "Function bits 0–3 (the \"A/B/C/D\" a pager shows).",
             "minimum": 0
           },
           "payload": {
@@ -9582,14 +9162,12 @@
             "$ref": "#/components/schemas/PocsagBaud"
           },
           "invert": {
-            "type": "boolean",
-            "description": "Swap mark and space: some transmitters (and some receiver chains) invert the\ndiscriminator polarity, which turns every codeword into noise."
+            "type": "boolean"
           }
         }
       },
       "PocsagPayload": {
         "type": "string",
-        "description": "POCSAG message class (: 512/1200/2400 baud pagers).",
         "enum": [
           "tone",
           "numeric",
@@ -9598,7 +9176,6 @@
       },
       "PortCondition": {
         "type": "string",
-        "description": "When a port exists. A conditional port depends on what is *behind* the node — the channel type\nit names, or the radio it is bound to — and those answers live once in [`ChannelDescriptor`]\nand [`Capabilities`]. The catalog states the dependency instead of the client inventing port\nnames for it.",
         "enum": [
           "always",
           "channel_has_audio",
@@ -9610,7 +9187,6 @@
       },
       "PortDirection": {
         "type": "string",
-        "description": "Which side of a node a port sits on.",
         "enum": [
           "in",
           "out"
@@ -9618,7 +9194,6 @@
       },
       "PortRef": {
         "type": "object",
-        "description": "One end of an edge.",
         "required": [
           "node",
           "port"
@@ -9628,14 +9203,12 @@
             "type": "string"
           },
           "port": {
-            "type": "string",
-            "description": "[`PortSpec::name`] on that node."
+            "type": "string"
           }
         }
       },
       "PortRepeat": {
         "type": "string",
-        "description": "How many of a port a node really has. A repeating port is a *family*: the catalog is\nper-build static and cannot see how many streams a radio delivers, so it ships the base spec\nwith this flag and whoever can see the backing expands it — one port per stream, named by\n[`stream_port`].",
         "enum": [
           "once",
           "per_rx_stream",
@@ -9644,7 +9217,6 @@
       },
       "PortSpec": {
         "type": "object",
-        "description": "One port of a node type.",
         "required": [
           "name",
           "port_type",
@@ -9659,12 +9231,10 @@
             "$ref": "#/components/schemas/PortDirection"
           },
           "multi": {
-            "type": "boolean",
-            "description": "Whether more than one edge may touch this port. A *stream* output fans out — one device\nfeeds N channels, scopes and a recorder, which is today's device set drawn — but an\nownership output does not: a scanner drives one radio, because one sweep is what the\nengine runs. So arity is stated on both sides and checked on both sides."
+            "type": "boolean"
           },
           "name": {
-            "type": "string",
-            "description": "Stable slug, unique within its node and direction; this is what an edge names."
+            "type": "string"
           },
           "note": {
             "type": [
@@ -9695,7 +9265,6 @@
       },
       "Position": {
         "type": "object",
-        "description": "Canvas position of a node, in React Flow's coordinate space.",
         "required": [
           "x",
           "y"
@@ -9713,7 +9282,6 @@
       },
       "PositionFix": {
         "type": "object",
-        "description": "One live station fix. Optional measurements stay absent when the provider did not report\nthem; latitude and longitude are always a complete, validated pair.",
         "required": [
           "latitude",
           "longitude",
@@ -9750,8 +9318,7 @@
             "format": "double"
           },
           "time": {
-            "type": "string",
-            "description": "RFC3339 UTC. Providers without their own timestamp are stamped when the server receives\nthe fix."
+            "type": "string"
           },
           "track_deg": {
             "type": [
@@ -9766,7 +9333,6 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "The geolocation provider exposed by the desktop WebView.",
             "required": [
               "type"
             ],
@@ -9781,7 +9347,6 @@
           },
           {
             "type": "object",
-            "description": "A gpsd JSON endpoint, normally `127.0.0.1:2947`.",
             "required": [
               "address",
               "type"
@@ -9800,7 +9365,6 @@
           },
           {
             "type": "object",
-            "description": "An NMEA 0183 serial device. Receivers push sentences; `update_interval_ms` limits how\noften complete fixes are published to live consumers without attempting proprietary\nreceiver configuration commands.",
             "required": [
               "device",
               "baud",
@@ -9832,7 +9396,6 @@
       },
       "PresetDevice": {
         "type": "object",
-        "description": "One device node's radio settings and channels, as the preset captured them.",
         "required": [
           "node",
           "device_id",
@@ -9847,12 +9410,10 @@
             }
           },
           "device_id": {
-            "type": "string",
-            "description": "`driver:key` of the radio it was captured on. The fallback match, so a preset still lands\nafter the node was redrawn, and what the client names in the list."
+            "type": "string"
           },
           "node": {
-            "type": "string",
-            "description": "[`crate::PatchNode::id`] of the device node this was captured from — the primary match on\napply, and the only one that is right when a patch draws two of the same radio."
+            "type": "string"
           },
           "settings": {
             "$ref": "#/components/schemas/DeviceSettings"
@@ -9861,7 +9422,6 @@
       },
       "PresetInfo": {
         "type": "object",
-        "description": "`GET /api/presets` list entry.",
         "required": [
           "id",
           "name",
@@ -9870,13 +9430,11 @@
         ],
         "properties": {
           "created_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "devices": {
             "type": "integer",
             "format": "int32",
-            "description": "How many radios the preset carries, denormalized so the list never parses a blob.",
             "minimum": 0
           },
           "id": {
@@ -9903,14 +9461,12 @@
           "version": {
             "type": "integer",
             "format": "int32",
-            "description": "[`PRESET_SNAPSHOT_VERSION`] at the time of writing.",
             "minimum": 0
           }
         }
       },
       "ProtocolMatch": {
         "type": "object",
-        "description": "One protocol the waveform could be, and what says so.",
         "required": [
           "name",
           "score",
@@ -9918,43 +9474,36 @@
         ],
         "properties": {
           "confirmed": {
-            "type": "boolean",
-            "description": "Set when the protocol's own framing was found in the signal, not merely resembled. A\nconfirmed match is an answer; an unconfirmed one is a shortlist entry."
+            "type": "boolean"
           },
           "name": {
             "type": "string"
           },
           "score": {
             "type": "number",
-            "format": "float",
-            "description": "How well the measurements fit the protocol's signature, 0 to 1."
+            "format": "float"
           },
           "type_id": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "The channel type that decodes it, when this build has one — what the client offers to\nswitch the channel to."
+            ]
           },
           "why": {
-            "type": "string",
-            "description": "The evidence, in a phrase: what matched, or what was recognised."
+            "type": "string"
           }
         }
       },
       "PskParams": {
         "type": "object",
-        "description": "Receive options shared by the BPSK31 and BPSK63 Varicode channels.",
         "properties": {
           "invert": {
-            "type": "boolean",
-            "description": "Reverse differential bit polarity for an inverted receive chain."
+            "type": "boolean"
           }
         }
       },
       "PskText": {
         "type": "object",
-        "description": "A run of Varicode text decoded from a BPSK31 or BPSK63 carrier.",
         "required": [
           "text"
         ],
@@ -9966,7 +9515,6 @@
       },
       "RackCell": {
         "type": "object",
-        "description": "One pinned face on the rack grid.",
         "required": [
           "x",
           "y",
@@ -9987,7 +9535,6 @@
           "x": {
             "type": "integer",
             "format": "int32",
-            "description": "Whole grid cells from the left / top.",
             "minimum": 0
           },
           "y": {
@@ -10024,12 +9571,10 @@
               }
             }
           }
-        ],
-        "description": "One pinned node and the cells it occupies."
+        ]
       },
       "RadioClockFrame": {
         "type": "object",
-        "description": "One complete civil-time minute recovered from a long-wave radio-clock service.",
         "required": [
           "standard",
           "datetime",
@@ -10037,8 +9582,7 @@
         ],
         "properties": {
           "datetime": {
-            "type": "string",
-            "description": "ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;\nWWVB is UTC."
+            "type": "string"
           },
           "dst": {
             "type": "boolean"
@@ -10057,8 +9601,7 @@
             "$ref": "#/components/schemas/RadioClockStandard"
           },
           "symbols": {
-            "type": "string",
-            "description": "The 60 received symbols (`0`, `1`, `M` marker, `?` invalid)."
+            "type": "string"
           },
           "utc_offset_minutes": {
             "type": [
@@ -10073,8 +9616,7 @@
         "type": "object",
         "properties": {
           "invert": {
-            "type": "boolean",
-            "description": "Reverse the received AM envelope for an inverting receiver or recording."
+            "type": "boolean"
           },
           "standard": {
             "$ref": "#/components/schemas/RadioClockStandard"
@@ -10083,7 +9625,6 @@
       },
       "RadioClockStandard": {
         "type": "string",
-        "description": "Long-wave civil time service carried by the radio-clock channel.",
         "enum": [
           "dcf77",
           "wwvb",
@@ -10093,7 +9634,6 @@
       },
       "Range": {
         "type": "object",
-        "description": "An inclusive numeric range with an optional step, in the setting's native unit.",
         "required": [
           "min",
           "max"
@@ -10118,7 +9658,6 @@
       },
       "RdsUpdate": {
         "type": "object",
-        "description": "RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a\nslowly-accreting picture rather than a stream of independent frames, so an event is the\ncurrent best view of the station, emitted only when a field actually changed.",
         "required": [
           "groups",
           "block_errors"
@@ -10129,41 +9668,35 @@
             "items": {
               "type": "number",
               "format": "double"
-            },
-            "description": "Alternative frequencies in Hz, as advertised in group 0A."
+            }
           },
           "block_errors": {
             "type": "integer",
             "format": "int64",
-            "description": "Blocks rejected by the syndrome check since the channel started.",
             "minimum": 0
           },
           "groups": {
             "type": "integer",
             "format": "int64",
-            "description": "Groups accepted since the channel started.",
             "minimum": 0
           },
           "music": {
             "type": [
               "boolean",
               "null"
-            ],
-            "description": "Music (true) / Speech (false) switch."
+            ]
           },
           "pi": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Programme Identification, as the 4 hex digits everyone quotes it by."
+            ]
           },
           "ps": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Programme Service name (8 chars), once every segment has been seen."
+            ]
           },
           "pty": {
             "type": [
@@ -10171,42 +9704,36 @@
               "null"
             ],
             "format": "int32",
-            "description": "Programme Type code (0–31).",
             "minimum": 0
           },
           "pty_name": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Programme Type name for [`RdsUpdate::pty`] under the RDS (EU) table."
+            ]
           },
           "radiotext": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "RadioText (up to 64 chars), once the A/B flag closes a message."
+            ]
           },
           "ta": {
             "type": [
               "boolean",
               "null"
-            ],
-            "description": "Traffic Announcement flag."
+            ]
           },
           "tp": {
             "type": [
               "boolean",
               "null"
-            ],
-            "description": "Traffic Programme flag."
+            ]
           }
         }
       },
       "RecordAction": {
         "type": "string",
-        "description": "What a [`RecordRequest`] should do.",
         "enum": [
           "start",
           "stop"
@@ -10214,7 +9741,6 @@
       },
       "RecordRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream\n(: the recording path is lossless).",
         "required": [
           "action"
         ],
@@ -10225,14 +9751,12 @@
           "stream": {
             "type": "integer",
             "format": "int32",
-            "description": "Which receive stream a start records — one recording per set, on a named stream.\nDefaults to 0, the only stream a single-stream radio has.",
             "minimum": 0
           }
         }
       },
       "RecordingFormat": {
         "type": "string",
-        "description": "Container a recording is downloaded in. A query field rather than a path segment (unlike\n[`ExportFormat`]): the format is optional here, and giving a path segment a default would\nmean two routes for one resource.",
         "enum": [
           "sigmf",
           "wav"
@@ -10240,7 +9764,6 @@
       },
       "RecordingInfo": {
         "type": "object",
-        "description": "One finalized SigMF recording in the library (: the files on disk are the source\nof truth; this row is its SQLite index entry).",
         "required": [
           "id",
           "file",
@@ -10264,24 +9787,20 @@
             "format": "double"
           },
           "created_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "device_id": {
-            "type": "string",
-            "description": "`driver:key` that replays this recording (`virtual:file:<stem>`), usable directly\nin `POST /api/devicesets`."
+            "type": "string"
           },
           "device_label": {
-            "type": "string",
-            "description": "Label of the device the recording was captured from (SigMF `core:hw`)."
+            "type": "string"
           },
           "duration_s": {
             "type": "number",
             "format": "double"
           },
           "file": {
-            "type": "string",
-            "description": "Recording stem: file name without directory or `.sigmf-*` extension."
+            "type": "string"
           },
           "id": {
             "type": "integer",
@@ -10300,7 +9819,6 @@
       },
       "RecordingStatus": {
         "type": "object",
-        "description": "Live IQ recording on a device set (: the recording path is lossless, so a writer\nfault must surface here rather than dropping samples silently).",
         "required": [
           "file",
           "started_at",
@@ -10318,12 +9836,10 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Fatal recording fault (queue overflow, disk error); the writer has stopped but the\ncause stays visible (CLAUDE.md no-silent-failure)."
+            ]
           },
           "file": {
-            "type": "string",
-            "description": "Recording stem: file name without directory or `.sigmf-*` extension."
+            "type": "string"
           },
           "overruns": {
             "type": "integer",
@@ -10333,24 +9849,20 @@
           "samples": {
             "type": "integer",
             "format": "int64",
-            "description": "Samples written to the `.sigmf-data` file so far.",
             "minimum": 0
           },
           "started_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "stream": {
             "type": "integer",
             "format": "int32",
-            "description": "Which of the device's receive streams is being recorded. Defaults to 0 because a\nstatus from before multi-stream devices names no stream and means the only one its\nradio had.",
             "minimum": 0
           }
         }
       },
       "RecordingsResponse": {
         "type": "object",
-        "description": "`GET /api/recordings`.",
         "required": [
           "recordings"
         ],
@@ -10371,26 +9883,22 @@
             "format": "double"
           },
           "invert": {
-            "type": "boolean",
-            "description": "Swap mark and space (equivalent to reversing the sideband)."
+            "type": "boolean"
           },
           "shift_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Mark/space separation in Hz (170 amateur, 450/850 commercial)."
+            "format": "double"
           },
           "stop_bits": {
             "$ref": "#/components/schemas/RttyStopBits"
           },
           "unshift_on_space": {
-            "type": "boolean",
-            "description": "Return to the letters table after a space — the usual amateur convention, which\nrecovers a stream that lost its shift character."
+            "type": "boolean"
           }
         }
       },
       "RttyStopBits": {
         "type": "string",
-        "description": "RTTY stop-bit length in bit periods. 45.45 baud amateur RTTY uses 1.5.",
         "enum": [
           "one",
           "one_and_half",
@@ -10399,7 +9907,6 @@
       },
       "RttyText": {
         "type": "object",
-        "description": "A run of decoded RTTY characters (: Baudot over FSK).",
         "required": [
           "text"
         ],
@@ -10411,7 +9918,6 @@
       },
       "ScanAction": {
         "type": "string",
-        "description": "What a [`ScanRequest`] should do.",
         "enum": [
           "start",
           "stop"
@@ -10419,7 +9925,6 @@
       },
       "ScanRange": {
         "type": "object",
-        "description": "One contiguous span to sweep, expanded to `start_hz, start_hz + step_hz, …` up to and\nincluding `stop_hz` when it lands on a step.",
         "required": [
           "start_hz",
           "stop_hz",
@@ -10442,7 +9947,6 @@
       },
       "ScanRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/scanner` — start or stop a scan.",
         "required": [
           "action"
         ],
@@ -10456,8 +9960,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ScanSettings",
-                "description": "Required for `start`, ignored by `stop`."
+                "$ref": "#/components/schemas/ScanSettings"
               }
             ]
           }
@@ -10465,12 +9968,10 @@
       },
       "ScanSettings": {
         "type": "object",
-        "description": "What a scan covers and how it behaves on a hit (: \"frequency scanner\").",
         "properties": {
           "dwell_ms": {
             "type": "integer",
             "format": "int32",
-            "description": "Measurement window per device tuning. Every target inside the tuning's passband is\nmeasured from the same spectrum frames, so this is per *tuning*, not per target.",
             "minimum": 0
           },
           "frequencies": {
@@ -10478,8 +9979,7 @@
             "items": {
               "type": "number",
               "format": "double"
-            },
-            "description": "Individual target frequencies (bookmarks, memory channels)."
+            }
           },
           "hold_channel": {
             "type": [
@@ -10487,37 +9987,31 @@
               "null"
             ],
             "format": "int32",
-            "description": "Channel retuned onto a hit so its audio (or decoder) follows the scan. `None` scans\nwithout listening — the hit log alone.",
             "minimum": 0
           },
           "measure_bw_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Bandwidth measured around each target; also the width the hold channel is judged over."
+            "format": "double"
           },
           "ranges": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ScanRange"
-            },
-            "description": "Ranges to expand into targets. May be empty if `frequencies` is not."
+            }
           },
           "resume_ms": {
             "type": "integer",
             "format": "int32",
-            "description": "How long a held target must stay below the threshold before the sweep resumes.",
             "minimum": 0
           },
           "threshold_db": {
             "type": "number",
-            "format": "float",
-            "description": "A target counts as active when its measured power reaches this level, in dBFS on the\ndevice's spectrum tap."
+            "format": "float"
           }
         }
       },
       "ScanState": {
         "type": "string",
-        "description": "What the scanner is doing right now.",
         "enum": [
           "scanning",
           "holding"
@@ -10525,7 +10019,6 @@
       },
       "ScannerStatus": {
         "type": "object",
-        "description": "Live scanner state, projected onto the device set and pushed as\n[`crate::ServerEvent::ScannerUpdate`] while a scan runs.",
         "required": [
           "state",
           "settings",
@@ -10540,25 +10033,21 @@
               "number",
               "null"
             ],
-            "format": "float",
-            "description": "Measured level of `current_hz` at the last measurement, dBFS."
+            "format": "float"
           },
           "current_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Target the scanner is measuring (scanning) or parked on (holding)."
+            "format": "double"
           },
           "error": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "Fatal scanner fault (the device stopped accepting retunes); the scan has stopped but\nthe cause stays visible (CLAUDE.md no-silent-failure)."
+            ]
           },
           "hits": {
             "type": "integer",
             "format": "int64",
-            "description": "Targets that broke the threshold since the scan started.",
             "minimum": 0
           },
           "settings": {
@@ -10570,13 +10059,11 @@
           "sweeps": {
             "type": "integer",
             "format": "int64",
-            "description": "Completed passes over the whole target list.",
             "minimum": 0
           },
           "targets": {
             "type": "integer",
             "format": "int32",
-            "description": "Targets the settings expanded to.",
             "minimum": 0
           }
         }
@@ -10591,7 +10078,6 @@
       },
       "SelcallSequence": {
         "type": "object",
-        "description": "One complete five-tone selective call after the repeat marker has been expanded.",
         "required": [
           "system",
           "code",
@@ -10599,8 +10085,7 @@
         ],
         "properties": {
           "code": {
-            "type": "string",
-            "description": "Five decoded digits/group symbols. Consecutive equal digits are represented literally,\nnot by the on-air repeat marker."
+            "type": "string"
           },
           "system": {
             "$ref": "#/components/schemas/SelcallSystem"
@@ -10608,14 +10093,12 @@
           "tone_ms": {
             "type": "integer",
             "format": "int32",
-            "description": "Median detected tone duration, rounded to milliseconds.",
             "minimum": 0
           }
         }
       },
       "SelcallSystem": {
         "type": "string",
-        "description": "Five-tone sequential selective-calling plan.",
         "enum": [
           "ccir1",
           "zvei1"
@@ -10625,7 +10108,6 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "First frame after connect: current state revision so the client can detect gaps.",
             "required": [
               "data",
               "type"
@@ -10633,7 +10115,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "First frame after connect: current state revision so the client can detect gaps.",
                 "required": [
                   "revision"
                 ],
@@ -10655,7 +10136,6 @@
           },
           {
             "type": "object",
-            "description": "Something changed; invalidate the matching query keys and refetch.",
             "required": [
               "data",
               "type"
@@ -10663,7 +10143,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Something changed; invalidate the matching query keys and refetch.",
                 "required": [
                   "scope"
                 ],
@@ -10683,7 +10162,6 @@
           },
           {
             "type": "object",
-            "description": "A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).\n\nThe id is allocated per connection, exactly like an audio one: a multi-stream radio can\nhave several lanes watched at once, so the device-set id is no longer enough to tell two\nspectra apart. `stream` names the lane this id carries — which is how the client knows\nwhich of its scopes the frames belong to, since the frame header carries only the id.",
             "required": [
               "data",
               "type"
@@ -10691,7 +10169,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).\n\nThe id is allocated per connection, exactly like an audio one: a multi-stream radio can\nhave several lanes watched at once, so the device-set id is no longer enough to tell two\nspectra apart. `stream` names the lane this id carries — which is how the client knows\nwhich of its scopes the frames belong to, since the frame header carries only the id.",
                 "required": [
                   "stream_id",
                   "device_set"
@@ -10724,7 +10201,6 @@
           },
           {
             "type": "object",
-            "description": "A subscribed audio stream is now active. Stream ids are allocated per-connection\nfrom the audio range (see [`StreamKind`]); clients demux binary frames by\n`(kind, stream_id)`.",
             "required": [
               "data",
               "type"
@@ -10732,7 +10208,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed audio stream is now active. Stream ids are allocated per-connection\nfrom the audio range (see [`StreamKind`]); clients demux binary frames by\n`(kind, stream_id)`.",
                 "required": [
                   "stream_id",
                   "device_set",
@@ -10766,7 +10241,6 @@
           },
           {
             "type": "object",
-            "description": "A subscribed video stream is now active, carrying the channel's pictures as\n[`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so\nthe client demuxes on `(kind, stream_id)` exactly as it does there.",
             "required": [
               "data",
               "type"
@@ -10774,7 +10248,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed video stream is now active, carrying the channel's pictures as\n[`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so\nthe client demuxes on `(kind, stream_id)` exactly as it does there.",
                 "required": [
                   "stream_id",
                   "device_set",
@@ -10808,7 +10281,6 @@
           },
           {
             "type": "object",
-            "description": "A subscribed channel-IQ stream is now active, carrying that channel's baseband as\n[`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video\nuse, so the client demuxes on `(kind, stream_id)` exactly as it does there.",
             "required": [
               "data",
               "type"
@@ -10816,7 +10288,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed channel-IQ stream is now active, carrying that channel's baseband as\n[`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video\nuse, so the client demuxes on `(kind, stream_id)` exactly as it does there.",
                 "required": [
                   "stream_id",
                   "device_set",
@@ -10850,7 +10321,6 @@
           },
           {
             "type": "object",
-            "description": "A subscribed stream stopped; `kind` says which one, since spectrum and audio ids\ncome from different spaces.",
             "required": [
               "data",
               "type"
@@ -10858,7 +10328,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed stream stopped; `kind` says which one, since spectrum and audio ids\ncome from different spaces.",
                 "required": [
                   "stream_id",
                   "kind"
@@ -10902,7 +10371,6 @@
           },
           {
             "type": "object",
-            "description": "What the decoders heard shortly before this client connected, oldest first, sent once\nafter [`ServerEvent::Hello`].\n\nDecodes are pushed and never replayed, so a reloaded browser used to start with an empty\nmap and refill it only as contacts happened to transmit again — a gap in the server, since\nthe engine had been decoding the whole time. The server keeps a bounded, in-memory buffer\nof the last few records per station and hands it over on connect.\n\nRaw records rather than merged tracks, on purpose: the client already merges a position\nframe onto an earlier identity frame, and replaying what it would have received reaches\nthe same state through the same code instead of a second implementation of that rule.\nRecords are aggregated by station id, so an event with no identity is never in here.",
             "required": [
               "data",
               "type"
@@ -10910,7 +10378,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "What the decoders heard shortly before this client connected, oldest first, sent once\nafter [`ServerEvent::Hello`].\n\nDecodes are pushed and never replayed, so a reloaded browser used to start with an empty\nmap and refill it only as contacts happened to transmit again — a gap in the server, since\nthe engine had been decoding the whole time. The server keeps a bounded, in-memory buffer\nof the last few records per station and hands it over on connect.\n\nRaw records rather than merged tracks, on purpose: the client already merges a position\nframe onto an earlier identity frame, and replaying what it would have received reaches\nthe same state through the same code instead of a second implementation of that rule.\nRecords are aggregated by station id, so an event with no identity is never in here.",
                 "required": [
                   "records"
                 ],
@@ -10961,15 +10428,13 @@
           },
           {
             "type": "object",
-            "description": "Appended client-side for the same reason decodes are: refetching the whole call list per\ncall is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`\nstill fires for structural changes — retention expiry, audio eviction.",
             "required": [
               "data",
               "type"
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/VoiceCall",
-                "description": "Appended client-side for the same reason decodes are: refetching the whole call list per\ncall is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`\nstill fires for structural changes — retention expiry, audio eviction."
+                "$ref": "#/components/schemas/VoiceCall"
               },
               "type": {
                 "type": "string",
@@ -10981,7 +10446,6 @@
           },
           {
             "type": "object",
-            "description": "Live signal level of every channel on one device set.\n\nIts own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move\ncontinuously, and a `StateChanged` per reading would have every client refetch the whole\nworld ten times a second. Nothing downstream is authoritative about these — they are a\nmeasurement, not state, and a client that misses one simply draws the next.",
             "required": [
               "data",
               "type"
@@ -10989,7 +10453,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Live signal level of every channel on one device set.\n\nIts own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move\ncontinuously, and a `StateChanged` per reading would have every client refetch the whole\nworld ten times a second. Nothing downstream is authoritative about these — they are a\nmeasurement, not state, and a client that misses one simply draws the next.",
                 "required": [
                   "device_set",
                   "levels"
@@ -11018,7 +10481,6 @@
           },
           {
             "type": "object",
-            "description": "Live frequency-scanner progress. Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
             "required": [
               "data",
               "type"
@@ -11026,7 +10488,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Live frequency-scanner progress. Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
                 "required": [
                   "device_set",
                   "status"
@@ -11052,7 +10513,6 @@
           },
           {
             "type": "object",
-            "description": "Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error\nmeans the source has gone unavailable and consumers stop using its previous fix.",
             "required": [
               "data",
               "type"
@@ -11060,7 +10520,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error\nmeans the source has gone unavailable and consumers stop using its previous fix.",
                 "required": [
                   "node"
                 ],
@@ -11096,7 +10555,6 @@
           },
           {
             "type": "object",
-            "description": "Non-fatal server-side error surfaced to the client.",
             "required": [
               "data",
               "type"
@@ -11104,7 +10562,6 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Non-fatal server-side error surfaced to the client.",
                 "required": [
                   "message"
                 ],
@@ -11133,7 +10590,6 @@
       },
       "SignalMapNode": {
         "type": "object",
-        "description": "The IQ-relative slice a signal survey measures while pairing spectrum frames with positions.",
         "properties": {
           "bandwidth_hz": {
             "type": "integer",
@@ -11150,7 +10606,6 @@
       },
       "Size": {
         "type": "object",
-        "description": "Face size in canvas units. Absent means the node's natural size.",
         "required": [
           "w",
           "h"
@@ -11182,7 +10637,6 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "Full snapshot changed; refetch `GET /api/state`.",
             "required": [
               "scope"
             ],
@@ -11197,7 +10651,6 @@
           },
           {
             "type": "object",
-            "description": "The discovered-devices list changed.",
             "required": [
               "scope"
             ],
@@ -11212,7 +10665,6 @@
           },
           {
             "type": "object",
-            "description": "A single device set changed (settings, status, or its channels).",
             "required": [
               "id",
               "scope"
@@ -11221,7 +10673,6 @@
               "id": {
                 "type": "integer",
                 "format": "int32",
-                "description": "A single device set changed (settings, status, or its channels).",
                 "minimum": 0
               },
               "scope": {
@@ -11234,7 +10685,6 @@
           },
           {
             "type": "object",
-            "description": "The stored presets changed; refetch `GET /api/presets`.",
             "required": [
               "scope"
             ],
@@ -11249,7 +10699,6 @@
           },
           {
             "type": "object",
-            "description": "The stored bookmarks changed; refetch `GET /api/bookmarks`.",
             "required": [
               "scope"
             ],
@@ -11264,7 +10713,6 @@
           },
           {
             "type": "object",
-            "description": "The recordings index changed; refetch `GET /api/recordings`.",
             "required": [
               "scope"
             ],
@@ -11279,7 +10727,6 @@
           },
           {
             "type": "object",
-            "description": "The number of connected clients changed; refetch `GET /api/clients`. Server-owned\nstate (connections are not an engine concept), so it travels through `emit_scope`\nlike presets and bookmarks do.",
             "required": [
               "scope"
             ],
@@ -11294,7 +10741,6 @@
           },
           {
             "type": "object",
-            "description": "The stored decoder log changed *structurally* (cleared, pruned). Individual decodes\narrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per\ndecode would refetch the whole log hundreds of times a second under ADS-B traffic.",
             "required": [
               "scope"
             ],
@@ -11335,12 +10781,10 @@
               }
             }
           }
-        ],
-        "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (: the *only* cache-invalidation path)."
+        ]
       },
       "StateSnapshot": {
         "type": "object",
-        "description": "Full state snapshot for initial load ( `GET /api/state`).",
         "required": [
           "device_sets",
           "revision"
@@ -11355,7 +10799,6 @@
           "revision": {
             "type": "integer",
             "format": "int64",
-            "description": "Monotonic revision; bumps on every mutation so clients can detect missed events.",
             "minimum": 0
           },
           "trunk_systems": {
@@ -11368,7 +10811,6 @@
       },
       "StreamKind": {
         "type": "string",
-        "description": "Which binary stream a control event refers to. Every id is allocated per connection, from a\nrange per class, but only the pair `(kind, stream_id)` identifies a stream — events must\ncarry the kind or a spectrum stop is indistinguishable from an audio one.",
         "enum": [
           "spectrum",
           "audio",
@@ -11378,25 +10820,20 @@
       },
       "StreamScope": {
         "type": "object",
-        "description": "Which device settings each receive stream holds on its own, rather than sharing with the rest\nof the radio. All-false — the default, and what every capability set from before this field\ndescribes — is the single-stream radio.\n\nSample rate is deliberately absent and stays shared: one device, one clock domain. Channel\nrate validation, the recorder's SigMF `core:sample_rate` and the DSP lanes all assume it.",
         "properties": {
           "antenna": {
-            "type": "boolean",
-            "description": "Each stream selects its own antenna port."
+            "type": "boolean"
           },
           "gain": {
-            "type": "boolean",
-            "description": "Each stream has its own gain stages. True on nearly every multi-stream radio, including\nthe coherent arrays: per-channel gain calibration is how an array is levelled."
+            "type": "boolean"
           },
           "tuning": {
-            "type": "boolean",
-            "description": "Each stream tunes independently. False on a coherent array — the streams share one\ntuner reference and tuning them apart is what a coherent array must never do — and true\non a radio with a synthesizer per stream."
+            "type": "boolean"
           }
         }
       },
       "StreamSettings": {
         "type": "object",
-        "description": "One stream's overrides of the radio-wide [`DeviceSettings`]. Absent fields fall back to the\nradio-wide value — [`DeviceSettings::for_stream`] is the one place that resolution lives.",
         "required": [
           "stream"
         ],
@@ -11437,7 +10874,6 @@
       },
       "SubghzFrame": {
         "type": "object",
-        "description": "One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short\nwindow collapse into one frame with a count, because every one of these devices sends its\npayload several times and a log with eight identical rows is a worse log.",
         "required": [
           "modulation",
           "encoding",
@@ -11453,13 +10889,11 @@
               "null"
             ],
             "format": "int32",
-            "description": "EV1527 reading of a 24-bit payload: the 20-bit transmitter address.",
             "minimum": 0
           },
           "bits": {
             "type": "integer",
             "format": "int32",
-            "description": "Decoded payload length in bits; 0 for a raw capture.",
             "minimum": 0
           },
           "button": {
@@ -11468,12 +10902,10 @@
               "null"
             ],
             "format": "int32",
-            "description": "EV1527 reading of a 24-bit payload: the 4 button bits.",
             "minimum": 0
           },
           "data": {
-            "type": "string",
-            "description": "Payload as hex, MSB first, left-padded to whole bytes."
+            "type": "string"
           },
           "encoding": {
             "$ref": "#/components/schemas/SubghzEncoding"
@@ -11484,13 +10916,11 @@
           "repeats": {
             "type": "integer",
             "format": "int32",
-            "description": "How many times the identical payload arrived inside the collapse window.",
             "minimum": 0
           },
           "short_us": {
             "type": "integer",
             "format": "int32",
-            "description": "The base pulse period the frame was measured against, in µs.",
             "minimum": 0
           },
           "timings_us": {
@@ -11499,15 +10929,13 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
-            },
-            "description": "Raw pulse/gap durations in µs, pulse first — what a Flipper shows for a signal it\ncannot name. Truncated, so this is for inspection, not replay."
+            }
           },
           "tri_state": {
             "type": [
               "string",
               "null"
-            ],
-            "description": "PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one."
+            ]
           }
         }
       },
@@ -11523,19 +10951,16 @@
         "properties": {
           "bandwidth_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Detection bandwidth in Hz. Wide by radio standards on purpose: a SAW-controlled remote\nmay sit tens of kHz off its nominal 433.92 MHz, and a filter narrow enough to be\n\"correct\" would simply miss it."
+            "format": "double"
           },
           "frame_gap_us": {
             "type": "integer",
             "format": "int32",
-            "description": "Silence that ends a frame, in µs. Must exceed the longest gap *inside* a frame — the\nPT2262/EV1527 sync gap is ~31 short periods, around 10 ms at a 320 µs clock.",
             "minimum": 0
           },
           "min_pulse_us": {
             "type": "integer",
             "format": "int32",
-            "description": "Shortest keying edge accepted, in µs. Anything briefer is a noise spike, not a symbol.",
             "minimum": 0
           },
           "modulation": {
@@ -11545,7 +10970,6 @@
       },
       "TemplateInfo": {
         "type": "object",
-        "description": "One built-in workspace template (: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
         "required": [
           "id",
           "name",
@@ -11566,16 +10990,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChannelSettings"
-            },
-            "description": "Channels the template creates on the target device set."
+            }
           },
           "description": {
-            "type": "string",
-            "description": "One line for the gallery card."
+            "type": "string"
           },
           "direction": {
-            "$ref": "#/components/schemas/Direction",
-            "description": "Which direction the radio has to have. Every built-in template receives; the field is\nhere because \"what kind of radio does this need\" is the question the picker asks, and a\ntransmit template must not be offered on a receiver the day one exists."
+            "$ref": "#/components/schemas/Direction"
           },
           "exact_rate": {
             "type": "boolean"
@@ -11584,8 +11005,7 @@
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "description": "Stable slug used in `POST /api/templates/{id}/apply`."
+            "type": "string"
           },
           "max_freq_hz": {
             "type": "number",
@@ -11593,8 +11013,7 @@
           },
           "min_freq_hz": {
             "type": "number",
-            "format": "double",
-            "description": "Tuning span the template needs, so the gallery can mark entries the open device\ncannot reach instead of failing on apply."
+            "format": "double"
           },
           "name": {
             "type": "string"
@@ -11617,14 +11036,12 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Devices this template can actually run on, as `driver:key` handles — the server's answer,\ncomputed against each probed radio's [`crate::DeviceProfile`], so the gallery offers a\ndevice only when the template fits it.\n\nA radio whose driver reports no profile is *included*: unknown is not the same as\nunsuitable, and hiding a device because its backend cannot answer cheaply would make the\npicker lie. Empty on the static table; filled in per request.\n\nAlways serialized, unlike the other quiet fields: \"no attached radio can run this\" is a\nreal answer the gallery has to render, and eliding it would make it arrive as the absence\nthat means \"nobody asked\"."
+            }
           }
         }
       },
       "TemplatesResponse": {
         "type": "object",
-        "description": "`GET /api/templates`.",
         "required": [
           "templates"
         ],
@@ -11648,8 +11065,7 @@
               "number",
               "null"
             ],
-            "format": "double",
-            "description": "The CTCSS tone present, in Hz."
+            "format": "double"
           },
           "dcs_code": {
             "type": [
@@ -11657,18 +11073,15 @@
               "null"
             ],
             "format": "int32",
-            "description": "The DCS code present, as the three octal digits a radio displays.",
             "minimum": 0
           },
           "open": {
-            "type": "boolean",
-            "description": "Whether audio is passing. Always true unless the channel was told to gate on a tone:\n[`crate::NfmToneMode::Detect`] reports what is there without acting on it."
+            "type": "boolean"
           }
         }
       },
       "ToolCategory": {
         "type": "string",
-        "description": "What kind of thing a tool is, so the launcher can group them.",
         "enum": [
           "calculator",
           "instrument",
@@ -11677,7 +11090,6 @@
       },
       "ToolDescriptor": {
         "type": "object",
-        "description": "One tool the server can run, as advertised by `GET /api/tools`.",
         "required": [
           "id",
           "name",
@@ -11690,19 +11102,16 @@
             "$ref": "#/components/schemas/ToolCategory"
           },
           "id": {
-            "type": "string",
-            "description": "Stable id, and the tag of this tool's [`ToolRequest`] variant."
+            "type": "string"
           },
           "name": {
             "type": "string"
           },
           "needs_hardware": {
-            "type": "boolean",
-            "description": "Whether running it needs hardware attached. Feature-gated tools are absent from the\nlist entirely; this marks the ones that are compiled in but may still find nothing."
+            "type": "boolean"
           },
           "summary": {
-            "type": "string",
-            "description": "One line, shown under the name in the launcher."
+            "type": "string"
           }
         }
       },
@@ -11744,8 +11153,7 @@
               }
             }
           }
-        ],
-        "description": "`POST /api/tools/run` — one call to one tool. The tag is the tool id, so the body names its\nown destination and no path parameter can disagree with it."
+        ]
       },
       "ToolResponse": {
         "oneOf": [
@@ -11785,12 +11193,10 @@
               }
             }
           }
-        ],
-        "description": "What a tool answered, tagged with the same id the request carried."
+        ]
       },
       "ToolsResponse": {
         "type": "object",
-        "description": "`GET /api/tools`.",
         "required": [
           "tools"
         ],
@@ -11815,7 +11221,6 @@
           "channel": {
             "type": "integer",
             "format": "int32",
-            "description": "The engine channel doing the following; it has no patch node of its own.",
             "minimum": 0
           },
           "device_set": {
@@ -11845,7 +11250,6 @@
       },
       "TrunkProblem": {
         "type": "object",
-        "description": "A grant the follower could not act on — commonly a traffic channel outside the sampled\nbandwidth. Carried in state so the operator sees why a busy system produces no calls.",
         "required": [
           "freq_hz",
           "slot",
@@ -11876,8 +11280,7 @@
             "type": "string"
           },
           "since": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "slot": {
             "type": "integer",
@@ -11888,7 +11291,6 @@
       },
       "TrunkSystemStatus": {
         "type": "object",
-        "description": "What one `dmr_trunk` node is following. Also how the client attributes follower channels,\nwhich have no patch node, to the system that owns them.",
         "required": [
           "node",
           "carriers",
@@ -11930,7 +11332,6 @@
       },
       "UpdateWorkspaceRequest": {
         "type": "object",
-        "description": "`PUT /api/workspaces/{id}` — rename, re-patch, or both.",
         "required": [
           "revision"
         ],
@@ -11944,7 +11345,6 @@
           "revision": {
             "type": "integer",
             "format": "int64",
-            "description": "The revision the client last saw. A mismatch is a `409`, never a silent overwrite.",
             "minimum": 0
           },
           "snapshot": {
@@ -12113,12 +11513,10 @@
         "properties": {
           "deemphasis_us": {
             "type": "number",
-            "format": "float",
-            "description": "De-emphasis time constant in µs (50 in most of the world, 75 in the Americas)."
+            "format": "float"
           },
           "stereo": {
-            "type": "boolean",
-            "description": "Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.\nA station without a 19 kHz pilot still plays: L and R carry the same mono programme."
+            "type": "boolean"
           }
         }
       },
@@ -12141,12 +11539,10 @@
               }
             }
           }
-        ],
-        "description": "`GET /api/workspaces/{id}` — the row plus its workspace."
+        ]
       },
       "WorkspaceHistory": {
         "type": "object",
-        "description": "What undo and redo can reach right now.\n\nThe history belongs to the workspace, not to a browser: every client works on the same\narrangement, so they share the steps that lead back out of it. Undoing in one window is a\nchange like any other, and the rest see it.",
         "required": [
           "can_undo",
           "can_redo"
@@ -12162,7 +11558,6 @@
       },
       "WorkspaceInfo": {
         "type": "object",
-        "description": "`GET /api/workspaces` list entry — the projection a switcher needs, without the workspace.",
         "required": [
           "id",
           "name",
@@ -12173,8 +11568,7 @@
         ],
         "properties": {
           "created_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           },
           "id": {
             "type": "integer",
@@ -12186,18 +11580,15 @@
           "nodes": {
             "type": "integer",
             "format": "int32",
-            "description": "Node count, denormalized so the switcher can describe a workspace without parsing its\ngraph.",
             "minimum": 0
           },
           "revision": {
             "type": "integer",
             "format": "int64",
-            "description": "Bumped on every stored change. An update carrying a stale revision is refused rather than\nsilently overwriting another client's arrangement.",
             "minimum": 0
           },
           "updated_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
+            "type": "string"
           }
         }
       },
@@ -12208,8 +11599,7 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "[`crate::BandRegion::id`], or `None` to follow the server's default for this install."
+            ]
           },
           "band_ruler": {
             "type": "boolean"
@@ -12218,7 +11608,6 @@
       },
       "WorkspaceSnapshot": {
         "type": "object",
-        "description": "The stored body of a workspace (: one JSON snapshot per row, like presets — written\natomically, read whole, never queried by inner field).",
         "required": [
           "version",
           "graph"
@@ -12236,14 +11625,12 @@
           "version": {
             "type": "integer",
             "format": "int32",
-            "description": "[`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.",
             "minimum": 0
           }
         }
       },
       "WorkspacesResponse": {
         "type": "object",
-        "description": "`GET /api/workspaces`.",
         "required": [
           "workspaces"
         ],
@@ -12253,8 +11640,7 @@
               "integer",
               "null"
             ],
-            "format": "int64",
-            "description": "The active workspace, or `None` when the last one was deleted."
+            "format": "int64"
           },
           "workspaces": {
             "type": "array",
@@ -12266,7 +11652,6 @@
       },
       "WsjtMessage": {
         "type": "object",
-        "description": "One CRC-verified FT8 or FT4 message from a synchronized receive slot.",
         "required": [
           "text",
           "snr_db",
@@ -12299,7 +11684,6 @@
       },
       "WsjtParams": {
         "type": "object",
-        "description": "Audio passband searched by an FT8 or FT4 decoder after a USB receiver is placed on the\nmode's dial frequency.",
         "properties": {
           "audio_high_hz": {
             "type": "number",
@@ -12318,7 +11702,6 @@
       },
       "WsprParams": {
         "type": "object",
-        "description": "Audio passband searched by WSPR after a USB receiver is placed on the WSPR dial frequency.",
         "properties": {
           "audio_high_hz": {
             "type": "number",
@@ -12337,7 +11720,6 @@
       },
       "WsprSpot": {
         "type": "object",
-        "description": "One WSPR beacon spot recovered from a two-minute receive slot.",
         "required": [
           "text",
           "callsign",
@@ -12374,8 +11756,7 @@
             "format": "float"
           },
           "text": {
-            "type": "string",
-            "description": "Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign."
+            "type": "string"
           },
           "time_offset_s": {
             "type": "number",
@@ -12389,19 +11770,16 @@
           "directors": {
             "type": "integer",
             "format": "int32",
-            "description": "Directors in front of the driven element. Zero is a two-element reflector Yagi.",
             "minimum": 0
           },
           "spacing_wavelengths": {
             "type": "number",
-            "format": "double",
-            "description": "Boom spacing between neighbouring elements, in wavelengths."
+            "format": "double"
           }
         }
       },
       "YsfParams": {
-        "type": "object",
-        "description": "System Fusion (C4FM, 4800 symbols/s)."
+        "type": "object"
       }
     }
   }

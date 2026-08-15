@@ -1,12 +1,3 @@
-// Band occupancy: which frequencies carry traffic, and when.
-//
-// A grid rather than a list of numbers, because the question is about the shape of a day. One row
-// per frequency bucket, one column per hour; the cell's weight is how much of that hour the
-// frequency was in use.
-//
-// Nothing here tunes anything by itself — clicking a row moves the selected receiver, exactly the
-// way the bands and bookmarks panels beside it do.
-
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { occupancyQuery } from "../lib/api";
@@ -32,8 +23,6 @@ const SORTS: { id: OccupancySort; label: string }[] = [
   { id: "frequency", label: "Frequency" },
 ];
 
-/** Sightings a bucket needs before it is reported. Matches the server's own default; stated here
- * because the control that changes it is here. */
 const MIN_SAMPLES = 30;
 
 export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
@@ -84,8 +73,6 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
 
       {rows.length > 0 && (
         <>
-          {/* The hour axis, once, above every row. Only every sixth label is printed: twenty-four
-              would collide long before the drawer is wide enough for them. */}
           <div className="flex items-center gap-2">
             <span className="w-24 shrink-0" />
             <div className="legend flex min-w-0 flex-1 justify-between text-ink-dim">

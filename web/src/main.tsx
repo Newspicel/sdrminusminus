@@ -5,7 +5,6 @@ import { App } from "./App";
 import { initTheme } from "./lib/theme";
 import "./index.css";
 
-// Before the first render, so the first paint is already in the resolved theme.
 initTheme();
 
 const queryClient = new QueryClient({

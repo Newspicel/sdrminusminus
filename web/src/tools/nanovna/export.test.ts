@@ -17,8 +17,6 @@ describe("Touchstone", () => {
     );
   });
 
-  /** Writing an unmeasured reverse path as if it were measured would tell a reader the device
-   * is perfectly matched and perfectly isolated in a direction it never looked. */
   it("says in the file that S12 and S22 were never measured", () => {
     expect(touchstoneS2p(SWEEP, "ri")).toContain(
       "! S12 and S22 are not measured by this instrument and are written as zero.",
@@ -58,8 +56,6 @@ describe("CSV", () => {
     expect(Number(first[5])).toBeCloseTo(3, 9);
   });
 
-  /** A matched point has infinite return loss and an open one has no equivalent component;
-   * neither may silently become a zero in a spreadsheet. */
   it("writes an unmeasurable cell as empty and an infinite one as inf", () => {
     const matched = sweepCsv(sweepOf([point(1_000_000, { re: 0, im: 0 })]));
     const cells = matched.trim().split("\n")[1]?.split(",") ?? [];

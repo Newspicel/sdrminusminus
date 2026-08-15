@@ -1,9 +1,7 @@
 pub const PROTOCOL_VERSION: u8 = 1;
 
-/// Byte length of the fixed frame header.
 pub const HEADER_LEN: usize = 16;
 
-/// Frame kinds (the `kind` header byte). Mirrored by the TS decoder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FrameKind {
@@ -28,8 +26,6 @@ impl FrameKind {
     }
 }
 
-/// A spectrum frame ready to encode. Bins are pre-quantized to `u8` over `[db_min, db_max]`
-/// (: the adaptive dB window travels in the header).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpectrumFrame<'a> {
     pub stream_id: u16,
@@ -43,13 +39,11 @@ pub struct SpectrumFrame<'a> {
 }
 
 impl SpectrumFrame<'_> {
-    /// Serialized length: header + fixed spectrum fields + bins.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
         HEADER_LEN + 8 + 4 + 4 + 4 + 2 + self.bins.len()
     }
 
-    /// Encode into a fresh little-endian byte buffer.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.encoded_len());
@@ -68,27 +62,21 @@ impl SpectrumFrame<'_> {
     }
 }
 
-/// An Opus audio frame ready to encode. The payload length is implicit: the opus packet
-/// runs from byte `HEADER_LEN + 1` to the end of the WS frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AudioFrame<'a> {
     pub stream_id: u16,
     pub seq: u32,
-    /// 48 kHz-domain sample-frame count since the channel's audio started.
     pub timestamp: u64,
-    /// Channel layout of this packet; 1 = mono, 2 = stereo (interleaved L, R).
     pub ch_layout: u8,
     pub opus: &'a [u8],
 }
 
 impl AudioFrame<'_> {
-    /// Serialized length: header + ch_layout + opus packet.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
         HEADER_LEN + 1 + self.opus.len()
     }
 
-    /// Encode into a fresh little-endian byte buffer.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.encoded_len());
@@ -103,38 +91,22 @@ impl AudioFrame<'_> {
     }
 }
 
-/// A block of a channel's baseband IQ, ready to encode.
-///
-/// These are the samples a decoder actually sees: after the digital down-conversion and the
-/// channel filter, at the channel's own rate, before the demodulator. Sent as contiguous bursts
-/// rather than as a continuous stream — a constellation or an eye needs consecutive samples at the
-/// full rate, and nothing that draws one needs every burst.
-///
-/// The payload length is implicit: interleaved I/Q pairs run from byte `HEADER_LEN + 12` to the
-/// end of the WS frame, so the block is always an even number of `f32`s.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IqFrame<'a> {
     pub stream_id: u16,
     pub seq: u32,
-    /// Channel-rate sample count at the first sample of this block, so the gap between two
-    /// bursts is legible as the time it really was.
     pub timestamp: u64,
-    /// The channel's input rate, which is the bandwidth this baseband spans.
     pub sample_rate: f32,
-    /// Absolute frequency the baseband is centred on: the device centre plus the channel offset.
     pub center_hz: f64,
-    /// Interleaved I, Q.
     pub samples: &'a [f32],
 }
 
 impl IqFrame<'_> {
-    /// Serialized length: header + rate + centre + four bytes per component.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
         HEADER_LEN + 8 + 4 + self.samples.len() * 4
     }
 
-    /// Encode into a fresh little-endian byte buffer.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.encoded_len());
@@ -173,12 +145,10 @@ impl<'a> VideoData<'a> {
     }
 }
 
-/// One decoded picture ready to encode: row-major 8-bit grayscale or RGB pixels.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoFrame<'a> {
     pub stream_id: u16,
     pub seq: u32,
-    /// Channel-rate sample count when the picture completed.
     pub timestamp: u64,
     pub width: u16,
     pub height: u16,
@@ -186,13 +156,11 @@ pub struct VideoFrame<'a> {
 }
 
 impl VideoFrame<'_> {
-    /// Serialized length: header + the geometry + one byte per pixel.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
         HEADER_LEN + 2 + 2 + self.data.bytes().len()
     }
 
-    /// Encode into a fresh little-endian byte buffer.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.encoded_len());
@@ -212,7 +180,6 @@ impl VideoFrame<'_> {
 mod tests {
     use super::*;
 
-    /// Decode just enough to prove the layout matches the documented offsets.
     fn decode_spectrum(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, f64, f32, f32, f32, Vec<u8>) {
         let ver = buf[0];
         let kind = FrameKind::from_u8(buf[1]).expect("known kind");
@@ -259,7 +226,6 @@ mod tests {
         assert_eq!(out, bins);
     }
 
-    /// Decode just enough to prove the layout matches the documented offsets.
     fn decode_audio(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, u8, Vec<u8>) {
         let ver = buf[0];
         let kind = FrameKind::from_u8(buf[1]).expect("known kind");
@@ -271,8 +237,6 @@ mod tests {
         (ver, kind, stream_id, seq, timestamp, ch_layout, opus)
     }
 
-    /// Both layouts travel through the same fixed offsets: only the `ch_layout` byte differs,
-    /// so a stereo frame must not shift the opus payload by so much as a byte.
     #[test]
     fn audio_roundtrip_in_both_layouts() {
         let opus: Vec<u8> = (0..96u8).map(|i| i.wrapping_mul(3)).collect();
@@ -298,7 +262,6 @@ mod tests {
         }
     }
 
-    /// Decode just enough to prove the layout matches the documented offsets.
     fn decode_iq(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, f64, f32, Vec<f32>) {
         let ver = buf[0];
         let kind = FrameKind::from_u8(buf[1]).expect("known kind");
@@ -344,12 +307,9 @@ mod tests {
         assert_eq!(center, 145_800_000.0);
         assert_eq!(rate, 24_000.0);
         assert_eq!(out, samples);
-        // Interleaved pairs: an odd component count would leave a reader one sample short of a
-        // complex value and is not a frame this ever produces.
         assert_eq!(out.len() % 2, 0);
     }
 
-    /// Decode just enough to prove the layout matches the documented offsets.
     fn decode_video(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, u16, u16, Vec<u8>) {
         let ver = buf[0];
         let kind = FrameKind::from_u8(buf[1]).expect("known kind");
@@ -384,8 +344,6 @@ mod tests {
         assert_eq!(ts, 2_000_000);
         assert_eq!((width, height), (8, 4));
         assert_eq!(out, luma);
-        // The payload length is what the geometry claims, so a client can size its ImageData
-        // from the header alone.
         assert_eq!(out.len(), usize::from(width) * usize::from(height));
     }
 

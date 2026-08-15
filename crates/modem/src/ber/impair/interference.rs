@@ -1,30 +1,17 @@
-//! Interference: an independent transmitter added at a stated carrier-to-interference ratio.
-//! Self-contained on purpose — the interferer must not be built from the modulator under test, or
-//! an interference limits row would move whenever the entry it measures does.
 use num_complex::Complex;
 use sdrmm_dsp::fir::design_rrc;
 
 use super::{Impairment, mean_power};
 use crate::ber::rng::Rng;
 
-/// Pulse-shaping span of the interferer's RRC, symbols each side — enough that its spectrum
-/// is the filter's, not the truncation's.
 const SPAN: usize = 8;
 
-/// What the interfering transmitter radiates.
 #[derive(Clone, Copy, Debug)]
 enum Source {
-    /// RRC-shaped QPSK at `sps` samples per symbol and roll-off `alpha`.
     Qpsk { sps: usize, alpha: f64 },
-    /// An unmodulated carrier whose offset is drawn uniformly over `±half_band_cycles` per
-    /// realisation, with a random phase — see the module docs for why the draw is the definition.
     Narrowband { half_band_cycles: f64 },
 }
 
-/// An interferer at `ci_db` below the waveform's measured power (C/I, so larger is cleaner),
-/// offset by `offset_cycles` per sample: 0 for co-channel, non-zero for adjacent-channel. The
-/// interferer is scaled against its own *measured* power over the waveform, so the stated C/I is
-/// exact rather than nominal.
 #[derive(Clone, Copy, Debug)]
 pub struct Interferer {
     ci_db: f64,
@@ -51,11 +38,6 @@ impl Interferer {
         }
     }
 
-    /// An unmodulated carrier at a frequency drawn uniformly over `±half_band_cycles` per
-    /// realisation — the narrowband jammer a spread-spectrum entry's processing gain is measured
-    /// against. The band is the *caller's* statement of where such a jammer could sit; a spread
-    /// entry passes half its own chip rate, since outside that the receive filter has already
-    /// removed the jammer and any rejection measured there is filtering rather than spreading.
     #[must_use]
     pub fn narrowband(ci_db: f64, half_band_cycles: f64) -> Self {
         Self {
@@ -65,9 +47,6 @@ impl Interferer {
         }
     }
 
-    /// This interferer at a *fixed* offset instead of a drawn one — what a partial-band row
-    /// needs, where the point is a jammer parked on one channel rather than an average over
-    /// where it might sit.
     #[must_use]
     pub fn parked(ci_db: f64, offset_cycles: f64) -> Self {
         Self {
@@ -121,10 +100,6 @@ impl Impairment for Interferer {
     }
 }
 
-/// `len` samples of steady-state RRC-shaped QPSK at `sps` samples per symbol — the shared
-/// band-limited test waveform of this module (the timing calibrations borrow it: it has the
-/// smooth, aperiodic autocorrelation a sub-sample delay measurement needs). Filter warm-up is
-/// generated and discarded so the returned stretch has full power from its first sample.
 pub(crate) fn rrc_qpsk(rng: &mut Rng, len: usize, sps: usize, alpha: f64) -> Vec<Complex<f32>> {
     let taps = design_rrc(sps as f64, alpha, SPAN);
     let lead = SPAN * sps;
@@ -171,7 +146,6 @@ mod tests {
         y.iter().zip(x).map(|(a, b)| a - b).collect()
     }
 
-    /// Applied == measured: the power added on top of a unit carrier sits at the stated C/I.
     #[test]
     fn cochannel_power_matches_stated_ci() {
         let ci_db = 17.0;
@@ -185,9 +159,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured for the adjacent case: same power gate, and the added signal's
-    /// power-weighted mean frequency sits at the stated offset (the RRC spectrum is symmetric
-    /// about its carrier, so the mean frequency *is* the offset).
     #[test]
     fn adjacent_offset_and_power_read_back() {
         let ci_db = 12.0;
@@ -214,9 +185,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured for the narrowband kind, on both axes it claims: the added power sits
-    /// at the stated C/I, and what was added is a *carrier* — a single frequency, which reads back
-    /// as a constant envelope rather than as a bandwidth.
     #[test]
     fn narrowband_power_and_constant_envelope_read_back() {
         let ci_db = 9.0;
@@ -237,10 +205,6 @@ mod tests {
         assert!(worst < 1e-3, "envelope varies by {worst} of its RMS");
     }
 
-    /// The property that makes the narrowband kind a *processing-gain* instrument rather than a
-    /// tone at an arbitrary place: the offset is redrawn per realisation, uniformly over the
-    /// stated band, and a parked interferer is not. Measured as the spread of the recovered
-    /// frequencies over many seeds.
     #[test]
     fn the_narrowband_offset_is_drawn_over_its_stated_band() {
         let half_band = 0.1;
@@ -264,8 +228,6 @@ mod tests {
             drawn.iter().all(|f| f.abs() <= half_band + 1e-6),
             "an offset landed outside the stated band"
         );
-        // Uniform over ±0.1 has RMS 0.1/√3 ≈ 0.058; anything much smaller would mean the draw is
-        // not happening, and the whole measurement would silently become a single-tone one.
         let rms = (drawn.iter().map(|f| f * f).sum::<f64>() / drawn.len() as f64).sqrt();
         assert!((0.03..0.09).contains(&rms), "offset RMS {rms}");
         for seed in 0..8u64 {

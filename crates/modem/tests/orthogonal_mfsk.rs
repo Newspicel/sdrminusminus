@@ -43,9 +43,6 @@ fn all_three_chains_round_trip_clean_at_high_ebn0() {
     }
 }
 
-/// Smoke tier of a committed curve: the first three grid points re-measured with the committed
-/// budgets. (seed, index) names each point's realisation, so a grid prefix reproduces the
-/// committed points exactly on one host; 0.5 dB absorbs cross-platform float drift only.
 fn assert_curve_prefix(link: &Link, grid: &[f64], seed: u64, name: &str) {
     let committed = load_curve(name);
     let measured = sweep::sweep_ber(
@@ -75,10 +72,6 @@ fn mfsk8_curve_matches_committed_baseline() {
     assert_curve_prefix(&mfsk8_link(), M8_GRID, M8_SEED, M8_AWGN);
 }
 
-/// The phase-5 acceptance itself, read off the committed artifacts: every alphabet sits within
-/// the stated tolerance of the *exact* noncoherent orthogonal closed form, across its whole
-/// grid. Reading the committed curve costs nothing; the full writers re-assert the same bound
-/// on fresh measurement.
 #[test]
 fn every_committed_curve_sits_on_the_exact_closed_form() {
     for (m, stem, grid) in [
@@ -132,8 +125,6 @@ fn mfsk8_loops_back_clean_at_6db_margin() {
     loopback_at_margin(link_sized(8, 256), M8_AWGN, 6.0, 0x8e5c);
 }
 
-/// One seeded probe at the operating point. 150 errors separates a passing probe from the 1e-2
-/// limit unambiguously; the cap bounds a probe that fails hard.
 fn probe(link: &Link, spec: &ChannelSpec, op_db: f64) -> f64 {
     limits::measure_ber(link, spec, op_db, M4_SEED ^ 0xbe5, 150, 40_000)
 }
@@ -155,8 +146,6 @@ fn axis_row(
     )
 }
 
-/// The composite-profile row's grid and budget, shared by the writer and the smoke
-/// re-measurement so the two measure the same quantity.
 const PROFILE_GRID: [f64; 4] = [8.0, 9.0, 10.0, 11.0];
 const PROFILE_ERRORS: u64 = 250;
 const PROFILE_CAP: u64 = 600_000;
@@ -177,11 +166,6 @@ fn measure_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
                 op_db,
             )
         }),
-        // The timing estimate is feedforward — one offset for the whole burst — so a clock
-        // error walks the sampling instant across it with nothing to follow it back: at p ppm
-        // the instant moves 0.021·p samples over the 2088-symbol frame, and a third of a symbol
-        // of walk is where the trial's tail stops decoding. The axis and its resolution are
-        // sized for that answer, not for the wide bracket the tracking-loop entries need.
         axis_row("sample clock", "ppm", 10_000.0, 5.0, |ppm| {
             probe(
                 link,
@@ -189,9 +173,6 @@ fn measure_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
                 op_db,
             )
         }),
-        // Five symbols of static delay: the feedforward estimate absorbs the sub-symbol part
-        // and the searched unique word absorbs the whole symbols, so this row is expected to
-        // be bracket-bound — and says so only because the bracket is wide enough to mean it.
         axis_row("static timing offset", "samples", 50.0, 0.5, |d| {
             probe(
                 link,
@@ -211,10 +192,6 @@ fn measure_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
     ]
 }
 
-/// Smoke tier of the limits table: every committed row re-measured with the committed budgets
-/// must sit within 20% of its committed threshold, one-sided — moving better is never a
-/// failure. The operating point comes from the committed table; the curve smoke test guards
-/// that number.
 #[test]
 fn mfsk4_limits_rows_match_committed_table() {
     let committed = limits::load_json(&baseline_path(M4_LIMITS)).unwrap();
@@ -293,9 +270,6 @@ fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     curve
 }
 
-/// Run in release:
-/// `cargo test -p sdrmm-modem --release --test orthogonal_mfsk -- --ignored measure_`.
-/// Each writer is also the entry's full reference gate against the exact closed form.
 fn measure_full(link: &Link, grid: &[f64], seed: u64, name: &str, m: u32) {
     let curve = remeasure_curve(link, grid, seed, name);
     let worst = sweep::worst_penalty_db(&curve, oracle(m), grid[0], *grid.last().unwrap());

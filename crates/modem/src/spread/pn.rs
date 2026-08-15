@@ -1,19 +1,10 @@
 use std::fmt;
 
-/// Why a sequence was refused. Construction is setup-time, so this is a `Result`: a bad
-/// sequence out of a configuration file must surface as an error, never take an engine down.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PnError {
-    /// A chip that is neither +1 nor −1. The correlator's processing gain is `N` only because
-    /// every chip carries unit energy; a 0 or a 2 would silently make the stated gain a lie.
     NotBipolar(i8),
-    /// An empty sequence spreads nothing.
     Empty,
-    /// No Barker word of this length is known (they exist only at 2, 3, 4, 5, 7, 11 and 13, and
-    /// none longer has ever been found).
     NoBarkerWord(usize),
-    /// [`PnSequence::maximal_length`] outside the degrees this module carries a primitive
-    /// polynomial for.
     NoPrimitivePolynomial(u32),
 }
 
@@ -32,37 +23,24 @@ impl fmt::Display for PnError {
 
 impl std::error::Error for PnError {}
 
-/// Degrees [`PnSequence::maximal_length`] carries a primitive polynomial for. The upper end is
-/// where a period stops being a spreading factor and starts being a frame.
 pub const MAX_LFSR_DEGREE: u32 = 16;
 
-/// Primitive polynomials over GF(2) as tap masks, indexed by `degree − 2`. **Bit `i` of a mask is
-/// the coefficient of `x^i`**, the `x^d` term implicit — so the register's recurrence is
-/// `x_{n+d} = Σ_i mask_i · x_{n+i}` and a mask reads directly as the polynomial's lower terms.
-/// (The convention is worth spelling out: reading the same bits as *stage numbers counted from
-/// the other end* turns x³+x+1 into x³+x²+x, which is reducible and produces a period-4 sequence
-/// that still looks pseudo-random.)
-///
-/// These are the conventional minimum-weight primitives (Peterson & Weldon, *Error-Correcting
-/// Codes*, App. C). Their primitivity is not asserted from the table but *measured*, by the
-/// full-period and periodic-autocorrelation tests below — which is the only kind of trust a
-/// transcribed table of constants can earn.
 const PRIMITIVE_TAPS: [u32; (MAX_LFSR_DEGREE - 1) as usize] = [
-    0b11,               // x² + x + 1
-    0b011,              // x³ + x + 1
-    0b0011,             // x⁴ + x + 1
-    0b00101,            // x⁵ + x² + 1
-    0b000011,           // x⁶ + x + 1
-    0b0001001,          // x⁷ + x³ + 1
-    0b00011101,         // x⁸ + x⁴ + x³ + x² + 1
-    0b000010001,        // x⁹ + x⁴ + 1
-    0b0000001001,       // x¹⁰ + x³ + 1
-    0b00000000101,      // x¹¹ + x² + 1
-    0b000001010011,     // x¹² + x⁶ + x⁴ + x + 1
-    0b0000000011011,    // x¹³ + x⁴ + x³ + x + 1
-    0b00010001000011,   // x¹⁴ + x¹⁰ + x⁶ + x + 1
-    0b000000000000011,  // x¹⁵ + x + 1
-    0b0110100000000001, // x¹⁶ + x¹⁴ + x¹³ + x¹¹ + 1
+    0b11,
+    0b011,
+    0b0011,
+    0b00101,
+    0b000011,
+    0b0001001,
+    0b00011101,
+    0b000010001,
+    0b0000001001,
+    0b00000000101,
+    0b000001010011,
+    0b0000000011011,
+    0b00010001000011,
+    0b000000000000011,
+    0b0110100000000001,
 ];
 
 const BARKER: [(usize, &[i8]); 7] = [
@@ -75,8 +53,6 @@ const BARKER: [(usize, &[i8]); 7] = [
     (2, &[1, -1]),
 ];
 
-/// A validated bipolar spreading sequence. Immutable once built, so the ±1 invariant every
-/// processing-gain statement rests on holds for the correlator's whole lifetime.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PnSequence {
     chips: Vec<f32>,
@@ -97,11 +73,6 @@ impl PnSequence {
         })
     }
 
-    /// The Barker word of length `n`, for `n` ∈ {2, 3, 4, 5, 7, 11, 13}.
-    ///
-    /// # Errors
-    /// [`PnError::NoBarkerWord`] — and the list is complete: no Barker sequence longer than 13
-    /// has ever been found, and none of odd length is possible past it.
     pub fn barker(n: usize) -> Result<Self, PnError> {
         let word = BARKER
             .iter()
@@ -110,15 +81,6 @@ impl PnSequence {
         Self::from_chips(word.1)
     }
 
-    /// A maximal-length sequence of period 2^`degree` − 1, from a Fibonacci LFSR run through a
-    /// full cycle and mapped `0 → +1`, `1 → −1`.
-    ///
-    /// The all-zero state is the register's one fixed point and is unreachable from any other,
-    /// so the run starts from all-ones; every nonzero start produces a cyclic shift of the same
-    /// sequence, which is why the constructor takes no seed.
-    ///
-    /// # Errors
-    /// [`PnError::NoPrimitivePolynomial`] outside `2..=`[`MAX_LFSR_DEGREE`].
     pub fn maximal_length(degree: u32) -> Result<Self, PnError> {
         if !(2..=MAX_LFSR_DEGREE).contains(&degree) {
             return Err(PnError::NoPrimitivePolynomial(degree));
@@ -150,7 +112,6 @@ impl PnSequence {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        // Construction guarantees at least one chip; here for the conventional len/is_empty pair.
         self.chips.is_empty()
     }
 
@@ -159,9 +120,6 @@ impl PnSequence {
         10.0 * (self.len() as f64).log10()
     }
 
-    /// Aperiodic autocorrelation at `shift`: `Σ c[n]·c[n + shift]` over the overlap only, the
-    /// quantity a *partial* correlation reads. This is the one a burst search sees, and the one
-    /// Barker words minimise.
     #[must_use]
     pub fn aperiodic_autocorrelation(&self, shift: isize) -> f64 {
         let n = self.len() as isize;
@@ -182,9 +140,6 @@ impl PnSequence {
             .sum()
     }
 
-    /// Periodic autocorrelation at `shift`: `Σ c[n]·c[(n + shift) mod N]`, the quantity a
-    /// receiver already locked to the period reads. Maximal-length sequences make this exactly
-    /// −1 at every nonzero shift.
     #[must_use]
     pub fn periodic_autocorrelation(&self, shift: isize) -> f64 {
         let n = self.len() as isize;
@@ -203,9 +158,6 @@ impl PnSequence {
 mod tests {
     use super::*;
 
-    /// The Barker property, which *is* the family's definition: every aperiodic sidelobe is at
-    /// most 1 in magnitude. Asserted for every word the module generates, so a transcription
-    /// slip in the table is caught here and not three modules downstream.
     #[test]
     fn every_barker_word_has_unit_sidelobes() {
         for n in [2usize, 3, 4, 5, 7, 11, 13] {
@@ -239,9 +191,6 @@ mod tests {
         assert!((pn.processing_gain_db() - 10.414).abs() < 1e-3);
     }
 
-    /// The maximal-length property, and the two halves of it that matter: the period is the full
-    /// 2^k − 1 (so the tabulated polynomial really is primitive) and the periodic autocorrelation
-    /// is exactly −1 everywhere off the peak.
     #[test]
     fn every_m_sequence_has_full_period_and_flat_periodic_autocorrelation() {
         for degree in 2..=MAX_LFSR_DEGREE {
@@ -269,8 +218,6 @@ mod tests {
         );
     }
 
-    /// An m-sequence is a shift of itself under the shift-and-add property; more usefully here,
-    /// no two tabulated degrees produce the same sequence, so the table has no duplicate row.
     #[test]
     fn tabulated_degrees_give_distinct_sequences() {
         let mut seen: Vec<Vec<f32>> = Vec::new();
@@ -297,14 +244,11 @@ mod tests {
         );
     }
 
-    /// Beyond a sequence's own length there is nothing left to overlap, and the aperiodic form
-    /// must say zero rather than index out of bounds.
     #[test]
     fn correlation_outside_the_overlap_is_zero() {
         let pn = PnSequence::barker(7).unwrap();
         assert!(pn.aperiodic_autocorrelation(7).abs() < 1e-12);
         assert!(pn.aperiodic_autocorrelation(-9).abs() < 1e-12);
-        // The periodic form wraps instead, so a whole-period shift is the peak again.
         assert!((pn.periodic_autocorrelation(7) - 7.0).abs() < 1e-12);
         assert!((pn.periodic_autocorrelation(-7) - 7.0).abs() < 1e-12);
     }

@@ -1,8 +1,3 @@
-// A channel's signal level, as a bar with a peak marker and the number beside it.
-//
-// The number is always printed: a position on a 100px bar is not a reading, and the squelch
-// threshold is set in the same dBFS, so the two are meant to be compared directly.
-
 import { formatLevel, gateDb, gateOpen, levelUnit } from "../lib/levels";
 import type { ChannelLevel } from "../lib/types";
 
@@ -11,10 +6,6 @@ export function LevelMeter({
   squelchDb,
 }: {
   level: ChannelLevel | undefined;
-  /** Drawn as a notch on the bar when the channel gates on level, so an operator can see how far
-   * the signal is from opening it without reading two numbers and subtracting. Only what the
-   * channel is *set* to: the live reading below supersedes it, and is the one that moves when
-   * the gate tracks the noise floor. */
   squelchDb?: number | null;
 }) {
   const now = levelUnit(level?.level_db ?? Number.NEGATIVE_INFINITY);
@@ -38,8 +29,6 @@ export function LevelMeter({
           className={`absolute inset-y-0 left-0 rounded-full ${open ? "bg-accent" : "bg-accent-dim"}`}
           style={{ width: `${now * 100}%` }}
         />
-        {/* The peak rides above the bar rather than extending it: it is a different measurement,
-            and a bar that grew to the peak would read as the signal being that loud now. */}
         {peak > 0 && (
           <div
             className="absolute inset-y-0 w-0.5 bg-ink"

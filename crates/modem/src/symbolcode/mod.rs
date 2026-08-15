@@ -1,31 +1,18 @@
 use std::cmp::Ordering;
 
-/// NRZ "encode": bit 1 is the high level for the whole symbol, bit 0 the low level — the
-/// identity on logical bits. The entry exists so the catalog can name the mapping and testgen
-/// can treat "no line code" like any other code; it is also where NRZ's defects are stated
-/// once: a run of equal bits has no transitions to clock from and a DC content the channel may
-/// not pass — the problems every other code in this module exists to fix.
 #[must_use]
 pub fn nrz_encode(bits: &[bool]) -> Vec<bool> {
     bits.to_vec()
 }
 
-/// The exact inverse of [`nrz_encode`].
 #[must_use]
 pub fn nrz_decode(levels: &[bool]) -> Vec<bool> {
     levels.to_vec()
 }
 
-/// Which bit value toggles the NRZI line. Both conventions exist in the field and differ only
-/// in this table entry, so the convention is a parameter, never a second implementation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NrziConvention {
-    /// NRZ-S: a 0 toggles the line, a 1 holds it. AX.25/HDLC and USB use this, paired with
-    /// bit stuffing — the stuffed 0 after five 1s exists precisely because 1s never toggle
-    /// the line here. Matches `sdrmm_dsp::bits::NrziDecoder`.
     TransitionOnZero,
-    /// NRZ-M (NRZI-mark): a 1 toggles the line, a 0 holds it. Magnetic recording and FDDI
-    /// (whose 4B5B code bounds the 0-runs that never toggle the line).
     TransitionOnOne,
 }
 
@@ -38,9 +25,6 @@ impl NrziConvention {
     }
 }
 
-/// Streaming NRZI encoder. The line idles low, matching the assumption
-/// `sdrmm_dsp::bits::NrziDecoder` documents: the line has no absolute polarity, so the first
-/// output is relative to an assumed idle level and framing resolves the ambiguity.
 #[derive(Clone, Debug)]
 pub struct NrziEncoder {
     convention: NrziConvention,
@@ -56,7 +40,6 @@ impl NrziEncoder {
         }
     }
 
-    /// The line level transmitted for `bit`.
     pub fn encode(&mut self, bit: bool) -> bool {
         if self.convention.toggles(bit) {
             self.level = !self.level;
@@ -73,9 +56,6 @@ impl NrziEncoder {
     }
 }
 
-/// Streaming NRZI decoder; the [`NrziConvention::TransitionOnZero`] form is bit-exact with
-/// `sdrmm_dsp::bits::NrziDecoder` (proven by test), including the assumed low idle level
-/// before the first input.
 #[derive(Clone, Debug)]
 pub struct NrziDecoder {
     convention: NrziConvention,
@@ -109,9 +89,6 @@ impl NrziDecoder {
     }
 }
 
-/// Streaming binary differential encoder, `out = in XOR previous out`. The inverse of
-/// `sdrmm_dsp::bits::DifferentialDecoder`: what DBPSK transmits so a receiver with a 180°
-/// carrier ambiguity (RDS behind a Costas loop) still recovers the data.
 #[derive(Clone, Debug, Default)]
 pub struct DifferentialEncoder {
     last: bool,
@@ -137,8 +114,6 @@ impl DifferentialEncoder {
     }
 }
 
-/// Streaming binary differential decoder, `out = in XOR previous in` — bit-exact with
-/// `sdrmm_dsp::bits::DifferentialDecoder` (proven by test).
 #[derive(Clone, Debug, Default)]
 pub struct DifferentialDecoder {
     last: bool,
@@ -165,11 +140,6 @@ impl DifferentialDecoder {
     }
 }
 
-/// M-ary differential encoder over symbol indices, `out = (in + previous out) mod M` — the
-/// DPSK transmit rule with the symbol as the phase *increment*, which is what makes the
-/// absolute carrier phase irrelevant at the receiver. The DPSK/π/4-DQPSK entries (TETRA,
-/// Bluetooth EDR) feed constellation indices through this; M = 2 reduces to
-/// [`DifferentialEncoder`]'s XOR (proven by test).
 #[derive(Clone, Debug)]
 pub struct DifferentialSymbolEncoder {
     m: u32,
@@ -177,19 +147,14 @@ pub struct DifferentialSymbolEncoder {
 }
 
 impl DifferentialSymbolEncoder {
-    /// The reference symbol before the first input is index 0; standards that transmit an
-    /// explicit reference symbol simply encode it first.
     #[must_use]
     pub fn new(m: u32) -> Self {
         assert!(m >= 2, "differential alphabet needs at least two symbols");
         Self { m, last: 0 }
     }
 
-    /// `symbol` is an index in `0..M`; larger values are reduced mod M (a mapper bug, caught
-    /// by the debug assert, but the operation stays total on the hot path).
     pub fn encode(&mut self, symbol: u32) -> u32 {
         debug_assert!(symbol < self.m, "symbol {symbol} outside 0..{}", self.m);
-        // u64 so the sum cannot wrap for any u32 alphabet.
         self.last = ((u64::from(symbol) + u64::from(self.last)) % u64::from(self.m)) as u32;
         self.last
     }
@@ -203,8 +168,6 @@ impl DifferentialSymbolEncoder {
     }
 }
 
-/// M-ary differential decoder, `out = (in − previous in) mod M`; the exact inverse of
-/// [`DifferentialSymbolEncoder`] from the same index-0 reference.
 #[derive(Clone, Debug)]
 pub struct DifferentialSymbolDecoder {
     m: u32,
@@ -218,7 +181,6 @@ impl DifferentialSymbolDecoder {
         Self { m, last: 0 }
     }
 
-    /// See [`DifferentialSymbolEncoder::encode`] for the out-of-range policy.
     pub fn decode(&mut self, symbol: u32) -> u32 {
         debug_assert!(symbol < self.m, "symbol {symbol} outside 0..{}", self.m);
         let out = ((u64::from(symbol) + u64::from(self.m) - u64::from(self.last % self.m))
@@ -236,22 +198,13 @@ impl DifferentialSymbolDecoder {
     }
 }
 
-/// Which half-bit order means a 1. The two conventions are exact complements of each other,
-/// and both are alive in deployed systems — so, as with NRZI, one parameter and one
-/// implementation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManchesterConvention {
-    /// A 1 is low-then-high (mid-bit rising edge), a 0 high-then-low: IEEE 802.3 10 Mb/s
-    /// Ethernet and IEEE 802.4.
     Ieee8023,
-    /// A 1 is high-then-low, a 0 low-then-high: the original 1949 convention, and the mapping
-    /// RDS's biphase symbols use. `sdrmm_dsp::bits::manchester_decode` implements exactly this
-    /// mapping (bit = first half), pinned by the cross-validation test here.
     GeThomas,
 }
 
 impl ManchesterConvention {
-    /// The two half-bit levels transmitted for `bit`, in wire order.
     #[must_use]
     pub fn halves(self, bit: bool) -> (bool, bool) {
         match self {
@@ -261,9 +214,6 @@ impl ManchesterConvention {
     }
 }
 
-/// Manchester encode: each bit becomes two half-bit levels, so the output is twice the input
-/// length and always has a mid-bit transition — the self-clocking, DC-free property the
-/// bandwidth doubling pays for. Memoryless, hence a function rather than a stateful encoder.
 #[must_use]
 pub fn manchester_encode(convention: ManchesterConvention, bits: &[bool]) -> Vec<bool> {
     let mut out = Vec::with_capacity(bits.len() * 2);
@@ -275,9 +225,6 @@ pub fn manchester_encode(convention: ManchesterConvention, bits: &[bool]) -> Vec
     out
 }
 
-/// One half-bit pair to one data bit; `None` when the pair has no transition — a coding
-/// violation carrying no data. In the [`ManchesterConvention::GeThomas`] convention this is
-/// bit-exact with `sdrmm_dsp::bits::manchester_decode` (proven by test).
 #[must_use]
 pub fn manchester_decode_pair(
     convention: ManchesterConvention,
@@ -302,9 +249,6 @@ pub fn manchester_decode(convention: ManchesterConvention, levels: &[bool]) -> P
             Some(bit) => bits.push(bit),
             None => {
                 violations += 1;
-                // The pair carries no data; a deterministic placeholder read off the first
-                // half keeps bit indices aligned with pair indices, and the violation count
-                // is the caller's signal that this position is a guess.
                 bits.push(match convention {
                     ManchesterConvention::Ieee8023 => !pair[0],
                     ManchesterConvention::GeThomas => pair[0],
@@ -320,8 +264,6 @@ pub fn manchester_decode(convention: ManchesterConvention, levels: &[bool]) -> P
     }
 }
 
-/// Missing mid-bit transitions under the given pairing — convention-independent, since both
-/// conventions require the transition and differ only in its direction.
 fn manchester_violations(levels: &[bool]) -> usize {
     levels
         .as_chunks::<2>()
@@ -331,16 +273,9 @@ fn manchester_violations(levels: &[bool]) -> usize {
         .count()
 }
 
-/// Which mid-bit state carries the data in a bi-phase (FM) code. Both variants transition at
-/// *every* bit boundary — that unconditional edge is the clock content, and it is also the
-/// validity check the decoder scores.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BiphaseVariant {
-    /// FM1 / biphase-mark: a mid-bit transition encodes a 1, its absence a 0. AES3 audio,
-    /// S/PDIF, SMPTE linear timecode.
     Mark,
-    /// FM0 / biphase-space: a mid-bit transition encodes a 0, its absence a 1. The RFID
-    /// EPC Gen2 tag-to-reader reply link.
     Space,
 }
 
@@ -353,9 +288,6 @@ impl BiphaseVariant {
     }
 }
 
-/// Streaming bi-phase encoder. Stateful, unlike Manchester: the level carries across bits
-/// (each bit starts by inverting the previous bit's final level), which is what makes the
-/// code polarity-free — an inverted line decodes identically. The line idles low.
 #[derive(Clone, Debug)]
 pub struct BiphaseEncoder {
     variant: BiphaseVariant,
@@ -371,7 +303,6 @@ impl BiphaseEncoder {
         }
     }
 
-    /// The two half-bit levels for `bit`, in wire order.
     pub fn encode(&mut self, bit: bool) -> (bool, bool) {
         let first = !self.level;
         let second = if self.variant.mid_transition(bit) {
@@ -398,20 +329,12 @@ impl BiphaseEncoder {
     }
 }
 
-/// One decoded bi-phase bit plus the per-bit validity the code provides for free.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BiphasePair {
     pub bit: bool,
-    /// False when the mandatory bit-boundary transition was absent — the level did not invert
-    /// coming into this pair. The bit is still the mid-transition reading (that is all the
-    /// data there is), but a false here means this position or its predecessor is corrupt.
-    /// Always true for the first pair after construction or [`BiphaseDecoder::reset`]: with
-    /// no previous level there is no boundary to check.
     pub boundary_transition: bool,
 }
 
-/// Streaming bi-phase decoder over half-bit pairs. Stateful because the boundary check reads
-/// the previous pair's final level.
 #[derive(Clone, Debug)]
 pub struct BiphaseDecoder {
     variant: BiphaseVariant,
@@ -441,9 +364,6 @@ impl BiphaseDecoder {
     }
 }
 
-/// Bi-phase slice decode with the alignment verdict — same contract as [`manchester_decode`]
-/// (see [`PairDecode`]), with the violation being a missing *boundary* transition: mid-bit
-/// transitions are data here, so validity comes from the edge both variants guarantee.
 #[must_use]
 pub fn biphase_decode(variant: BiphaseVariant, levels: &[bool]) -> PairDecode {
     let mut decoder = BiphaseDecoder::new(variant);
@@ -462,8 +382,6 @@ pub fn biphase_decode(variant: BiphaseVariant, levels: &[bool]) -> PairDecode {
     }
 }
 
-/// Missing boundary transitions under the given pairing — variant-independent, since both
-/// variants transition at every boundary. The first pair has no predecessor and is unscored.
 fn boundary_violations(levels: &[bool]) -> usize {
     let mut prev = None;
     let mut violations = 0;
@@ -474,46 +392,20 @@ fn boundary_violations(levels: &[bool]) -> usize {
     violations
 }
 
-/// Where the half-bit pairing sits relative to the true bit boundaries, judged by comparing
-/// coding-rule violations under the as-given pairing against the pairing one half-bit later.
-/// This is decidable because both bit-pair codes make the wrong pairing break their rule
-/// wherever the data exercises it: a mis-paired Manchester stream loses its mid-bit
-/// transition at every bit change, a mis-paired bi-phase stream loses its boundary
-/// transition at every data bit without a mid transition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Alignment {
-    /// The as-given pairing is the consistent one: `levels[0]` starts a bit.
     BitEdge,
-    /// The stream is half a bit off — the evidence favours the pairing starting one level
-    /// later. The caller owns the slip (drop one level and decode again): re-pairing silently
-    /// in here would desync the caller's bit indices from its own sample clock, which is the
-    /// state it needs to correct.
     MidBit,
-    /// Both pairings satisfy the code equally well — too little input, or a payload whose
-    /// pattern genuinely carries no phase information at the pair level (a constant
-    /// Manchester payload encodes to a pure square wave). This is why real framings lead
-    /// with a phase-resolving preamble (Ethernet's 10101010…) or a sync word; the decoder
-    /// reports the ambiguity instead of guessing.
     Ambiguous,
 }
 
-/// Result of a bit-pair slice decode. `bits` are decoded strictly under the as-given pairing
-/// — never the auto-detected one, see [`Alignment::MidBit`] — and every complete pair yields
-/// exactly one bit so positions stay aligned; where a pair violates the code its bit is a
-/// deterministic placeholder and `violations` counts it, which is how corruption surfaces
-/// instead of silently shortening the output.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairDecode {
     pub bits: Vec<bool>,
-    /// Coding-rule violations under the as-given pairing: missing mid-bit transitions
-    /// (Manchester) or missing boundary transitions (bi-phase). Zero on a clean, aligned
-    /// stream.
     pub violations: usize,
     pub alignment: Alignment,
 }
 
-/// Fewer violations wins; a tie is reported as the ambiguity it is. Raw counts, not rates:
-/// the two windows differ by at most one pair, noise against any usable stream length.
 fn alignment_verdict(as_given: usize, slipped: usize) -> Alignment {
     match as_given.cmp(&slipped) {
         Ordering::Less => Alignment::BitEdge,
@@ -531,9 +423,6 @@ mod tests {
         (0..len).map(|_| rng.next_u64() & 1 == 1).collect()
     }
 
-    /// Every round-trip test runs these: the edge cases the codecs must not trip over —
-    /// empty, single bit, all-zeros, all-ones — plus seeded random payloads of odd and even
-    /// lengths.
     fn payloads() -> Vec<Vec<bool>> {
         let mut rng = Rng::new(0x51b0);
         let mut set = vec![
@@ -577,8 +466,6 @@ mod tests {
         }
     }
 
-    /// The conventions are each other's data complement: toggling on 1 is toggling on the
-    /// complemented bit stream. Pins that the parameter actually selects distinct codes.
     #[test]
     fn nrzi_conventions_complement_each_other() {
         let mut rng = Rng::new(0x217);
@@ -595,8 +482,6 @@ mod tests {
 
     #[test]
     fn nrzi_transition_on_zero_agrees_with_the_dsp_decoder() {
-        // Arbitrary level streams, not just well-formed encodings: a migration must not
-        // change behavior exactly when the channel is bad.
         let mut rng = Rng::new(0xd5b);
         let levels = random_bits(&mut rng, 4096);
         let mut mine = NrziDecoder::new(NrziConvention::TransitionOnZero);
@@ -673,8 +558,6 @@ mod tests {
         }
     }
 
-    /// The DPSK semantics in one hand example: the transmitted symbol is the running sum of
-    /// the increments mod M, from reference index 0.
     #[test]
     fn mary_differential_accumulates_increments() {
         let mut encoder = DifferentialSymbolEncoder::new(4);
@@ -733,8 +616,6 @@ mod tests {
                 let decoded = manchester_decode(convention, &levels);
                 assert_eq!(decoded.bits, payload, "{convention:?}");
                 assert_eq!(decoded.violations, 0, "{convention:?}");
-                // A constant payload is legitimately phase-ambiguous (a pure square wave);
-                // what a clean encoding must never do is read as misaligned.
                 assert_ne!(decoded.alignment, Alignment::MidBit, "{convention:?}");
                 if payload.windows(2).any(|w| w[0] != w[1]) {
                     assert_eq!(decoded.alignment, Alignment::BitEdge, "{convention:?}");
@@ -745,8 +626,6 @@ mod tests {
 
     #[test]
     fn manchester_reports_a_half_bit_slip() {
-        // Alternating bits — the pattern Ethernet's preamble uses precisely because it makes
-        // the phase maximally decidable.
         let payload: Vec<bool> = (0..64).map(|i| i % 2 == 0).collect();
         for convention in [
             ManchesterConvention::Ieee8023,
@@ -816,9 +695,6 @@ mod tests {
         }
     }
 
-    /// The structural invariants the variants share and the one they differ in: an inversion
-    /// at every bit boundary, and a mid-bit transition exactly where the variant's data bit
-    /// says so.
     #[test]
     fn biphase_transitions_at_every_boundary_and_encodes_data_mid_bit() {
         let mut rng = Rng::new(0xf0);
@@ -839,8 +715,6 @@ mod tests {
         }
     }
 
-    /// Information lives in transitions, so an inverted line must decode identically — the
-    /// property that puts bi-phase on transformer-coupled links (AES3).
     #[test]
     fn biphase_is_polarity_free() {
         let mut rng = Rng::new(0x9019);
@@ -876,8 +750,6 @@ mod tests {
 
     #[test]
     fn biphase_flags_a_missing_boundary_transition() {
-        // Zeros through Mark give pairs (H,H),(L,L),… — flipping one pair's first level
-        // erases exactly one boundary transition and corrupts exactly that bit.
         let zeros = vec![false; 4];
         let mut levels = BiphaseEncoder::new(BiphaseVariant::Mark).encode_all(&zeros);
         levels[2] = !levels[2];
@@ -897,8 +769,6 @@ mod tests {
         assert!(decoder.decode(true, true).boundary_transition);
     }
 
-    /// The ambiguity cases stay ambiguous instead of becoming a coin flip: nothing decoded,
-    /// or a payload whose encoding is a pure square wave.
     #[test]
     fn pair_codes_report_ambiguity_honestly() {
         for levels in [&[] as &[bool], &[true]] {

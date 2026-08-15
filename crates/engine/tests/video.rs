@@ -11,11 +11,7 @@ use sdrmm_wire::{
 };
 use tempfile::TempDir;
 
-/// Playback is real-time paced, and the receiver has to hunt sync before it scans anything out;
-/// the timeout covers a full loop pass plus scheduler slack on a loaded CI box.
 const VIDEO_TIMEOUT: Duration = Duration::from_secs(30);
-/// Deliberately not the mode's 2 Msps channel rate: the DDC has to decimate for this to prove
-/// anything about the plumbing.
 const DEVICE_RATE: f64 = 2_400_000.0;
 const CENTER_HZ: f64 = 434_250_000.0;
 const OFFSET_HZ: f64 = 200_000.0;
@@ -72,7 +68,6 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
         loop {
             match rx.recv().await {
                 Ok(packet) => return packet,
-                // Drop-oldest is the contract for this stream; a starved runner may lag.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     panic!("video stream closed")
@@ -108,8 +103,6 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
     assert!(white > 190, "right bar should be white, got {white}");
 }
 
-/// A mode that scans out nothing must refuse the subscription rather than open a stream that
-/// would stay silent — a panel waiting on it is indistinguishable from a dead receiver.
 #[tokio::test]
 async fn a_channel_without_video_refuses_the_subscription() {
     let dir = TempDir::new().unwrap();

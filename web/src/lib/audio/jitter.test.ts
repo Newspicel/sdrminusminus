@@ -5,7 +5,6 @@ function ramp(start: number, length: number): Float32Array {
   return Float32Array.from({ length }, (_, i) => start + i);
 }
 
-/** Read `frames` into one output buffer per channel. */
 function read(
   jb: JitterBuffer,
   frames: number,
@@ -21,7 +20,6 @@ function readMono(jb: JitterBuffer, frames: number): { ok: boolean; out: number[
   return { ok, out: out[0] ?? [] };
 }
 
-/** Steady state: `frames` in and `frames` out per iteration, tracking the largest jump. */
 function stream(
   jb: JitterBuffer,
   frames: number,
@@ -44,12 +42,6 @@ function stream(
   return { maxStep };
 }
 
-/**
- * The real cadence: 20 ms Opus packets in, 128-frame render quanta out, at 48 kHz — with the
- * producer's clock off by `ppm`, which is what a radio's sample clock and a sound card's
- * always are relative to each other. Values wrap well below float32's integer limit so a
- * discarded chunk still shows as a step.
- */
 function drift(jb: JitterBuffer, ppm: number, seconds: number): { maxStep: number } {
   const quantum = 128;
   const packet = 960;
@@ -249,7 +241,6 @@ describe("JitterBuffer", () => {
 
   it("counts depth, target and capacity in frames rather than samples", () => {
     const jb = new JitterBuffer(4, 8, 2);
-    // Three stereo frames is six samples, and must still be under a four-frame target.
     jb.push(Float32Array.from([1, -1, 2, -2, 3, -3]));
     expect(jb.buffered).toBe(3);
     expect(read(jb, 4, 2).ok).toBe(false);

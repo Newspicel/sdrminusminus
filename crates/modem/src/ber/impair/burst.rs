@@ -1,22 +1,8 @@
-//! The burst/TDMA model: on/off keying frames, raised-cosine keying ramps, an optional
-//! per-burst level step, and a receiver noise floor in the gaps. The floor is not optional
-//! decoration — a carrier gate measures its noise floor from the dead time, and digital
-//! silence would teach it a floor of zero and break the very behaviour the model exists to
-//! stress (the shape the phase-0 four-level front end's `keyed` test fixture established, now
-//! `cpm::demod`'s; this is that fixture promoted to a calibrated instrument).
-
 use num_complex::Complex;
 
 use super::{Impairment, rms};
 use crate::ber::rng::Rng;
 
-/// Carves a continuous waveform into TDMA frames of `on_samples` radiated + `off_samples`
-/// dead, with raised-cosine keying over `ramp_samples` at each burst edge (inside the on
-/// window — a PA ramps while radiating, it does not stretch the slot). Odd-numbered bursts
-/// are scaled by `level_step_db`, modelling the alternating-source level steps a repeater
-/// handoff or two-slot TDMA produces; 0 dB disables the step. The receiver noise floor sits
-/// `floor_db` below the waveform's pre-carving RMS, across the whole waveform — the receiver
-/// hears its own front end whether or not anyone transmits.
 #[derive(Clone, Copy, Debug)]
 pub struct BurstModel {
     on_samples: usize,
@@ -48,9 +34,6 @@ impl BurstModel {
         }
     }
 
-    /// The keying gain at `pos` samples into the on window — the stated ramp shape, exposed
-    /// so the calibration test asserts the *waveform* against the *statement* rather than
-    /// against a copy of the implementation.
     #[must_use]
     pub fn keying_gain(&self, pos: usize) -> f64 {
         let ramp = self.ramp_samples as f64;
@@ -104,9 +87,6 @@ mod tests {
     const OFF: usize = 100;
     const RAMP: usize = 20;
 
-    /// Applied == measured for the frame timing: with the envelope thresholded at half
-    /// amplitude, each frame's on-stretch measures `on − ramp` (the two half-ramps fall
-    /// below threshold) and each gap `off + ramp`.
     #[test]
     fn gap_and_on_lengths_read_back_from_the_envelope() {
         let mut x = ones(30 * (ON + OFF));
@@ -119,7 +99,6 @@ mod tests {
                 _ => runs.push((a, 1)),
             }
         }
-        // Skip the first and last runs — they are truncated by the waveform edges.
         for &(state, len) in &runs[1..runs.len() - 1] {
             let expected = if state { ON - RAMP } else { OFF + RAMP };
             assert!(
@@ -135,15 +114,12 @@ mod tests {
         );
     }
 
-    /// Applied == measured for the ramp: the envelope through a keying edge follows the
-    /// stated raised-cosine shape sample by sample, floor-noise deep below the 1% gate.
     #[test]
     fn ramp_shape_reads_back_from_the_envelope() {
         let model = BurstModel::new(ON, OFF, RAMP, 0.0, 80.0);
         let mut x = ones(4 * (ON + OFF));
         model.apply(&mut x, &mut Rng::new(0x4a3));
         let frame = ON + OFF;
-        // Second frame: past any first-frame edge truncation, level step disabled.
         for pos in 0..ON {
             let measured = f64::from(x[frame + pos].norm());
             let stated = model.keying_gain(pos);
@@ -154,8 +130,6 @@ mod tests {
         }
     }
 
-    /// Applied == measured for the level step: burst 1's flat top sits the stated dB above
-    /// burst 0's.
     #[test]
     fn level_step_reads_back() {
         let step_db = 6.0;
@@ -170,8 +144,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured for the noise floor: the gap centres carry power at the stated
-    /// level below the signal, not digital silence.
     #[test]
     fn gap_noise_floor_reads_back() {
         let floor_db = 30.0;

@@ -17,7 +17,6 @@ let workletModule: Promise<void> | null = null;
 const outputListeners = new Set<(running: boolean) => void>();
 let recoveryArmed = false;
 
-/** Whether the shared context is actually producing sound (autoplay/interruption aware). */
 export function isOutputRunning(): boolean {
   return ctx === null || ctx.state === "running";
 }
@@ -35,8 +34,6 @@ function attemptResume(): void {
   if (ctx === null || ctx.state === "running" || ctx.state === "closed") {
     return;
   }
-  // A rejected resume is not silent: the state stays non-running, so the armed retries and
-  // the engine's "suspended" UI state remain in effect until a later attempt succeeds.
   ctx.resume().catch(() => {});
 }
 
@@ -85,10 +82,6 @@ function post(node: AudioWorkletNode, message: WorkletMessage): void {
   }
 }
 
-/**
- * Spread `pcm` (interleaved at `channels`) across the graph's fixed `CHANNELS` output: a mono
- * stream plays on both sides rather than only on the left.
- */
 function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
   if (channels === CHANNELS) {
     return pcm;
@@ -111,8 +104,6 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
   const context = ctx;
   if (context.state !== "running") {
     attemptResume();
-    // Publish immediately: if the resume is vetoed, "suspended" must show without waiting
-    // for a statechange that may never fire.
     handleStateChange();
   }
   workletModule ??= context.audioWorklet.addModule(processorUrl()).catch((err: unknown) => {
@@ -138,14 +129,10 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
   };
 
   let closed = false;
-  // Bound into each decoder's callback, never read from here: a late frame from the decoder
-  // being replaced must be spread with the layout it was decoded in, not the incoming one.
   const emit = (channels: number) => (pcm: Float32Array) => {
     if (closed) {
       return;
     }
-    // Published before the layout spread, so a monitor sees the channel's own audio rather than
-    // a mono stream duplicated across the output's two.
     if (isWatched(key)) {
       publishAudio(key, pcm, channels);
     }
@@ -154,22 +141,14 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
 
   let decoder: OpusPacketDecoder;
   try {
-    // Mono up front so a decoder that cannot be built at all still fails the sink (and the
-    // channel) here, rather than silently on the first packet. A stereo stream swaps below.
     decoder = await createOpusPacketDecoder(1, emit(1), onError);
   } catch (err) {
-    // The worklet processor only ends on "close"; without this teardown the node keeps
-    // running on the audio thread forever while the engine holds no sink handle to close.
     post(node, "close");
     node.disconnect();
     gain.disconnect();
     throw err;
   }
 
-  // A channel may change layout mid-stream (WFM stereo toggled), which no Opus decoder can
-  // be reconfigured for: build the replacement, then swap. Packets that arrive meanwhile are
-  // dropped rather than decoded with the wrong channel count — the client hears the same
-  // few-frame gap the encoder's own layout switch already leaves.
   let swapping = false;
   const useLayout = (channels: number): void => {
     if (closed || swapping || channels === decoder.channels) {

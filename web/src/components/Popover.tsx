@@ -12,13 +12,10 @@ export function Popover({
   padded = true,
   children,
 }: {
-  /** The trigger's content. Its accessible name comes from here, so it must read as an action. */
   label: ReactNode;
   triggerClass: string;
   align?: "start" | "end";
   width?: string;
-  /** Off for content that owns its own edges — a tab strip that has to reach the popup's sides,
-   * or panels that already pad themselves. */
   padded?: boolean;
   children: (close: () => void) => ReactNode;
 }) {
@@ -30,8 +27,6 @@ export function Popover({
       <Primitive.Trigger className={triggerClass}>{label}</Primitive.Trigger>
       <Primitive.Portal container={portalContainer} className="contents">
         <Primitive.Positioner className="z-30" side="bottom" align={align} sideOffset={4}>
-          {/* The popover is chrome, and chrome never widens the document or runs off the bottom
-              of a phone: the width is the caller's, the ceiling is the viewport's. */}
           <Primitive.Popup
             className={`${width} ${SURFACE} max-h-[var(--available-height)] max-w-[calc(100vw-1rem)] overflow-y-auto ${padded ? "p-3" : ""}`}
           >

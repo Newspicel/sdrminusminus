@@ -3,40 +3,13 @@ import { JitterBuffer } from "./jitter";
 export const PROCESSOR_NAME = "sdr-audio-playback";
 
 export const SAMPLE_RATE = 48_000;
-/**
- * The graph is always two-channel: a channel can switch between mono and stereo mid-stream
- * (WFM's stereo toggle), and rebuilding the node — and its buffered audio — for that would
- * cost a gap. Mono streams are duplicated into both channels on the way in instead.
- */
 export const CHANNELS = 2;
-/**
- * ~100 ms pre-buffer (: 60–100 ms jitter buffer), in sample frames. It is the floor
- * the buffer adapts up from when a path underruns, not a fixed depth.
- */
 export const TARGET_FRAMES = 4_800;
-/**
- * ~1 s ring: room for the adaptive target's ceiling (3× the floor) plus jitter on top of it.
- * A burst past the cap (tab sleep) sheds back to the target, not to the cap.
- */
 export const MAX_FRAMES = 48_000;
-/**
- * Largest hole in the packet clock that is concealed with silence rather than restarted from
- * (~400 ms). Concealing keeps timing honest; past this the stream is better rebuffered than
- * padded, and the pad itself would be latency the buffer then has to walk back off.
- */
 export const MAX_GAP_FRAMES = 19_200;
 
-/**
- * Port protocol, main → worklet: Float32Array = interleaved PCM at `CHANNELS`, "reset" = clear
- * buffer, "close" = end the processor.
- */
 export type WorkletMessage = Float32Array | "reset" | "close";
 
-/**
- * Port protocol, worklet → main: the running underrun count, posted only when it changes.
- * Playback running dry is the one thing the audio thread knows and nothing upstream can infer —
- * it is what separates "the audio never arrived" from "it arrived and we could not play it".
- */
 export interface WorkletReport {
   underruns: number;
 }

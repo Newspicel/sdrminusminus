@@ -18,7 +18,6 @@ export interface Point2 {
   y: number;
 }
 
-/** Where the eye is: a turn about the vertical, then a tilt. Degrees. */
 export interface Angles {
   yaw: number;
   pitch: number;
@@ -35,8 +34,6 @@ export function boundsOf(geometry: AntennaGeometry): Bounds {
   ]);
 }
 
-/** How big the antenna is, which is not how much room the drawing takes: a length of coax
- * hanging off the feedpoint is cut to a number, not part of the thing's size. */
 export function structureBounds(geometry: AntennaGeometry): Bounds {
   const structure = geometry.segments.filter((segment) => segment.role !== "feedline");
   return boundsOfPoints(structure.flatMap((segment) => [segment.from, segment.to]));
@@ -53,7 +50,6 @@ function extentOf(points: readonly AntennaPoint[], axis: Axis): Extent {
   return { min, max, size: max - min };
 }
 
-/** The two views a flat drawing can be: the plane the antenna actually lives in. */
 export interface PlanView {
   label: string;
   angles: Angles;
@@ -80,10 +76,6 @@ const SIDE: PlanView = {
   vertical: "y",
 };
 
-/**
- * Look down the axis the antenna is thinnest along, so nothing important collapses to a point:
- * a dipole and a quad are drawn face on, a Yagi from above its boom.
- */
 export function planView(bounds: Bounds): PlanView {
   if (bounds.z.size <= bounds.x.size && bounds.z.size <= bounds.y.size) {
     return FRONT;
@@ -91,7 +83,6 @@ export function planView(bounds: Bounds): PlanView {
   return bounds.y.size <= bounds.x.size ? TOP : SIDE;
 }
 
-/** Metres to a flat drawing, with the screen's y already pointing down. */
 export function project(point: AntennaPoint, angles: Angles): Point2 {
   const yaw = (angles.yaw * Math.PI) / 180;
   const pitch = (angles.pitch * Math.PI) / 180;
@@ -107,7 +98,6 @@ export interface Viewport {
   padding: number;
 }
 
-/** Drawing units per metre, plus the offset that centres the result in the viewport. */
 export interface Fit {
   scale: number;
   offsetX: number;
@@ -153,7 +143,6 @@ export interface ScaleBar {
 
 const METERS_PER_FOOT = 0.3048;
 
-/** The longest round length that still fits in `maxPixels`, so the drawing carries its own ruler. */
 export function scaleBar(pixelsPerMeter: number, maxPixels: number, unit: LengthUnit): ScaleBar {
   const room = maxPixels / pixelsPerMeter;
   if (!Number.isFinite(room) || room <= 0) {
@@ -164,15 +153,12 @@ export function scaleBar(pixelsPerMeter: number, maxPixels: number, unit: Length
   return { meters, pixels: meters * pixelsPerMeter, label: formatLength(meters, unit) };
 }
 
-/** Down to the nearest 1, 2 or 5 of whatever decade the value sits in. */
 function roundDown(value: number): number {
   const decade = 10 ** Math.floor(Math.log10(value));
   const steps = [5, 2, 1];
   return (steps.find((step) => value >= step * decade) ?? 1) * decade;
 }
 
-/** Colour carries the job a piece does; width and dash carry it again for anyone who cannot
- * separate the hues. */
 export const ROLE_STYLE: Record<
   AntennaSegmentRole,
   { stroke: string; width: number; dash?: string }
@@ -194,8 +180,6 @@ export const ROLE_LABEL: Record<AntennaSegmentRole, string> = {
   feedline: "Feedline",
 };
 
-/** The roles actually present, in a fixed order, so the legend explains this drawing and no
- * other. */
 export function rolesIn(geometry: AntennaGeometry): AntennaSegmentRole[] {
   const order: AntennaSegmentRole[] = [
     "driven",

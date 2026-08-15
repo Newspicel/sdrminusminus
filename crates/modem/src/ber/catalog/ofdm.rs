@@ -12,47 +12,24 @@ use crate::{
     ofdm::{ChannelEstimator, OfdmDemod, OfdmMod, OfdmParams},
 };
 
-/// Sample rate of the reference configuration: 20 MHz, so one subcarrier is 312.5 kHz and one
-/// symbol 4 µs. The engine is rate-free — everything in it is samples — and these exist so the
-/// limits axes read in Hz and ppm rather than in cycles per sample.
 pub const RATE: f64 = 20_000_000.0;
 
-/// Data symbols per trial. Long enough that the preamble's share of Eb is a quarter of a dB and
-/// that a sampling-clock error has room to walk the transform window across the whole prefix
-/// (which is what the clock row measures); short enough to stay a burst.
 pub const SYMBOLS: usize = 64;
 
-/// Silence before the burst, so the frame's position is *searched* rather than known — the same
-/// discipline every other entry's unique word gets.
 pub const LEAD: usize = 32;
 
-/// Silence after it. The delaying axes (static timing offset, sample-clock error) shift the burst
-/// right inside a fixed-length buffer, and a receiver reading past the end would be measuring the
-/// harness rather than the waveform.
 pub const TAIL: usize = 256;
 
-/// Samples the frame search covers. A short training's worth past [`LEAD`], which is what the
-/// timing axis of the limits table is bracketed to.
 pub const SEARCH: usize = 192;
 
-/// Trial-bit cap per committed point: it bounds the steep high-SNR points, where the error budget
-/// alone would run for hours.
 pub const FULL_CAP: u64 = 3_000_000;
 
-/// The reference configuration's framing overhead, in dB (see the module docs). A `LazyLock`
-/// because [`Reference::Oracle`] takes a plain `fn` pointer — deliberately, so a reference cannot
-/// capture state — and the geometry only has to be reduced to a number once.
 pub static OVERHEAD_DB: LazyLock<f64> =
     LazyLock::new(|| OfdmParams::wifi_like().framing_overhead_db(SYMBOLS));
 
-/// The DMT configuration's, which is [`OVERHEAD_DB`] plus exactly 3.01 dB: the Hermitian mirror
-/// radiates the same energy for half the payload.
 pub static DMT_OVERHEAD_DB: LazyLock<f64> =
     LazyLock::new(|| OfdmParams::dmt_like().framing_overhead_db(SYMBOLS));
 
-/// Points indexed by bit label. The tables' order is not label order in general (the exotic
-/// geometries' labels come out of a descent), so the inversion is done once per link rather than
-/// searched per symbol.
 fn points_by_label(table: &Constellation) -> Vec<Complex<f32>> {
     let mut by_label = vec![Complex::new(0.0, 0.0); table.len()];
     for (index, &label) in table.labels().iter().enumerate() {
@@ -61,22 +38,12 @@ fn points_by_label(table: &Constellation) -> Vec<Complex<f32>> {
     by_label
 }
 
-/// How a link's receiver comes by its channel: by acquiring the burst, or by being told.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Receiver {
-    /// The real chain: preamble search, carrier estimate, channel estimate, pilot tracking.
     Acquire(ChannelEstimator),
-    /// The comparison: frame origin, carrier offset, channel and residual phase all given, so the
-    /// curve measures the demapper and the transform alone. What separates it from the acquiring
-    /// rows *is* the cost of acquisition.
     Genie,
 }
 
-/// One (constellation, receiver) chain as a payload-to-payload [`Link`].
-///
-/// The transmitter is the same in every row — the same frame, the same preamble, the same pilots
-/// — so a difference between two curves here is the receiver or the table and can be nothing
-/// else.
 #[must_use]
 pub fn link_sized(
     name: &str,
@@ -91,9 +58,6 @@ pub fn link_sized(
     let modulator = OfdmMod::new(params.clone());
     let mut demod = match receiver {
         Receiver::Acquire(estimator) => OfdmDemod::new(params.clone()).with_estimator(estimator),
-        // The genie is told the timing exactly, so it needs no backoff into the prefix — and
-        // must not take one, since with the channel given there is nothing to absorb the cyclic
-        // shift a backoff introduces.
         Receiver::Genie => OfdmDemod::new(params.clone())
             .with_pilot_tracking(false)
             .with_window_backoff(0),
@@ -102,8 +66,6 @@ pub fn link_sized(
         demod.genie(
             LEAD + params.data_offset(),
             &vec![Complex::new(1.0, 0.0); params.map().occupied().len()],
-            // The genie rows are measured on hard decisions, where the noise variance is not
-            // read; it is supplied because the soft path shares the entry point.
             1.0,
         );
     }
@@ -129,8 +91,6 @@ pub fn link_sized(
     Link {
         label,
         bits_per_trial: symbols * data * bits_per_symbol,
-        // Both halves clone their engine per trial: a trial must reproduce from its own seed
-        // alone, so no trial may inherit the previous one's acquisition or pilot-tracker state.
         modulate: Box::new(move |bits| {
             let mut modulator = modulator.clone();
             let mut wave = vec![Complex::new(0.0, 0.0); LEAD];
@@ -158,9 +118,6 @@ pub fn link_sized(
     }
 }
 
-/// The `modulate`/`demodulate` closures capture a modulator and a demodulator, so a `Link` cannot
-/// be `Clone` and every measurement builds its own. That is the same shape every other entry's
-/// links have.
 fn wifi_link(name: &str, constellation: Constellation, receiver: Receiver) -> Link {
     link_sized(
         name,
@@ -243,8 +200,6 @@ pub fn qam64_genie_link() -> Link {
     )
 }
 
-/// The DMT geometry's genie row — what makes the Hermitian mirror's 3.01 dB a comparison between
-/// two waveforms rather than between two receivers.
 #[must_use]
 pub fn dmt_genie_link() -> Link {
     link_sized(
@@ -256,7 +211,6 @@ pub fn dmt_genie_link() -> Link {
     )
 }
 
-/// QPSK through the short training's comb estimate — tier 2.
 #[must_use]
 pub fn qpsk_comb_link() -> Link {
     wifi_link(
@@ -266,8 +220,6 @@ pub fn qpsk_comb_link() -> Link {
     )
 }
 
-/// QPSK on the real-baseband (DMT) configuration: the same engine with the Hermitian flag set,
-/// half the payload per symbol at the same radiated energy.
 #[must_use]
 pub fn dmt_link() -> Link {
     link_sized(
@@ -286,8 +238,6 @@ pub const QAM64_GRID: &[f64] = &[16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0];
 pub const COMB_GRID: &[f64] = &[6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
 pub const DMT_GRID: &[f64] = &[12.0, 13.0, 14.0, 15.0, 16.0, 17.0];
 
-/// The genie grids sit left of their acquiring counterparts by exactly the acquisition cost the
-/// pair exists to measure.
 pub const BPSK_GENIE_GRID: &[f64] = &[6.0, 7.0, 8.0, 9.0, 10.0, 11.0];
 pub const QPSK_GENIE_GRID: &[f64] = &[6.0, 7.0, 8.0, 9.0, 10.0, 11.0];
 pub const QAM16_GENIE_GRID: &[f64] = &[10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
@@ -321,11 +271,6 @@ pub const LIMITS: &str = "ofdm/qpsk_limits";
 pub const COMB_LIMITS: &str = "ofdm/qpsk_comb_limits";
 pub const PERF: &str = "ofdm/ofdm_perf";
 
-/// Worst horizontal distance from the shifted closed form the *genie* rows are held to. It has to
-/// cover the demapper's own approximation and the 0.02 dB by which the overhead's closed form is
-/// an expectation rather than an identity; the same 0.75 dB the linear engine's QAM rows carry,
-/// and for the same reason — it must not be able to swallow the acquisition cost measured beside
-/// it.
 pub const ORACLE_TOLERANCE_DB: f64 = 0.75;
 
 fn bpsk_ber(ebn0_db: f64) -> f64 {
@@ -374,11 +319,6 @@ const fn oracle_row(
     }
 }
 
-/// The four modulation orders through the real chain. Commit-and-guard: what separates these
-/// from the genie rows below is a channel estimate formed from two training repeats, and its
-/// error is one draw per *frame* rather than per symbol — a multiplicative constant the whole
-/// payload is read through, which no per-symbol closed form describes. The measured cost is the
-/// gated number instead (`tests/ofdm.rs`).
 pub const MODULATIONS: &[Measurement] = &[
     Measurement::committed(BPSK_AWGN, bpsk_link, BPSK_GRID, BPSK_SEED, FULL_CAP),
     Measurement::committed(QPSK_AWGN, qpsk_link, QPSK_GRID, QPSK_SEED, FULL_CAP),
@@ -421,7 +361,6 @@ pub const GENIE: &[Measurement] = &[
     ),
 ];
 
-/// The second channel-estimation tier: the short training's comb, interpolated across the band.
 pub const ESTIMATION: &[Measurement] = &[Measurement::committed(
     QPSK_COMB_AWGN,
     qpsk_comb_link,
@@ -430,8 +369,6 @@ pub const ESTIMATION: &[Measurement] = &[Measurement::committed(
     FULL_CAP,
 )];
 
-/// The DMT rows: the real chain, and the genie that makes the Hermitian mirror's cost a
-/// comparison between two waveforms rather than between two receivers.
 pub const DMT: &[Measurement] = &[
     Measurement::committed(DMT_AWGN, dmt_link, DMT_GRID, DMT_SEED, FULL_CAP),
     oracle_row(
@@ -448,10 +385,6 @@ pub const DMT: &[Measurement] = &[
 mod tests {
     use super::*;
 
-    /// The overhead is a property of the geometry and it is the same number for every order —
-    /// the claim that lets four rows share one shifted-oracle constant. Pinned to the arithmetic
-    /// a reader can redo: 52 occupied bins over 80 samples per symbol, four preamble symbols'
-    /// worth of training, 48 of the 52 bins carrying payload.
     #[test]
     fn one_overhead_covers_every_order() {
         let params = OfdmParams::wifi_like();
@@ -461,9 +394,7 @@ mod tests {
         let structural = 10.0 * f64::log10(65.0 / 48.0);
         assert!((structural - 1.317).abs() < 5e-3, "{structural}");
         assert!((*OVERHEAD_DB - structural - 0.263).abs() < 5e-3);
-        // Independent of the table, because the bits per subcarrier cancel out of the ratio.
         assert!((params.framing_overhead_db(SYMBOLS) - *OVERHEAD_DB).abs() < 1e-12);
-        // The DMT row's 3.01 dB, as a number rather than a remark.
         assert!(
             (*DMT_OVERHEAD_DB - *OVERHEAD_DB - 3.0103).abs() < 1e-3,
             "{}",
@@ -471,8 +402,6 @@ mod tests {
         );
     }
 
-    /// Every registered chain round-trips on a clean channel, so a defect in the framing, the
-    /// bit packing or the acquisition is loud before any statistics are involved.
     #[test]
     fn every_chain_round_trips_on_a_clean_channel() {
         for (name, link) in [
@@ -496,8 +425,6 @@ mod tests {
         }
     }
 
-    /// The transmitter is shared: the genie and the acquiring rows put the *same* waveform on the
-    /// channel, so their measured gap is the receiver's and nothing else.
     #[test]
     fn the_genie_row_transmits_the_same_waveform_as_the_acquiring_one() {
         let bits: Vec<bool> = (0..6144).map(|i| i % 5 < 2).collect();

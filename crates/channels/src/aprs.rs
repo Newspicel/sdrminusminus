@@ -1,13 +1,3 @@
-//! AX.25 / APRS decoder ( P2): Bell 202 AFSK1200 and 9600 baud G3RUH.
-//!
-//! Both physical layers hand the same thing to the link layer — NRZI line levels — so the
-//! frame path below them is shared: NRZI decode, HDLC deframing, CRC-16/X.25, then the AX.25
-//! address/control/PID split (AX.25 2.2) and a best-effort parse of the APRS information
-//! field (APRS Protocol Reference 1.0.1).
-//!
-//! [`AprsTx`] is the modulator that pairs with it, keying the same two physical layers back
-//! onto a carrier.
-
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
@@ -28,37 +18,22 @@ use crate::{
 
 const CHANNEL_TAPS: usize = 129;
 
-/// Bell 202 mark/space and the 1200 baud rate every VHF packet station keys (AX.25 2.2 §2.1).
 pub(crate) const AFSK_MARK_HZ: f64 = 1_200.0;
 pub(crate) const AFSK_SPACE_HZ: f64 = 2_200.0;
 pub(crate) const AFSK_BAUD: f64 = 1_200.0;
-/// G3RUH direct-FSK rate (AX.25 2.2 §2.1).
 pub(crate) const G3RUH_BAUD: f64 = 9_600.0;
 
-/// Deviation the discriminator is scaled to, and the deviation [`AprsTx`] keys.
-/// Both layers only ever look at a sign or a ratio downstream, so the value's only job is to
-/// keep a legal ±5 kHz signal inside the discriminator's linear range.
 pub(crate) const DEVIATION_HZ: f64 = 3_000.0;
 
-/// Post-discriminator lowpass for 9600 baud. The NRZ main lobe reaches the baud rate, so the
-/// cutoff sits just below it, and the tap count stays short: at five samples per symbol a
-/// sharp filter's ringing is inter-symbol interference, not selectivity.
 const G3RUH_CUTOFF_HZ: f64 = 7_200.0;
 const G3RUH_TAPS: usize = 15;
 
-/// Address field entry: 6 shifted callsign characters plus an SSID octet (AX.25 2.2 §3.12).
 pub(crate) const ADDRESS_LEN: usize = 7;
-/// Destination, source and at most 8 digipeaters (AX.25 2.2 §3.12.2).
 const MAX_ADDRESSES: usize = 10;
-/// Unnumbered Information control field (AX.25 2.2 §4.3.3.6); bit 4 is the poll/final bit and
-/// carries no meaning for a monitor.
 pub(crate) const CONTROL_UI: u8 = 0x03;
 const CONTROL_PF: u8 = 0x10;
-/// "No layer 3 protocol implemented" — the PID APRS rides on (APRS 1.0.1 ch. 4).
 pub(crate) const PID_NO_LAYER3: u8 = 0xF0;
 
-/// Two addresses, a control octet and the FCS is the shortest thing that can be an AX.25
-/// frame; the longest is 10 addresses, control, PID, a 256-octet information field and the FCS.
 const MIN_FRAME_BYTES: usize = 2 * ADDRESS_LEN + 1 + 2;
 const MAX_FRAME_BYTES: usize = MAX_ADDRESSES * ADDRESS_LEN + 2 + 256 + 2;
 
@@ -82,7 +57,6 @@ pub struct AprsChannel {
     levels: Vec<bool>,
 }
 
-/// The physical layer: everything between the discriminator and the NRZI line levels.
 enum Slicer {
     Afsk {
         mark: ToneCorrelator,
@@ -102,8 +76,6 @@ impl Slicer {
     fn new(mode: AprsMode, rate: f64) -> Self {
         match mode {
             AprsMode::Afsk1200 => {
-                // A window of `rate / (space − mark)` samples spaces the sliding-DFT bins by
-                // exactly the tone split, so each correlator sits on the other tone's null.
                 let window = (rate / (AFSK_SPACE_HZ - AFSK_MARK_HZ)).round() as usize;
                 Self::Afsk {
                     mark: ToneCorrelator::new(rate, AFSK_MARK_HZ, window),
@@ -121,14 +93,10 @@ impl Slicer {
         }
     }
 
-    /// Append one line level per recovered bit. G3RUH descrambles here so that both variants
-    /// hand the link layer the same NRZI line, whatever the modulation was.
     fn levels(&mut self, discriminated: &[f32], out: &mut Vec<bool>) {
         match self {
             Self::Afsk { mark, space, sync } => {
                 for &s in discriminated {
-                    // The two magnitudes are equal on a tone halfway between them, so their
-                    // difference is the sliced baseband with its decision threshold at zero.
                     let baseband = mark.push(s) - space.push(s);
                     if let Some(level) = sync.push(baseband) {
                         out.push(level);
@@ -176,7 +144,6 @@ fn check_params(p: &AprsParams) -> Result<(), ChannelError> {
     }
 }
 
-/// Occupied RF band relative to the channel offset, in Hz.
 pub(crate) fn occupied_band(p: &AprsParams) -> (f64, f64) {
     let half = p.bandwidth_hz / 2.0;
     (-half, half)
@@ -214,8 +181,6 @@ impl ChannelRx for AprsChannel {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         check_params(p)?;
-        // Bandwidth is the host's channel filter; only the physical layer lives here, so a
-        // frame in flight survives everything except an actual modulation change.
         if p.mode != self.mode {
             self.mode = p.mode;
             self.slicer = Slicer::new(p.mode, DESCRIPTOR.input_rate_hz);
@@ -241,13 +206,9 @@ impl ChannelRx for AprsChannel {
     }
 }
 
-/// One decoded address field entry.
 struct Address {
-    /// Callsign with its SSID suffix, e.g. `DL1ABC-9`.
     call: String,
-    /// Extension bit: this was the last entry in the address field.
     last: bool,
-    /// "Has been repeated" — bit 7 of a digipeater's SSID octet (AX.25 2.2 §3.12.2).
     repeated: bool,
 }
 
@@ -256,7 +217,6 @@ fn decode_address(field: &[u8]) -> Option<Address> {
     let mut call = String::with_capacity(9);
     let mut padded = false;
     for &octet in chars {
-        // Bit 0 of every address octet but the last is the HDLC extension bit and reads 0.
         if octet & 1 != 0 {
             return None;
         }
@@ -265,7 +225,6 @@ fn decode_address(field: &[u8]) -> Option<Address> {
             padded = true;
             continue;
         }
-        // Callsigns are right-padded with spaces, so a character after one is not a callsign.
         if padded || !c.is_ascii_alphanumeric() {
             return None;
         }
@@ -286,21 +245,14 @@ fn decode_address(field: &[u8]) -> Option<Address> {
     })
 }
 
-/// I frames (bit 0 clear) and UI frames carry a PID octet; S frames and the other U frames do
-/// not (AX.25 2.2 §4.3).
 fn carries_pid(control: u8) -> bool {
     control & 1 == 0 || control & !CONTROL_PF == CONTROL_UI
 }
 
-/// AX.25 does not constrain the information field to UTF-8 and APRS routinely carries raw
-/// 8-bit octets (Mic-E, telemetry, weather), so each octet maps to the code point of the same
-/// value instead of being lossily re-decoded.
 fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| char::from(b)).collect()
 }
 
-/// Split an FCS-checked HDLC frame into an AX.25 packet. `None` when the address field is not
-/// an address field — the FCS admits roughly one framing artefact in 65536.
 fn parse_frame(frame: &[u8]) -> Option<AprsPacket> {
     let body = frame.get(..frame.len().checked_sub(2)?)?;
     let mut addresses = Vec::with_capacity(4);
@@ -353,14 +305,10 @@ fn parse_frame(frame: &[u8]) -> Option<AprsPacket> {
     Some(packet)
 }
 
-/// The 6 address characters without the SSID suffix [`decode_address`] appends. Mic-E reads
-/// them as data rather than as a callsign, and the SSID beside them carries a digipeater path
-/// this decoder has no use for.
 fn address_chars(call: &str) -> &str {
     call.split('-').next().unwrap_or(call)
 }
 
-/// The TNC2 monitor line every APRS tool speaks: `SRC>DEST,PATH1,PATH2:info`.
 fn tnc2_line(packet: &AprsPacket) -> String {
     let mut line = String::with_capacity(packet.info.len() + 32);
     line.push_str(&packet.source);
@@ -375,11 +323,9 @@ fn tnc2_line(packet: &AprsPacket) -> String {
     line
 }
 
-/// A parsed position report.
 struct Report {
     lat: f64,
     lon: f64,
-    /// Symbol table identifier followed by the symbol code, e.g. `/>`.
     symbol: String,
     course_deg: Option<f64>,
     speed_kt: Option<f64>,
@@ -387,18 +333,12 @@ struct Report {
     altitude_ft: Option<i32>,
 }
 
-/// Timestamp preceding a position in the `/` and `@` report formats: 6 digits plus the format
-/// character (APRS 1.0.1 ch. 6).
 const TIMESTAMP_LEN: usize = 7;
 
-/// Fill in whatever the information field's data type identifier lets us read. Anything not
-/// recognised (status, messages, telemetry) leaves the packet with its raw info only.
 fn apply_aprs(info: &[u8], packet: &mut AprsPacket) {
     let Some((kind, rest)) = info.split_first() else {
         return;
     };
-    // Mic-E is the one form whose position is not in the information field alone: half of it
-    // is in the destination callsign, which is why it needs the packet rather than a slice.
     let report = match *kind {
         MIC_E_CURRENT | MIC_E_OLD | MIC_E_CURRENT_BETA | MIC_E_OLD_BETA => mic_e(rest, packet),
         b'!' | b'=' => parse_position(rest),
@@ -417,8 +357,6 @@ fn apply_aprs(info: &[u8], packet: &mut AprsPacket) {
     packet.altitude_ft = report.altitude_ft;
 }
 
-/// A leading digit is the first degree digit of an uncompressed report; every compressed one
-/// starts with its symbol table identifier, which is never a digit (APRS 1.0.1 ch. 9).
 fn parse_position(body: &[u8]) -> Option<Report> {
     if body.first()?.is_ascii_digit() {
         uncompressed_position(body)
@@ -427,8 +365,6 @@ fn parse_position(body: &[u8]) -> Option<Report> {
     }
 }
 
-/// `DDMM.mmN/DDDMM.mmW$`: 8 latitude octets, the symbol table, 9 longitude octets and the
-/// symbol code (APRS 1.0.1 ch. 6).
 const UNCOMPRESSED_LEN: usize = 19;
 
 fn uncompressed_position(body: &[u8]) -> Option<Report> {
@@ -450,21 +386,15 @@ fn uncompressed_position(body: &[u8]) -> Option<Report> {
     })
 }
 
-/// Compressed report: symbol table, base-91 latitude and longitude, symbol code, the two
-/// course/speed octets and the compression-type octet (APRS 1.0.1 ch. 9).
 const COMPRESSED_LEN: usize = 13;
-/// Printable base-91 alphabet, `!` through `{`.
 const BASE91_MIN: u8 = b'!';
 const BASE91_MAX: u8 = b'{';
-/// Full-scale base-91 divisors for the 4-digit latitude and longitude fields.
 const COMPRESSED_LAT_SCALE: f64 = 380_926.0;
 const COMPRESSED_LON_SCALE: f64 = 190_463.0;
 
 fn compressed_position(body: &[u8]) -> Option<Report> {
     let field = body.get(..COMPRESSED_LEN)?;
     let table = *field.first()?;
-    // A compressed report's table identifier is `/`, `\`, or an overlay: `A`–`Z` for a
-    // digit/letter overlay, `a`–`j` for the overlaid digits 0–9.
     if !(table == b'/'
         || table == b'\\'
         || table.is_ascii_uppercase()
@@ -480,9 +410,6 @@ fn compressed_position(body: &[u8]) -> Option<Report> {
     if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
         return None;
     }
-    // The compression-type byte says what the cs pair means. Reading it as course/speed
-    // regardless would fabricate both for a GGA-sourced report, whose cs carries altitude
-    // (APRS 1.0.1 ch. 9, "Compressed Position Report Data Formats").
     let (course_deg, speed_kt, compressed_alt_ft) =
         compressed_cs(*field.get(10)?, *field.get(11)?, *field.get(12)?);
     let (comment, comment_alt_ft) = describe(body.get(COMPRESSED_LEN..).unwrap_or_default());
@@ -493,18 +420,13 @@ fn compressed_position(body: &[u8]) -> Option<Report> {
         course_deg,
         speed_kt,
         comment,
-        // An explicit `/A=` in the comment is the more precise statement of the two.
         altitude_ft: comment_alt_ft.or(compressed_alt_ft),
     })
 }
 
-/// Bits 3–4 of the compression-type byte are the NMEA source; `0b10` is GGA, and only then do
-/// the two cs bytes carry altitude instead of course and speed.
 const COMPRESSED_TYPE_NMEA_MASK: u8 = 0b0001_1000;
 const COMPRESSED_TYPE_NMEA_GGA: u8 = 0b0001_0000;
 
-/// Split the compressed `c`/`s` pair according to the compression-type byte `t`, returning
-/// `(course, speed, altitude)`. Only one of course/speed and altitude is ever present.
 fn compressed_cs(c: u8, s: u8, t: u8) -> (Option<f64>, Option<f64>, Option<i32>) {
     if !(BASE91_MIN..=BASE91_MAX).contains(&t) {
         return (None, None, None);
@@ -516,7 +438,6 @@ fn compressed_cs(c: u8, s: u8, t: u8) -> (Option<f64>, Option<f64>, Option<i32>)
     (course, speed, None)
 }
 
-/// GGA-sourced compressed altitude: `1.002^(c·91 + s)` feet (APRS 1.0.1 ch. 9).
 fn compressed_altitude(c: u8, s: u8) -> Option<i32> {
     if !(BASE91_MIN..=BASE91_MAX).contains(&c) || !(BASE91_MIN..=BASE91_MAX).contains(&s) {
         return None;
@@ -537,9 +458,6 @@ fn base91(field: &[u8]) -> Option<u32> {
     Some(value)
 }
 
-/// The half-open range is the whole rule: below it, `c` = space marks the field as carrying no
-/// course/speed, and at its top `c` = `{` makes `s` a pre-calculated radio range rather than a
-/// speed (APRS 1.0.1 ch. 9).
 fn compressed_course_speed(c: u8, s: u8) -> (Option<f64>, Option<f64>) {
     if !(BASE91_MIN..BASE91_MAX).contains(&c) {
         return (None, None);
@@ -552,39 +470,19 @@ fn compressed_course_speed(c: u8, s: u8) -> (Option<f64>, Option<f64>) {
     (Some(course), Some(speed))
 }
 
-// ── Mic-E (APRS 1.0.1 ch. 10) ─────────────────────────────────────────────────────────────
-//
-// The one APRS form that is not a text format. The position is split across two fields that
-// were never meant to carry it: six latitude digits and three indicator bits ride in the
-// destination *callsign* (shifted ASCII, so every value stays a legal AX.25 address), and the
-// longitude, course, speed and symbol ride in an information field offset by 28 to keep it
-// almost printable. Neither half decodes without the other.
-
-/// Data type identifiers that open a Mic-E information field: current and old GPS data, and
-/// the two the Rev. 0 beta units send.
 const MIC_E_CURRENT: u8 = b'`';
 const MIC_E_OLD: u8 = b'\'';
 const MIC_E_CURRENT_BETA: u8 = 0x1C;
 const MIC_E_OLD_BETA: u8 = 0x1D;
 
-/// Longitude, speed/course, symbol code and symbol table id: the 8 bytes that must follow the
-/// data type identifier. Several of them are non-printing, and a link that drops those leaves
-/// a field that looks shorter than it is — which the spec says to ignore rather than decode a
-/// prefix of.
 const MIC_E_FIELD_LEN: usize = 8;
 
-/// Every value in the information field is transmitted with 28 added to it.
 const MIC_E_OFFSET: u8 = 28;
 
-/// Base-91 digits of the `xxx}` altitude are offset by 33, not by [`BASE91_MIN`]'s 33 for the
-/// same reason — but the datum is: metres above 10 km *below* mean sea level, the deepest
-/// ocean, so that no station on Earth needs a sign.
 const MIC_E_ALTITUDE_DATUM_M: i32 = 10_000;
 const MIC_E_ALTITUDE_LEN: usize = 4;
 const METRES_PER_FOOT: f64 = 0.304_8;
 
-/// How a destination character spells its message bit. The two tables of 1s are what makes a
-/// message standard or custom; `Zero` belongs to neither.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MessageBit {
     Zero,
@@ -592,24 +490,15 @@ enum MessageBit {
     Custom,
 }
 
-/// The half of a Mic-E report that rides in the destination callsign.
 struct MicEDestination {
-    /// Latitude magnitude in degrees; `north` carries the sign.
     lat: f64,
     north: bool,
-    /// The +100° the longitude degrees are computed with.
     lon_offset: bool,
     west: bool,
-    /// Trailing latitude digits blanked for position ambiguity, 0–4. The same count applies
-    /// to the longitude, which carries no ambiguity of its own.
     ambiguity: usize,
-    /// The named message, or `None` where the three bits mix the two tables.
     message: Option<&'static str>,
 }
 
-/// One destination character: its latitude digit (`None` under position ambiguity), the
-/// message bit it carries in bytes 1–3, and the indicator it carries in bytes 4–6 — one bit
-/// read three ways, as North, as +100° and as West.
 fn destination_char(c: u8) -> Option<(Option<u8>, MessageBit, bool)> {
     match c {
         b'0'..=b'9' => Some((Some(c - b'0'), MessageBit::Zero, false)),
@@ -635,9 +524,6 @@ const CUSTOM_MESSAGES: [&str; 7] = [
     "Custom-6", "Custom-5", "Custom-4", "Custom-3", "Custom-2", "Custom-1", "Custom-0",
 ];
 
-/// Name the message the three bits select. All three zero is the emergency code in either
-/// table; a mixture of standard and custom 1s is a message the spec itself calls unknown, and
-/// naming it from one table would put words in an operator's mouth.
 fn message_type(bits: [MessageBit; 3]) -> Option<&'static str> {
     let code = bits.iter().fold(0usize, |acc, &b| {
         acc << 1 | usize::from(b != MessageBit::Zero)
@@ -666,16 +552,12 @@ fn mic_e_destination(call: &str) -> Option<MicEDestination> {
     for (i, &c) in chars.iter().enumerate() {
         let (digit, bit, indicator) = destination_char(c)?;
         match digit {
-            // Ambiguity blanks digits from the right and a blanked digit is defined to read as
-            // zero, as it is in an uncompressed report; a digit *after* a blank is not
-            // ambiguity but a callsign that was never Mic-E.
             Some(d) if ambiguity == 0 => digits[i] = d,
             Some(_) => return None,
             None => ambiguity += 1,
         }
         match i {
             0..=2 => bits[i] = bit,
-            // A–K carry no indicator at all, so the spec does not use them here.
             _ if bit == MessageBit::Custom => return None,
             _ => indicators[i - 3] = indicator,
         }
@@ -696,8 +578,6 @@ fn mic_e_destination(call: &str) -> Option<MicEDestination> {
     })
 }
 
-/// Decode a Mic-E packet from its destination callsign and the information field after the
-/// data type identifier, naming the message on the packet as a side effect.
 fn mic_e(body: &[u8], packet: &mut AprsPacket) -> Option<Report> {
     let destination = mic_e_destination(&packet.destination)?;
     let report = mic_e_report(&destination, body)?;
@@ -710,14 +590,11 @@ fn mic_e_report(destination: &MicEDestination, body: &[u8]) -> Option<Report> {
     let value = |at: usize| field.get(at).and_then(|b| b.checked_sub(MIC_E_OFFSET));
 
     let mut minutes = u32::from(value(1).filter(|&m| (10..=69).contains(&m))?);
-    // 0–9 minutes are encoded 60 higher, so that every byte of the field stays printable.
     if minutes >= 60 {
         minutes -= 60;
     }
     let mut hundredths = u32::from(value(2).filter(|&h| h <= 99)?);
     let degrees = longitude_degrees(value(0)?, destination.lon_offset)?;
-    // Ambiguity is declared in the latitude and applies to the longitude unchanged: the same
-    // count of digits, from the right, carries no information.
     if destination.ambiguity >= 1 {
         hundredths -= hundredths % 10;
     }
@@ -746,13 +623,10 @@ fn mic_e_report(destination: &MicEDestination, body: &[u8]) -> Option<Report> {
         course_deg,
         speed_kt,
         comment,
-        // An explicit `/A=` is the more precise statement of the two, as it is elsewhere.
         altitude_ft: comment_alt_ft.or_else(|| mic_e_altitude_ft(status)),
     })
 }
 
-/// Longitude degrees, 0–179. Four disjoint pieces of the byte range are folded into one
-/// number by the +100 the destination carries and two subtractions (APRS 1.0.1 ch. 10).
 fn longitude_degrees(raw: u8, offset: bool) -> Option<u32> {
     if !(10..=99).contains(&raw) {
         return None;
@@ -766,10 +640,6 @@ fn longitude_degrees(raw: u8, offset: bool) -> Option<u32> {
     Some(degrees)
 }
 
-/// Speed in knots and course in degrees, spread across three bytes: tens of knots, then units
-/// of knots *and* hundreds of degrees sharing a byte, then tens and units of degrees. The two
-/// subtractions at the end are what let the middle byte stay printable under either of the two
-/// encoding schemes in the field.
 fn speed_course(sp: u8, dc: u8, se: u8) -> Option<(Option<f64>, Option<f64>)> {
     if sp > 99 || dc > 99 || se > 99 {
         return None;
@@ -785,26 +655,18 @@ fn speed_course(sp: u8, dc: u8, se: u8) -> Option<(Option<f64>, Option<f64>)> {
     if course > 360 {
         return None;
     }
-    // 0° is "course unknown or indefinite" and 360° is due north (APRS 1.0.1 ch. 10), so the
-    // one value that must not be reported as a heading is the one that looks most like one.
     let course_deg = (course != 0).then(|| f64::from(course % 360));
     Some((Some(f64::from(speed)), course_deg))
 }
 
-/// The status text without the type code a Kenwood radio prefixes it with, which is a device
-/// marker rather than something the operator typed.
 fn mic_e_status(status: &[u8]) -> &[u8] {
     match status.first().copied() {
-        // A telemetry flag here means the rest is telemetry channels, not text at all.
         Some(MIC_E_CURRENT | MIC_E_OLD | MIC_E_OLD_BETA) => &[],
         Some(b'>' | b']') => status.get(1..).unwrap_or_default(),
         _ => status,
     }
 }
 
-/// `xxx}` at the head of the status text: three base-91 digits of metres above 10 km below
-/// mean sea level. Only at the head — a `}` anywhere in free text would otherwise turn the
-/// three characters before it into an altitude.
 fn mic_e_altitude_ft(status: &[u8]) -> Option<i32> {
     let field = mic_e_status(status).get(..MIC_E_ALTITUDE_LEN)?;
     if *field.get(3)? != b'}' {
@@ -853,8 +715,6 @@ fn parse_longitude(field: &[u8]) -> Option<f64> {
     }
 }
 
-/// `MM.mm`. Position ambiguity blanks minute digits from the right and a blanked digit is
-/// defined to read as zero (APRS 1.0.1 ch. 6), which is what every receiver does with it.
 fn parse_minutes(field: &[u8]) -> Option<f64> {
     if *field.get(2)? != b'.' {
         return None;
@@ -890,9 +750,6 @@ fn ascii_u32(field: &[u8]) -> Option<u32> {
     Some(value)
 }
 
-/// `CSE/SPD`: course in degrees and speed in knots, immediately after the symbol code
-/// (APRS 1.0.1 ch. 7). Returns the remainder so the caller can treat it as the comment —
-/// the same seven octets also hold `PHGnnnn`/`RNGnnnn`/`DFSnnnn`, which the digit test rejects.
 fn course_speed(rest: &[u8]) -> (Option<f64>, Option<f64>, &[u8]) {
     const LEN: usize = 7;
     let Some(field) = rest.get(..LEN) else {
@@ -912,12 +769,9 @@ fn course_speed(rest: &[u8]) -> (Option<f64>, Option<f64>, &[u8]) {
     )
 }
 
-/// `/A=nnnnnn` in feet, anywhere in the comment (APRS 1.0.1 ch. 6).
 const ALTITUDE_TAG: &[u8] = b"/A=";
 const ALTITUDE_DIGITS: usize = 6;
 
-/// Trim the trailing whitespace transmitters pad with, then read the comment and the altitude
-/// it may embed.
 fn describe(rest: &[u8]) -> (Option<String>, Option<i32>) {
     let end = rest
         .iter()
@@ -935,7 +789,6 @@ fn altitude_ft(comment: &[u8]) -> Option<i32> {
     let field = comment
         .get(at + ALTITUDE_TAG.len()..)?
         .get(..ALTITUDE_DIGITS)?;
-    // Stations below sea level send a minus sign in place of the leading digit.
     match field.split_first()? {
         (b'-', digits) => ascii_u32(digits)
             .and_then(|v| i32::try_from(v).ok())
@@ -944,45 +797,25 @@ fn altitude_ft(comment: &[u8]) -> Option<i32> {
     }
 }
 
-/// Frame delimiter and idle pattern (AX.25 2.2 §3.6).
 const FLAG: u8 = 0x7E;
-/// TXDELAY: flags keyed before the first frame of a burst, long enough for the receiver's clock
-/// recovery to lock and (at 9600 baud) for its descrambler to fill.
 const PREAMBLE_FLAGS: usize = 24;
-/// TXTAIL: flags keyed after the flag that closes the last frame, so a burst does not end on
-/// the delimiter a receiver is still deciding about.
 const TRAILING_FLAGS: usize = 2;
-/// Reserved bits of an SSID octet, transmitted as ones (AX.25 2.2 §3.12.2).
 const SSID_RESERVED: u8 = 0x60;
 
-/// AX.25 modulator: a queued frame → HDLC bits → Bell 202 AFSK1200 or 9600 baud G3RUH.
-///
-/// The other half of [`AprsChannel`], sharing its constants and its two physical layers but
-/// none of its code: the link layer here stuffs, checksums and NRZI-encodes by hand where the
-/// receiver undoes each with a `dsp` primitive, so neither side can cancel the other's error.
 pub struct AprsTx {
     rate: f64,
     mode: AprsMode,
-    /// HDLC bits waiting to be keyed: flags, stuffed frame octets and their FCS. Line coding is
-    /// the physical layer's and happens a symbol at a time in [`AprsTx::generate`].
     pending: TxQueue<bool>,
-    /// Reused across `submit` calls so a frame is framed without allocating a new buffer.
     staging: Vec<bool>,
     line: Line,
     keyer: Keyer,
-    /// Samples the symbol being keyed still owes. A burst ends on a symbol boundary, never
-    /// inside one, so this reaching zero is also where the carrier is allowed to stop.
     remaining: usize,
-    /// [`check_input_rate`] pins the modulator to the descriptor's 48 kHz, a whole multiple of
-    /// both baud rates — so the symbol clock is an integer count and cannot drift.
     samples_per_symbol: usize,
     level: bool,
     carrier_phase: f64,
     burst: Burst,
 }
 
-/// The line coder: NRZI for both physical layers, and the scrambler 9600 baud rides on top of
-/// it. Exactly what [`Slicer`] and [`NrziDecoder`] undo, in the opposite order.
 struct Line {
     level: bool,
     scrambler: Option<Scrambler>,
@@ -999,7 +832,6 @@ impl Line {
         }
     }
 
-    /// NRZI: a 0 bit toggles the line, a 1 holds it (AX.25 2.2 §3.5).
     fn push(&mut self, bit: bool) -> bool {
         if !bit {
             self.level = !self.level;
@@ -1011,8 +843,6 @@ impl Line {
     }
 }
 
-/// What the line level does to the carrier: an audio subcarrier at 1200 baud, the level itself
-/// at 9600.
 enum Keyer {
     Afsk { tone_phase: f64 },
     G3ruh,
@@ -1034,13 +864,6 @@ fn baud(mode: AprsMode) -> f64 {
     }
 }
 
-// ── Mic-E reference encoder ───────────────────────────────────────────────────────────────
-
-/// Which of the two tables of 1s a Mic-E message bit is drawn from (APRS 1.0.1 ch. 10).
-///
-/// The encoder below shares no code with the decoder above it — its tables are written out
-/// forwards from the spec rather than inverted from the decoder's, because a generator that
-/// derived them from the thing under test could only ever agree with itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MicEBit {
     #[default]
@@ -1049,24 +872,15 @@ pub enum MicEBit {
     Custom,
 }
 
-/// A Mic-E position report, as the fields a transmitter holds before it packs them into a
-/// destination callsign and an information field.
 #[derive(Clone, Copy, Debug)]
 pub struct MicE<'a> {
     pub lat: f64,
     pub lon: f64,
-    /// 0–799 knots.
     pub speed_kt: u32,
-    /// 0–360 degrees. 0 means "unknown or indefinite"; due north is 360.
     pub course_deg: u32,
-    /// Symbol table identifier then symbol code, e.g. `/j` for a jeep — the order an APRS
-    /// symbol is quoted in, which is the reverse of the order Mic-E transmits it.
     pub symbol: &'a str,
-    /// Message bits A, B and C.
     pub bits: [MicEBit; 3],
-    /// Latitude digits blanked from the right for position ambiguity, 0–4.
     pub ambiguity: usize,
-    /// Whatever follows the mandatory 8 bytes: status text, an altitude field, telemetry.
     pub status: &'a str,
 }
 
@@ -1086,11 +900,9 @@ impl Default for MicE<'_> {
 }
 
 impl MicE<'_> {
-    /// The destination callsign: six latitude digits, each carrying one further bit.
     #[must_use]
     pub fn destination(&self) -> String {
         let digits = hundredths_of_a_minute(self.lat);
-        // Bytes 1–3 carry the message bits; 4–6 carry North, +100° and West.
         let carried = [
             self.bits[0],
             self.bits[1],
@@ -1107,11 +919,8 @@ impl MicE<'_> {
             .collect()
     }
 
-    /// The information field, data type identifier included.
     #[must_use]
     pub fn info(&self) -> String {
-        // Longitude degrees can need three digits, so only the minutes and hundredths of the
-        // split are read here; the degrees come from the value itself.
         let digits = hundredths_of_a_minute(self.lon);
         let minutes = u32::from(digits[2]) * 10 + u32::from(digits[3]);
         let hundredths = u32::from(digits[4]) * 10 + u32::from(digits[5]);
@@ -1130,8 +939,6 @@ impl MicE<'_> {
         {
             out.push(char::from(byte));
         }
-        // Transmitted symbol code first, table identifier second — the reverse of the order
-        // the pair is written in everywhere else in APRS.
         out.push(char::from(symbol.get(1).copied().unwrap_or(b'>')));
         out.push(char::from(symbol.first().copied().unwrap_or(b'/')));
         out.push_str(self.status);
@@ -1140,8 +947,6 @@ impl MicE<'_> {
 }
 
 impl MicE<'_> {
-    /// The `xxx}` altitude field a status text may open with: metres above 10 km below mean
-    /// sea level, base 91, each digit offset by 33.
     #[must_use]
     pub fn altitude_field(alt_ft: i32) -> String {
         let metres = (f64::from(alt_ft) * 0.304_8).round() as i32 + 10_000;
@@ -1155,9 +960,6 @@ impl MicE<'_> {
     }
 }
 
-/// A latitude or longitude split into its six digits: two of degrees, two of minutes, two of
-/// hundredths of a minute. Longitude degrees can need three digits, so the first two are only
-/// meaningful for a latitude — the caller takes what it needs.
 fn hundredths_of_a_minute(degrees: f64) -> [u8; 6] {
     let total = (degrees.abs() * 6_000.0).round() as u32;
     let (deg, minutes, hundredths) = (total / 6_000, total / 100 % 60, total % 100);
@@ -1179,8 +981,6 @@ fn indicator(set: bool) -> MicEBit {
     }
 }
 
-/// One destination character. The digit picks the offset within a range and the bit picks the
-/// range; an ambiguous digit picks the range's own placeholder.
 fn encode_destination_char(digit: u8, bit: MicEBit, ambiguous: bool) -> char {
     let base = match bit {
         MicEBit::Zero => b'0',
@@ -1197,8 +997,6 @@ fn encode_destination_char(digit: u8, bit: MicEBit, ambiguous: bool) -> char {
     char::from(base + digit)
 }
 
-/// The four disjoint pieces of the d+28 range, chosen so the byte stays printable and the
-/// longitude offset in the destination completes the value.
 fn longitude_degrees_byte(degrees: u32) -> u8 {
     let raw = match degrees {
         0..=9 => degrees + 90,
@@ -1209,14 +1007,11 @@ fn longitude_degrees_byte(degrees: u32) -> u8 {
     (raw + 28).min(127) as u8
 }
 
-/// m+28. Minutes below 10 are sent 60 higher so that the byte stays printable.
 fn longitude_minutes_byte(minutes: u32) -> u8 {
     let raw = if minutes < 10 { minutes + 60 } else { minutes };
     (raw + 28) as u8
 }
 
-/// SP+28, DC+28 and SE+28. The +80 and +4 are the encoding scheme that keeps all three bytes
-/// printable; the receiver undoes them with the ≥ 800 and ≥ 400 subtractions.
 fn speed_course_bytes(speed_kt: u32, course_deg: u32) -> [u8; 3] {
     let (tens, units) = (speed_kt.min(799) / 10, speed_kt.min(799) % 10);
     let course = course_deg.min(360);
@@ -1226,15 +1021,9 @@ fn speed_course_bytes(speed_kt: u32, course_deg: u32) -> [u8; 3] {
 }
 
 impl AprsTx {
-    /// Build a UI frame's octets — addresses, control, PID, information — for [`ChannelTx::submit`],
-    /// which appends the FCS and wraps the HDLC framing around it.
-    ///
-    /// A path entry ending in `*` is transmitted with its "has been repeated" bit set.
     #[must_use]
     pub fn ui_frame(source: &str, destination: &str, path: &[&str], info: &str) -> Vec<u8> {
         let mut out = Vec::with_capacity(ADDRESS_LEN * (2 + path.len()) + 2 + info.len());
-        // AX.25 2.2 §6.1.2: a command frame carries C=1 in the destination SSID octet and C=0
-        // in the source's, which is what every APRS transmitter sends.
         push_address(&mut out, destination, true, false);
         push_address(&mut out, source, false, path.is_empty());
         for (i, hop) in path.iter().enumerate() {
@@ -1252,13 +1041,11 @@ impl AprsTx {
         out
     }
 
-    /// The line level of the next symbol, or `None` when there is nothing left to key.
     fn next_level(&mut self) -> Option<bool> {
         let bit = self.pending.pop()?;
         Some(self.line.push(bit))
     }
 
-    /// The modulating waveform for one sample of the symbol being keyed.
     fn modulating(&mut self) -> f32 {
         let (level, rate) = (self.level, self.rate);
         match &mut self.keyer {
@@ -1308,9 +1095,6 @@ impl ChannelTx for AprsTx {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         check_params(p)?;
-        // Bandwidth is the host's channel filter; only the physical layer lives here. A change
-        // of modulation drops what was queued rather than keying the tail of a 1200 baud frame
-        // at 9600 — a receiver would decode neither half.
         if p.mode != self.mode {
             self.mode = p.mode;
             self.pending.clear();
@@ -1328,9 +1112,6 @@ impl ChannelTx for AprsTx {
                 "aprs carries frames, not audio".to_owned(),
             ));
         };
-        // The FCS is this modulator's to add, so the bounds a receiver deframes against apply
-        // to the frame plus two octets. Refusing here beats keying something no station will
-        // hand up to its link layer.
         let (min, max) = (MIN_FRAME_BYTES - 2, MAX_FRAME_BYTES - 2);
         if !(min..=max).contains(&frame.len()) {
             return Err(ChannelError::InvalidPayload(format!(
@@ -1339,9 +1120,6 @@ impl ChannelTx for AprsTx {
             )));
         }
         self.staging.clear();
-        // A burst that has run dry starts again with its TXDELAY; one still draining does not —
-        // a frame queued behind another follows its tail flags on the same carrier, which is
-        // what a TNC emptying its queue sends.
         if self.pending.is_empty() {
             push_flags(&mut self.staging, PREAMBLE_FLAGS);
         }
@@ -1389,13 +1167,11 @@ fn push_address(out: &mut Vec<u8>, call: &str, command: bool, last: bool) {
         *slot = byte.to_ascii_uppercase();
     }
     for c in chars {
-        // Callsign characters occupy bits 1..7; bit 0 is the address extension bit.
         out.push((c & 0x7F) << 1);
     }
     out.push(u8::from(command) << 7 | SSID_RESERVED | (ssid & 0x0F) << 1 | u8::from(last));
 }
 
-/// Flags are transmitted verbatim — the one bit pattern the stuffing rule must not touch.
 fn push_flags(bits: &mut Vec<bool>, count: usize) {
     for _ in 0..count {
         for i in 0..8 {
@@ -1404,14 +1180,7 @@ fn push_flags(bits: &mut Vec<bool>, count: usize) {
     }
 }
 
-/// One frame as HDLC bits: its octets and the FCS with zero stuffing applied, then the flag
-/// that closes it — which is also the flag that opens whatever follows.
-///
-/// `fcs_error` is XORed into the checksum. Every transmitted frame passes 0; only this module's
-/// own tests pass anything else, to exercise a receiver's FCS rejection without depending on
-/// where a flipped channel bit happens to land.
 fn push_frame(bits: &mut Vec<bool>, frame: &[u8], fcs_error: u16) {
-    // AX.25 2.2 §4.4.6: the FCS is CRC-16/X.25 over the frame, transmitted little-endian.
     let fcs = (crc16_x25(frame) ^ fcs_error).to_le_bytes();
     let mut ones = 0u8;
     for &byte in frame.iter().chain(fcs.iter()) {
@@ -1455,15 +1224,12 @@ mod tests {
         AprsTx::new(ChannelCtx { input_rate: RATE }, mode_settings(mode)).unwrap()
     }
 
-    /// The burst a station keys for one frame, through the whole submit path.
     fn keyed(mode: AprsMode, frame: &[u8]) -> Vec<Complex<f32>> {
         let mut tx = transmitter(mode);
         tx.submit(TxPayload::Frame(frame.to_vec())).unwrap();
         burst(&mut tx)
     }
 
-    /// A burst built straight from the framing helpers, for the two lines `submit` will not
-    /// produce: frames sharing a single flag, and a frame whose FCS is wrong.
     fn keyed_frames(mode: AprsMode, frames: &[&[u8]], fcs_error: u16) -> Vec<Complex<f32>> {
         let mut tx = transmitter(mode);
         let mut bits = Vec::new();
@@ -1484,7 +1250,6 @@ mod tests {
         packets(&out)
     }
 
-    /// Feed the channel in deliberately ragged blocks, as the engine's host does.
     fn decode_ragged(mode: AprsMode, iq: &[Complex<f32>]) -> Vec<AprsPacket> {
         let mut chan = channel(mode);
         let mut out = ChannelOutputs::default();
@@ -1578,7 +1343,6 @@ mod tests {
 
     #[test]
     fn compressed_position_decodes_to_the_same_place_as_the_spec_example() {
-        // APRS 1.0.1 ch. 9: 49°30.00'N 72°45.00'W, car symbol, course 88°, speed 36.2 kt.
         let frame = AprsTx::ui_frame("DL1ABC", "APRS", &[], "!/5L!!<*e7>7P[Compressed");
         let packet = only(decode(
             AprsMode::Afsk1200,
@@ -1594,12 +1358,8 @@ mod tests {
         assert_eq!(packet.comment.as_deref(), Some("Compressed"));
     }
 
-    /// APRS 1.0.1 ch. 9: with a GGA-sourced compression type the cs pair is altitude, not
-    /// course and speed. Reading it as course/speed invents a heading for a balloon and throws
-    /// its altitude away.
     #[test]
     fn compressed_gga_report_carries_altitude_instead_of_course_and_speed() {
-        // The spec's worked example: cs = "S]" with type byte "T" -> 10 004 feet.
         let frame = AprsTx::ui_frame("DL1ABC", "APRS", &[], "!/5L!!<*e7>S]T");
         let packet = only(decode(
             AprsMode::Afsk1200,
@@ -1611,7 +1371,6 @@ mod tests {
         assert!((alt - 10_004).abs() <= 1, "altitude {alt} ft");
     }
 
-    /// A `/A=` in the comment is the more precise of the two statements and wins.
     #[test]
     fn explicit_altitude_overrides_the_compressed_one() {
         let frame = AprsTx::ui_frame("DL1ABC", "APRS", &[], "!/5L!!<*e7>S]T/A=001234");
@@ -1641,8 +1400,6 @@ mod tests {
 
     #[test]
     fn long_runs_of_ones_in_the_info_field_survive_stuffing() {
-        // 0x7F is seven set bits LSB-first — an abort if the transmitter failed to stuff it —
-        // and 0x7E is six, the shortest run the rule applies to.
         let info = ">stuffing \u{7f}\u{7f}~~ test";
         let frame = AprsTx::ui_frame("DL1ABC-1", "APRS", &[], info);
         let packet = only(decode(
@@ -1664,11 +1421,6 @@ mod tests {
         assert_eq!(decoded[1].tnc2, "DL1ABC-2>APRS,WIDE1-1:>second");
     }
 
-    /// Both worked examples of APRS 1.0.1 ch. 10 in one frame. The destination `S32U6T` is the
-    /// chapter's destination example — 33°25.64'N, message bits 1/0/0 from the standard table,
-    /// longitude offset +0 — and `` `(_fn"Oj/ `` is its information-field example, which the
-    /// chapter decodes with a +100° offset. Under this destination's +0 the same bytes are
-    /// 12°07.74'W rather than the chapter's 112°, and everything else is its published answer.
     #[test]
     fn the_spec_worked_example_decodes_to_its_published_values() {
         let frame = AprsTx::ui_frame("DL1ABC-7", "S32U6T", &["WIDE2-2"], "`(_fn\"Oj/");
@@ -1688,19 +1440,14 @@ mod tests {
         assert!((lon + (12.0 + 7.74 / 60.0)).abs() < 1e-9, "lon {lon}");
         assert_eq!(packet.speed_kt, Some(20.0));
         assert_eq!(packet.course_deg, Some(251.0));
-        // The jeep from the primary table, quoted table-first though it is sent code-first.
         assert_eq!(packet.symbol.as_deref(), Some("/j"));
         assert_eq!(packet.mic_e_message.as_deref(), Some("Returning"));
         assert_eq!(packet.comment, None);
         assert_eq!(packet.altitude_ft, None);
     }
 
-    /// The chapter's information-field example as it is actually written up: with the +100°
-    /// longitude offset its destination example does not set, giving 112°07.74'W.
     #[test]
     fn the_spec_longitude_example_needs_the_hundred_degree_offset() {
-        // `S32UVT` is the destination example with byte 5 moved into the P–Y range, which is
-        // the one change that turns the offset on.
         let frame = AprsTx::ui_frame("DL1ABC-7", "S32UVT", &[], "`(_fn\"Oj/");
         let packet = only(decode(
             AprsMode::Afsk1200,
@@ -1722,17 +1469,14 @@ mod tests {
         ))
     }
 
-    /// Both halves of the encoding over the whole globe: the destination carries the latitude
-    /// and the hemispheres, the information field the longitude, and the four ranges the
-    /// longitude degrees are folded into are what a sign test alone would miss.
     #[test]
     fn mic_e_round_trips_positions_in_every_hemisphere_and_longitude_range() {
         for (lat, lon) in [
-            (48.123_0, 11.516_67),   // the +0 offset range
-            (-33.875_0, -151.205_0), // southern, and 110–179° in the +100 range
-            (37.775_0, -122.418_3),  // 100–109°, the range folded by subtracting 80
-            (60.170_0, 5.183_3),     // 0–9°, the range folded by subtracting 190
-            (-1.283_3, 36.816_7),    // both minutes fields near zero
+            (48.123_0, 11.516_67),
+            (-33.875_0, -151.205_0),
+            (37.775_0, -122.418_3),
+            (60.170_0, 5.183_3),
+            (-1.283_3, 36.816_7),
             (0.0, 0.0),
         ] {
             let packet = mic_e_packet(&MicE {
@@ -1741,14 +1485,11 @@ mod tests {
                 ..MicE::default()
             });
             let (got_lat, got_lon) = (packet.lat.unwrap(), packet.lon.unwrap());
-            // A hundredth of a minute is the encoding's whole resolution.
             assert!((got_lat - lat).abs() < 1.0 / 6_000.0, "{lat} -> {got_lat}");
             assert!((got_lon - lon).abs() < 1.0 / 6_000.0, "{lon} -> {got_lon}");
         }
     }
 
-    /// Speed and course share a byte, and both fold through a subtraction at the top of their
-    /// range — so the values that matter are the ones on either side of the fold.
     #[test]
     fn mic_e_round_trips_speed_and_course() {
         for (speed_kt, course_deg, expected_course) in [
@@ -1758,7 +1499,6 @@ mod tests {
             (199, 199, Some(199.0)),
             (200, 200, Some(200.0)),
             (799, 359, Some(359.0)),
-            // 360° is due north and 0° is "unknown", so only one of them is a heading.
             (55, 360, Some(0.0)),
         ] {
             let packet = mic_e_packet(&MicE {
@@ -1780,7 +1520,6 @@ mod tests {
         }
     }
 
-    /// The 15 message codes, and the mixture the spec refuses to name.
     #[test]
     fn mic_e_names_every_message_code() {
         use MicEBit::{Custom, Standard, Zero};
@@ -1800,8 +1539,6 @@ mod tests {
             ([Zero, Custom, Custom], Some("Custom-4")),
             ([Zero, Custom, Zero], Some("Custom-5")),
             ([Zero, Zero, Custom], Some("Custom-6")),
-            // "If the A/B/C message identifier bits contain a mixture of Standard 1s and
-            // Custom 1s, the message type is unknown" — so it stays unnamed.
             ([Standard, Custom, Zero], None),
             ([Custom, Zero, Standard], None),
         ] {
@@ -1812,13 +1549,10 @@ mod tests {
                 ..MicE::default()
             });
             assert_eq!(packet.mic_e_message.as_deref(), name, "{bits:?}");
-            // The position decodes whatever the message bits say.
             assert!(packet.lat.is_some(), "{bits:?}");
         }
     }
 
-    /// Ambiguity is declared in the latitude and applies to the longitude too — the same
-    /// count of digits from the right, in a field that never mentions it.
     #[test]
     fn mic_e_position_ambiguity_blanks_both_coordinates() {
         let (lat, lon) = (33.427_33, -112.129_0);
@@ -1850,7 +1584,6 @@ mod tests {
         }
     }
 
-    /// The status text's `xxx}` altitude, and the spec's own worked value for it.
     #[test]
     fn mic_e_altitude_decodes_from_the_status_text() {
         assert_eq!(MicE::altitude_field(200), "\"4T}");
@@ -1862,15 +1595,12 @@ mod tests {
                 status: &status,
                 ..MicE::default()
             });
-            // The field is whole metres, so a foot is not recoverable to the foot.
             let got = packet.altitude_ft.unwrap();
             assert!((got - alt_ft).abs() <= 2, "{alt_ft} ft -> {got} ft");
             assert_eq!(packet.comment.as_deref(), Some(status.as_str()));
         }
     }
 
-    /// A Kenwood radio stamps its own type code at the head of the status text, and the
-    /// altitude sits behind it.
     #[test]
     fn mic_e_altitude_survives_a_kenwood_type_code() {
         for prefix in [">", "]"] {
@@ -1893,9 +1623,6 @@ mod tests {
         }
     }
 
-    /// The altitude field is only an altitude field at the head of the status text. A `}`
-    /// further in is a character someone typed, and reading the three before it as base-91
-    /// would put a station 700 km up. Telemetry, likewise, is not a comment.
     #[test]
     fn mic_e_reads_neither_an_altitude_nor_a_comment_out_of_what_is_not_one() {
         let packet = mic_e_packet(&MicE {
@@ -1907,7 +1634,6 @@ mod tests {
         assert_eq!(packet.altitude_ft, None);
         assert_eq!(packet.comment.as_deref(), Some("not an altitude}"));
 
-        // A telemetry flag where the status text would start means channels follow.
         let packet = mic_e_packet(&MicE {
             lat: 48.0,
             lon: 11.0,
@@ -1919,8 +1645,6 @@ mod tests {
         assert!(packet.lat.is_some(), "telemetry must not lose the position");
     }
 
-    /// An information field short of its 8 mandatory bytes is a packet whose non-printing
-    /// bytes were eaten in transit; the spec says to ignore it rather than decode a prefix.
     #[test]
     fn a_truncated_mic_e_field_yields_no_position() {
         let frame = AprsTx::ui_frame("DL1ABC-9", "S32U6T", &[], "`(_fn\"O");
@@ -1933,8 +1657,6 @@ mod tests {
         assert_eq!(packet.info, "`(_fn\"O");
     }
 
-    /// A destination that is a plain callsign is not Mic-E data, however Mic-E the information
-    /// field looks — and inventing a latitude out of `APRS` would be worse than reading none.
     #[test]
     fn a_mic_e_information_field_under_an_ordinary_destination_decodes_nothing() {
         for destination in ["APRS", "N0CALL", "S32U6"] {
@@ -1948,8 +1670,6 @@ mod tests {
         }
     }
 
-    /// The generic digipeater path rides in the destination SSID, so a Mic-E destination is
-    /// routinely `S32U6T-3` — six data characters and a number that is not one of them.
     #[test]
     fn a_destination_ssid_does_not_disturb_the_six_data_characters() {
         let frame = AprsTx::ui_frame("DL1ABC-9", "S32U6T-3", &[], "`(_fn\"Oj/");
@@ -1962,7 +1682,6 @@ mod tests {
         assert_eq!(packet.mic_e_message.as_deref(), Some("Returning"));
     }
 
-    /// The old-GPS identifier and the two the beta units send are the same format.
     #[test]
     fn every_mic_e_data_type_identifier_is_decoded() {
         for id in ['`', '\'', '\u{1c}', '\u{1d}'] {
@@ -1980,7 +1699,6 @@ mod tests {
     #[test]
     fn a_non_aprs_pid_still_yields_the_ax25_envelope() {
         let mut frame = AprsTx::ui_frame("DL1ABC", "CQ", &[], "");
-        // Swap the PID for one that is not "no layer 3": still AX.25, no APRS parsing.
         let pid = frame.len() - 1;
         frame[pid] = 0xCF;
         frame.extend_from_slice(b"!4807.38N/01131.00E>not aprs");
@@ -2050,8 +1768,6 @@ mod tests {
 
     #[test]
     fn both_layers_decode_through_wideband_noise() {
-        // Noise in ±0.4 on a unit-amplitude carrier, with no channel filter in front of the
-        // demodulator — a weaker signal than any station a receiver would bother logging.
         for (mode, mut iq) in [
             (
                 AprsMode::Afsk1200,
@@ -2110,14 +1826,11 @@ mod tests {
     #[test]
     fn ui_frame_lays_out_the_ax25_address_field() {
         let frame = AprsTx::ui_frame("DL1ABC-9", "APRS", &["WIDE1-1*"], "!test");
-        // Destination, source, one digipeater, control, PID, then the information field.
         assert_eq!(frame.len(), 3 * ADDRESS_LEN + 2 + 5);
         assert_eq!(&frame[..6], b"APRS  ".map(|c| c << 1));
-        // Only the last address entry sets the extension bit.
         assert_eq!(frame[6] & 1, 0);
         assert_eq!(frame[13] & 1, 0);
         assert_eq!(frame[20] & 1, 1);
-        // Source SSID 9, no repeated flag; digipeater SSID 1 with the repeated flag.
         assert_eq!(frame[13] >> 1 & 0x0F, 9);
         assert_eq!(frame[13] & 0x80, 0);
         assert_eq!(frame[20] >> 1 & 0x0F, 1);
@@ -2143,9 +1856,6 @@ mod tests {
         assert_eq!(longest, 5);
     }
 
-    /// One symbol per queued bit at the mode's baud rate, plus the ramp the burst ends on, at a
-    /// constant envelope in between: a modulator that keyed a symbol short would still decode
-    /// here, and would fail against a real station.
     #[test]
     fn the_burst_keys_one_symbol_per_bit_at_a_constant_envelope() {
         let frame = AprsTx::ui_frame("DL1ABC", "APRS", &[], "!x");
@@ -2160,16 +1870,12 @@ mod tests {
         }
     }
 
-    /// Bits a frame occupies on the line once its FCS and stuffing are counted, the long way
-    /// round — the modulator's own count is what this is checking.
     fn stuffed_bits(frame: &[u8]) -> usize {
         let mut bits = Vec::new();
         push_frame(&mut bits, frame, 0);
         bits.len() - 8
     }
 
-    /// Two frames handed to one transmitter ride one burst — no second TXDELAY, no gap in the
-    /// carrier between them.
     #[test]
     fn two_submitted_frames_ride_a_single_burst() {
         let mut tx = transmitter(AprsMode::Afsk1200);
@@ -2198,8 +1904,6 @@ mod tests {
         assert_eq!(decoded[1].tnc2, "DL1ABC-2>APRS:>second");
     }
 
-    /// A transmitter told to change modulation drops what it had queued: keying the tail of a
-    /// 1200 baud frame at 9600 would leave a receiver with neither half.
     #[test]
     fn tx_apply_switches_the_physical_layer_and_drops_the_backlog() {
         let mut tx = transmitter(AprsMode::Afsk1200);
@@ -2221,8 +1925,6 @@ mod tests {
         assert_eq!(block[0], Complex::new(9.0, 9.0));
     }
 
-    /// What the deframer would drop is what the modulator refuses to key: a frame too short to
-    /// hold two addresses and a control octet, or longer than AX.25 allows.
     #[test]
     fn tx_refuses_a_payload_no_receiver_would_accept() {
         let mut tx = transmitter(AprsMode::Afsk1200);
@@ -2247,7 +1949,6 @@ mod tests {
     fn tx_refuses_a_backlog_past_the_queue_bound() {
         let mut tx = transmitter(AprsMode::Afsk1200);
         let frame = position_frame();
-        // Each frame is a fraction of a second on the line, so the bound is reached by count.
         let refused = std::iter::repeat_with(|| tx.submit(TxPayload::Frame(frame.clone())))
             .take(1_000)
             .any(|r| matches!(r, Err(ChannelError::InvalidPayload(_))));

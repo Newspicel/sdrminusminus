@@ -24,14 +24,9 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
   const sampleRate = settings.sample_rate ?? 0;
   const rateRange = caps.sample_rate_range;
   const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
-  // A replaying set draws `loop` as a transport button instead; two controls for one setting
-  // would be two places to read the same answer, and they would disagree mid-flight.
   const extras = (caps.extra ?? []).filter(
     (setting) => active.playback == null || setting.name !== LOOP_SETTING,
   );
-  // A setting the radio scopes per-stream moves out of the shared rows and into one block per
-  // lane, named after the IQ port it feeds — one control per thing the radio can actually hold,
-  // never a shared knob quietly writing four lanes at once (Capabilities::per_stream).
   const scope = caps.per_stream;
   const streamedAntenna = scope?.antenna === true && caps.antennas.length > 1;
   const streamedGain = scope?.gain === true && caps.gains.length > 0;
@@ -44,9 +39,6 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
     <Settings className={className}>
       <SettingRow label="Rate">
         {caps.sample_rates.length === 1 && rateRange == null ? (
-          // One rate and nothing to pick between it and: a recording plays at the rate it was
-          // captured at, and a single-rate receiver says the same thing. A dropdown of one is a
-          // control that cannot act, so this is a readout.
           <span className="font-mono text-xs text-ink">{formatMsps(sampleRate)}</span>
         ) : caps.sample_rates.length > 0 ? (
           <Select
@@ -115,9 +107,6 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
 
       {streams.map((stream) => {
         const port = streamLabel("iq", stream, streams.length);
-        // The lane's resolved view: its override where one exists, the radio-wide value
-        // otherwise — the same fallback the engine applies, so the control shows what the lane
-        // is actually running at.
         const lane = forStream(settings, stream, scope);
         return (
           <SettingGroup key={stream} label={port}>
@@ -151,10 +140,6 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
         );
       })}
 
-      {/* Only where the radio has a correction to make. HackRF has no register for one and
-          SpyServer's protocol no field, so their backends refuse it; a recording and the signal
-          generator swallow it and do nothing. Drawn everywhere, the knob looked identical
-          whether it worked, errored, or lied. */}
       {caps.ppm && (
         <SettingRow label="PPM">
           <NumberField
@@ -188,9 +173,6 @@ function GainControl({
   stage: GainStage;
   value: number;
   onCommit: (db: number) => void;
-  /** The IQ port whose lane this stage belongs to. Only the accessible name carries it — the
-   * row already sits under its stream's header, but per-stream radios repeat every stage name
-   * and a screen reader needs the sliders told apart. */
   port?: string;
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);

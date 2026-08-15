@@ -3,14 +3,6 @@ use num_complex::Complex;
 use super::{Impairment, signal_energy};
 use crate::ber::rng::Rng;
 
-/// Per-component noise sigma for a stated Eb/N0.
-///
-/// Derivation, with time measured in samples so no sample rate appears:
-/// `Eb = signal_energy / info_bits` (energy per *information* bit — the crate-root accounting;
-/// for a TDMA waveform the gaps contribute ~nothing to the energy sum, so dead time is
-/// excluded automatically). `N0 = Eb / 10^(ebn0_db/10)`. Complex white noise of per-component
-/// variance σ² has power `2σ²` per sample, and with a one-sample observation bandwidth that
-/// power *is* the noise density, so `N0 = 2σ²` and `σ = √(N0/2)`.
 #[must_use]
 pub fn sigma_for_ebn0(signal_energy: f64, info_bits: u64, ebn0_db: f64) -> f64 {
     debug_assert!(info_bits > 0, "Eb is energy per bit; zero bits has no Eb");
@@ -31,29 +23,16 @@ pub fn sigma_for_channel_snr(mean_power: f64, bandwidth: f64, snr_db: f64) -> f6
 #[derive(Clone, Copy, Debug)]
 enum Level {
     Sigma(f64),
-    /// Sigma is derived from the waveform's own measured *power* at apply time against a
-    /// message bandwidth — the analog axis, see [`sigma_for_channel_snr`].
-    ChannelSnr {
-        snr_db: f64,
-        bandwidth: f64,
-    },
-    /// Sigma is derived from the waveform's own measured energy at apply time — after every
-    /// other impairment in a composed channel has already shaped it — so the stated Eb/N0
-    /// holds for the waveform the demodulator actually receives.
-    EbN0 {
-        ebn0_db: f64,
-        info_bits: u64,
-    },
+    ChannelSnr { snr_db: f64, bandwidth: f64 },
+    EbN0 { ebn0_db: f64, info_bits: u64 },
 }
 
-/// Additive complex white Gaussian noise, i.i.d. per component.
 #[derive(Clone, Copy, Debug)]
 pub struct Awgn {
     level: Level,
 }
 
 impl Awgn {
-    /// Fixed per-component sigma, for callers that did the energy accounting themselves.
     #[must_use]
     pub fn with_sigma(sigma: f64) -> Self {
         Self {
@@ -61,9 +40,6 @@ impl Awgn {
         }
     }
 
-    /// Noise for a stated Eb/N0 against the waveform's measured energy and the run's
-    /// information-bit count — the constructor the sweep runner uses, so a curve's x-axis is
-    /// true by construction.
     #[must_use]
     pub fn for_ebn0(ebn0_db: f64, info_bits: u64) -> Self {
         Self {
@@ -71,8 +47,6 @@ impl Awgn {
         }
     }
 
-    /// Noise for a stated channel SNR against the waveform's measured power — the constructor
-    /// the analog sweep uses, so a SINAD curve's x-axis is true by construction.
     #[must_use]
     pub fn for_channel_snr(snr_db: f64, bandwidth: f64) -> Self {
         Self {
@@ -107,9 +81,6 @@ mod tests {
     use super::{Awgn, sigma_for_channel_snr, sigma_for_ebn0};
     use crate::ber::{impair::Impairment, rng::Rng};
 
-    /// Applied == measured: the noise added to a silent waveform has the constructed
-    /// per-component variance. 3e5 samples put the variance estimator's standard error at
-    /// ~0.2%, so the 1% gate reads the model, not the estimator.
     #[test]
     fn added_noise_variance_matches_sigma_squared() {
         let sigma = 0.7;
@@ -128,8 +99,6 @@ mod tests {
         );
     }
 
-    /// The Eb/N0 arithmetic on exactly-known numbers: unit-power waveform, one bit per
-    /// sample, 0 dB → Eb = 1, N0 = 1, σ² = 1/2.
     #[test]
     fn ebn0_derivation_on_round_numbers() {
         let sigma = sigma_for_ebn0(1000.0, 1000, 0.0);
@@ -138,9 +107,6 @@ mod tests {
         assert!((sigma3 * sigma3 - 0.25).abs() < 1e-12);
     }
 
-    /// The channel-SNR arithmetic on exactly-known numbers, and then measured back off the
-    /// waveform: a unit-power carrier at 0 dB in a quarter-band message bandwidth wants
-    /// `σ² = 1/(2·¼) = 2`, and the noise added to it reads that variance back.
     #[test]
     fn channel_snr_derivation_and_applied_level() {
         assert!((sigma_for_channel_snr(1.0, 0.25, 0.0).powi(2) - 2.0).abs() < 1e-12);
@@ -159,8 +125,6 @@ mod tests {
         );
     }
 
-    /// `for_ebn0` must measure the waveform it is applied to: two waveforms with a 6 dB
-    /// energy difference get noise 6 dB apart under the same stated Eb/N0.
     #[test]
     fn ebn0_level_tracks_waveform_energy() {
         let measure = |amp: f32, seed: u64| {
@@ -171,7 +135,6 @@ mod tests {
                 .sum::<f64>()
                 / x.len() as f64
         };
-        // Q carries only noise (signal is real), so it reads sigma² directly.
         let quiet = measure(1.0, 1);
         let loud = measure(2.0, 2);
         let ratio_db = 10.0 * (loud / quiet).log10();

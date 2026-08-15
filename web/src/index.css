@@ -1,22 +1,6 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/base.css";
 
-/* The instrument palette: neutral graphite surfaces at hue 255 — cool enough to read as metal
-   rather than paper, low enough in chroma that the ground never competes with data — and one
-   blue accent for what the operator is acting on. Authored in OKLCH so the light theme is the
-   same role table re-anchored rather than a second set of hand-picked values, and so elevation is
-   a lightness step — on an L≈.2 ground a drop shadow cannot reach popover-grade edge contrast at
-   any alpha, so depth has to live in the surface itself.
-
-   `@theme` declares the roles to Tailwind (it needs them at build time to emit `bg-panel` and
-   friends); the values below are the dark theme. `:root[data-theme]` re-points the same
-   variables, which is why no component contains a colour decision.
-
-   `static` is load-bearing: Tailwind only emits the theme variables some generated utility
-   references, and the 2D canvases read theirs with `getComputedStyle` instead (`lib/tokens.ts`)
-   — a token no class names is dropped from the stylesheet, `token()` answers `""`, and a canvas
-   silently ignores the assignment and keeps the colour it last had. That is how the max-hold
-   trace came to be drawn in the live trace's colour. */
 @theme static {
   --color-bg: oklch(0.178 0.004 255);
   --color-panel: oklch(0.215 0.005 255);
@@ -32,16 +16,6 @@
   --color-danger: oklch(0.7 0.17 25);
   --color-ok: oklch(0.78 0.15 155);
 
-  /* The plot never inverts: it is a screen set into the panel, not paper. These six are SDR++'s
-     own numbers — its Dark theme's `WaterfallBackground`, `PlotLines`, `FFTHoldColor`, `Text` and
-     `TextDisabled`, plus the `IM_COL32(50, 50, 50, 255)` its FFT grid is drawn in — kept as hex
-     rather than restated in OKLCH so the match stays checkable against upstream. An operator
-     coming from SDR++ reads the same trace on the same ground here.
-
-     `ink` and `ink-dim` stay achromatic, and everything drawn *over* the waterfall is built from
-     those two: the colormap owns hue inside that rectangle, an isoluminant cursor over it is
-     invisible and a coloured one is a conjunction search. The two hues that are licensed here —
-     the trace and the max-hold — are data, not overlay, and they never cross the waterfall. */
   --color-plot-bg: #000000;
   --color-plot-grid: #323232;
   --color-plot-trace: #66e5ff;
@@ -49,15 +23,7 @@
   --color-plot-ink: #ffffff;
   --color-plot-ink-dim: #7f7f7f;
 
-  /* Hue encodes the data type a port and its wire carry, and nothing else. Each is
-     paired with a marker shape in `NodeShell`, so the graph reads by shape alone; the set stays
-     small on purpose — four streams the engine moves, tuning ownership, and the transmit input
-     reserved for transmit, which is drawn hollow because nothing can fill it yet.
-     Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
   --color-port-iq: oklch(0.72 0.11 228);
-  /* One channel's passband, not the radio's whole stream. Its own hue because it is its own
-     type — nothing that takes wideband IQ can take this — and adjacent to the IQ blue because
-     that adjacency is the truth about it. */
   --color-port-baseband: oklch(0.74 0.1 196);
   --color-port-audio: oklch(0.74 0.12 158);
   --color-port-events: oklch(0.78 0.11 85);
@@ -65,19 +31,12 @@
   --color-port-control: oklch(0.76 0.1 300);
   --color-port-tx: oklch(0.76 0.12 345);
 
-  /* The category strip on a node header: what the box *is*, before its label is read. Low
-     chroma — this is a silkscreen mark, not a status light. */
   --color-cat-source: oklch(0.62 0.07 228);
   --color-cat-channel: oklch(0.62 0.07 300);
   --color-cat-display: oklch(0.62 0.05 200);
   --color-cat-feature: oklch(0.62 0.07 60);
   --color-cat-sink: oklch(0.58 0.03 80);
 
-  /* Service categories on the band ruler. The ruler is a gutter *beside* the
-     plot rectangle, not an overlay on it, which is the only reason hue is licensed here at all —
-     inside the plot the colormap still owns the whole budget. Nine hues plus a neutral is more
-     than any other family in this file carries, so every block also states its service in words
-     in the identify popover and the explorer: no allocation is known by its hue alone. */
   --color-band-ism: oklch(0.64 0.1 25);
   --color-band-broadcast: oklch(0.64 0.1 60);
   --color-band-mobile: oklch(0.64 0.09 145);
@@ -91,19 +50,10 @@
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
 
-  /* Elevation 3 only: popovers and menus. A tight contact shadow plus a long
-     falloff, led by the 1px top highlight — light catching the upper edge is the physically
-     honest inverse of a shadow, and on an L≈.3 surface it does more of the work than either
-     dark layer can. */
   --shadow-pop:
     inset 0 1px 0 oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.44);
 }
 
-/* Light is the same role table re-anchored: surfaces to L .94–1.0, ink to L .26–.56, and the
-   accent darkened to L .52 — a light ground needs the accent *below* it in lightness, where the
-   dark theme needs it above, so the same hue is carried at a different lightness and a higher
-   chroma to hold its identity there. The plot tokens are absent on purpose — they are
-   theme-independent. */
 @layer base {
   :root[data-theme="light"] {
     --color-bg: oklch(0.968 0.002 255);
@@ -120,10 +70,6 @@
     --color-danger: oklch(0.51 0.19 27);
     --color-ok: oklch(0.5 0.115 155);
 
-    /* Re-anchored, not inherited. Left dark, these five measure 1.8–2.1:1 against the light
-       ground — under the 3:1 floor a non-text graphic has to clear, which made a patch
-       unreadable in this theme ( carried it as an open defect). Each is the
-       lightness that puts its hue at 3.5:1 on `bg`, 3.2:1 on `panel-2`. */
     --color-port-iq: oklch(0.592 0.11 228);
     --color-port-audio: oklch(0.583 0.12 158);
     --color-port-events: oklch(0.599 0.11 85);
@@ -137,10 +83,6 @@
     --color-cat-feature: oklch(0.602 0.07 60);
     --color-cat-sink: oklch(0.598 0.03 80);
 
-    /* Re-anchored like the port and category families above: the dark values sit at L .64 and
-       measure under 3:1 on this ground. These are the lightnesses that put each hue at 3.5:1
-       on `bg`, which is what a block's 2px cap edge needs — the fill itself is the same hue at
-       28% and is a background, not a graphic. */
     --color-band-ism: oklch(0.55 0.15 25);
     --color-band-broadcast: oklch(0.58 0.11 60);
     --color-band-mobile: oklch(0.55 0.11 145);
@@ -176,14 +118,10 @@
     color-scheme: light;
   }
 
-  /* Numbers are compared column-wise and change in place: proportional figures would make a
-     live value jitter horizontally, which is layout instability the operator did not cause. */
   .font-mono {
     font-variant-numeric: tabular-nums slashed-zero;
   }
 
-  /* One ring, everywhere, `:focus-visible` only so a pointer click does not draw it. Never
-     removed — this is the whole keyboard layer's feedback. */
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
@@ -194,7 +132,6 @@
     background: color-mix(in oklab, var(--color-accent) 32%, transparent);
   }
 
-  /* Chrome's default scrollbars are the one piece of the UI that ignores the palette. */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--color-line-strong) transparent;
@@ -206,13 +143,6 @@
     font: inherit;
   }
 
-  /* A pointer standing over something that acts has to say so. Browsers give `<button>` the
-     arrow, and `cursor` inherits, so inside a node the `cursor: default` React Flow's chrome
-     needs (below) was what every button, box and menu item ended up wearing. Stated once, by
-     role rather than by class, so a control built from a headless primitive is covered without
-     the call site remembering. Zero specificity: any control with a cursor of its own — the
-     dial's directional halves, the ruler's help — still wins, as does every Tailwind utility,
-     which sits in a later layer. */
   :where(
     button,
     summary,
@@ -241,12 +171,6 @@
   }
 }
 
-/* The canvas ground and its wires. React Flow's base stylesheet carries layout
-   only; every colour here is a role token, so the graph follows the theme like everything else.
-
-   A wire is drawn in the hue of what it carries and nothing else, and it is the *only* place
-   these three hues appear besides their ports — the marker shape is what a colourblind operator
-   reads (). */
 .react-flow__pane {
   background: var(--color-bg);
 }
@@ -276,24 +200,15 @@
   stroke: var(--color-port-video);
 }
 
-/* Ownership rather than a stream, and drawn like one: a scanner's wire runs into the radio it
-   has taken over, so the arrowhead at its end points the same way the marker on the port does. */
 .wire-control .react-flow__edge-path {
   stroke: var(--color-port-control);
 }
 
-/* A wire that exists but cannot carry what it says it carries: dashed and in `danger`, with the
-   reason as its label. Refusing the connection outright would have been the wrong answer — a
-   sample rate is one setting away, and the face at the end of the wire offers that setting
-   (CANVAS §1). */
 .wire-fault .react-flow__edge-path {
   stroke: var(--color-danger);
   stroke-dasharray: 5 4;
 }
 
-/* Lifted clear of the wire it belongs to: React Flow centres a label on the path, so the dashes
-   run through the middle of the words. The `<text>` carries no transform of its own, so this
-   only offsets it — the wrapper keeps the position React Flow measured. */
 .wire-fault .react-flow__edge-text {
   fill: var(--color-danger);
   font-family: var(--font-mono);
@@ -301,17 +216,12 @@
   transform: translateY(-12px);
 }
 
-/* Hover and selection brighten the wire rather than recolouring it: the hue is already saying
-   what it carries. */
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path {
   stroke-width: 2.5;
   filter: brightness(1.35);
 }
 
-/* A node is our own chrome end to end; the library's box would draw a second border under it.
-   No size here on purpose: every face opens at the size its kind is worth (`NODE_SIZE`) and is
-   resized from there. */
 .react-flow__node {
   border: 0;
   background: transparent;
@@ -323,35 +233,22 @@
   cursor: default;
 }
 
-/* The library paints `cursor: pointer` over a selectable node and `cursor: grab` over a draggable
-   one — the whole card, controls included. Only the title bar drags a node, so only the title bar
-   claims the hand (see `NodeShell`); everywhere else the cursor has to be free to say what that
-   control actually does. Every state the library styles is named here, because each of its
-   selectors outranks the bare `.react-flow__node` above. */
 .react-flow__node.selectable,
 .react-flow__node.draggable,
 .react-flow__node.draggable.dragging {
   cursor: default;
 }
 
-/* A port straddles the border it sits on, so half of it lies over the face — and at a zoom that
-   lands the edge between two pixels, its very centre does. Above the sheet an inactive face is
-   covered with (`NodeShell`), or a wire could not be drawn from a node the pointer has not
-   selected first. Below the popups, which open over the ports. */
 .react-flow__handle {
   border-radius: 0;
   z-index: 25;
 }
 
-/* The connection line follows the same rule as a drawn wire, in the accent because it is not
-   carrying anything yet. */
 .react-flow__connectionline path {
   stroke: var(--color-accent);
   stroke-width: 2;
 }
 
-/* Reduced motion is a contract: the only motion in the UI is ≤120ms colour and opacity, and
-   this removes even that. The waterfall is data, not animation, so it is untouched. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

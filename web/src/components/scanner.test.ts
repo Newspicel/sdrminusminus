@@ -9,7 +9,6 @@ describe("parseRanges", () => {
     expect(parseRanges([{ startMhz: 145.6, stopMhz: 145.8, stepKhz: 12.5 }])).toEqual({
       ranges: [{ start_hz: 145_600_000, stop_hz: 145_800_000, step_hz: 12_500 }],
     });
-    // Binary fractions do not land on whole hertz on their own, and the server counts in them.
     const odd = parseRanges([{ startMhz: 433.075, stopMhz: 434.79, stepKhz: 8.33 }]);
     expect(odd).toEqual({
       ranges: [{ start_hz: 433_075_000, stop_hz: 434_790_000, step_hz: 8_330 }],
@@ -36,7 +35,6 @@ describe("newRange", () => {
   it("hands every row its own identity, so a removal cannot slide a draft onto its neighbour", () => {
     const rows = [newRange(), newRange(), newRange()];
     expect(new Set(rows.map((row) => row.id)).size).toBe(3);
-    // Two rows may legitimately hold the same three numbers; only the id tells them apart.
     expect(rows[0]).toMatchObject({ startMhz: rows[1]?.startMhz, stopMhz: rows[1]?.stopMhz });
   });
 
@@ -50,7 +48,6 @@ describe("newRange", () => {
 describe("targetCount", () => {
   it("counts inclusively, matching the server's expansion", () => {
     expect(targetCount([{ start_hz: 100, stop_hz: 200, step_hz: 50 }])).toBe(3);
-    // A stop that does not land on a step boundary must not invent a target past it.
     expect(targetCount([{ start_hz: 100, stop_hz: 249, step_hz: 50 }])).toBe(3);
     expect(
       targetCount([
@@ -106,8 +103,6 @@ describe("liveStatus", () => {
     expect(liveStatus(set, pushed)).toBe(pushed);
   });
 
-  // A pushed status outlives the scan that produced it; the snapshot is what says a scan
-  // exists, so a stale push must never resurrect a stopped scan in the panel.
   it("reports nothing when the snapshot has no scan", () => {
     expect(liveStatus(deviceSet(), STATUS)).toBeNull();
     expect(liveStatus(null, STATUS)).toBeNull();

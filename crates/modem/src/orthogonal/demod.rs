@@ -1,20 +1,3 @@
-//! The noncoherent M-FSK receiver: filterbank energies, a feedforward symbol-timing estimate,
-//! and the argmax with its soft counterpart.
-//!
-//! **Timing is feedforward, one estimate per burst** — the same choice the linear engine made in
-//! phase 4, for a reason that is sharper here: a noncoherent detector has no error signal a
-//! tracking loop could ride. There is no phase to differentiate and no eye to open; what a
-//! misaligned window costs is *energy split between two symbols*, and that is a quantity you
-//! maximise over a burst rather than track through one. So the estimator is exactly that
-//! maximisation ([`MfskDemod::estimate_offset`]): the offset whose windows collect the most
-//! peak-tone energy across the burst.
-//!
-//! The estimate is over whole samples. A rect matched filter misaligned by δ samples keeps
-//! `(1 − δ/N)²` of the symbol's energy, so the residual half-sample costs
-//! `−20·log₁₀(1 − 1/(2N))` dB — 0.45 dB at the catalog's 10 samples per symbol, 0.002 dB at
-//! FT8's 1920. That is the entry's timing story, and the §4.3 timing row measures it rather
-//! than this comment asserting it.
-
 use num_complex::Complex;
 
 use super::{filterbank::ToneBank, params::MfskParams};
@@ -23,12 +6,8 @@ use crate::{
     soft::{Llr, argmax},
 };
 
-/// Stack scratch for one symbol's energies — sized by the plan's own ceiling
-/// ([`MAX_TONES`](super::params::MAX_TONES)), which is what keeps every method here
-/// allocation-free on the hot path (§4.2).
 const SCRATCH: usize = super::params::MAX_TONES;
 
-/// One noncoherent M-FSK receiver over one tone plan.
 #[derive(Clone, Debug)]
 pub struct MfskDemod {
     params: MfskParams,
@@ -57,21 +36,11 @@ impl MfskDemod {
         self.params.bits_per_symbol()
     }
 
-    /// Per-tone energies of the symbol at `offset + symbol·sps`, written into `out`.
-    ///
-    /// # Panics
-    /// If `out.len() != m`.
     pub fn energies(&self, iq: &[Complex<f32>], offset: usize, symbol: usize, out: &mut [f32]) {
         self.bank
             .energies(iq, offset + symbol * self.params.window(), out);
     }
 
-    /// The feedforward burst timing estimate: the whole-sample offset in `0..sps` whose windows
-    /// collect the most peak-tone energy over the first `symbols` symbols. Ties keep the
-    /// earliest offset, so a burst already on the grid estimates 0.
-    ///
-    /// Zero allocation, `O(sps · symbols · M · sps)` — a burst-rate cost paid once, against the
-    /// per-sample cost of a loop that would have no error signal to ride anyway.
     #[must_use]
     pub fn estimate_offset(&self, iq: &[Complex<f32>], symbols: usize) -> usize {
         let mut energies = [0.0f32; SCRATCH];
@@ -90,7 +59,6 @@ impl MfskDemod {
         best.0
     }
 
-    /// `symbols` hard-decided symbols from `offset`, appended to `out`.
     pub fn demodulate(
         &self,
         iq: &[Complex<f32>],
@@ -107,11 +75,6 @@ impl MfskDemod {
         }
     }
 
-    /// Per-bit LLRs of `symbols` symbols from `offset`, appended to `out` in transmission order
-    /// (`bits_per_symbol` per symbol, bit k of the tone index at position k).
-    ///
-    /// `noise_var` is N0 in the filterbank's own normalisation — [`noise_var_from_energies`]
-    /// measures it from the bank's output, or the §3.4 known-symbol hook supplies it.
     pub fn llrs(
         &self,
         iq: &[Complex<f32>],
@@ -134,21 +97,6 @@ impl MfskDemod {
     }
 }
 
-/// N0 estimated from filterbank output: the mean of every bin *except* each symbol's largest.
-///
-/// Under correct detection those bins hold noise alone, and each is exponential with mean N0 in
-/// the bank's normalisation — so the mean of `symbols·(M−1)` of them has relative accuracy
-/// ~`1/√(symbols·(M−1))`. The estimate is biased *low* by exactly the wrong-tone case: when a
-/// symbol errs, one discarded bin carried signal and one counted bin did too. That direction is
-/// the honest one — it overstates LLR magnitudes only where the receiver is already deep in
-/// error — and at the operating points a curve is measured over, the bias is the error rate
-/// itself, ≲1e-2.
-///
-/// `energies` is a flat `symbols × M` block, as [`MfskDemod::energies`] fills one symbol at a
-/// time.
-///
-/// # Panics
-/// If `m` is zero or `energies.len()` is not a multiple of `m`.
 #[must_use]
 pub fn noise_var_from_energies(energies: &[f32], m: usize) -> f64 {
     assert!(m > 1, "a noise estimate needs a bin the signal is not in");
@@ -198,7 +146,6 @@ mod tests {
             .collect()
     }
 
-    /// Add complex AWGN of total variance `noise_var` in place.
     fn add_noise(wave: &mut [Complex<f32>], seed: u64, noise_var: f64) {
         let mut rng = Rng::new(seed);
         let sigma = (noise_var / 2.0).sqrt();
@@ -210,8 +157,6 @@ mod tests {
     #[test]
     fn every_alphabet_round_trips_clean() {
         for m in [2usize, 4, 8, 16] {
-            // The outer tones of a wide alphabet need room below Nyquist: at spacing 1 the
-            // plan spans M−1 cycles per symbol, so the window has to be wider than that.
             let p = MfskParams::orthogonal(m, (2 * m) as f64);
             let symbols = payload(m, 200);
             let wave = modulate(&p, TonePhase::Continuous, &symbols);
@@ -221,9 +166,6 @@ mod tests {
         }
     }
 
-    /// The entry's claim about its own detector: a noncoherent receiver cannot tell the two
-    /// transmitter phase policies apart. Measured on noise, not asserted on a clean signal —
-    /// a clean signal would pass on either policy for uninteresting reasons.
     #[test]
     fn both_phase_policies_decode_identically() {
         let p = params(4);
@@ -240,9 +182,6 @@ mod tests {
             errors(TonePhase::Continuous),
             errors(TonePhase::Independent),
         );
-        // Both realisations see the same noise draw, so the counts are comparable directly;
-        // ~100 errors expected, and a policy the detector *did* care about would differ by
-        // far more than the ±30% two independent realisations can.
         assert!(continuous > 20 && independent > 20, "too clean to compare");
         let ratio = continuous as f64 / independent as f64;
         assert!(
@@ -251,8 +190,6 @@ mod tests {
         );
     }
 
-    /// The timing estimator finds the offset a burst was actually sent at — including the one
-    /// case a tracking loop would never see, a burst that starts mid-sample-grid.
     #[test]
     fn the_timing_estimate_finds_the_offset_the_burst_was_sent_at() {
         let p = params(4);
@@ -268,8 +205,6 @@ mod tests {
         }
     }
 
-    /// A wrong offset must cost, or the estimator would be choosing between equals: half a
-    /// symbol of misalignment splits every symbol's energy across two windows.
     #[test]
     fn a_half_symbol_offset_loses_most_of_the_energy() {
         let p = params(8);
@@ -290,8 +225,6 @@ mod tests {
         assert!(split < 0.6 * aligned, "aligned {aligned}, split {split}");
     }
 
-    /// The noise-variance estimate is what turns bank energies into calibrated LLRs, so it is
-    /// measured against a known N0 rather than trusted.
     #[test]
     fn the_noise_estimate_recovers_a_known_n0() {
         let p = params(8);
@@ -311,9 +244,6 @@ mod tests {
         );
     }
 
-    /// LLR calibration, the property the `Llr` type is a claim about: among bits the receiver
-    /// reports at confidence |llr|, the fraction that are wrong must match `1/(1+e^|llr|)`.
-    /// Measured in bands over a long run at a realistic operating point.
     #[test]
     fn llr_magnitudes_predict_their_own_error_rate() {
         let p = params(4);
@@ -325,7 +255,6 @@ mod tests {
         demod.llrs(&wave, 0, symbols.len(), 1.0, &mut llrs);
         let mut bands = [(0u32, 0u32); 4];
         for (i, &llr) in llrs.iter().enumerate() {
-            // Bit k of the tone index rides at position k, per `energy_llrs`' labelling.
             let sent = (symbols[i / 2] >> (i % 2)) & 1 == 1;
             let band = match llr.0.abs() {
                 x if x < 1.0 => 0,

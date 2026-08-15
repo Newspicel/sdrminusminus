@@ -1,5 +1,3 @@
-//! FreeDV 1600: the interoperable FDMDV waveform and Codec2 1300 speech.
-
 use std::{ffi::c_void, ptr::NonNull, sync::LazyLock};
 
 use num_complex::Complex;

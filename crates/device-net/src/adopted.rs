@@ -1,4 +1,3 @@
-//! The endpoints a driver has been told about.
 use std::{
     collections::BTreeSet,
     sync::{Mutex, MutexGuard, PoisonError},
@@ -6,8 +5,6 @@ use std::{
 
 use crate::endpoint::Endpoint;
 
-/// Endpoints one driver will answer for. Bounded so a client that can post device ids cannot make
-/// the device list grow without end; well above any plausible number of remote receivers.
 const MAX_ENDPOINTS: usize = 64;
 
 #[derive(Debug, Default)]
@@ -16,22 +13,16 @@ pub(crate) struct Adopted {
 }
 
 impl Adopted {
-    /// Take responsibility for `endpoint`, so later probes report it. `false` once the list is
-    /// full and the endpoint is not already on it — the caller refuses rather than silently
-    /// opening a radio no probe will ever confirm, which the engine would fault seconds later.
     pub(crate) fn adopt(&self, endpoint: Endpoint) -> bool {
         let mut endpoints = self.lock();
         endpoints.contains(&endpoint)
             || endpoints.len() < MAX_ENDPOINTS && endpoints.insert(endpoint)
     }
 
-    /// Every adopted endpoint, in a stable order.
     pub(crate) fn list(&self) -> Vec<Endpoint> {
         self.lock().iter().cloned().collect()
     }
 
-    /// A driver's endpoint list carries no state a panic could half-write, and losing every remote
-    /// radio for the rest of the session over one is the worse outcome.
     fn lock(&self) -> MutexGuard<'_, BTreeSet<Endpoint>> {
         self.endpoints
             .lock()

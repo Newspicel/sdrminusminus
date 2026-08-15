@@ -93,10 +93,6 @@ function SignalSurvey({
     spanHz: number;
   } | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
-  // The frame subscription is installed once per wired lane and outlives every render, so it
-  // reads the fix, the switch and the window from here. Written after commit rather than during
-  // render: React may replay or discard a render, and a reading must never be recorded against a
-  // value from one that never landed.
   const positionRef = useRef(position);
   const recordingRef = useRef(recording);
   const surveyFrequencyRef = useRef(samples[0]?.frequencyHz);

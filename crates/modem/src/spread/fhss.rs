@@ -2,8 +2,6 @@ use num_complex::Complex;
 
 use super::pn::{PnError, PnSequence};
 
-/// The hop schedule as data: which channels exist, how far apart they sit, how long a dwell
-/// lasts, and the order they are visited in.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HopSequence {
     channels: usize,
@@ -12,17 +10,12 @@ pub struct HopSequence {
     order: Vec<usize>,
 }
 
-/// Why a schedule was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FhssError {
-    /// Fewer than two channels is not a hopping link, and a zero-sample dwell is not a dwell.
     DegenerateSchedule,
     ChannelOutOfRange(usize),
-    /// An empty hop order visits nothing.
     EmptyOrder,
-    /// The code ran through its whole period without drawing enough in-range channels.
     ExhaustedCode,
-    /// The sequence generator could not build the code the schedule is derived from.
     Sequence(PnError),
 }
 
@@ -49,12 +42,6 @@ impl std::fmt::Display for FhssError {
 impl std::error::Error for FhssError {}
 
 impl HopSequence {
-    /// From an explicit order — the arbitrary-schedule constructor, and what a protocol
-    /// attachment with a standard's own hop table would use.
-    ///
-    /// # Errors
-    /// [`FhssError::DegenerateSchedule`], [`FhssError::EmptyOrder`],
-    /// [`FhssError::ChannelOutOfRange`].
     pub fn new(
         channels: usize,
         spacing_cycles: f64,
@@ -130,20 +117,16 @@ impl HopSequence {
         &self.order
     }
 
-    /// Channel spacing, in cycles per sample.
     #[must_use]
     pub fn spacing_cycles(&self) -> f64 {
         self.spacing_cycles
     }
 
-    /// Samples the whole schedule covers. Past it the sequence repeats, which is what a hop
-    /// order shorter than a burst means.
     #[must_use]
     pub fn span_samples(&self) -> usize {
         self.order.len() * self.dwell_samples
     }
 
-    /// The channel dwell `hop` sits on, the order wrapping so a short schedule repeats.
     #[must_use]
     pub fn channel(&self, hop: usize) -> usize {
         self.order[hop % self.order.len()]
@@ -154,9 +137,6 @@ impl HopSequence {
         (channel as f64 - (self.channels as f64 - 1.0) / 2.0) * self.spacing_cycles
     }
 
-    /// Distinct channels the schedule's first `hops` dwells actually land on. A generated
-    /// schedule that visited two of sixteen channels would spread nothing, and no BER curve
-    /// would ever say so — this is the property that makes the generator acceptable.
     #[must_use]
     pub fn visits(&self, hops: usize) -> usize {
         let mut seen = vec![false; self.channels];
@@ -166,33 +146,22 @@ impl HopSequence {
         seen.iter().filter(|s| **s).count()
     }
 
-    /// The occupied span, in cycles per sample — what the hopping costs in bandwidth over the
-    /// underlying entry's own.
     #[must_use]
     pub fn occupied_cycles(&self) -> f64 {
         (self.channels as f64 - 1.0) * self.spacing_cycles
     }
 }
 
-/// The hopper: moves each dwell onto its channel. Applied to an underlying entry's baseband
-/// output, in place, so the framework adds no buffer of its own.
 #[derive(Clone, Debug)]
 pub struct FhssMod {
     sequence: HopSequence,
 }
 
-/// The de-hopper: moves each dwell back to baseband. Structurally the hopper with the sign
-/// flipped, and written as such rather than as a second derivation — the two must be exact
-/// inverses or the framework would cost the underlying entry a measurable, unattributable
-/// fraction of a dB.
 #[derive(Clone, Debug)]
 pub struct FhssDemod {
     sequence: HopSequence,
 }
 
-/// Applies the schedule's per-dwell carrier, `sign` distinguishing hop from de-hop. Dwells are
-/// counted from sample 0 of the buffer — the shared time base "with the sequencer known" means —
-/// and the oscillator's phase is that absolute index's, so hop and de-hop cancel exactly.
 fn apply(sequence: &HopSequence, wave: &mut [Complex<f32>], sign: f64) {
     for (index, sample) in wave.iter_mut().enumerate() {
         let hop = index / sequence.dwell_samples();
@@ -217,7 +186,6 @@ impl FhssMod {
         &self.sequence
     }
 
-    /// Moves each dwell onto its channel, in place.
     pub fn hop(&self, wave: &mut [Complex<f32>]) {
         apply(&self.sequence, wave, 1.0);
     }
@@ -234,13 +202,10 @@ impl FhssDemod {
         &self.sequence
     }
 
-    /// Moves each dwell back to baseband, in place.
     pub fn dehop(&self, wave: &mut [Complex<f32>]) {
         apply(&self.sequence, wave, -1.0);
     }
 
-    /// Dwells of the first `hops` that sit on `channel` — how much of a burst a jammer parked
-    /// there can reach, which is the framework's whole claim reduced to a count.
     #[must_use]
     pub fn dwells_on(&self, channel: usize, hops: usize) -> usize {
         (0..hops)
@@ -249,13 +214,9 @@ impl FhssDemod {
     }
 }
 
-/// The hop-order generator's interface, for a schedule a caller would rather compute than list.
-/// [`HopSequence::from_m_sequence`] is the implementation this crate ships; a protocol attachment
-/// with a standard's own generator implements this and hands the order to [`HopSequence::new`].
 pub trait HopSequencer {
     fn channel(&self, hop: usize) -> usize;
 
-    /// The first `hops` channels as an order [`HopSequence::new`] takes.
     fn order(&self, hops: usize) -> Vec<usize> {
         (0..hops).map(|hop| self.channel(hop)).collect()
     }
@@ -275,10 +236,6 @@ mod tests {
         HopSequence::from_m_sequence(channels, 0.01, 64, hops, 9).unwrap()
     }
 
-    /// The framework's defining property: hop then de-hop is the identity. Not "close to" — the
-    /// two oscillators are the same expression with one sign, so anything but bit-level agreement
-    /// would be a phase-accumulation defect that would show up as an unattributable loss in the
-    /// underlying entry's curve.
     #[test]
     fn hopping_and_dehopping_is_the_identity() {
         let sequence = schedule(16, 32);
@@ -296,7 +253,6 @@ mod tests {
         for (k, (&got, &want)) in wave.iter().zip(&original).enumerate() {
             assert!((got - want).norm() < 1e-5, "sample {k}: {got} vs {want}");
         }
-        // …and the hop is not a no-op it could have trivially passed by being.
         let moved = hopped
             .iter()
             .zip(&original)
@@ -305,9 +261,6 @@ mod tests {
         assert!(moved > original.len() / 2, "only {moved} samples moved");
     }
 
-    /// Each dwell really is on its own carrier: the phase step across a dwell must match the
-    /// channel's offset, which is what makes `offset_cycles` a physical statement rather than a
-    /// label.
     #[test]
     fn each_dwell_sits_on_its_own_carrier() {
         let sequence = schedule(8, 16);
@@ -358,8 +311,6 @@ mod tests {
         assert!((even.offset_cycles(3) + even.offset_cycles(4)).abs() < 1e-12);
     }
 
-    /// A short order repeats rather than running out — the case a burst longer than the schedule
-    /// hits, and the one an indexing slip turns into a panic.
     #[test]
     fn a_short_order_wraps() {
         let sequence = HopSequence::new(4, 0.02, 16, vec![2, 0, 3]).unwrap();

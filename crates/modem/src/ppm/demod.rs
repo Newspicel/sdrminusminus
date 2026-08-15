@@ -1,4 +1,3 @@
-//! M-PPM detection: the slot statistics, the argmax, and the soft output.
 use num_complex::Complex;
 
 use super::grid::SlotGrid;
@@ -7,34 +6,21 @@ use crate::{
     soft::{Llr, SoftBit, argmax},
 };
 
-/// Which slot statistic the receiver forms. See the module docs for the measured trade.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotDetector {
-    /// `|Σ wₙ·xₙ|²`, normalised so a noise-only slot reads mean N0.
     MatchedFilter,
-    /// `Σ wₙ·|xₙ|` over pre-computed magnitudes.
     Envelope,
 }
 
-/// One M-PPM receiver at one assumed sub-sample phase.
 #[derive(Clone, Debug)]
 pub struct PpmDemod {
     m: usize,
     grid: SlotGrid,
     detector: SlotDetector,
-    /// Per slot, `1/√(Σ wₙ²)`: what turns the matched-filter sum into a statistic whose
-    /// noise-only mean is N0 regardless of slot width or where the boundaries fell.
     norm: Vec<f32>,
 }
 
 impl PpmDemod {
-    /// A receiver for `symbols` M-PPM symbols starting `phase` samples into its window,
-    /// preceded by `lead_slots` slots the caller owns (a protocol preamble, a guard) so its
-    /// slot arithmetic and this grid's are the same arithmetic.
-    ///
-    /// # Panics
-    /// If `m` is not a power of two of at least two, `symbols` is zero, or as
-    /// [`SlotGrid::new`].
     #[must_use]
     pub fn new(
         m: usize,
@@ -56,19 +42,12 @@ impl PpmDemod {
         )
     }
 
-    /// A receiver over a grid the caller built — the entry point for a protocol whose slot
-    /// timeline is not a whole number of M-PPM symbols (Mode S prefixes a four-pulse preamble).
-    ///
-    /// # Panics
-    /// If `m` is not a power of two of at least two.
     #[must_use]
     pub fn over(m: usize, grid: SlotGrid, detector: SlotDetector) -> Self {
         assert!(
             m >= 2 && m.is_power_of_two(),
             "M must be a power of two of at least 2, got {m}"
         );
-        // Only the matched filter divides by its noise gain; the envelope tier reads a scale
-        // of its own and would pay a square root per slot for a number it never uses.
         let norm = match detector {
             SlotDetector::MatchedFilter => (0..grid.slots())
                 .map(|slot| grid.weight_energy(slot).sqrt().recip())
@@ -83,11 +62,6 @@ impl PpmDemod {
         }
     }
 
-    /// Every assumed sub-sample phase of one configuration — the set a receiver tries when the
-    /// transmitter's clock phase is unknown, and the CRC (or the sync correlation) arbitrates.
-    ///
-    /// # Panics
-    /// As [`Self::new`], plus if `tables` is zero.
     #[must_use]
     pub fn phases(
         m: usize,
@@ -123,7 +97,6 @@ impl PpmDemod {
         self.detector
     }
 
-    /// One slot's statistic, through whichever tier this receiver carries.
     fn statistic(&self, window: &[Complex<f32>], slot: usize) -> f32 {
         match self.detector {
             SlotDetector::MatchedFilter => {
@@ -152,13 +125,10 @@ impl PpmDemod {
         }
     }
 
-    /// Normalisation of one slot's matched-filter sum; 1.0 past the grid, where the sum is zero
-    /// anyway and the statistic is "nothing here" either way.
     fn slot_norm(&self, slot: usize) -> f32 {
         self.norm.get(slot).copied().unwrap_or(1.0)
     }
 
-    /// `symbols` consecutive M-PPM symbols from `first_slot`, hard-decided, appended to `out`.
     pub fn demodulate(
         &self,
         window: &[Complex<f32>],
@@ -174,23 +144,6 @@ impl PpmDemod {
         }
     }
 
-    /// Feedforward burst timing: the whole-sample offset in `0..ceil(samples_per_slot)` whose
-    /// grid reads `slots` slots from `first_slot` as the most *concentrated* energy. Ties keep
-    /// the earliest offset, so a burst already on the grid estimates 0.
-    ///
-    /// The metric is `Σ stat²` over the slots, not the peak per symbol, and the difference is
-    /// load-bearing: a whole-slot shift moves a pulse from one symbol's window into its
-    /// neighbour's, so a per-symbol peak silently rewards or punishes offsets according to the
-    /// *data* — measured as an estimator that preferred a 1-sample error on a burst whose first
-    /// two symbols were 1 then 0. A sum over slots cannot see the pairing at all, and a pulse
-    /// split across two slots always scores less than one inside a single slot.
-    ///
-    /// The search is deliberately *shorter than one slot*, because past that the maximisation
-    /// is blind: a burst read one whole slot late still puts every pulse entirely inside some
-    /// slot, so the concentration is identical and only a known sequence can tell the two apart
-    /// — which is [`Self::align`]'s job. Below one sample it is blind for the opposite reason: a
-    /// whole-sample search cannot express a sub-sample phase, and the answer to that is a grid
-    /// per phase ([`Self::phases`]), not a finer loop.
     #[must_use]
     pub fn estimate_offset(
         &self,
@@ -238,28 +191,16 @@ impl PpmDemod {
     }
 }
 
-/// Largest M any single-symbol scratch buffer here holds. 256 slots is four orders past the
-/// alphabets PPM is used at (Mode S is 2, optical links 4–16) and keeps the stack scratch that
-/// makes [`PpmDemod::demodulate`] allocation-free honest rather than generous.
 pub const MAX_SLOTS: usize = 256;
 
-/// Bits one symbol of [`MAX_SLOTS`] slots labels — the soft-output scratch's size.
 pub const MAX_SLOT_BITS: usize = MAX_SLOTS.trailing_zeros() as usize;
 
-/// Per-bit LLRs of one symbol's matched-filter statistics, through the crate's one energy
-/// demapper (`constellation::demap::energy_llrs`): the slot index is the bit label, and
-/// `noise_var` is N0 — the same normalisation [`PpmDemod::statistics_at`] delivers, which is
-/// what makes these true LLRs rather than confidences.
-///
-/// # Panics
-/// As [`energy_llrs`].
 pub fn llrs(statistics: &[f32], noise_var: f64, out: &mut [Llr]) {
     energy_llrs(statistics, noise_var, out);
 }
 
 pub fn soft_bits(statistics: &[f32], out: &mut [SoftBit]) {
     let peak = statistics.iter().copied().fold(0.0f32, f32::max);
-    // A dead window votes for nothing rather than voting confidently for the tie rule's winner.
     let scale = if peak > 0.0 { f64::from(peak) } else { 1.0 };
     let mut llrs = [Llr(0.0); MAX_SLOT_BITS];
     let llrs = &mut llrs[..out.len()];
@@ -287,7 +228,6 @@ mod tests {
         PpmDemod::new(m, sps, 0, symbols, 0.0, detector)
     }
 
-    /// The round trip, on both detectors: what the modulator keyed is what the argmax reads.
     #[test]
     fn every_symbol_round_trips_through_both_detectors() {
         let symbols: Vec<u8> = (0..64).map(|i| (i * 5 % 8) as u8).collect();
@@ -311,9 +251,6 @@ mod tests {
         assert_eq!(envelope_decoded, symbols);
     }
 
-    /// The calibration claim behind the matched tier's LLRs: a noise-only slot's statistic has
-    /// mean N0, whatever the slot width. Without it the demapper's `noise_var` would be a
-    /// fudge factor and the LLRs confidences wearing the wrong type.
     #[test]
     fn a_noise_only_slot_reads_mean_n0() {
         use crate::ber::rng::Rng;
@@ -338,7 +275,6 @@ mod tests {
         }
     }
 
-    /// The tie rule, stated as behaviour: silence decodes to the last slot, deterministically.
     #[test]
     fn a_dead_window_decodes_to_the_last_slot() {
         let d = demod(4, 3.0, 4, SlotDetector::MatchedFilter);
@@ -349,8 +285,6 @@ mod tests {
         assert_eq!(argmax(&[1.0, 0.5]), 0);
     }
 
-    /// Soft output carries the right sign for every bit of the detected symbol, and a dead
-    /// window abstains rather than voting confidently for the tie winner.
     #[test]
     fn soft_bits_agree_with_the_hard_decision_and_abstain_on_silence() {
         let stats = [0.1f32, 4.0, 0.2, 0.05];
@@ -364,8 +298,6 @@ mod tests {
         assert!(soft.iter().all(|s| s.is_erasure()), "{soft:?}");
     }
 
-    /// LLR magnitudes must grow with separation — the property a FEC downstream actually
-    /// consumes, and the one a mis-normalised statistic would silently invert.
     #[test]
     fn llr_magnitude_grows_with_slot_separation() {
         let mut weak = [Llr(0.0); 1];
@@ -375,10 +307,6 @@ mod tests {
         assert!(strong[0].0 > weak[0].0 && weak[0].0 > 0.0);
     }
 
-    /// The two timing primitives together, on the burst they are written for: a frame that
-    /// starts at an arbitrary sample is found by the sub-slot estimate and the known word, and
-    /// what is found is the *centred* alignment — not merely one that happens to slice
-    /// correctly, which is the failure mode a hard-agreement search walks into.
     #[test]
     fn the_timing_estimate_and_the_known_word_find_the_frame() {
         let word = [1u8, 0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0];
@@ -407,9 +335,6 @@ mod tests {
         }
     }
 
-    /// A receiver at the wrong phase must still be *a* receiver: the phase set exists so that
-    /// something downstream can pick, and every member has to be able to read a burst that
-    /// happens to sit on its grid.
     #[test]
     fn every_phase_table_reads_a_burst_aligned_to_it() {
         let symbols: Vec<u8> = (0..32).map(|i| (i % 4) as u8).collect();

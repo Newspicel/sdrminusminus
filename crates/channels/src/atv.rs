@@ -1,11 +1,3 @@
-//! ATV — analog television. Envelope or discriminator → level clamp → sync separator →
-//! per-line composite-video decoder, with PAL/NTSC colour and an optional FM sound carrier.
-//!
-//! The whole mode is a clock-recovery problem wearing a picture: a raster is a stream whose
-//! only framing is the shape of its own blanking, so everything here hangs off classifying
-//! low pulses by width. A short one is a line, a long one is a field, and a half-width one is
-//! an equalizing pulse that must be ignored or every line comes out twice as fast.
-//!
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
@@ -24,16 +16,9 @@ use crate::{
     check_input_rate, clamp_full_scale,
 };
 
-/// The minimum channel IQ rate. 2 Msps resolves a 625-line monochrome raster at 128 samples per
-/// line; colour and sound retain the device's higher native rate and filter the composite video
-/// internally.
 const INPUT_RATE_HZ: f64 = 2_000_000.0;
 const MAX_INPUT_RATE_HZ: f64 = 20_000_000.0;
 
-/// Selectivity ahead of the detector. Short by this crate's standards on purpose: at 2 Msps a
-/// 129-tap filter costs more than everything else in the channel put together, and 63 taps
-/// still land the Blackman stopband (5.5/N ≈ 0.087 of the rate) inside Nyquist for the widest
-/// band this mode admits.
 const CHANNEL_TAPS: usize = 63;
 const COLOR_BANDWIDTH_HZ: f64 = 600_000.0;
 const PAL_SUBCARRIER_HZ: f64 = 4_433_618.75;
@@ -44,46 +29,26 @@ const SOUND_AUDIO_HZ: f64 = 15_000.0;
 const SOUND_DECIM: usize = 5;
 const SOUND_TAPS: usize = 199;
 
-/// Narrowest channel that still carries a raster: a 4.7 µs sync pulse needs roughly 200 kHz to
-/// keep an edge, and below 100 kHz the separator has nothing to slice.
 const MIN_BANDWIDTH_HZ: f64 = 100_000.0;
 
-/// Slicing level between the sync tip (0.0) and peak white (1.0) — halfway to the 30 % blanking
-/// level all three standards put the picture above.
 const SYNC_SLICE: f32 = 0.15;
 
-/// Sync-pulse width bounds as a fraction of the standard's nominal. The lower bound is what
-/// rejects equalizing pulses, which are exactly half a sync wide.
 const SYNC_MIN_FRAC: f64 = 0.65;
 const SYNC_MAX_FRAC: f64 = 2.5;
 
-/// A low pulse at least this fraction of a line long is a broad (vertical-sync) pulse. The
-/// broad pulses of every standard here run past 0.4 of a line; nothing else comes close.
 const BROAD_MIN_FRAC: f64 = 0.25;
 
-/// How far from the flywheel's prediction a sync may land and still be this line's, once
-/// locked. Wider and interference re-datums the line; narrower and a drifting source is lost.
 const SYNC_WINDOW_FRAC: f64 = 0.08;
 
-/// The line ends here whether or not a sync arrived — the flywheel coasting through a sync
-/// the noise ate. Past [`SYNC_WINDOW_FRAC`], so a late-but-plausible sync is still taken.
 const MAX_COAST_FRAC: f64 = 1.15;
 
-/// Accepted syncs before the flywheel trusts its own prediction enough to start refusing the
-/// ones that land elsewhere.
 const LOCK_LINES: u8 = 4;
 
-/// How hard a measured line length pulls the estimate, per line.
 const LINE_TRACK: f64 = 0.05;
-/// …and how far it may be pulled from the standard's nominal. A source that is 2 % off is
-/// mistuned or mis-standard; chasing it further would let noise walk the estimate away.
 const LINE_TRACK_LIMIT: f64 = 0.02;
 
-/// Lines a vertical sync stays "the same one" for, so the several broad pulses of one group do
-/// not each start a field. Longer than any group, far shorter than a field.
 const VERTICAL_HOLD_LINES: u16 = 8;
 
-/// Narrowest picture worth scanning out.
 const MIN_WIDTH: u16 = 16;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -97,36 +62,20 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     ..ChannelDescriptor::default()
 });
 
-/// One standard's raster, as fractions of a line period measured from the sync leading edge.
 #[derive(Clone, Copy, Debug)]
 struct Timing {
-    /// Nominal horizontal sync width.
     sync: f64,
-    /// Active video window, `[start, end)`.
     active: (f64, f64),
-    /// Lines carrying picture, of the standard's total — the height of what this scans out.
     active_lines: u16,
-    /// Lines from the leading edge of the first broad pulse to the first line carrying picture.
-    /// Read off the field-blanking tables rather than derived: the equalizing, broad and
-    /// post-equalizing groups that precede the picture are not a fixed share of the blanked
-    /// lines, and it is the broad pulse — not the field's first line — that is detectable.
     picture_delay: u16,
 }
 
 fn timing(standard: AtvStandard) -> Timing {
-    // Sync, back porch and active window in µs, straight off the standard's timing table, plus
-    // the picture's height and where it starts relative to the broad pulses.
     let (sync_us, back_us, active_us, active_lines, picture_delay) = match standard {
-        // CCIR System B/G: the picture starts at line 23 of the field, the broad pulses at 3.5.
         AtvStandard::Ccir625 => (4.7, 5.8, 51.95, 576, 20),
-        // EIA RS-170A: the picture starts at line 21, the broad pulses at line 4.
         AtvStandard::Eia525 => (4.7, 4.5, 52.6, 480, 17),
-        // System A has no equalizing group at all — the broad pulses open the field, and the
-        // picture starts 14 lines later.
         AtvStandard::SystemA405 => (9.0, 5.8, 82.2, 376, 14),
     };
-    // Per-line fractions rather than sample counts, so a source whose line rate is a little off
-    // the standard's is resampled by *its* line and not by the nominal one.
     let line_us = 1e6 / standard.line_rate_hz();
     let start = (sync_us + back_us) / line_us;
     Timing {
@@ -137,9 +86,6 @@ fn timing(standard: AtvStandard) -> Timing {
     }
 }
 
-/// Peak tracker over the demodulated video: fast onto a new extreme, slow off it. The two ends
-/// are the sync tip and peak white, which is the only absolute reference an analog raster
-/// carries — every level below is measured against them.
 #[derive(Clone, Debug)]
 struct Levels {
     lo: f32,
@@ -154,16 +100,12 @@ impl Levels {
         Self {
             lo: 0.0,
             hi: 1.0,
-            // ~2 µs onto an extreme: a sync tip is 4.7 µs, so the tracker reaches it inside one.
             attack: (1.0 - (-1.0 / (rate * 2e-6)).exp()) as f32,
-            // ~50 ms off it, which is 800 lines — long enough that a white-free picture does not
-            // pump, short enough to follow a fade.
             decay: (1.0 / (rate * 0.05)) as f32,
             primed: false,
         }
     }
 
-    /// Track `v` and return it normalized so the sync tip reads 0.0 and peak white 1.0.
     fn normalize(&mut self, v: f32) -> f32 {
         if !self.primed {
             self.primed = true;
@@ -179,24 +121,13 @@ impl Levels {
         };
         self.lo += (v - self.lo) * coeff(v < self.lo);
         self.hi += (v - self.hi) * coeff(v > self.hi);
-        // A carrier that has not been modulated yet collapses the two together; a floor here
-        // keeps the slicer finite rather than letting it divide by nothing.
         let span = (self.hi - self.lo).max(1e-6);
         (v - self.lo) / span
     }
 }
 
-/// The library detector this channel is an attachment to, in the one shape `sdrmm_modem::analog`
-/// offers it: the bare detector, with the engine's predetection filter, audio lowpass and DC
-/// block all switched off. A raster is not audio — the host runtime supplies the selectivity, the
-/// video band *is* the sample rate, and the blanking level a DC blocker would remove is precisely
-/// the datum the sync separator slices against.
 enum Detector {
-    /// Amplitude television, read as an envelope.
     Envelope(AmDemod),
-    /// Frequency television, read as an instantaneous frequency. A discriminator's scale cancels
-    /// in the level tracker, so the deviation only has to keep the output near unity rather than
-    /// match the transmitter's.
     Discriminator(AngleDemod),
 }
 
@@ -326,37 +257,26 @@ pub struct AtvChannel {
     input_rate: f64,
     video_rate: f64,
     timing: Timing,
-    /// Samples per line the standard asks for, and what the tracker currently believes.
     nominal_line: f64,
     line_len: f64,
-    /// Demodulated video, one sample per input sample; reused across blocks.
     video: Vec<f32>,
     filtered: Vec<Complex<f32>>,
     front: VideoFront,
     detector: Detector,
     sound: Option<SoundDecoder>,
-    /// −1.0 when the transmission keys sync at the *top* of the demodulated signal
-    /// (negative-modulation AM), so everything below sees a video whose minimum is the sync tip.
     polarity: f32,
     levels: Levels,
     sync_level: f32,
     sync_coeff: f32,
-    /// The current line, index 0 at its accepted sync leading edge.
     line: Vec<f32>,
     in_sync: bool,
     low_run: u32,
-    /// Index in [`AtvChannel::line`] where the low pulse being measured began.
     pulse_start: usize,
-    /// Consecutive lines whose sync landed where the flywheel predicted, capped at [`LOCK_LINES`].
     lock: u8,
     in_vertical: bool,
     vertical_hold: u16,
-    /// Lines since the vertical sync — where in the field the current line sits.
     field_row: u16,
-    /// Row offset of the field being written: 1 for the half-line-offset field of an interlaced
-    /// source, 0 otherwise.
     parity: u16,
-    /// Rows written since the field started. A field that wrote none scans out nothing.
     written: u32,
     frame: Vec<u8>,
     rgb: Vec<u8>,
@@ -398,8 +318,6 @@ pub(crate) fn channel_filter(p: &AtvParams) -> Result<ChannelFilter, ChannelErro
     Ok(ChannelFilter::Passthrough)
 }
 
-/// The video band is selected symmetrically about the picture carrier for envelope detection;
-/// an optional sound carrier extends the upper edge independently.
 pub(crate) fn occupied_band(p: &AtvParams) -> (f64, f64) {
     let video = video_high_hz(p);
     let sound = p
@@ -462,8 +380,6 @@ impl AtvChannel {
         if p.color != AtvColor::Monochrome {
             self.rgb.resize(self.frame.len() * 3, 0);
         }
-        // A discriminator's scale cancels in the level tracker, so the deviation only has to
-        // keep the output near unity rather than match the transmitter's.
         self.front = front;
         self.detector = Detector::new(p, video_rate);
         self.levels = Levels::new(video_rate);
@@ -484,8 +400,6 @@ impl AtvChannel {
                 SoundDecoder::new(rate, carrier, deemphasis)
             })
             .transpose()?;
-        // AM television is negative-modulated — peak carrier is the sync tip — so its envelope
-        // arrives upside down; FM ATV keys the other way. `invert` flips whichever applies.
         let flipped = matches!(p.modulation, AtvModulation::Am) != p.invert;
         self.polarity = if flipped { -1.0 } else { 1.0 };
         self.params = p.clone();
@@ -493,8 +407,6 @@ impl AtvChannel {
         Ok(())
     }
 
-    /// Drop everything tied to the raster being scanned — the sync hunt starts over, and no
-    /// half-written picture from the old geometry escapes.
     fn restart(&mut self) {
         self.line.clear();
         self.in_sync = false;
@@ -511,7 +423,6 @@ impl AtvChannel {
         self.sync_level = 0.0;
     }
 
-    /// Rows between one field's lines in the frame: interlaced fields land on alternate rows.
     fn row_step(&self) -> u32 {
         if self.params.interlace { 2 } else { 1 }
     }
@@ -533,16 +444,12 @@ impl AtvChannel {
         }
         self.line.push(n);
         if self.line.len() as f64 >= self.line_len * MAX_COAST_FRAC {
-            // No sync arrived where one was due: end the line on the flywheel's own count so a
-            // burst of noise costs one torn line instead of the rest of the field.
             let len = self.line_len.round() as usize;
             self.end_line(len, out);
             self.lock = self.lock.saturating_sub(1);
         }
     }
 
-    /// A low pulse just ended: decide what it was and, if it was this line's sync, close the
-    /// line on it.
     fn classify(&mut self, out: &mut ChannelOutputs) {
         let start = self.pulse_start;
         let width = f64::from(self.low_run);
@@ -552,7 +459,6 @@ impl AtvChannel {
         }
         let nominal = self.timing.sync * self.line_len;
         if width < nominal * SYNC_MIN_FRAC || width > nominal * SYNC_MAX_FRAC {
-            // An equalizing pulse or a noise notch. The flywheel keeps time through it.
             return;
         }
         let measured = start as f64;
@@ -562,13 +468,9 @@ impl AtvChannel {
             return;
         }
         if measured < self.line_len * 0.5 {
-            // Far too soon to be the next line's sync — the hunt landed mid-line. Re-datum on
-            // it without scanning out the fragment before it.
             self.line.drain(..start);
             return;
         }
-        // The measured length is the truth about this source's line rate; let it pull the
-        // estimate, bounded so noise cannot walk it off the standard.
         let pulled = self.line_len + (measured - self.line_len) * LINE_TRACK;
         let limit = self.nominal_line * LINE_TRACK_LIMIT;
         self.line_len = pulled.clamp(self.nominal_line - limit, self.nominal_line + limit);
@@ -576,7 +478,6 @@ impl AtvChannel {
         self.lock = (self.lock + 1).min(LOCK_LINES);
     }
 
-    /// Scan the first `len` samples of the buffer out as a row and drop them.
     fn end_line(&mut self, len: usize, out: &mut ChannelOutputs) {
         let len = len.min(self.line.len());
         self.write_row(len);
@@ -588,19 +489,13 @@ impl AtvChannel {
                 self.in_vertical = false;
             }
         }
-        // A source whose vertical sync never arrives (or is unreadable) would otherwise write
-        // the same rows forever; rolling the field over keeps a picture moving instead.
         if self.field_row > self.timing.active_lines + self.timing.picture_delay {
             self.finish_field(out);
             self.field_row = 0;
         }
     }
 
-    /// Resample the active window of `line[..len]` into the frame row this line belongs to.
     fn write_row(&mut self, len: usize) {
-        // Nothing reaches the picture until the line clock is locked. An unlocked flywheel is
-        // free-running at the standard's nominal rate over whatever is on the channel, and what
-        // it would scan out is a raster this code invented rather than one anybody transmitted.
         if self.lock < LOCK_LINES
             || self.field_row < self.timing.picture_delay
             || len < MIN_WIDTH as usize
@@ -613,16 +508,11 @@ impl AtvChannel {
             return;
         }
         let span = len as f64;
-        // Black comes off this line's own back porch rather than from the assumed 30 % blanking
-        // level: a clamp per line is what holds the brightness steady through a fade, and it is
-        // free here because the samples are already in hand.
         let (mut b0, mut b1) = (self.timing.sync * span, self.timing.active.0 * span);
         let inset = (b1 - b0) * 0.25;
         b0 += inset;
         b1 -= inset;
         let black = mean(&self.line[b0 as usize..(b1 as usize).max(b0 as usize + 1)]);
-        // Peak white is 1.0 by construction of the level tracker, so what is left above black
-        // is the whole picture range; a collapsed one falls back to the standard 70 %.
         let range = if 1.0 - black > 0.05 { 1.0 - black } else { 0.7 };
 
         let start = self.timing.active.0 * span;
@@ -661,30 +551,23 @@ impl AtvChannel {
         self.written += 1;
     }
 
-    /// A broad pulse: the field this line belongs to has just started.
     fn vertical(&mut self, start: usize, out: &mut ChannelOutputs) {
         self.vertical_hold = VERTICAL_HOLD_LINES;
         if self.in_vertical {
             return;
         }
         self.in_vertical = true;
-        // Interlace is a half-line offset and nothing else: the second field's vertical sync
-        // arrives half a line late, which is the whole of what tells the two apart.
         let phase = (start as f64 / self.line_len).rem_euclid(1.0);
         self.parity = u16::from(self.params.interlace && (0.25..0.75).contains(&phase));
         self.finish_field(out);
         self.field_row = 0;
     }
 
-    /// Hand over the frame as it now stands, if this field put anything into it.
     fn finish_field(&mut self, out: &mut ChannelOutputs) {
         if self.written == 0 {
             return;
         }
         self.written = 0;
-        // The one allocation on this path, and the same bounded deviation the PCM
-        // hand-off takes: a picture per field is 50 a second, and the alternative is a pool the
-        // host would have to hand back on a thread it does not own.
         out.video.push(VideoPicture {
             width: self.width,
             height: self.height,
@@ -830,8 +713,6 @@ impl ChannelRx for AtvChannel {
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
-        // Geometry, polarity and detector all change the meaning of the raster mid-scan, so the
-        // hunt restarts rather than splicing the new standard onto the old field.
         self.configure(p)
     }
 
@@ -842,8 +723,6 @@ impl ChannelRx for AtvChannel {
             sound.process_iq(iq, out);
         }
         self.front.process(iq, &mut self.filtered);
-        // Taken out so the per-sample loop can call back into `self`; put back below, so the
-        // buffer's capacity survives the block and nothing here allocates in steady state.
         let mut video = std::mem::take(&mut self.video);
         self.detector.process(&self.filtered, &mut video);
         if self.params.modulation == AtvModulation::Fm
@@ -877,8 +756,6 @@ mod tests {
         AtvChannel::new(ChannelCtx { input_rate }, settings(ChannelParams::Atv(p))).unwrap()
     }
 
-    /// Run `iq` through in ragged blocks (the sizes a device really hands over) and collect
-    /// every picture that came out.
     fn run(chan: &mut AtvChannel, iq: &[Complex<f32>]) -> Vec<VideoPicture> {
         run_media(chan, iq).0
     }
@@ -908,13 +785,11 @@ mod tests {
         (pictures, audio)
     }
 
-    /// Mean luma of the middle of the `bar`-th vertical bar on `row`.
     fn bar_luma(picture: &VideoPicture, row: usize, bar: usize) -> f64 {
         let bars = BAR_LEVELS.len();
         let w = usize::from(picture.width);
         let lo = w * bar / bars;
         let hi = w * (bar + 1) / bars;
-        // Bar edges smear over the channel filter's rise time; measure the settled middle.
         let inset = (hi - lo) / 4;
         let span = &picture.luma[row * w + lo + inset..row * w + hi - inset];
         span.iter().map(|&v| f64::from(v)).sum::<f64>() / span.len() as f64
@@ -944,8 +819,6 @@ mod tests {
         sum.map(|value| value / count as f64)
     }
 
-    /// The mode's whole claim: a standards-timed bar pattern comes back as a picture of the
-    /// right geometry with the bars at the right places and the right brightnesses.
     #[test]
     fn decodes_a_bar_pattern_from_a_ccir_625_transmission() {
         let p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
@@ -953,7 +826,6 @@ mod tests {
         let mut chan = channel(p);
         let pictures = run(&mut chan, &iq);
 
-        // Six frames in, both fields of at least two frames must have been scanned out.
         assert!(pictures.len() >= 8, "pictures {}", pictures.len());
         let picture = pictures.last().expect("at least one picture");
         assert_eq!((picture.width, picture.height), (104, 576));
@@ -962,8 +834,6 @@ mod tests {
             usize::from(picture.width) * usize::from(picture.height)
         );
 
-        // Rows well inside the picture, one from each interlaced field, so the weave is proven
-        // and not just the first field.
         for row in [200usize, 201, 400] {
             for (bar, &level) in BAR_LEVELS.iter().enumerate() {
                 let got = bar_luma(picture, row, bar);
@@ -1032,9 +902,6 @@ mod tests {
         );
     }
 
-    /// The bars must be monotonically brighter left to right in every standard and either
-    /// modulation — which is the assertion that catches an inverted polarity, a half-line
-    /// horizontal offset, or a resampler reading the wrong window.
     #[test]
     fn every_standard_and_modulation_scans_the_bars_in_order() {
         for standard in [
@@ -1073,8 +940,6 @@ mod tests {
         }
     }
 
-    /// `invert` is what an operator reaches for when the picture comes back as a negative, so
-    /// inverting the transmission *and* the setting must land back on the same picture.
     #[test]
     fn invert_undoes_a_reversed_transmission() {
         let mut p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
@@ -1087,8 +952,6 @@ mod tests {
         assert!(bar_luma(&picture, row, BAR_LEVELS.len() - 1) > 215.0);
     }
 
-    /// A progressive source has no half-line offset, so every line must land on consecutive
-    /// rows — read back as a picture with no blank alternate rows.
     #[test]
     fn progressive_sources_fill_every_row() {
         let mut p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
@@ -1105,8 +968,6 @@ mod tests {
         }
     }
 
-    /// Noise must cost lines, not the lock: the flywheel exists so a burst that eats a sync
-    /// leaves the picture standing.
     #[test]
     fn a_noisy_channel_still_scans_a_recognizable_picture() {
         let p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
@@ -1120,8 +981,6 @@ mod tests {
         assert!(white - black > 150.0, "contrast {black:.0}..{white:.0}");
     }
 
-    /// Silence must not scan out a picture of noise: with no sync there is no raster, and a
-    /// panel showing snow it invented is worse than a panel showing nothing.
     #[test]
     fn an_empty_channel_produces_no_picture() {
         let p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
@@ -1187,10 +1046,6 @@ mod tests {
         ));
     }
 
-    /// The heaviest per-sample path in the crate after ADS-B, and the one most able to stall a
-    /// DSP thread that has other channels on it. The budget is real time in an *unoptimized*
-    /// build, which this beats by roughly 3× today: a gate against the order-of-magnitude
-    /// regression that would make ATV unhostable, not a benchmark.
     #[test]
     fn keeps_ahead_of_the_channel_rate() {
         let p = params_for(AtvStandard::Ccir625, AtvModulation::Am);
@@ -1210,8 +1065,6 @@ mod tests {
         );
     }
 
-    /// Native-rate colour runs a wider FIR, chroma matrix and sound DDC together. The debug-build
-    /// budget catches an order-of-magnitude regression; release builds optimize the sample loop.
     #[test]
     fn colour_and_sound_path_has_bounded_cost() {
         const RATE: f64 = 12_000_000.0;

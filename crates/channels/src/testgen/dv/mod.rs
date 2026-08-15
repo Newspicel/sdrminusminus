@@ -11,10 +11,6 @@ use sdrmm_modem::cpm::CpmMod;
 
 use crate::dv::c4fm_params;
 
-/// A C4FM transmitter: one symbol per dibit through the modulation library's CPM modulator,
-/// parameterised exactly as the receiving front end is (`dv::c4fm_params` — the shared dibit
-/// table, RRC frequency pulse, h from the outer deviation), so transmitter and demodulator can
-/// never drift apart. Continuously keyed: unit envelope, pulse tail flushed.
 #[must_use]
 pub fn c4fm(
     dibits: &[u8],
@@ -30,11 +26,6 @@ pub fn c4fm(
     out
 }
 
-/// The same for a transmitter that keys off between bursts, as a TDMA radio does: `None` is a
-/// symbol period it neither modulates nor radiates. `CpmMod::keyed` carries the transmit
-/// judgments this generator used to hand-roll: a burst's shaping decays into silence with the
-/// pulse tails a matched filter is built around, and the amplifier ramps over a symbol rather
-/// than stepping.
 #[must_use]
 pub fn c4fm_keyed(
     symbols: &[Option<u8>],
@@ -46,7 +37,6 @@ pub fn c4fm_keyed(
     CpmMod::new(c4fm_params(rate, baud, deviation_hz, alpha)).keyed(symbols)
 }
 
-/// Split bits into the dibits a 4FSK symbol carries, most significant bit first.
 #[must_use]
 pub fn dibits(bits: &[bool]) -> Vec<u8> {
     bits.chunks(2)
@@ -54,14 +44,11 @@ pub fn dibits(bits: &[bool]) -> Vec<u8> {
         .collect()
 }
 
-/// The `len` low bits of `value`, most significant first — how every field in these
-/// specifications is written down.
 #[must_use]
 pub fn bits(value: u64, len: usize) -> Vec<bool> {
     (0..len).rev().map(|i| value >> i & 1 == 1).collect()
 }
 
-/// Deterministic filler where a radio would put vocoder frames.
 #[must_use]
 pub fn filler(len: usize, seed: u32) -> Vec<bool> {
     let mut state = seed | 1;

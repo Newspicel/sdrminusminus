@@ -1,4 +1,3 @@
-// Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -17,11 +16,7 @@ use sdrmm_recorder::{BYTES_PER_SAMPLE, SigmfReader};
 use sdrmm_wire::{ChannelParams, ChannelSettings, DeviceSettings, NfmParams};
 use tempfile::TempDir;
 
-/// Same rationale as listen.rs: 2.4 Msps keeps the static siggen tones clear of the
-/// modulated carrier bands.
 const TEST_RATE: f64 = 2_400_000.0;
-/// The judged playback window (0.5 s settle + 1 s judge + startup slack) must fit inside
-/// one loop pass of the recording, or the wrap transient lands in the judged audio.
 const RECORD_SAMPLES: u64 = (2.0 * TEST_RATE) as u64;
 
 fn recording_engine(dir: &Path) -> Arc<Engine> {
@@ -33,7 +28,6 @@ fn recording_engine(dir: &Path) -> Arc<Engine> {
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 
-/// Record at least `min_samples` of the siggen at `rate`, then stop and tear the set down.
 async fn record_siggen(engine: &Engine, rate: f64, min_samples: u64) -> FinalizedRecording {
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     engine

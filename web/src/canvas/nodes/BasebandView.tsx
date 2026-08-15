@@ -1,9 +1,3 @@
-// The scope's other instrument: one channel's passband, as the demodulator sees it.
-//
-// Three views over the same burst — the spectrum of the channel (real resolution, not a re-framing
-// of the device's bins), the constellation, and the eye. Which one is useful depends entirely on
-// what is being received, so they are switched rather than stacked.
-
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import {
@@ -35,16 +29,9 @@ import { drawPlot, GridBitmap } from "./scopePlot";
 export const BASEBAND_VIEWS = ["spectrum", "constellation", "eye"] as const;
 export type BasebandView = (typeof BASEBAND_VIEWS)[number];
 
-/** Transform size for the channel spectrum. A burst is 2048 samples, so this uses all of it. */
 const FFT_SIZE = 2048;
-/** The scatter grids. Square, because a constellation's axes are the same quantity. */
 const GRID = 320;
-/** dB below the burst's own peak that the channel spectrum shows. Fixed rather than adaptive: a
- * baseband plot is read for its shape against the noise floor, and a window that breathed with
- * every burst would make that shape impossible to compare. */
 const SPECTRUM_RANGE_DB = 90;
-/** What a symbol rate is clamped to. The upper bound is Nyquist, enforced against the channel's
- * own rate; the lower keeps the eye from folding on a period longer than the burst. */
 const MIN_SYMBOL_RATE = 1;
 
 export function BasebandView({
@@ -64,7 +51,6 @@ export function BasebandView({
   const [view, setView] = useState<BasebandView>("spectrum");
   const [eyeComponent, setEyeComponent] = useState<EyeComponent>("frequency");
   const [symbolRate, setSymbolRate] = useState(4800);
-  /** Whether the constellation keeps only the decision points or the whole trajectory. */
   const [decimate, setDecimate] = useState(false);
 
   const gridRef = useRef<BasebandGrid | null>(null);
@@ -76,8 +62,6 @@ export function BasebandView({
     settingsRef.current = { view, eyeComponent, symbolRate, decimate };
   });
 
-  // The grid accumulates across bursts, so anything that changes what is being plotted has to
-  // empty it — otherwise the previous view's shape stays smeared under the new one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the clear is the effect
   useEffect(() => {
     const grid = gridRef.current;
@@ -114,8 +98,6 @@ export function BasebandView({
           addEye(grid, burst.samples, period, rail, eyeScale(burst.samples, rail));
         }
       }
-      // The readout is text, and a burst arrives twenty times a second; the canvas redraws every
-      // animation frame regardless, so this only paces the labels.
       seen += 1;
       if (seen === 1 || seen % 10 === 0) {
         setFrame(burst);
@@ -246,7 +228,6 @@ function formatReadout(frame: IqFrame, view: BasebandView, period: number): stri
   return `${centre}   ${rate}   ${period.toFixed(2)} Sa/sym`;
 }
 
-/** Repaint whichever view is showing. Sized in CSS pixels like the trace panel above it. */
 function draw(
   canvas: HTMLCanvasElement | null,
   frame: IqFrame | null,
@@ -271,7 +252,6 @@ function draw(
         peak = value;
       }
     }
-    // Rounded to 10 dB so the axis labels stop dancing between bursts.
     const top = Math.ceil(peak / 10) * 10;
     drawPlot(canvas, {
       frame: { centerHz: frame.centerHz, spanHz: frame.sampleRate, db },
@@ -307,8 +287,6 @@ function drawScatter(
   }
   ctx.clearRect(0, 0, width, height);
 
-  // A constellation's axes are the same quantity, so it is drawn square and centred; an eye's are
-  // not, and it fills the panel.
   const side = view === "constellation" ? Math.min(width, height) : 0;
   const box =
     side > 0
@@ -324,8 +302,6 @@ function drawScatter(
     ctx.moveTo(Math.round(box.x + box.w / 2) + 0.5, box.y);
     ctx.lineTo(Math.round(box.x + box.w / 2) + 0.5, box.y + box.h);
     ctx.stroke();
-    // The unit circle: a PSK constellation sits on it, and an amplitude error shows as a ring
-    // that is not this one.
     ctx.beginPath();
     ctx.arc(box.x + box.w / 2, box.y + box.h / 2, box.w / 2, 0, Math.PI * 2);
   }
@@ -336,8 +312,6 @@ function drawScatter(
   bitmap.blit(ctx, box, (out) => recolour(grid, colormap, out));
 }
 
-/** Colour the density grid into RGBA bytes. Cells at zero come out transparent, so the axes and
- * the unit circle drawn underneath show through where nothing has been plotted. */
 function recolour(grid: BasebandGrid, colormap: Colormap, out: Uint8ClampedArray): void {
   const lut = colormapLut(colormap);
   for (let i = 0; i < grid.cells.length; i++) {

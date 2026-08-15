@@ -104,8 +104,6 @@ export function SweepSummary({ analysis }: { analysis: SweepAnalysis }) {
   );
 }
 
-/** A band that ran into the end of the sweep is reported as at-least, never as a measurement:
- * the real edge is outside what was swept. */
 function describeBand(band: Band): string {
   const span = `${formatHz(band.startHz)} – ${formatHz(band.stopHz)}`;
   const width = formatHz(band.spanHz);

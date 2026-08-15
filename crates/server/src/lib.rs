@@ -17,12 +17,7 @@ use tower_http::{
 };
 use utoipa_swagger_ui::SwaggerUi;
 
-/// Hotplug probe cadence ( M1). Public so the desktop shell, which embeds the router
-/// without going through [`serve`], starts the same prober.
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
-/// How often channel signal levels are pushed. Ten a second is what a meter needs to read as a
-/// meter rather than as a series of numbers; the payload is a few floats per channel, and it is
-/// only sent for sets that actually host one.
 pub const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 
 const DECODED_TEXT_CAP: usize = 1024;
@@ -47,62 +42,27 @@ mod ws;
 
 pub use store::{Store, StoreError};
 
-/// Everything the router itself needs, as opposed to the process-level [`Config`] (which also
-/// carries the bind address and the database path).
 #[derive(Clone, Debug, Default)]
 pub struct ServerOptions {
-    /// Relax CORS for the Vite dev origin ( dev mode).
     pub dev_cors: bool,
     pub token: Option<String>,
 }
 
-/// Shared application state handed to every handler (cheap to clone: four `Arc`s).
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub engine: Arc<Engine>,
     pub store: Arc<Store>,
-    /// Whether a shared token is configured, so `GET /api/auth` can tell clients to prompt.
     pub auth: auth::Auth,
-    /// Reported by `GET /api/doctor`; the engine owns the recordings directory but nothing
-    /// else knows where the database lives.
     pub db_path: Option<PathBuf>,
-    /// Serializes disk↔index recording transitions (reconcile, delete, stop-indexing), which
-    /// all run on the blocking pool: an unserialized reconcile prune interleaving into a
-    /// delete's unlink→row-delete window turns a successful delete into a 404 (skipping its
-    /// Recordings emit), and stale-scan prunes churn row ids held by clients.
     pub recordings_gate: Arc<std::sync::Mutex<()>>,
-    /// Serializes `POST /api/workspaces/{id}/apply`. Apply decides what to open by comparing the
-    /// patch against a probe and the current state, so two of them interleaving both see "no set
-    /// for this radio" and both open it — a second streaming device set that apply, being
-    /// additive, can never close again. Two clients loading the same workspace at once is the
-    /// ordinary way that happens.
     pub apply_gate: Arc<std::sync::Mutex<()>>,
-    /// Decoder frames the log writer itself lost. Shared with the writer task and reported by
-    /// `GET /api/decoderlog`.
     decoder_log_dropped: Arc<AtomicU64>,
-    /// Decoder frames serialized ONCE for every connection ( M5 multi-client): under
-    /// ADS-B traffic this is hundreds of frames a second, and serializing byte-identical JSON
-    /// per socket multiplied the cost by the number of browsers watching.
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     pub(crate) tracks: Arc<tracks::Tracks>,
     pub(crate) calls: Arc<calls::Calls>,
-    /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
-    /// The tool plane: calculators and instruments that stand beside the receiver and share
-    /// nothing with it but the process.
     pub(crate) tools: Arc<sdrmm_tools::ToolRegistry>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
-    /// `(workspace, node, device set)` triples apply has already handed their stored settings.
-    ///
-    /// Apply must not retune a radio it has already brought up — a second browser loading the
-    /// workspace, or the same one applying again after a wire was drawn, is not a retune — but it
-    /// *must* hand a node its settings the first time it binds one, however that radio came to be
-    /// open. Naming a radio on a device face opens it (`POST /api/devicesets`) and applies after,
-    /// so without this the one gesture that says "this node is that radio" was the one that came
-    /// back at the driver's power-on defaults.
-    ///
-    /// Per-run, like the bindings it describes: device-set ids are never reused, so a radio that
-    /// is closed and opened again is a new binding and gets its settings back.
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
     pub(crate) gps: Arc<gps::GpsHub>,
 }
@@ -150,8 +110,6 @@ impl Default for Config {
     }
 }
 
-/// The OpenAPI document, produced without a running server ( step 1) — this is what
-/// `cargo xtask codegen` serializes to `openapi.json`.
 #[must_use]
 pub fn openapi() -> utoipa::openapi::OpenApi {
     let (_router, api) = rest::openapi_router().split_for_parts();
@@ -166,13 +124,6 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
     router
 }
 
-/// The router plus its background work, so a caller that owns the server's lifetime can tear
-/// that work down with it.
-///
-/// Layer order is load-bearing. Auth goes on with `route_layer`, which covers the routed API,
-/// WebSocket and MCP surfaces but deliberately not the fallback: the SPA has to load before
-/// the user can type a token into it, and an unmatched `/api/*` must stay a typed 404 rather
-/// than becoming a 401. CORS stays outermost so a preflight is answered before auth runs.
 fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
     let background = start_background(&state);
     ws::start_decoded_encoder(&state);
@@ -209,9 +160,6 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Backg
     (app, background)
 }
 
-/// Long-lived work the router owns: the decoder-log writer, the trunk-system watcher and the
-/// call assembler. Each stops on its own once the engine is dropped; the handle exists so they
-/// cannot outlive the server that started them.
 struct Background {
     tasks: Vec<BackgroundTask>,
     detached: bool,
@@ -219,12 +167,10 @@ struct Background {
 
 enum BackgroundTask {
     Task(tokio::task::JoinHandle<()>),
-    /// The task owns the thread and the runtime it runs on.
     Owned,
 }
 
 impl Background {
-    /// Let the work run unsupervised — it still stops when the engine is dropped.
     fn detach(mut self) {
         self.detached = true;
     }
@@ -282,9 +228,6 @@ fn start_background(state: &AppState) -> Background {
     }
 }
 
-/// [`router`] is also called from outside a tokio runtime — the desktop shell builds it in
-/// Tauri's synchronous `setup` — so each task falls back to a thread with a runtime of its own
-/// rather than panicking on `tokio::spawn` (or, worse, silently not running at all).
 fn spawn_task<F, Fut>(name: &'static str, make: F) -> BackgroundTask
 where
     F: FnOnce() -> Fut + Send + 'static,
@@ -311,7 +254,6 @@ where
     BackgroundTask::Owned
 }
 
-/// A running server plus the address it actually bound (the port may be ephemeral).
 pub struct ServerHandle {
     pub local_addr: SocketAddr,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
@@ -319,7 +261,6 @@ pub struct ServerHandle {
 }
 
 impl ServerHandle {
-    /// Await server exit (it normally runs until the process ends).
     pub async fn join(self) -> std::io::Result<()> {
         match self.task.await {
             Ok(res) => res,
@@ -328,13 +269,10 @@ impl ServerHandle {
     }
 }
 
-/// Bind and start serving on `config.bind`, returning once the socket is listening.
 pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
     engine.start_hotplug_prober(HOTPLUG_INTERVAL)?;
     engine.start_level_meter(LEVEL_INTERVAL)?;
     engine.start_occupancy_collector(HOTPLUG_INTERVAL)?;
-    // Name the file being opened: a cwd-dependent or unexpected path otherwise shows up
-    // only as presets/bookmarks silently "vanishing".
     match &config.db_path {
         Some(path) => tracing::info!(db = %path.display(), "opening database"),
         None => tracing::info!("using in-memory database (nothing will persist)"),
@@ -437,8 +375,6 @@ mod tests {
         (router, state.store.clone())
     }
 
-    /// Same, keeping the whole state: a test that needs the pieces HTTP does not expose (the
-    /// settings autosave) or a second engine over the same store (a restart) starts here.
     fn test_router_with_state() -> (Router, AppState) {
         let store = Arc::new(Store::open(None).expect("in-memory store"));
         let state = state_over(store);
@@ -447,8 +383,6 @@ mod tests {
         (router, state)
     }
 
-    /// A fresh engine over an existing store — what a restart is, from the workspace's point of
-    /// view: the same database, none of the live device sets or channels.
     fn state_over(store: Arc<Store>) -> AppState {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
@@ -464,8 +398,6 @@ mod tests {
         state
     }
 
-    /// Hermetic recording setup: the virtual driver and the engine share one scoped temp
-    /// recordings dir, so `start_recording` output is immediately probeable for playback.
     fn recording_router(dir: &Path) -> Router {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(
@@ -493,9 +425,6 @@ mod tests {
         (status, bytes)
     }
 
-    /// The full response. Downloads are the reason this exists: their contract is in the
-    /// headers (`Content-Length`, `Content-Disposition`, and *no* `Content-Encoding`), not
-    /// only in the bytes.
     async fn request_parts(
         app: Router,
         method: &str,
@@ -632,8 +561,6 @@ mod tests {
         }
     }
 
-    /// The desktop shell builds the router from Tauri's synchronous `setup`, where there is no
-    /// ambient tokio runtime — starting the decoder-log writer must not panic there.
     #[test]
     fn router_builds_outside_a_tokio_runtime() {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -706,8 +633,6 @@ mod tests {
                 "missing type {id}"
             );
         }
-        // `type_id` is the discriminator the client switches on; a duplicate would make the
-        // "add channel" UI ambiguous.
         let unique: std::collections::HashSet<&str> =
             types.types.iter().map(|t| t.type_id.as_str()).collect();
         assert_eq!(unique.len(), types.types.len());
@@ -742,8 +667,6 @@ mod tests {
         assert_eq!(channel.settings.offset_hz, -200_000.0);
         assert_eq!(channel.settings.params.type_id(), "am");
 
-        // Unknown demod type: rejected by deserialization before reaching the engine, but
-        // still in the ApiError shape the contract promises.
         let (status, body) = request(
             app.clone(),
             "PATCH",
@@ -777,8 +700,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// A preset is the whole workspace: saving one names no radio, and applying it puts every
-    /// radio the patch draws back where it was.
     #[tokio::test]
     async fn preset_capture_apply_delete_roundtrip() {
         let app = test_router();
@@ -880,9 +801,6 @@ mod tests {
         assert!(listed.is_empty());
     }
 
-    /// The reason presets became workspace-wide: a bench is several radios, and restoring it is
-    /// one gesture that must land on each of them — matched by the node that drew them, so two
-    /// radios never swap settings.
     #[tokio::test]
     async fn a_preset_carries_every_radio_the_workspace_draws() {
         let app = test_router();
@@ -965,8 +883,6 @@ mod tests {
         assert_eq!(center(sets[1]), Some(433_000_000.0));
     }
 
-    /// Nothing to save is a refusal, not an empty preset: a stored preset that names no radio
-    /// would apply cleanly and change nothing, which reads as "the preset is broken" much later.
     #[tokio::test]
     async fn saving_a_preset_with_no_radio_open_is_refused() {
         let app = test_router();
@@ -986,8 +902,6 @@ mod tests {
         assert!(listed.is_empty());
     }
 
-    /// Extractor failures must produce the documented ApiError JSON shape, never axum's
-    /// plain-text defaults (the generated client's typed error branch depends on it).
     #[tokio::test]
     async fn extractor_rejections_return_api_error_body() {
         let app = test_router();
@@ -1042,9 +956,6 @@ mod tests {
         }
     }
 
-    /// Regression: applying a lower-rate preset to a set whose *current* channels don't fit
-    /// that rate must succeed — patch_device may only be asked to validate against the
-    /// preset's channels, not the ones the apply removes.
     #[tokio::test]
     async fn apply_preset_replaces_channels_that_do_not_fit_the_preset_rate() {
         let (app, store) = test_router_with_store();
@@ -1088,11 +999,6 @@ mod tests {
         assert_eq!(set.channels[0].settings.offset_hz, 0.0);
     }
 
-    /// Applying a preset is destructive by construction (the channels go before the rate can
-    /// move), so a preset the device was always going to reject must be refused *before*
-    /// anything is deleted — an operator who asked for a bad preset must not end up with an
-    /// empty device set. The mid-sequence detail path stays for failures that only real device
-    /// I/O can produce.
     #[tokio::test]
     async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
         let (app, store) = test_router_with_store();
@@ -1108,7 +1014,6 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
 
-        // A preset the REST surface can't produce: its channel is invalid at its own rate.
         let preset = store
             .create_preset("broken", &preset_250k(vec![nfm_at(900_000.0)]))
             .expect("preset");
@@ -1196,7 +1101,6 @@ mod tests {
             .recordings
     }
 
-    /// The virtual device paces itself to real time, so recording progress needs polling.
     async fn wait_for_recorded_samples(app: &Router, ds: u32, min: u64) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
@@ -1219,9 +1123,6 @@ mod tests {
         }
     }
 
-    /// Which radios can run a template is the server's answer, not the client's: the rule is one
-    /// function in `wire` and the gallery renders the verdict. The signal generator reaches
-    /// 0–6 GHz and offers 2 Msps, so it can run every built-in one.
     #[tokio::test]
     async fn templates_report_the_radios_that_can_run_them() {
         let app = test_router();
@@ -1242,9 +1143,6 @@ mod tests {
         }
     }
 
-    /// A playback device replays one recording at one rate, so most templates cannot run on it.
-    /// The refusal must land *before* `apply_configuration`, which deletes the set's channels
-    /// before it retunes — otherwise reporting the mismatch would also wipe the device set.
     #[tokio::test]
     async fn a_template_the_radio_cannot_run_is_refused_before_anything_is_torn_down() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1289,7 +1187,6 @@ mod tests {
         assert_eq!(set.settings.center_hz, Some(100_000_000.0));
     }
 
-    /// A device set replaying a finalized recording — what the canvas transport drives.
     async fn playback_set(app: &Router, rec: &sdrmm_wire::RecordingInfo) -> u32 {
         let (status, body) = request(
             app.clone(),
@@ -1312,9 +1209,6 @@ mod tests {
         .await
     }
 
-    /// The transport is what the player face is wired to: pause holds, seek lands where it was
-    /// told, stop returns to the start, and every answer matches what `GET /api/state` then
-    /// reports — the face reads the snapshot, not the response.
     #[tokio::test]
     async fn playback_transport_pauses_seeks_and_stops() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1371,8 +1265,6 @@ mod tests {
         assert!(!reported(&app).await.paused);
     }
 
-    /// A live radio has no transport, and the refusal has to say so rather than pretend the
-    /// request landed — the face keys its player strip on exactly this being absent.
     #[tokio::test]
     async fn a_radio_has_no_transport_to_drive() {
         let app = test_router();
@@ -1398,7 +1290,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// One finalized recording, ready to be downloaded.
     async fn recorded(app: &Router) -> sdrmm_wire::RecordingInfo {
         let ds = create_virtual_set(app).await;
         record(app, ds, "start").await;
@@ -1414,9 +1305,6 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// The default download is the lossless one: the pair in a `.sigmf` tar, under a directory
-    /// named for the recording. The archive's own shape is `sdrmm-recorder`'s to prove — what
-    /// matters here is that the HTTP contract around it holds.
     #[tokio::test]
     async fn download_serves_the_pair_as_a_sigmf_archive() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1438,8 +1326,6 @@ mod tests {
             header_value(&headers, "content-disposition"),
             format!("attachment; filename=\"{}.sigmf\"", rec.file)
         );
-        // The promised length has to be the delivered length, or a client cannot tell a
-        // finished download from a severed one.
         assert_eq!(
             header_value(&headers, "content-length"),
             body.len().to_string()
@@ -1451,8 +1337,6 @@ mod tests {
         assert_eq!(&body[257..263], b"ustar\0");
     }
 
-    /// `?format=wav` hands the same samples to HDSDR and Audacity: two-channel 32-bit float at
-    /// the recorded rate, payload byte-identical to the `.sigmf-data`.
     #[tokio::test]
     async fn download_serves_iq_as_a_float_wav() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1494,8 +1378,6 @@ mod tests {
         );
     }
 
-    /// Gzipping I/Q floats saves nothing and costs a core, and compressing at all would strip
-    /// the `Content-Length` a long download needs.
     #[tokio::test]
     async fn downloads_are_never_compressed() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1520,7 +1402,6 @@ mod tests {
             );
         }
 
-        // The exclusion is by content type, so JSON must still compress.
         let (_, headers, _) = request_parts(
             app,
             "GET",
@@ -1550,7 +1431,6 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        // Indexed but gone from disk: a 404, not a body that dies mid-transfer.
         std::fs::remove_file(sdrmm_recorder::data_path(&dir.path().join(&rec.file)))
             .expect("remove data");
         let (status, _) = request(
@@ -1600,7 +1480,6 @@ mod tests {
             format!("virtual:file:{}", dir.path().join(&rec.file).display())
         );
 
-        // The indexed device_id must open as a playback set as-is (the wire contract).
         let (status, _) = request(
             app.clone(),
             "POST",
@@ -1645,8 +1524,6 @@ mod tests {
             .recordings
     }
 
-    /// The virtual radio runs in real time, so a recording's own frame count is what says
-    /// whether any audio has been written yet.
     async fn wait_for_recorded_frames(app: &Router, ds: u32, ch: u32, min: u64) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
@@ -1747,9 +1624,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// The file name in the path is a caller's string. Anything that is not one of these
-    /// recordings — a traversal, another extension, a name nothing wrote — is a 404, never a
-    /// file from somewhere else on the disk.
     #[tokio::test]
     async fn an_audio_recording_name_cannot_reach_outside_its_directory() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1861,7 +1735,6 @@ mod tests {
                 .expect("writer");
         writer.write_block(&block).expect("write");
         writer.finalize().expect("finalize");
-        // A crashed pair (breadcrumb meta only) must never be listed.
         drop(
             sdrmm_recorder::SigmfWriter::create(&dir.path().join("crashed"), 48_000.0, 1e6, "hw")
                 .expect("writer"),
@@ -1901,7 +1774,6 @@ mod tests {
         let (status, _) = record(&app, ds, "start").await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        // One sample rate per SigMF file: a rate patch must bounce while recording.
         let (status, body) = request(
             app.clone(),
             "PATCH",
@@ -1949,7 +1821,6 @@ mod tests {
         }
     }
 
-    /// A summary carrying both CSV metacharacters, so the export's quoting is exercised.
     fn awkward_record(at: &str) -> DecodedRecord {
         DecodedRecord {
             device_set: 1,
@@ -2004,7 +1875,6 @@ mod tests {
         assert_eq!(filtered.total, 1);
         assert_eq!(filtered.entries[0].kind, "aprs");
 
-        // A malformed time bound is a 400 in the ApiError shape, not an empty page.
         let (status, body) =
             request(app.clone(), "GET", "/api/decoderlog?since=yesterday", None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -2033,8 +1903,6 @@ mod tests {
         assert_eq!(listed.entries[0].kind, "aprs");
     }
 
-    /// The clear endpoint is the log's only structural change; clients only learn about it
-    /// through the DecoderLog scope (: WS invalidation is the sole refetch trigger).
     #[tokio::test]
     async fn decoder_log_clear_emits_the_decoder_log_scope() {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -2077,7 +1945,6 @@ mod tests {
             Some("at,device_set,channel,kind,freq_hz,station,summary,event")
         );
         assert_eq!(csv.split_terminator("\r\n").count(), 4);
-        // RFC4180: a field with a comma and a quote is quoted, with the quotes doubled.
         assert!(
             csv.contains(r#""DL1ABC-9>APRS:hello, ""world""""#),
             "unquoted CSV field: {csv}"
@@ -2137,8 +2004,6 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
-    /// `GET /api/auth` must answer without a token — it is how a client learns it needs one —
-    /// and everything else must be gated once one is configured.
     #[tokio::test]
     async fn token_auth_gates_the_api_and_advertises_itself() {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -2175,8 +2040,6 @@ mod tests {
         assert!(!info.token_required);
     }
 
-    /// The MCP endpoint must be mounted and, once a token is configured, gated by the same
-    /// middleware as REST — an unauthenticated tool call is the whole point of the layer.
     #[tokio::test]
     async fn mcp_is_mounted_and_shares_the_token_gate() {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -2230,21 +2093,16 @@ mod tests {
         );
     }
 
-    /// The occupancy endpoint's contract: it answers before anything has been observed, it
-    /// honours the sample floor that keeps a coincidence out of the report, and what it returns
-    /// is ordered busiest first.
     #[tokio::test]
     async fn occupancy_is_served_and_filtered_by_how_well_observed_it_is() {
         let (app, state) = test_router_with_state();
 
-        // Nothing observed yet: an empty report, not an error and not a 404.
         let (status, body) = request(app.clone(), "GET", "/api/occupancy", None).await;
         assert_eq!(status, StatusCode::OK);
         let report: sdrmm_wire::OccupancyReport = serde_json::from_slice(&body).expect("json");
         assert!(report.buckets.is_empty());
         assert_eq!(report.bucket_hz, sdrmm_engine::occupancy::BUCKET_HZ);
 
-        // Plant a busy frequency and a quiet one, seen often enough to count.
         {
             let mut occupancy = state
                 .engine
@@ -2273,7 +2131,6 @@ mod tests {
         assert_eq!(report.buckets[0].by_hour.len(), 24);
         assert!(!report.since.is_empty());
 
-        // And a floor above what was observed empties it again, rather than reporting noise.
         let (status, body) =
             request(app.clone(), "GET", "/api/occupancy?min_samples=1000", None).await;
         assert_eq!(status, StatusCode::OK);
@@ -2299,8 +2156,6 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let plan: sdrmm_wire::BandPlan = serde_json::from_slice(&body).expect("json");
         assert_eq!(plan.region.id, "de");
-        // Layers are named once and referenced by id, so the popover can resolve an authority
-        // without a second request.
         assert!(
             plan.layers
                 .iter()
@@ -2313,8 +2168,6 @@ mod tests {
             .iter()
             .find(|block| block.start_hz <= 121_500_000.0 && block.stop_hz > 121_500_000.0)
             .expect("118–137 MHz is allocated");
-        // Allocations travel once and blocks index into them, so the payload does not repeat a
-        // paragraph of notes for every boundary another layer introduces.
         let winner = &plan.allocations[block.of as usize];
         assert_eq!(winner.service, sdrmm_wire::BandService::Aeronautical);
         assert_eq!(
@@ -2350,7 +2203,6 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        // A missing parameter is a rejection, not a silent default at the equator.
         let (status, _) = request(app, "GET", "/api/bandplan/locate?lat=52.52", None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
@@ -2442,8 +2294,6 @@ mod tests {
             .expect("template");
         let patch = template.patch.as_ref().expect("templates carry a patch");
 
-        // The workspace's own device node is unbound, so the template drew its own — bound to the set
-        // the apply configured, and added exactly once for two applies.
         let added = u32::try_from(patch.nodes.len()).unwrap();
         assert_eq!(
             u32::try_from(detail.snapshot.graph.nodes.len()).unwrap(),
@@ -2473,8 +2323,6 @@ mod tests {
         detail.snapshot.validate().expect("a valid workspace");
     }
 
-    /// Apply brings the engine up to what the workspace draws. It is additive and idempotent, so
-    /// the second call must change nothing — that is what makes it safe on every load.
     #[tokio::test]
     async fn applying_a_workspace_opens_its_radio_and_adds_its_channels_once() {
         let app = test_router();
@@ -2504,8 +2352,6 @@ mod tests {
         assert_eq!(types, vec!["nfm", "am"]);
     }
 
-    /// A radio the workspace names but nobody plugged in is a disconnected node, not an error:
-    /// apply reports it and carries on with the rest of the patch.
     #[tokio::test]
     async fn applying_a_workspace_reports_an_absent_radio() {
         let app = test_router();
@@ -2527,9 +2373,6 @@ mod tests {
         assert!(get_state(&app).await.device_sets.is_empty());
     }
 
-    /// Undo is a server-side gesture on the workspace every client shares, and it owes what an
-    /// edit owes: the channel the undone step had added is gone from the engine too, and redo
-    /// brings it back. Anything less and the canvas would draw one radio while another one ran.
     #[tokio::test]
     async fn undoing_a_workspace_takes_the_engine_back_with_it() {
         let app = test_router();
@@ -2561,7 +2404,6 @@ mod tests {
             vec!["nfm"],
             "the channel the undone step created is closed, not left running"
         );
-        // Every client reads the same workspace, so what one undid is what the next one loads.
         assert_eq!(
             workspace_detail(&app, workspace).await.snapshot,
             undone.snapshot
@@ -2654,7 +2496,6 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         let created: sdrmm_wire::CreatedRowId = serde_json::from_slice(&body).expect("json");
 
-        // A name already in use is a 409 the UI can act on, not a 500.
         let (status, body) = request(
             app.clone(),
             "POST",
@@ -2675,8 +2516,6 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert_eq!(workspaces(&app).await.active, Some(created.id));
 
-        // A workspace this build did not write is refused at the edge rather than half-read: the
-        // shape version is what an M6 row still on disk would carry.
         let (status, body) = request(
             app.clone(),
             "PUT",
@@ -2687,7 +2526,6 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
 
-        // And so is a wire into a node that is not there.
         let (status, body) = request(
             app.clone(),
             "PUT",
@@ -2714,7 +2552,6 @@ mod tests {
         let info: sdrmm_wire::WorkspaceInfo = serde_json::from_slice(&body).expect("json");
         assert_eq!(info.revision, 2);
 
-        // Replaying the same write is the stale-revision case, and it must not land.
         let (status, _) = request(
             app.clone(),
             "PUT",
@@ -2756,9 +2593,6 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// A workspace snapshot naming a virtual radio, with one channel node per `taps` entry —
-    /// `(node id, channel type, device port)` — wired to the named port of the device's `iq`
-    /// family, so a test can put same-type channels on different streams.
     fn virtual_snapshot(key: &str, taps: &[(&str, &str, &str)]) -> sdrmm_wire::WorkspaceSnapshot {
         let mut snapshot = sdrmm_wire::WorkspaceSnapshot::starter();
         let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
@@ -2793,7 +2627,6 @@ mod tests {
         snapshot
     }
 
-    /// Write `snapshot` into the seeded active workspace and hand back its id.
     async fn put_active_workspace(app: &Router, snapshot: &sdrmm_wire::WorkspaceSnapshot) -> i64 {
         let workspace = workspaces(app).await.active.expect("seeded workspace");
         let (status, body) = request(
@@ -2810,8 +2643,6 @@ mod tests {
         workspace
     }
 
-    /// Store a workspace naming the virtual signal generator with one NFM channel, and hand back
-    /// the workspace it went into.
     async fn store_siggen_workspace(app: &Router) -> i64 {
         put_active_workspace(app, &virtual_snapshot("siggen", &[("voice", "nfm", "iq")])).await
     }
@@ -2828,9 +2659,6 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// : a workspace's tuning is part of the workspace. Apply used to rebuild the topology and
-    /// hand every channel back at its type's defaults, so a restart kept the patch and lost the
-    /// work — the frequencies, the offset and the squelch.
     #[tokio::test]
     async fn a_workspace_comes_back_tuned_the_way_it_was_left() {
         let (app, state) = test_router_with_state();
@@ -2882,10 +2710,6 @@ mod tests {
         assert_eq!(set.channels[0].settings.squelch_db, Some(-42.0));
     }
 
-    /// Naming a radio on a device face opens it (`POST /api/devicesets`) and applies afterwards,
-    /// so apply finds the set already open. It still has to hand that node its stored settings:
-    /// the gesture that says "this node is that radio" is exactly the one that used to bring the
-    /// radio up at the driver's power-on defaults.
     #[tokio::test]
     async fn a_hand_picked_radio_comes_up_with_the_nodes_stored_settings() {
         let (app, state) = test_router_with_state();
@@ -2913,15 +2737,10 @@ mod tests {
         );
     }
 
-    /// A restore the engine refuses leaves the radio on settings that are not this workspace's,
-    /// and the autosave runs on every change: without a note of the failure the next capture files
-    /// those settings under the workspace whose own tuning it just failed to bring back.
     #[tokio::test]
     async fn a_refused_restore_does_not_let_the_autosave_overwrite_the_stored_settings() {
         let (app, state) = test_router_with_state();
         let workspace = store_siggen_workspace(&app).await;
-        // A rate this radio does not have — what a workspace stored against another receiver, or
-        // an older build, looks like from here.
         let planted = sdrmm_wire::WorkspaceState {
             version: sdrmm_wire::WORKSPACE_STATE_VERSION,
             devices: vec![sdrmm_wire::WorkspaceDevice {
@@ -2955,8 +2774,6 @@ mod tests {
         );
     }
 
-    /// Apply is additive: a radio someone is already using keeps the frequency it is on, whatever
-    /// the stored workspace says, because a second browser loading the workspace is not a retune.
     #[tokio::test]
     async fn applying_a_workspace_does_not_retune_an_open_radio() {
         let (app, state) = test_router_with_state();
@@ -2986,9 +2803,6 @@ mod tests {
         );
     }
 
-    /// A second workspace over the same siggen, carrying one channel of `channel_type`. Returns
-    /// its id. The device node keeps the id `"device"` so both workspaces name the radio the same
-    /// way — which is the case the reconcile has to get right.
     async fn store_second_workspace(app: &Router, name: &str, channel_type: &str) -> i64 {
         let snapshot = virtual_snapshot("siggen", &[("other", channel_type, "iq")]);
         let (status, body) = request(
@@ -3022,8 +2836,6 @@ mod tests {
         );
     }
 
-    /// Exactly one workspace is active, and after a switch the hardware says so. Apply stays
-    /// additive — it is what a second browser runs on load — so the closing is activation's job.
     #[tokio::test]
     async fn switching_workspaces_closes_the_radios_the_new_one_does_not_name() {
         let (app, _state) = test_router_with_state();
@@ -3048,13 +2860,6 @@ mod tests {
         );
     }
 
-    /// The case that made "a workspace remembers where it was tuned" only true from a cold start:
-    /// two workspaces naming one radio. Apply will not retune a set it did not open, so without
-    /// the reconcile each switch inherited the other workspace's dial and the next autosave wrote
-    /// it down — the saved tuning was never restored and then it was overwritten.
-    ///
-    /// This also covers the save-before-flip ordering: nothing here calls `save_active` by hand,
-    /// so the first workspace's tuning survives only because activation captured it.
     #[tokio::test]
     async fn switching_between_workspaces_sharing_a_radio_restores_each_ones_settings() {
         let (app, _state) = test_router_with_state();
@@ -3077,8 +2882,6 @@ mod tests {
         let second = store_second_workspace(&app, "Marine", "am").await;
         activate(&app, second).await;
 
-        // Same radio, so it stays open — but it is the second workspace's radio now: the first
-        // one's NFM channel is not drawn here and must be gone.
         let sets = get_state(&app).await.device_sets;
         assert_eq!(sets.len(), 1, "the shared radio was closed and reopened");
         assert_eq!(sets[0].id, ds, "the shared radio was closed and reopened");
@@ -3112,8 +2915,6 @@ mod tests {
         assert_eq!(sets[0].settings.center_hz, Some(145_500_000.0));
     }
 
-    /// A radio that is not plugged in this run must not lose where it was tuned last run: a
-    /// capture that saw nothing means "not observed", never "reset it".
     #[tokio::test]
     async fn a_capture_without_the_radio_keeps_its_stored_settings() {
         let (app, state) = test_router_with_state();
@@ -3154,9 +2955,6 @@ mod tests {
         );
     }
 
-    /// Per-stream settings : `streams` rides `WorkspaceState`'s `DeviceSettings`,
-    /// but only if capture and restore actually round-trip it — an override lost here would
-    /// bring lane 1 back on the radio-wide dial after a restart, silently.
     #[tokio::test]
     async fn a_workspace_remembers_per_stream_overrides() {
         let (app, state) = test_router_with_state();
@@ -3206,7 +3004,6 @@ mod tests {
             .collect();
         assert_eq!(streams, vec![0, 3], "the iq4 wire must land on stream 3");
 
-        // Both channels are NFM, so only the stream half of the claim key can tell them apart.
         let second = apply(&app, workspace).await;
         assert_eq!(
             second.created, 0,
@@ -3214,9 +3011,6 @@ mod tests {
         );
     }
 
-    /// A workspace drawn against a multi-stream radio, reopened on one with
-    /// fewer lanes. The wire's stream does not exist on this hardware — the channel is refused
-    /// with the reason in the report, never silently moved to stream 0.
     #[tokio::test]
     async fn a_wire_to_a_stream_the_radio_does_not_have_is_refused_not_moved() {
         let app = test_router();
@@ -3239,8 +3033,6 @@ mod tests {
         );
     }
 
-    /// Two same-type channels on different lanes of one radio: capture and restore must pair
-    /// each node with the channel on its own stream, or a restart would swap their settings.
     #[tokio::test]
     async fn capture_and_restore_pair_same_type_channels_by_stream() {
         let (app, state) = test_router_with_state();
@@ -3294,7 +3086,6 @@ mod tests {
         let app = test_router();
         let ds = create_virtual_set(&app).await;
 
-        // A start without settings is a client mistake, not a 500.
         let (status, body) = request(
             app.clone(),
             "POST",
@@ -3327,7 +3118,6 @@ mod tests {
         assert_eq!(status_body.targets, 21);
         assert!(get_state(&app).await.device_sets[0].scanner.is_some());
 
-        // While a scan owns the tuning, a client retune is refused rather than fought over.
         let (status, _) = request(
             app.clone(),
             "PATCH",
@@ -3357,8 +3147,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// The launcher renders whatever this lists, so a tool that is compiled in must be
-    /// discoverable without the client knowing its name in advance.
     #[tokio::test]
     async fn tools_lists_what_this_build_offers() {
         let (status, body) = request(test_router(), "GET", "/api/tools", None).await;
@@ -3435,8 +3223,6 @@ mod tests {
         );
     }
 
-    /// A tool refusing a number is a bad request, not a server fault, and the reason has to
-    /// name the field the operator typed.
     #[tokio::test]
     async fn a_tool_refusal_is_a_typed_bad_request() {
         let (status, body) = request(
@@ -3451,8 +3237,6 @@ mod tests {
         assert!(error.error.contains("frequency_hz"), "{}", error.error);
     }
 
-    /// An unknown tag is a schema mismatch, and must come back as the documented error body
-    /// rather than axum's plain text.
     #[tokio::test]
     async fn an_unknown_tool_tag_is_refused_in_the_error_shape() {
         let (status, body) = request(
@@ -3467,9 +3251,6 @@ mod tests {
         assert_eq!(error.error, "invalid request body");
     }
 
-    /// The notices are a shipping obligation, so the route that delivers them is part of the
-    /// contract: a component's `texts` ids have to be fetchable, or the binary carries the
-    /// copyright notices without ever handing them to anybody.
     #[tokio::test]
     async fn about_serves_the_notices_and_their_texts() {
         let app = test_router();
@@ -3501,8 +3282,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// The doctor is served from the engine's own registry, so it must work on a hermetic
-    /// engine and describe it honestly (virtual-only builds are a warning, not "all good").
     #[tokio::test]
     async fn doctor_reports_the_running_configuration() {
         let (status, body) = request(test_router(), "GET", "/api/doctor", None).await;
@@ -3519,9 +3298,6 @@ mod tests {
         assert!(report.checks.iter().any(|c| c.id == "storage.db"));
     }
 
-    /// Delete and list-triggered reconciles race on separate blocking threads; the
-    /// recordings gate must keep a successful delete from turning into a 404 (with its
-    /// Recordings emit skipped) when a reconcile prunes the row first.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn delete_recording_never_404s_against_concurrent_reconciles() {
         let dir = tempfile::TempDir::new().expect("tempdir");

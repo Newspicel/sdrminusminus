@@ -1,5 +1,3 @@
-//! System Fusion reference transmitter: sync, coded FICH, and all three voice payload layouts.
-
 use blip25_vocoder::fullrate;
 use num_complex::Complex;
 use sdrmm_dsp::{CyclicCode, crc16_msb, fec::conv};
@@ -21,11 +19,8 @@ const VFR_INTERLEAVE: [usize; 144] = [
     94, 118, 142, 47, 23, 95, 71, 143, 119,
 ];
 
-/// Frame information channel fields, as the FICH publishes them.
 pub struct Fich {
-    /// 0 header, 1 communications, 2 terminator.
     pub frame_type: u8,
-    /// 0 V/D mode 1, 1 data FR, 2 V/D mode 2, 3 voice FR.
     pub data_mode: u8,
     pub dg_id: u8,
 }
@@ -40,8 +35,6 @@ impl Default for Fich {
     }
 }
 
-/// A whole transmission: a header frame, three communication frames and a terminator, each 100
-/// ms long, with the lead-in a receiver's clock needs.
 #[must_use]
 pub fn transmission(fich: &Fich, rate: f64) -> Vec<Complex<f32>> {
     transmission_inner(fich, None, rate)
@@ -55,8 +48,6 @@ pub(crate) enum Voice<'a> {
     FullRate(&'a [[bool; 144]]),
 }
 
-/// A transmission whose communication frames carry caller-supplied vocoder frames in their
-/// natural codec order. Voice-FR also uses two frames in the opening header.
 #[must_use]
 #[allow(dead_code)]
 pub(crate) fn transmission_with_voice(
@@ -83,7 +74,6 @@ fn transmission_inner(fich: &Fich, voice: Option<Voice<'_>>, rate: f64) -> Vec<C
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
 }
 
-/// One 480-symbol frame.
 fn frame(fich: &Fich, payload: &[u8]) -> Vec<u8> {
     let mut out = dibits(&bits(SYNC, 40));
     out.extend(dibits(&fich_bits(fich)));
@@ -178,8 +168,6 @@ fn vfr_voice(annex_h: &[bool; 144]) -> [bool; 144] {
     std::array::from_fn(|i| raw[VFR_INTERLEAVE[i]])
 }
 
-/// The 100 coded symbols of a FICH: CRC, four Golay blocks, the convolutional code and the
-/// interleaver, in the order a transmitter applies them.
 fn fich_bits(fich: &Fich) -> Vec<bool> {
     let mut info = [0u8; 6];
     info[0] = fich.frame_type << 6;
@@ -197,8 +185,6 @@ fn fich_bits(fich: &Fich) -> Vec<bool> {
         let word = CyclicCode::GOLAY_24_12.encode((value >> (36 - block * 12)) as u32 & 0x0FFF);
         coded.extend(bits(word, 24));
     }
-    // Four flush bits return the encoder to its zero state, which is what lets the decoder
-    // keep 96 information bits out of 100 steps.
     coded.extend([false; 4]);
     let mut convolved = Vec::with_capacity(200);
     conv::encode(&coded, &mut convolved);

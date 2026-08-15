@@ -3,7 +3,6 @@ import { onThemeChange } from "./theme";
 const cache = new Map<string, string>();
 let subscribed = false;
 
-/** The resolved value of a `--color-*` token, e.g. `token("plot-trace")`. */
 export function token(name: string): string {
   if (!subscribed) {
     subscribed = true;

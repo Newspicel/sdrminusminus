@@ -13,10 +13,6 @@ use crate::{
     pulse::{self, Norm},
 };
 
-/// Bell-202 tones at 1200 baud, processed at 12 kHz audio (10 sps — the rate an APRS-in-NFM
-/// audio tap resamples to). Mark sits *below* the 1700 Hz centre, so its level is −1 and the
-/// mapping table — not a sign convention — carries the assignment: index 0 → +1 (2200 Hz),
-/// index 1 → −1 (1200 Hz).
 pub const BAUD: f64 = 1_200.0;
 pub const SPS: f64 = 10.0;
 pub const RATE: f64 = BAUD * SPS;
@@ -50,10 +46,6 @@ pub fn discriminator() -> RealDetector {
     }
 }
 
-/// Per-detector receive filter, the demod unit tests' measured judgment restated at 10 sps:
-/// the tone correlators already integrate a 1.2-symbol window, so the filterbank takes only a
-/// half-symbol smoothing rect; the discriminator has no integration of its own and takes the
-/// full-symbol matched rect.
 #[must_use]
 pub fn rx(detector: RealDetector) -> Vec<f32> {
     match detector {
@@ -62,25 +54,12 @@ pub fn rx(detector: RealDetector) -> Vec<f32> {
     }
 }
 
-/// AFSK trials are shorter-framed than the RF entries': the audio detectors lock in tens of
-/// symbols (the demod unit tests align within 80), so 64 preamble symbols suffice. The unique
-/// word is the shared 24-symbol one — a 16-symbol draft put the false-anchor probability at
-/// ~2⁻¹⁶ per payload position, and with ~32 in-window positions per trial the committed curves
-/// grew a measured ~1.3e-4 error floor of whole mis-anchored trials at high Eb/N0; 24 symbols
-/// and the tighter window below push that below every committed point.
 pub const PREAMBLE: usize = 64;
 pub const TAIL: usize = 16;
 pub const BITS: usize = 1024;
 
-/// Sync search span past the nominal word position: covers the detector group delays
-/// (~2 symbols filterbank, ~8 discriminator) and the shift a worst-case sample-clock probe
-/// adds by word time (~5 symbols at 50 000 ppm), while keeping payload overlap short enough
-/// that the word's own sidelobe guard decides every in-window impostor.
 pub const SEARCH: usize = 24;
 
-/// The receive chain: the constructed detector *is* the front end, and the audio the
-/// demodulator hears is the waveform's real part — see [`link`] for why the harness carries
-/// the analytic signal.
 #[must_use]
 pub fn soft(detector: RealDetector, wave: &[num_complex::Complex<f32>]) -> Vec<f32> {
     let p = params();
@@ -96,12 +75,6 @@ pub fn soft(detector: RealDetector, wave: &[num_complex::Complex<f32>]) -> Vec<f
     out
 }
 
-/// One AFSK link. The harness's impairments and Eb/N0 accounting live on complex waveforms, so
-/// the link carries the *analytic* audio (baseband CPFSK shifted onto the 1700 Hz subcarrier —
-/// positive frequencies only) and the demodulator hears its real part. The projection halves
-/// signal power and per-sample noise power together (Re of unit-magnitude analytic carries ½;
-/// complex noise of per-component σ² projects to real variance σ²), so the stated Eb/N0 is the
-/// ratio at the detector.
 #[must_use]
 pub fn link(label: &str, detector: RealDetector) -> Link {
     let p = params();
@@ -150,8 +123,6 @@ pub fn discriminator_link() -> Link {
     )
 }
 
-/// One grid for both detectors: the tier-1 comparison is only a comparison if the two curves
-/// are measured at the same points.
 pub const GRID: &[f64] = &[
     7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0,
 ];

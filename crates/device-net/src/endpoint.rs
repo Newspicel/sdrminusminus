@@ -1,5 +1,3 @@
-//! The address half of a network receiver: parsing what an operator typed into the one canonical
-//! form every layer above has to agree on, and dialling it.
 use std::{
     fmt,
     net::{TcpStream, ToSocketAddrs},
@@ -10,29 +8,18 @@ use sdrmm_device::DeviceError;
 
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// A host and port, in the one spelling that round-trips through a device id.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Endpoint {
-    /// Lower-cased: DNS is case-insensitive, and two spellings of one host would otherwise be two
-    /// devices.
     host: String,
     port: u16,
-    /// Whether `host` is an IPv6 literal and has to be bracketed to be re-parseable.
     bracketed: bool,
 }
 
 impl Endpoint {
-    /// Parse `host`, `host:port` or `[v6]:port`, defaulting the port.
-    ///
-    /// # Errors
-    /// [`DeviceError::NotFound`] for anything that is not addressable — an empty host, a port that
-    /// is not a number, an unclosed bracket. `NotFound` rather than `Unsupported` because this is
-    /// reached through `DeviceRegistry::open`, where the key naming no device is exactly the case.
     pub fn parse(key: &str, default_port: u16) -> Result<Self, DeviceError> {
         let refused = |why: &str| DeviceError::NotFound(format!("{key}: {why}"));
         let key = key.trim();
         let (host, port) = match key.strip_prefix('[') {
-            // An IPv6 literal: the colons inside it are the address, not the port separator.
             Some(rest) => {
                 let (inside, after) = rest.split_once(']').ok_or_else(|| refused("unclosed ["))?;
                 match after.strip_prefix(':') {
@@ -65,13 +52,6 @@ impl Endpoint {
         })
     }
 
-    /// Connect, with a bounded wait. Nagle is off: every control command is a 5- or 8-byte write
-    /// that must reach the radio now, and holding one back for 40 ms to coalesce it with the next
-    /// is exactly wrong for a retune.
-    ///
-    /// # Errors
-    /// [`DeviceError::NotFound`] when the host does not resolve, [`DeviceError::Io`] when nothing
-    /// is listening or the dial timed out.
     pub(crate) fn connect(&self) -> Result<TcpStream, DeviceError> {
         let addrs = (self.host.as_str(), self.port)
             .to_socket_addrs()
@@ -124,8 +104,6 @@ mod tests {
         assert_eq!(key("radio.local:65535"), "radio.local:65535");
     }
 
-    /// The id is split on its first colon by the registry, so an IPv6 key arrives here with its
-    /// address intact and has to survive both directions.
     #[test]
     fn ipv6_literals_round_trip_bracketed() {
         assert_eq!(key("[::1]:5555"), "[::1]:5555");
@@ -141,8 +119,6 @@ mod tests {
         );
     }
 
-    /// One radio, one entry: the same host in two spellings must produce the same key, or the
-    /// probe list grows a duplicate and the hotplug tick faults whichever set holds the other.
     #[test]
     fn hosts_canonicalize_to_one_key() {
         assert_eq!(key(" Radio.Local:1234 "), "radio.local:1234");

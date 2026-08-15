@@ -3,10 +3,6 @@ import { patchDevice, STATE_KEY } from "./api";
 import { pushToast } from "./toasts";
 import type { DeviceSettings, StateSnapshot, StreamScope, StreamSettings } from "./types";
 
-// Mirrors `DeviceSettings::merge_from` (crates/wire): present scalars overwrite; gains/extra
-// merge per stage/name, so a delta carrying one stage must not clobber the others. Stream
-// overrides merge by stream index and each entry's gains per stage name again — so a radio-wide
-// retune never wipes a lane's override, and one lane's dial never drags the others.
 export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): DeviceSettings {
   const next: DeviceSettings = { ...current };
   if (delta.center_hz != null) {
@@ -58,12 +54,6 @@ function mergeStreams(
   return merged;
 }
 
-/**
- * Mirrors `DeviceSettings::for_stream` (crates/wire), the single resolution point: what stream
- * `index` is actually set to — its own override where the radio declares that setting
- * per-stream, the radio-wide value otherwise. The result carries no `streams` of its own; it is
- * one lane's resolved view, not the overrides table.
- */
 export function forStream(
   settings: DeviceSettings,
   index: number,
@@ -86,11 +76,6 @@ export function forStream(
   return resolved;
 }
 
-/**
- * A debounce-flushed patch can outlive its device set (Close during a slider drag). A patch
- * whose target is gone is meaningless: it must be dropped, not sent and then surfaced as a
- * stale "Rejected" banner over whatever device the user opens next.
- */
 export function patchTargetExists(snapshot: StateSnapshot | undefined, ds: number): boolean {
   return snapshot?.device_sets.some((d) => d.id === ds) ?? false;
 }
@@ -115,15 +100,11 @@ export function useDevicePatch(): {
   const queryClient = useQueryClient();
   const patchMut = useMutation({
     mutationFn: (v: { ds: number; settings: DeviceSettings }) => patchDevice(v.ds, v.settings),
-    // A rejected PATCH must be visible, not just snap the control back (CLAUDE.md: no silent
-    // failure). The toast stack is shared, so a rejection from any panel is reported once.
     onError: (error) => pushToast(error.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
   const applyPatch = (ds: number, delta: DeviceSettings): void => {
-    // A refetch started by an earlier StateChanged could resolve after this write and clobber
-    // it — cancel in-flight fetches before touching the cache (TanStack optimistic contract).
     void queryClient.cancelQueries({ queryKey: STATE_KEY });
     const prev = queryClient.getQueryData<StateSnapshot>(STATE_KEY);
     if (!prev || !patchTargetExists(prev, ds)) {
@@ -138,7 +119,6 @@ export function useDevicePatch(): {
     patchMut.mutate({ ds, settings: delta });
   };
 
-  // Reads the optimistic cache, not component props, so chained edits see prior results.
   const cachedSettings = (ds: number): DeviceSettings | undefined =>
     queryClient.getQueryData<StateSnapshot>(STATE_KEY)?.device_sets.find((d) => d.id === ds)
       ?.settings;

@@ -1,5 +1,3 @@
-//! Assembling one transmission's frames and audio into a completed call.
-
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, Weak},
@@ -21,14 +19,10 @@ use tokio::{
 
 use crate::trunking::Retentions;
 
-/// A DMR superframe is 360 ms; nothing arriving for this long means the transmission ended
-/// without a terminator being heard.
 const CALL_TIMEOUT: Duration = Duration::from_millis(900);
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Stored audio rate. The vocoder produces 8 kHz and the audio path interpolates it to 48 kHz
-/// for playback; storing the interpolation would cost six times the memory for no information.
 const STORED_RATE_HZ: u32 = 8_000;
 const DECIMATION: usize = 48_000 / STORED_RATE_HZ as usize;
 const ANTIALIAS_TAPS: usize = 96;
@@ -37,8 +31,6 @@ const MAX_CALL_SECONDS: usize = 600;
 const MAX_CALL_SAMPLES: usize = STORED_RATE_HZ as usize * MAX_CALL_SECONDS;
 const MAX_STORED_CALLS: usize = 10_000;
 
-/// Calls are a temporary buffer with a per-node retention, not the recordings index, so the
-/// whole thing lives in memory and is bounded there.
 const MAX_STORED_AUDIO_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Default)]
@@ -59,8 +51,6 @@ struct StoredCall {
     expires: Instant,
 }
 
-/// A finished call before the buffer gives it an identity: the id and the audio URL are the
-/// store's to assign, so they cannot be got wrong at the call site.
 pub(crate) struct NewCall {
     pub node: String,
     pub source_node: String,
@@ -98,8 +88,6 @@ impl Calls {
         inner.calls.len() != before
     }
 
-    /// Returns the stored call and whether older audio had to be evicted to fit it, which is a
-    /// structural change to the buffer and not something the new call's own event describes.
     fn push(&self, new: NewCall, audio: Option<Bytes>, retention: Duration) -> (VoiceCall, bool) {
         let mut inner = self.lock();
         prune(&mut inner);
@@ -166,7 +154,6 @@ fn prune(inner: &mut StoredCalls) {
     inner.audio_bytes -= freed;
 }
 
-/// Oldest audio first: a call whose bytes are gone keeps its metadata and says why.
 fn evict_audio(inner: &mut StoredCalls) -> bool {
     let mut evicted = false;
     for item in &mut inner.calls {
@@ -191,7 +178,6 @@ struct CallKey {
     node: String,
     device_set: u32,
     channel: u32,
-    /// Two timeslots of one carrier are two conversations, so the slot is part of the identity.
     slot: Option<u8>,
 }
 
@@ -215,7 +201,6 @@ struct ActiveCall {
     audio_error: Option<String>,
 }
 
-/// The stored-rate sample buffer plus the anti-alias decimator feeding it.
 struct CallAudio {
     decimator: RealDecimator,
     scratch: Vec<f32>,
@@ -329,8 +314,6 @@ fn ticker(period: Duration) -> tokio::time::Interval {
     ticker
 }
 
-/// Which follower channels belong to a trunk node that keeps its calls. The engine owns the
-/// follower list, the patch owns the retention, and neither is read from the database here.
 fn resolve_bindings(engine: &Engine, retentions: &Retentions) -> HashMap<(u32, u32), Vec<Binding>> {
     let mut resolved: HashMap<(u32, u32), Vec<Binding>> = HashMap::new();
     for system in engine.trunk_systems() {
@@ -469,9 +452,6 @@ fn update_call(
     }
 }
 
-/// Whether two frames describe the same transmission. Only the fields both of them carry are
-/// compared: an embedded link control that names a talkgroup but no radio must extend the call
-/// it belongs to, not split it in two.
 fn same_call(current: &DvFrame, incoming: &DvFrame) -> bool {
     fn agrees<T: PartialEq>(current: Option<T>, incoming: Option<T>) -> bool {
         match (current, incoming) {
@@ -726,8 +706,6 @@ mod tests {
         assert!(inner.audio_bytes <= MAX_STORED_AUDIO_BYTES);
     }
 
-    /// An embedded link control that carries a talkgroup but no radio id is part of the same
-    /// transmission; before this it ended the call and started another.
     #[test]
     fn a_partial_link_control_does_not_split_a_call() {
         let full = DvFrame {
@@ -836,7 +814,6 @@ mod tests {
             Some("/api/calls/1/audio")
         );
         let audio = calls.audio(listed[0].id).expect("audio");
-        // 4 800 frames at 48 kHz decimate to 800 at 8 kHz, plus the 44-byte header.
         assert!(audio.len() > 44 && audio.len() <= 44 + 800 * 2);
         assert!(matches!(
             events.try_recv(),

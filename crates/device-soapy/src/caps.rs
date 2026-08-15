@@ -160,8 +160,6 @@ fn extra_settings_from_wire(infos: &[ArgumentInfo]) -> Vec<ExtraSetting> {
         .iter()
         .map(|info| {
             if !info.options.is_empty() {
-                // The driver's option names come across as they are: `direct_samp` is written as
-                // an ADC index and nobody reads `1` as "sample the I branch".
                 return ExtraSetting::Enum {
                     name: info.key.clone(),
                     options: info.options.clone(),
@@ -329,18 +327,6 @@ pub(crate) fn validate(
         .collect()
 }
 
-/// The `gain_mode` value that has to be written *again* after the gain stages, if any.
-///
-/// Automatic gain and the tuner's stage values are one control, and `apply` writes the extras
-/// first because a setting can change what the rest of the delta is validated against. That puts
-/// the stage write last — and on librtlsdr's R82xx path a stage write is what takes the tuner out
-/// of AGC (`r82xx_set_gain` forces manual gain as a side effect). Nothing catches it: SoapyRTLSDR
-/// answers `getGainMode` from its own cached flag, so the read-back confirms a mode the tuner is
-/// no longer in.
-///
-/// A delta carrying both is every workspace restore — the stored settings are the whole radio, so
-/// the mode and the manual value the operator would return to arrive together. Re-asserting the
-/// mode after the stages is what makes the radio and the reported state agree.
 pub(crate) fn automatic_gain_to_reassert<'a>(
     writes: &'a [(String, String)],
     delta: &DeviceSettings,
@@ -355,9 +341,6 @@ pub(crate) fn automatic_gain_to_reassert<'a>(
         .filter(|value| value.split(',').any(is_automatic))
 }
 
-/// Only "on" is re-asserted: writing the manual mode again would be a second
-/// `rtlsdr_set_tuner_gain_mode`, which on the same tuner re-runs the gain write with a value of
-/// its own.
 fn is_automatic(value: &str) -> bool {
     value.eq_ignore_ascii_case("true") || value == "1"
 }
@@ -414,8 +397,6 @@ mod tests {
         }
     }
 
-    /// A workspace restore sends the whole radio at once. The stage write lands after the mode and
-    /// silently drops the tuner back to manual, so the mode has to be written again behind it.
     #[test]
     fn automatic_gain_is_reasserted_after_a_gain_stage_in_the_same_delta() {
         let writes = vec![
@@ -428,7 +409,6 @@ mod tests {
         };
         assert_eq!(automatic_gain_to_reassert(&writes, &delta), Some("true"));
 
-        // A per-stream override is the same write one lane down.
         let streamed = DeviceSettings {
             streams: vec![sdrmm_wire::StreamSettings {
                 stream: 1,
@@ -440,9 +420,6 @@ mod tests {
         assert_eq!(automatic_gain_to_reassert(&writes, &streamed), Some("true"));
     }
 
-    /// Nothing is re-asserted for the deltas the capability UI actually sends — one control at a
-    /// time — nor for the mode going the other way, which would be a second gain-mode write with a
-    /// gain value of the driver's own choosing.
     #[test]
     fn a_single_control_delta_is_left_alone() {
         let automatic = vec![(crate::GAIN_MODE_SETTING.to_string(), "true".to_string())];

@@ -125,8 +125,6 @@ describe("binding", () => {
     expect(unboundChannels(graph(), "dev", live, channels).map((c) => c.id)).toEqual([11]);
   });
 
-  // Channel ids are per device set, so a second radio's channel 1 must not be hidden by the
-  // first radio's channel 1 being on the canvas.
   it("scopes the orphan list to the set's own nodes", () => {
     const a = set(1, rtl, [channel(1, "nfm")]);
     const b = set(2, other, [channel(1, "am")]);
@@ -181,8 +179,6 @@ describe("binding", () => {
     expect(inputsOf(g, "spk", "audio", devices, new Map())).toEqual([]);
   });
 
-  // A trunk system's traffic channels have no node of their own: the follower opens and closes
-  // them as grants come and go, so a sink wired to the system must reach them through it.
   it("expands a trunk system into the traffic channels it is following", () => {
     const g: PatchGraph = {
       nodes: [
@@ -213,13 +209,9 @@ describe("binding", () => {
     expect(inputsOf(g, "log", "events", devices, channels, trunks)).toEqual([
       { node: "trunk", deviceSet: 1, channel: traffic },
     ]);
-    // Without the system's status there is nothing to expand it to, and no channel node is
-    // wired to the log directly.
     expect(inputsOf(g, "log", "events", devices, channels)).toEqual([]);
   });
 
-  // Two lanes of one radio: the wire names the stream (`iq` is 0, `iq3` is 2), and everything
-  // that follows an IQ wire must land on the lane it names rather than defaulting to the first.
   describe("multi-stream wires", () => {
     function lanes(): PatchGraph {
       return {

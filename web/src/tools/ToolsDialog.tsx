@@ -6,8 +6,6 @@ import { PortalContainerProvider } from "../components/PortalContainer";
 import { toolsQuery } from "../lib/api";
 import { findTool, type LaunchableTool, launchableTools, toolSize } from "./registry";
 
-/** A calculator is read at a glance; an instrument is worked in. The full size leaves only
- * enough margin to keep the dialog reading as a window over the workspace. */
 const SIZES = {
   standard: "max-h-[80vh] w-full max-w-3xl",
   full: "h-[94vh] w-[97vw] max-w-none",
@@ -17,9 +15,6 @@ export function ToolsDialog({ tool, onClose }: { tool: string | null; onClose: (
   const tools = useQuery(toolsQuery());
   const active = findTool(launchableTools(tools.data?.tools ?? []), tool);
   const size = SIZES[toolSize(tool)];
-  // A tool's own dropdowns portal into the dialog rather than to the body: a popup left at the
-  // document root paints under a dialog that sits above it, and the operator clicks the panel
-  // behind it instead of the option they aimed at.
   const portalContainer = useRef<HTMLDivElement>(null);
 
   return (

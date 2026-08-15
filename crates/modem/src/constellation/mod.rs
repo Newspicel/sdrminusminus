@@ -5,23 +5,12 @@ use std::fmt;
 
 use num_complex::Complex;
 
-/// Why a table was rejected. Construction happens at setup time, so this is a `Result`, not a
-/// panic — a bad table from a config file must surface as an error, never take the engine down.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConstellationError {
-    /// Point count must be 2^k with k ≥ 1 (one bit) and k ≤ 32 (labels are `u32`).
     SizeNotPowerOfTwo(usize),
-    /// One label per point, in the same order.
     LabelCountMismatch { points: usize, labels: usize },
-    /// A label repeats or exceeds k bits. Labels must be a permutation of 0..2^k — that is
-    /// what guarantees every bit position has points on both sides, which is what makes the
-    /// demapper total (see [`demap`]).
     BadLabel(u32),
-    /// A table of all-zero points has no energy to normalise to.
     ZeroPower,
-    /// A [`tables`] generator was asked for an order its family does not define — square QAM
-    /// at an odd number of bits, cross-QAM outside {32, 128}, a star with a non-power-of-two
-    /// ring count. Carries the family name because the order alone rarely says what was wrong.
     UnsupportedOrder { family: &'static str, m: u32 },
 }
 
@@ -45,9 +34,6 @@ impl fmt::Display for ConstellationError {
 
 impl std::error::Error for ConstellationError {}
 
-/// A validated, energy-normalised point table: `points[i]` is transmitted for the bit pattern
-/// `labels[i]`, and mean |point|² = 1. Immutable once built, so every invariant checked at
-/// construction holds for the demapper's whole lifetime.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Constellation {
     points: Vec<Complex<f32>>,
@@ -56,14 +42,6 @@ pub struct Constellation {
 }
 
 impl Constellation {
-    /// Builds from an arbitrary table. Validates size (2^k points), labels (a permutation of
-    /// 0..2^k), and energy; then scales all points by one common factor so mean Es = 1 —
-    /// scaling is uniform, so the table's *shape* (relative distances, ring ratios) is
-    /// exactly the caller's. A table already at Es = 1 passes through unchanged up to f32
-    /// rounding.
-    ///
-    /// # Errors
-    /// See [`ConstellationError`].
     pub fn from_points(
         points: Vec<Complex<f32>>,
         labels: Vec<u32>,
@@ -85,15 +63,11 @@ impl Constellation {
                 _ => return Err(ConstellationError::BadLabel(label)),
             }
         }
-        // f64 accounting for the energy sum: a 1024-point table summed in f32 would lose the
-        // low bits the tolerance tests read.
         let power = points
             .iter()
             .map(|p| f64::from(p.re) * f64::from(p.re) + f64::from(p.im) * f64::from(p.im))
             .sum::<f64>()
             / n as f64;
-        // NaN (from an infinite input point) must land here too, hence the explicit form
-        // rather than `power <= 0.0`.
         if !(power.is_finite() && power > 0.0) {
             return Err(ConstellationError::ZeroPower);
         }
@@ -136,13 +110,9 @@ impl Constellation {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        // Construction guarantees >= 2 points; here for the conventional len/is_empty pair.
         self.points.is_empty()
     }
 
-    /// The hard decision: the label of the nearest point in Euclidean distance. Ties go to
-    /// the earlier table entry — on a valid constellation a tie is a measure-zero event, so
-    /// which side wins is not worth a tiebreak rule.
     #[must_use]
     pub fn hard_slice(&self, y: Complex<f32>) -> u32 {
         let mut best = 0usize;

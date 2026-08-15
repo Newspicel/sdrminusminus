@@ -4,32 +4,19 @@ use crate::fir::design_lowpass;
 
 const PHASES: usize = 128;
 
-/// Streaming resampler for complex IQ at any positive `output_rate / input_rate` ratio.
 #[derive(Clone, Debug)]
 pub struct FracResampler {
-    /// `PHASES + 1` rows of `taps_per_phase` taps, each row reversed for a forward dot
-    /// product; row `PHASES` is row 0 advanced one input sample, so phase interpolation
-    /// never has to wrap.
     rows: Vec<f32>,
     taps_per_phase: usize,
-    /// Input samples consumed per output sample (`1 / ratio`).
     step: f64,
-    /// Position of the next output, in `buf` indices (integer part = newest sample used).
     t: f64,
     buf: Vec<Complex<f32>>,
 }
 
 impl FracResampler {
-    /// `ratio` = output rate / input rate.
     #[must_use]
     pub fn new(ratio: f64) -> Self {
         assert!(ratio.is_finite() && ratio > 0.0, "ratio must be positive");
-        // The kernel must protect the narrower Nyquist band `band` (input units): flat to
-        // 0.8·band — the DDC's 80%-of-output-rate passband — with the full stopband reached
-        // by `band`, beyond which everything folds (or images) into the output band. Blackman
-        // transition is 5.5/taps, so the taps-per-phase count scales with the ratio instead
-        // of a fixed kernel leaking aliases at ratios far from 1 (the same needed-transition
-        // sizing `ddc::stage` applies to the integer stages).
         let band = 0.5 * ratio.min(1.0);
         let taps_per_phase = (5.5 / (0.2 * band)).ceil() as usize;
         let cutoff = 0.9 * band;
@@ -56,7 +43,6 @@ impl FracResampler {
         }
     }
 
-    /// Replaces `out` with every output sample fully computable from history + `input`.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         out.clear();
         self.buf.extend_from_slice(input);
@@ -166,8 +152,6 @@ mod tests {
             got.extend_from_slice(&block);
             pos = end;
         }
-        // Timing accumulates in f64 with block-dependent rounding, so allow last-ulp drift
-        // and a ±1 boundary sample, but nothing audible.
         assert!((expected.len() as i64 - got.len() as i64).abs() <= 1);
         for (i, (a, b)) in expected.iter().zip(&got).enumerate() {
             assert!((a - b).norm() < 1e-3, "sample {i}: {a} vs {b}");

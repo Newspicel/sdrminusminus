@@ -1,31 +1,13 @@
 use std::time::Duration;
 
-/// How long a stream may deliver nothing at all before the capture loop treats it as failed.
-///
-/// A streaming radio free-runs and cannot go quiet while healthy, and an unplug fails its queued
-/// transfers rather than going silent — so this fires only for a board that has wedged with no
-/// error to report, which would otherwise park the capture thread forever and leave the device
-/// set advertising Running behind a dead waterfall.
 pub const SILENT_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// What a capture loop should do about a stream that ended on its own.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Recovery {
-    /// Restart the stream in place, after waiting out `delay`.
-    RetryAfter {
-        /// 1-based attempt number, for the log line.
-        attempt: u32,
-        /// How long to let the pipe settle first.
-        delay: Duration,
-    },
-    /// Out of attempts. Report the failure and let the engine take the device down.
-    GiveUp {
-        /// Restarts tried since the stream was last healthy.
-        attempts: u32,
-    },
+    RetryAfter { attempt: u32, delay: Duration },
+    GiveUp { attempts: u32 },
 }
 
-/// Attempt counting and backoff for one capture thread.
 #[derive(Clone, Copy, Debug)]
 pub struct RestartPolicy {
     pub(crate) max_attempts: u32,
@@ -36,10 +18,6 @@ pub struct RestartPolicy {
 }
 
 impl Default for RestartPolicy {
-    /// Three attempts, 20 ms doubling to 80 ms, and five seconds of streaming to earn a fresh
-    /// budget. The delays are chosen against a restart that costs ~3 ms: long enough for a
-    /// faulted pipe to settle, short enough that the whole tier stays far under the ~9 s the
-    /// fallback costs.
     fn default() -> Self {
         Self {
             max_attempts: 3,
@@ -52,12 +30,6 @@ impl Default for RestartPolicy {
 }
 
 impl RestartPolicy {
-    /// The stream ended without being asked to. `uptime` is how long it ran before that.
-    ///
-    /// A stream that stayed up for `min_healthy` earns a fresh budget, so genuine transient
-    /// stalls minutes apart never accumulate — while a stream that keeps dying immediately burns
-    /// through its attempts and faults, which is what stops a restart loop from spinning
-    /// forever on a board that is actually broken.
     pub fn on_failure(&mut self, uptime: Duration) -> Recovery {
         if uptime >= self.min_healthy {
             self.attempts = 0;
@@ -74,7 +46,6 @@ impl RestartPolicy {
         }
     }
 
-    /// Restarts tried since the stream was last healthy. Zero while it is behaving.
     #[must_use]
     pub const fn attempts(&self) -> u32 {
         self.attempts
@@ -126,9 +97,6 @@ mod tests {
         assert_eq!(policy.attempts(), 4);
     }
 
-    /// The real stall this whole change exists for arrived 40 s into a healthy session. Spaced
-    /// stalls must each get a full budget, or a long run would eventually fault on a stall it
-    /// had already recovered from an hour earlier.
     #[test]
     fn a_stream_that_stayed_healthy_earns_a_fresh_budget() {
         let mut policy = RestartPolicy::default();
@@ -143,8 +111,6 @@ mod tests {
         }
     }
 
-    /// The termination argument: a restart that immediately dies again does not reset, so the
-    /// loop cannot spin. Two attempts' worth of uptime is not enough to earn the reset either.
     #[test]
     fn a_stream_that_keeps_dying_immediately_still_gives_up() {
         let mut policy = RestartPolicy::default();

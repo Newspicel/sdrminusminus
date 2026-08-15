@@ -69,9 +69,6 @@ export function WorkspaceMenu({
         </Form>
       </div>
 
-      {/* Settings of the workspace, not of the app or of the browser looking at it: they travel
-          with the snapshot, so every client on this server sees the same answer. The band plan is
-          the first section; later ones stack under the same heading. */}
       <div className="flex flex-col gap-2 border-t border-line pt-3">
         <span className={LABEL}>Workspace settings</span>
         <Setting title="Band plan">
@@ -82,7 +79,6 @@ export function WorkspaceMenu({
   );
 }
 
-/** One named block under the settings heading. */
 function Setting({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-[3px] border border-line bg-panel-2 p-2">

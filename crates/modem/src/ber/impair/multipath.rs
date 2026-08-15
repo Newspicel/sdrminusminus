@@ -3,28 +3,19 @@ use num_complex::Complex;
 use super::Impairment;
 use crate::ber::rng::Rng;
 
-/// The named profiles a limits table may cite.
 #[derive(Clone, Copy, Debug)]
 pub enum MultipathProfile {
-    /// One echo: classic specular reflection. `relative_db` is the echo's power relative to
-    /// the direct ray (negative for a weaker echo), `phase_rad` its carrier phase.
     TwoRay {
         delay_samples: usize,
         relative_db: f64,
         phase_rad: f64,
     },
-    /// Exponentially decaying power-delay profile, the standard dense-scattering shape.
-    /// Tap *magnitudes* follow the PDP deterministically; only the phases are drawn — so the
-    /// realised per-tap powers are exactly the stated profile (a Rayleigh draw per tap would
-    /// make every realisation's PDP a random variable, and the calibration meaningless).
     ExponentialPdp {
         rms_delay_spread_samples: f64,
         taps: usize,
     },
 }
 
-/// The FIR channel for a [`MultipathProfile`]. Length is preserved; the convolution tail
-/// beyond the waveform end is dropped, as a capture window would drop it.
 #[derive(Clone, Copy, Debug)]
 pub struct Multipath {
     profile: MultipathProfile,
@@ -36,9 +27,6 @@ impl Multipath {
         Self { profile }
     }
 
-    /// The tap vector one application uses, unit total power. Public because a limits run
-    /// wants to record the realisation it measured through; phase draws for the exponential
-    /// profile come from `rng`, so taps-then-apply with a shared generator reproduces.
     #[must_use]
     pub fn taps(&self, rng: &mut Rng) -> Vec<Complex<f64>> {
         let mut h = match self.profile {
@@ -101,9 +89,6 @@ mod tests {
         rng::Rng,
     };
 
-    /// Cross-correlation of output against a known white input reads the impulse response
-    /// back: `r[k] = E[y[n]·conj(x[n−k])] = h[k]` for unit-power white x. 200k samples put
-    /// the estimation noise near 0.003 per tap.
     fn measured_taps(channel: &Multipath, max_lag: usize, seed: u64) -> Vec<Complex<f64>> {
         let x = white(&mut Rng::new(seed), 200_000);
         let mut y = x.clone();
@@ -121,8 +106,6 @@ mod tests {
             .collect()
     }
 
-    /// Applied == measured for the two-ray profile: the echo shows up at the stated delay,
-    /// at the stated relative level and phase, and nowhere else.
     #[test]
     fn two_ray_impulse_response_reads_back() {
         let channel = Multipath::new(MultipathProfile::TwoRay {
@@ -142,8 +125,6 @@ mod tests {
         }
     }
 
-    /// Applied == measured for the exponential PDP: per-tap measured powers follow the
-    /// stated profile (deterministic magnitudes make this exact up to estimation noise).
     #[test]
     fn exponential_pdp_tap_powers_read_back() {
         let spread = 2.0;
@@ -164,8 +145,6 @@ mod tests {
         }
     }
 
-    /// Unit-power normalisation: multipath must not change the mean energy, or every Eb/N0
-    /// stated upstream of it would silently shift.
     #[test]
     fn normalisation_preserves_mean_power() {
         for profile in [

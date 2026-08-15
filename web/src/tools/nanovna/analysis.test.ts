@@ -25,7 +25,6 @@ describe("sweep analysis", () => {
     expect(analysis.resonance?.vswr).toBeLessThan(1.01);
   });
 
-  /** A tighter limit can only ever describe a narrower band than a looser one. */
   it("nests the VSWR bands", () => {
     const spans = analysis.vswrBands.map(({ band }) => band?.spanHz ?? 0);
     expect(spans[0]).toBeGreaterThan(0);
@@ -39,8 +38,6 @@ describe("sweep analysis", () => {
     expect(band?.q).toBeGreaterThan(1);
   });
 
-  /** With nothing connected to CH1 the S21 trace is the noise floor, and a "peak" in it is not
-   * a measurement of anything. */
   it("refuses to call the noise floor a passband", () => {
     const quiet = analyse(
       Array.from({ length: 21 }, (_, index) =>
@@ -71,8 +68,6 @@ describe("bandSpan", () => {
     expect(band?.truncated).toBe(false);
   });
 
-  /** A band that runs off the end of the sweep is wider than the sweep can show, and saying so
-   * is the difference between a measurement and a guess. */
   it("marks a band that reaches the edge of the sweep", () => {
     const band = bandSpan(frequencies, [0, 0, 0, 0, 0], 2, 1, true);
     expect(band?.truncated).toBe(true);

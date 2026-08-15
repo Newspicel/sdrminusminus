@@ -1,14 +1,3 @@
-//! SSB: 48 kHz IQ → one-sided complex band filter → real part. Levelling is the channel's
-//! shared audio chain, which every voice mode carries (see `sdrmm_wire::AudioProcessing`).
-//!
-//! The filter and the product detector are `sdrmm_modem::analog::SsbDemod`'s filtering tier;
-//! [`sideband_filter`] stays here because the host runtime needs the same band as its own
-//! channel filter, and both are now one description of one band.
-//!
-//! [`SsbTx`] is the exciter that pairs with it, and deliberately by the other method: the
-//! receiver filters one side of the spectrum and takes the real part, the transmitter builds
-//! the analytic signal with a Hilbert transformer. Neither can hide the other's error.
-
 use std::{
     f64::consts::{PI, TAU},
     sync::LazyLock,
@@ -27,9 +16,7 @@ use crate::{
     tx::{Burst, TxQueue},
 };
 
-/// Lower passband edge: keeps demodulator DC and rumble out of the audio.
 pub(crate) const PASSBAND_LOW_HZ: f64 = 100.0;
-/// Long prototype for a ~500 Hz transition — the opposite sideband must be gone, not damped.
 const FILTER_TAPS: usize = 257;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -56,8 +43,6 @@ fn params(settings: &ChannelSettings) -> Result<&SsbParams, ChannelError> {
     }
 }
 
-/// The library waveform this channel is an attachment to: the band `[PASSBAND_LOW_HZ,
-/// bandwidth]` on the chosen side of the carrier, at the exciter method `SsbTx` uses.
 pub(crate) fn waveform(p: &SsbParams) -> Result<SsbWaveform, ChannelError> {
     let rate = DESCRIPTOR.input_rate_hz;
     if !(p.bandwidth_hz.is_finite()
@@ -83,8 +68,6 @@ pub(crate) fn waveform(p: &SsbParams) -> Result<SsbWaveform, ChannelError> {
     })
 }
 
-/// The host runtime's channel filter is the same band the receiver selects with, so both come
-/// from the one description above rather than from two copies of the same arithmetic.
 pub(crate) fn sideband_filter(p: &SsbParams) -> Result<FirC, ChannelError> {
     let band = waveform(p)?.band();
     let half_width = (band.high - band.low) / 2.0;
@@ -116,10 +99,6 @@ impl ChannelRx for SsbChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // The received baseband is already one-sided at full amplitude (a unit RF tone arrives
-        // as a unit complex exponential), so the detector's Re() alone is the product-detector
-        // output — any extra gain would put strong stations past full scale. No post-detection
-        // audio filter: the sideband filter *is* the band limit.
         self.demod.process(iq, &mut out.audio_pcm);
         clamp_full_scale(&mut out.audio_pcm);
         if !out.audio_pcm.is_empty() {
@@ -128,20 +107,9 @@ impl ChannelRx for SsbChannel {
     }
 }
 
-/// Length of the exciter's Hilbert transformer. Odd, so the in-phase path is delayed by a
-/// whole number of samples; long enough that the quadrature path holds its 90° across a voice
-/// channel at 48 kHz — the response necessarily decays toward DC and Nyquist, which is the
-/// other reason the audio is bandpassed to the passband before it reaches the transformer.
 const HILBERT_TAPS: usize = 257;
-/// The audio shaping ahead of the transformer is the receiver's sideband filter written as a
-/// baseband bandpass: same length, same band edges, so the exciter transmits the passband the
-/// receiver keeps rather than one the two have to be trusted to agree on.
 const AUDIO_TAPS: usize = FILTER_TAPS;
 
-/// Windowed Hilbert transformer: `2/(πn)` at odd offsets from the centre, zero elsewhere.
-///
-/// Blackman-windowed by hand rather than through `dsp`'s window: an exciter sharing a window
-/// with the filters it is tested against could hide an error in either.
 fn hilbert_taps() -> Vec<f32> {
     let center = (HILBERT_TAPS / 2) as i64;
     (0..HILBERT_TAPS)
@@ -157,23 +125,14 @@ fn hilbert_taps() -> Vec<f32> {
         .collect()
 }
 
-/// The in-phase path's matching delay, as a FIR whose only non-zero tap is the Hilbert
-/// transformer's centre. Running both paths through the same kind of filter is what keeps them
-/// sample-aligned across `submit` boundaries without a second piece of history to get wrong.
 fn delay_taps() -> Vec<f32> {
     let mut taps = vec![0.0; HILBERT_TAPS];
     taps[HILBERT_TAPS / 2] = 1.0;
     taps
 }
 
-/// Audio shaping ahead of the transformer: the band [`crate::occupied_band`] says this channel
-/// occupies, with both edges at −6 dB and nothing left a kilohertz past either. The low edge is
-/// a skirt rather than a wall at this length — rumble below it is attenuated, not removed, and
-/// what survives lands inside the transmitted sideband rather than in the suppressed one.
 fn audio_bandpass(p: &SsbParams) -> Result<RealDecimator, ChannelError> {
     let rate = DESCRIPTOR.input_rate_hz;
-    // Rejecting bandwidth here through the receiver's designer keeps one definition of what an
-    // SSB channel may be set to.
     sideband_filter(p)?;
     Ok(RealDecimator::new(
         &design_bandpass(AUDIO_TAPS, PASSBAND_LOW_HZ / rate, p.bandwidth_hz / rate),
@@ -181,14 +140,7 @@ fn audio_bandpass(p: &SsbParams) -> Result<RealDecimator, ChannelError> {
     ))
 }
 
-/// SSB exciter: queued voice → its analytic signal, one sideband at a time.
-///
-/// The phasing method a real exciter uses. Full-scale audio leaves it at unit envelope for a
-/// single tone; denser audio whose analytic envelope would pass full scale is limited in
-/// magnitude on the way in, which is the one place the transmitted sideband is allowed to be
-/// distorted rather than allowed out of range.
 pub struct SsbTx {
-    /// The analytic signal, built at `submit` — `generate` only applies the burst envelope.
     queue: TxQueue<Complex<f32>>,
     sideband: Sideband,
     audio_bp: RealDecimator,
@@ -235,8 +187,6 @@ impl ChannelTx for SsbTx {
             ));
         };
         self.queue.accept(pcm.len())?;
-        // The whole exciter runs here rather than in `generate`: the hot path may not allocate,
-        // and a FIR pair is the one part of this that has to see a block.
         self.audio_bp.process(&pcm, &mut self.shaped);
         self.hilbert.process(&self.shaped, &mut self.quadrature);
         self.delay.process(&self.shaped, &mut self.in_phase);
@@ -246,9 +196,6 @@ impl ChannelTx for SsbTx {
         };
         for (&i, &q) in self.in_phase.iter().zip(self.quadrature.iter()) {
             let sample = Complex::new(i, sign * q);
-            // Limited in magnitude, not per component: scaling the pair keeps the instantaneous
-            // phase — and with it the sideband — while a component clamp would fold energy into
-            // the one this mode exists to suppress.
             let norm = sample.norm();
             self.queue
                 .push(if norm > 1.0 { sample / norm } else { sample });
@@ -281,8 +228,6 @@ mod tests {
 
     const RATE: f64 = 48_000.0;
 
-    /// Two tones at half scale each, so the exciter's analytic signal stays inside full scale
-    /// and clipping cannot be what puts energy at a third frequency.
     fn two_tone(len: usize) -> Vec<f32> {
         tone_audio(700.0, 0.4, RATE, len)
             .iter()
@@ -296,7 +241,6 @@ mod tests {
     }
 
     fn voice_settings(sideband: Sideband) -> ChannelSettings {
-        // AGC off: amplitude and rejection assertions need the raw filter output.
         settings(ChannelParams::Ssb(SsbParams {
             sideband,
             bandwidth_hz: 2_700.0,
@@ -307,15 +251,12 @@ mod tests {
         SsbChannel::new(ctx(), voice_settings(sideband)).unwrap()
     }
 
-    /// The whole burst the exciter makes of `audio`, ready to hand a receiver.
     fn excite(sideband: Sideband, audio: Vec<f32>) -> Vec<Complex<f32>> {
         let mut tx = SsbTx::new(ctx(), voice_settings(sideband)).unwrap();
         tx.submit(TxPayload::Audio(audio)).unwrap();
         burst(&mut tx)
     }
 
-    /// Past the FIR pair's transient and the burst's ramps, where the exciter is in steady
-    /// state and an amplitude is worth measuring.
     fn settled(iq: &[Complex<f32>]) -> &[Complex<f32>] {
         &iq[2 * AUDIO_TAPS..iq.len() - 2 * AUDIO_TAPS]
     }
@@ -328,8 +269,6 @@ mod tests {
         let (freq, ratio) = dominant_tone(window, RATE);
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
-        // A unit one-sided tone demodulates to a unit-amplitude cosine (rms ≈ 0.707) —
-        // full-scale RF maps to full-scale PCM, never beyond.
         let amplitude = rms(window);
         assert!((0.62..0.78).contains(&amplitude), "rms {amplitude}");
     }
@@ -356,9 +295,6 @@ mod tests {
         );
     }
 
-    /// Audio in, audio out through the exciter — the one-sided tones above pin the filter, this
-    /// pins the round trip: both tones come back at their own frequencies with nothing else
-    /// between them, and the opposite sideband hears neither.
     #[test]
     fn usb_recovers_a_two_tone_exciter_that_lsb_rejects() {
         let iq = excite(Sideband::Usb, two_tone(48_000));
@@ -400,8 +336,6 @@ mod tests {
         assert!(matches!(err, Err(ChannelError::InvalidSettings(_))));
     }
 
-    /// The whole point of an SSB exciter: the audio lands on one side of DC at the amplitude it
-    /// went in at, and the mirror image is gone rather than merely damped.
     #[test]
     fn tx_puts_the_audio_on_one_side_of_dc_and_leaves_the_image_40_db_down() {
         for (sideband, sign) in [(Sideband::Usb, 1.0), (Sideband::Lsb, -1.0)] {
@@ -422,9 +356,6 @@ mod tests {
         }
     }
 
-    /// Keeping the station inside the channel it claims is the exciter's job, not the
-    /// operator's: the passband is flat, both edges sit at −6 dB where the receiver's filter
-    /// puts them, and audio a kilohertz past the top does not reach the air at all.
     #[test]
     fn tx_transmits_the_passband_the_receiver_keeps() {
         let level = |tone_hz: f64| {
@@ -446,8 +377,6 @@ mod tests {
         assert!(stopband < 0.01, "4 kHz leaked at {stopband}");
     }
 
-    /// Dense audio whose analytic envelope would pass full scale is limited, so nothing leaves
-    /// the exciter out of range whatever was queued.
     #[test]
     fn tx_never_leaves_full_scale() {
         let loud: Vec<f32> = two_tone(48_000).iter().map(|s| s * 2.5).collect();
@@ -456,8 +385,6 @@ mod tests {
         }
     }
 
-    /// A transmitter that ignored `apply` would be exciting the sideband the operator just
-    /// moved off, and the receiver they moved with them would hear nothing.
     #[test]
     fn tx_apply_switches_the_sideband() {
         let mut tx = SsbTx::new(ctx(), voice_settings(Sideband::Usb)).unwrap();

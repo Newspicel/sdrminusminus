@@ -1,14 +1,3 @@
-//! §5 measurement bundle for the M-PPM entry: committed BER curves on
-//! both detector tiers, the two §4.3 limits tables that make the tier trade a measured pair
-//! rather than a claim, the level-1 E2E loopbacks, and the fractional-rate / sub-sample-phase
-//! properties the ADS-B attachment stands on.
-//!
-//! The chains live in `ber::catalog::ppm`; the committed artifacts live in `baselines/ppm/`.
-//! The matched-filter tier is held to the *exact* noncoherent orthogonal closed form — M slots
-//! are M orthogonal equal-energy signals, which is the same statement the M-FSK entry's tones
-//! make — and the envelope tier is committed-and-guarded, with its distance behind tier 1 gated
-//! as a number.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -47,8 +36,6 @@ fn load_curve(stem: &str) -> Curve {
 fn oracle(m: u32) -> impl Fn(f64) -> f64 {
     move |db| theory::mfsk_noncoherent_ber(m, db)
 }
-
-// --- Always-run harness gates ----------------------------------------------------------------
 
 #[test]
 fn every_chain_round_trips_clean_at_high_ebn0() {
@@ -96,9 +83,6 @@ fn ppm2_envelope_curve_matches_committed_baseline() {
     );
 }
 
-/// The matched tier's acceptance: M-PPM through a matched filter and an argmax is noncoherent
-/// orthogonal signalling, so its committed curves sit on that exact closed form — the same
-/// oracle the M-FSK entry answers to, which is the two entries' shared claim made checkable.
 #[test]
 fn the_matched_tier_sits_on_the_exact_closed_form() {
     for (m, stem, grid) in [
@@ -114,11 +98,6 @@ fn the_matched_tier_sits_on_the_exact_closed_form() {
     }
 }
 
-/// The §5 item-2 tier comparison, as a number: summing magnitudes instead of samples costs the
-/// envelope tier a measured margin at 1e-3. It is what Mode S pays for a statistic that needs
-/// no phase coherence within a slot and comes free with the magnitudes a burst scan computes
-/// anyway — and it is gated in *both* directions, because a tier that stopped costing anything
-/// would mean the matched filter had quietly stopped integrating.
 #[test]
 fn the_envelope_tier_sits_the_recorded_margin_behind_the_matched_one() {
     let sensitivity = |stem: &str| {
@@ -131,11 +110,6 @@ fn the_envelope_tier_sits_the_recorded_margin_behind_the_matched_one() {
     );
 }
 
-/// The claim that makes both phase-5 entries one entry's worth of theory: M orthogonal
-/// equal-energy signals detected noncoherently perform identically whether the M signals are M
-/// *tones in one interval* or M *intervals at one tone*. Measured across the two entries'
-/// committed curves, which share nothing but that closed form — different engines, different
-/// sample rates (48 kHz against 8 MHz), different framing, different seeds.
 #[test]
 fn ppm_and_mfsk_measure_the_same_sensitivity_at_equal_alphabets() {
     let sensitivity = |stem: &str| {
@@ -152,8 +126,6 @@ fn ppm_and_mfsk_measure_the_same_sensitivity_at_equal_alphabets() {
         );
     }
 }
-
-// --- Level-1 E2E -----------------------------------------------------------
 
 fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u64) {
     let sensitivity = limits::ebn0_at_ber(&load_curve(curve_name), 1e-3)
@@ -193,21 +165,6 @@ fn ppm2_envelope_loops_back_clean_at_6db_margin() {
     );
 }
 
-// --- The attachment's properties: fractional rates and sub-sample phases ---------------------
-
-/// Payload symbols the fractional-rate probes carry, and the noise they carry it under.
-///
-/// 112 symbols is Mode S's long frame, and the length is part of the property rather than a
-/// convenience: at ~1 sample per slot the fraction of a sample each boundary falls at *cycles*
-/// through the frame (`frac(j·1.024)`), so some slots sit at the geometry's own worst case,
-/// where a band-limited pulse is split near-evenly between two samples that neighbouring slots
-/// share. A frame long enough will always contain one. That is the rate's blind spot, not the
-/// receiver's — `channels::adsb` meets it the same way, with short frames and a CRC that
-/// rejects the tables which lost — which is why the property below is "*some* table reads the
-/// whole frame", not "the table that looked best on its first symbols did". The noise sits
-/// 30 dB above one slot's energy: enough that a boundary with no margin left still shows, far
-/// enough from sensitivity that the probe measures the sampling and not the SNR. Sensitivity is
-/// the committed curves' job, at the 8-samples-per-slot reference geometry.
 const PROBE_SYMBOLS: usize = 112;
 const PROBE_NOISE_VAR: f64 = 0.001;
 
@@ -231,21 +188,6 @@ fn noisy(wave: &mut [Complex<f32>], seed: u64) {
     }
 }
 
-/// The property `channels::adsb` runs on and no curve can state: at a slot width that is not a
-/// whole number of samples, and at a transmitter phase the receiver was never told, one of the
-/// phase tables reads the burst. Both tiers, the rates a 1090 MHz receiver actually offers
-/// (1.024 samples per slot at 2.048 Msps, 1.2 at 2.4, 1.28 at 2.56) and one comfortable rate,
-/// with the Mode S CRC's job — deciding which table won — done here by comparing whole frames.
-///
-/// The tolerance is the *rate's*, and it is the finding this test exists to pin. From 1.2
-/// samples per slot up, every rate and phase reads a 112-symbol frame exactly, at every table
-/// mismatch eight tables can leave. At 1.024 it does not: eight tables bound the mismatch to a
-/// sixteenth of a sample, and on a slot that wide a sixteenth is 6 % of the boundary — enough,
-/// on the slots where a band-limited pulse already splits near-evenly between two samples that
-/// neighbouring slots share, to leave a symbol with no margin at all. Measured at 30 dB: at
-/// most one symbol in 112, against none at every wider slot. That is the weakness dump1090 has
-/// at 2.0–2.048 Msps, it is why `channels::adsb` checks a CRC rather than trusting a table, and
-/// it is why the committed curves are measured at 8 samples per slot instead.
 #[test]
 fn every_fractional_rate_and_phase_decodes_through_some_phase_table() {
     for m in [2usize, 4] {
@@ -253,9 +195,6 @@ fn every_fractional_rate_and_phase_decodes_through_some_phase_table() {
         for &(sps, allowed) in &[(1.024, 1usize), (1.2, 0), (1.28, 0), (2.5, 0)] {
             for (index, phase) in [0.0, 0.19, 0.37, 0.5, 0.71, 0.93].into_iter().enumerate() {
                 let mut wave = Vec::new();
-                // One guard symbol past the payload: at a fractional slot width the burst's
-                // last slot ends inside a sample the transmitter would otherwise not emit, and
-                // a receiver reading a truncated slot is measuring the generator, not the rate.
                 let mut sent = symbols.clone();
                 sent.push(0);
                 PpmMod::new(m, sps, phase, 1.0).modulate(&sent, &mut wave);
@@ -274,10 +213,6 @@ fn every_fractional_rate_and_phase_decodes_through_some_phase_table() {
     }
 }
 
-/// Symbol errors the *best* phase table leaves — the Mode S CRC's job, which is to say which
-/// table read the frame, done here by comparing whole frames rather than by scoring a prefix: at
-/// ~1 sample per slot the fraction of a sample each boundary falls at walks through the frame,
-/// so the table that reads the first symbols best is not always the table that reads all of them.
 fn best_phase_table_errors(
     m: usize,
     sps: f64,
@@ -296,9 +231,6 @@ fn best_phase_table_errors(
         .unwrap_or(usize::MAX)
 }
 
-/// A burst at the *wrong* phase table must actually be wrong somewhere — otherwise the test
-/// above would pass on a receiver that ignored the phase entirely, and the eight tables would
-/// be eight copies of one.
 #[test]
 fn the_phase_tables_are_not_interchangeable() {
     let m = 2;
@@ -318,8 +250,6 @@ fn the_phase_tables_are_not_interchangeable() {
         "the phase-0 table read a phase-0.5 burst too well to be a different table"
     );
 }
-
-// --- Limits tables (§4.3, M = 2 reference configuration, both tiers) -------------------------
 
 fn probe(link: &Link, spec: &ChannelSpec, op_db: f64) -> f64 {
     limits::measure_ber(link, spec, op_db, M2_SEED ^ 0xbe5, 150, 40_000)
@@ -345,17 +275,11 @@ fn axis_row(
 const PROFILE_ERRORS: u64 = 250;
 const PROFILE_CAP: u64 = 600_000;
 
-/// The carrier axes' brackets, named because the tier comparison below reads them: a row that
-/// reaches its bracket is a tier that does not fail on that axis at all, and saying so takes
-/// the bracket's value.
 const CFO_AXIS_HZ: f64 = 1_000_000.0;
 const DRIFT_AXIS_HZ_S: f64 = 1e9;
 
 fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> {
     vec![
-        // Nothing here tracks a carrier: what a frequency offset costs is the correlation lost
-        // *inside* one slot, so the axis runs to a whole cycle per slot (1 MHz at 1 Mslot/s)
-        // — which the envelope tier, reading no phase at all, is expected to shrug off entirely.
         axis_row("static CFO", "Hz", CFO_AXIS_HZ, 2_000.0, |hz| {
             probe(
                 link,
@@ -370,8 +294,6 @@ fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> 
                 op_db,
             )
         }),
-        // The frame's alignment is one searched offset for the whole burst, so a clock error
-        // walks the slot boundaries across it: half a slot of walk over 8600 samples is ~460 ppm.
         axis_row("sample clock", "ppm", 10_000.0, 5.0, |ppm| {
             probe(
                 link,
@@ -379,8 +301,6 @@ fn measure_rows(link: &Link, op_db: f64, profile_grid: &[f64]) -> Vec<LimitRow> 
                 op_db,
             )
         }),
-        // Two symbols of static delay — inside the searched lead-in, so this row is expected to
-        // be bracket-bound and says so only because the bracket reaches the end of the search.
         axis_row("static timing offset", "samples", 32.0, 0.5, |d| {
             probe(
                 link,
@@ -431,8 +351,6 @@ fn assert_table_matches(stem: &str, link: &Link, profile_grid: &[f64]) {
     assert!(faults.is_empty(), "{stem} regressions: {faults:#?}");
 }
 
-/// The profile row's grid per tier: it has to bracket that tier's own 1e-3 crossing, and the
-/// two tiers sit a measured margin apart.
 const MATCHED_PROFILE_GRID: [f64; 4] = [10.0, 11.0, 12.0, 13.0];
 const ENVELOPE_PROFILE_GRID: [f64; 4] = [12.0, 13.0, 14.0, 15.0];
 
@@ -450,11 +368,6 @@ fn envelope_tier_limits_rows_match_committed_table() {
     );
 }
 
-/// The tier trade the two tables exist to record, read off them: on the carrier axes the
-/// envelope tier does not fail *at all* — both rows sit at their bracket, because a magnitude
-/// has no phase for an offset or a drift to spoil — while the matched tier has a real limit
-/// inside the same bracket, where the offset has turned enough phase within one slot to eat the
-/// coherent sum. That is the whole reason Mode S pays the envelope tier's 2.4 dB.
 #[test]
 fn the_envelope_tier_does_not_fail_on_the_carrier_axes_at_all() {
     let row = |stem: &str, axis: &str| {
@@ -482,8 +395,6 @@ fn the_envelope_tier_does_not_fail_on_the_carrier_axes_at_all() {
         );
     }
 }
-
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ----------------------
 
 fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     let curve = sweep::sweep_ber(

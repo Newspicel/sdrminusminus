@@ -68,9 +68,6 @@ function appendSample(
   return next.length > HISTORY_CAPACITY ? next.slice(next.length - HISTORY_CAPACITY) : next;
 }
 
-/** Start one platform geolocation watch and publish it to every device-GPS node. The latest fix
- * is replayed after a WebSocket reconnect because a stationary receiver may not trigger another
- * browser callback for a long time. */
 export function watchDevicePosition(socket: SdrSocket, nodes: readonly string[]): () => void {
   if (nodes.length === 0) {
     return () => {};

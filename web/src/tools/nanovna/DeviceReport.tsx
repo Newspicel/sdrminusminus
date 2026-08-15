@@ -78,7 +78,6 @@ export function DeviceReport({ report }: { report: NanoVnaDeviceReport }) {
   );
 }
 
-/** 255 is the firmware's own automatic choice rather than a level. */
 function describePower(power: number | null | undefined): string {
   if (power == null) {
     return "—";

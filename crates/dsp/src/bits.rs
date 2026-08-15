@@ -1,7 +1,3 @@
-/// NRZI line decode: a 0 bit is a transition, a 1 bit is no transition (AX.25, AIS).
-///
-/// The line has no absolute polarity, so the very first output is relative to an assumed
-/// low idle level; framing (a flag hunt) resolves the ambiguity, not this decoder.
 #[derive(Clone, Debug, Default)]
 pub struct NrziDecoder {
     last: bool,
@@ -24,8 +20,6 @@ impl NrziDecoder {
     }
 }
 
-/// Differential BPSK bit decode `out = in XOR previous` (RDS), removing the 180° phase
-/// ambiguity a Costas loop leaves behind.
 #[derive(Clone, Debug, Default)]
 pub struct DifferentialDecoder {
     last: bool,
@@ -48,27 +42,15 @@ impl DifferentialDecoder {
     }
 }
 
-/// HDLC deframer: consumes NRZI-decoded bits, syncs on 0x7E flags, removes stuffed zeros
-/// after five ones, and emits byte-aligned frames LSB-first (AX.25/AIS bit order).
-///
-/// Seven ones is an abort and drops the frame in progress; frames outside
-/// `min_bytes..=max_bytes` are dropped at the closing flag.
 #[derive(Clone, Debug)]
 pub struct HdlcDeframer {
     min_bytes: usize,
     max_bytes: usize,
-    /// Consecutive 1 bits ending at the previous bit: 5 arms the stuffing rule, 6 means the
-    /// next bit decides between a flag (0) and an abort (1).
     ones: u8,
     byte: u8,
-    /// Bits held in `byte`. A frame is byte-aligned, so at the closing flag this must equal
-    /// the debris the flag itself contributed — see [`HdlcDeframer::close`].
     nbits: u8,
     frame: Vec<u8>,
-    /// True between an opening flag and the next flag or abort.
     in_frame: bool,
-    /// Latched when the frame outgrew `max_bytes`; keeps the vector bounded while the
-    /// oversized frame runs out, and drops it at the closing flag.
     overflow: bool,
 }
 
@@ -91,7 +73,6 @@ impl HdlcDeframer {
         }
     }
 
-    /// Feed one bit; returns a complete frame when a closing flag arrives.
     pub fn push(&mut self, bit: bool) -> Option<Vec<u8>> {
         match self.ones {
             0..=4 => {
@@ -104,7 +85,6 @@ impl HdlcDeframer {
                 None
             }
             6 if !bit => self.close(),
-            // Seven ones: abort. Only a flag re-opens a frame after this.
             _ => {
                 self.ones = if bit { 7 } else { 0 };
                 self.in_frame = false;
@@ -144,11 +124,6 @@ impl HdlcDeframer {
         self.overflow = false;
     }
 
-    /// A flag closes any frame in progress and opens the next one (adjacent frames share a
-    /// flag). The flag's own leading zero and first five ones are appended as data before it
-    /// is recognised, so a byte-aligned frame always leaves 6 bits of debris — or 5 when the
-    /// transmitter's stuffed zero swallowed the flag's leading zero. Any other remainder
-    /// means the bit stream was not byte-aligned and the frame is not a frame.
     fn close(&mut self) -> Option<Vec<u8>> {
         let aligned = matches!(self.nbits, 5 | 6);
         let keep = self.in_frame
@@ -164,11 +139,6 @@ impl HdlcDeframer {
     }
 }
 
-/// Multiplicative (self-synchronising) descrambler: `out = in XOR reg[t]…`, register fed with
-/// the received stream. Defaults to G3RUH's x^17 + x^12 + 1 (9600 baud packet, AIS).
-///
-/// Self-synchronising means no preamble is needed, at the price of error multiplication: one
-/// channel bit error produces one output error per tap plus one.
 #[derive(Clone, Debug)]
 pub struct Descrambler {
     reg: u32,
@@ -176,13 +146,11 @@ pub struct Descrambler {
 }
 
 impl Descrambler {
-    /// x^17 + x^12 + 1.
     #[must_use]
     pub fn g3ruh() -> Self {
         Self::new(&[17, 12])
     }
 
-    /// `taps` are polynomial exponents (the implicit `+ 1` term is the input itself).
     #[must_use]
     pub fn new(taps: &[u8]) -> Self {
         Self {
@@ -202,8 +170,6 @@ impl Descrambler {
     }
 }
 
-/// The scrambler matching [`Descrambler`]: same feedback, but the register is fed with the
-/// transmitted (scrambled) bit so both registers see the same sequence.
 #[derive(Clone, Debug)]
 pub struct Scrambler {
     reg: u32,
@@ -211,13 +177,11 @@ pub struct Scrambler {
 }
 
 impl Scrambler {
-    /// x^17 + x^12 + 1.
     #[must_use]
     pub fn g3ruh() -> Self {
         Self::new(&[17, 12])
     }
 
-    /// `taps` are polynomial exponents (the implicit `+ 1` term is the input itself).
     #[must_use]
     pub fn new(taps: &[u8]) -> Self {
         Self {
@@ -237,7 +201,6 @@ impl Scrambler {
     }
 }
 
-/// Exponent `k` addresses the bit delayed by `k`, held at register bit `k − 1`.
 fn taps_mask(taps: &[u8]) -> u32 {
     let mut mask = 0u32;
     for &k in taps {
@@ -251,9 +214,6 @@ fn feedback(reg: u32, taps: u32) -> bool {
     (reg & taps).count_ones() % 2 == 1
 }
 
-/// Sliding sync-word correlator: shifts bits into a register (first bit toward the MSB of the
-/// significant field) and reports a match when the Hamming distance to `word` is within
-/// `tolerance`.
 #[derive(Clone, Debug)]
 pub struct SyncDetector {
     reg: u64,
@@ -285,7 +245,6 @@ impl SyncDetector {
         hamming_distance(self.reg, self.word) <= self.tolerance
     }
 
-    /// The significant bits currently in the register, oldest at the MSB.
     #[must_use]
     pub fn register(&self) -> u64 {
         self.reg
@@ -306,7 +265,6 @@ pub fn reverse_byte(b: u8) -> u8 {
     b.reverse_bits()
 }
 
-/// Pack bits into bytes, most significant bit first. A trailing partial byte is zero-padded.
 #[must_use]
 pub fn pack_msb(bits: &[bool]) -> Vec<u8> {
     let mut out = vec![0u8; bits.len().div_ceil(8)];
@@ -316,7 +274,6 @@ pub fn pack_msb(bits: &[bool]) -> Vec<u8> {
     out
 }
 
-/// Pack bits into bytes, least significant bit first. A trailing partial byte is zero-padded.
 #[must_use]
 pub fn pack_lsb(bits: &[bool]) -> Vec<u8> {
     let mut out = vec![0u8; bits.len().div_ceil(8)];
@@ -326,8 +283,6 @@ pub fn pack_lsb(bits: &[bool]) -> Vec<u8> {
     out
 }
 
-/// Read a big-endian bit field of `len` bits starting at bit `offset` (MSB of byte 0 = bit 0).
-/// Returns 0 when the field runs past the end — callers bounds-check their own frames.
 #[must_use]
 pub fn bits_be(bytes: &[u8], offset: usize, len: usize) -> u64 {
     if len == 0 || len > 64 {
@@ -346,9 +301,6 @@ pub fn bits_be(bytes: &[u8], offset: usize, len: usize) -> u64 {
     value
 }
 
-/// Manchester/biphase symbol pair -> data bit; `None` when the pair has no transition (an
-/// error). A 1 is high-then-low — the G. E. Thomas convention, as used by RDS (IEEE 802.3 is
-/// the complement, 1 = low-then-high).
 #[must_use]
 pub fn manchester_decode(first: bool, second: bool) -> Option<bool> {
     (first != second).then_some(first)
@@ -372,7 +324,6 @@ mod tests {
             .collect()
     }
 
-    /// Payload bits LSB-first with a zero stuffed after every five ones.
     fn stuff(payload: &[u8]) -> Vec<bool> {
         let mut out = Vec::new();
         let mut ones = 0;
@@ -459,7 +410,6 @@ mod tests {
         let mut deframer = HdlcDeframer::new(4, 8);
         assert!(deframe(&mut deframer, &hdlc_frame(&[0x11, 0x22])).is_empty());
         assert!(deframe(&mut deframer, &hdlc_frame(&[0xaa; 9])).is_empty());
-        // The bounded frames on either side still decode, so the drops left no residue.
         let ok = [0x11u8, 0x22, 0x33, 0x44];
         assert_eq!(deframe(&mut deframer, &hdlc_frame(&ok)), vec![ok.to_vec()]);
     }
@@ -506,7 +456,6 @@ mod tests {
 
     #[test]
     fn hdlc_rejects_a_misaligned_frame() {
-        // One extra data bit before the closing flag: complete octets exist, alignment does not.
         let mut bits = FLAG.to_vec();
         bits.extend(stuff(&[0x11, 0x22, 0x33]));
         bits.push(false);

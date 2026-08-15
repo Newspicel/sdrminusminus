@@ -11,10 +11,6 @@ use crate::{
     linear::{CarrierLoop, EnvelopeTiming, PhaseDetector, TIMING_BW_CONTINUOUS},
 };
 
-/// Loop bandwidth for the coherent amplitude rows. A real-axis table has no modulation for an
-/// M-th-power detector to strip beyond its 2-fold symmetry, so these rows run the
-/// decision-directed detector — and the substrate's wide 0.01 is fine for it here, because the
-/// decisions a 2- or 4-level real table makes are reliable well below its own sensitivity.
 pub const ASK_LOOP_BW: f64 = 0.01;
 
 #[must_use]
@@ -32,8 +28,6 @@ pub fn ook_coherent_link() -> Link {
     )
 }
 
-/// Noncoherent OOK: magnitude detection with the fitted pedestal and scale, no carrier recovery
-/// anywhere in the chain.
 #[must_use]
 pub fn ook_envelope_link() -> Link {
     envelope_link(
@@ -45,7 +39,6 @@ pub fn ook_envelope_link() -> Link {
     )
 }
 
-/// Coherent Gray 4-PAM — bipolar, the family's efficient member.
 #[must_use]
 pub fn pam4_link() -> Link {
     coherent_link(
@@ -61,7 +54,6 @@ pub fn pam4_link() -> Link {
     )
 }
 
-/// Coherent Gray 8-PAM.
 #[must_use]
 pub fn pam8_link() -> Link {
     coherent_link(
@@ -77,8 +69,6 @@ pub fn pam8_link() -> Link {
     )
 }
 
-/// Coherent unipolar 4-ASK — the same four bits per two symbols as 4-PAM, at the energy penalty
-/// unipolar signalling pays.
 #[must_use]
 pub fn ask4_link() -> Link {
     coherent_link(
@@ -108,26 +98,16 @@ pub const ASK4_AWGN: &str = "linear/ask4_awgn";
 pub const OOK_LIMITS: &str = "linear/ook_envelope_limits";
 pub const ASK_PERF: &str = "linear/ask_perf";
 
-/// Same tolerance and the same three reasons as the PSK rows carry.
 pub const ORACLE_TOLERANCE_DB: f64 = 0.75;
 
-/// Coherent OOK's exact bit error rate. Two equiprobable points at 0 and `A` with mean symbol
-/// energy 1 put `A = √2`, so the decision distance is √2 against a per-component σ of √(N0/2) and
-/// `BER = Q(√γ)` — exactly BPSK's 3 dB penalty, which is the textbook cost of keying a carrier on
-/// and off instead of inverting it.
 fn ook_ber(ebn0_db: f64) -> f64 {
     theory::q(10f64.powf(ebn0_db / 10.0).sqrt())
 }
 
-/// Unipolar M-ASK's Gray bit error rate. The levels are 0..M−1 scaled to mean Es = 1, i.e. spaced
-/// `d = √(6/((M−1)(2M−1)))`, and each interior level has two neighbours: the standard
-/// `2(M−1)/M · Q(d/2σ)` symbol form over log2(M) bits.
 fn ask_ber(m: u32, ebn0_db: f64) -> f64 {
     let m_f = f64::from(m);
     let k = f64::from(m.ilog2());
     let g = 10f64.powf(ebn0_db / 10.0);
-    // Mean symbol energy of 0..M−1 is (M−1)(2M−1)/6, so the normalised spacing squared is
-    // 6/((M−1)(2M−1)); the decision distance is half of it against σ² = N0/2 = 1/(2·k·γ_b).
     let d2 = 6.0 / ((m_f - 1.0) * (2.0 * m_f - 1.0));
     2.0 * (m_f - 1.0) / m_f * theory::q((d2 * k * g / 2.0).sqrt()) / k
 }
@@ -171,9 +151,6 @@ const fn oracle_row(
     }
 }
 
-/// The amplitude entry. The envelope row is commit-and-guard: no closed form describes magnitude
-/// detection of a root-raised-cosine-shaped keyed carrier, and its distance from the coherent row
-/// is the number the tier comparison records.
 pub const MEASUREMENTS: &[Measurement] = &[
     oracle_row(
         OOK_COHERENT_AWGN,

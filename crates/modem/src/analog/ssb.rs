@@ -5,7 +5,6 @@ use sdrmm_dsp::{Decimator, RealDecimator, design_bandpass, design_lowpass};
 
 use super::filter::{Band, BandFilter, Delay, design_hilbert};
 
-/// Which side of the carrier carries the message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sideband {
     Upper,
@@ -13,8 +12,6 @@ pub enum Sideband {
 }
 
 impl Sideband {
-    /// +1 for the upper sideband, −1 for the lower — the sign every quadrature path and every
-    /// band edge in this module is built from, so the two cases are one code path.
     #[must_use]
     pub fn sign(self) -> f64 {
         match self {
@@ -24,32 +21,23 @@ impl Sideband {
     }
 }
 
-/// How the one-sided spectrum is built and read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SsbMethod {
-    /// Phasing: a wideband 90° network on the quadrature path.
     Hilbert,
-    /// Weaver's third method: two mixers around a lowpass at half the bandwidth.
     Weaver,
 }
 
-/// The waveform as data. Frequencies are cycles per sample.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SsbParams {
     pub sideband: Sideband,
     pub method: SsbMethod,
-    /// Lower passband edge, measured from the carrier. Keeps a detector's own DC and the
-    /// rumble under it out of the audio; zero is legal and is what a measurement entry uses,
-    /// since the closed form it is held against assumes a message that starts at DC.
     pub low_cut: f64,
-    /// Upper passband edge — the message bandwidth, and what the channel SNR is stated in.
     pub bandwidth: f64,
     pub band_taps: usize,
     pub audio_taps: usize,
 }
 
 impl SsbParams {
-    /// A sideband at the crate's default filter lengths, cut at DC.
     #[must_use]
     pub fn new(sideband: Sideband, method: SsbMethod, bandwidth: f64) -> Self {
         Self {
@@ -62,8 +50,6 @@ impl SsbParams {
         }
     }
 
-    /// The occupied band as the receiver's filter should be set — `[low_cut, bandwidth]` on
-    /// whichever side of the carrier the sideband sits.
     #[must_use]
     pub fn band(&self) -> BandFilter {
         let (low, high) = (self.low_cut, self.bandwidth);
@@ -81,8 +67,6 @@ impl SsbParams {
         }
     }
 
-    /// Band centre and half-width — Weaver's two mixer frequencies, and the only place the
-    /// method's geometry is written down.
     fn weaver(&self) -> (f64, f64) {
         (
             0.5 * (self.bandwidth + self.low_cut),
@@ -90,8 +74,6 @@ impl SsbParams {
         )
     }
 
-    /// The message-limiting filter both exciters put in front of themselves: a lowpass when the
-    /// message starts at DC, a bandpass when it does not.
     fn message_filter(&self) -> RealDecimator {
         let taps = if self.low_cut > 0.0 {
             design_bandpass(self.audio_taps, self.low_cut, self.bandwidth)
@@ -102,8 +84,6 @@ impl SsbParams {
     }
 }
 
-/// A complex exponential advanced sample by sample, with the phase kept in `f64` so a long run
-/// cannot drift — the mixer both Weaver paths are built from.
 struct Mixer {
     step: f64,
     phase: f64,
@@ -142,7 +122,6 @@ enum Exciter {
     },
 }
 
-/// The transmitter.
 pub struct SsbMod {
     message: RealDecimator,
     exciter: Exciter,
@@ -183,7 +162,6 @@ impl SsbMod {
         }
     }
 
-    /// Replaces `out` with one complex-baseband sample per input audio sample.
     pub fn process(&mut self, audio: &[f32], out: &mut Vec<Complex<f32>>) {
         self.message.process(audio, &mut self.limited);
         out.clear();
@@ -223,14 +201,9 @@ impl SsbMod {
     }
 }
 
-/// How the receiver keeps the unwanted sideband out of the product.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SsbDetector {
-    /// One complex band filter over the wanted side, then the real part — the receiver
-    /// [`SsbMethod::Hilbert`] is deliberately paired with, since its rejection comes from a
-    /// filter's stopband rather than from a second quadrature network.
     Filter,
-    /// Weaver's method run backwards.
     Weaver,
 }
 
@@ -249,8 +222,6 @@ enum Detector {
     },
 }
 
-/// The receiver. Product detection either way — what differs is how the unwanted sideband is
-/// kept out of the product.
 pub struct SsbDemod {
     detector: Detector,
     audio: Option<RealDecimator>,
@@ -258,9 +229,6 @@ pub struct SsbDemod {
 }
 
 impl SsbDemod {
-    /// `detector` is the receiver's own choice, independent of how the waveform was built:
-    /// running one method's exciter into the other's detector is the arrangement the module
-    /// docs describe, and this signature is what makes it expressible.
     #[must_use]
     pub fn new(params: &SsbParams, detector: SsbDetector, audio_filter: bool) -> Self {
         let detector = match detector {
@@ -288,15 +256,11 @@ impl SsbDemod {
         }
     }
 
-    /// Replaces `out` with one audio sample per input sample.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<f32>) {
         self.detected.clear();
         match &mut self.detector {
             Detector::Filter { band, filtered } => {
                 band.process(iq, filtered);
-                // The received sideband is already one-sided at full amplitude, so the real
-                // part alone *is* the product-detector output — any extra gain would put a
-                // strong signal past full scale.
                 self.detected.extend(filtered.iter().map(|z| z.re));
             }
             Detector::Weaver {
@@ -352,9 +316,6 @@ mod tests {
         out
     }
 
-    /// The waveform's defining property: one-sided. Measured at the tone's own frequency, on a
-    /// whole number of its cycles, as the power at `+f` against the power at `−f` — the number
-    /// a phasing exciter is judged by and the one a quadrature error spoils first.
     fn sideband_rejection_db(iq: &[Complex<f32>], sideband: Sideband) -> f64 {
         let component = |f: f64| {
             iq.iter()
@@ -374,24 +335,17 @@ mod tests {
         10.0 * (wanted / unwanted).log10()
     }
 
-    /// Both exciters build a one-sided spectrum, both sidebands, and the rejection is deep
-    /// enough that nothing downstream can be measuring the wrong half.
     #[test]
     fn both_methods_radiate_one_sideband() {
         for method in [SsbMethod::Hilbert, SsbMethod::Weaver] {
             for sideband in [Sideband::Upper, Sideband::Lower] {
                 let iq = excite(&params(sideband, method), 16_384);
-                // 8160 samples is exactly 170 cycles of the 1 kHz tone at 48 kHz, so the two
-                // components are read without either leaking into the other.
                 let rejection = sideband_rejection_db(&iq[1_024..9_184], sideband);
                 assert!(rejection > 40.0, "{method:?} {sideband:?}: {rejection} dB");
             }
         }
     }
 
-    /// Every exciter into every detector, both sidebands: the tone comes back at its own
-    /// amplitude and essentially undistorted. Eight combinations, because the point of having
-    /// two methods is that neither can hide the other's error.
     #[test]
     fn every_exciter_detector_pair_round_trips() {
         for method in [SsbMethod::Hilbert, SsbMethod::Weaver] {

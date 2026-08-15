@@ -1,20 +1,9 @@
-// A voiceprint of what a channel is playing, under its transport controls.
-//
-// Drawn from the audio the browser has already decoded for playback, so it costs one transform per
-// hop and no extra stream — and it follows that it only runs while the channel is *playing*. That
-// is the honest behaviour for a monitor of what you are hearing, and the empty state says so.
-//
-// The waterfall is the same renderer the spectrum scope uses: rows of bytes over a fixed dB
-// window, scrolled on the GPU. Only the axis differs, and it is the one thing drawn here.
-
 import { useEffect, useRef, useState } from "react";
 import { type Colormap, DEFAULT_COLORMAP } from "../../gl/colormap";
 import { attachWaterfall, type WaterfallView } from "../../gl/waterfall";
 import { monitorKey, watchAudio } from "../../lib/audio/monitor";
 import { AudioSpectrogram, audioNyquistHz } from "../../lib/dsp/audioSpectrum";
 
-/** Marks on the frequency axis, which runs left to right like the spectrum waterfall's — a row
- * is the transform's bins. Four is what a node-width panel has room for. */
 const TICKS_HZ = [3000, 6000, 12_000, 18_000];
 
 export function AudioSpectrogramView({
@@ -25,15 +14,12 @@ export function AudioSpectrogramView({
 }: {
   deviceSet: number;
   channel: number;
-  /** Whether the channel is playing. Nothing is decoded when it is not, so nothing arrives. */
   playing: boolean;
   colormap?: Colormap;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<WaterfallView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** Whether a row has been drawn since playback started — the difference between "waiting for
-   * audio" and "not playing". */
   const [drawing, setDrawing] = useState(false);
 
   useEffect(() => {
@@ -45,7 +31,6 @@ export function AudioSpectrogramView({
     try {
       renderer = attachWaterfall(canvas, setError);
     } catch (thrown) {
-      // No WebGL2. The transport above still works, so the face keeps everything but this.
       setError(thrown instanceof Error ? thrown.message : String(thrown));
       return;
     }
@@ -67,8 +52,6 @@ export function AudioSpectrogramView({
       spectrogram.push(pcm, channels, (row) => {
         rendererRef.current?.pushRow(row);
       });
-      // Published once rather than per row: it only decides whether the "waiting" line still
-      // stands, and a row arrives every ten milliseconds.
       if (!announced) {
         announced = true;
         setDrawing(true);
@@ -76,8 +59,6 @@ export function AudioSpectrogramView({
     });
     return () => {
       stop();
-      // A channel that has stopped playing leaves a frozen picture, which is a lie about a live
-      // radio; the overlay covers it rather than the panel showing the last thing heard forever.
       setDrawing(false);
     };
   }, [deviceSet, channel, playing]);
@@ -86,10 +67,6 @@ export function AudioSpectrogramView({
     <div className="relative h-24 w-full overflow-hidden rounded-[3px] bg-plot-bg">
       <canvas ref={canvasRef} className="h-full w-full" />
 
-      {/* Drawn over the plot rather than beside it: a node is narrow, and a gutter wide enough
-          for "24k" would cost the picture a tenth of its width. Each label carries its own scrim
-          of the plot ground — a spectrogram is bright wherever there is signal, and a label
-          cannot borrow contrast from whatever happens to be under it. */}
       {TICKS_HZ.map((hz) => (
         <span
           key={hz}

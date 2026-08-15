@@ -1,7 +1,3 @@
-//! Composition: one [`Channel`] applying any subset of the impairment axes in a canonical
-//! order, built from a [`ChannelSpec`]. The sweep and limits runners hold a spec, set exactly
-//! one axis (or a named composite profile), and hand the built channel a clean modulator
-//! output — so "the CFO limits row" and "the CFO impairment" cannot mean different things.
 use num_complex::Complex;
 
 use super::{
@@ -10,9 +6,6 @@ use super::{
 };
 use crate::ber::rng::Rng;
 
-/// The axes a composed channel may carry; `None` axes are identity. Fields are public so a
-/// limits runner can introspect what a profile contains; the builder methods exist so setting
-/// one axis reads as one line at the call site.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChannelSpec {
     pub burst: Option<BurstModel>,
@@ -66,8 +59,6 @@ impl ChannelSpec {
     }
 }
 
-/// A built channel: applies its spec's axes in the canonical order documented at module
-/// level. It is itself an [`Impairment`], so composites nest wherever a single axis fits.
 #[derive(Clone, Copy, Debug)]
 pub struct Channel {
     spec: ChannelSpec,
@@ -117,7 +108,6 @@ mod tests {
         rng::Rng,
     };
 
-    /// A single-axis channel is exactly that axis — the composition adds nothing of its own.
     #[test]
     fn single_axis_channel_equals_the_bare_impairment() {
         let cfo = Cfo::from_cycles_per_sample(0.01);
@@ -131,13 +121,10 @@ mod tests {
         assert_eq!(via_channel, bare);
     }
 
-    /// Order is observable and canonical: AWGN lands *after* clipping, so a clipped channel
-    /// with noise still has peaks past the clip limit. The reverse order would bound the
-    /// noise too, and every stated Eb/N0 would quietly lie under clipping sweeps.
     #[test]
     fn awgn_is_applied_after_clipping() {
         let mut x = white(&mut Rng::new(0x0a0), 50_000);
-        let limit = rms(&x); // 0 dB overdrive clips at the RMS
+        let limit = rms(&x);
         let spec = ChannelSpec::default()
             .clipping(Clipping::new(0.0))
             .awgn(Awgn::with_sigma(0.5));
@@ -146,8 +133,6 @@ mod tests {
         assert!(max > limit * 1.05, "max {max} vs clip limit {limit}");
     }
 
-    /// Length-changing stages compose: a clock-error channel changes the length exactly as
-    /// the bare resampler does, and the stages after it operate on the new length.
     #[test]
     fn length_change_propagates_through_the_composition() {
         let mut x = tone(0.03, 100_000);
@@ -159,8 +144,6 @@ mod tests {
         assert_eq!(x.len(), 100_050);
     }
 
-    /// The whole composition replays from its seed — the reproducibility contract every
-    /// committed curve rests on.
     #[test]
     fn composition_is_deterministic_from_the_seed() {
         let spec = ChannelSpec::default()

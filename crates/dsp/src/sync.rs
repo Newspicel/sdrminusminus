@@ -4,64 +4,33 @@ use num_complex::Complex;
 
 const ZERO: Complex<f32> = Complex::new(0.0, 0.0);
 
-/// Curvature weight of the piecewise-parabolic Farrow interpolator (Erup/Gardner/Harris 1993);
-/// 0.5 is their frequency-optimal choice at two or more samples per symbol.
 const FARROW_CURVATURE: f32 = 0.5;
 
-/// How far the integrator may pull the symbol period from nominal, as a fraction of it. Wide
-/// enough for any transmitter crystal error, narrow enough that noise cannot drag the loop
-/// onto a neighbouring multiple of the true clock.
 const TRACKING_RANGE: f64 = 0.05;
 
-/// Symbols the free-run rate averages the tracked rate over. The instantaneous estimate
-/// carries the loop's self-noise — with structured data it walks a tenth of a percent either
-/// side of the true rate — and a TDMA gap multiplies whatever rate it coasts at by the gap's
-/// length: 156 dead symbols turn that tenth of a percent into a sixth of a symbol of phase
-/// error at the next burst, which costs most of the burst to pull back in. The true rate is a
-/// crystal's and static, so a long average is the right thing to coast on; a thousand symbols
-/// smooths the walk away and still follows a real rate estimate as it converges.
 const FREE_RUN_MEMORY_SYMBOLS: f64 = 1024.0;
 
-/// How far from equal-and-opposite a symbol pair may be and still drive the timing error,
-/// as `|x[k] + x[k−1]|² / |x[k] − x[k−1]|²`. Zero for a perfectly symmetric transition;
-/// inter-symbol interference and noise put a few percent on a real one. The nearest pair this
-/// must reject, a four-level signal's ±3 → ∓1, sits at 25%.
 const SYMMETRY_TOLERANCE: f64 = 0.15;
 
-/// Gardner timing-error detector with a parabolic (Farrow) interpolator, for complex baseband
-/// at a nominal `sps` input samples per symbol (>= 2, may be fractional).
 #[derive(Clone, Debug)]
 pub struct SymbolSync {
     nominal_sps: f64,
     sps: f64,
-    /// The rate the clock free-runs at wherever there is no transition to read — held spans
-    /// and keying edges: `sps` averaged over [`FREE_RUN_MEMORY_SYMBOLS`], so the loop's
-    /// self-noise cannot pick the rate a TDMA gap multiplies by its length.
     free_run_sps: f64,
-    /// Interval to the next symbol instant, in input samples: `sps` plus this symbol's phase
-    /// correction. Each half-symbol step uses exactly half of it, so the mid-point sample the
-    /// detector needs sits halfway between two symbol instants even while the loop is pulling.
     step: f64,
     alpha: f64,
     beta: f64,
-    /// Next interpolation instant, as an absolute input-sample index split into an integer
-    /// part and a fraction in [0, 1). Keeping the fraction separate makes the accumulator
-    /// depend only on the sequence of steps, never on where blocks happen to be cut.
     pos: usize,
     frac: f64,
-    /// Absolute index of `buf[0]`.
     consumed: usize,
     buf: Vec<Complex<f32>>,
-    /// The upcoming instant is a symbol instant rather than the mid-point between two.
     at_symbol: bool,
     prev_symbol: Complex<f32>,
     mid: Complex<f32>,
-    /// A full (previous symbol, mid, symbol) triple is available.
     primed: bool,
 }
 
 impl SymbolSync {
-    /// `loop_bw` is the normalised loop bandwidth in cycles per symbol (1e-3..0.05 is usual).
     #[must_use]
     pub fn new(sps: f64, loop_bw: f64) -> Self {
         assert!(
@@ -93,19 +62,10 @@ impl SymbolSync {
         sync
     }
 
-    /// Feed a block of input; append one interpolated sample per recovered symbol to `out`.
-    /// Timing state carries across calls, so any block split gives the same symbol stream.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.run(input, out, false);
     }
 
-    /// As [`Self::process`], but takes no timing error from the block: the clock free-runs at
-    /// the rate and phase it last measured. For the spans a caller knows carry no signal — the
-    /// dead half of a TDMA frame, a closed squelch — where the detector would read the receiver's
-    /// noise and walk the clock a little further every time the carrier came and went.
-    ///
-    /// Symbols still come out, because a decoder above counts its dead time in symbols and has
-    /// to get the same number of them whether or not anything was transmitted.
     pub fn process_held(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.run(input, out, true);
     }
@@ -137,7 +97,6 @@ impl SymbolSync {
         self.consumed += drain;
     }
 
-    /// Current estimate of input samples per symbol (tracks the transmitter's clock).
     #[must_use]
     pub fn sps(&self) -> f64 {
         self.sps
@@ -160,31 +119,16 @@ impl SymbolSync {
     fn advance(&mut self) {
         self.frac += 0.5 * self.step;
         let whole = self.frac.floor();
-        // Exact for a positive step: both operands share an exponent range where the
-        // difference is representable, so the fraction never accumulates split-dependent drift.
         self.frac -= whole;
         self.pos += whole as usize;
     }
 
     fn retime(&mut self, symbol: Complex<f32>) {
-        // Gardner reads the *transition* between two symbols. If either end of it carries no
-        // energy there is no transition to read — only the live end against nothing, which
-        // reads as a full-scale error of arbitrary sign. That is the keying edge of a burst
-        // mode (a DMR radio keys off for half of every 60 ms frame) and the edge of a squelch
-        // gate, and taking an error off either would walk the clock a little further every
-        // time the carrier came and went. Free-run across it instead.
         let (before, after) = (self.prev_symbol.norm_sqr(), symbol.norm_sqr());
         if before <= 0.0 || after <= 0.0 {
             self.step = self.free_run_sps;
             return;
         }
-        // Only a transition between equal-and-opposite symbols crosses zero halfway between
-        // them. On any other pair — a four-level signal's ±3 → ±1, or no transition at all —
-        // the mid-point sample carries the pulse shaping's inter-symbol interference, and
-        // Gardner reads that as a timing offset: a bias that follows the data pattern, not the
-        // clock. Structured payloads (a repeated header, a sync-heavy frame) turn that bias
-        // into the same fractional-symbol excursion at the same place in every burst. Skip
-        // the update instead; symmetric transitions are frequent enough to keep lock.
         let sum = f64::from((symbol + self.prev_symbol).norm_sqr());
         let diff = f64::from((symbol - self.prev_symbol).norm_sqr());
         if sum > SYMMETRY_TOLERANCE * diff {
@@ -193,14 +137,11 @@ impl SymbolSync {
         }
         let raw = ((symbol - self.prev_symbol) * self.mid.conj()).re;
         let err = f64::from(raw) / (f64::from(0.5 * (before + after)) * TAU);
-        // Non-finite input must free-run too, not poison the accumulator.
         if !err.is_finite() {
             self.step = self.free_run_sps;
             return;
         }
         let err = err.clamp(-0.5, 0.5);
-        // A positive error means the instant landed late, so shorten this symbol's interval
-        // and slow the estimated clock.
         self.sps = (self.sps - self.beta * err * self.nominal_sps).clamp(
             self.nominal_sps * (1.0 - TRACKING_RANGE),
             self.nominal_sps * (1.0 + TRACKING_RANGE),
@@ -216,20 +157,12 @@ pub fn farrow(w: &[Complex<f32>], mu: f32) -> Complex<f32> {
     w[1] + (w[2] - w[1]) * mu + curvature * (FARROW_CURVATURE * mu * (mu - 1.0))
 }
 
-/// A zero crossing pulls the bit phase this far toward the mid-bit position — the 1/8 of the
-/// classic 1200 baud TNC clock recovery: fast enough to lock inside a preamble, slow enough
-/// that one noisy crossing cannot steal the clock.
 const CROSSING_NUDGE: f64 = 0.125;
 
-/// Bit-clock recovery for a real-valued sliced baseband (FSK discriminator output, AFSK
-/// correlator difference): tracks the symbol phase from zero crossings and samples at the
-/// centre of each bit. This is the classic "PLL on transitions" used by 1200 baud TNCs.
 #[derive(Clone, Debug)]
 pub struct BitSync {
     sample_rate: f64,
     increment: f64,
-    /// Bit phase in [0, 1), wrapping at the slicing instant. A zero crossing therefore belongs
-    /// at 0.5 — half a bit ahead of the slice, i.e. the slice lands at the bit centre.
     phase: f64,
     positive: bool,
     primed: bool,
@@ -261,15 +194,10 @@ impl BitSync {
         self.increment = baud / self.sample_rate;
     }
 
-    /// Feed one sample; returns the sliced bit at each symbol instant.
     pub fn push(&mut self, sample: f32) -> Option<bool> {
         self.push_soft(sample).map(|v| v >= 0.0)
     }
 
-    /// Feed one sample; returns the *unsliced* value at each symbol instant. Codes with their
-    /// own error detection (the SITOR constant-ratio alphabet) combine two soft copies of a
-    /// character to recover one that neither copy carries on its own — a decision the slicer
-    /// throws away.
     pub fn push_soft(&mut self, sample: f32) -> Option<f32> {
         let positive = sample >= 0.0;
         if self.primed && positive != self.positive {
@@ -288,7 +216,6 @@ impl BitSync {
         Some(sample)
     }
 
-    /// Samples since the last symbol instant — lets a decoder detect a gap in the carrier.
     #[must_use]
     pub fn samples_since_symbol(&self) -> usize {
         self.since_symbol
@@ -310,7 +237,6 @@ mod tests {
     use crate::testutil::XorShift32;
 
     const ROLLOFF: f64 = 0.35;
-    /// Pulse truncation, in symbol periods either side.
     const SPAN: f64 = 6.0;
 
     fn sinc(t: f64) -> f64 {
@@ -336,7 +262,6 @@ mod tests {
             .collect()
     }
 
-    /// Pulse-shaped BPSK at `sps` samples per symbol, symbol 0 peaking `offset` symbols in.
     fn bpsk(syms: &[f32], sps: f64, offset: f64) -> Vec<Complex<f32>> {
         let len = ((syms.len() as f64 - SPAN) * sps) as usize;
         (0..len)
@@ -352,8 +277,6 @@ mod tests {
             .collect()
     }
 
-    /// Recovered signs equal the transmitted signs shifted by `d`, ignoring settling and the
-    /// truncated tail of the pulse train.
     fn matches_at(syms: &[f32], out: &[Complex<f32>], settle: usize, d: usize) -> bool {
         let end = out.len().saturating_sub(4);
         settle < end
@@ -463,8 +386,6 @@ mod tests {
         })
     }
 
-    /// A soft-decision decoder and a hard-decision one must slice the same instants, or a
-    /// decoder mixing them would combine values from different bits.
     #[test]
     fn soft_slices_agree_with_hard_ones_instant_for_instant() {
         let samples = nrz(&bit_pattern(200, 0x0bad_c0de));
@@ -516,8 +437,6 @@ mod tests {
         let mut sync = BitSync::new(RATE, BAUD);
         while sync.push(1.0).is_none() {}
         sync.set_baud(2.0 * BAUD);
-        // Phase is 0 right after a slice, so the doubled rate must take exactly half a bit
-        // period — a reset phase would show up as a quarter.
         let mut gap = 0;
         while sync.push(1.0).is_none() {
             gap += 1;

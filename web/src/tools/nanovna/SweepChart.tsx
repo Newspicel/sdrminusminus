@@ -12,7 +12,6 @@ const BOTTOM = 38;
 const PLOT_WIDTH = WIDTH - LEFT - RIGHT;
 const PLOT_HEIGHT = HEIGHT - TOP - BOTTOM;
 const GRID_FRACTIONS = [0, 0.25, 0.5, 0.75, 1];
-/** Below this a drag was a click at a shaky hand, not a range selection. */
 const ZOOM_MIN_FRACTION = 0.01;
 
 interface Drag {
@@ -222,8 +221,6 @@ export function SweepChart({
   );
 }
 
-/** One polyline per series, broken wherever the quantity is not defined — an open circuit has
- * no group delay, and joining across the gap would draw a line through values nothing measured. */
 function pathFor(
   rows: readonly PointReadout[],
   valueOf: (row: PointReadout) => number,

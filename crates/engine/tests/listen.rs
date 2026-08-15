@@ -1,4 +1,3 @@
-// Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -13,11 +12,7 @@ use sdrmm_device_virtual::{
 use sdrmm_engine::{Engine, audio::OPUS_FRAME_SAMPLES};
 use sdrmm_wire::{AmParams, ChannelParams, ChannelSettings, DeviceSettings, NfmParams, WfmParams};
 
-/// 2.4 Msps keeps the siggen's static tones (+360/+120/−720 kHz) clear of every modulated
-/// carrier band (see `device-virtual`); the default 2.048 Msps parks a tone 7.2 kHz from
-/// the NFM carrier, inside the channel DDC passband.
 const TEST_RATE: f64 = 2_400_000.0;
-/// Beyond the ±840 kHz drift-tone sweep at `TEST_RATE` and away from all tones/carriers.
 const QUIET_OFFSET_HZ: f64 = -900_000.0;
 
 fn engine() -> Arc<Engine> {
@@ -95,10 +90,6 @@ async fn am_channel_demodulates_the_test_carrier() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// WFM defaults to stereo, so this also drives the whole two-channel path end to end: PCM
-/// interleave, a stereo Opus encoder, and the frame clock staying in sample frames. The
-/// virtual device transmits no 19 kHz pilot, so it is the unlocked-pilot fallback that must
-/// come out — the same programme on both channels, sample for sample.
 #[tokio::test]
 async fn wfm_channel_demodulates_the_test_carrier_in_stereo() {
     let engine = engine();
@@ -131,9 +122,6 @@ async fn wfm_channel_demodulates_the_test_carrier_in_stereo() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Toggling stereo is a params patch, so it reaches the live pipeline as a settings command
-/// and never as a rebuild: the encoder has to change layout under a running stream, and the
-/// stream's timestamps have to keep counting sample frames on the far side of the switch.
 #[tokio::test]
 async fn wfm_stereo_toggle_changes_the_layout_of_the_live_stream() {
     let engine = engine();
@@ -185,7 +173,6 @@ async fn squelch_gates_empty_spectrum_and_patch_reopens() {
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
 
-    // Closed gate: PCM keeps flowing (jitter-buffer contract) but carries silence.
     let silence = settle_then_collect_second(&mut rx).await;
     let level = rms(&silence[0]);
     assert!(level < 0.01, "squelched audio rms {level}");
@@ -241,7 +228,6 @@ async fn type_change_keeps_the_audio_subscription_alive() {
             ),
         )
         .unwrap();
-    // Same receiver across the pipeline swap — the audio stream must survive it.
     assert_tone_dominates(&settle_then_collect_second(&mut rx).await);
     engine.remove_device_set(ds).unwrap();
 }
@@ -256,8 +242,6 @@ async fn device_rate_change_rebuilds_channels_and_keeps_audio() {
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
     assert_tone_dominates(&settle_then_collect_second(&mut rx).await);
 
-    // Carrier offsets are center-relative, so the channel must keep demodulating after the
-    // rate change — through the same subscription.
     engine
         .patch_device(
             ds,
@@ -271,10 +255,6 @@ async fn device_rate_change_rebuilds_channels_and_keeps_audio() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Timestamps derive from DSP-side sample stamps: on an intact stream they advance by
-/// exactly one frame per packet (asserted here); PCM lost to encoder lag surfaces as a
-/// timestamp jump with seq still contiguous (covered by the `audio` unit tests — forcing a
-/// real lag deterministically needs direct access to the PCM channel).
 #[tokio::test]
 async fn audio_packets_are_contiguous_and_timestamped() {
     let engine = engine();

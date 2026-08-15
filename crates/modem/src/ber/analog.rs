@@ -9,13 +9,9 @@ use super::{
     sweep::point_seed,
 };
 
-/// A test tone and the window it will be analysed in, with the frequency snapped to an exact
-/// bin of that window (see the module docs).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TonePlan {
-    /// Cycles per sample, exactly `cycles / window`.
     pub freq: f64,
-    /// Whole tone cycles inside the window.
     pub cycles: usize,
     pub window: usize,
 }
@@ -37,8 +33,6 @@ impl TonePlan {
     }
 }
 
-/// `amplitude·cos(2π·freq·n)` — the message every analog measurement is taken with, and the one
-/// [`theory`](super::theory)'s `message_power = ½` figures of merit are stated for.
 #[must_use]
 pub fn tone(freq: f64, amplitude: f32, samples: usize) -> Vec<f32> {
     (0..samples)
@@ -46,32 +40,17 @@ pub fn tone(freq: f64, amplitude: f32, samples: usize) -> Vec<f32> {
         .collect()
 }
 
-/// What one analysis window says about a recovered tone. Powers are DC-free: the mean is
-/// removed first, because an analog detector's DC is its own offset and never the message.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ToneAnalysis {
-    /// Amplitude of the recovered fundamental — the detector's gain, which no ratio below
-    /// depends on but which a loopback wants to see is non-zero.
     pub amplitude: f64,
-    /// Mean square of the window with its DC removed.
     pub ac_power: f64,
     pub fundamental_power: f64,
-    /// Power in harmonics 2..=[`MAX_HARMONIC`] that fall below Nyquist.
     pub harmonic_power: f64,
 }
 
-/// Harmonics counted toward THD. Ten is the instrument convention and past any order an audio
-/// filter at the message bandwidth leaves standing anyway.
 pub const MAX_HARMONIC: usize = 10;
 
 impl ToneAnalysis {
-    /// Signal-to-noise-and-distortion in dB: total over everything that is not the
-    /// fundamental.
-    ///
-    /// Both infinities are reachable and they mean opposite things, so neither is saturated
-    /// away: `+∞` is a window that is pure tone — real only for a synthetic input — and `−∞`
-    /// is a window with no power in it at all, which is a demodulator that returned nothing
-    /// and must read as the worst possible outcome rather than the best.
     #[must_use]
     pub fn sinad_db(&self) -> f64 {
         if self.ac_power <= 0.0 {
@@ -118,8 +97,6 @@ pub fn analyse_tone(audio: &[f32], freq: f64) -> ToneAnalysis {
         for (i, &x) in audio.iter().enumerate() {
             acc += Complex::from_polar(f64::from(x) - mean, -TAU * f * i as f64);
         }
-        // A real tone splits its power between ±f, so the one-sided amplitude is twice the
-        // correlation and its power half that amplitude squared.
         2.0 * acc.norm() / n as f64
     };
     let amplitude = component(freq);
@@ -136,52 +113,27 @@ pub fn analyse_tone(audio: &[f32], freq: f64) -> ToneAnalysis {
     }
 }
 
-/// Audio to complex baseband — the analog counterpart of [`ModulateFn`](super::sweep::ModulateFn).
 pub type ModulateAudioFn = Box<dyn Fn(&[f32]) -> Vec<Complex<f32>>>;
 
-/// Complex baseband back to audio, sample for sample.
 pub type DemodulateAudioFn = Box<dyn Fn(&[Complex<f32>]) -> Vec<f32>>;
 
-/// One analog chain under test. Both closures construct their own engines per call: an analog
-/// receiver holds loop and filter state, and a measurement that inherited the previous point's
-/// converged carrier loop would be measuring the sweep's order rather than the entry.
 pub struct AnalogLink {
-    /// Names the chain in curve labels, e.g. `"AM full carrier, depth 0.8, envelope"`.
     pub label: String,
-    /// Message bandwidth in cycles per sample — what the channel SNR is stated in, and what
-    /// the entry's own filters cut at.
     pub bandwidth: f64,
     pub tone: TonePlan,
-    /// Peak audio amplitude the modulator is driven at.
     pub drive: f32,
-    /// Samples discarded ahead of the analysis window: filter group delay, and whatever a
-    /// carrier loop needs to acquire.
     pub settle: usize,
     pub modulate: ModulateAudioFn,
     pub demodulate: DemodulateAudioFn,
 }
 
 impl AnalogLink {
-    /// Audio samples one trial generates — settle plus window.
     #[must_use]
     pub fn samples(&self) -> usize {
         self.settle + self.tone.window
     }
 }
 
-/// One trial: tone in, waveform through `channel`, audio out, one window analysed.
-///
-/// **The modulator is primed and its own transient discarded before the channel sees the
-/// waveform**, which is not tidiness but accounting: [`Awgn::for_channel_snr`] sets the noise
-/// from the waveform's *measured* power, and a filter ramping up over its first few hundred
-/// samples lowers that mean — so a curve taken on an unprimed waveform reads a channel SNR
-/// higher than the one it claims, uniformly and in the flattering direction. `settle` samples of
-/// lead-in are generated and dropped, after which every sample handed to the channel is steady
-/// state. The receiver's own transient is what the `settle` at the *other* end covers.
-///
-/// A demodulator returning fewer samples than the window needs has lost them, and the analysis
-/// runs on what arrived — which reads as a collapsed SINAD rather than as a silent success,
-/// the same doctrine the sweep runner applies to lost bits.
 pub fn measure_tone(
     link: &AnalogLink,
     channel: &dyn Impairment,
@@ -210,13 +162,6 @@ pub struct SinadCurve {
     pub points: Vec<SinadPoint>,
 }
 
-/// Measures one SINAD curve: at each channel SNR in `points_db` (ascending), `trials`
-/// independent realisations are modulated, noised, demodulated and analysed, and their powers
-/// summed before the ratio is taken — an average of ratios would be dominated by whichever
-/// trial happened to come out cleanest.
-///
-/// Determinism follows the BER sweep exactly: `(seed, point index)` names a point's whole
-/// realisation, so any single point regenerates without resweeping the rest.
 pub fn sweep_sinad(
     link: &AnalogLink,
     channel_template: &ChannelSpec,
@@ -255,14 +200,6 @@ pub fn sweep_sinad(
     }
 }
 
-/// One seeded SINAD measurement at one operating point, reported as the limits runner's cost:
-/// **negated SINAD in dB**, so that a floor criterion becomes the same ceiling every other axis
-/// row is judged by (see [`limits`](super::limits)). The intended body of an analog axis-search
-/// closure, and the analog counterpart of [`measure_ber`](super::limits::measure_ber).
-///
-/// The same `seed` is passed at every axis value on purpose — common random numbers, so probes
-/// differ only in the impairment level and the search's boundary is a property of the axis. An
-/// impossible empty sweep reads as `+∞`: certain failure, never a silent pass.
 pub fn sinad_metric(
     link: &AnalogLink,
     spec: &ChannelSpec,
@@ -276,7 +213,6 @@ pub fn sinad_metric(
         .map_or(f64::INFINITY, |p| -p.sinad_db)
 }
 
-/// Writes the curve as pretty JSON — the committed-artifact format, same as the BER curves.
 pub fn save_json(curve: &SinadCurve, path: &Path) -> io::Result<()> {
     let mut text = serde_json::to_string_pretty(curve).map_err(io::Error::other)?;
     text.push('\n');
@@ -287,7 +223,6 @@ pub fn load_json(path: &Path) -> io::Result<SinadCurve> {
     serde_json::from_str(&fs::read_to_string(path)?).map_err(io::Error::other)
 }
 
-/// Writes `snr_db,sinad_db,thd_percent` rows — the plotting/export format.
 pub fn save_csv(curve: &SinadCurve, path: &Path) -> io::Result<()> {
     let mut text = String::from("snr_db,sinad_db,thd_percent\n");
     for p in &curve.points {
@@ -295,17 +230,6 @@ pub fn save_csv(curve: &SinadCurve, path: &Path) -> io::Result<()> {
     }
     fs::write(path, text)
 }
-
-//
-// Vertical, in dB, and that is not a departure from the BER comparators' horizontal rule but
-// the same rule where the curve is a straight line of unit slope: above threshold SINAD is the
-// channel SNR plus a constant, so a dB of vertical shortfall *is* a dB of horizontal one. Below
-// threshold the curve turns over and the horizontal distance stops existing at all, while the
-// vertical one still reads exactly what was lost — which is the quantity an analog entry's knee
-// has to be stated in.
-//
-// Failure stays loud: a comparison that cannot be made returns +∞ and fails any `< tolerance`
-// gate rather than passing it vacuously.
 
 pub fn worst_shortfall_db(
     measured: &SinadCurve,
@@ -331,15 +255,6 @@ pub fn worst_shortfall_db(
     worst
 }
 
-/// [`worst_shortfall_db`] against a committed curve instead of a closed form — the guard every
-/// analog row carries, including the below-threshold points no oracle describes. Points are
-/// matched by their own SNR: a committed grid and its reproduction share it exactly, and a
-/// point the reference does not carry is a grid that moved, which must fail rather than
-/// interpolate.
-///
-/// The grid is checked in *both* directions over `[lo, hi]`. A measured curve that simply omits
-/// the SNRs it would have regressed at is the same defect as one that moved the grid, and only
-/// the reverse check sees it.
 pub fn worst_shortfall_db_vs_curve(
     measured: &SinadCurve,
     reference: &SinadCurve,
@@ -399,14 +314,6 @@ pub fn snr_at_sinad(curve: &SinadCurve, sinad_db: f64) -> Option<f64> {
     None
 }
 
-/// The **knee**: the highest channel SNR at which the measured curve still sits `drop_db` or
-/// more below its own oracle — the one quantity an analog entry has that no closed form
-/// describes, and the number its threshold behaviour is committed as.
-///
-/// Read from the top down, so a curve that dips inside its linear region (counting noise, a
-/// distortion-limited point) does not read as a threshold. `None` when the whole swept span is
-/// within `drop_db` of theory — the entry's threshold is below the grid, and widening the grid
-/// is the fix rather than a projected number.
 #[must_use]
 pub fn threshold_db(curve: &SinadCurve, oracle: impl Fn(f64) -> f64, drop_db: f64) -> Option<f64> {
     curve
@@ -422,9 +329,6 @@ mod tests {
     use super::*;
     use crate::ber::theory;
 
-    /// The analyser on signals whose content is known exactly: a pure tone is all fundamental,
-    /// a tone plus a known second harmonic reads that harmonic back, and a tone plus known
-    /// noise reads the SINAD the powers imply.
     #[test]
     fn the_analyser_reads_known_content() {
         let plan = TonePlan::new(0.021, 4_096);
@@ -449,17 +353,12 @@ mod tests {
             analysis.sinad_db()
         );
 
-        // DC is the detector's own offset and must not enter any power.
         let offset: Vec<f32> = pure.iter().map(|x| x + 3.0).collect();
         let analysis = analyse_tone(&offset, plan.freq);
         assert!((analysis.ac_power - 0.125).abs() < 1e-6);
         assert!(analysis.sinad_db() > 90.0);
     }
 
-    /// Snapping is what makes the correlation exact, and orthogonality is the property that
-    /// exactness rests on: at a whole number of cycles, a neighbouring bin reads nothing of the
-    /// tone at all — which is what keeps a harmonic read out of the fundamental's estimate and
-    /// the fundamental out of the residual that becomes the denominator.
     #[test]
     fn snapping_makes_neighbouring_bins_orthogonal() {
         let window = 4_096;
@@ -502,11 +401,8 @@ mod tests {
         assert!((worst_shortfall_db(&down, oracle, 0.0, 20.0) - 0.5).abs() < 1e-9);
         assert!((worst_shortfall_db_vs_curve(&down, &exact, 0.0, 20.0) - 0.5).abs() < 1e-9);
 
-        // A grid that moved is not a comparison to interpolate.
         let moved = synthetic(1.0, &[0.0, 6.0, 12.0]);
         assert!(worst_shortfall_db_vs_curve(&moved, &exact, 0.0, 20.0).is_infinite());
-        // Nor is a subset of the committed grid: every point it drops is a point it cannot
-        // regress at, so the omission has to fail as loudly as a shift.
         let subset = synthetic(1.0, &[0.0, 10.0, 20.0]);
         assert!(worst_shortfall_db_vs_curve(&subset, &exact, 0.0, 20.0).is_infinite());
         assert!(worst_shortfall_db_vs_curve(&subset, &exact, 10.0, 10.0).abs() < 1e-9);

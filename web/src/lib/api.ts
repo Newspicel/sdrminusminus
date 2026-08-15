@@ -61,8 +61,6 @@ client.use({
     return request;
   },
   onResponse({ response }) {
-    // A 401 with a token stored means the token is wrong or the server's changed: drop it so
-    // the gate prompts again instead of every request failing forever.
     if (response.status === 401) {
       rejectToken();
     }
@@ -109,11 +107,6 @@ export function callAudioUrl(url: string): string {
   return withToken(url);
 }
 
-/**
- * Band occupancy. Polled rather than invalidated: it is a rolling statistic the server keeps
- * whether or not anyone is watching, and nothing about it is an event — a `StateChanged` per
- * observation would be one per spectrum frame.
- */
 export function occupancyQuery(minSamples: number) {
   return queryOptions({
     queryKey: [...OCCUPANCY_KEY, minSamples] as const,
@@ -318,7 +311,6 @@ export async function networkExportDeviceSet(
   );
 }
 
-/** Drive a replaying set's transport. `position_samples` is only read by `seek`. */
 export async function controlPlayback(
   ds: number,
   action: PlaybackAction,
@@ -332,9 +324,6 @@ export async function controlPlayback(
   );
 }
 
-/** A plain href for the download link, like {@link decoderLogExportUrl} — the browser has to
- * navigate to it for `Content-Disposition` to apply, and cannot set an auth header on the way,
- * so the token rides in the query. `sigmf` is the server's default and stays out of the URL. */
 export function recordingDownloadUrl(id: number, format: RecordingFormat): string {
   const path = `/api/recordings/${id}/download`;
   return withToken(format === "sigmf" ? path : `${path}?format=${format}`);
@@ -352,9 +341,6 @@ export function templatesQuery() {
   return queryOptions({
     queryKey: TEMPLATES_KEY,
     queryFn: async (): Promise<TemplatesResponse> => unwrap(await client.GET("/api/templates")),
-    // Not cached forever any more: the table is compiled in, but `supported_devices` is computed
-    // against the radios attached *now*, so plugging one in changes the answer. Invalidated on
-    // the `devices` scope alongside the device list itself.
     staleTime: 30_000,
   });
 }
@@ -368,8 +354,6 @@ export async function applyTemplate(id: string, ds: number): Promise<void> {
   );
 }
 
-/** Whether this server wants a token. Answered unauthenticated, so it is the one call that
- * works before the user has supplied one. */
 export function authQuery() {
   return queryOptions({
     queryKey: AUTH_KEY,
@@ -378,9 +362,6 @@ export function authQuery() {
   });
 }
 
-/** One cheap probe of the same unauthenticated endpoint: is anything answering yet? The offline
- * screen polls this instead of refetching every startup query, so a server that is still down
- * costs one refused connection per attempt rather than one per query. */
 export async function serverReachable(): Promise<boolean> {
   try {
     return (await client.GET("/api/auth")).response.ok;
@@ -389,8 +370,6 @@ export async function serverReachable(): Promise<boolean> {
   }
 }
 
-/** The workspace switcher's view: every workspace plus the active one ( — the shell is
- * workspace config, so it is server-side and every client converges on it). */
 export function workspacesQuery() {
   return queryOptions({
     queryKey: WORKSPACES_KEY,
@@ -398,11 +377,6 @@ export function workspacesQuery() {
   });
 }
 
-/** One workspace with its layout. Keyed under `WORKSPACES_KEY` so a `workspaces` scope
- * invalidates the list and every open layout together.
- *
- * A workspace stored against an older port table is brought up to today's here, on the way into the
- * cache: every read and every edit then sees one shape, and the first write persists it. */
 export function workspaceQuery(id: number | null) {
   return queryOptions({
     queryKey: [...WORKSPACES_KEY, id] as const,
@@ -426,8 +400,6 @@ export async function createWorkspace(name: string, snapshot?: WorkspaceSnapshot
   ).id;
 }
 
-/** Rename and/or re-lay-out. `revision` is the one the caller last saw: the server answers 409
- * rather than letting a stale layout overwrite the one another client is arranging. */
 export async function updateWorkspace(
   id: number,
   update: { revision: number; name?: string; snapshot?: WorkspaceSnapshot },
@@ -452,10 +424,6 @@ export async function applyWorkspace(id: number): Promise<PatchApplyReport> {
   return unwrap(await client.POST("/api/workspaces/{id}/apply", { params: { path: { id } } }));
 }
 
-/** Step the workspace back through its own history, or forward again.
- *
- * The list is the server's and one per workspace, so a step is a change every client sees — the
- * answer is the workspace as it now stands, and the `workspaces` scope tells the rest to reload. */
 export async function stepWorkspace(id: number, step: "undo" | "redo"): Promise<WorkspaceDetail> {
   const detail = unwrap(
     step === "undo"
@@ -496,7 +464,6 @@ export function bandPlanQuery(region: string | null) {
   });
 }
 
-/** What tools this build offers. Compiled in, so it only changes when the server does. */
 export function toolsQuery() {
   return queryOptions({
     queryKey: TOOLS_KEY,
@@ -505,13 +472,6 @@ export function toolsQuery() {
   });
 }
 
-/**
- * One tool call, as a query rather than a mutation: a tool answers a question about its
- * arguments and nothing else, so the same arguments may be served from the cache and going
- * back to a design already worked out costs no round trip. The last answer stays on screen
- * while the next one is worked out, so a panel keeps its shape and its view state instead of
- * emptying out between arguments.
- */
 export function toolRunQuery(request: ToolRequest | null) {
   return queryOptions({
     queryKey: [...TOOL_RUN_KEY, request] as const,
@@ -523,15 +483,10 @@ export function toolRunQuery(request: ToolRequest | null) {
   });
 }
 
-/** One tool call that moves hardware rather than asking it something. A calibration step
- * measures a standard the operator has just screwed on, so it is never answered from the cache
- * and never replayed. */
 export async function runTool(request: ToolRequest): Promise<ToolResponse> {
   return unwrap(await client.POST("/api/tools/run", { body: request }));
 }
 
-/** The build, its license, and everything it is built out of. Compiled into the binary, so it
- * never changes while the server is up. */
 export function aboutQuery(enabled: boolean) {
   return queryOptions({
     queryKey: ABOUT_KEY,
@@ -542,8 +497,6 @@ export function aboutQuery(enabled: boolean) {
   });
 }
 
-/** One license text, fetched only when a reader opens it. Together they are the best part of a
- * megabyte, which is why `/api/about` carries the ids and not the texts. */
 export function licenseTextQuery(id: string | null) {
   return queryOptions({
     queryKey: ["get", "/api/about/licenses", id] as const,
@@ -586,8 +539,6 @@ export async function stopScan(ds: number): Promise<ScannerStatus> {
 export function decoderLogQuery(filter: DecoderLogFilter) {
   const query = normalizeFilter(filter);
   return queryOptions({
-    // The filter is part of the key so changing it refetches, and it sits under
-    // DECODER_LOG_KEY so a `decoder_log` StateChanged invalidates every filter at once.
     queryKey: [...DECODER_LOG_KEY, query] as const,
     queryFn: async (): Promise<DecoderLogResponse> =>
       unwrap(await client.GET("/api/decoderlog", { params: { query } })),
@@ -602,9 +553,6 @@ export async function clearDecoderLog(filter: DecoderLogFilter): Promise<number>
   ).deleted;
 }
 
-/** A plain href for a download link — the browser must navigate to it so the server's
- * `Content-Disposition` applies, which a fetch through `client` would swallow. `limit` is
- * dropped: the export endpoint ignores it in favour of its own cap. */
 export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilter): string {
   const { limit: _limit, ...rest } = normalizeFilter(filter);
   const params = new URLSearchParams();
@@ -612,8 +560,6 @@ export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilt
     params.set(key, String(value));
   }
   const query = params.toString();
-  // The token rides in the query here: this href is navigated to by the browser, which cannot
-  // be given an Authorization header (and a fetch would swallow `Content-Disposition`).
   return withToken(
     query.length > 0
       ? `/api/decoderlog/export/${format}?${query}`
@@ -621,14 +567,6 @@ export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilt
   );
 }
 
-/**
- * Blank fields are absent fields: a cleared filter input must not become `q=` (which the server
- * would match on) nor a second query key for what is the same request.
- *
- * The wire scope is the exception, and it is the one that matters: empty means *no channels*, not
- * *every channel*. Dropping either half would widen the request instead of narrowing it — and the
- * same filter backs the clear endpoint, so the widened one would empty the log.
- */
 const SCOPE_FIELDS: ReadonlySet<string> = new Set(["nodes", "sources"]);
 
 function normalizeFilter(filter: DecoderLogFilter): DecoderLogFilter {
@@ -641,10 +579,6 @@ function normalizeFilter(filter: DecoderLogFilter): DecoderLogFilter {
   return normalized;
 }
 
-/** Narrows the `ApiError` contract at runtime: openapi-fetch yields `{ error: undefined }`
- * for an error response with an empty body and a plain string for a non-JSON one — both are
- * what the dev proxy serves while the server is down, so gating on the parsed `error` alone
- * turned a dead backend into `data.id` crashes and silently "successful" deletes. */
 export function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
   const { data, error, response } = result;
   if (response.ok) {

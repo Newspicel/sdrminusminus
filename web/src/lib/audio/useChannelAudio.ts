@@ -1,6 +1,3 @@
-// Per-channel audio playback hook — the contract between the audio subsystem (lib/audio/)
-// and the channel UI. State lives in a module-level engine so playback survives panel
-// remounts and multiple panels for the same channel stay in sync.
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { SdrSocket } from "../ws";
 import { AudioEngine } from "./engine";
@@ -8,31 +5,19 @@ import { createWebAudioSink, onOutputStateChange, resumeAudioOutput } from "./si
 
 export interface ChannelAudio {
   playing: boolean;
-  /** Start requested but no stream bound yet (subscribe in flight or socket down). */
   pending: boolean;
-  /** Stream bound but the platform suspended the output (autoplay veto, phone call). */
   suspended: boolean;
-  /** Why playback stopped without the user asking; null when none. */
   error: string | null;
   start: () => void;
   stop: () => void;
   dismissError: () => void;
-  /** Wire to a click/tap handler: iOS only resumes audio inside a user gesture. */
   resumeOutput: () => void;
-  /** Client-side gain, 0..1. */
   volume: number;
   setVolume: (v: number) => void;
-  /**
-   * Why the sound broke up, split by who is responsible. `lostFrames` is audio that never
-   * reached the browser — dropped at the radio, the encoder or the socket. `underruns` is audio
-   * that did arrive and still could not be played in time, which is this machine's scheduling.
-   * One is a reason to look at the server or the link; the other is not.
-   */
   lostFrames: number;
   underruns: number;
 }
 
-/** Exported so the app shell can route `ServerEvent::Error` through `claimServerError`. */
 export const audioEngine = new AudioEngine(createWebAudioSink);
 onOutputStateChange((running) => audioEngine.setOutputRunning(running));
 

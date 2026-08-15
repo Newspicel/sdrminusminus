@@ -15,15 +15,11 @@ use sdrmm_modem::{
     },
 };
 
-/// This test binary's allocation counter — `#[global_allocator]` binds per binary, so the library
-/// cannot install it on anyone's behalf (see `ber::perf`).
 #[global_allocator]
 static ALLOC: CountingAlloc = CountingAlloc::new();
 
 const STEM: &str = "multicarrier/multicarrier_perf";
 
-/// Frames a bench drives per call. Small: a bench measures throughput per sample, and a longer
-/// frame only makes the run slower.
 const BLOCKS: usize = 8;
 const SYMBOLS: usize = 8;
 
@@ -341,10 +337,6 @@ fn compare_multicarrier_perf_baseline() {
     }
 }
 
-/// The cost ordering the module docs claim, asserted rather than described: a direct-form filter
-/// bank is the most expensive receiver here, a dense inverse next, a transform-and-divide an order
-/// cheaper again, and a precoder cheapest of all. Release only — a debug build measures the
-/// profile, not the engine.
 #[test]
 fn the_cost_ordering_is_the_structural_one() {
     if cfg!(debug_assertions) {

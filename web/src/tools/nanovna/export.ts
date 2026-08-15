@@ -14,9 +14,6 @@ interface ExportContext {
   recordedAt?: string;
 }
 
-/** A two-port Touchstone file. The instrument drives one direction only, so S12 and S22 are
- * written as exact zeros and the header says so — a reader that treats them as measured would
- * otherwise report a perfectly matched, perfectly isolated reverse path. */
 export function touchstoneS2p(
   sweep: NanoVnaSweep,
   format: TouchstoneFormat,
@@ -42,7 +39,6 @@ export function touchstoneS2p(
   ].join("\n");
 }
 
-/** A one-port Touchstone file: only the reflection the instrument actually measured. */
 export function touchstoneS1p(
   sweep: NanoVnaSweep,
   format: TouchstoneFormat,
@@ -84,7 +80,6 @@ const CSV_COLUMNS = [
   "group_delay_s",
 ] as const;
 
-/** Every derived quantity the panel shows, one row per measured frequency. */
 export function sweepCsv(sweep: NanoVnaSweep): string {
   const rows = readouts(sweep.points).map((row) =>
     [
@@ -158,8 +153,6 @@ function fixed(value: number): string {
   return Number.isFinite(value) ? value.toFixed(9) : "0.000000000";
 }
 
-/** A name that says which instrument took the sweep and over what range, so a folder of them
- * stays readable. */
 export function exportFilename(sweep: NanoVnaSweep, extension: string): string {
   const first = sweep.points[0]?.frequency_hz ?? 0;
   const last = sweep.points[sweep.points.length - 1]?.frequency_hz ?? 0;

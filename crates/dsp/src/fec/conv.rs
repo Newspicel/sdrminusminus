@@ -1,28 +1,18 @@
-//! The rate-1/2, constraint-length-5 convolutional code every amateur digital-voice mode
-//! protects its signalling with, and a soft-decision Viterbi decoder for it.
-/// Soft value of one received coded bit: positive votes for 1, negative for 0, and the
-/// magnitude is the confidence. [`ERASURE`] is the absence of a vote.
 pub type Soft = i16;
 
-/// A coded bit the transmitter punctured away.
 pub const ERASURE: Soft = 0;
 
-/// Full confidence, the value a hard decision maps to.
 pub const CONFIDENT: Soft = 64;
 
 const STATES: usize = 16;
 const G1: u8 = 0b1_1001;
 const G2: u8 = 0b1_0111;
 
-/// Map a hard bit to a soft value.
 #[must_use]
 pub fn soft(bit: bool) -> Soft {
     if bit { CONFIDENT } else { -CONFIDENT }
 }
 
-/// Encode `bits` at rate 1/2, appending two coded bits per information bit. The caller adds
-/// whatever flush bits its mode specifies — some flush the register, some leave it running
-/// into the next frame, and this code does not decide that for them.
 pub fn encode(bits: &[bool], out: &mut Vec<bool>) {
     let mut reg = 0u8;
     for &bit in bits {
@@ -32,14 +22,8 @@ pub fn encode(bits: &[bool], out: &mut Vec<bool>) {
     }
 }
 
-/// Soft-decision Viterbi decoder for [`encode`].
-///
-/// Owns its traceback buffer, which grows once to the longest frame it is given and is reused
-/// after that — the one allocating primitive in `fec`, and it allocates only on the first frame
-/// of a call. Everything else is fixed-size state.
 #[derive(Clone, Debug, Default)]
 pub struct Viterbi5 {
-    /// One bit per state per step: which predecessor won.
     decisions: Vec<u16>,
     metrics: [i32; STATES],
     next: [i32; STATES],
@@ -51,16 +35,6 @@ impl Viterbi5 {
         Self::default()
     }
 
-    /// Decode `coded` (two soft values per information bit) into `out`, returning the winning
-    /// path metric — the accumulated agreement between the received soft values and the
-    /// codeword the decoder settled on, so a caller can compare two hypotheses.
-    ///
-    /// The encoder is assumed to have started from the all-zero state, which every mode here
-    /// specifies. The final state is not constrained: modes that flush their register end in
-    /// state zero anyway, and modes that do not would be punished for it.
-    ///
-    /// # Panics
-    /// If `coded` has an odd length.
     pub fn decode(&mut self, coded: &[Soft], out: &mut Vec<bool>) -> i32 {
         assert!(
             coded.len().is_multiple_of(2),
@@ -69,7 +43,6 @@ impl Viterbi5 {
         let steps = coded.len() / 2;
         self.decisions.clear();
         self.decisions.resize(steps, 0);
-        // Only the all-zero start state is reachable; the rest begin unreachably bad.
         self.metrics = [i32::MIN / 4; STATES];
         self.metrics[0] = 0;
 
@@ -145,8 +118,6 @@ mod tests {
         assert_eq!(out, bits);
     }
 
-    /// The reason a convolutional code is there at all: errors the block codes around it would
-    /// have to detect and drop, this one repairs.
     #[test]
     fn repairs_scattered_channel_errors() {
         let mut bits = message(72, 9);
@@ -162,7 +133,6 @@ mod tests {
         assert_eq!(out, bits);
     }
 
-    /// A punctured code is the same decoder with holes in its input.
     #[test]
     fn erasures_stand_in_for_punctured_bits() {
         let mut bits = message(48, 3);
@@ -180,8 +150,6 @@ mod tests {
         assert_eq!(out, bits);
     }
 
-    /// Soft input is not a luxury here: the same errors that a soft decoder rides through sink
-    /// a hard one, and the modes below feed it real symbol distances.
     #[test]
     fn weak_bits_lose_to_confident_ones() {
         let mut bits = message(64, 21);

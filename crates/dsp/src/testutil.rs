@@ -1,5 +1,3 @@
-//! Analytic test-signal helpers shared by this crate's unit tests (compiled only for tests).
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -28,8 +26,6 @@ pub(crate) fn rms_r(x: &[f32]) -> f32 {
     (x.iter().map(|&v| f64::from(v) * f64::from(v)).sum::<f64>() / x.len() as f64).sqrt() as f32
 }
 
-/// Peak FFT bin (rectangular window) and the ratio of peak±3-bin power to everything else,
-/// in dB. Callers pick tone frequencies on bin centers so leakage stays inside the guard.
 pub(crate) fn tone_peak_and_snr(x: &[Complex<f32>]) -> (usize, f32) {
     let n = x.len();
     let mut buf = x.to_vec();
@@ -50,7 +46,6 @@ pub(crate) fn tone_peak_and_snr(x: &[Complex<f32>]) -> (usize, f32) {
     (peak, (10.0 * (signal / noise).log10()) as f32)
 }
 
-/// Deterministic PRNG for noise test signals — no `rand` dependency in this crate.
 pub(crate) struct XorShift32(pub(crate) u32);
 
 impl XorShift32 {
@@ -63,7 +58,6 @@ impl XorShift32 {
         x
     }
 
-    /// Uniform in [−1, 1).
     pub(crate) fn next_f32(&mut self) -> f32 {
         (self.next_u32() as f64 / f64::from(u32::MAX) * 2.0 - 1.0) as f32
     }

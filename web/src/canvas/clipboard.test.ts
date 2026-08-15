@@ -57,7 +57,6 @@ describe("pasteNodes", () => {
     expect(graph.nodes).toHaveLength(3);
   });
 
-  // A radio is opened once and binds to one node, so the second face naming it could never bind.
   it("leaves the copy of a device naming no radio", () => {
     const copied = copyNodes(graph, ["dev"]);
     if (copied === null) {

@@ -7,20 +7,11 @@ import { BOOKMARKS_KEY, createBookmark } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
 import { pickText, type ScopePick } from "./scopePick";
 
-/** Where on the plot the menu is anchored, as screen fractions of it. */
 export interface ScopeMenuAt {
   x: number;
   y: number;
 }
 
-/**
- * What right-clicking a frequency on the spectrum offers.
- *
- * Anchored to the pointer but kept inside the face, like the band ruler's identify card: a menu
- * that hangs off the edge of a node is unreadable, and a node is not a viewport. Marked as plot
- * chrome so the plot's own pointer handlers decline it — the plot captures the pointer to pan and
- * to tune, and a capture on the ancestor would retarget every press in here.
- */
 export function ScopeMenu({
   pick,
   at,
@@ -31,10 +22,8 @@ export function ScopeMenu({
 }: {
   pick: ScopePick;
   at: ScopeMenuAt;
-  /** The label and mode a bookmark saved here opens with (`bookmarkDraft`). */
   draft: { label: string; mode: string | null };
   onTune: () => void;
-  /** Hand the frequency to the mode picker, which is a dialog of its own (`ChannelPicker`). */
   onChannel: () => void;
   onClose: () => void;
 }) {
@@ -43,8 +32,6 @@ export function ScopeMenu({
   const [label, setLabel] = useState<string | null>(null);
   const text = pickText(pick);
 
-  // `navigator.clipboard` is absent outside a secure context, so a copy that never happened has
-  // to surface rather than leave the operator pasting whatever they copied last.
   const copy = (what: string, value: string): void => {
     void (async () => {
       try {
@@ -69,7 +56,6 @@ export function ScopeMenu({
     onSettled: () => void queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY }),
   });
 
-  // A menu that outlives what it was opened on is a menu that acts on the wrong frequency.
   useEffect(() => {
     const dismiss = (event: Event) => {
       if (event instanceof KeyboardEvent) {
@@ -91,8 +77,6 @@ export function ScopeMenu({
     };
   }, [onClose]);
 
-  // A dialog the keyboard cannot reach is one whose Escape never fires and which a screen reader
-  // announces but never enters, so opening it moves focus in and closing it hands focus back.
   useLayoutEffect(() => {
     const returnTo = document.activeElement;
     menuRef.current?.focus();

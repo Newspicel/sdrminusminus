@@ -3,17 +3,12 @@ use num_complex::Complex;
 use super::params::MfskParams;
 use crate::cpm::CpmMod;
 
-/// How a transmitter's phase behaves across symbol boundaries. See the module docs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TonePhase {
-    /// Phase runs on: the waveform is continuous-phase CPFSK.
     Continuous,
-    /// Each symbol's tone starts at zero phase.
     Independent,
 }
 
-/// Orthogonal M-FSK modulator. Streaming for the continuous policy (phase and shaper state
-/// carry across calls); the independent policy is stateless by construction.
 pub struct MfskMod {
     params: MfskParams,
     policy: TonePhase,
@@ -44,10 +39,6 @@ impl MfskMod {
         self.policy
     }
 
-    /// Symbols to complex baseband, appended to `out`. Symbol `k` radiates tone `k` for exactly
-    /// one symbol period, so sample `k·sps` is where the receiver's matched filter starts —
-    /// the alignment the CPM modulator's rect pulse gives for free (its impulse response starts
-    /// at the impulse, so symbol k's frequency spans `[k·sps, (k+1)·sps)`).
     pub fn modulate(&mut self, symbols: &[u8], out: &mut Vec<Complex<f32>>) {
         match &mut self.cpm {
             Some(cpm) => cpm.modulate(symbols, out),
@@ -55,18 +46,12 @@ impl MfskMod {
         }
     }
 
-    /// Drains the continuous policy's shaper so the last symbol's period is fully emitted; a
-    /// no-op for the independent policy, which has no filter state to hold anything back.
     pub fn flush(&mut self, out: &mut Vec<Complex<f32>>) {
         if let Some(cpm) = &mut self.cpm {
             cpm.flush(out);
         }
     }
 
-    /// The independent-phase generator: one symbol-long tone burst per symbol, each starting at
-    /// zero phase. Phase is accumulated in f64 and wrapped per symbol, so a long transmission
-    /// casts to f32 without the phase's magnitude eating its precision — the CPM modulator's
-    /// own convention.
     fn tones(&self, symbols: &[u8], out: &mut Vec<Complex<f32>>) {
         let window = self.params.window();
         out.reserve(symbols.len() * window);
@@ -93,8 +78,6 @@ mod tests {
         out
     }
 
-    /// Both policies must radiate the same *tones* in the same *slots* — they differ only in
-    /// the phase they start each one at. Measured as instantaneous frequency, symbol by symbol.
     #[test]
     fn both_policies_radiate_the_plan_symbol_by_symbol() {
         let params = MfskParams::orthogonal(8, 16.0);
@@ -114,16 +97,12 @@ mod tests {
         }
     }
 
-    /// The continuous policy's defining property, and the one that makes it CPFSK: no phase
-    /// step at a symbol boundary, however far apart the two tones are.
     #[test]
     fn the_continuous_policy_has_no_phase_step_at_a_boundary() {
         let params = MfskParams::orthogonal(8, 16.0);
         let symbols = [0u8, 7, 0, 7];
         let w = wave(&params, TonePhase::Continuous, &symbols);
         for boundary in [16usize, 32, 48] {
-            // The phase step across the boundary must equal one sample of one of the two tones,
-            // never the discontinuity an independently-phased transmitter would show.
             let step =
                 f64::from((w[boundary] * w[boundary - 1].conj()).arg()) / std::f64::consts::TAU;
             let plausible = (0..8).any(|k| (step - params.tone_cycles_per_sample(k)).abs() < 1e-4);
@@ -138,8 +117,6 @@ mod tests {
         );
     }
 
-    /// Every symbol occupies exactly its own window: the alignment the filterbank's matched
-    /// filter is written against, asserted rather than assumed of the CPM shaper.
     #[test]
     fn symbol_k_occupies_samples_k_sps_onwards() {
         let params = MfskParams::orthogonal(4, 8.0);
@@ -158,8 +135,6 @@ mod tests {
         }
     }
 
-    /// Unit amplitude, so a symbol's energy is its window length — the accounting every Eb/N0
-    /// on this entry's curves is stated against.
     #[test]
     fn tones_are_unit_amplitude_under_both_policies() {
         let params = MfskParams::orthogonal(4, 8.0);

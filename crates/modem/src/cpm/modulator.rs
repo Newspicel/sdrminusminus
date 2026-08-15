@@ -5,22 +5,12 @@ use sdrmm_dsp::RealDecimator;
 
 use super::params::CpmParams;
 
-/// Phase-continuous CPM modulator. Streaming: [`modulate`](Self::modulate) carries filter and
-/// phase state across calls, so a transmission may be produced in blocks;
-/// [`flush`](Self::flush) drains the last symbols' pulse tail. [`keyed`](Self::keyed) is the
-/// one-shot TDMA builder.
 pub struct CpmMod {
     params: CpmParams,
     shaper: RealDecimator,
-    /// π·h — the per-sample step is this times the shaped impulse train.
     step_scale: f64,
     phase: f64,
-    /// Symbols accepted so far; symbol k's impulse lands at sample `round(k·sps)`, which is
-    /// exact for integer sps and within half a sample for fractional (0.5 % of a symbol at
-    /// POCSAG's 93.75 — far under any receiver's timing tolerance).
     symbols_in: u64,
-    /// Samples emitted so far by `modulate` (the shaper's delay means sample n of the stream
-    /// is not symbol n's peak, but the count still names impulse positions exactly).
     samples_out: u64,
     impulses: Vec<f32>,
     shaped: Vec<f32>,
@@ -48,10 +38,6 @@ impl CpmMod {
         &self.params
     }
 
-    /// Modulate a block of symbol indices, appending complex baseband to `out`. State carries
-    /// across calls: the same symbols in any block split produce the same samples. The last
-    /// pulse span stays in the shaper until more symbols — or [`flush`](Self::flush) — push it
-    /// through.
     pub fn modulate(&mut self, symbols: &[u8], out: &mut Vec<Complex<f32>>) {
         let sps = self.params.sps();
         let first = self.samples_out;
@@ -68,9 +54,6 @@ impl CpmMod {
         self.integrate(out);
     }
 
-    /// Push one pulse length of silence through the shaper so the final symbols' tail reaches
-    /// the output — a transmission that ends mid-tail hands the receiver's matched filter a
-    /// truncated pulse it was not built for.
     pub fn flush(&mut self, out: &mut Vec<Complex<f32>>) {
         self.impulses.clear();
         self.impulses.resize(self.params.freq_pulse().len(), 0.0);
@@ -79,16 +62,6 @@ impl CpmMod {
         self.integrate(out);
     }
 
-    /// One complete keyed transmission: `None` is a symbol period the transmitter neither
-    /// modulates nor radiates, as a TDMA radio spends the other timeslot. The exciter keeps
-    /// shaping through the gaps — a burst decays into silence with the pulse tails a matched
-    /// filter expects — and the amplifier ramps over one symbol rather than stepping, because
-    /// an envelope discontinuity is not something any radio puts on the air. Phase starts at
-    /// zero and runs continuously through the gaps.
-    ///
-    /// Compatible with how `testgen` carves TDMA bursts today (`c4fm_keyed`): the returned
-    /// waveform is `round(symbols·sps) + pulse_len` samples, tail included. One call is one
-    /// transmission; the streaming state of [`modulate`](Self::modulate) is not touched.
     #[must_use]
     pub fn keyed(&self, symbols: &[Option<u8>]) -> Vec<Complex<f32>> {
         let sps = self.params.sps();
@@ -133,8 +106,6 @@ impl CpmMod {
             .collect()
     }
 
-    /// Forget the stream: phase, shaper history and sample accounting. The next `modulate`
-    /// call starts a fresh transmission.
     pub fn reset(&mut self) {
         self.shaper = RealDecimator::new(self.params.freq_pulse(), 1);
         self.phase = 0.0;
@@ -150,8 +121,6 @@ impl CpmMod {
     }
 }
 
-/// Keeps the accumulator in (−π, π]: the f64→f32 cast at every sample then never spends
-/// mantissa bits on whole turns a minutes-long transmission accumulated.
 fn wrap(phase: f64) -> f64 {
     if phase > PI {
         phase - TAU
@@ -199,9 +168,6 @@ mod tests {
         for (n, s) in out.iter().enumerate() {
             assert!((s.norm() - 1.0).abs() < 1e-6, "sample {n}: |{s}|");
         }
-        // Phase continuity: no sample-to-sample jump exceeds the worst instantaneous
-        // frequency — all-outer same-sign symbols, whose pulses overlap as a stride-sps comb
-        // over the taps, so the exact bound is the largest comb sum.
         let params = dmr_params();
         let sps = params.sps() as usize;
         let comb_max = (0..sps)
@@ -227,8 +193,6 @@ mod tests {
         let params = CpmParams::from_h(Mapping::natural(2), h, pulse::rect(sps, Norm::Area), sps);
         let mut m = CpmMod::new(params);
         let mut out = Vec::new();
-        // Rect is one symbol long, so a symbol's step is complete at its last sample —
-        // sample k·sps − 1, since each output sample carries its own increment.
         m.modulate(&[1, 1, 0, 1], &mut out);
         m.flush(&mut out);
         let phase_after = |k: usize| f64::from(out[k * sps as usize - 1].arg());
@@ -279,7 +243,6 @@ mod tests {
             gap.iter().all(|s| s.norm() == 0.0),
             "the amplifier radiated into the dead time"
         );
-        // Every sample bounded by the unit envelope; edges are not steps.
         assert!(out.iter().all(|s| s.norm() <= 1.0 + 1e-6));
         for w in out.windows(2) {
             assert!(

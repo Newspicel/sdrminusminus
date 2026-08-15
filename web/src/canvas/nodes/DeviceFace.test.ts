@@ -104,7 +104,6 @@ describe("tuneDelta", () => {
     const delta = tuneDelta(caps, 1, 434_000_000);
     expect(delta).toEqual({ streams: [{ stream: 1, center_hz: 434_000_000 }] });
 
-    // Through the optimistic merge, the other lane's dial must not move.
     const set = deviceSet({
       capabilities: caps,
       settings: {

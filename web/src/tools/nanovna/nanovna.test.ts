@@ -102,7 +102,6 @@ describe("RF measurements", () => {
     expect(qFactor(impedance(gamma))).toBeCloseTo(40 / 30, 6);
   });
 
-  /** A quarter of the power comes back at |Γ| = 0.5, so three quarters gets through. */
   it("prices a mismatch in forward power", () => {
     expect(mismatchLossDb({ re: 0.5, im: 0 })).toBeCloseTo(-10 * Math.log10(0.75), 6);
   });
@@ -128,8 +127,6 @@ describe("RF measurements", () => {
 });
 
 describe("phase along a sweep", () => {
-  /** A line whose phase runs past ±180° must keep running, or its slope — the group delay —
-   * reads as a huge spike at every wrap. */
   it("unwraps across the seam", () => {
     const points = [0, 170, -170, -10].map((degrees, index) =>
       point(index + 1, { re: 0, im: 0 }, unit(degrees)),

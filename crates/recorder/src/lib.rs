@@ -1,7 +1,3 @@
-//! `sdrmm-recorder` — recording file IO (this crate only reads and writes files; the taps that
-//! feed them live in the engine, playback in `device-virtual`). Two kinds, because they hold
-//! two different things: a radio's raw IQ as a SigMF v1.2.6 pair — `<stem>.sigmf-meta` +
-//! `<stem>.sigmf-data`, mono-channel `cf32_le` — and one channel's demodulated audio as a WAV.
 mod audio;
 mod export;
 
@@ -19,10 +15,8 @@ use num_complex::Complex;
 use sdrmm_wire::PositionFix;
 use serde::{Deserialize, Serialize};
 
-/// SigMF specification version written into `core:version`.
 pub const SIGMF_VERSION: &str = "1.2.6";
 pub const DATATYPE_CF32_LE: &str = "cf32_le";
-/// Bytes per `cf32_le` sample (two little-endian `f32`).
 pub const BYTES_PER_SAMPLE: u64 = 8;
 
 const RECORDER_NAME: &str = "sdr--";
@@ -38,12 +32,8 @@ pub enum SigmfError {
     Meta(#[from] serde_json::Error),
     #[error("unsupported datatype `{0}`: only {DATATYPE_CF32_LE} is supported")]
     UnsupportedDatatype(String),
-    /// Another recording (in-flight breadcrumb, data file, or finalized pair) already owns
-    /// this stem; the caller must pick a different one instead of sharing files.
     #[error("stem `{}` is already claimed by another recording", .0.display())]
     StemTaken(PathBuf),
-    /// The recording is fine, but the requested export container cannot express it — see
-    /// [`ExportKind`] for what each one carries.
     #[error("cannot export `{}` as {format}: {reason}", .stem.display())]
     Unexportable {
         stem: PathBuf,
@@ -52,19 +42,12 @@ pub enum SigmfError {
     },
 }
 
-/// The `global` object: recording-wide metadata. Field names carry the mandatory `core:`
-/// namespace prefix on disk (SigMF v1.2.6 Global Object).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SigmfGlobal {
     #[serde(rename = "core:datatype")]
     pub datatype: String,
-    /// Version of the SigMF specification the file conforms to, not of the recording.
     #[serde(rename = "core:version")]
     pub version: String,
-    /// Samples per second. Global scope in SigMF, so one rate for the whole file — a rate
-    /// change requires a new recording. Optional per SigMF v1.2.6 (only datatype and
-    /// version are required): this build always writes it, but foreign metas may omit it,
-    /// and consumers that need a rate (playback, indexing) must reject `None` themselves.
     #[serde(
         rename = "core:sample_rate",
         default,
@@ -77,13 +60,8 @@ pub struct SigmfGlobal {
         skip_serializing_if = "Option::is_none"
     )]
     pub recorder: Option<String>,
-    /// Free-text capture hardware description; this build writes the device label.
     #[serde(rename = "core:hw", default, skip_serializing_if = "Option::is_none")]
     pub hw: Option<String>,
-    /// Which receive stream of a multi-stream radio the file captured (sdrmm extension
-    /// namespace — SigMF core has no field for it). Absent in foreign files and in
-    /// recordings that predate multi-stream devices; those are stream 0, the only stream a
-    /// single-stream radio has.
     #[serde(
         rename = "sdrmm:rx_stream",
         default,
@@ -92,20 +70,16 @@ pub struct SigmfGlobal {
     pub rx_stream: Option<u32>,
 }
 
-/// One `captures` segment: the sample index where a tuning state begins (SigMF v1.2.6
-/// Captures Array).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SigmfCapture {
     #[serde(rename = "core:sample_start")]
     pub sample_start: u64,
-    /// Center frequency in Hz.
     #[serde(
         rename = "core:frequency",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub frequency: Option<f64>,
-    /// RFC3339 UTC wall-clock start; this build writes it on segment 0 only.
     #[serde(
         rename = "core:datetime",
         default,
@@ -127,8 +101,6 @@ pub struct SigmfGeolocation {
     pub coordinates: Vec<f64>,
 }
 
-/// A `.sigmf-meta` document. `annotations` is carried verbatim: this build writes none but
-/// must not destroy foreign ones on a parse → serialize trip.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SigmfMeta {
     pub global: SigmfGlobal,
@@ -137,13 +109,11 @@ pub struct SigmfMeta {
     pub annotations: Vec<serde_json::Value>,
 }
 
-/// `<stem>.sigmf-meta` — exists only for finalized recordings.
 #[must_use]
 pub fn meta_path(stem: &Path) -> PathBuf {
     with_suffix(stem, META_SUFFIX)
 }
 
-/// `<stem>.sigmf-data`.
 #[must_use]
 pub fn data_path(stem: &Path) -> PathBuf {
     with_suffix(stem, DATA_SUFFIX)
@@ -153,22 +123,16 @@ fn tmp_meta_path(stem: &Path) -> PathBuf {
     with_suffix(stem, TMP_META_SUFFIX)
 }
 
-/// Appends to the file name instead of `Path::with_extension`, which would truncate a stem
-/// containing dots.
 fn with_suffix(stem: &Path, suffix: &str) -> PathBuf {
     let mut name = stem.as_os_str().to_owned();
     name.push(suffix);
     PathBuf::from(name)
 }
 
-/// Parse `<stem>.sigmf-meta`.
 pub(crate) fn read_meta(stem: &Path) -> Result<SigmfMeta, SigmfError> {
     Ok(serde_json::from_str(&fs::read_to_string(meta_path(stem))?)?)
 }
 
-/// Stems (directory-joined, extension-less) of every finalized recording in `dir`, sorted
-/// by name. Keyed on the final `.sigmf-meta`, so in-progress and crashed recordings (which
-/// have only the `.tmp` breadcrumb) never appear.
 pub fn scan_stems(dir: &Path) -> Result<Vec<PathBuf>, SigmfError> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -187,8 +151,6 @@ pub fn scan_stems(dir: &Path) -> Result<Vec<PathBuf>, SigmfError> {
     Ok(stems)
 }
 
-/// Streaming SigMF writer. Sample data goes straight to `<stem>.sigmf-data`; metadata lives
-/// in memory (plus the `.tmp` breadcrumb) until [`SigmfWriter::finalize`].
 #[derive(Debug)]
 pub struct SigmfWriter {
     data: File,
@@ -265,17 +227,10 @@ impl SigmfWriter {
         Ok(())
     }
 
-    /// Record which receive stream of a multi-stream radio this file captures. Kept off
-    /// [`SigmfWriter::create`] so its many single-stream callers stay untouched; the final
-    /// meta carries the field, while the `.tmp` breadcrumb (written at create, before the
-    /// stream is stamped) does not — a crashed recording is unplayable either way.
     pub fn set_rx_stream(&mut self, stream: u32) {
         self.meta.global.rx_stream = Some(stream);
     }
 
-    /// Record a center retune as a capture segment starting at the next sample. A retune
-    /// with no samples since the previous segment supersedes it: capture `sample_start`s
-    /// must be unique and ascending (SigMF Captures Array).
     pub fn add_capture(&mut self, frequency_hz: f64) {
         if let Some(last) = self.meta.captures.last_mut()
             && last.sample_start == self.samples
@@ -347,11 +302,6 @@ impl SigmfWriter {
         &self.stem
     }
 
-    /// Durably finish: sync the data, rewrite the breadcrumb with the final meta, and rename
-    /// it onto `.sigmf-meta`. The rename is atomic (same directory), so a crash mid-finalize
-    /// leaves breadcrumb-or-complete — never a listed final meta with torn JSON. Dropping a
-    /// writer without calling this leaves the breadcrumb behind, which is exactly what marks
-    /// a crashed recording as unplayable.
     pub fn finalize(self) -> Result<SigmfMeta, SigmfError> {
         self.data.sync_all()?;
         let tmp = tmp_meta_path(&self.stem);
@@ -369,15 +319,12 @@ fn claim_error(stem: &Path, err: std::io::Error) -> SigmfError {
     }
 }
 
-/// `sync_all` because `fs::write` alone is not power-loss durable — the finalize rename
-/// must never promote a meta whose bytes could still vanish.
 fn write_meta_synced(mut file: File, meta: &SigmfMeta) -> Result<(), SigmfError> {
     file.write_all(serde_json::to_string_pretty(meta)?.as_bytes())?;
     file.sync_all()?;
     Ok(())
 }
 
-/// Reader for a finalized recording pair.
 #[derive(Debug)]
 pub struct SigmfReader {
     meta: SigmfMeta,
@@ -388,15 +335,12 @@ pub struct SigmfReader {
 }
 
 impl SigmfReader {
-    /// Open and validate `<stem>.sigmf-meta` + `<stem>.sigmf-data`.
     pub fn open(stem: &Path) -> Result<Self, SigmfError> {
         let meta = read_meta(stem)?;
         if meta.global.datatype != DATATYPE_CF32_LE {
             return Err(SigmfError::UnsupportedDatatype(meta.global.datatype));
         }
         let data = File::open(data_path(stem))?;
-        // Whole samples only: a torn trailing write (crash mid-sample) is excluded so reads
-        // always yield the intact prefix.
         let total_samples = data.metadata()?.len() / BYTES_PER_SAMPLE;
         Ok(Self {
             meta,
@@ -417,7 +361,6 @@ impl SigmfReader {
         self.total_samples
     }
 
-    /// Fill `buf` from the current position; returns samples read, 0 at end of data.
     pub fn read_block(&mut self, buf: &mut [Complex<f32>]) -> Result<usize, SigmfError> {
         let remaining = self.total_samples - self.pos;
         let n = remaining.min(buf.len() as u64) as usize;
@@ -437,16 +380,12 @@ impl SigmfReader {
         Ok(n)
     }
 
-    /// Seek back to sample 0 (looped playback).
     pub fn rewind(&mut self) -> Result<(), SigmfError> {
         self.data.rewind()?;
         self.pos = 0;
         Ok(())
     }
 
-    /// Seek to a sample index, clamped to the end of the data. Clamped rather than refused: a
-    /// scrub to the far end of a recording that a torn tail made shorter than its metadata
-    /// claims should land at the end, not fail the transport.
     pub fn seek_to(&mut self, sample: u64) -> Result<(), SigmfError> {
         let target = sample.min(self.total_samples);
         self.data
@@ -455,7 +394,6 @@ impl SigmfReader {
         Ok(())
     }
 
-    /// Samples read so far — the playback position.
     #[must_use]
     pub fn position(&self) -> u64 {
         self.pos
@@ -558,7 +496,6 @@ mod tests {
         let mut writer = SigmfWriter::create(&stem, 2_400_000.0, 100_000_000.0, "hw").unwrap();
         writer.write_block(&tone[..1_000]).unwrap();
         writer.add_capture(146_000_000.0);
-        // A second retune before any new samples supersedes rather than stacks.
         writer.add_capture(145_500_000.0);
         writer.write_block(&tone[1_000..]).unwrap();
         let meta = writer.finalize().unwrap();
@@ -664,7 +601,6 @@ mod tests {
             .finalize()
             .unwrap();
 
-        // Crash: writer dropped without finalize leaves only the breadcrumb + data.
         let crashed = dir.path().join("crashed");
         drop(SigmfWriter::create(&crashed, 48_000.0, 1_000_000.0, "hw").unwrap());
 
@@ -702,7 +638,6 @@ mod tests {
         let mut first = SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw").unwrap();
         first.write_block(&samples(8)).unwrap();
 
-        // A racing second create must fail instead of truncating the live data file.
         match SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw") {
             Err(SigmfError::StemTaken(taken)) => assert_eq!(taken, stem),
             other => panic!("expected StemTaken, got {other:?}"),
@@ -733,8 +668,6 @@ mod tests {
         assert_eq!(fs::read(data_path(&stem)).unwrap(), [1, 2, 3]);
     }
 
-    /// SigMF v1.2.6 requires only `core:datatype` and `core:version` in Global; a foreign
-    /// meta without a rate must parse (consumers reject `None` where a rate is needed).
     #[test]
     fn meta_without_sample_rate_parses_as_none() {
         let meta: SigmfMeta = serde_json::from_str(
@@ -750,7 +683,6 @@ mod tests {
     fn rejects_non_cf32_datatype() {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("foreign");
-        // Minimal foreign meta: optional core fields and `annotations` absent must parse.
         fs::write(
             meta_path(&stem),
             r#"{"global":{"core:datatype":"ci16_le","core:version":"1.2.6","core:sample_rate":48000.0},"captures":[]}"#,
@@ -764,7 +696,6 @@ mod tests {
         }
     }
 
-    /// The on-disk keys are the interop contract with every other SigMF tool; lock them.
     #[test]
     fn meta_serializes_core_prefixed_keys() {
         let meta = SigmfMeta {
@@ -790,8 +721,6 @@ mod tests {
         assert_eq!(json["global"]["core:sample_rate"], 2_400_000.0);
         assert_eq!(json["global"]["core:recorder"], "sdr--");
         assert!(json["global"].get("core:hw").is_none());
-        // The extension field must stay off the wire until a stream is stamped, so foreign
-        // and pre-multi-stream metas round-trip byte-identical.
         assert!(json["global"].get("sdrmm:rx_stream").is_none());
         assert_eq!(json["captures"][0]["core:sample_start"], 7);
         assert_eq!(json["captures"][0]["core:frequency"], 100_000_000.0);
@@ -801,8 +730,6 @@ mod tests {
         assert_eq!(back, meta);
     }
 
-    /// A multi-stream radio's recording must say which stream it captured — the file is
-    /// otherwise indistinguishable from any other mono `cf32` pair (b).
     #[test]
     fn rx_stream_is_stamped_into_the_final_meta_and_read_back() {
         let dir = TempDir::new().unwrap();

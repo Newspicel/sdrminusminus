@@ -1,5 +1,3 @@
-//! Built-in workspace templates: one click configures the device and its
-//! channels for a known activity, with a short "what am I looking at" explainer.
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
@@ -8,12 +6,8 @@ use sdrmm_wire::{
     PocsagParams, PortRef, Position, RadioClockParams, TemplateInfo, WfmParams,
 };
 
-/// One channel in a template: its absolute frequency and a constructor for its params.
-/// A function rather than a value because `ChannelParams` is not const-constructible.
 type Channel = (f64, fn() -> ChannelParams);
 
-/// One channel at an absolute frequency; the offset is resolved against the template's centre
-/// when it is applied.
 struct Entry {
     id: &'static str,
     name: &'static str,
@@ -23,34 +17,20 @@ struct Entry {
     sample_rate: f64,
     channels: &'static [Channel],
     shape: Shape,
-    /// Whether the template opens a readout for its channels' decoders. Set where the *live
-    /// picture* is the point of the template — RDS station text, a table of aircraft — and left
-    /// off where the decode is a stream of messages, which the log already shows. A channel that
-    /// does not decode must never have this: the `events` port would not exist to wire.
     readout: bool,
-    /// Whether `sample_rate` is the only rate that decodes, rather than a comfortable one.
     exact_rate: bool,
 }
 
-/// The two-and-a-half shapes every template falls into.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Shape {
-    /// Audio into a speaker: what you tune and listen to.
     Listen,
-    /// Positions onto the map, with the stored log beside it.
     Map,
-    /// Messages into the stored log.
     Log,
 }
 
-/// Horizontal step between the columns of an authored patch, in canvas units.
 const COLUMN: f32 = 400.0;
-/// Vertical step between stacked channel nodes.
 const ROW: f32 = 240.0;
 
-/// Draw the template's workspace: one receiver, a scope, its channels, and the faces its shape
-/// implies. Positions are authored so a merged template reads as a column of channels hanging
-/// off one radio (`WorkspaceSnapshot::merge_patch` offsets the whole block downward).
 fn patch(shape: Shape, readout: bool, channels: &[Channel]) -> PatchGraph {
     let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
         id: id.to_string(),
@@ -114,8 +94,6 @@ fn patch(shape: Shape, readout: bool, channels: &[Channel]) -> PatchGraph {
         Shape::Log => nodes.push(node("log", NodeBody::DecoderLog, COLUMN * 2.0, 260.0)),
     }
     if readout {
-        // A column of its own where the shape already fills the second one, so an applied
-        // template opens as a readable row rather than a stack of overlapping faces.
         let x = if shape == Shape::Listen {
             COLUMN * 2.0
         } else {
@@ -173,10 +151,6 @@ static TEMPLATES: &[Entry] = &[
         })],
         shape: Shape::Map,
         readout: true,
-        // Not exact, despite reading like it: ADS-B takes the device's own samples over a
-        // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), so no channel type is
-        // exact-rate any more. Demanding 2.000 exactly would refuse every
-        // RTL-SDR, whose advertised menu jumps 1.92 → 2.048.
         exact_rate: false,
     },
     Entry {
@@ -296,8 +270,6 @@ static TEMPLATES: &[Entry] = &[
     },
 ];
 
-/// Everything a client can apply, in table order (curated, not alphabetical: the gallery
-/// leads with what a first-time user can hear immediately).
 #[must_use]
 pub(crate) fn all() -> &'static [TemplateInfo] {
     static BUILT: LazyLock<Vec<TemplateInfo>> = LazyLock::new(|| {
@@ -332,8 +304,6 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     min_freq_hz: min.min(entry.center_hz),
                     max_freq_hz: max.max(entry.center_hz),
                     patch: Some(patch(entry.shape, entry.readout, entry.channels)),
-                    // Every built-in template receives. The field exists so the day a transmit
-                    // one does not, the picker refuses a receiver rather than offering it.
                     direction: sdrmm_wire::Direction::Rx,
                     exact_rate: entry.exact_rate,
                     supported_devices: Vec::new(),
@@ -355,8 +325,6 @@ mod tests {
 
     use super::*;
 
-    /// The id is the apply path segment and the gallery's React key; a duplicate would make
-    /// both ambiguous.
     #[test]
     fn ids_are_unique_and_slug_shaped() {
         let mut seen = std::collections::HashSet::new();
@@ -375,15 +343,9 @@ mod tests {
         }
     }
 
-    /// A template that cannot be applied is worse than no template: every channel must sit
-    /// inside the passband its own sample rate provides, or the apply fails at the last step
-    /// with the set already retuned.
     #[test]
     fn every_channel_fits_its_templates_passband() {
         for template in all() {
-            // 40% of the rate, not Nyquist: the outer 20% is the capture filter's transition
-            // and the tuner's roll-off, so a channel placed there is quietly degraded rather
-            // than rejected — the worst kind of broken template.
             let usable = template.sample_rate * 0.4;
             for channel in &template.channels {
                 assert!(
@@ -401,18 +363,11 @@ mod tests {
     fn adsb_template_runs_the_device_at_the_channel_rate() {
         let adsb = get("adsb").expect("adsb template");
         assert_eq!(adsb.sample_rate, 2_000_000.0);
-        // *Not* exact: the rule is a range, and an RTL-SDR advertises 1.92 and 2.048 with
-        // nothing between. Pinned because demanding an exact rate here refuses the commonest
-        // ADS-B receiver there is, on both the picker and the apply guard.
         assert!(!adsb.exact_rate);
         assert_eq!(adsb.channels.len(), 1);
         assert_eq!(adsb.channels[0].offset_hz, 0.0);
     }
 
-    /// A template's patch is merged into the live workspace, so one that fails validation would be
-    /// discovered only when someone clicks Apply. Validating against the *registry* is what
-    /// catches the authoring mistake that matters: wiring an `audio` port on a decoder that has
-    /// none, or a channel type this build does not ship.
     #[test]
     fn every_template_patch_is_a_valid_workspace() {
         let descriptors = sdrmm_engine::Engine::new(None).channel_types();
@@ -430,11 +385,6 @@ mod tests {
         }
     }
 
-    /// A channel node's face is settings only, so a template whose point is the live decode —
-    /// RDS station text, a table of aircraft — has to draw the readout that shows it, and wire
-    /// every one of its channels into it. `validate_against` already refuses the other authoring
-    /// mistake (a readout on a type with no `events` port); this catches the face that would ship
-    /// empty, and the decode that would ship with nowhere to be seen.
     #[test]
     fn a_readout_template_wires_every_channel_into_the_readout() {
         for entry in TEMPLATES {

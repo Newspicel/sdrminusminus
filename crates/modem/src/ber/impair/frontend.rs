@@ -1,17 +1,8 @@
-//! Analog-front-end impairments: IQ imbalance, DC offset, clipping, and quantisation — what
-//! the mixer, the ADC and an overdriven input stage do to a signal. The relative ones (DC,
-//! clip threshold, quantiser full scale) are stated against the waveform's measured RMS, so
-//! the instrument means the same thing whatever absolute level the modulator emitted.
-
 use num_complex::Complex;
 
 use super::{Impairment, rms};
 use crate::ber::rng::Rng;
 
-/// Receive IQ imbalance in the standard image model `y = a·x + b·conj(x)` with
-/// `a = (1 + g·e^{jφ})/2`, `b = (1 − g·e^{jφ})/2`, where `g` is the linear gain ratio of the
-/// Q branch to the I branch and `φ` its phase error. Balanced hardware gives `a = 1, b = 0`;
-/// the `b·conj(x)` term is the image, and its level is what the calibration measures.
 #[derive(Clone, Copy, Debug)]
 pub struct IqImbalance {
     a: Complex<f64>,
@@ -30,8 +21,6 @@ impl IqImbalance {
         }
     }
 
-    /// Closed-form image rejection, `|a|²/|b|²` in dB — the number the calibration test
-    /// measures back from a tone, and the number an IQ-imbalance limits row is stated in.
     #[must_use]
     pub fn image_rejection_db(&self) -> f64 {
         10.0 * (self.a.norm_sqr() / self.b.norm_sqr()).log10()
@@ -49,8 +38,6 @@ impl Impairment for IqImbalance {
     }
 }
 
-/// Additive DC offset, stated as a complex fraction of the waveform's RMS — the residual a
-/// zero-IF front end leaves after imperfect DC cancellation.
 #[derive(Clone, Copy, Debug)]
 pub struct DcOffset {
     relative: Complex<f64>,
@@ -73,9 +60,6 @@ impl Impairment for DcOffset {
     }
 }
 
-/// Hard magnitude limiting at `overdrive_db` above the waveform RMS, phase preserved — a
-/// saturating front end. 0 dB clips at the RMS itself; a typical linear stage is quoted by
-/// how many dB of peak-to-RMS headroom it grants before this happens.
 #[derive(Clone, Copy, Debug)]
 pub struct Clipping {
     overdrive_db: f64,
@@ -102,9 +86,6 @@ impl Impairment for Clipping {
     }
 }
 
-/// Mid-rise uniform quantisation of I and Q to `bits` bits, full scale set `full_scale_db`
-/// above the waveform RMS. Values beyond full scale saturate at the outermost level — an ADC
-/// clips, it does not wrap.
 #[derive(Clone, Copy, Debug)]
 pub struct Quantiser {
     bits: u32,
@@ -159,9 +140,6 @@ mod tests {
         rng::Rng,
     };
 
-    /// Applied == measured: the image-rejection ratio measured on a tone (signal bin vs its
-    /// mirror) matches the closed form from the constructed a, b. The tone frequency is an
-    /// exact DFT bin so the two projections are orthogonal.
     #[test]
     fn image_rejection_measured_on_a_tone_matches_closed_form() {
         let n = 4096usize;
@@ -188,8 +166,6 @@ mod tests {
         }
     }
 
-    /// Applied == measured: the mean of the offset waveform is the stated fraction of the
-    /// original RMS.
     #[test]
     fn dc_offset_measured_as_the_mean() {
         let applied = Complex::new(0.1, -0.05);
@@ -210,8 +186,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured: the maximum output magnitude is the constructed limit — reached,
-    /// because Gaussian input has peaks past 3 dB above RMS in any 100k samples.
     #[test]
     fn clipping_bounds_the_peak_at_the_stated_overdrive() {
         let overdrive_db = 3.0;
@@ -229,8 +203,6 @@ mod tests {
         );
     }
 
-    /// Applied == measured, structurally: N bits produce at most 2^N distinct values per
-    /// component, even with input peaks beyond full scale.
     #[test]
     fn quantiser_level_count_is_bounded_by_bits() {
         let bits = 4;
@@ -242,9 +214,6 @@ mod tests {
         assert!(im_levels.len() <= 1 << bits, "{} Q levels", im_levels.len());
     }
 
-    /// Applied == measured against the classic 6.02·N + 1.76 dB: SQNR of a full-scale
-    /// complex tone through the 8-bit quantiser. The formula assumes the quantisation error
-    /// is uniform, which a non-bin-aligned tone approximates — hence the loose ±2.5 dB gate.
     #[test]
     fn quantiser_sqnr_matches_six_db_per_bit() {
         let bits = 8;

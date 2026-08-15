@@ -81,9 +81,6 @@ impl AppError {
     }
 }
 
-/// `axum::Json` with its rejection remapped onto the [`ApiError`] contract: a malformed body
-/// must produce the same JSON error shape the documented 4xx responses promise, never axum's
-/// plain-text default.
 #[derive(FromRequest)]
 #[from_request(via(axum::Json), rejection(AppError))]
 pub(crate) struct Json<T>(pub T);
@@ -94,18 +91,14 @@ impl<T: serde::Serialize> IntoResponse for Json<T> {
     }
 }
 
-/// `axum::extract::Path` with the rejection remapped like [`Json`].
 #[derive(FromRequestParts)]
 #[from_request(via(axum::extract::Path), rejection(AppError))]
 pub(crate) struct Path<T>(pub T);
 
-/// `axum::extract::Query` with the rejection remapped like [`Json`].
 #[derive(FromRequestParts)]
 #[from_request(via(axum::extract::Query), rejection(AppError))]
 pub(crate) struct Query<T>(pub T);
 
-/// Keeps axum's status split (400 syntax / 415 content type / 422 schema mismatch); only the
-/// body shape changes.
 impl From<JsonRejection> for AppError {
     fn from(rej: JsonRejection) -> Self {
         Self {
@@ -207,10 +200,6 @@ impl From<ToolError> for AppError {
     }
 }
 
-/// A panicked/cancelled `spawn_blocking` task. Handlers below run every engine call that
-/// reaches real hardware (USB I/O, thread joins) and every store call (SQLite blocks) on the
-/// blocking pool so a slow device never stalls the tokio workers; only the pure in-memory
-/// reads (`get_state`, `get_channel_types`) stay direct.
 impl From<tokio::task::JoinError> for AppError {
     fn from(err: tokio::task::JoinError) -> Self {
         Self {
@@ -430,14 +419,11 @@ async fn call_audio(
             header::CONTENT_DISPOSITION,
             format!("inline; filename=\"call-{id}.wav\""),
         ),
-        // A call's audio never changes, and ids are never reused while it is listed.
         (header::CACHE_CONTROL, "private, max-age=3600".to_owned()),
     ];
     Ok((headers, Body::from(audio)).into_response())
 }
 
-/// Where [`call_audio`] answers, so the buffer that mints a call does not spell the route out a
-/// second time.
 pub(crate) fn call_audio_path(id: u64) -> String {
     format!("/api/calls/{id}/audio")
 }
@@ -476,8 +462,6 @@ async fn create_preset(
             .active_workspace()?
             .ok_or_else(|| AppError::bad_request("no active workspace to snapshot".to_owned()))?;
         let live = engine.snapshot();
-        // The workspace's own binding rule, so a preset's entries line up with the nodes apply
-        // would hand them back to (`crate::workspace`).
         let devices: Vec<PresetDevice> = workspace::bind(&active.snapshot.graph, &live)
             .into_iter()
             .filter_map(|binding| {
@@ -546,15 +530,9 @@ async fn apply_preset(
         let live = engine.snapshot();
         let bindings = workspace::bind(&active.snapshot.graph, &live);
 
-        // Every target is decided before the first one is touched: `apply_configuration` wipes a
-        // set's channels before it retunes, so a preset that was only ever going to match half
-        // the patch must say so with the radios still as they were.
         let mut targets: Vec<(u32, PresetDevice)> = Vec::new();
         for device in snapshot.devices {
             let free = |set: u32| !targets.iter().any(|(taken, _)| *taken == set);
-            // By node first: it is the only match that stays right when a patch draws two of the
-            // same radio. By device id second, so a preset still lands on the radio it was taken
-            // from after that node was deleted and redrawn.
             let found = bindings
                 .iter()
                 .find(|binding| binding.node == device.node && free(binding.device_set))
@@ -578,9 +556,6 @@ async fn apply_preset(
 
         let total = targets.len();
         for (done, (device_set, device)) in targets.into_iter().enumerate() {
-            // Applying to different hardware than the preset was taken from is allowed on
-            // purpose (a bookmarkable configuration, not a device binding); the engine rejects
-            // loudly whatever the device can't do.
             apply_configuration(
                 &engine,
                 device_set,
@@ -588,8 +563,6 @@ async fn apply_preset(
                 device.channels,
                 "preset",
             )
-            // Kept, not replaced: `apply_configuration` reports what it left behind on *this*
-            // radio, and how many radios came before it is the other half of that state.
             .map_err(|err| {
                 let within = err
                     .body
@@ -607,14 +580,6 @@ async fn apply_preset(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Replace a device set's whole configuration — drop its channels, retune, add the new ones.
-/// Shared by presets and templates, which differ only in where the configuration comes from.
-///
-/// The existing channels go FIRST: `patch_device` validates a new sample rate against the
-/// currently hosted channels, which would wrongly veto a valid configuration on behalf of
-/// channels this call is about to delete anyway. The three engine calls cannot be atomic (each
-/// does real device I/O), so a mid-sequence failure reports exactly what was left behind in
-/// `detail`; the engine's own `StateChanged` events keep clients converged on that state.
 fn apply_configuration(
     engine: &sdrmm_engine::Engine,
     ds: u32,
@@ -622,9 +587,6 @@ fn apply_configuration(
     channels: Vec<ChannelSettings>,
     what: &str,
 ) -> Result<(), AppError> {
-    // Nothing is destroyed until the whole configuration is known to be applicable: the
-    // sequence below deletes the set's channels before it can retune, so a request the device
-    // was always going to reject must fail here, with the set untouched.
     engine.validate_configuration(ds, &settings, &channels)?;
     let existing: Vec<u32> = engine
         .snapshot()
@@ -788,9 +750,6 @@ async fn record_device_set(
                     })
             }
             RecordAction::Stop => {
-                // Final counts (and any truncation fault) go back in-band; the indexed row
-                // reaches clients through the Recordings scope + `GET /api/recordings`, which
-                // also covers a pair that faulted before finalizing and thus has no row.
                 let finalized = engine.stop_recording(ds)?;
                 if let Some(dir) = engine.recordings_dir() {
                     {
@@ -888,9 +847,6 @@ async fn list_audio_recordings(
     Ok(Json(AudioRecordingsResponse { recordings }))
 }
 
-/// One listed file. A recording still being written is listed too — its counts are simply what
-/// is on disk so far — and one that cannot be read at all is skipped with a warning rather than
-/// failing the whole library.
 fn audio_info(path: &std::path::Path) -> Option<AudioRecordingInfo> {
     let file = path.file_name().and_then(|name| name.to_str())?.to_owned();
     let info = match read_audio_info(path) {
@@ -911,8 +867,6 @@ fn audio_info(path: &std::path::Path) -> Option<AudioRecordingInfo> {
     })
 }
 
-/// A WAV carries no wall clock, so the file's own modification time stands in. Unreadable or
-/// pre-epoch times read as the epoch rather than failing a listing over a timestamp.
 fn file_created_at(path: &std::path::Path) -> String {
     let at = std::fs::metadata(path)
         .and_then(|meta| meta.modified())
@@ -923,9 +877,6 @@ fn file_created_at(path: &std::path::Path) -> String {
     at.to_string()
 }
 
-/// Resolve a listed file name to a path inside the audio directory. The name is a path segment
-/// from the caller, so it is checked rather than trusted: anything with a separator, a parent
-/// hop, or the wrong extension names something that is not one of these recordings.
 fn audio_recording_path(state: &AppState, file: &str) -> Result<std::path::PathBuf, AppError> {
     let missing = || AppError::not_found(format!("audio recording `{file}` not found"));
     let dir = state.engine.audio_recordings_dir().ok_or_else(missing)?;
@@ -961,16 +912,11 @@ async fn download_audio_recording(
     Path(file): Path<String>,
 ) -> Result<Response, AppError> {
     let name = file.clone();
-    // Opened before the response starts, on the blocking pool: a file that has vanished has to
-    // become a 404 rather than a body that dies part-way through.
     let (handle, len) =
         tokio::task::spawn_blocking(move || -> Result<(std::fs::File, u64), AppError> {
             let path = audio_recording_path(&state, &file)?;
             let handle = std::fs::File::open(&path)
                 .map_err(|err| AppError::internal(format!("open {}: {err}", path.display())))?;
-            // Pinned here, like an export's: the length is published as a `Content-Length`
-            // before a byte is sent, so the copy is measured against this and not against
-            // whatever the file becomes while a live recording keeps writing it.
             let len = handle
                 .metadata()
                 .map_err(|err| AppError::internal(format!("stat {}: {err}", path.display())))?
@@ -1066,8 +1012,6 @@ async fn control_playback(
     Path(ds): Path<u32>,
     Json(request): Json<PlaybackRequest>,
 ) -> Result<Json<PlaybackStatus>, AppError> {
-    // Atomic stores on a shared handle — no device I/O, so unlike the other device-set calls
-    // this one has no reason to leave the tokio worker.
     Ok(Json(state.engine.control_playback(ds, &request)?))
 }
 
@@ -1131,8 +1075,6 @@ async fn download_recording(
         RecordingFormat::Sigmf => ExportKind::SigmfArchive,
         RecordingFormat::Wav => ExportKind::Wav,
     };
-    // Opened on the blocking pool, and opened *before* the response starts: a missing pair
-    // has to become a 404 rather than a body that dies three gigabytes in.
     let export = tokio::task::spawn_blocking(move || -> Result<Export, AppError> {
         let _gate = lock_gate(&gate);
         let name = store.recording_stem(id)?;
@@ -1155,8 +1097,6 @@ async fn download_recording(
     Ok((headers, Body::from_stream(byte_stream(export))).into_response())
 }
 
-/// A recording that vanished between the index and the disk is a 404; one the container
-/// cannot express is the caller's choice to fix, not the server's fault.
 fn export_error(id: i64, err: sdrmm_recorder::SigmfError) -> AppError {
     match err {
         sdrmm_recorder::SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
@@ -1170,14 +1110,9 @@ fn export_error(id: i64, err: sdrmm_recorder::SigmfError) -> AppError {
     }
 }
 
-/// Pump a download off the blocking pool in chunks. File reads of this size must not run on a
-/// tokio worker, and the bounded channel is what makes the download obey backpressure: a slow
-/// client parks the reader instead of pulling a whole recording into memory.
 fn byte_stream(
     mut source: impl std::io::Read + Send + 'static,
 ) -> impl futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send + 'static {
-    /// Big enough that a gigabyte-scale download is not millions of wakeups, small enough
-    /// that a few concurrent downloads stay well inside a sane memory budget.
     const CHUNK: usize = 256 * 1024;
 
     let (tx, rx) = tokio::sync::mpsc::channel(4);
@@ -1187,9 +1122,6 @@ fn byte_stream(
             let read = match source.read(&mut chunk) {
                 Ok(0) => return,
                 Ok(read) => read,
-                // The error rides the stream so the body aborts: the `Content-Length` has
-                // already promised more, and a client must see a broken transfer, not a
-                // truncated recording that looks whole.
                 Err(err) => {
                     let _ = tx.blocking_send(Err(err));
                     return;
@@ -1225,9 +1157,6 @@ async fn delete_recording(
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         let _gate = lock_gate(&gate);
         let name = store.recording_stem(id)?;
-        // Files before row: if removal fails the recording stays listed and the delete can
-        // be retried. A set replaying the pair faults via the probe-vanish path — accepted,
-        // honest ( M2 hotplug contract).
         if let Some(dir) = engine.recordings_dir() {
             let stem = dir.join(&name);
             for path in [meta_path(&stem), data_path(&stem)] {
@@ -1332,7 +1261,6 @@ async fn export_decoder_log(
         ExportFormat::Csv => "csv",
         ExportFormat::Json => "json",
     };
-    // Colons are illegal in filenames on Windows, so the stamp is the basic ISO 8601 form.
     let stamp = jiff::Timestamp::now().strftime("%Y%m%dT%H%M%SZ");
     Ok((
         [
@@ -1347,8 +1275,6 @@ async fn export_decoder_log(
         .into_response())
 }
 
-/// RFC4180 CSV: the projected columns a spreadsheet wants, plus the full JSON event as the
-/// last column so an export loses nothing the log stored.
 fn csv_export(entries: &[DecoderLogEntry]) -> Result<String, serde_json::Error> {
     let mut out = String::from("at,device_set,channel,kind,freq_hz,station,summary,event\r\n");
     for entry in entries {
@@ -1386,10 +1312,6 @@ pub(crate) fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Disk → index reconciliation (: the files are the source of truth, the database is
-/// an index): upsert a row per finalized pair, prune rows whose pair vanished. Pairs that
-/// cannot be read (foreign datatype, torn meta, no sample rate) are skipped — and therefore
-/// delisted — since they cannot be played either. Callers hold the recordings gate.
 pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
     let stems = scan_stems(dir)
         .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
@@ -1405,8 +1327,6 @@ pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Resu
                 continue;
             }
         };
-        // Sample count from the data file, not the meta: a crash-truncated pair is honest
-        // about what is actually replayable.
         let samples = reader.total_samples();
         let meta = reader.meta();
         let Some(sample_rate) = meta.global.sample_rate else {
@@ -1432,8 +1352,6 @@ pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Resu
     Ok(())
 }
 
-/// Foreign SigMF files may omit `core:datetime`; fall back to the data file's mtime so the
-/// row still carries a usable timestamp.
 fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
     meta.captures
         .first()
@@ -1472,8 +1390,6 @@ async fn scan_device_set(
     Json(req): Json<ScanRequest>,
 ) -> Result<Json<ScannerStatus>, AppError> {
     let engine = state.engine.clone();
-    // `stop` joins the scan thread, which can be mid-dwell; neither action belongs on a
-    // tokio worker.
     let status = tokio::task::spawn_blocking(move || -> Result<ScannerStatus, AppError> {
         match req.action {
             ScanAction::Start => {
@@ -1500,11 +1416,6 @@ async fn scan_device_set(
 async fn list_templates(
     State(state): State<AppState>,
 ) -> Result<Json<TemplatesResponse>, AppError> {
-    // Answered here rather than by the client: the rule is one function in `wire`
-    // (`TemplateInfo::unmet_by`), and evaluating it server-side is what keeps there from being a
-    // second copy of it in TypeScript (CLAUDE.md non-negotiable #1's reasoning).
-    //
-    // Blocking, like every other caller of `probe_devices`: a probe enumerates USB.
     let engine = state.engine.clone();
     let probed = tokio::task::spawn_blocking(move || engine.probe_devices()).await?;
     let templates = crate::templates::all()
@@ -1513,9 +1424,6 @@ async fn list_templates(
             supported_devices: probed
                 .iter()
                 .filter(|device| {
-                    // A driver that cannot answer without opening the radio (Soapy) reports no
-                    // profile. Unknown is offered, not hidden: the alternative is a picker that
-                    // silently omits the operator's only radio.
                     device
                         .profile
                         .as_ref()
@@ -1615,11 +1523,6 @@ fn apply_template_patch(
     }
 }
 
-/// Whether this is the first time apply has bound `node` to `device_set`, marking it bound.
-///
-/// Device-set ids are allocated per run and never reused, so a radio that is closed and opened
-/// again reads as a new binding — which is what makes "already restored" mean "still the same
-/// radio, still running", rather than "this node has been seen before".
 fn first_binding(app: &AppState, workspace: i64, node: &str, device_set: u32) -> bool {
     app.restored
         .lock()
@@ -1627,11 +1530,6 @@ fn first_binding(app: &AppState, workspace: i64, node: &str, device_set: u32) ->
         .insert((workspace, node.to_string(), device_set))
 }
 
-/// Record whether `node` came up on its own stored settings.
-///
-/// A refused restore leaves the radio on whatever it was already set to, and the autosave would
-/// shortly write *that* into this workspace's row — losing the settings the restore existed to
-/// bring back. `workspace::capture` skips the nodes named here until a restore succeeds.
 fn note_restore(app: &AppState, node: &str, restored: bool) {
     let mut unrestored = app
         .unrestored
@@ -1643,8 +1541,6 @@ fn note_restore(app: &AppState, node: &str, restored: bool) {
     }
 }
 
-/// Forget bindings whose radio is gone, so the marks cost a set that is open rather than every
-/// set that ever was.
 fn forget_closed_bindings(app: &AppState, state: &StateSnapshot) {
     app.restored
         .lock()
@@ -1663,11 +1559,6 @@ fn bring_up(
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
 
-    // A radio that is already open binds as it is and is handed this node's settings exactly once
-    // (`AppState::restored`). Once, because re-tuning a running set because a second browser
-    // loaded the workspace is the same mistake as closing it. At least once, because naming a
-    // radio on a device face opens it and applies afterwards — so the gesture that binds a node
-    // was the one leaving the radio on power-on defaults with its settings unread.
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         if first_binding(app, workspace, &node, device_set) {
             match workspace::restore_device(engine, device_set, &node, saved) {
@@ -1684,8 +1575,6 @@ fn bring_up(
         report.bound.push(PatchBinding { node, device_set });
     }
 
-    // Probed only when the graph names a radio that is not already open: enumerating USB is slow
-    // and was what crashed libusb in the M2 field sessions when it overlapped itself.
     let mut attached: Option<Vec<DeviceInfo>> = None;
     for node in snapshot.graph.device_nodes() {
         let NodeBody::Device(device) = &node.body else {
@@ -1712,8 +1601,6 @@ fn bring_up(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    // Marked here too, or the next apply would count this as a first binding and
-                    // retune the radio this one just opened.
                     first_binding(app, workspace, &node.id, id);
                     match workspace::restore_device(engine, id, &node.id, saved) {
                         Ok(()) => note_restore(app, &node.id, true),
@@ -1748,11 +1635,6 @@ fn bring_up(
         else {
             continue;
         };
-        // Channel nodes bind by (type, stream) in stored order, so "how many of this kind are
-        // missing" is the whole diff — and a channel someone else added over MCP already
-        // satisfies a node instead of being duplicated. The stream is part of the key: a node
-        // on `iq` and one of the same type on `iq3` are different taps of the radio, and
-        // matching by type alone would satisfy one with the other's channel.
         let mut live: Vec<(&str, u32)> = set
             .channels
             .iter()
@@ -1777,11 +1659,6 @@ fn bring_up(
                 });
                 continue;
             };
-            // A refusal here is normally the wideband rule (: ADS-B needs the device at
-            // exactly 2 Msps) or a wire naming a stream this radio does not have (a workspace
-            // drawn against a 4-stream radio, reopened on fewer) — both true statements about
-            // the workspace that belong in front of the operator, never a silent move to
-            // stream 0 and not a reason to abandon the rest of the patch.
             if let Err(err) = engine.add_channel(set.id, stream, settings) {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
@@ -1914,11 +1791,6 @@ async fn delete_workspace(
             .apply_gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Deleting the *active* workspace promotes another one, which is a switch by another
-        // name: without the same reconcile the deleted workspace's radios would keep running
-        // under a workspace that never drew them, and nothing left would name them to close
-        // them. Deleting any other workspace changes no hardware, so it reconciles nothing —
-        // a radio opened outside the patch is not this endpoint's to take away.
         let before = state.store.active_workspace_id()?;
         let after = state.store.delete_workspace(id)?;
         if let Some(promoted) = after.filter(|promoted| Some(*promoted) != before) {
@@ -1959,9 +1831,6 @@ async fn activate_workspace(
             .apply_gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Before the active row moves, not after: the autosave task writes against whichever
-        // workspace is active when it fires, so a switch inside its debounce window would file
-        // the outgoing workspace's last few turns of the dial under the incoming one.
         if let Err(err) = workspace::save_active(&state) {
             tracing::warn!(%err, "could not save the outgoing workspace before the switch");
         }
@@ -2024,12 +1893,6 @@ async fn redo_workspace(
     step_history(state, id, Store::redo_workspace).await
 }
 
-/// Move the workspace along its own history and bring the hardware with it.
-///
-/// A step is an edit like any other, so it owes what an edit owes: the radios the restored graph
-/// no longer draws are closed and the ones it draws again are opened. Only for the workspace that
-/// is live, and only when the step changed what is *drawn* — undoing a drag moves a face, and
-/// closing a radio over that would be a gesture nobody made.
 async fn step_history(
     state: AppState,
     id: i64,
@@ -2223,7 +2086,6 @@ async fn get_occupancy(
     Json(occupancy.report(query.min_samples.unwrap_or(DEFAULT_MIN_SAMPLES)))
 }
 
-/// Enough sightings that a duty cycle is a measurement rather than a coincidence.
 const DEFAULT_MIN_SAMPLES: u64 = 30;
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
@@ -2258,9 +2120,6 @@ async fn get_auth(State(state): State<AppState>) -> Json<AuthInfo> {
 async fn get_doctor(State(state): State<AppState>) -> Result<Json<DoctorReport>, AppError> {
     let engine = state.engine.clone();
     let db_path = state.db_path.clone();
-    // Probing enumerates every backend over USB, which is slow and must never run on a tokio
-    // worker; it also goes through the engine's own registry rather than building a second
-    // one, because overlapping enumerates are what crashed libusb in the M2 field sessions.
     let report = tokio::task::spawn_blocking(move || {
         crate::doctor::report(
             engine.registry(),
@@ -2307,8 +2166,6 @@ async fn run_tool(
     Json(request): Json<ToolRequest>,
 ) -> Result<Json<ToolResponse>, AppError> {
     let tools = state.tools.clone();
-    // Tools are blocking by contract — an instrument tool talks to a serial port — so none of
-    // them may run on a tokio worker, however cheap this particular one is.
     let response = tokio::task::spawn_blocking(move || tools.run(request)).await??;
     Ok(Json(response))
 }
@@ -2334,8 +2191,6 @@ async fn get_about() -> Json<AboutResponse> {
     ),
 )]
 async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResponse>, AppError> {
-    // Texts are fetched one at a time rather than inlined into `GET /api/about`: together they
-    // are the best part of a megabyte, and a reader opening the panel wants the list.
     crate::notices::license_text(&id)
         .map(Json)
         .ok_or_else(|| AppError {
@@ -2350,8 +2205,6 @@ async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResp
 #[derive(OpenApi)]
 #[openapi(
     info(title = "sdr-- API", version = env!("CARGO_PKG_VERSION")),
-    // `ExportFormat` is reachable only as a path parameter, which utoipa emits as a `$ref`
-    // without registering the component — `openapi-typescript` then fails to resolve it.
     components(schemas(
         ServerEvent,
         ClientCommand,
@@ -2364,8 +2217,6 @@ async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResp
 )]
 struct ApiDoc;
 
-/// The REST surface as a utoipa-axum router; `split_for_parts` yields the axum `Router` and the
-/// merged `OpenApi` (: same service layer feeds REST and the spec).
 pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(get_state))

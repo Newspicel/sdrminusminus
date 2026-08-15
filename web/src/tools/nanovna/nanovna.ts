@@ -107,7 +107,6 @@ export function vswr(value: NanoVnaComplex): number {
   return gamma < 1 ? (1 + gamma) / (1 - gamma) : Number.POSITIVE_INFINITY;
 }
 
-/** The share of forward power the mismatch sends back, in dB. */
 export function mismatchLossDb(value: NanoVnaComplex): number {
   const gamma = magnitude(value);
   const transmitted = 1 - gamma * gamma;
@@ -132,7 +131,6 @@ export function impedance(
   };
 }
 
-/** Admittance in siemens — the reciprocal of the impedance the reflection implies. */
 export function admittance(value: NanoVnaComplex): NanoVnaComplex | null {
   const z = impedance(value);
   if (z === null) {
@@ -145,8 +143,6 @@ export function admittance(value: NanoVnaComplex): NanoVnaComplex | null {
   return { re: z.re / squared, im: -z.im / squared };
 }
 
-/** The series part that would produce this reactance at this frequency: farads when the
- * reactance is capacitive, henries when it is inductive. */
 export function equivalentComponent(
   reactanceOhms: number,
   frequencyHz: number,
@@ -160,7 +156,6 @@ export function equivalentComponent(
     : { kind: "inductance", value: reactanceOhms / omega };
 }
 
-/** Reactance over resistance at one point — how sharply the load is tuned there. */
 export function qFactor(z: NanoVnaComplex | null): number {
   if (z === null || z.re === 0) {
     return Number.POSITIVE_INFINITY;
@@ -168,8 +163,6 @@ export function qFactor(z: NanoVnaComplex | null): number {
   return Math.abs(z.im / z.re);
 }
 
-/** Phase in radians, unwrapped along the sweep so a trace can be differentiated across the
- * ±180° seam. */
 export function unwrappedPhase(
   points: readonly NanoVnaPoint[],
   pick: (point: NanoVnaPoint) => NanoVnaComplex,
@@ -194,7 +187,6 @@ export function unwrappedPhase(
   return phases;
 }
 
-/** Group delay in seconds, `-dφ/dω` over the transmission phase, by central difference. */
 export function groupDelays(points: readonly NanoVnaPoint[]): number[] {
   const phases = unwrappedPhase(points, (point) => point.s21);
   return points.map((_, index) => {
@@ -260,8 +252,6 @@ const SI_PREFIXES = [
   SMALLEST_PREFIX,
 ] as const;
 
-/** Engineering notation, so picofarads and nanoseconds read as themselves rather than as a
- * column of exponents. */
 export function formatSi(value: number, unit: string, digits = 3): string {
   if (!Number.isFinite(value)) {
     return "—";

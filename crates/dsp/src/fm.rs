@@ -2,7 +2,6 @@ use std::f64::consts::TAU;
 
 use num_complex::Complex;
 
-/// `y = arg(x[n]·conj(x[n−1])) · rate / (2π·deviation)`, so ±deviation reads as ±1.0.
 #[derive(Clone, Debug)]
 pub struct FmDemod {
     prev: Complex<f32>,
@@ -24,9 +23,6 @@ impl FmDemod {
         }
     }
 
-    /// Replaces `out` with one demodulated sample per input sample. The phase reference
-    /// seeds from the first sample ever seen, so the first output after construction is
-    /// exactly 0.0 instead of an arbitrary-phase impulse into the audio chain.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<f32>) {
         out.clear();
         if !self.primed
@@ -52,8 +48,6 @@ mod tests {
         let (f_mod, deviation) = (1_000.0, 2_500.0);
         let n = 48_000;
 
-        // Phase-accumulated FM: increment d[k] = 2π·dev·cos(2π·f_mod·k/rate)/rate, so the
-        // discriminator must return exactly cos(2π·f_mod·k/rate).
         let mut phase = 0.0f64;
         let iq: Vec<Complex<f32>> = (0..n)
             .map(|k| {
@@ -83,11 +77,8 @@ mod tests {
     fn first_output_is_zero_for_any_carrier_phase() {
         let mut demod = FmDemod::new(48_000.0, 2_500.0);
         let mut out = Vec::new();
-        // An empty call must not consume the seed.
         demod.process(&[], &mut out);
 
-        // An unmodulated carrier at an arbitrary phase must demodulate to silence from
-        // sample 0 — no startup impulse from the (1, 0) construction reference.
         let iq: Vec<Complex<f32>> = (0..64).map(|_| Complex::from_polar(1.0, 3.1)).collect();
         demod.process(&iq, &mut out);
         assert_eq!(out.len(), iq.len());

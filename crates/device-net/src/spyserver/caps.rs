@@ -1,6 +1,3 @@
-//! Pure translation between what a SpyServer said about itself and the wire capability model,
-//! plus what `apply` will accept and the settings that get it there. No I/O.
-
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     ArgumentOption, Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range,
@@ -9,26 +6,13 @@ use sdrmm_wire::{
 
 use crate::spyserver::proto::{ClientSync, DeviceInfo, IqFormat, Setting, ordered};
 
-/// The tuner gain, as the only thing the protocol offers: an index into a table it never sends.
-///
-/// It is an extra rather than a [`GainStage`](sdrmm_wire::GainStage) precisely because the wire
-/// model's gain stages are in dB. There is no dB anywhere in this protocol — an Airspy's index
-/// selects a linearity curve, an RTL-SDR's an entry in its tuner's table — so putting it there
-/// would render an index under a "dB" suffix, which is a plausible number that is not true.
 pub(crate) const GAIN: &str = "gain";
-/// The quantisation the samples cross the network in.
 pub(crate) const IQ_FORMAT: &str = "iq_format";
 
-/// The most decimation stages worth offering. The field is a `u32` from the network and a server
-/// that claimed 4 000 would otherwise be asked for a rate of zero.
 const MAX_DECIMATION_STAGES: u32 = 16;
 
-/// dB the server is asked to apply per decimation stage before quantising, from SDR++'s
-/// `computeDigitalGain`: each halving of the bandwidth is one bit of headroom the quantised
-/// formats would otherwise waste. Kept as tenths so the constant is exact in integer arithmetic.
 const DIGITAL_GAIN_PER_STAGE_TENTHS: u32 = 30;
 
-/// The rates a server offers: its maximum, halved once per decimation stage it allows.
 fn sample_rates(info: DeviceInfo) -> Vec<f64> {
     let stages = info.decimation_stages.min(MAX_DECIMATION_STAGES);
     if info.max_sample_rate == 0 || info.min_decimation > stages {
@@ -40,24 +24,17 @@ fn sample_rates(info: DeviceInfo) -> Vec<f64> {
         .collect()
 }
 
-/// The decimation stage that produces `rate`, if any. The rates are exact powers-of-two divisions
-/// of an integer, so this is an equality against the menu rather than a search.
 fn decimation_for(info: DeviceInfo, rate: f64) -> Option<u32> {
     let stages = info.decimation_stages.min(MAX_DECIMATION_STAGES);
     (info.min_decimation..=stages)
         .find(|stage| (f64::from(info.max_sample_rate >> stage) - rate).abs() < 0.5)
 }
 
-/// The capability envelope of a server that has just synced with us.
 pub(crate) fn capabilities(
     info: DeviceInfo,
     sync: ClientSync,
     formats: &[IqFormat],
 ) -> Capabilities {
-    // A server that will not be steered is not a receiver with a narrower tuner — it is one whose
-    // frequency range genuinely *is* the window it will let this client slide inside. Reporting
-    // the device's full range there would draw a dial across 24-1766 MHz that refuses every
-    // frequency but a few.
     let (min, max) = if sync.can_control {
         (info.min_frequency, info.max_frequency)
     } else {
@@ -100,7 +77,6 @@ pub(crate) fn capabilities(
         freq_ranges,
         sample_rates: sample_rates(info),
         sample_rate_range: None,
-        // The protocol's gain is an index, not a level; see `GAIN`.
         gains: Vec::new(),
         antennas: Vec::new(),
         bandwidths: Vec::new(),
@@ -114,9 +90,6 @@ pub(crate) fn capabilities(
     }
 }
 
-/// Everything the server has been told, and — like rtl_tcp's — the only account of it: the
-/// protocol reports its own state back only in a `ClientSync`, which says what the *device* is
-/// doing rather than what this client asked for.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Remote {
     decimation: u32,
@@ -126,8 +99,6 @@ pub(crate) struct Remote {
 }
 
 impl Remote {
-    /// The state a freshly synced server is already in: its own gain and IQ centre, so opening a
-    /// device does not move a receiver somebody else may be listening to.
     pub(crate) fn new(info: DeviceInfo, sync: ClientSync, format: IqFormat) -> Self {
         Self {
             decimation: info
@@ -143,27 +114,18 @@ impl Remote {
         f64::from(info.max_sample_rate >> self.decimation.min(MAX_DECIMATION_STAGES))
     }
 
-    /// The dB the server should apply before quantising.
-    ///
-    /// Zero for float, which has the range to carry the samples as they are: the correction the
-    /// client would apply afterwards is exactly the gain the server applied, so a round trip
-    /// through it is only a way to lose precision.
     fn digital_gain(self, info: DeviceInfo) -> u32 {
         if self.format == IqFormat::Float32 {
             return 0;
         }
         let per_stage = (self.decimation * DIGITAL_GAIN_PER_STAGE_TENTHS + 5) / 10;
         if info.airspy_one() {
-            // The Airspy's own gain and the digital gain trade off against each other: what the
-            // tuner is not amplifying, the server makes up before quantising.
             per_stage + info.max_gain_index.saturating_sub(self.gain)
         } else {
             per_stage
         }
     }
 
-    /// Every setting as commands, in the order a server that has just accepted a fresh connection
-    /// has to receive them — ending with the one that starts the samples flowing.
     pub(crate) fn replay(self, info: DeviceInfo) -> Vec<(Setting, u32)> {
         ordered(vec![
             (Setting::IqFormat, self.format.code()),
@@ -176,7 +138,6 @@ impl Remote {
         ])
     }
 
-    /// What the client is shown.
     pub(crate) fn wire(self, info: DeviceInfo, caps: &Capabilities) -> DeviceSettings {
         let mut extra = Vec::with_capacity(2);
         if caps.extra.iter().any(|setting| setting.name() == GAIN) {
@@ -200,11 +161,6 @@ impl Remote {
     }
 }
 
-/// Pre-flight for `apply`: refuse what this protocol cannot carry before a byte is sent, and
-/// resolve the rest into the new state and the settings that get it there.
-///
-/// # Errors
-/// [`DeviceError::Unsupported`] naming the field and why.
 pub(crate) fn validate(
     delta: &DeviceSettings,
     caps: &Capabilities,
@@ -353,7 +309,6 @@ mod tests {
     #[test]
     fn the_rate_menu_is_the_maximum_halved_once_per_stage_it_allows() {
         let caps = capabilities(info(), sync(true), &formats());
-        // min_decimation 1 through 4 stages: 8 MHz is not offered, 4 down to 0.5 MHz is.
         assert_eq!(
             caps.sample_rates,
             vec![500_000.0, 1_000_000.0, 2_000_000.0, 4_000_000.0]
@@ -383,8 +338,6 @@ mod tests {
         );
     }
 
-    /// The distinction that decides what the dial is even for: a locked server's frequency range
-    /// is the window it will let this client slide inside, not the receiver's tuner.
     #[test]
     fn a_locked_server_reports_the_window_it_will_move_in() {
         let open = capabilities(info(), sync(true), &formats());
@@ -401,7 +354,6 @@ mod tests {
         );
     }
 
-    /// Opening a shared receiver must not move it: the state starts where the server said it was.
     #[test]
     fn a_fresh_device_starts_where_the_server_already_is() {
         let (caps, remote) = open(true);
@@ -433,8 +385,6 @@ mod tests {
         );
     }
 
-    /// Float carries the samples as they are, so asking the server to scale them up and scaling
-    /// them back down is only a way to lose precision.
     #[test]
     fn float_asks_for_no_digital_gain_and_the_quantised_formats_do() {
         let (caps, remote) = open(true);
@@ -451,7 +401,6 @@ mod tests {
         assert!(batch.contains(&(Setting::IqDigitalGain, 3)), "{batch:?}");
     }
 
-    /// An Airspy's server makes up in digital gain what the tuner is not amplifying.
     #[test]
     fn an_airspy_folds_its_tuner_gain_into_the_digital_gain() {
         let airspy = DeviceInfo {
@@ -565,8 +514,6 @@ mod tests {
         }
     }
 
-    /// A ppm of zero is what a client that has never touched the field sends; refusing it would
-    /// make every settings round trip fail on a setting nobody changed.
     #[test]
     fn a_zero_correction_is_not_a_change_to_refuse() {
         let (caps, remote) = open(true);
@@ -584,8 +531,6 @@ mod tests {
         );
     }
 
-    /// A reconnect meets a server that has forgotten this client entirely, so the replay has to
-    /// set the stream up from nothing and turn it on last.
     #[test]
     fn a_replay_configures_the_stream_before_enabling_it() {
         let (caps, remote) = open(true);

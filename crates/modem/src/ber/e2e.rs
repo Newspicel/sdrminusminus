@@ -6,22 +6,13 @@ use super::{
     sweep::Link,
 };
 
-/// One trial's worth of random payload bits plus the RNG state the channel realisation will
-/// continue from. Bits and noise share one stream on purpose: a single `seed` then names the
-/// *entire* trial — payload, channel draws, everything — which is what lets a [`Mismatch`] be
-/// reproduced without the payloads that preceded it.
 pub struct Payload {
-    /// The seed that regenerates this trial via [`Payload::from_seed`].
     pub seed: u64,
     pub bits: Vec<bool>,
-    /// Private: the stream position after the bits were drawn. Handing it out would let a
-    /// caller decouple channel noise from the payload seed and silently break reproduction.
     channel_rng: Rng,
 }
 
 impl Payload {
-    /// Regenerates the exact trial a [`Mismatch`] names: same bits, and — because the channel
-    /// continues this RNG — the same channel realisation, from one u64.
     #[must_use]
     pub fn from_seed(seed: u64, bit_count: usize) -> Self {
         let mut rng = Rng::new(seed);
@@ -34,9 +25,6 @@ impl Payload {
     }
 }
 
-/// Payload bits drawn 64 per `next_u64` word. The word-wise consumption is part of what a
-/// payload seed means — changing it would silently rename every committed reproduction — so it
-/// mirrors the sweep runner's payload generation rather than inventing a second stream shape.
 fn random_bits(rng: &mut Rng, n: usize) -> Vec<bool> {
     let mut bits = Vec::with_capacity(n);
     while bits.len() < n {
@@ -50,10 +38,6 @@ fn random_bits(rng: &mut Rng, n: usize) -> Vec<bool> {
     bits
 }
 
-/// Seeded iterator of `count` random payloads of `bits_per_payload` bits — the argument shape
-/// [`loopback`] expects. Each item's seed derives from the run seed by the same golden-ratio
-/// stride the sweep runner uses for its points: injective in the index, and unrelated streams
-/// after [`Rng::new`]'s SplitMix64 expansion, so payloads are independent trials.
 #[derive(Clone, Debug)]
 pub struct Payloads {
     seed: u64,
@@ -97,18 +81,10 @@ impl Iterator for Payloads {
 
 impl ExactSizeIterator for Payloads {}
 
-/// The report a failed [`loopback`] returns: enough to reproduce the failing trial alone
-/// ([`Payload::from_seed`] with `payload_seed`) and enough to read the failure mode without
-/// reproducing it — `first_bit` localises it, the counts distinguish a corrupted payload
-/// (`bit_errors` small, `decoded_bits` full) from a lost one (`decoded_bits` short; the
-/// missing positions count as errors, per the sweep runner's rule that lost bits are never
-/// silently fewer trials).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mismatch {
-    /// Position of the failing payload in the run's iterator; 0 when reproduced solo.
     pub payload_index: usize,
     pub payload_seed: u64,
-    /// First payload position where the decoded bit differs (or is missing).
     pub first_bit: usize,
     pub bit_errors: u64,
     pub payload_bits: usize,
@@ -133,19 +109,6 @@ impl fmt::Display for Mismatch {
 
 impl Error for Mismatch {}
 
-/// The level-1 property: every payload survives the link and channel bit-for-bit, or the
-/// first failure comes back as a [`Mismatch`]. Stops at the first failing payload — the
-/// property is "no errors at this margin", so one counterexample settles it, and the report
-/// stays about a single reproducible trial instead of averaging over the rest.
-///
-/// `&mut` on the link and channel is for what they become, not what they are: the phase-0
-/// [`Link`] is a closure pair and today's impairments draw all state from the RNG, but the
-/// phase-3+ engines hold loop state, and this signature — the one every catalog entry's
-/// loopback test is written against — must not change when they arrive.
-///
-/// Bits the demodulator returns beyond the payload length are ignored, exactly as in the
-/// sweep runner: the [`Link`] contract is payload-aligned bits, so trailing filter-tail
-/// output is meaningless rather than wrong.
 pub fn loopback(
     link: &mut Link,
     channel: &mut dyn Impairment,
@@ -207,9 +170,6 @@ mod tests {
     use super::*;
     use crate::ber::{reference::ideal_bpsk, theory};
 
-    /// Eb/N0 where a strictly decreasing oracle crosses `ber`, by bisection. Test-local: the
-    /// shipped comparators in `sweep` invert oracles inside their own gates; here only the
-    /// sensitivity number is needed. The bracket spans every curve in the catalog.
     fn ebn0_at_ber(oracle: impl Fn(f64) -> f64, ber: f64) -> f64 {
         let (mut lo, mut hi) = (-10.0f64, 20.0f64);
         assert!(oracle(lo) >= ber && oracle(hi) <= ber);
@@ -224,8 +184,6 @@ mod tests {
         0.5 * (lo + hi)
     }
 
-    /// Wraps a link's demodulator to build a deliberately broken link; modulator and bit
-    /// accounting stay the original's, so the failure is purely the injected one.
     fn with_demod(link: Link, f: impl Fn(Vec<bool>) -> Vec<bool> + 'static) -> Link {
         let inner = link.demodulate;
         Link {
@@ -236,10 +194,6 @@ mod tests {
         }
     }
 
-    /// The task-level property for the reference link: 20 payloads of 4096 bits survive at
-    /// +6 dB over the theoretical 1e-3 sensitivity (≈6.79 dB, so ≈12.79 dB operating point).
-    /// Residual BER there is ~3e-10; across the 81 920 trial bits that is ~3e-5 expected
-    /// errors — comfortably inside the module-doc margin rule, and fixed by the seed.
     #[test]
     fn ideal_bpsk_loops_back_clean_at_6db_margin() {
         let mut link = ideal_bpsk();
@@ -262,8 +216,6 @@ mod tests {
         assert_eq!(err.decoded_bits, n);
     }
 
-    /// A single flipped bit must be located exactly — this is the `first_bit` field earning
-    /// its keep, where the all-inverted case would pass with any off-by-one.
     #[test]
     fn single_flipped_bit_is_located_exactly() {
         let mut link = with_demod(ideal_bpsk(), |mut bits| {
@@ -277,8 +229,6 @@ mod tests {
         assert_eq!(err.decoded_bits, 512);
     }
 
-    /// Lost bits are errors, never silently a shorter comparison — the sweep runner's rule,
-    /// held here too, and the `decoded_bits` count is what names the failure as truncation.
     #[test]
     fn truncated_demodulator_counts_missing_bits_as_errors() {
         let mut link = with_demod(ideal_bpsk(), |mut bits| {
@@ -293,10 +243,6 @@ mod tests {
         assert_eq!(err.decoded_bits, 100);
     }
 
-    /// Determinism, both halves of the doctrine: the same seeds give the identical Mismatch,
-    /// and the Mismatch's own payload seed regenerates the failing trial alone. Run 3 dB
-    /// *below* sensitivity (BER ≈ 1.4e-2, ~58 expected errors in the first payload) so there
-    /// is a rich Mismatch to compare.
     #[test]
     fn same_seeds_reproduce_the_identical_mismatch() {
         let sensitivity = ebn0_at_ber(theory::bpsk_ber, 1e-3);

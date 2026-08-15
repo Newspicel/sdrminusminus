@@ -1,4 +1,3 @@
-//! The capture thread every backend runs, and the flag that stops it.
 use std::{
     sync::{
         Arc,
@@ -9,12 +8,6 @@ use std::{
 
 use crate::DeviceError;
 
-/// A backend's streaming thread.
-///
-/// The stop flag is the only channel in: a body must poll it and return promptly once it clears.
-/// Anything that needs to *interrupt* a blocking wait (cancelling USB transfers, closing a
-/// socket) has to be woken separately before [`Worker::stop`] joins — see
-/// [`Capture`](crate::Capture), which does exactly that.
 #[derive(Debug, Default)]
 pub struct Worker {
     running: Arc<AtomicBool>,
@@ -22,31 +15,21 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// A worker with no thread.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Whether a thread is running. False after [`Worker::stop`], and after a body returned on
-    /// its own — the flag alone cannot tell those apart from "never started".
     #[must_use]
     pub fn is_running(&self) -> bool {
         self.handle.is_some()
     }
 
-    /// Whether the stop flag is still set, for a body that has to observe it from outside.
     #[must_use]
     pub fn flag(&self) -> Arc<AtomicBool> {
         self.running.clone()
     }
 
-    /// Spawn `body` on a thread named `name`.
-    ///
-    /// # Errors
-    /// [`DeviceError::AlreadyStreaming`] if a thread is already running, [`DeviceError::Io`] if
-    /// the thread cannot be spawned. A failed spawn leaves the worker exactly as it was, so a
-    /// caller may retry — and, importantly, does not leave the flag set with nothing watching it.
     pub fn start<F>(&mut self, name: &'static str, body: F) -> Result<(), DeviceError>
     where
         F: FnOnce(&AtomicBool) + Send + 'static,
@@ -71,19 +54,15 @@ impl Worker {
         }
     }
 
-    /// Clear the stop flag without waiting. For a caller that has to wake a blocked body between
-    /// signalling and joining; [`Worker::stop`] does both.
     pub fn signal_stop(&self) {
         self.running.store(false, Ordering::Release);
     }
 
-    /// Stop the thread and join it. Idempotent.
     pub fn stop(&mut self) {
         self.signal_stop();
         self.join();
     }
 
-    /// Join a thread that has already been signalled. Idempotent.
     pub fn join(&mut self) {
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
@@ -139,12 +118,9 @@ mod tests {
             Err(DeviceError::AlreadyStreaming)
         ));
         worker.stop();
-        // …and the slot frees up again, rather than staying stuck.
         worker.start("test-worker", |_| {}).expect("restart");
     }
 
-    /// A body that returns by itself leaves the handle behind; `is_running` must report the
-    /// truth so a backend does not refuse a restart for a thread that is already gone.
     #[test]
     fn a_finished_body_still_stops_cleanly() {
         let mut worker = Worker::new();

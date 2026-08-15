@@ -12,7 +12,6 @@ import {
 const FULL = { start: 0, end: 1 };
 const WINDOW = { min: -100, max: -20 };
 
-/** Rows a column has been painted into, top-first. */
 function painted(
   grid: ReturnType<typeof createDensity>,
   column: number,
@@ -32,7 +31,6 @@ describe("addDensity", () => {
     const grid = createDensity(4, 101);
     addDensity(grid, Float32Array.of(-60, -60, -60, -60), FULL, WINDOW);
 
-    // −60 dB is half way up a [−100, −20] window, so row 50 of 0…100 counting from the top.
     for (let x = 0; x < grid.width; x++) {
       expect(painted(grid, x).map((hit) => hit.row)).toEqual([50]);
     }
@@ -42,7 +40,6 @@ describe("addDensity", () => {
     const grid = createDensity(2, 101);
     addDensity(grid, Float32Array.of(-100, -20), FULL, WINDOW);
 
-    // The second column reaches back to the first rather than leaving a gap between the two ends.
     const rows = painted(grid, 1).map((hit) => hit.row);
     expect(rows[0]).toBe(0);
     expect(rows.at(-1)).toBe(100);
@@ -61,7 +58,6 @@ describe("addDensity", () => {
 
   it("follows the visible window when the plot is zoomed", () => {
     const grid = createDensity(2, 101);
-    // Only the top of the span is visible, where the level is −20 rather than −100.
     const db = Float32Array.of(-100, -100, -100, -20, -20, -20);
     addDensity(grid, db, { start: 0.6, end: 1 }, WINDOW);
     expect(painted(grid, 0).map((hit) => hit.row)).toEqual([0]);

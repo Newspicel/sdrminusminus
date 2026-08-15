@@ -2,11 +2,8 @@ pub mod block;
 pub mod bptc;
 pub mod conv;
 
-/// CRC-16 polynomial 0x1021 in its reflected form, for the LSB-first loops below.
 const CCITT_POLY_REFLECTED: u16 = 0x8408;
 
-/// The reflected-0x1021 register update, shared by every CRC-16 here; the variants differ only
-/// in their initial value and whether the result is inverted.
 fn crc16_reflected(init: u16, data: &[u8]) -> u16 {
     let mut crc = init;
     for &byte in data {
@@ -22,7 +19,6 @@ fn crc16_reflected(init: u16, data: &[u8]) -> u16 {
     crc
 }
 
-/// CRC-16/X-25 (reflected 0x1021, init 0xFFFF, xorout 0xFFFF) — the AX.25 FCS and AIS CRC.
 #[must_use]
 pub fn crc16_x25(data: &[u8]) -> u16 {
     !crc16_reflected(0xFFFF, data)
@@ -33,13 +29,6 @@ pub fn crc16_ccitt(data: &[u8]) -> u16 {
     crc16_reflected(0, data)
 }
 
-/// MSB-first CRC-16 over an arbitrary generator — the un-reflected form the digital-voice
-/// signalling codes check themselves with: `poly` 0x1021 init 0 is the CRC-CCITT that guards a
-/// DMR CSBK and a YSF FICH, `poly` 0x5935 init 0xFFFF the one M17 puts in its link setup frame.
-///
-/// Bit-granular because these fields are not all byte-aligned: an M17 LSF is 224 bits of body,
-/// a DMR CSBK 80, and rounding either up to bytes would checksum padding the transmitter never
-/// sent. [`crc16_msb`] is the byte-aligned convenience over the same register.
 #[must_use]
 pub fn crc16_msb_bits(poly: u16, init: u16, bits: &[bool]) -> u16 {
     let mut crc = init;
@@ -53,7 +42,6 @@ pub fn crc16_msb_bits(poly: u16, init: u16, bits: &[bool]) -> u16 {
     crc
 }
 
-/// Byte-aligned [`crc16_msb_bits`], MSB of each byte first.
 #[must_use]
 pub fn crc16_msb(poly: u16, init: u16, data: &[u8]) -> u16 {
     let mut crc = init;
@@ -70,16 +58,8 @@ pub fn crc16_msb(poly: u16, init: u16, data: &[u8]) -> u16 {
     crc
 }
 
-/// Reed-Solomon(12,9) parity over GF(256) as DMR defines it for its full link control
-/// (ETSI TS 102 361-1 §B.3.9): the systematic remainder of the nine information octets by
-/// `x³ + 14x² + 56x + 64`, returned in transmission order.
-///
-/// Parity only — there is no correction here. The product code underneath a DMR burst has
-/// already repaired what it can, and a link control that still fails this check is one whose
-/// addresses would be a guess.
 #[must_use]
 pub fn rs129_parity(msg: &[u8]) -> [u8; 3] {
-    /// Generator coefficients, lowest order first.
     const POLY: [u8; 3] = [64, 56, 14];
     let mut parity = [0u8; 3];
     for &byte in msg {
@@ -91,8 +71,6 @@ pub fn rs129_parity(msg: &[u8]) -> [u8; 3] {
     [parity[2], parity[1], parity[0]]
 }
 
-/// Systematic Reed-Solomon code over GF(64), the symbol code used by P25 HDU and LDU metadata.
-/// `parity_symbols` is 12 for RS(24,12,13), 8 for RS(24,16,9), and 16 for RS(36,20,17).
 #[must_use]
 pub fn rs64_encode(data: &[u8], parity_symbols: usize) -> Vec<u8> {
     let mut generator = vec![1u8];
@@ -119,8 +97,6 @@ pub fn rs64_encode(data: &[u8], parity_symbols: usize) -> Vec<u8> {
     codeword
 }
 
-/// Correct a P25 GF(64) Reed-Solomon codeword and return its systematic data symbols plus the
-/// number of repaired symbols. Invalid or over-capacity words are rejected.
 #[must_use]
 pub fn rs64_decode(codeword: &[u8], data_symbols: usize) -> Option<(Vec<u8>, u32)> {
     let parity = codeword.len().checked_sub(data_symbols)?;
@@ -256,7 +232,6 @@ fn gf64_inv(value: u8) -> Option<u8> {
     (value != 0).then(|| gf64_pow(value, 62))
 }
 
-/// GF(256) multiply modulo `x⁸ + x⁴ + x³ + x² + 1`.
 fn gf256_mul(a: u8, b: u8) -> u8 {
     let (mut a, mut b, mut product) = (a, b, 0u8);
     while b != 0 {
@@ -273,10 +248,8 @@ fn gf256_mul(a: u8, b: u8) -> u8 {
     product
 }
 
-/// True when an HDLC frame's trailing little-endian 2-byte FCS matches its payload.
 #[must_use]
 pub fn hdlc_fcs_ok(frame: &[u8]) -> bool {
-    // FCS plus at least one payload byte; anything shorter is a framing artefact, not a frame.
     if frame.len() < 3 {
         return false;
     }
@@ -287,12 +260,10 @@ pub fn hdlc_fcs_ok(frame: &[u8]) -> bool {
 
 const MODE_S_POLY: u32 = 0x00FF_F409;
 const MODE_S_MASK: u32 = 0x00FF_FFFF;
-/// Short (DF < 16) and long (DF >= 16) transmission lengths, parity bytes included.
 const MODE_S_SHORT_LEN: usize = 7;
 const MODE_S_LONG_LEN: usize = 14;
 const MODE_S_PARITY_LEN: usize = 3;
 
-/// Multiply a 24-bit remainder by x, reducing modulo the generator.
 fn mode_s_step(reg: u32) -> u32 {
     if reg & 0x0080_0000 != 0 {
         ((reg << 1) ^ MODE_S_POLY) & MODE_S_MASK
@@ -312,9 +283,6 @@ fn mode_s_crc(data: &[u8]) -> u32 {
     reg
 }
 
-/// Mode S / ADS-B CRC-24, generator 0xFFF409, over a 7- or 14-byte frame including its
-/// trailing 3 parity bytes. Returns the syndrome; 0 means the frame checks out. Any other
-/// frame length is not a Mode S transmission and yields a sentinel non-syndrome.
 #[must_use]
 pub fn mode_s_syndrome(frame: &[u8]) -> u32 {
     if frame.len() != MODE_S_SHORT_LEN && frame.len() != MODE_S_LONG_LEN {
@@ -334,19 +302,10 @@ pub fn mode_s_overlay(frame: &[u8]) -> Option<u32> {
     Some(mode_s_crc(body) ^ parity)
 }
 
-/// Append the 3 Mode S parity bytes to a 4- or 11-byte message body (used by test signals).
-///
-/// # Panics
-/// If `body` is not a valid Mode S message body.
 pub fn mode_s_append_parity(body: &mut Vec<u8>) {
     mode_s_append_overlaid_parity(body, 0);
 }
 
-/// [`mode_s_append_parity`] with `overlay` (an aircraft address or an interrogator identifier)
-/// keyed onto the parity field, which is what every downlink format but DF17/18 transmits.
-///
-/// # Panics
-/// If `body` is not a valid Mode S message body.
 pub fn mode_s_append_overlaid_parity(body: &mut Vec<u8>, overlay: u32) {
     assert!(
         body.len() == MODE_S_SHORT_LEN - MODE_S_PARITY_LEN
@@ -358,13 +317,6 @@ pub fn mode_s_append_overlaid_parity(body: &mut Vec<u8>, overlay: u32) {
     body.extend_from_slice(&[(parity >> 16) as u8, (parity >> 8) as u8, parity as u8]);
 }
 
-/// Locate and repair a single-bit error using the syndrome. Returns the corrected bit index
-/// (0 = MSB of the first byte), or `None` when the frame is already clean or the damage is
-/// not a single bit.
-///
-/// The generator is divisible by (x + 1), so every syndrome carries the parity of the error
-/// weight: an even-weight error can never match a single-bit syndrome and is therefore
-/// rejected rather than "repaired" into a plausible frame.
 pub fn mode_s_fix_single_bit(frame: &mut [u8]) -> Option<usize> {
     let syndrome = mode_s_syndrome(frame);
     if syndrome == 0 {
@@ -387,7 +339,6 @@ const GOLAY23_CODE_BITS: u32 = 23;
 const GOLAY23_DATA_BITS: u32 = 12;
 const GOLAY23_CHECK_BITS: u32 = GOLAY23_CODE_BITS - GOLAY23_DATA_BITS;
 
-/// Remainder of a 23-bit word modulo the generator; 0 for a valid codeword.
 const fn golay23_remainder(word: u32) -> u32 {
     let mut rem = word & ((1 << GOLAY23_CODE_BITS) - 1);
     let mut shift = GOLAY23_CODE_BITS;
@@ -400,30 +351,17 @@ const fn golay23_remainder(word: u32) -> u32 {
     rem
 }
 
-/// Systematic Golay(23,12): the 12 data bits followed by the 11 check bits they imply.
-/// Bits above the twelfth are ignored.
 #[must_use]
 pub const fn golay23_encode(data: u16) -> u32 {
     let payload = (data as u32 & 0x0FFF) << GOLAY23_CHECK_BITS;
     payload | golay23_remainder(payload)
 }
 
-/// Whether a 23-bit word's check bits match its data bits.
-///
-/// Detection only: the code corrects up to 3 errors, but a DCS receiver has no use for that.
-/// The word repeats about six times a second, so waiting for a clean copy costs nothing —
-/// while correcting one, over 23 alignments and both signal polarities, would turn noise into
-/// a plausible code far more often than it would rescue a real one.
 #[must_use]
 pub const fn golay23_ok(word: u32) -> bool {
     golay23_remainder(word) == 0
 }
 
-/// Correct up to three bit errors in a systematic Golay(23,12) word.
-///
-/// The code's minimum distance is seven, so a word within distance three has exactly one
-/// correction. The exhaustive syndrome search is bounded at 2,048 candidates and is used only
-/// once per received codeword, avoiding a permanent 8 KiB lookup table in every process.
 #[must_use]
 pub fn golay23_correct(word: u32) -> Option<(u32, u32)> {
     let word = word & 0x7F_FFFF;
@@ -451,13 +389,10 @@ pub fn golay23_correct(word: u32) -> Option<(u32, u32)> {
     None
 }
 
-/// POCSAG BCH(31,21) generator x^10+x^9+x^8+x^6+x^5+x^3+1.
 const POCSAG_GEN: u32 = 0x769;
-/// Codeword bits covered by the BCH code — everything but the trailing parity bit.
 const POCSAG_CODE_BITS: u32 = 31;
 const POCSAG_DATA_BITS: u32 = 21;
 
-/// Remainder of the 31-bit BCH field modulo the generator; 0 for a valid field.
 const fn pocsag_syndrome(field: u32) -> u32 {
     let mut rem = field & ((1 << POCSAG_CODE_BITS) - 1);
     let mut shift = POCSAG_CODE_BITS;
@@ -470,7 +405,6 @@ const fn pocsag_syndrome(field: u32) -> u32 {
     rem
 }
 
-/// Syndrome of a single-bit error at each position of the 31-bit BCH field.
 const POCSAG_BIT_SYNDROMES: [u32; 31] = {
     let mut table = [0; 31];
     let mut i = 0;
@@ -496,24 +430,15 @@ fn pocsag_find_pair(syndrome: u32) -> Option<(usize, usize)> {
     None
 }
 
-/// Odd parity of the whole 32-bit codeword: 0 when the even-parity bit is consistent.
 fn pocsag_parity(word: u32) -> u32 {
     word.count_ones() & 1
 }
 
-/// POCSAG codeword: 1 sync/flag bit + 20 data bits + 10 BCH(31,21) check bits + 1 even
-/// parity bit, transmitted MSB first. Decode corrects up to 2 bit errors.
-/// Returns (corrected codeword, number of bits corrected), or None when uncorrectable.
-///
-/// Correction is a table search: 31 comparisons for one error and at most 31 × 31 for two,
-/// allocation-free — about a microsecond against POCSAG's 512–2400 bit/s.
 #[must_use]
 pub fn pocsag_bch_decode(word: u32) -> Option<(u32, u32)> {
     let syndrome = pocsag_syndrome(word >> 1);
     let odd = pocsag_parity(word) == 1;
     if syndrome == 0 {
-        // The BCH code has minimum distance 5, so a clean field with bad parity can only be
-        // the parity bit itself — no error of weight 2..=4 hides here.
         return Some(if odd { (word ^ 1, 1) } else { (word, 0) });
     }
     if let Some(bit) = pocsag_find_bit(syndrome) {
@@ -527,11 +452,6 @@ pub fn pocsag_bch_decode(word: u32) -> Option<(u32, u32)> {
     Some((word ^ (1 << (a + 1)) ^ (1 << (b + 1)), 2))
 }
 
-/// Build a codeword from its 21 leading bits (flag + 20 data), adding BCH + parity. The bits
-/// sit in the low 21 bits of `word21`, i.e. `word21 == codeword >> 11`.
-///
-/// # Panics
-/// If `word21` does not fit in 21 bits.
 #[must_use]
 pub fn pocsag_bch_encode(word21: u32) -> u32 {
     assert!(
@@ -543,12 +463,10 @@ pub fn pocsag_bch_encode(word21: u32) -> u32 {
     word | pocsag_parity(word)
 }
 
-/// RDS block generator x^10+x^8+x^7+x^5+x^4+x^3+1 (EN 50067 §B.2.1).
 const RDS_GEN: u32 = 0x5B9;
 const RDS_BLOCK_BITS: u32 = 26;
 const RDS_CHECK_BITS: u32 = 10;
 
-/// RDS block offset words (EN 50067 §B.2.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RdsOffset {
     A,
@@ -559,8 +477,6 @@ pub enum RdsOffset {
 }
 
 impl RdsOffset {
-    /// The 10-bit word added to the block's checkword, which both identifies the block
-    /// within the group and provides block synchronisation.
     #[must_use]
     pub const fn word(self) -> u16 {
         match self {
@@ -573,12 +489,6 @@ impl RdsOffset {
     }
 }
 
-/// The 10-bit syndrome of a 26-bit RDS block under the shortened cyclic (26,16) code.
-///
-/// The syndrome is the plain remainder `block(x) mod g(x)`, so a block carrying offset word
-/// `o` yields exactly `o` — block synchronisation matches against [`RdsOffset::word`], not
-/// against the re-based syndrome constants some published tables list. Only the low 26 bits
-/// of `block` are considered.
 #[must_use]
 pub fn rds_syndrome(block: u32) -> u16 {
     let mut rem = block & ((1 << RDS_BLOCK_BITS) - 1);
@@ -592,13 +502,11 @@ pub fn rds_syndrome(block: u32) -> u16 {
     rem as u16
 }
 
-/// Check a received 26-bit block against `offset`; returns the 16 data bits when valid.
 #[must_use]
 pub fn rds_check_block(block: u32, offset: RdsOffset) -> Option<u16> {
     (rds_syndrome(block) == offset.word()).then_some((block >> RDS_CHECK_BITS) as u16)
 }
 
-/// Build a 26-bit block from 16 data bits plus the offset word (used by test signals).
 #[must_use]
 pub fn rds_encode_block(data: u16, offset: RdsOffset) -> u32 {
     let payload = u32::from(data) << RDS_CHECK_BITS;
@@ -640,7 +548,6 @@ mod tests {
         frame[bit / 8] ^= 0x80 >> (bit % 8);
     }
 
-    /// The DF17 extended squitter from the Mode S literature, body only.
     fn squitter_body() -> Vec<u8> {
         vec![
             0x8D, 0x40, 0x62, 0x1D, 0x58, 0xC3, 0x82, 0xD6, 0x90, 0xC8, 0xAC,
@@ -657,9 +564,6 @@ mod tests {
         assert_eq!(crc16_ccitt(b"123456789"), 0x2189);
     }
 
-    /// The property the ACARS receiver depends on: running the check bytes through the same
-    /// register after the message leaves zero, so a decoder never has to reverse the order it
-    /// received them in.
     #[test]
     fn crc16_ccitt_check_bytes_leave_a_zero_remainder() {
         let message = b"2.D-AIBC\x01H1B\x02HELLO\x03";
@@ -763,8 +667,6 @@ mod tests {
         assert_eq!(mode_s_overlay(&[]), None);
     }
 
-    /// The whole basis on which a DF4/5/20/21 reply can be attributed to an aircraft: the
-    /// address the transmitter keyed onto the parity comes back out of it exactly.
     #[test]
     fn an_overlaid_address_comes_back_out_of_the_parity() {
         for overlay in [0x00_0001, 0x3C_6444, 0x48_40D6, 0xFF_FFFF] {
@@ -772,15 +674,11 @@ mod tests {
                 let mut frame = body;
                 mode_s_append_overlaid_parity(&mut frame, overlay);
                 assert_eq!(mode_s_overlay(&frame), Some(overlay));
-                // The syndrome is *not* the address, which is why this function exists.
                 assert_ne!(mode_s_syndrome(&frame), overlay);
             }
         }
     }
 
-    /// The published DCS 023 word, which anchors the generator, the bit layout and the
-    /// systematic ordering all at once: data `100` + `000010011` (023 octal), check
-    /// `11101100011`.
     #[test]
     fn golay23_matches_the_published_dcs_word() {
         let data = 0b1000_0001_0011;
@@ -833,7 +731,6 @@ mod tests {
         }
     }
 
-    /// A bare-parity frame is the zero overlay, so one function answers both questions.
     #[test]
     fn a_bare_parity_frame_reads_as_a_zero_overlay() {
         let mut frame = squitter_body();
@@ -887,8 +784,6 @@ mod tests {
         assert_eq!(pocsag_bch_decode(clean ^ 0b1111), None);
     }
 
-    /// Parity extends the BCH code to distance 6, so no weight-3 error can sit within two
-    /// bits of another codeword: every one of them must be rejected outright.
     #[test]
     fn pocsag_detects_every_three_bit_error() {
         let clean = pocsag_bch_encode(0x0001_0F0F);
@@ -906,8 +801,6 @@ mod tests {
         }
     }
 
-    /// Weight-4 errors are past the code's guarantee — some are miscorrected by construction
-    /// — but none may ever come back flagged as an intact codeword.
     #[test]
     fn pocsag_never_calls_a_damaged_codeword_clean() {
         let clean = pocsag_bch_encode(0x000A_C3F1);

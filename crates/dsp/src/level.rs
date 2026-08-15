@@ -1,53 +1,29 @@
-//! Signal-level metering.
-//!
-//! Separate from [`crate::squelch::Squelch`] on purpose. The gate's estimator is tuned to *decide*
-//! — a millisecond, so a short burst opens it — while a meter is read by a person, and at that
-//! time constant a readout is unreadable. This one has a fast attack and a slow release, which is
-//! the shape every signal-strength meter has: it must reach a burst but not fall off it before the
-//! eye has landed on the number.
-
 use num_complex::Complex;
 
 use crate::iir::one_pole_coeff;
 
-/// Detector smoothing, applied *before* the ballistics below.
-///
-/// Load-bearing: instantaneous power fluctuates sample to sample on anything that is not a
-/// constant-envelope tone, and a fast-attack follower run straight off it climbs to those spikes
-/// and stays there — reading tens of dB above the level it is supposed to be reporting. Every
-/// real meter is a mean-square detector followed by ballistics, in that order.
 const DETECT_TAU_S: f64 = 3e-3;
-/// Rise time. Fast enough that a burst reads at its real level almost immediately.
 const ATTACK_TAU_S: f64 = 5e-3;
-/// Fall time. Slow enough to read, short enough that a channel going quiet is visibly quiet.
 const RELEASE_TAU_S: f64 = 150e-3;
-/// How long the peak indicator holds before it starts falling back, and how fast it then falls.
 const PEAK_HOLD_S: f64 = 1.0;
 const PEAK_FALL_DB_PER_S: f32 = 20.0;
 
-/// The level a meter reports when it has seen nothing at all; also its floor, so a silent channel
-/// reads as a number rather than as negative infinity.
 pub const LEVEL_FLOOR_DB: f32 = -140.0;
 
-/// Smoothed and peak-held signal level in dBFS, where unit-magnitude IQ is 0 dBFS.
 #[derive(Clone, Debug)]
 pub struct LevelMeter {
-    /// Smoothed mean square — what the ballistics below follow.
     mean: f32,
     power: f32,
     detect: f32,
     attack: f32,
     release: f32,
     peak_db: f32,
-    /// Samples the peak has been held for, against `hold_samples`.
     held: u64,
     hold_samples: u64,
     peak_fall_per_sample: f32,
 }
 
 impl LevelMeter {
-    /// # Panics
-    /// If `rate` is not positive.
     #[must_use]
     pub fn new(rate: f64) -> Self {
         assert!(rate > 0.0, "level meter needs a positive sample rate");
@@ -64,16 +40,12 @@ impl LevelMeter {
         }
     }
 
-    /// Fold one block in.
     pub fn process(&mut self, iq: &[Complex<f32>]) {
-        // A non-finite estimate fails every comparison below and would freeze the meter forever;
-        // healing per block keeps one bad sample from silencing a channel's readout for good.
         if !self.power.is_finite() || !self.mean.is_finite() {
             self.mean = 0.0;
             self.power = 0.0;
         }
         for &x in iq {
-            // Detector first, ballistics second — see `DETECT_TAU_S`.
             self.mean += self.detect * (x.norm_sqr() - self.mean);
             let coeff = if self.mean > self.power {
                 self.attack
@@ -95,7 +67,6 @@ impl LevelMeter {
         }
     }
 
-    /// Smoothed level in dBFS, floored at [`LEVEL_FLOOR_DB`].
     #[must_use]
     pub fn level_db(&self) -> f32 {
         if !self.power.is_finite() || self.power <= 0.0 {
@@ -104,8 +75,6 @@ impl LevelMeter {
         (10.0 * self.power.log10()).max(LEVEL_FLOOR_DB)
     }
 
-    /// The loudest recent level, held then decayed — what makes a burst legible on a display that
-    /// is only looked at every so often.
     #[must_use]
     pub fn peak_db(&self) -> f32 {
         self.peak_db.max(LEVEL_FLOOR_DB)
@@ -137,9 +106,6 @@ mod tests {
         );
     }
 
-    /// The bug a constant-envelope tone cannot catch: run the ballistics straight off
-    /// instantaneous power and the fast attack climbs to the *sample* peaks of anything that
-    /// fluctuates and never comes down, reading tens of dB above the signal's real level.
     #[test]
     fn a_fluctuating_signal_reads_its_level_and_not_its_sample_peaks() {
         let mut rng = XorShift32(0x1234_5678);
@@ -148,11 +114,7 @@ mod tests {
         let mut samples = 0u64;
         for _ in 0..200 {
             let block: Vec<Complex<f32>> = (0..480)
-                .map(|_| {
-                    // Zero-mean noise: Rayleigh envelope, so instantaneous power swings over
-                    // orders of magnitude around its mean.
-                    Complex::new(rng.next_f32() - 0.5, rng.next_f32() - 0.5) * 0.1
-                })
+                .map(|_| Complex::new(rng.next_f32() - 0.5, rng.next_f32() - 0.5) * 0.1)
                 .collect();
             for x in &block {
                 power += f64::from(x.norm_sqr());
@@ -176,16 +138,13 @@ mod tests {
         assert!(meter.level_db().is_finite());
     }
 
-    /// The whole point of the two time constants: reach a burst at once, leave it slowly.
     #[test]
     fn it_attacks_faster_than_it_releases() {
         let mut meter = LevelMeter::new(RATE);
-        // One 10 ms block is two attack constants, so most of the way there.
         meter.process(&tone_at_db(-10.0, 480));
         let risen = meter.level_db();
         assert!(risen > -20.0, "attack too slow: {risen:.2} dB after 10 ms");
 
-        // The same span of silence must not have thrown it away.
         meter.process(&vec![Complex::new(0.0, 0.0); 480]);
         assert!(
             meter.level_db() > risen - 6.0,
@@ -203,8 +162,6 @@ mod tests {
         let peak = meter.peak_db();
         assert!((peak - -10.0).abs() < 0.5, "peak read {peak:.2} dB");
 
-        // Half a second of silence — over three release constants, so the level has fallen well
-        // away from the tone, while the peak is still inside its one-second hold.
         for _ in 0..50 {
             meter.process(&vec![Complex::new(0.0, 0.0); 480]);
         }
