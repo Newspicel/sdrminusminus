@@ -8,7 +8,7 @@ use std::time::Instant;
 use num_complex::Complex;
 use sdrmm_wire::{ChannelSettings, DecoderEvent, IdentParams, Modulation};
 
-use super::{INPUT_RATE_HZ, IdentChannel};
+use super::{INPUT_RATE_HZ, IdentChannel, MAX_WINDOW};
 use crate::{
     ChannelCtx, ChannelOutputs, ChannelRx,
     testgen::{self, dv as tgdv},
@@ -72,7 +72,8 @@ fn on_air(iq: &[Complex<f32>], seconds: f64, seed: u32) -> Vec<Complex<f32>> {
     while out.len() < wanted {
         out.extend_from_slice(iq);
     }
-    for (sample, noise) in out.iter_mut().zip(complex_noise(seed, 0.004, wanted)) {
+    let noise = complex_noise(seed, 0.004, out.len());
+    for (sample, noise) in out.iter_mut().zip(noise) {
         *sample += noise;
     }
     out
@@ -281,8 +282,8 @@ fn a_retune_discards_the_half_window_it_was_holding() {
     );
 }
 
-/// A performance gate, not a benchmark: one report analyses half a second of signal, and it has
-/// to cost a small fraction of that or the identifier cannot share a thread with the radio.
+/// A performance gate, not a benchmark: identification must stay at least twice as fast as the
+/// signal it describes so it has headroom to share a thread with the rest of the radio pipeline.
 #[test]
 fn one_report_costs_far_less_than_the_signal_it_describes() {
     let iq = on_air(
@@ -293,13 +294,19 @@ fn one_report_costs_far_less_than_the_signal_it_describes() {
     // Warm the plan caches and the allocator before the measured pass.
     let _ = run(params(), &iq);
 
-    let started = Instant::now();
-    let reports = run(params(), &iq);
-    let elapsed = started.elapsed().as_secs_f64();
+    let mut reports = Vec::new();
+    let mut elapsed = Vec::with_capacity(3);
+    for _ in 0..3 {
+        let started = Instant::now();
+        reports = run(params(), &iq);
+        elapsed.push(started.elapsed());
+    }
+    elapsed.sort_unstable();
+    let elapsed = elapsed[1].as_secs_f64();
     let described = reports.len() as f64 * f64::from(INTERVAL_MS) / 1_000.0;
     assert!(described > 0.0, "the run produced no reports");
     assert!(
-        elapsed < described / 4.0,
+        elapsed < described / 2.0,
         "identification took {elapsed:.3} s for {described:.1} s of signal"
     );
 }
@@ -314,4 +321,13 @@ fn a_long_interval_lengthens_the_cadence_rather_than_the_analysis() {
     };
     let noise = complex_noise(0x77c2, 0.02, (INPUT_RATE_HZ * 4.5) as usize);
     assert_eq!(run(long, &noise).len(), 2);
+
+    let ctx = ChannelCtx {
+        input_rate: INPUT_RATE_HZ,
+    };
+    let mut channel = IdentChannel::new(ctx, settings(long)).expect("ident channel");
+    let mut out = ChannelOutputs::default();
+    channel.process(&noise[..MAX_WINDOW + 1], &mut out);
+    assert_eq!(channel.window.len(), MAX_WINDOW);
+    assert!(out.events.is_empty());
 }

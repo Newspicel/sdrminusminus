@@ -324,6 +324,22 @@ export interface paths {
         patch: operations["patch_device"];
         trace?: never;
     };
+    "/api/devicesets/{ds}/network-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["network_export_device_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets/{ds}/playback": {
         parameters: {
             query?: never;
@@ -1919,6 +1935,7 @@ export interface components {
             error?: string | null;
             /** Format: int32 */
             id: number;
+            network_export?: null | components["schemas"]["NetworkExportStatus"];
             /**
              * Format: int64
              * @description Cumulative device samples dropped at the capture ring since the set opened. Growth
@@ -2470,6 +2487,59 @@ export interface components {
             /** @description Swap mark and space (equivalent to reversing the sideband). */
             invert?: boolean;
         };
+        /** @enum {string} */
+        NetworkExportAction: "start" | "stop";
+        NetworkExportNode: components["schemas"]["NetworkExportSettings"];
+        /** @description `POST /api/devicesets/{ds}/network-export`. */
+        NetworkExportRequest: {
+            action: components["schemas"]["NetworkExportAction"];
+            /** @description Patch-node identity. A set permits one active exporter and only its owner may stop it. */
+            node: string;
+            settings?: components["schemas"]["NetworkExportSettings"];
+            /** Format: int32 */
+            stream?: number;
+        };
+        /**
+         * @description An unframed, interleaved IQ stream sent to a network analysis tool.
+         *
+         *     UDP preserves datagram boundaries but carries no sequence header. TCP is one continuous byte
+         *     stream. In both cases the receiver must be configured with the radio's sample rate and center
+         *     frequency separately.
+         */
+        NetworkExportSettings: {
+            /** @default 127.0.0.1:7355 */
+            address: string;
+            /** @default cf32_le */
+            format: components["schemas"]["NetworkSampleFormat"];
+            /** @default udp */
+            transport: components["schemas"]["NetworkTransport"];
+        };
+        NetworkExportStatus: {
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            center_hz: number;
+            error?: string | null;
+            node: string;
+            /**
+             * Format: int64
+             * @description Capture-ring samples lost while this export was active.
+             */
+            overruns: number;
+            /** Format: int64 */
+            packets: number;
+            /** Format: int64 */
+            sample_rate: number;
+            /** Format: int64 */
+            samples: number;
+            settings: components["schemas"]["NetworkExportSettings"];
+            /** Format: int32 */
+            stream: number;
+        };
+        /** @enum {string} */
+        NetworkSampleFormat: "cf32_le" | "ci16_le" | "cu8";
+        /** @enum {string} */
+        NetworkTransport: "udp" | "tcp";
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
@@ -2551,6 +2621,11 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "recorder";
+        } | {
+            /** @description Unframed raw IQ sent over UDP datagrams or a TCP byte stream. */
+            data: components["schemas"]["NetworkExportNode"];
+            /** @enum {string} */
+            kind: "network_export";
         } | {
             /** @enum {string} */
             kind: "export";
@@ -4624,6 +4699,60 @@ export interface operations {
                 content?: never;
             };
             /** @description Unsupported setting */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    network_export_device_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NetworkExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Live status after start or final counters after stop */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkExportStatus"];
+                };
+            };
+            /** @description Invalid destination, inactive export, or conflicting owner */
             400: {
                 headers: {
                     [name: string]: unknown;

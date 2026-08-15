@@ -67,7 +67,12 @@ export function WorkspaceBar({
                       kind: "dmr_trunk" as const,
                       data: { protocol: "auto", retention_seconds: 300 },
                     }
-                  : { kind }),
+                  : kind === "network_export"
+                    ? {
+                        kind: "network_export" as const,
+                        data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
+                      }
+                    : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

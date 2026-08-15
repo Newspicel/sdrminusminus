@@ -5,6 +5,7 @@ pub mod decode;
 pub mod device;
 pub mod doctor;
 pub mod frame;
+pub mod network;
 pub mod patch;
 pub mod position;
 pub mod rest;
@@ -43,6 +44,10 @@ pub use device::{
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{
     AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoFrame,
+};
+pub use network::{
+    MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode, NetworkExportRequest,
+    NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat, NetworkTransport,
 };
 pub use patch::{
     ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
@@ -421,6 +426,7 @@ mod contract_tests {
             overruns: 0,
             error: None,
             recording: None,
+            network_export: None,
             scanner: None,
             playback: None,
         }
@@ -518,6 +524,47 @@ mod contract_tests {
         json.as_object_mut().unwrap().remove("recording");
         let back: DeviceSet = serde_json::from_value(json).unwrap();
         assert_eq!(back.recording, None);
+    }
+
+    /// An idle set omits its export for older peers and the canvas's presence check; a live
+    /// status carries the exact interpretation needed for an otherwise unframed stream.
+    #[test]
+    fn device_set_network_export_default_and_roundtrip() {
+        let mut set = sample_device_set();
+        assert!(
+            serde_json::to_value(&set)
+                .unwrap()
+                .get("network_export")
+                .is_none()
+        );
+
+        set.network_export = Some(NetworkExportStatus {
+            node: "net".to_owned(),
+            stream: 0,
+            settings: NetworkExportSettings::default(),
+            sample_rate: 2_048_000,
+            center_hz: 100_000_000,
+            samples: 4_096,
+            bytes: 32_768,
+            packets: 24,
+            overruns: 0,
+            error: None,
+        });
+        let mut json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["network_export"]["settings"]["format"], "cf32_le");
+        assert!(json["network_export"].get("error").is_none());
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json.clone()).unwrap(),
+            set
+        );
+
+        json.as_object_mut().unwrap().remove("network_export");
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json)
+                .unwrap()
+                .network_export,
+            None
+        );
     }
 
     /// `RecordRequest.action` is a bare snake_case string the generated TS union

@@ -302,14 +302,15 @@ test.describe("the workspace", () => {
     };
     const tuning = await tunedTo();
 
-    // Max hold is one of the trace overlays, behind the toolbar's own trigger.
-    await scopePlot.getByRole("button", { name: "traces", exact: true }).click();
-    const peak = page.getByRole("dialog").getByRole("button", { name: "peak", exact: true });
+    await scopePlot.getByRole("button", { name: /^traces$/i }).click();
+    const tracesDialog = page.getByRole("dialog");
+    const peak = tracesDialog.getByRole("button", { name: /^peak$/i });
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "true");
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "false");
     await page.keyboard.press("Escape");
+    await expect(tracesDialog).toBeHidden();
 
     // The trigger is labelled with the colormap in force, which on a fresh profile is the default.
     await scopePlot.getByRole("button", { name: /^classic$/i }).click();
@@ -369,6 +370,19 @@ test.describe("the workspace", () => {
       .poll(async () => (await map.locator(".maplibregl-canvas").boundingBox())?.height ?? 0)
       .toBeGreaterThan(0);
     expect(styleErrors).toEqual([]);
+    const mapId = await map.getAttribute("data-id");
+    if (mapId === null) {
+      throw new Error("a map node id");
+    }
+    await expect
+      .poll(async () => {
+        const list = await page.request.get("/api/workspaces").then((r) => r.json());
+        const detail: WorkspaceDetail = await page.request
+          .get(`/api/workspaces/${list.active}`)
+          .then((r) => r.json());
+        return (detail.snapshot.graph.edges ?? []).some((edge) => edge.to.node === mapId);
+      })
+      .toBe(true);
   });
 
   test("opens the map's basemap credits collapsed", async ({ page }) => {
