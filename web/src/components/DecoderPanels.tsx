@@ -459,6 +459,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   acars: null,
   subghz: null,
   dv: null,
+  broadcast: null,
   radio_clock: null,
   gnss: null,
 };

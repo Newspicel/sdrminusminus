@@ -1317,6 +1317,30 @@ export interface components {
             /** @description Suggested channel type id (e.g. `"nfm"`), if any. */
             mode?: string | null;
         };
+        /**
+         * @description Periodic acquisition report from a wideband digital-broadcast channel. These values describe
+         *     the RF lock itself; absent service fields mean the multiplex has not been decoded.
+         */
+        BroadcastStatus: {
+            /** Format: int32 */
+            ensemble_id?: number | null;
+            /** Format: float */
+            frequency_error_hz: number;
+            label?: string | null;
+            locked: boolean;
+            /** Format: int32 */
+            service_id?: number | null;
+            /** Format: float */
+            snr_db: number;
+            /** Format: double */
+            symbol_rate?: number | null;
+            system: components["schemas"]["BroadcastSystem"];
+        };
+        /**
+         * @description Broadcast waveform identified by a standards-specific synchronizer.
+         * @enum {string}
+         */
+        BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
@@ -1548,6 +1572,18 @@ export interface components {
             settings: components["schemas"]["AtvParams"];
             /** @enum {string} */
             type: "atv";
+        } | {
+            settings: components["schemas"]["DabParams"];
+            /** @enum {string} */
+            type: "dab";
+        } | {
+            settings: components["schemas"]["DatvParams"];
+            /** @enum {string} */
+            type: "datv";
+        } | {
+            settings: components["schemas"]["DrmParams"];
+            /** @enum {string} */
+            type: "drm";
         } | {
             settings: components["schemas"]["DmrParams"];
             /** @enum {string} */
@@ -1802,6 +1838,26 @@ export interface components {
             name: string;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
+        /**
+         * @description DAB generations share the same EN 300 401 Mode I RF waveform. `Auto` reports the ensemble
+         *     without assuming which audio component type its FIC will eventually announce.
+         * @enum {string}
+         */
+        DabMode: "auto" | "dab" | "dab_plus";
+        DabParams: {
+            mode?: components["schemas"]["DabMode"];
+        };
+        DatvParams: {
+            standard?: components["schemas"]["DatvStandard"];
+            /**
+             * Format: double
+             * @description Symbol rate in baud. The channel rate supports narrow-band amateur television carriers
+             *     through 1 MBd; wider transponders need a receiver stream wider than this channel type.
+             */
+            symbol_rate?: number;
+        };
+        /** @enum {string} */
+        DatvStandard: "dvb_s" | "dvb_s2";
         DecodedRecord: {
             /** @description RFC3339 UTC. */
             at: string;
@@ -1872,6 +1928,10 @@ export interface components {
             data: components["schemas"]["IdentReport"];
             /** @enum {string} */
             kind: "ident";
+        } | {
+            data: components["schemas"]["BroadcastStatus"];
+            /** @enum {string} */
+            kind: "broadcast";
         } | {
             data: components["schemas"]["RadioClockFrame"];
             /** @enum {string} */
@@ -2088,6 +2148,17 @@ export interface components {
         };
         /** @description dPMR (C4FM, 2400 symbols/s, 6.25 kHz). */
         DpmrParams: Record<string, never>;
+        /** @enum {string} */
+        DrmMode: "auto" | "drm30" | "drm_plus";
+        DrmParams: {
+            /**
+             * Format: double
+             * @description Occupied bandwidth in Hz. DRM30 accepts the standardized 4.5–20 kHz occupancies;
+             *     DRM+ and `Auto` use a 100 kHz slice so automatic mode can search both waveform families.
+             */
+            bandwidth_hz?: number;
+            mode?: components["schemas"]["DrmMode"];
+        };
         /** @description D-Star (GMSK, 4800 bit/s). */
         DstarParams: Record<string, never>;
         /**

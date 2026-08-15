@@ -97,6 +97,20 @@ const ATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"atv">["standard"]>> = 
   { value: "eia525", label: "525 / 30" },
   { value: "system_a405", label: "405 / 25" },
 ];
+const DAB_MODES: Options<NonNullable<ChannelParamsOf<"dab">["mode"]>> = [
+  { value: "auto", label: "Auto" },
+  { value: "dab", label: "DAB" },
+  { value: "dab_plus", label: "DAB+" },
+];
+const DATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"datv">["standard"]>> = [
+  { value: "dvb_s", label: "DVB-S" },
+  { value: "dvb_s2", label: "DVB-S2" },
+];
+const DRM_MODES: Options<NonNullable<ChannelParamsOf<"drm">["mode"]>> = [
+  { value: "auto", label: "Auto" },
+  { value: "drm30", label: "DRM30" },
+  { value: "drm_plus", label: "DRM+" },
+];
 const ATV_COLORS: Options<NonNullable<ChannelParamsOf<"atv">["color"]>> = [
   { value: "monochrome", label: "Mono" },
   { value: "pal", label: "PAL" },
@@ -742,6 +756,86 @@ function ModeControls({
           />
         </>
       );
+    case "dab":
+      return (
+        <SettingRow label="Generation">
+          <Segmented
+            label="DAB generation"
+            value={params.settings.mode ?? "auto"}
+            options={DAB_MODES}
+            onChange={(mode) => onParams({ type: "dab", settings: { ...params.settings, mode } })}
+          />
+        </SettingRow>
+      );
+    case "datv":
+      return (
+        <>
+          <SettingRow label="Standard">
+            <Segmented
+              label="DATV standard"
+              value={params.settings.standard ?? "dvb_s"}
+              options={DATV_STANDARDS}
+              onChange={(standard) =>
+                onParams({ type: "datv", settings: { ...params.settings, standard } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Symbol rate">
+            <NumberField
+              label="DATV symbol rate (baud)"
+              value={params.settings.symbol_rate ?? 333_000}
+              min={100_000}
+              max={1_000_000}
+              step={1_000}
+              onCommit={(symbol_rate) =>
+                onParams({ type: "datv", settings: { ...params.settings, symbol_rate } })
+              }
+              className="w-28"
+            />
+            <span className="legend">Bd</span>
+          </SettingRow>
+        </>
+      );
+    case "drm": {
+      const mode = params.settings.mode ?? "auto";
+      return (
+        <>
+          <SettingRow label="Mode">
+            <Segmented
+              label="DRM mode"
+              value={mode}
+              options={DRM_MODES}
+              onChange={(nextMode) =>
+                onParams({
+                  type: "drm",
+                  settings: {
+                    ...params.settings,
+                    mode: nextMode,
+                    bandwidth_hz:
+                      nextMode === "drm30"
+                        ? mode === "drm30"
+                          ? params.settings.bandwidth_hz
+                          : 10_000
+                        : 100_000,
+                  },
+                })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Bandwidth">
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 100_000}
+              optionsHz={
+                mode === "drm30" ? [4_500, 5_000, 9_000, 10_000, 18_000, 20_000] : [100_000]
+              }
+              onCommit={(bandwidth_hz) =>
+                onParams({ type: "drm", settings: { ...params.settings, bandwidth_hz } })
+              }
+            />
+          </SettingRow>
+        </>
+      );
+    }
     case "dmr":
       return (
         <>

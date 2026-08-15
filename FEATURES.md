@@ -107,10 +107,11 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 13. Broadcast & wideband digital
 
-- **[planned]** DAB / DAB+
-- **[planned]** DATV (DVB-S / S2)
+- **[shipped]** DAB / DAB+ Mode I RF acquisition — null-symbol and cyclic-prefix lock, SNR and carrier-error reporting
+- **[shipped]** Narrow-band DATV (DVB-S / S2) RF acquisition — QPSK/8PSK carrier lock from 100 kBd to 1 MBd
 - **[planned]** TETRA
-- **[planned]** DRM30 / DRM+
+- **[shipped]** DRM30 / DRM+ RF acquisition — all four DRM30 robustness-mode guard intervals plus DRM+ lock
+- **[planned]** Digital-broadcast multiplex and media layers — DAB FIC/MSC and DAB+ audio, DVB-S/S2 FEC + MPEG-TS and video, DRM FAC/SDC/MSC and audio
 
 ## 14. Amateur & weak-signal
 

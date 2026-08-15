@@ -77,6 +77,15 @@ describe("eventDetail", () => {
           },
         },
       },
+      broadcast: {
+        kind: "broadcast",
+        data: {
+          system: "dab",
+          locked: false,
+          snr_db: 0,
+          frequency_error_hz: 0,
+        },
+      },
       radio_clock: {
         kind: "radio_clock",
         data: {
@@ -324,6 +333,27 @@ describe("eventDetail", () => {
       "Block errors": "2",
     });
     expect(detail.body).toBe("Now playing something");
+  });
+
+  it("shows a broadcast acquisition without inventing multiplex metadata", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dvb_s2",
+        locked: true,
+        snr_db: 18.25,
+        frequency_error_hz: -32.4,
+        symbol_rate: 333_000,
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toEqual({
+      System: "DVB-S2",
+      Lock: "locked",
+      SNR: "18.3 dB",
+      "Frequency error": "-32 Hz",
+      "Symbol rate": "333000 Bd",
+    });
+    expect(detail.body).toBeNull();
   });
 
   it("carries the APRS fields the packet's monitor line packs away", () => {

@@ -4,6 +4,9 @@ mod ais;
 mod am;
 mod aprs;
 mod atv;
+mod dab;
+mod datv;
+mod drm;
 mod dv;
 mod gnss;
 mod ident;
@@ -33,6 +36,9 @@ pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
+pub use dab::DabChannel;
+pub use datv::DatvChannel;
+pub use drm::DrmChannel;
 pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
     YsfChannel,
@@ -107,6 +113,9 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
         ChannelParams::Atv(p) => atv::occupied_band(p),
+        ChannelParams::Dab(_) => dab::occupied_band(),
+        ChannelParams::Datv(p) => datv::occupied_band(p),
+        ChannelParams::Drm(p) => drm::occupied_band(p),
         ChannelParams::Dmr(_) => dv::dmr::occupied_band(),
         ChannelParams::Dstar(_) => dv::dstar::occupied_band(),
         ChannelParams::Ysf(_) => dv::ysf::occupied_band(),
@@ -166,6 +175,9 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
         ChannelParams::Atv(p) => atv::channel_filter(p),
+        ChannelParams::Dab(_) => Ok(dab::channel_filter()),
+        ChannelParams::Datv(p) => datv::channel_filter(p),
+        ChannelParams::Drm(p) => drm::channel_filter(p),
         ChannelParams::Dmr(_) => Ok(dv::dmr::channel_filter()),
         ChannelParams::Dstar(_) => Ok(dv::dstar::channel_filter()),
         ChannelParams::Ysf(_) => Ok(dv::ysf::channel_filter()),
@@ -422,6 +434,21 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: DabChannel::descriptor,
+        create: boxed::<DabChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: DatvChannel::descriptor,
+        create: boxed::<DatvChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: DrmChannel::descriptor,
+        create: boxed::<DrmChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: DmrChannel::descriptor,
         create: boxed::<DmrChannel>,
         create_tx: None,
@@ -571,9 +598,10 @@ mod tests {
 
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
-        ChannelParams, DmrParams, DpmrParams, DstarParams, FreeDvParams, GnssParams, IdentParams,
-        M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
-        RadioClockParams, RttyParams, SelcallParams, SsbParams, SubghzParams, WfmParams, YsfParams,
+        ChannelParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams, DstarParams,
+        FreeDvParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams,
+        NxdnParams, P25Params, PocsagParams, RadioClockParams, RttyParams, SelcallParams,
+        SsbParams, SubghzParams, WfmParams, YsfParams,
     };
 
     use super::*;
@@ -596,6 +624,9 @@ mod tests {
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
             "atv" => ChannelParams::Atv(AtvParams::default()),
+            "dab" => ChannelParams::Dab(DabParams::default()),
+            "datv" => ChannelParams::Datv(DatvParams::default()),
+            "drm" => ChannelParams::Drm(DrmParams::default()),
             "dmr" => ChannelParams::Dmr(DmrParams::default()),
             "dstar" => ChannelParams::Dstar(DstarParams::default()),
             "ysf" => ChannelParams::Ysf(YsfParams::default()),
@@ -614,7 +645,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 26);
+        assert_eq!(all.len(), 29);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -634,6 +665,9 @@ mod tests {
                 "acars",
                 "subghz",
                 "atv",
+                "dab",
+                "datv",
+                "drm",
                 "dmr",
                 "dstar",
                 "ysf",
@@ -664,6 +698,9 @@ mod tests {
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
                 "atv" => (1_500_000.0, 2_000_000.0),
+                "dab" => (1_536_000.0, 2_048_000.0),
+                "datv" => (1_500_000.0, 2_000_000.0),
+                "drm" => (100_000.0, 192_000.0),
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
                 "m17" => (9_000.0, 48_000.0),

@@ -750,6 +750,51 @@ impl DvFrame {
     }
 }
 
+/// Broadcast waveform identified by a standards-specific synchronizer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastSystem {
+    #[default]
+    Dab,
+    DabPlus,
+    DvbS,
+    DvbS2,
+    Drm30,
+    DrmPlus,
+}
+
+impl BroadcastSystem {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Dab => "DAB",
+            Self::DabPlus => "DAB+",
+            Self::DvbS => "DVB-S",
+            Self::DvbS2 => "DVB-S2",
+            Self::Drm30 => "DRM30",
+            Self::DrmPlus => "DRM+",
+        }
+    }
+}
+
+/// Periodic acquisition report from a wideband digital-broadcast channel. These values describe
+/// the RF lock itself; absent service fields mean the multiplex has not been decoded.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct BroadcastStatus {
+    pub system: BroadcastSystem,
+    pub locked: bool,
+    pub snr_db: f32,
+    pub frequency_error_hz: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ensemble_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 /// One complete civil-time minute recovered from a long-wave radio-clock service.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RadioClockFrame {
@@ -803,6 +848,7 @@ pub enum DecoderEvent {
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
     Ident(IdentReport),
+    Broadcast(BroadcastStatus),
     RadioClock(RadioClockFrame),
     Gnss(GnssFrame),
 }
@@ -826,6 +872,7 @@ impl DecoderEvent {
             Self::Tone(_) => "tone",
             Self::Dv(_) => "dv",
             Self::Ident(_) => "ident",
+            Self::Broadcast(_) => "broadcast",
             Self::RadioClock(_) => "radio_clock",
             Self::Gnss(_) => "gnss",
         }
@@ -1015,6 +1062,18 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Broadcast(status) => {
+                let mut parts = vec![status.system.label().to_owned()];
+                parts.push(if status.locked { "locked" } else { "searching" }.to_owned());
+                if status.locked {
+                    parts.push(format!("{:.1} dB SNR", status.snr_db));
+                    parts.push(format!("{:+.0} Hz", status.frequency_error_hz));
+                }
+                if let Some(label) = &status.label {
+                    parts.push(label.clone());
+                }
+                parts.join(" · ")
+            }
             Self::RadioClock(r) => {
                 let mut parts = vec![
                     format!("{:?}", r.standard).to_uppercase(),
@@ -1080,6 +1139,10 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
+            Self::Broadcast(status) => status
+                .service_id
+                .or(status.ensemble_id)
+                .map(|id| format!("{id:X}")),
             Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
             Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
             Self::Rtty(_) | Self::Morse(_) | Self::Selcall(_) | Self::Tone(_) | Self::Ident(_) => {
@@ -1157,6 +1220,7 @@ mod tests {
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
+            DecoderEvent::Broadcast(BroadcastStatus::default()),
             DecoderEvent::RadioClock(RadioClockFrame {
                 standard: RadioClockStandard::Dcf77,
                 datetime: "2026-08-15T12:34:00+02:00".to_owned(),

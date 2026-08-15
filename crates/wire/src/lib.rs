@@ -24,20 +24,20 @@ pub use bandplan::{
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
-    ChannelSettings, DmrParams, DmrSlots, DpmrParams, DstarParams, FreeDvMode, FreeDvParams,
-    GnssParams, IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS,
-    MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB,
-    MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
-    PocsagBaud, PocsagParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits,
-    SelcallParams, SelcallSystem, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams,
-    YsfParams,
+    ChannelSettings, DabMode, DabParams, DatvParams, DatvStandard, DmrParams, DmrSlots, DpmrParams,
+    DrmMode, DrmParams, DstarParams, FreeDvMode, FreeDvParams, GnssParams, IdentParams, M17Params,
+    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ,
+    MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, RadioClockParams,
+    RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem, Sideband,
+    SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
-    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, GnssFrame,
-    IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage, PocsagMessage, PocsagPayload,
-    ProtocolMatch, RadioClockFrame, RdsUpdate, RttyText, SelcallSequence, SubghzEncoding,
-    SubghzFrame, ToneSquelchStatus, Vendor,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,
+    DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity,
+    DvTrunkProtocol, GnssFrame, IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage,
+    PocsagMessage, PocsagPayload, ProtocolMatch, RadioClockFrame, RdsUpdate, RttyText,
+    SelcallSequence, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -292,8 +292,9 @@ mod contract_tests {
     #[test]
     fn decoder_params_default_from_empty_settings() {
         use channel::{
-            AcarsParams, AdsbParams, AisParams, AprsParams, GnssParams, MorseParams, NavtexParams,
-            PocsagParams, RadioClockParams, RttyParams, SubghzParams,
+            AcarsParams, AdsbParams, AisParams, AprsParams, DabParams, DatvParams, DrmParams,
+            GnssParams, MorseParams, NavtexParams, PocsagParams, RadioClockParams, RttyParams,
+            SubghzParams,
         };
         for (json, expected) in [
             (
@@ -331,6 +332,18 @@ mod contract_tests {
             (
                 r#"{"type":"subghz","settings":{}}"#,
                 ChannelParams::Subghz(SubghzParams::default()),
+            ),
+            (
+                r#"{"type":"dab","settings":{}}"#,
+                ChannelParams::Dab(DabParams::default()),
+            ),
+            (
+                r#"{"type":"datv","settings":{}}"#,
+                ChannelParams::Datv(DatvParams::default()),
+            ),
+            (
+                r#"{"type":"drm","settings":{}}"#,
+                ChannelParams::Drm(DrmParams::default()),
             ),
             (
                 r#"{"type":"radio_clock","settings":{}}"#,

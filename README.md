@@ -17,6 +17,8 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 - Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, Morse, DCF77/WWVB/MSF/JJY radio
   clocks, educational GPS L1 C/A acquisition and NAV telemetry, sub-GHz frames, and several
   digital voice modes.
+- Acquire DAB/DAB+, narrow-band DVB-S/S2 DATV, and DRM30/DRM+ carriers with lock, SNR, and
+  frequency-error diagnostics.
 - Display live spectrum and waterfall views, decoded readouts, position maps, logs, and ATV video.
 - Scan frequency ranges, save workspaces and presets, search regional band plans, and record IQ as
   SigMF for later playback.
