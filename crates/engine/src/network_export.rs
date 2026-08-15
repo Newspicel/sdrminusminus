@@ -19,17 +19,26 @@ const NETWORK_RING_CAPACITY: usize = 1 << 20;
 const UDP_PAYLOAD_BYTES: usize = 1_400;
 const NETWORK_IO_TIMEOUT: Duration = Duration::from_secs(3);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct NetworkExportShared {
-    samples: AtomicU64,
+    bytes_per_sample: u64,
     bytes: AtomicU64,
     packets: AtomicU64,
     error: OnceLock<String>,
 }
 
 impl NetworkExportShared {
+    fn new(format: NetworkSampleFormat) -> Self {
+        Self {
+            bytes_per_sample: format.bytes_per_sample() as u64,
+            bytes: AtomicU64::new(0),
+            packets: AtomicU64::new(0),
+            error: OnceLock::new(),
+        }
+    }
+
     pub(crate) fn samples(&self) -> u64 {
-        self.samples.load(Ordering::Relaxed)
+        self.bytes() / self.bytes_per_sample
     }
 
     pub(crate) fn bytes(&self) -> u64 {
@@ -85,7 +94,7 @@ pub(crate) fn start(
 ) -> Result<(NetworkExportTap, Arc<NetworkExportShared>, JoinHandle<()>), EngineError> {
     let connection = connect(settings)?;
     let (producer, consumer) = RingBuffer::new(NETWORK_RING_CAPACITY);
-    let shared = Arc::new(NetworkExportShared::default());
+    let shared = Arc::new(NetworkExportShared::new(settings.format));
     let tap = NetworkExportTap {
         samples: producer,
         shared: shared.clone(),
@@ -181,7 +190,7 @@ fn write_loop(
             encode(format, slice, &mut encoded);
             let result = match &mut connection {
                 Connection::Udp(socket) => write_udp(socket, &encoded, format, shared),
-                Connection::Tcp(stream) => write_tcp(stream, &encoded, slice.len(), shared),
+                Connection::Tcp(stream) => write_tcp(stream, &encoded, shared),
             };
             if let Err(error) = result {
                 shared.fail(format!("network export write failed: {error}"));
@@ -208,9 +217,6 @@ fn write_udp(
                 format!("UDP sent {sent} of {} bytes", chunk.len()),
             ));
         }
-        shared
-            .samples
-            .fetch_add((sent / bytes_per_sample) as u64, Ordering::Relaxed);
         shared.bytes.fetch_add(sent as u64, Ordering::Relaxed);
         shared.packets.fetch_add(1, Ordering::Relaxed);
     }
@@ -220,15 +226,26 @@ fn write_udp(
 fn write_tcp(
     stream: &mut TcpStream,
     encoded: &[u8],
-    samples: usize,
     shared: &NetworkExportShared,
 ) -> std::io::Result<()> {
-    stream.write_all(encoded)?;
-    shared.samples.fetch_add(samples as u64, Ordering::Relaxed);
-    shared
-        .bytes
-        .fetch_add(encoded.len() as u64, Ordering::Relaxed);
-    shared.packets.fetch_add(1, Ordering::Relaxed);
+    let mut written = 0;
+    while written < encoded.len() {
+        match stream.write(&encoded[written..]) {
+            Ok(0) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    format!("TCP accepted {written} of {} bytes", encoded.len()),
+                ));
+            }
+            Ok(sent) => {
+                written += sent;
+                shared.bytes.fetch_add(sent as u64, Ordering::Relaxed);
+                shared.packets.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
     Ok(())
 }
 
