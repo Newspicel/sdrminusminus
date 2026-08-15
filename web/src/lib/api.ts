@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import { migrateSnapshot } from "../canvas/graph";
 import type { paths } from "../generated/schema";
@@ -472,7 +472,9 @@ export function toolsQuery() {
 /**
  * One tool call, as a query rather than a mutation: a tool answers a question about its
  * arguments and nothing else, so the same arguments may be served from the cache and going
- * back to a design already worked out costs no round trip.
+ * back to a design already worked out costs no round trip. The last answer stays on screen
+ * while the next one is worked out, so a panel keeps its shape and its view state instead of
+ * emptying out between arguments.
  */
 export function toolRunQuery(request: ToolRequest | null) {
   return queryOptions({
@@ -481,6 +483,7 @@ export function toolRunQuery(request: ToolRequest | null) {
       unwrap(await client.POST("/api/tools/run", { body: request as ToolRequest })),
     enabled: request !== null,
     staleTime: Number.POSITIVE_INFINITY,
+    placeholderData: keepPreviousData,
   });
 }
 

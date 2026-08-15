@@ -2,6 +2,7 @@
 // body while the server is down, which openapi-fetch surfaces as `{ error: undefined }` /
 // a plain string — previously read as success, crashing on `data.id` and reporting deletes
 // as applied.
+import { keepPreviousData } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   client,
@@ -9,6 +10,8 @@ import {
   NMEA_DEVICES_KEY,
   nmeaDevicesQuery,
   recordingDownloadUrl,
+  TOOL_RUN_KEY,
+  toolRunQuery,
   unwrap,
 } from "./api";
 import { setToken } from "./auth";
@@ -105,5 +108,22 @@ describe("decoderLogExportUrl", () => {
     expect(decoderLogExportUrl("csv", { limit: 500, sources: "0:1" })).toBe(
       "/api/decoderlog/export/csv?sources=0%3A1",
     );
+  });
+});
+
+describe("toolRunQuery", () => {
+  it("keeps the previous answer on screen while the next arguments are worked out", () => {
+    const query = toolRunQuery({ tool: "antenna", request: { frequency_hz: 1e6 } } as never);
+
+    expect(query.placeholderData).toBe(keepPreviousData);
+    expect(query.enabled).toBe(true);
+    expect(query.queryKey).toEqual([
+      ...TOOL_RUN_KEY,
+      { tool: "antenna", request: { frequency_hz: 1e6 } },
+    ]);
+  });
+
+  it("stays idle without a request", () => {
+    expect(toolRunQuery(null).enabled).toBe(false);
   });
 });

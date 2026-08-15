@@ -637,6 +637,34 @@ test.describe("the workspace", () => {
     await expect.poll(stored).toEqual(before);
   });
 
+  test("copies the selected node and pastes a second one beside it", async ({ page }) => {
+    await page.goto("/");
+    const stored = async (): Promise<string[]> => {
+      const list = await page.request.get("/api/workspaces").then((r) => r.json());
+      const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
+      return detail.snapshot.graph.nodes.map((node: { id: string }) => node.id);
+    };
+    const before = await stored();
+    const speaker = page.locator('.react-flow__node[data-id="speaker"]');
+    // The header, not the face: a click anywhere else lands on a control the face owns.
+    await speaker.locator("header").click();
+
+    await page.keyboard.press("ControlOrMeta+c");
+    await expect(page.getByText("Copied 1 node")).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+v");
+
+    // The fixture's speaker is `speaker`; a pasted one is minted as `speaker:…`.
+    const copy = page.locator('.react-flow__node[data-id^="speaker:"]');
+    await expect(copy).toBeVisible();
+    // The copy is what the next gesture is about, and only a selected face is draggable.
+    await expect(copy).toHaveClass(/selected/);
+    await expect.poll(async () => (await stored()).length).toBe(before.length + 1);
+
+    await page.getByRole("button", { name: /^undo/i }).click();
+    await expect(copy).toHaveCount(0);
+    await expect.poll(stored).toEqual(before);
+  });
+
   test("switches the scope between its wires and works from the frequency under the pointer", async ({
     page,
   }) => {
@@ -754,6 +782,14 @@ test.describe("the workspace", () => {
 
     await tools.getByRole("group", { name: "Length units" }).getByText("ft").click();
     await expect(tools.getByRole("row", { name: /^Reflector\b/ })).toContainText(/ft/);
+
+    // The next design replaces the answer in place: the panel never empties out, so the drawing
+    // is still turned the way it was left and still measured in the chosen unit.
+    await tools.getByRole("combobox", { name: "Antenna design" }).click();
+    await page.getByRole("option", { name: "Inverted V" }).click();
+    await expect(tools.getByRole("img", { name: /inverted v.*angle/i })).toBeVisible();
+    await expect(tools.getByRole("button", { name: "Reset angle" })).toBeVisible();
+    await expect(tools.getByRole("row", { name: /^Leg\b/ })).toContainText(/ft/);
 
     await tools.getByRole("button", { name: "Close" }).click();
     await expect(tools).toHaveCount(0);
