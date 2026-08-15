@@ -5196,6 +5196,150 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/VorParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "vor"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/IlsParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ils"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DscParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dsc"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/InmarsatStdcParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "inmarsat_stdc"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/InmarsatAeroParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "inmarsat_aero"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/Vdl2Params"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "vdl2"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/HfdlParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "hfdl"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/IridiumParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "iridium"
+                ]
+              }
+            }
           }
         ]
       },
@@ -5812,6 +5956,77 @@
           }
         }
       },
+      "DataLinkMessage": {
+        "type": "object",
+        "required": [
+          "message_type",
+          "crc_ok",
+          "details"
+        ],
+        "properties": {
+          "crc_ok": {
+            "type": "boolean"
+          },
+          "details": {},
+          "fec_corrected": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "frequency_error_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "message_type": {
+            "type": "string"
+          },
+          "raw": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snr_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "station": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "DatvParams": {
         "type": "object",
         "properties": {
@@ -6257,6 +6472,150 @@
                 "type": "string",
                 "enum": [
                   "gnss"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/VorReading"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vor"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/IlsReading"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ils"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DataLinkMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dsc"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DataLinkMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "inmarsat_stdc"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DataLinkMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "inmarsat_aero"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DataLinkMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "vdl2"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DataLinkMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "hfdl"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DataLinkMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "iridium"
                 ]
               }
             }
@@ -6865,6 +7224,9 @@
             "$ref": "#/components/schemas/DrmMode"
           }
         }
+      },
+      "DscParams": {
+        "type": "object"
       },
       "DstarParams": {
         "type": "object"
@@ -7505,6 +7867,9 @@
           }
         }
       },
+      "HfdlParams": {
+        "type": "object"
+      },
       "IdentFeatures": {
         "type": "object",
         "required": [
@@ -7646,6 +8011,68 @@
           }
         }
       },
+      "IlsComponent": {
+        "type": "string",
+        "enum": [
+          "localizer",
+          "glideslope"
+        ]
+      },
+      "IlsParams": {
+        "type": "object",
+        "properties": {
+          "component": {
+            "$ref": "#/components/schemas/IlsComponent"
+          },
+          "report_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "IlsReading": {
+        "type": "object",
+        "required": [
+          "component",
+          "modulation_90",
+          "modulation_150",
+          "ddm",
+          "deviation_dots",
+          "signal_db"
+        ],
+        "properties": {
+          "component": {
+            "$ref": "#/components/schemas/IlsComponent"
+          },
+          "ddm": {
+            "type": "number",
+            "format": "float"
+          },
+          "deviation_dots": {
+            "type": "number",
+            "format": "float"
+          },
+          "modulation_150": {
+            "type": "number",
+            "format": "float"
+          },
+          "modulation_90": {
+            "type": "number",
+            "format": "float"
+          },
+          "signal_db": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "InmarsatAeroParams": {
+        "type": "object"
+      },
+      "InmarsatStdcParams": {
+        "type": "object"
+      },
       "InvertedVParams": {
         "type": "object",
         "properties": {
@@ -7654,6 +8081,9 @@
             "format": "double"
           }
         }
+      },
+      "IridiumParams": {
+        "type": "object"
       },
       "ItuRegion": {
         "type": "string",
@@ -11782,6 +12212,9 @@
           }
         }
       },
+      "Vdl2Params": {
+        "type": "object"
+      },
       "Vendor": {
         "type": "string",
         "enum": [
@@ -11928,6 +12361,97 @@
             "items": {
               "$ref": "#/components/schemas/VoiceCall"
             }
+          }
+        }
+      },
+      "VorParams": {
+        "type": "object",
+        "properties": {
+          "magnetic_declination_deg": {
+            "type": "number",
+            "format": "double"
+          },
+          "report_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "station": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "station_lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "station_lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "VorReading": {
+        "type": "object",
+        "required": [
+          "magnetic_declination_deg",
+          "radial_deg",
+          "variable_phase_deg",
+          "reference_phase_deg",
+          "signal_db",
+          "confidence"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "number",
+            "format": "float"
+          },
+          "magnetic_declination_deg": {
+            "type": "number",
+            "format": "double"
+          },
+          "radial_deg": {
+            "type": "number",
+            "format": "double"
+          },
+          "reference_phase_deg": {
+            "type": "number",
+            "format": "double"
+          },
+          "signal_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "station": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "station_lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "station_lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "variable_phase_deg": {
+            "type": "number",
+            "format": "double"
           }
         }
       },

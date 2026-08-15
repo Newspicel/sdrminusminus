@@ -18,7 +18,9 @@ import {
   formatSpeedKt,
   inScope,
   isAtBottom,
+  latestVorReadings,
   latestWpm,
+  multiVorFix,
   ptyLabel,
   rdsPicture,
   rdsQuality,
@@ -67,6 +69,20 @@ function station<K extends DecoderKind>(
   };
 }
 
+function vorReading(stationName: string, lat: number, lon: number, radial: number) {
+  return {
+    station: stationName,
+    station_lat: lat,
+    station_lon: lon,
+    magnetic_declination_deg: 0,
+    radial_deg: radial,
+    variable_phase_deg: 0,
+    reference_phase_deg: 0,
+    signal_db: -12,
+    confidence: 1,
+  };
+}
+
 describe("scoping", () => {
   it("matches everything when the scope is empty", () => {
     expect(inScope(3, 7, {})).toBe(true);
@@ -84,6 +100,30 @@ describe("scoping", () => {
     const stations = [station("adsb", "abc123", { icao: "abc123", df: 17, raw: "8d" })];
     expect(stationsInScope(stations, {})).toBe(stations);
     expect(stationsInScope(stations, { deviceSet: 9 })).toHaveLength(0);
+  });
+});
+
+describe("multi-VOR fixes", () => {
+  it("intersects two non-parallel radials", () => {
+    const records = [
+      record("vor", vorReading("A", 0, 0, 45)),
+      record("vor", vorReading("B", 0, 2, 315), { channel: 1 }),
+    ];
+    const fix = multiVorFix(records);
+    expect(fix).not.toBeNull();
+    expect(fix?.lat).toBeCloseTo(1, 3);
+    expect(fix?.lon).toBeCloseTo(1, 3);
+    expect(fix?.residualKm).toBeLessThan(0.001);
+    expect(fix?.stations).toBe(2);
+  });
+
+  it("uses the newest reading from each station", () => {
+    const newest = record("vor", vorReading("A", 0, 0, 45), {
+      at: "2026-08-09T12:00:01Z",
+    });
+    const older = record("vor", vorReading("A", 0, 0, 90));
+    expect(latestVorReadings([older, newest])).toEqual([newest]);
+    expect(multiVorFix([newest])).toBeNull();
   });
 });
 

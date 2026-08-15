@@ -23,6 +23,14 @@ thiserror.workspace = true
 blip25-vocoder.workspace = true
 codec2.workspace = true
 mfsk-core.workspace = true
+serde_json.workspace = true
+xng-mode-dsc.workspace = true
+xng-mode-stdc.workspace = true
+xng-mode-aero.workspace = true
+xng-mode-vdl2.workspace = true
+xng-mode-hfdl.workspace = true
+xng-mode-iridium.workspace = true
+xng-types.workspace = true
 
 [build-dependencies]
 # Builds the small, statically linked first-generation AMBE decoder used only by D-STAR.

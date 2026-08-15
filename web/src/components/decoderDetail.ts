@@ -1,4 +1,4 @@
-import type { AprsPacket, DecoderEvent, DecoderKind, DvFrame } from "../lib/types";
+import type { AprsPacket, DataLinkMessage, DecoderEvent, DecoderKind, DvFrame } from "../lib/types";
 import { hex5 } from "./decoderLog";
 import {
   candidateScore,
@@ -293,7 +293,62 @@ const DETAIL: {
     ]),
     body: (g.words ?? []).join(" ") || null,
   }),
+  vor: (v) => ({
+    fields: fields([
+      ["Station", v.station],
+      ["Radial", `${v.radial_deg.toFixed(2)}°`],
+      ["Variable phase", `${v.variable_phase_deg.toFixed(2)}°`],
+      ["Reference phase", `${v.reference_phase_deg.toFixed(2)}°`],
+      ["Magnetic declination", `${signed(v.magnetic_declination_deg, 1)}°`],
+      ["Station position", position(v.station_lat, v.station_lon)],
+      ["Signal", `${v.signal_db.toFixed(1)} dB`],
+      ["Confidence", `${Math.round(v.confidence * 100)}%`],
+    ]),
+    body: null,
+  }),
+  ils: (i) => ({
+    fields: fields([
+      ["Component", i.component === "localizer" ? "localizer" : "glideslope"],
+      ["90 Hz modulation", `${(i.modulation_90 * 100).toFixed(2)}%`],
+      ["150 Hz modulation", `${(i.modulation_150 * 100).toFixed(2)}%`],
+      ["DDM", signed(i.ddm, 4)],
+      ["Deviation", `${signed(i.deviation_dots, 2)} dots`],
+      ["Signal", `${i.signal_db.toFixed(1)} dB`],
+    ]),
+    body: null,
+  }),
+  dsc: dataLinkDetail,
+  inmarsat_stdc: dataLinkDetail,
+  inmarsat_aero: dataLinkDetail,
+  vdl2: dataLinkDetail,
+  hfdl: dataLinkDetail,
+  iridium: dataLinkDetail,
 };
+
+function dataLinkDetail(message: DataLinkMessage): EventDetail {
+  const serialized = JSON.stringify(message.details, null, 2);
+  const detail =
+    serialized == null || serialized === "{}" || serialized === "null" ? null : serialized;
+  return {
+    fields: fields([
+      ["Message type", message.message_type],
+      ["Station", message.station],
+      ["Integrity", message.crc_ok ? "verified" : "failed"],
+      ["FEC repaired", message.fec_corrected == null ? undefined : String(message.fec_corrected)],
+      ["SNR", message.snr_db == null ? undefined : `${message.snr_db.toFixed(1)} dB`],
+      [
+        "Frequency error",
+        message.frequency_error_hz == null
+          ? undefined
+          : `${signed(message.frequency_error_hz, 1)} Hz`,
+      ],
+      ["Position", position(message.lat, message.lon)],
+      ["Raw", message.raw],
+    ]),
+    body:
+      [message.text?.trim() || null, detail].filter((value) => value !== null).join("\n\n") || null,
+  };
+}
 
 function utcOffset(minutes: number | null | undefined): string | undefined {
   if (minutes == null) return undefined;

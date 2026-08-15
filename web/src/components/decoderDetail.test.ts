@@ -7,6 +7,15 @@ function fieldsOf(event: DecoderEvent): Record<string, string> {
   return Object.fromEntries(eventDetail(event).fields);
 }
 
+function dataLink(
+  kind: "dsc" | "inmarsat_stdc" | "inmarsat_aero" | "vdl2" | "hfdl" | "iridium",
+): DecoderEvent {
+  return {
+    kind,
+    data: { message_type: "test", crc_ok: true, details: {} },
+  };
+}
+
 describe("eventDetail", () => {
   it("answers for every decoder the wire union declares", () => {
     const sample: Record<DecoderKind, DecoderEvent> = {
@@ -139,6 +148,34 @@ describe("eventDetail", () => {
           cn0_db_hz: 44.5,
         },
       },
+      vor: {
+        kind: "vor",
+        data: {
+          radial_deg: 123,
+          variable_phase_deg: 123,
+          reference_phase_deg: 0,
+          magnetic_declination_deg: 0,
+          signal_db: -12,
+          confidence: 0.9,
+        },
+      },
+      ils: {
+        kind: "ils",
+        data: {
+          component: "localizer",
+          modulation_90: 0.2,
+          modulation_150: 0.2,
+          ddm: 0,
+          deviation_dots: 0,
+          signal_db: -10,
+        },
+      },
+      dsc: dataLink("dsc"),
+      inmarsat_stdc: dataLink("inmarsat_stdc"),
+      inmarsat_aero: dataLink("inmarsat_aero"),
+      vdl2: dataLink("vdl2"),
+      hfdl: dataLink("hfdl"),
+      iridium: dataLink("iridium"),
     };
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();

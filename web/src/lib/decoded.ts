@@ -277,6 +277,14 @@ function stationId(event: DecoderEvent): string | null {
     case "broadcast":
     case "radio_clock":
     case "gnss":
+    case "vor":
+    case "ils":
+    case "dsc":
+    case "inmarsat_stdc":
+    case "inmarsat_aero":
+    case "vdl2":
+    case "hfdl":
+    case "iridium":
       return null;
   }
 }

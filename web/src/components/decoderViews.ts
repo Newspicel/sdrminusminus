@@ -8,6 +8,7 @@ import type {
   IdentReport,
   Modulation,
   RdsUpdate,
+  VorReading,
 } from "../lib/types";
 import { formatHz } from "./format";
 
@@ -31,6 +32,94 @@ export function recordsInScope<K extends DecodedRecord["event"]["kind"]>(
     return records;
   }
   return records.filter((r) => inScope(r.device_set, r.channel, scope));
+}
+
+export function latestVorReadings(
+  records: readonly DecodedRecordOf<"vor">[],
+): DecodedRecordOf<"vor">[] {
+  const latest = new Map<string, DecodedRecordOf<"vor">>();
+  for (const record of records) {
+    const key = record.event.data.station ?? `${record.device_set}:${record.channel}`;
+    const previous = latest.get(key);
+    if (previous === undefined || Date.parse(record.at) > Date.parse(previous.at)) {
+      latest.set(key, record);
+    }
+  }
+  return [...latest.values()].toSorted((a, b) => a.event.data.radial_deg - b.event.data.radial_deg);
+}
+
+export interface VorFix {
+  lat: number;
+  lon: number;
+  residualKm: number;
+  stations: number;
+}
+
+export function multiVorFix(records: readonly DecodedRecordOf<"vor">[]): VorFix | null {
+  const usable = records.filter(hasVorPosition);
+  if (usable.length < 2) {
+    return null;
+  }
+  const earthRadiusKm = 6371;
+  const refLat = average(usable.map((record) => radians(record.event.data.station_lat!)));
+  const refLon = average(usable.map((record) => radians(record.event.data.station_lon!)));
+  let a00 = 0;
+  let a01 = 0;
+  let a11 = 0;
+  let b0 = 0;
+  let b1 = 0;
+  const lines = usable.map((record) => {
+    const reading = record.event.data;
+    const x = earthRadiusKm * (radians(reading.station_lon!) - refLon) * Math.cos(refLat);
+    const y = earthRadiusKm * (radians(reading.station_lat!) - refLat);
+    const bearing = radians(reading.radial_deg + reading.magnetic_declination_deg);
+    const nx = Math.cos(bearing);
+    const ny = -Math.sin(bearing);
+    const projection = nx * x + ny * y;
+    const weight = Math.max(0.05, reading.confidence) ** 2;
+    a00 += weight * nx * nx;
+    a01 += weight * nx * ny;
+    a11 += weight * ny * ny;
+    b0 += weight * nx * projection;
+    b1 += weight * ny * projection;
+    return { nx, ny, projection, weight };
+  });
+  const determinant = a00 * a11 - a01 * a01;
+  if (Math.abs(determinant) < 1e-8) {
+    return null;
+  }
+  const x = (b0 * a11 - b1 * a01) / determinant;
+  const y = (a00 * b1 - a01 * b0) / determinant;
+  const weightedError = lines.reduce((sum, line) => {
+    const error = line.nx * x + line.ny * y - line.projection;
+    return sum + line.weight * error * error;
+  }, 0);
+  const weight = lines.reduce((sum, line) => sum + line.weight, 0);
+  return {
+    lat: degreesFromRadians(refLat + y / earthRadiusKm),
+    lon: degreesFromRadians(refLon + x / (earthRadiusKm * Math.cos(refLat))),
+    residualKm: Math.sqrt(weightedError / weight),
+    stations: usable.length,
+  };
+}
+
+function hasVorPosition(
+  record: DecodedRecordOf<"vor">,
+): record is DecodedRecordOf<"vor"> & { event: { data: VorReading } } {
+  const { station_lat: lat, station_lon: lon } = record.event.data;
+  return lat != null && lon != null && Number.isFinite(lat) && Number.isFinite(lon);
+}
+
+function radians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+function degreesFromRadians(angle: number): number {
+  return (angle * 180) / Math.PI;
+}
+
+function average(values: readonly number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 export function stationsInScope<S extends { deviceSet: number; channel: number }>(

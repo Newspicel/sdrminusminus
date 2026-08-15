@@ -19,6 +19,7 @@ import { Select } from "./Select";
 import { SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
 import { withCurrent } from "./selectOptions";
+import { TextAutocomplete } from "./TextAutocomplete";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const DEFAULT_SQUELCH_DB = -60;
@@ -39,6 +40,10 @@ const SIDEBANDS: Options<NonNullable<ChannelParamsOf<"ssb">["sideband"]>> = [
 const SELCALL_SYSTEMS: Options<NonNullable<ChannelParamsOf<"selcall">["system"]>> = [
   { value: "ccir1", label: "CCIR-1" },
   { value: "zvei1", label: "ZVEI-1" },
+];
+const ILS_COMPONENTS: Options<NonNullable<ChannelParamsOf<"ils">["component"]>> = [
+  { value: "localizer", label: "Localizer" },
+  { value: "glideslope", label: "Glideslope" },
 ];
 const POCSAG_BAUDS: Options<NonNullable<ChannelParamsOf<"pocsag">["baud"]>> = [
   { value: "auto", label: "Auto" },
@@ -672,6 +677,99 @@ function ModeControls({
           </SettingRow>
         </>
       );
+    case "vor": {
+      const set = (settings: ChannelParamsOf<"vor">) => onParams({ type: "vor", settings });
+      return (
+        <>
+          <SettingRow label="Station">
+            <TextAutocomplete
+              label="VOR station identifier"
+              value={params.settings.station ?? ""}
+              suggestions={[]}
+              placeholder="Optional identifier"
+              onCommit={(station) => {
+                set({ ...params.settings, station });
+                return true;
+              }}
+            />
+          </SettingRow>
+          <SettingRow label="Station latitude">
+            <OptionalNumberField
+              label="VOR station latitude"
+              placeholder="Unknown"
+              value={params.settings.station_lat ?? null}
+              min={-90}
+              max={90}
+              step={0.00001}
+              onCommit={(station_lat) => set({ ...params.settings, station_lat })}
+            />
+          </SettingRow>
+          <SettingRow label="Station longitude">
+            <OptionalNumberField
+              label="VOR station longitude"
+              placeholder="Unknown"
+              value={params.settings.station_lon ?? null}
+              min={-180}
+              max={180}
+              step={0.00001}
+              onCommit={(station_lon) => set({ ...params.settings, station_lon })}
+            />
+          </SettingRow>
+          <SettingRow label="Declination">
+            <NumberField
+              label="East-positive magnetic declination at the VOR"
+              value={params.settings.magnetic_declination_deg ?? 0}
+              min={-180}
+              max={180}
+              step={0.1}
+              onCommit={(magnetic_declination_deg) =>
+                set({ ...params.settings, magnetic_declination_deg })
+              }
+            />
+            <span className="legend">°</span>
+          </SettingRow>
+          <SettingRow label="Report every">
+            <NumberField
+              label="VOR report interval in milliseconds"
+              value={params.settings.report_ms ?? 500}
+              min={250}
+              max={5_000}
+              step={250}
+              onCommit={(report_ms) => set({ ...params.settings, report_ms })}
+            />
+            <span className="legend">ms</span>
+          </SettingRow>
+        </>
+      );
+    }
+    case "ils":
+      return (
+        <>
+          <SettingRow label="Component">
+            <Segmented
+              label="ILS component"
+              value={params.settings.component ?? "localizer"}
+              options={ILS_COMPONENTS}
+              onChange={(component) =>
+                onParams({ type: "ils", settings: { ...params.settings, component } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Report every">
+            <NumberField
+              label="ILS report interval in milliseconds"
+              value={params.settings.report_ms ?? 500}
+              min={250}
+              max={5_000}
+              step={250}
+              onCommit={(report_ms) =>
+                onParams({ type: "ils", settings: { ...params.settings, report_ms } })
+              }
+            />
+            <span className="legend">ms</span>
+          </SettingRow>
+        </>
+      );
     case "acars":
       return (
         <SettingRow label="Bandwidth">
@@ -993,6 +1091,12 @@ function ModeControls({
     case "p25":
     case "dpmr":
     case "m17":
+    case "dsc":
+    case "inmarsat_stdc":
+    case "inmarsat_aero":
+    case "vdl2":
+    case "hfdl":
+    case "iridium":
       return null;
     default:
       return unhandledMode(params);

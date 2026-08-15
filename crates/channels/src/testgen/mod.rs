@@ -14,6 +14,7 @@ pub mod rds;
 pub mod rtty;
 pub mod selcall;
 pub mod subghz;
+pub mod vor;
 pub mod weak_signal;
 pub mod wfm;
 

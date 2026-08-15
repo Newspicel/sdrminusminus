@@ -1453,6 +1453,38 @@ export interface components {
             settings: components["schemas"]["GnssParams"];
             /** @enum {string} */
             type: "gnss";
+        } | {
+            settings: components["schemas"]["VorParams"];
+            /** @enum {string} */
+            type: "vor";
+        } | {
+            settings: components["schemas"]["IlsParams"];
+            /** @enum {string} */
+            type: "ils";
+        } | {
+            settings: components["schemas"]["DscParams"];
+            /** @enum {string} */
+            type: "dsc";
+        } | {
+            settings: components["schemas"]["InmarsatStdcParams"];
+            /** @enum {string} */
+            type: "inmarsat_stdc";
+        } | {
+            settings: components["schemas"]["InmarsatAeroParams"];
+            /** @enum {string} */
+            type: "inmarsat_aero";
+        } | {
+            settings: components["schemas"]["Vdl2Params"];
+            /** @enum {string} */
+            type: "vdl2";
+        } | {
+            settings: components["schemas"]["HfdlParams"];
+            /** @enum {string} */
+            type: "hfdl";
+        } | {
+            settings: components["schemas"]["IridiumParams"];
+            /** @enum {string} */
+            type: "iridium";
         };
         ChannelRecordRequest: {
             action: components["schemas"]["RecordAction"];
@@ -1617,6 +1649,24 @@ export interface components {
         DabParams: {
             mode?: components["schemas"]["DabMode"];
         };
+        DataLinkMessage: {
+            crc_ok: boolean;
+            details: unknown;
+            /** Format: int32 */
+            fec_corrected?: number | null;
+            /** Format: float */
+            frequency_error_hz?: number | null;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            message_type: string;
+            raw?: string | null;
+            /** Format: float */
+            snr_db?: number | null;
+            station?: string | null;
+            text?: string | null;
+        };
         DatvParams: {
             standard?: components["schemas"]["DatvStandard"];
             /** Format: double */
@@ -1722,6 +1772,38 @@ export interface components {
             data: components["schemas"]["GnssFrame"];
             /** @enum {string} */
             kind: "gnss";
+        } | {
+            data: components["schemas"]["VorReading"];
+            /** @enum {string} */
+            kind: "vor";
+        } | {
+            data: components["schemas"]["IlsReading"];
+            /** @enum {string} */
+            kind: "ils";
+        } | {
+            data: components["schemas"]["DataLinkMessage"];
+            /** @enum {string} */
+            kind: "dsc";
+        } | {
+            data: components["schemas"]["DataLinkMessage"];
+            /** @enum {string} */
+            kind: "inmarsat_stdc";
+        } | {
+            data: components["schemas"]["DataLinkMessage"];
+            /** @enum {string} */
+            kind: "inmarsat_aero";
+        } | {
+            data: components["schemas"]["DataLinkMessage"];
+            /** @enum {string} */
+            kind: "vdl2";
+        } | {
+            data: components["schemas"]["DataLinkMessage"];
+            /** @enum {string} */
+            kind: "hfdl";
+        } | {
+            data: components["schemas"]["DataLinkMessage"];
+            /** @enum {string} */
+            kind: "iridium";
         };
         DecoderLogEntry: {
             at: string;
@@ -1869,6 +1951,7 @@ export interface components {
             bandwidth_hz?: number;
             mode?: components["schemas"]["DrmMode"];
         };
+        DscParams: Record<string, never>;
         DstarParams: Record<string, never>;
         /** @enum {string} */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
@@ -2030,6 +2113,7 @@ export interface components {
             /** Format: int32 */
             radials?: number;
         };
+        HfdlParams: Record<string, never>;
         IdentFeatures: {
             /** Format: float */
             carrier_db: number;
@@ -2078,10 +2162,33 @@ export interface components {
             /** Format: double */
             symbol_rate_hz?: number | null;
         };
+        /** @enum {string} */
+        IlsComponent: "localizer" | "glideslope";
+        IlsParams: {
+            component?: components["schemas"]["IlsComponent"];
+            /** Format: int32 */
+            report_ms?: number;
+        };
+        IlsReading: {
+            component: components["schemas"]["IlsComponent"];
+            /** Format: float */
+            ddm: number;
+            /** Format: float */
+            deviation_dots: number;
+            /** Format: float */
+            modulation_90: number;
+            /** Format: float */
+            modulation_150: number;
+            /** Format: float */
+            signal_db: number;
+        };
+        InmarsatAeroParams: Record<string, never>;
+        InmarsatStdcParams: Record<string, never>;
         InvertedVParams: {
             /** Format: double */
             apex_angle_deg?: number;
         };
+        IridiumParams: Record<string, never>;
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
         LicenseTextResponse: {
@@ -3143,6 +3250,7 @@ export interface components {
             revision: number;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
+        Vdl2Params: Record<string, never>;
         /** @enum {string} */
         Vendor: "standard" | "etsi" | "motorola" | "hytera" | "harris" | "tait" | "jvc_kenwood" | "emc" | "radio_activity" | "flyde_micro" | "prod_el" | "unknown";
         VoiceCall: {
@@ -3177,6 +3285,36 @@ export interface components {
         };
         VoiceCallsResponse: {
             calls: components["schemas"]["VoiceCall"][];
+        };
+        VorParams: {
+            /** Format: double */
+            magnetic_declination_deg?: number;
+            /** Format: int32 */
+            report_ms?: number;
+            station?: string | null;
+            /** Format: double */
+            station_lat?: number | null;
+            /** Format: double */
+            station_lon?: number | null;
+        };
+        VorReading: {
+            /** Format: float */
+            confidence: number;
+            /** Format: double */
+            magnetic_declination_deg: number;
+            /** Format: double */
+            radial_deg: number;
+            /** Format: double */
+            reference_phase_deg: number;
+            /** Format: float */
+            signal_db: number;
+            station?: string | null;
+            /** Format: double */
+            station_lat?: number | null;
+            /** Format: double */
+            station_lon?: number | null;
+            /** Format: double */
+            variable_phase_deg: number;
         };
         WfmParams: {
             /** Format: float */

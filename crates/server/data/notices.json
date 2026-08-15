@@ -924,6 +924,28 @@
       ]
     },
     {
+      "name": "crossbeam-deque",
+      "version": "0.8.7",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/crossbeam-rs/crossbeam",
+      "texts": [
+        "5a7d13c6710cdec2",
+        "769f80b5bcb42ed0"
+      ]
+    },
+    {
+      "name": "crossbeam-epoch",
+      "version": "0.9.20",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/crossbeam-rs/crossbeam",
+      "texts": [
+        "5a7d13c6710cdec2",
+        "769f80b5bcb42ed0"
+      ]
+    },
+    {
       "name": "crossbeam-utils",
       "version": "0.8.22",
       "license": "MIT OR Apache-2.0",
@@ -1345,6 +1367,17 @@
       "texts": [
         "30fefc3a7d6a0041",
         "95bd3988beee069f"
+      ]
+    },
+    {
+      "name": "either",
+      "version": "1.17.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/rayon-rs/either",
+      "texts": [
+        "769f80b5bcb42ed0",
+        "fdd1c2117bcf8157"
       ]
     },
     {
@@ -3753,6 +3786,28 @@
       "texts": [
         "21a2121221d2a35d",
         "58d1e17ffe5109a7"
+      ]
+    },
+    {
+      "name": "rayon",
+      "version": "1.12.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/rayon-rs/rayon",
+      "texts": [
+        "769f80b5bcb42ed0",
+        "9e0027807b0c548a"
+      ]
+    },
+    {
+      "name": "rayon-core",
+      "version": "1.13.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/rayon-rs/rayon",
+      "texts": [
+        "769f80b5bcb42ed0",
+        "9e0027807b0c548a"
       ]
     },
     {
@@ -6781,6 +6836,78 @@
       "texts": [
         "06250c7066bcd3f9"
       ]
+    },
+    {
+      "name": "xng-acars",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-dsp",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-mode-aero",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-mode-dsc",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-mode-hfdl",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-mode-iridium",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-mode-stdc",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-mode-vdl2",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
+    },
+    {
+      "name": "xng-types",
+      "version": "0.21.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/airframesio/xng",
+      "texts": []
     },
     {
       "name": "yoke",
