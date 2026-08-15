@@ -87,6 +87,9 @@ pub(crate) struct AppState {
     pub(crate) calls: Arc<calls::Calls>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
+    /// The tool plane: calculators and instruments that stand beside the receiver and share
+    /// nothing with it but the process.
+    pub(crate) tools: Arc<sdrmm_tools::ToolRegistry>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
     /// `(workspace, node, device set)` triples apply has already handed their stored settings.
     ///
@@ -117,6 +120,7 @@ impl AppState {
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            tools: Arc::new(sdrmm_tools::ToolRegistry::with_builtins()),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
@@ -353,7 +357,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, time::Instant};
+    use std::{net::UdpSocket, path::Path, time::Instant};
 
     use axum::{
         body::{Body, Bytes},
@@ -363,9 +367,9 @@ mod tests {
     use sdrmm_wire::{
         AdsbMessage, ApiError, AprsPacket, Bookmark, ChannelParams, ChannelSettings,
         ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
-        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NfmParams,
-        NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus, RecordingsResponse,
-        StateSnapshot, VoiceCallsResponse,
+        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NetworkExportStatus,
+        NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus,
+        RecordingsResponse, StateSnapshot, VoiceCallsResponse,
     };
     use tower::ServiceExt;
 
@@ -497,6 +501,7 @@ mod tests {
             "/api/bookmarks",
             "/api/bookmarks/{id}",
             "/api/devicesets/{ds}/record",
+            "/api/devicesets/{ds}/network-export",
             "/api/devicesets/{ds}/playback",
             "/api/recordings",
             "/api/recordings/{id}",
@@ -507,6 +512,8 @@ mod tests {
             "/api/calls/{id}/audio",
             "/api/workspaces/{id}/apply",
             "/api/patch/catalog",
+            "/api/tools",
+            "/api/tools/run",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -520,6 +527,7 @@ mod tests {
             "ChannelSettings",
             "PresetSnapshot",
             "RecordingStatus",
+            "NetworkExportStatus",
             "RecordingInfo",
             "DecoderLogEntry",
             "DecoderLogResponse",
@@ -532,6 +540,11 @@ mod tests {
             "DeviceRef",
             "PatchCatalog",
             "PatchApplyReport",
+            "ToolDescriptor",
+            "ToolRequest",
+            "ToolResponse",
+            "AntennaDesign",
+            "AntennaReport",
         ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
@@ -1531,6 +1544,58 @@ mod tests {
         let (status, _) =
             request(app, "DELETE", &format!("/api/recordings/{}", rec.id), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn network_export_start_stream_and_stop_roundtrip_over_http() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("timeout");
+        let address = receiver.local_addr().expect("address");
+        let start = serde_json::json!({
+            "action": "start",
+            "node": "network:test",
+            "stream": 0,
+            "settings": {
+                "transport": "udp",
+                "format": "cu8",
+                "address": address.to_string(),
+            },
+        });
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/network-export"),
+            Some(&start.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let live: NetworkExportStatus = serde_json::from_slice(&body).expect("status");
+        assert_eq!(live.node, "network:test");
+        assert_eq!(live.settings.address, address.to_string());
+
+        let mut datagram = [0u8; 1_500];
+        let received = receiver.recv(&mut datagram).expect("IQ datagram");
+        assert!(received > 0);
+        assert_eq!(received % 2, 0);
+
+        let stop = serde_json::json!({ "action": "stop", "node": "network:test" });
+        let (status, body) = request(
+            app,
+            "POST",
+            &format!("/api/devicesets/{ds}/network-export"),
+            Some(&stop.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let done: NetworkExportStatus = serde_json::from_slice(&body).expect("status");
+        assert!(done.samples > 0);
+        assert_eq!(done.bytes, done.samples * 2);
+        assert!(done.packets > 0);
+        assert_eq!(done.error, None);
     }
 
     #[tokio::test]
@@ -2955,6 +3020,82 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The launcher renders whatever this lists, so a tool that is compiled in must be
+    /// discoverable without the client knowing its name in advance.
+    #[tokio::test]
+    async fn tools_lists_what_this_build_offers() {
+        let (status, body) = request(test_router(), "GET", "/api/tools", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let tools: sdrmm_wire::ToolsResponse = serde_json::from_slice(&body).expect("json");
+        let antenna = tools
+            .tools
+            .iter()
+            .find(|tool| tool.id == sdrmm_wire::ANTENNA_TOOL_ID)
+            .expect("the antenna calculator is a builtin");
+        assert!(!antenna.needs_hardware);
+        assert!(!antenna.summary.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_tool_call_answers_under_the_tag_it_was_asked_with() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(
+                r#"{"tool":"antenna","request":{"frequency_hz":145500000.0,
+                    "design":{"type":"yagi","settings":{"directors":3,
+                    "spacing_wavelengths":0.2}}}}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let response: sdrmm_wire::ToolResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(response.tool_id(), sdrmm_wire::ANTENNA_TOOL_ID);
+        let sdrmm_wire::ToolResponse::Antenna(report) = response else {
+            panic!("an antenna request is answered by the antenna tool");
+        };
+        assert_eq!(report.frequency_hz, 145_500_000.0);
+        assert!(
+            report
+                .parts
+                .iter()
+                .any(|part| part.name == "Director 3" && part.position_m.is_some())
+        );
+    }
+
+    /// A tool refusing a number is a bad request, not a server fault, and the reason has to
+    /// name the field the operator typed.
+    #[tokio::test]
+    async fn a_tool_refusal_is_a_typed_bad_request() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(r#"{"tool":"antenna","request":{"frequency_hz":0.0,"design":{"type":"dipole"}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error: ApiError = serde_json::from_slice(&body).expect("json");
+        assert!(error.error.contains("frequency_hz"), "{}", error.error);
+    }
+
+    /// An unknown tag is a schema mismatch, and must come back as the documented error body
+    /// rather than axum's plain text.
+    #[tokio::test]
+    async fn an_unknown_tool_tag_is_refused_in_the_error_shape() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(r#"{"tool":"nanovna","request":{}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        let error: ApiError = serde_json::from_slice(&body).expect("json");
+        assert_eq!(error.error, "invalid request body");
     }
 
     /// The notices are a shipping obligation, so the route that delivers them is part of the
