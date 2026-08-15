@@ -4701,6 +4701,42 @@
             ],
             "properties": {
               "settings": {
+                "$ref": "#/components/schemas/FlexParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "flex"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/ErmesParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ermes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
                 "$ref": "#/components/schemas/AdsbParams"
               },
               "type": {
@@ -4779,6 +4815,24 @@
                 "type": "string",
                 "enum": [
                   "morse"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/CwSkimmerParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cw_skimmer"
                 ]
               }
             }
@@ -5796,6 +5850,57 @@
           }
         }
       },
+      "CwSkimmerParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "max_signals": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "threshold_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "wpm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
+      "CwSkimmerSpot": {
+        "type": "object",
+        "required": [
+          "offset_hz",
+          "text",
+          "wpm",
+          "snr_db"
+        ],
+        "properties": {
+          "offset_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "text": {
+            "type": "string"
+          },
+          "wpm": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
       "DabMode": {
         "type": "string",
         "enum": [
@@ -5909,6 +6014,42 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/FlexMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "flex"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ErmesMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ermes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/AdsbMessage"
               },
               "kind": {
@@ -5987,6 +6128,24 @@
                 "type": "string",
                 "enum": [
                   "morse"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CwSkimmerSpot"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "cw_skimmer"
                 ]
               }
             }
@@ -7220,6 +7379,61 @@
           "tier_three"
         ]
       },
+      "ErmesMessage": {
+        "type": "object",
+        "required": [
+          "local_address",
+          "message_number",
+          "payload",
+          "text",
+          "urgent",
+          "alert",
+          "errors_corrected"
+        ],
+        "properties": {
+          "alert": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "local_address": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "message_number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PagerPayload"
+          },
+          "text": {
+            "type": "string"
+          },
+          "urgent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ErmesParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "invert": {
+            "type": "boolean"
+          }
+        }
+      },
       "EventAudio": {
         "type": "object",
         "required": [
@@ -7356,6 +7570,73 @@
             "type": "string"
           },
           "value": {}
+        }
+      },
+      "FlexMessage": {
+        "type": "object",
+        "required": [
+          "address",
+          "payload",
+          "text",
+          "baud",
+          "levels",
+          "cycle",
+          "frame",
+          "phase",
+          "errors_corrected"
+        ],
+        "properties": {
+          "address": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "baud": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cycle": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frame": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "levels": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PagerPayload"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "FlexParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "invert": {
+            "type": "boolean"
+          }
         }
       },
       "FreeDvMode": {
@@ -9206,6 +9487,15 @@
       },
       "P25Params": {
         "type": "object"
+      },
+      "PagerPayload": {
+        "type": "string",
+        "enum": [
+          "tone",
+          "numeric",
+          "alpha",
+          "binary"
+        ]
       },
       "PatchApplyReport": {
         "type": "object",

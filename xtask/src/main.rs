@@ -1200,6 +1200,47 @@ fn decoder_fixtures() -> Vec<Fixture> {
     }];
 
     out.push(Fixture {
+        stem: "flex_1600_2_240k".to_string(),
+        iq: at(
+            testgen::flex::transmission(
+                &testgen::flex::Page {
+                    address: 1_234_567,
+                    text: "SDR-- FLEX FIXTURE".to_string(),
+                },
+                7,
+                83,
+                NARROW,
+            ),
+            30_000.0,
+            NARROW,
+        ),
+        rate: NARROW,
+        note: "flex channel at +30 kHz -> address 1234567 \"SDR-- FLEX FIXTURE\", cycle 7 frame 83"
+            .to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "ermes_alpha_240k".to_string(),
+        iq: at(
+            testgen::ermes::transmission(
+                &testgen::ermes::Page {
+                    local_address: 234_567,
+                    message_number: 3,
+                    text: "SDR-- ERMES FIXTURE".to_string(),
+                    urgent: true,
+                    alert: 5,
+                },
+                NARROW,
+            ),
+            -30_000.0,
+            NARROW,
+        ),
+        rate: NARROW,
+        note: "ermes channel at -30 kHz -> address 234567 \"SDR-- ERMES FIXTURE\", urgent alert 5"
+            .to_string(),
+    });
+
+    out.push(Fixture {
         stem: "selcall_ccir1_48k".to_string(),
         iq: at(
             testgen::selcall::transmission(sdrmm_wire::SelcallSystem::Ccir1, "12234", AUDIO)
@@ -1277,6 +1318,24 @@ fn decoder_fixtures() -> Vec<Fixture> {
         ),
         rate: AUDIO,
         note: "morse channel at -5 kHz -> \"CQ DE DL1ABC K\" at 20 wpm".to_string(),
+    });
+
+    let first_cw = testgen::morse::transmission("VVV CQ DE DL1AAA K", 18.0, -3_500.0, AUDIO);
+    let second_cw = testgen::morse::transmission("VVV CQ DE G4BBB K", 27.0, 4_200.0, AUDIO);
+    let mut skimmer_iq =
+        vec![Complex::new(0.0, 0.0); first_cw.len().max(second_cw.len()) + AUDIO as usize * 4];
+    for (destination, source) in skimmer_iq.iter_mut().zip(first_cw) {
+        *destination += source * 0.55;
+    }
+    for (destination, source) in skimmer_iq.iter_mut().zip(second_cw) {
+        *destination += source * 0.35;
+    }
+    out.push(Fixture {
+        stem: "cw_skimmer_dual_48k".to_string(),
+        iq: skimmer_iq,
+        rate: AUDIO,
+        note: "cw_skimmer channel -> simultaneous DL1AAA at -3.5 kHz/18 wpm and G4BBB at +4.2 kHz/27 wpm"
+            .to_string(),
     });
 
     const ADSB_RATE: f64 = 2_000_000.0;

@@ -1342,6 +1342,14 @@ export interface components {
             /** @enum {string} */
             type: "pocsag";
         } | {
+            settings: components["schemas"]["FlexParams"];
+            /** @enum {string} */
+            type: "flex";
+        } | {
+            settings: components["schemas"]["ErmesParams"];
+            /** @enum {string} */
+            type: "ermes";
+        } | {
             settings: components["schemas"]["AdsbParams"];
             /** @enum {string} */
             type: "adsb";
@@ -1361,6 +1369,10 @@ export interface components {
             settings: components["schemas"]["MorseParams"];
             /** @enum {string} */
             type: "morse";
+        } | {
+            settings: components["schemas"]["CwSkimmerParams"];
+            /** @enum {string} */
+            type: "cw_skimmer";
         } | {
             settings: components["schemas"]["NavtexParams"];
             /** @enum {string} */
@@ -1612,6 +1624,25 @@ export interface components {
             name: string;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
+        CwSkimmerParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            /** Format: int32 */
+            max_signals?: number;
+            /** Format: float */
+            threshold_db?: number;
+            /** Format: float */
+            wpm?: number | null;
+        };
+        CwSkimmerSpot: {
+            /** Format: float */
+            offset_hz: number;
+            /** Format: float */
+            snr_db: number;
+            text: string;
+            /** Format: float */
+            wpm: number;
+        };
         /** @enum {string} */
         DabMode: "auto" | "dab" | "dab_plus";
         DabParams: {
@@ -1643,6 +1674,14 @@ export interface components {
             /** @enum {string} */
             kind: "pocsag";
         } | {
+            data: components["schemas"]["FlexMessage"];
+            /** @enum {string} */
+            kind: "flex";
+        } | {
+            data: components["schemas"]["ErmesMessage"];
+            /** @enum {string} */
+            kind: "ermes";
+        } | {
             data: components["schemas"]["AdsbMessage"];
             /** @enum {string} */
             kind: "adsb";
@@ -1662,6 +1701,10 @@ export interface components {
             data: components["schemas"]["MorseText"];
             /** @enum {string} */
             kind: "morse";
+        } | {
+            data: components["schemas"]["CwSkimmerSpot"];
+            /** @enum {string} */
+            kind: "cw_skimmer";
         } | {
             data: components["schemas"]["SelcallSequence"];
             /** @enum {string} */
@@ -1948,6 +1991,24 @@ export interface components {
         };
         /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
+        ErmesMessage: {
+            /** Format: int32 */
+            alert: number;
+            /** Format: int32 */
+            errors_corrected: number;
+            /** Format: int32 */
+            local_address: number;
+            /** Format: int32 */
+            message_number: number;
+            payload: components["schemas"]["PagerPayload"];
+            text: string;
+            urgent: boolean;
+        };
+        ErmesParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            invert?: boolean;
+        };
         EventAudio: {
             media_type: string;
             url: string;
@@ -1980,6 +2041,28 @@ export interface components {
         ExtraValue: {
             name: string;
             value: unknown;
+        };
+        FlexMessage: {
+            /** Format: int64 */
+            address: number;
+            /** Format: int32 */
+            baud: number;
+            /** Format: int32 */
+            cycle: number;
+            /** Format: int32 */
+            errors_corrected: number;
+            /** Format: int32 */
+            frame: number;
+            /** Format: int32 */
+            levels: number;
+            payload: components["schemas"]["PagerPayload"];
+            phase: string;
+            text: string;
+        };
+        FlexParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            invert?: boolean;
         };
         /** @enum {string} */
         FreeDvMode: "mode1600";
@@ -2453,6 +2536,8 @@ export interface components {
             since: string;
         };
         P25Params: Record<string, never>;
+        /** @enum {string} */
+        PagerPayload: "tone" | "numeric" | "alpha" | "binary";
         PatchApplyReport: {
             absent?: string[];
             bound: components["schemas"]["PatchBinding"][];

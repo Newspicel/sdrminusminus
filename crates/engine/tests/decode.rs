@@ -10,11 +10,11 @@ use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, BroadcastSystem,
-    ChannelParams, ChannelSettings, DabParams, DatvParams, DatvStandard, DecodedRecord,
-    DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, FreeDvParams, GnssParams, IdentParams,
-    Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams,
-    PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SubghzEncoding, SubghzParams,
-    WfmParams, WsjtParams, WsprParams,
+    ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams, DatvStandard,
+    DecodedRecord, DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams,
+    FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, PocsagBaud, PocsagParams, PskParams, RdsUpdate, RttyParams, SelcallParams,
+    SelcallSystem, SubghzEncoding, SubghzParams, WfmParams, WsjtParams, WsprParams,
 };
 use tempfile::TempDir;
 
@@ -161,6 +161,76 @@ async fn pocsag_page_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert_eq!(page.function, 3);
     assert_eq!(page.baud, 1_200);
     assert_eq!(page.text, "ENGINE E2E");
+}
+
+#[tokio::test]
+async fn flex_page_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 35_000.0;
+    let page = testgen::flex::Page {
+        address: 345_678,
+        text: "FLEX ENGINE E2E".to_owned(),
+    };
+    let mut iq = testgen::flex::transmission(&page, 4, 72, NARROW_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let device = plant(dir.path(), "flex", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Flex(FlexParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Flex(_)),
+    )
+    .await;
+    let DecoderEvent::Flex(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.address, 345_678);
+    assert_eq!(message.text, "FLEX ENGINE E2E");
+    assert_eq!((message.cycle, message.frame), (4, 72));
+}
+
+#[tokio::test]
+async fn ermes_page_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = -30_000.0;
+    let page = testgen::ermes::Page {
+        local_address: 456_789,
+        message_number: 6,
+        text: "ERMES ENGINE E2E".to_owned(),
+        urgent: true,
+        alert: 4,
+    };
+    let mut iq = testgen::ermes::transmission(&page, NARROW_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+    let device = plant(dir.path(), "ermes", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Ermes(ErmesParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Ermes(_)),
+    )
+    .await;
+    let DecoderEvent::Ermes(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.local_address, 456_789);
+    assert_eq!(message.text, "ERMES ENGINE E2E");
+    assert!(message.urgent);
+    assert_eq!(message.alert, 4);
 }
 
 #[tokio::test]
@@ -746,6 +816,43 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
         "speed estimate {} wpm is not plausible for 20 wpm sending",
         text.wpm
     );
+}
+
+#[tokio::test]
+async fn cw_skimmer_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let mut iq =
+        testgen::morse::transmission("VVV VVV CQ DE ENGINE K", 20.0, 3_500.0, NARROW_DEVICE_RATE);
+    iq.extend(testgen::silence(NARROW_DEVICE_RATE as usize * 4));
+    let device = plant(dir.path(), "cw-skimmer", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::CwSkimmer(CwSkimmerParams {
+                bandwidth_hz: 16_000.0,
+                threshold_db: 8.0,
+                max_signals: 8,
+                wpm: None,
+            }),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::CwSkimmer(spot) if spot.text.contains("ENGINE")),
+    )
+    .await;
+    let DecoderEvent::CwSkimmer(spot) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(
+        (spot.offset_hz - 3_500.0).abs() < 80.0,
+        "{}",
+        spot.offset_hz
+    );
+    assert!((15.0..25.0).contains(&spot.wpm), "{}", spot.wpm);
 }
 
 #[tokio::test]

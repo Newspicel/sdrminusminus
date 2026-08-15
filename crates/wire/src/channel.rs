@@ -227,6 +227,44 @@ impl Default for PocsagParams {
     }
 }
 
+fn default_pager_bandwidth_hz() -> f64 {
+    12_500.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FlexParams {
+    #[serde(default = "default_pager_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    #[serde(default)]
+    pub invert: bool,
+}
+
+impl Default for FlexParams {
+    fn default() -> Self {
+        Self {
+            bandwidth_hz: default_pager_bandwidth_hz(),
+            invert: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ErmesParams {
+    #[serde(default = "default_pager_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    #[serde(default)]
+    pub invert: bool,
+}
+
+impl Default for ErmesParams {
+    fn default() -> Self {
+        Self {
+            bandwidth_hz: default_pager_bandwidth_hz(),
+            invert: false,
+        }
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -374,6 +412,41 @@ impl Default for MorseParams {
     fn default() -> Self {
         Self {
             bandwidth_hz: default_morse_bandwidth_hz(),
+            wpm: None,
+        }
+    }
+}
+
+fn default_cw_skimmer_bandwidth_hz() -> f64 {
+    24_000.0
+}
+
+fn default_cw_skimmer_threshold_db() -> f32 {
+    10.0
+}
+
+fn default_cw_skimmer_max_signals() -> u16 {
+    32
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CwSkimmerParams {
+    #[serde(default = "default_cw_skimmer_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    #[serde(default = "default_cw_skimmer_threshold_db")]
+    pub threshold_db: f32,
+    #[serde(default = "default_cw_skimmer_max_signals")]
+    pub max_signals: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wpm: Option<f32>,
+}
+
+impl Default for CwSkimmerParams {
+    fn default() -> Self {
+        Self {
+            bandwidth_hz: default_cw_skimmer_bandwidth_hz(),
+            threshold_db: default_cw_skimmer_threshold_db(),
+            max_signals: default_cw_skimmer_max_signals(),
             wpm: None,
         }
     }
@@ -848,11 +921,14 @@ pub enum ChannelParams {
     Ssb(SsbParams),
     Wfm(WfmParams),
     Pocsag(PocsagParams),
+    Flex(FlexParams),
+    Ermes(ErmesParams),
     Adsb(AdsbParams),
     Ais(AisParams),
     Aprs(AprsParams),
     Rtty(RttyParams),
     Morse(MorseParams),
+    CwSkimmer(CwSkimmerParams),
     Navtex(NavtexParams),
     Acars(AcarsParams),
     Subghz(SubghzParams),
@@ -888,11 +964,14 @@ impl ChannelParams {
             Self::Ssb(_) => "ssb",
             Self::Wfm(_) => "wfm",
             Self::Pocsag(_) => "pocsag",
+            Self::Flex(_) => "flex",
+            Self::Ermes(_) => "ermes",
             Self::Adsb(_) => "adsb",
             Self::Ais(_) => "ais",
             Self::Aprs(_) => "aprs",
             Self::Rtty(_) => "rtty",
             Self::Morse(_) => "morse",
+            Self::CwSkimmer(_) => "cw_skimmer",
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",

@@ -5,10 +5,13 @@ mod am;
 mod aprs;
 mod atv;
 pub mod audio_chain;
+mod cw_skimmer;
 mod dab;
 mod datv;
 mod drm;
 mod dv;
+mod ermes;
+mod flex;
 mod gnss;
 mod ident;
 mod morse;
@@ -40,6 +43,7 @@ pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
 pub use audio_chain::{AudioChain, ClickProfile};
+pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
 pub use datv::DatvChannel;
 pub use drm::DrmChannel;
@@ -47,6 +51,8 @@ pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
     YsfChannel,
 };
+pub use ermes::ErmesChannel;
+pub use flex::FlexChannel;
 pub use gnss::GnssChannel;
 pub use ident::IdentChannel;
 pub use morse::MorseChannel;
@@ -98,11 +104,14 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
             (-half, half)
         }
         ChannelParams::Pocsag(p) => pocsag::occupied_band(p),
+        ChannelParams::Flex(p) => flex::occupied_band(p),
+        ChannelParams::Ermes(p) => ermes::occupied_band(p),
         ChannelParams::Adsb(_) => adsb::occupied_band(),
         ChannelParams::Ais(p) => ais::occupied_band(p),
         ChannelParams::Aprs(p) => aprs::occupied_band(p),
         ChannelParams::Rtty(p) => rtty::occupied_band(p),
         ChannelParams::Morse(p) => morse::occupied_band(p),
+        ChannelParams::CwSkimmer(p) => cw_skimmer::occupied_band(p),
         ChannelParams::Navtex(_) => navtex::occupied_band(),
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
@@ -155,11 +164,14 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Ssb(p) => Ok(ChannelFilter::Sideband(ssb::sideband_filter(p)?)),
         ChannelParams::Wfm(_) => Ok(wfm::channel_filter()),
         ChannelParams::Pocsag(p) => pocsag::channel_filter(p),
+        ChannelParams::Flex(p) => flex::channel_filter(p),
+        ChannelParams::Ermes(p) => ermes::channel_filter(p),
         ChannelParams::Adsb(_) => Ok(adsb::channel_filter()),
         ChannelParams::Ais(p) => ais::channel_filter(p),
         ChannelParams::Aprs(p) => aprs::channel_filter(p),
         ChannelParams::Rtty(p) => rtty::channel_filter(p),
         ChannelParams::Morse(p) => morse::channel_filter(p),
+        ChannelParams::CwSkimmer(p) => cw_skimmer::channel_filter(p),
         ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
@@ -327,6 +339,16 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: FlexChannel::descriptor,
+        create: boxed::<FlexChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: ErmesChannel::descriptor,
+        create: boxed::<ErmesChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: AdsbChannel::descriptor,
         create: boxed::<AdsbChannel>,
         create_tx: None,
@@ -349,6 +371,11 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: MorseChannel::descriptor,
         create: boxed::<MorseChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: CwSkimmerChannel::descriptor,
+        create: boxed::<CwSkimmerChannel>,
         create_tx: None,
     },
     Registration {
@@ -547,10 +574,11 @@ mod tests {
 
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
-        ChannelParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams, DstarParams,
-        FreeDvParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams,
-        NxdnParams, P25Params, PocsagParams, PskParams, RadioClockParams, RttyParams,
-        SelcallParams, SsbParams, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+        ChannelParams, CwSkimmerParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams,
+        DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams, IdentParams, M17Params,
+        MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, PskParams,
+        RadioClockParams, RttyParams, SelcallParams, SsbParams, SubghzParams, WfmParams,
+        WsjtParams, WsprParams, YsfParams,
     };
 
     use super::*;
@@ -564,11 +592,14 @@ mod tests {
             "ssb" => ChannelParams::Ssb(SsbParams::default()),
             "wfm" => ChannelParams::Wfm(WfmParams::default()),
             "pocsag" => ChannelParams::Pocsag(PocsagParams::default()),
+            "flex" => ChannelParams::Flex(FlexParams::default()),
+            "ermes" => ChannelParams::Ermes(ErmesParams::default()),
             "adsb" => ChannelParams::Adsb(AdsbParams::default()),
             "ais" => ChannelParams::Ais(AisParams::default()),
             "aprs" => ChannelParams::Aprs(AprsParams::default()),
             "rtty" => ChannelParams::Rtty(RttyParams::default()),
             "morse" => ChannelParams::Morse(MorseParams::default()),
+            "cw_skimmer" => ChannelParams::CwSkimmer(CwSkimmerParams::default()),
             "navtex" => ChannelParams::Navtex(NavtexParams::default()),
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
@@ -599,7 +630,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 34);
+        assert_eq!(all.len(), 37);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -610,11 +641,14 @@ mod tests {
                 "ssb",
                 "wfm",
                 "pocsag",
+                "flex",
+                "ermes",
                 "adsb",
                 "ais",
                 "aprs",
                 "rtty",
                 "morse",
+                "cw_skimmer",
                 "navtex",
                 "acars",
                 "subghz",
@@ -648,11 +682,13 @@ mod tests {
                 "ssb" => (3_000.0, 48_000.0),
                 "wfm" => (200_000.0, 240_000.0),
                 "pocsag" => (12_500.0, 48_000.0),
+                "flex" | "ermes" => (12_500.0, 48_000.0),
                 "adsb" => (2_000_000.0, 2_000_000.0),
                 "ais" => (25_000.0, 48_000.0),
                 "aprs" => (12_500.0, 48_000.0),
                 "rtty" => (1_000.0, 8_000.0),
                 "morse" => (400.0, 8_000.0),
+                "cw_skimmer" => (24_000.0, 48_000.0),
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),

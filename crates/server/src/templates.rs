@@ -2,8 +2,9 @@ use std::sync::LazyLock;
 
 use sdrmm_wire::{
     AdsbParams, AisParams, AmParams, AprsParams, AudioProcessing, ChannelNode, ChannelParams,
-    ChannelSettings, DeviceNode, GnssParams, NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode,
-    PocsagParams, PortRef, Position, RadioClockParams, TemplateInfo, WfmParams,
+    ChannelSettings, DeviceNode, ErmesParams, FlexParams, GnssParams, NfmParams, NodeBody,
+    PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position, RadioClockParams,
+    TemplateInfo, WfmParams,
 };
 
 type Channel = (f64, fn() -> ChannelParams);
@@ -190,17 +191,23 @@ static TEMPLATES: &[Entry] = &[
     },
     Entry {
         id: "pagers",
-        name: "Pagers (POCSAG)",
-        description: "POCSAG pager messages, 512/1200/2400 baud.",
+        name: "Pagers",
+        description: "POCSAG, FLEX and ERMES pager messages.",
         explainer: "Pager traffic still carries hospital, industrial and emergency dispatch \
-                    messages. The decoder locks onto whichever of the three baud rates a \
-                    transmission uses. Frequencies are regional — 466 MHz is common in \
-                    Europe; check your national allocation.",
+                    messages. The three decoders cover POCSAG at every standard baud rate, \
+                    all four FLEX modes and European ERMES. Frequencies are regional; check \
+                    your national allocation before tuning.",
         center_hz: 466_075_000.0,
         sample_rate: 1_024_000.0,
-        channels: &[(466_075_000.0, || {
-            ChannelParams::Pocsag(PocsagParams::default())
-        })],
+        channels: &[
+            (466_075_000.0, || {
+                ChannelParams::Pocsag(PocsagParams::default())
+            }),
+            (466_075_000.0, || ChannelParams::Flex(FlexParams::default())),
+            (466_075_000.0, || {
+                ChannelParams::Ermes(ErmesParams::default())
+            }),
+        ],
         shape: Shape::Log,
         readout: false,
         exact_rate: false,
