@@ -37,6 +37,7 @@ enum Cmd {
     Test,
     Audit,
     Smoke,
+    Screenshots,
     Fixtures,
     Bandplan {
         #[arg(long)]
@@ -93,6 +94,7 @@ fn main() -> Result<()> {
         Cmd::Test => test(&root()),
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
+        Cmd::Screenshots => screenshots(&root()),
         Cmd::Fixtures => fixtures(&root()),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
@@ -1094,6 +1096,48 @@ fn smoke(root: &Path) -> Result<()> {
             ),
         ],
     )?;
+    Ok(())
+}
+
+fn screenshots(root: &Path) -> Result<()> {
+    ensure_web_deps(root)?;
+    run_with_env(
+        PNPM,
+        &["--dir", "web", "build"],
+        root,
+        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
+    )?;
+    let out = root.join("assets/screenshots");
+    std::fs::create_dir_all(&out).context("create screenshot directory")?;
+    let soapy_root = root.join("target/hermetic-soapy");
+    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
+    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
+    run_with_env(
+        PNPM,
+        &[
+            "--dir",
+            "web",
+            "exec",
+            "playwright",
+            "test",
+            "--config",
+            "playwright.screenshots.config.ts",
+        ],
+        root,
+        &[
+            (
+                "SOAPY_SDR_ROOT",
+                soapy_root
+                    .to_str()
+                    .context("non-utf8 hermetic Soapy path")?,
+            ),
+            (
+                "SOAPY_SDR_PLUGIN_PATH",
+                modules.to_str().context("non-utf8 hermetic Soapy path")?,
+            ),
+        ],
+    )?;
+    println!("wrote {}", out.display());
     Ok(())
 }
 

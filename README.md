@@ -10,6 +10,10 @@ sdr-- keeps radio hardware and real-time DSP in a Rust server while a React inte
 tuning, visualization, and control. Run both together as a desktop app, serve the same interface
 from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServer receivers.
 
+<p align="center">
+  <img src="assets/screenshots/patch.png" alt="A receiver built from device, scope, channel and speaker nodes">
+</p>
+
 ## What it can do
 
 - Build a receiver visually from device, channel, display, scanner, recorder, and output nodes.
@@ -28,6 +32,16 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 
 The built-in signal generator means you can explore the complete receive path without owning an
 SDR.
+
+| | |
+|---|---|
+| ![Spectrum and waterfall](assets/screenshots/spectrum.png) | ![Aircraft positions on the map](assets/screenshots/adsb.png) |
+| Spectrum and waterfall, pinned to the rack | ADS-B aircraft on the map, with the decoder log |
+| ![An SSTV picture](assets/screenshots/sstv.png) | ![POCSAG pager traffic](assets/screenshots/pocsag.png) |
+| A Robot 36 SSTV picture, scanned out line by line | POCSAG pager messages as they arrive |
+
+Every one of these is a fixture from `fixtures/` played back through the receiver — `cargo xtask
+screenshots` regenerates them all without hardware.
 
 ## Get started
 
@@ -115,6 +129,7 @@ cargo run -p sdrmm --no-default-features --features net-client
 | `cargo xtask check` | Format, lint, type-check, build, and check generated-code drift |
 | `cargo xtask test` | Run Rust and frontend tests without real hardware |
 | `cargo xtask smoke` | Run the Playwright flow against the real server binary |
+| `cargo xtask screenshots` | Regenerate `assets/screenshots` from the fixture library |
 | `cargo xtask codegen` | Regenerate OpenAPI and TypeScript API types |
 | `cargo xtask audit` | Check dependencies with `cargo-deny` |
 | `cargo xtask fixtures` | Regenerate synthesized decoder fixtures |
