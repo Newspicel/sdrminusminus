@@ -526,6 +526,8 @@ mod tests {
             "VoiceCall",
             "VoiceCallsResponse",
             "DecoderEvent",
+            "SelcallSequence",
+            "FreeDvParams",
             "DeletedCount",
             "PatchGraph",
             "RackLayout",
@@ -608,7 +610,7 @@ mod tests {
         let (status, body) = request(test_router(), "GET", "/api/channeltypes", None).await;
         assert_eq!(status, StatusCode::OK);
         let types: ChannelTypesResponse = serde_json::from_slice(&body).expect("json");
-        for id in ["nfm", "am", "ssb", "wfm"] {
+        for id in ["nfm", "selcall", "am", "ssb", "wfm", "freedv"] {
             assert!(
                 types.types.iter().any(|t| t.type_id == id),
                 "missing type {id}"

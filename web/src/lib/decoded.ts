@@ -315,6 +315,7 @@ function stationId(event: DecoderEvent): string | null {
     case "navtex":
     case "acars":
     case "subghz":
+    case "selcall":
     case "rtty":
     case "morse":
     // Subaudible signalling describes the channel, not a station on it — the transmitter it

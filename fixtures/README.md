@@ -18,6 +18,8 @@ device, add the named channel at the stated offset, and the decoder log fills up
 |---|---|---|---|
 | `siggen_2m4_1s` | 2.4 M | any demod | the virtual siggen's tones (record/replay fixture) |
 | `pocsag_1200_240k` | 240 k | `pocsag` @ +50 kHz | address 1234567, `SDR-- FIXTURE` |
+| `selcall_ccir1_48k` | 48 k | `selcall` @ +5 kHz, CCIR-1 | `12234`, including the repeat marker |
+| `selcall_zvei1_48k` | 48 k | `selcall` @ −5 kHz, ZVEI-1 | `A11D0`, including group and repeat symbols |
 | `ais_position_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
 | `aprs_afsk1200_240k` | 240 k | `aprs` @ −40 kHz | `DL1ABC-9>APRS,WIDE1-1` at 52.5, 13.4 |
 | `rtty_45_170_48k` | 48 k | `rtty` @ +5 kHz | `CQ CQ DE DL1ABC K` |
@@ -35,6 +37,7 @@ recorded off air, one frozen render no current generator reproduces.
 | stem | rate | channel | expected |
 |---|---|---|---|
 | `dmr_call_48k` | 48 k | `dmr` @ 0 Hz | colour code 1, group call, radio ID 12345678 to talkgroup 12345678 |
+| `freedv_1600_8k` | 8 k | `freedv` @ 0 Hz, USB | FreeDV 1600 sync and decoded Codec2 speech |
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
 
 ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
@@ -77,3 +80,8 @@ device.
   evidence left that the general CPM engine decodes what the hand-written AIS chain produced —
   `ais::tests::decodes_the_committed_fixture` reads it directly, and today's generator emits a
   different waveform (6425 samples against this one's 6250).
+- `freedv_1600_8k` (3 s, 188 KB): the first three seconds of the FreeDV GUI project's
+  `wav/ve9qrp_1600.wav` receive test, converted from signed 16-bit mono audio to normalized
+  `cf32_le` with a zero quadrature component. The source file's SHA-256 is recorded in the SigMF
+  annotation with the pinned upstream commit and LGPL-2.1 license;
+  `dv::freedv::tests::decodes_the_upstream_receive_recording` reads it directly.

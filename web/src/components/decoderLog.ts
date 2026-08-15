@@ -23,6 +23,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   rds: "RDS",
   rtty: "RTTY",
   morse: "Morse",
+  selcall: "Selcall",
   navtex: "NAVTEX",
   acars: "ACARS",
   subghz: "Sub-GHz",
@@ -267,6 +268,8 @@ export function eventSummary(event: DecoderEvent): string {
     case "rtty":
     case "morse":
       return event.data.text;
+    case "selcall":
+      return `${event.data.system === "ccir1" ? "CCIR-1" : "ZVEI-1"} · ${event.data.code}`;
     case "navtex": {
       const n = event.data;
       const header =
@@ -323,7 +326,7 @@ export function eventSummary(event: DecoderEvent): string {
   }
 }
 
-/** `null` for the decoders whose output is a character stream: RTTY and Morse name no emitter. */
+/** `null` when the event does not identify the transmitter that sent it. */
 export function eventStation(event: DecoderEvent): string | null {
   switch (event.kind) {
     case "adsb":
@@ -353,6 +356,8 @@ export function eventStation(event: DecoderEvent): string | null {
       );
     case "rtty":
     case "morse":
+    // A Selcall sequence names the recipient, not necessarily the transmitter sending it.
+    case "selcall":
     // Subaudible signalling names the channel's state, not whoever is keying up.
     case "tone":
     // The whole point of an identification is that whoever is transmitting is not known yet.

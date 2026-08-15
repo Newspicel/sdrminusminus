@@ -1291,6 +1291,10 @@ export interface components {
             /** @enum {string} */
             type: "nfm";
         } | {
+            settings: components["schemas"]["SelcallParams"];
+            /** @enum {string} */
+            type: "selcall";
+        } | {
             settings: components["schemas"]["AmParams"];
             /** @enum {string} */
             type: "am";
@@ -1370,6 +1374,10 @@ export interface components {
             settings: components["schemas"]["M17Params"];
             /** @enum {string} */
             type: "m17";
+        } | {
+            settings: components["schemas"]["FreeDvParams"];
+            /** @enum {string} */
+            type: "freedv";
         } | {
             settings: components["schemas"]["IdentParams"];
             /** @enum {string} */
@@ -1626,6 +1634,10 @@ export interface components {
             data: components["schemas"]["MorseText"];
             /** @enum {string} */
             kind: "morse";
+        } | {
+            data: components["schemas"]["SelcallSequence"];
+            /** @enum {string} */
+            kind: "selcall";
         } | {
             data: components["schemas"]["NavtexMessage"];
             /** @enum {string} */
@@ -1990,7 +2002,7 @@ export interface components {
          *     whom, on which network — and only the names for it differ.
          * @enum {string}
          */
-        DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17";
+        DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17" | "freedv";
         /** @description Activity advertised for one DMR timeslot by a Short LC activity update. */
         DvSlotActivity: {
             activity: string;
@@ -2051,6 +2063,17 @@ export interface components {
         ExtraValue: {
             name: string;
             value: unknown;
+        };
+        /**
+         * @description FreeDV air-interface generation. The initial implementation supports the interoperable
+         *     1600 mode; making the generation explicit prevents a future default change from silently
+         *     selecting an incompatible waveform on a saved channel.
+         * @enum {string}
+         */
+        FreeDvMode: "mode1600";
+        FreeDvParams: {
+            mode?: components["schemas"]["FreeDvMode"];
+            sideband?: components["schemas"]["Sideband"];
         };
         /** @description A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA). */
         GainStage: {
@@ -3018,6 +3041,28 @@ export interface components {
          * @enum {string}
          */
         ScanState: "scanning" | "holding";
+        SelcallParams: {
+            system?: components["schemas"]["SelcallSystem"];
+        };
+        /** @description One complete five-tone selective call after the repeat marker has been expanded. */
+        SelcallSequence: {
+            /**
+             * @description Five decoded digits/group symbols. Consecutive equal digits are represented literally,
+             *     not by the on-air repeat marker.
+             */
+            code: string;
+            system: components["schemas"]["SelcallSystem"];
+            /**
+             * Format: int32
+             * @description Median detected tone duration, rounded to milliseconds.
+             */
+            tone_ms: number;
+        };
+        /**
+         * @description Five-tone sequential selective-calling plan.
+         * @enum {string}
+         */
+        SelcallSystem: "ccir1" | "zvei1";
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
             data: {

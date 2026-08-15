@@ -33,6 +33,10 @@ const SIDEBANDS: Options<NonNullable<ChannelParamsOf<"ssb">["sideband"]>> = [
   { value: "usb", label: "USB" },
   { value: "lsb", label: "LSB" },
 ];
+const SELCALL_SYSTEMS: Options<NonNullable<ChannelParamsOf<"selcall">["system"]>> = [
+  { value: "ccir1", label: "CCIR-1" },
+  { value: "zvei1", label: "ZVEI-1" },
+];
 const POCSAG_BAUDS: Options<NonNullable<ChannelParamsOf<"pocsag">["baud"]>> = [
   { value: "auto", label: "Auto" },
   { value: "b512", label: "512" },
@@ -249,6 +253,19 @@ function ModeControls({
         </>
       );
     }
+    case "selcall":
+      return (
+        <SettingRow label="Tone plan">
+          <Segmented
+            label="Selective calling tone plan"
+            value={params.settings.system ?? "ccir1"}
+            options={SELCALL_SYSTEMS}
+            onChange={(system) =>
+              onParams({ type: "selcall", settings: { ...params.settings, system } })
+            }
+          />
+        </SettingRow>
+      );
     case "am":
       return (
         <>
@@ -642,6 +659,19 @@ function ModeControls({
             options={NXDN_WIDTHS}
             onChange={(bandwidth) =>
               onParams({ type: "nxdn", settings: { ...params.settings, bandwidth } })
+            }
+          />
+        </SettingRow>
+      );
+    case "freedv":
+      return (
+        <SettingRow label="Sideband">
+          <Segmented
+            label="FreeDV sideband"
+            value={params.settings.sideband ?? "usb"}
+            options={SIDEBANDS}
+            onChange={(sideband) =>
+              onParams({ type: "freedv", settings: { ...params.settings, sideband } })
             }
           />
         </SettingRow>

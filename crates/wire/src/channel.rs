@@ -140,6 +140,23 @@ pub struct NfmParams {
     pub dcs_code: Option<u16>,
 }
 
+/// Five-tone sequential selective-calling plan.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SelcallSystem {
+    /// CCIR-1: 100 ms nominal tones in the 1.1–2.1 kHz voice band.
+    #[default]
+    Ccir1,
+    /// ZVEI-1: 70 ms nominal tones, including its A–D group symbols.
+    Zvei1,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SelcallParams {
+    #[serde(default)]
+    pub system: SelcallSystem,
+}
+
 impl Default for NfmParams {
     fn default() -> Self {
         Self {
@@ -686,6 +703,24 @@ empty_params! {
     M17Params,
 }
 
+/// FreeDV air-interface generation. The initial implementation supports the interoperable
+/// 1600 mode; making the generation explicit prevents a future default change from silently
+/// selecting an incompatible waveform on a saved channel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FreeDvMode {
+    #[default]
+    Mode1600,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct FreeDvParams {
+    #[serde(default)]
+    pub mode: FreeDvMode,
+    #[serde(default)]
+    pub sideband: Sideband,
+}
+
 pub const MIN_IDENT_BANDWIDTH_HZ: f64 = 1_000.0;
 pub const MAX_IDENT_BANDWIDTH_HZ: f64 = 192_000.0;
 pub const MIN_IDENT_INTERVAL_MS: u32 = 250;
@@ -742,6 +777,7 @@ impl Default for IdentParams {
 #[serde(tag = "type", content = "settings", rename_all = "snake_case")]
 pub enum ChannelParams {
     Nfm(NfmParams),
+    Selcall(SelcallParams),
     Am(AmParams),
     Ssb(SsbParams),
     Wfm(WfmParams),
@@ -762,6 +798,7 @@ pub enum ChannelParams {
     P25(P25Params),
     Dpmr(DpmrParams),
     M17(M17Params),
+    Freedv(FreeDvParams),
     Ident(IdentParams),
 }
 
@@ -771,6 +808,7 @@ impl ChannelParams {
     pub fn type_id(&self) -> &'static str {
         match self {
             Self::Nfm(_) => "nfm",
+            Self::Selcall(_) => "selcall",
             Self::Am(_) => "am",
             Self::Ssb(_) => "ssb",
             Self::Wfm(_) => "wfm",
@@ -791,6 +829,7 @@ impl ChannelParams {
             Self::P25(_) => "p25",
             Self::Dpmr(_) => "dpmr",
             Self::M17(_) => "m17",
+            Self::Freedv(_) => "freedv",
             Self::Ident(_) => "ident",
         }
     }

@@ -29,9 +29,9 @@ The server reports the exact catalog for the running build. Current channel fami
 |---|---|
 | Analog audio | AM, NFM, SSB, broadcast WFM with stereo and RDS |
 | Aviation and marine | ADS-B 1090ES, ACARS, AIS, NAVTEX |
-| Amateur and text | APRS/AX.25, RTTY, Morse/CW |
+| Amateur and text | APRS/AX.25, RTTY, Morse/CW, CCIR-1 and ZVEI-1 Selcall |
 | Paging and telemetry | POCSAG, generic sub-GHz OOK/PWM frames |
-| Digital voice | DMR, D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17 |
+| Digital voice | DMR, D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17, FreeDV 1600 |
 | Video | Analog television luma |
 
 Decoder coverage varies by protocol. A listed mode means the signal path and documented frame

@@ -119,6 +119,15 @@ const DETAIL: {
 
   morse: (m) => ({ fields: fields([["Speed", `${m.wpm.toFixed(0)} WPM`]]), body: m.text || null }),
 
+  selcall: (s) => ({
+    fields: fields([
+      ["Tone plan", s.system === "ccir1" ? "CCIR-1" : "ZVEI-1"],
+      ["Code", s.code],
+      ["Tone duration", `${s.tone_ms} ms`],
+    ]),
+    body: null,
+  }),
+
   navtex: (n) => ({
     fields: fields([
       ["Header", header(n.station, n.subject, n.serial)],

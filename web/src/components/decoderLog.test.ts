@@ -289,6 +289,15 @@ describe("eventStation", () => {
     expect(eventStation({ kind: "morse", data: { text: "x", wpm: 12 } })).toBeNull();
     expect(eventStation({ kind: "rds", data: { block_errors: 0, groups: 1 } })).toBeNull();
   });
+
+  it("does not mistake a Selcall recipient for the transmitter", () => {
+    const event: DecoderEvent = {
+      kind: "selcall",
+      data: { system: "ccir1", code: "12234", tone_ms: 100 },
+    };
+    expect(eventSummary(event)).toBe("CCIR-1 · 12234");
+    expect(eventStation(event)).toBeNull();
+  });
 });
 
 describe("droppedNotice", () => {
