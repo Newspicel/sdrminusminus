@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DMR_TRUNK_PROTOCOLS, dmrTrunkGuidance } from "./DmrTrunkFace";
+import { DMR_TRUNK_PROTOCOLS, dmrTrunkGuidance } from "./dmrTrunk";
 
 describe("DMR trunk protocols", () => {
   it("offers Hytera XPT alongside the Motorola and Tier III systems", () => {

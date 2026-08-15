@@ -29,7 +29,8 @@ import type {
   VoiceCall,
 } from "../../lib/types";
 import { type Input, inputsOf, iqSourceOf } from "../binding";
-import { deviceSetOf, useWorkspaceContext } from "../context";
+import { useWorkspaceContext } from "../context";
+import { deviceSetOf } from "../workspaceDevice";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One channel wired into a sink, resolved to the engine objects behind it. */

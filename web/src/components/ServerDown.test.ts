@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serverDownDetail } from "./ServerDown";
+import { serverDownDetail } from "./serverStatus";
 
 describe("serverDownDetail", () => {
   it("drops what the transport says when a connection is simply refused", () => {

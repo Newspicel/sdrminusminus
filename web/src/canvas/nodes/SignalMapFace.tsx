@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, BTN_PRIMARY, FIELD, LABEL } from "../../components/controls";
 import { formatHz, formatSignedKhz } from "../../components/format";
@@ -15,8 +15,9 @@ import {
 import { spectrumHub } from "../../lib/spectrum";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { iqSourceOf } from "../binding";
-import { deviceSetOf, useWorkspaceContext } from "../context";
+import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { deviceSetOf } from "../workspaceDevice";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 const LEVEL_REFRESH_MS = 200;
@@ -92,6 +93,10 @@ function SignalSurvey({
     spanHz: number;
   } | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
+  // The frame subscription is installed once per wired lane and outlives every render, so it
+  // reads the fix, the switch and the window from here. Written after commit rather than during
+  // render: React may replay or discard a render, and a reading must never be recorded against a
+  // value from one that never landed.
   const positionRef = useRef(position);
   const recordingRef = useRef(recording);
   const surveyFrequencyRef = useRef(samples[0]?.frequencyHz);
@@ -99,11 +104,13 @@ function SignalSurvey({
   const bandwidthRef = useRef(node.data.bandwidth_hz);
   const lastRecordedRef = useRef(0);
   const lastLevelRenderRef = useRef(0);
-  positionRef.current = position;
-  recordingRef.current = recording;
-  surveyFrequencyRef.current = samples[0]?.frequencyHz;
-  offsetRef.current = node.data.offset_hz;
-  bandwidthRef.current = node.data.bandwidth_hz;
+  useLayoutEffect(() => {
+    positionRef.current = position;
+    recordingRef.current = recording;
+    surveyFrequencyRef.current = samples[0]?.frequencyHz;
+    offsetRef.current = node.data.offset_hz;
+    bandwidthRef.current = node.data.bandwidth_hz;
+  });
 
   useEffect(
     () =>

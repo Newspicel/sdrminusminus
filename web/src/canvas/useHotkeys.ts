@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 export interface HotkeyActions {
   /** Tune by `steps` of the current tune step. */
@@ -46,8 +46,14 @@ export const BINDINGS: readonly Binding[] = [
 ];
 
 export function useHotkeys(actions: HotkeyActions): void {
+  // The listener is installed once and reads the actions through this ref, so a keypress always
+  // runs the current closure. Written after commit rather than during render: React may replay
+  // or discard a render, and a ref written by work that never commits would leak into the
+  // listener.
   const latest = useRef(actions);
-  latest.current = actions;
+  useLayoutEffect(() => {
+    latest.current = actions;
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

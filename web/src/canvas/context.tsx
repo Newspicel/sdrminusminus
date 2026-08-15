@@ -12,7 +12,6 @@ import type {
   WorkspaceSnapshot,
 } from "../lib/types";
 import type { SdrSocket } from "../lib/ws";
-import { deviceNodeOf } from "./binding";
 import type { GraphContext } from "./graph";
 
 export interface Workspace {
@@ -53,12 +52,4 @@ export function useWorkspaceContext(): Workspace {
     throw new Error("useWorkspaceContext outside WorkspaceProvider");
   }
   return workspace;
-}
-
-/** The device set behind a node, following the wire when the node is a channel, a sink or a
- * scanner (`deviceNodeOf`). Returns `null` while the radio is absent — the face renders
- * disconnected rather than empty. */
-export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | null {
-  const owner = deviceNodeOf(workspace.graph, node);
-  return owner === null ? null : (workspace.devices.get(owner) ?? null);
 }

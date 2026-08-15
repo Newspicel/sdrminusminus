@@ -5,7 +5,7 @@ import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
 import { isPinned, patchNode, pin, pruneRack, unpin } from "./canvas/graph";
-import { deviceDialId } from "./canvas/nodes/DeviceFace";
+import { deviceDialId } from "./canvas/nodes/deviceNode";
 import { Rack } from "./canvas/Rack";
 import { useHotkeys } from "./canvas/useHotkeys";
 import { useWorkspace } from "./canvas/useWorkspace";

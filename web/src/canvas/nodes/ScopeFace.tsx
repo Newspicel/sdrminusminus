@@ -4,6 +4,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -42,10 +43,11 @@ import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { channelNodesOf, iqSourceOf } from "../binding";
-import { deviceSetOf, useWorkspaceContext } from "../context";
+import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
-import { tuneDelta } from "./DeviceFace";
+import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 const DRAG_SLOP_PX = 4;
@@ -131,12 +133,13 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   // Read at first render rather than in an effect: the trace and the readout have to be there in
   // the rack's first paint, or the switch still shows the blank the history exists to remove.
   // `Spectrum` is keyed by lane, so a different lane is a different mount reading its own.
-  const frameRef = useRef<SpectrumFrame | null>(spectrumHub.latest(set.id, stream));
+  const [seedFrame] = useState<SpectrumFrame | null>(() => spectrumHub.latest(set.id, stream));
+  const frameRef = useRef<SpectrumFrame | null>(seedFrame);
   const holdRef = useRef<Uint8Array | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
 
   const [meta, setMeta] = useState<FrameMeta | null>(() =>
-    frameRef.current === null ? null : metaOf(frameRef.current),
+    seedFrame === null ? null : metaOf(seedFrame),
   );
   const [glError, setGlError] = useState<string | null>(null);
   const [view, setView] = useState<SpectrumView>(FULL_VIEW);
@@ -147,10 +150,16 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const [panning, setPanning] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
 
+  // The animation-frame loop and the frame subscription both outlive the render that set these,
+  // so they read the view and the max-hold switch here. Written after commit, never during
+  // render: React may replay or discard a render, and the loop must not see a value from one
+  // that never landed.
   const viewRef = useRef(view);
-  viewRef.current = view;
   const holdRequested = useRef(hold);
-  holdRequested.current = hold;
+  useLayoutEffect(() => {
+    viewRef.current = view;
+    holdRequested.current = hold;
+  });
 
   // Engine channel id → the node whose face tunes it. Built by following the wires rather than
   // by matching ids, because a channel id is only unique within its device set.

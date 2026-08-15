@@ -4,12 +4,13 @@ import { FIELD } from "../../components/controls";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
 import { SettingNote, SettingRow, Settings } from "../../components/Settings";
-import { type AutocompleteSuggestion, TextAutocomplete } from "../../components/TextAutocomplete";
+import { TextAutocomplete } from "../../components/TextAutocomplete";
 import { nmeaDevicesQuery } from "../../lib/api";
 import { gridLocator, usePositionStore } from "../../lib/position";
-import type { NmeaDeviceInfo, PatchNode, PositionSource } from "../../lib/types";
+import type { PatchNode, PositionSource } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { nmeaSuggestion, validGpsdAddress } from "./gpsSource";
 import { FaceBody, NodeShell } from "./NodeShell";
 
 export function GpsFace({ node }: { node: PatchNode }) {
@@ -170,39 +171,6 @@ function NmeaSettings({
       </SettingRow>
     </>
   );
-}
-
-export function validGpsdAddress(address: string): boolean {
-  const separator = address.lastIndexOf(":");
-  if (separator <= 0) {
-    return false;
-  }
-  const host = address.slice(0, separator);
-  const port = Number(address.slice(separator + 1));
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    return false;
-  }
-  if (host.startsWith("[") || host.endsWith("]")) {
-    try {
-      const parsed = new URL(`http://${host}`);
-      return parsed.hostname.startsWith("[") && parsed.hostname.endsWith("]");
-    } catch {
-      return false;
-    }
-  }
-  return /^[a-z0-9._-]+$/i.test(host);
-}
-
-/** A detected port as one suggestion: the path is the value, and whatever the USB descriptor says
- * is behind it is the second line — left off, rather than repeating the path, for a port that
- * reports no identity of its own. */
-export function nmeaSuggestion(device: NmeaDeviceInfo): AutocompleteSuggestion {
-  const description = device.product ?? device.manufacturer;
-  if (description == null) {
-    return { value: device.path };
-  }
-  const serial = device.serial == null ? "" : ` · ${device.serial}`;
-  return { value: device.path, detail: `${description}${serial}` };
 }
 
 function sourceName(source: PositionSource): string {

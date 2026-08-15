@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Capabilities, DeviceSet, ScannerStatus } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
-import { refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./DeviceFace";
+import { refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
 
 function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
   return {

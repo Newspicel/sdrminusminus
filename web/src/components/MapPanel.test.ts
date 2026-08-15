@@ -1,7 +1,6 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
 import { describe, expect, it, vi } from "vitest";
 import type { TargetCollection } from "../lib/map/layers";
-import type { PositionSample } from "../lib/position";
 import {
   framePositionOnce,
   frameSignalOnce,
@@ -10,7 +9,8 @@ import {
   signalCollection,
   updatePositionSources,
   updateSignalSource,
-} from "./MapPanel";
+} from "../lib/map/sources";
+import type { PositionSample } from "../lib/position";
 
 function sample(latitude: number, longitude: number, receivedAt: number): PositionSample {
   return {

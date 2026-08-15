@@ -3,18 +3,12 @@ import { CHIP } from "../../components/controls";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { callsQuery } from "../../lib/api";
-import type { DmrTrunkProtocol, DvTrunkProtocol, PatchNode } from "../../lib/types";
+import type { PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { DMR_TRUNK_PROTOCOLS, dmrTrunkGuidance } from "./dmrTrunk";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 import { CallRow } from "./SinkFaces";
-
-export const DMR_TRUNK_PROTOCOLS: readonly { value: DmrTrunkProtocol; label: string }[] = [
-  { value: "auto", label: "Auto-detect" },
-  { value: "capacity_plus", label: "Capacity Plus" },
-  { value: "hytera_xpt", label: "Hytera XPT" },
-  { value: "tier_three", label: "Tier III / Capacity Max" },
-];
 
 const RETENTION_OPTIONS = [
   { value: 0, label: "Off" },
@@ -118,30 +112,4 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
       </FaceBody>
     </NodeShell>
   );
-}
-
-export function dmrTrunkGuidance(
-  protocol: DmrTrunkProtocol,
-  detected: DvTrunkProtocol | null = null,
-): string {
-  if (protocol === "auto" && detected !== null) {
-    switch (detected) {
-      case "capacity_plus":
-        return "Detected Capacity Plus signalling; both timeslots of every wired carrier are being followed.";
-      case "hytera_xpt":
-        return "Detected Hytera XPT signalling; both timeslots of every wired carrier are being followed.";
-      case "tier_three":
-        return "Detected Tier III signalling; voice grants create traffic receivers automatically.";
-    }
-  }
-  switch (protocol) {
-    case "capacity_plus":
-      return "Add one DMR decoder for every known repeater output frequency. Both timeslots are isolated automatically.";
-    case "hytera_xpt":
-      return "Add one DMR decoder for every Hytera XPT repeater output frequency. Both timeslots are isolated automatically.";
-    case "tier_three":
-      return "Add the DMR control-channel decoder. Standard channel definitions and voice grants create traffic receivers automatically.";
-    case "auto":
-      return "The system detects Capacity Plus, Hytera XPT, or Tier III signalling from the connected DMR carriers.";
-  }
 }

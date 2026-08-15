@@ -8,9 +8,10 @@ import { FIELD } from "./controls";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
 import { LOOP_SETTING } from "./playback";
-import { Select, withCurrent } from "./Select";
+import { Select } from "./Select";
 import { SettingGroup, SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
+import { withCurrent } from "./selectOptions";
 import { settingLabel } from "./settingLabel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 

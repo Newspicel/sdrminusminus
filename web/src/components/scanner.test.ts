@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSet, ScannerStatus, TemplateInfo } from "../lib/types";
-import { rankDevices } from "./OpenRadio";
+import { rankDevices } from "./devices";
 import { formatDb, liveStatus, parseRanges, scanRefusal, targetCount } from "./scanner";
-import { supports } from "./TemplatesPanel";
+import { supports } from "./templates";
 
 describe("parseRanges", () => {
   it("converts the MHz/kHz the editor holds into whole wire Hz", () => {

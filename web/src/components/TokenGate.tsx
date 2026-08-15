@@ -79,9 +79,3 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
     </div>
   );
 }
-
-/** Forget a token the server has rejected, so the gate asks again instead of the client
- * retrying a credential that will never work. */
-export function clearToken(): void {
-  setToken(null);
-}

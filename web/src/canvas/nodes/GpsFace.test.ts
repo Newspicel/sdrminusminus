@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nmeaSuggestion, validGpsdAddress } from "./GpsFace";
+import { nmeaSuggestion, validGpsdAddress } from "./gpsSource";
 
 describe("validGpsdAddress", () => {
   it("accepts host and bracketed IPv6 endpoints", () => {

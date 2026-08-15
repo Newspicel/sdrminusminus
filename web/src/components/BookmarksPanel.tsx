@@ -34,10 +34,7 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
   });
 
   const centerHz = active?.settings.center_hz;
-  // `toSorted` wants lib es2023 (tsconfig pins es2022); the spread already prevents the
-  // mutation the rule guards against.
-  // oxlint-disable-next-line unicorn/no-array-sort
-  const sorted = [...(bookmarks.data ?? [])].sort((a, b) => a.freq_hz - b.freq_hz);
+  const sorted = (bookmarks.data ?? []).toSorted((a, b) => a.freq_hz - b.freq_hz);
 
   return (
     <div className="flex flex-col gap-2 p-3">

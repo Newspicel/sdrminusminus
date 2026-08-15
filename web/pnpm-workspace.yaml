@@ -1,3 +1,10 @@
 # Security floor for transitive deps (GHSA advisory: js-yaml < 4.3.1, via openapi-typescript).
 overrides:
   js-yaml: "^4.3.1"
+
+# A version whose supply-chain trust evidence (provenance, signatures) is weaker than an
+# earlier-published one is refused rather than accepted quietly, on fresh resolution and on every
+# re-read of the lockfile. `minimumReleaseAge` is deliberately left at pnpm's 24-hour default:
+# raising it to a week would reject the pinned biome and oxlint releases until they age past the
+# cutoff, so it is a version-pinning decision, not a switch.
+trustPolicy: no-downgrade

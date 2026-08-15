@@ -185,9 +185,18 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
                     turns into its stored twin within a flush, so marking the difference would be
                     half a second of tint on every row in the table. */}
                     <tr
-                      className="cursor-pointer border-b border-line/50 hover:bg-panel-2"
+                      className="cursor-pointer border-b border-line/50 hover:bg-panel-2 focus-visible:outline focus-visible:outline-accent"
                       aria-expanded={opened === row.key}
+                      tabIndex={0}
                       onClick={() => setOpened(opened === row.key ? null : row.key)}
+                      onKeyDown={(event) => {
+                        // The row is the control, so it answers the keys a control does. Space
+                        // would scroll the panel out from under the frame it just opened.
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setOpened(opened === row.key ? null : row.key);
+                        }
+                      }}
                     >
                       <td
                         className={`${TABLE_CELL} whitespace-nowrap tabular-nums text-ink-dim`}

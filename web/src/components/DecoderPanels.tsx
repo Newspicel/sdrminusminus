@@ -40,7 +40,7 @@ function useNow(periodMs = 1000): number {
   return now;
 }
 
-export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
+function RdsView({ scope = {} }: { scope?: DecoderScope }) {
   const records = recordsInScope(useDecodedKind("rds"), scope);
   const rds = rdsPicture(records);
 
@@ -132,7 +132,7 @@ const TARGET_COLUMNS = {
   },
 } as const;
 
-export function TargetsView({ kind, scope = {} }: { kind: "adsb" | "ais"; scope?: DecoderScope }) {
+function TargetsView({ kind, scope = {} }: { kind: "adsb" | "ais"; scope?: DecoderScope }) {
   const now = useNow();
   const ageOut = useDecodedStoreAgeOut();
   const aircraft = stationsInScope(useStations("adsb"), scope);
@@ -249,7 +249,7 @@ function SortButton({ label, onClick }: { label: string; onClick: () => void }) 
   );
 }
 
-export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?: DecoderScope }) {
+function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?: DecoderScope }) {
   const records = recordsInScope(useDecodedKind(kind), scope);
   const text = buildTranscript(records);
   const wpm = kind === "morse" ? latestWpm(records as readonly DecodedRecordOf<"morse">[]) : null;
@@ -326,7 +326,7 @@ function useDecodedStoreAgeOut(): (nowMs: number) => void {
 
 /** Subaudible signalling is a property of the channel right now, not a stream of messages, so
  * this is a status line rather than a list — the decoder log already holds the history. */
-export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
+function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   const records = recordsInScope(useDecodedKind("tone"), scope);
   const latest = records[0];
 

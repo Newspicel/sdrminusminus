@@ -6,7 +6,8 @@ import { formatMhz, formatSignedKhz } from "../../components/format";
 import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf, targetsOf } from "../binding";
-import { deviceSetOf, useWorkspaceContext } from "../context";
+import { useWorkspaceContext } from "../context";
+import { deviceSetOf } from "../workspaceDevice";
 import { FaceBody, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {

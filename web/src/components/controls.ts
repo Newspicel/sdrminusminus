@@ -48,10 +48,6 @@ export const LABEL =
   "inline-flex items-center gap-2 whitespace-nowrap font-mono text-[10px] tracking-[0.09em] " +
   "uppercase text-ink-faint";
 
-/** `LABEL` for a row whose words toggle a box, so the pointer says the text is part of the
- * control. Not for a label over a field — clicking that only moves focus. */
-export const CHECK_LABEL = `${LABEL} cursor-pointer`;
-
 /** Read-only status pill: a value plus its legend, on a recessed well. */
 export const CHIP =
   "inline-flex h-7 items-center gap-1.5 rounded-[3px] border border-line bg-panel-2 px-2 " +

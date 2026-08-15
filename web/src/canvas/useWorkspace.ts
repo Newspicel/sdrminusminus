@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   activateWorkspace,
   applyWorkspace,
@@ -55,7 +55,7 @@ export function useWorkspace(): WorkspaceStore {
   // erase a later one before it has been sent.
   // Keyed by workspace because a switch can put A, B and then A back into the same global write
   // queue. Settling one workspace must neither discard another's draft nor retain A's old revision.
-  const drafts = useRef(new WorkspaceDrafts());
+  const [drafts] = useState(() => new WorkspaceDrafts());
 
   const update = useMutation({
     mutationFn: (variables: { id: number; revision: number; snapshot: WorkspaceSnapshot }) =>
@@ -67,7 +67,7 @@ export function useWorkspace(): WorkspaceStore {
     // here. Preserve the latest local draft at the same time: the server's answer describes this
     // write, which may not be the last edit already waiting behind it.
     onSuccess: (info, variables) => {
-      const snapshot = drafts.current.accepted(variables.id, info.revision) ?? variables.snapshot;
+      const snapshot = drafts.accepted(variables.id, info.revision) ?? variables.snapshot;
       queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], (previous) =>
         previous
           ? {
@@ -96,11 +96,16 @@ export function useWorkspace(): WorkspaceStore {
   const applyAsync = applyMut.mutateAsync;
 
   const queried = detail.data ?? null;
-  const draft = queried === null ? undefined : drafts.current.get(queried.id);
+  const draft = queried === null ? undefined : drafts.get(queried.id);
   const active =
     queried !== null && draft !== undefined ? { ...queried, snapshot: draft.snapshot } : queried;
+  // `save` and `apply` are handed to faces and fire from events, so they read the loaded
+  // workspace here. Written after commit rather than during render, which React may replay or
+  // discard.
   const activeIdRef = useRef<number | null>(null);
-  activeIdRef.current = active?.id ?? null;
+  useLayoutEffect(() => {
+    activeIdRef.current = active?.id ?? null;
+  });
   // Writes are serialized: each one reads the revision the previous one produced. Issuing them
   // concurrently would send the same revision twice, and the server — correctly — refuses the
   // second as stale, which would silently drop whichever change lost the race.
@@ -137,9 +142,9 @@ export function useWorkspace(): WorkspaceStore {
       // Compose against the pending draft, not necessarily the query cache. A StateChanged
       // refetch may have replaced the cache with the last snapshot the server accepted while a
       // newer local edit is still queued.
-      const base = drafts.current.get(id)?.snapshot ?? current.snapshot;
+      const base = drafts.get(id)?.snapshot ?? current.snapshot;
       const snapshot = fitRack(edit(base));
-      const write = drafts.current.stage(id, snapshot, current.revision);
+      const write = drafts.stage(id, snapshot, current.revision);
       // Applied to the cache *synchronously*, in the same task as the gesture that ended: a
       // drag's own preview is dropped on pointer-up, and anything that renders the stored
       // arrangement between the two — one microtask, or one whole round trip when a previous
@@ -161,21 +166,21 @@ export function useWorkspace(): WorkspaceStore {
             if (latest !== undefined) {
               await update.mutateAsync({
                 id,
-                revision: drafts.current.get(id)?.revision ?? latest.revision,
+                revision: drafts.get(id)?.revision ?? latest.revision,
                 snapshot,
               });
             }
           } catch {
             // `update.error` owns the visible failure; the queue must still clean up and refetch.
           } finally {
-            const finished = drafts.current.finish(id, write.generation);
+            const finished = drafts.finish(id, write.generation);
             refreshOwed.current = refreshOwed.current || finished;
           }
         })
         .catch(() => undefined);
       finishQueue(task);
     },
-    [finishQueue, queryClient, update],
+    [drafts, finishQueue, queryClient, update],
   );
 
   // Apply goes through the same queue as a write, and that ordering is load-bearing: the gesture

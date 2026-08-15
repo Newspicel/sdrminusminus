@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import type { BandIdentity } from "../../components/bandPlan";
 import {
@@ -36,13 +36,16 @@ export function BandRuler({
   onTune: (hz: number, suggested: ChannelParams | null) => void;
 }) {
   const { plan, ruler } = useBandPlan();
-  const [picked, setPicked] = useState<{ hz: number; at: number } | null>(null);
+  const [pick, setPick] = useState<{ hz: number; at: number; frame: string } | null>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
 
   // A pan or a zoom moves the spectrum out from under an open popover, and a card still naming
   // the old frequency is worse than no card. The view is the trigger, not the pointer, so this
-  // also closes it when the *radio* is retuned by someone else.
-  useEffect(() => setPicked(null), [view, centerHz, spanHz]);
+  // also closes it when the *radio* is retuned by someone else. Stamping the pick with the frame
+  // it was taken in — rather than clearing it from an effect — is what keeps the stale card off
+  // the paint that follows the pan, instead of showing it for the frame before the effect runs.
+  const frame = `${centerHz}:${spanHz}:${view.start}:${view.end}`;
+  const picked = pick?.frame === frame ? pick : null;
 
   if (!ruler || plan === null || !(spanHz > 0)) {
     return null;
@@ -58,7 +61,7 @@ export function BandRuler({
       return;
     }
     const at = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    setPicked({ hz: hzAt(at), at });
+    setPick({ hz: hzAt(at), at, frame });
   };
 
   return (
@@ -108,7 +111,7 @@ export function BandRuler({
           found={identify(plan, picked.hz)}
           layerName={(id) => plan.layers.find((layer) => layer.id === id)?.authority ?? id}
           onTune={onTune}
-          onClose={() => setPicked(null)}
+          onClose={() => setPick(null)}
         />
       )}
     </div>

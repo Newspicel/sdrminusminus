@@ -2,19 +2,6 @@ import { Select as Primitive } from "@base-ui/react/select";
 import { FIELD, type Options, SURFACE, segment } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
 
-/** A device — or a preset — can hold a value that is not one of the discrete points its
- * capabilities declare. Offering it as its own item is what keeps the list honest: without it
- * the trigger shows the first option, which is a lie about what the radio is set to. */
-export function withCurrent<T extends string | number>(
-  value: T,
-  options: Options<T>,
-  format: (value: T) => string,
-): Options<T> {
-  return options.some((option) => option.value === value)
-    ? options
-    : [{ value, label: `${format(value)} (current)` }, ...options];
-}
-
 /** One trigger size everywhere. A dropped list is read top to bottom, so past a point extra width
  * only stretches the trigger away from its label — and `w-full` under the cap is what lets the
  * same trigger shrink inside a node dragged to its minimum instead of overflowing it. */

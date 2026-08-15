@@ -8,9 +8,10 @@ import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
 import { OffsetStepper } from "./OffsetStepper";
 import { Segmented } from "./Segmented";
-import { Select, withCurrent } from "./Select";
+import { Select } from "./Select";
 import { SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
+import { withCurrent } from "./selectOptions";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const DEFAULT_SQUELCH_DB = -60;

@@ -10,7 +10,7 @@ import {
   rankDevices,
   unclaimedDevices,
   visibleDevices,
-} from "./OpenRadio";
+} from "./devices";
 
 function device(driver: string, key: string, label = `${driver} ${key}`): DeviceInfo {
   return { driver, key, label };

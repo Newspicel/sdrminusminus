@@ -14,7 +14,15 @@ import {
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
 import { pushToast } from "../lib/toasts";
@@ -115,8 +123,12 @@ export function Canvas() {
     }));
   }, [workspace]);
 
+  // React Flow owns the live geometry; `commitGeometry` runs from a microtask after a gesture
+  // ends and reads it here. Written after commit so render stays pure.
   const flowRef = useRef(nodes);
-  flowRef.current = nodes;
+  useLayoutEffect(() => {
+    flowRef.current = nodes;
+  });
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<FlowData>>[]) => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Local value while the user drags; the commit is debounced so a drag doesn't flood the
 // server. Refs mirror the pending value and latest `commit` so the unmount cleanup (whose
@@ -10,7 +10,9 @@ export function useDebouncedCommit(
   const [pending, setPending] = useState<number | null>(null);
   const pendingRef = useRef<number | null>(null);
   const commitRef = useRef(commit);
-  commitRef.current = commit;
+  useLayoutEffect(() => {
+    commitRef.current = commit;
+  });
   const timer = useRef<number | null>(null);
   useEffect(
     () => () => {

@@ -5,17 +5,7 @@ import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
 import { Button } from "./BaseControls";
 import { BTN } from "./controls";
-import { deviceId } from "./OpenRadio";
-
-/** Whether this radio is one the server said can run the template.
- *
- * The rule itself is `TemplateInfo::unmet_by` in `crates/wire`, evaluated server-side against
- * every probed radio's profile — frequency span, sample rate and whether it has the direction
- * the template needs. This is the lookup, not a second copy of the rule: the engine's rejection
- * on apply is still the authority, but a card that says why beats a failed apply. */
-export function supports(template: TemplateInfo, set: DeviceSet | null): boolean {
-  return set !== null && (template.supported_devices ?? []).includes(deviceId(set.device));
-}
+import { supports } from "./templates";
 
 export function TemplatesPanel({
   active,
