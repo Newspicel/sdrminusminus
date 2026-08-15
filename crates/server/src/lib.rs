@@ -937,6 +937,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn opening_a_radio_that_is_already_open_conflicts() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/devicesets",
+            Some(r#"{"device_id":"virtual:siggen"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
+        assert!(err.error.contains("already open"), "{err:?}");
+
+        let (status, _) = request(app, "DELETE", &format!("/api/devicesets/{ds}"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
     async fn extractor_rejections_return_api_error_body() {
         let app = test_router();
 

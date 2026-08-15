@@ -18,14 +18,13 @@ use soapysdr::{Direction, ErrorCode};
 
 mod caps;
 mod runtime;
+mod watchdog;
 
 pub use runtime::{RuntimeInfo, configure_bundled_runtime, runtime_info};
+use watchdog::{Watch, Watchdog};
 
 const DRIVER_ID: &str = "soapy";
 const READ_TIMEOUT_US: i64 = 100_000;
-const UNPLUG_TIMEOUT_READS: u32 = 10;
-const UNPLUG_PROBE_FAILURES: u32 = 2;
-const PROBE_MIN_INTERVAL: Duration = Duration::from_secs(1);
 const MIN_BLOCK: usize = 8192;
 const OVERFLOW_LOG_EVERY: u64 = 1000;
 const GAIN_MODE_SETTING: &str = "gain_mode";
@@ -39,10 +38,26 @@ fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::E
     soapysdr::enumerate(filter)
 }
 
+const BUSY_HINTS: [&str; 6] = [
+    "busy",
+    "in use",
+    "claim",
+    "access denied",
+    "libusb_error_access",
+    "unable to open",
+];
+
+fn reads_as_busy(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    BUSY_HINTS.iter().any(|hint| message.contains(hint))
+}
+
 fn map_err(error: soapysdr::Error) -> DeviceError {
+    let message = error.to_string();
     match error.code {
-        ErrorCode::NotSupported => DeviceError::Unsupported(error.to_string()),
-        _ => DeviceError::Io(error.to_string()),
+        ErrorCode::NotSupported => DeviceError::Unsupported(message),
+        _ if reads_as_busy(&message) => DeviceError::InUse(message),
+        _ => DeviceError::Io(message),
     }
 }
 
@@ -751,9 +766,7 @@ fn capture_loop(
 ) {
     let block = stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK);
     let mut buffers = vec![vec![Sample::new(0.0, 0.0); block]; sinks.len()];
-    let mut timeouts = 0u32;
-    let mut probe_failures = 0u32;
-    let mut last_probe: Option<Instant> = None;
+    let mut watchdog = Watchdog::new(Instant::now());
     let mut overflows = 0u64;
     while running.load(Ordering::Acquire) {
         let result = {
@@ -763,8 +776,7 @@ fn capture_loop(
         };
         match result {
             Ok(count) => {
-                timeouts = 0;
-                probe_failures = 0;
+                watchdog.delivered(Instant::now());
                 if count > 0 {
                     for (sink, buffer) in sinks.iter_mut().zip(&buffers) {
                         sink.push(&buffer[..count]);
@@ -772,25 +784,22 @@ fn capture_loop(
                 }
             }
             Err(error) if error.code == ErrorCode::Timeout => {
-                timeouts += 1;
-                if timeouts < UNPLUG_TIMEOUT_READS
-                    || last_probe.is_some_and(|at| at.elapsed() < PROBE_MIN_INTERVAL)
-                {
-                    continue;
-                }
-                last_probe = Some(Instant::now());
-                match identity.is_present() {
-                    Ok(true) => {
-                        timeouts = 0;
-                        probe_failures = 0;
+                match watchdog.timed_out(Instant::now()) {
+                    Watch::Wait => continue,
+                    Watch::Silent => {
+                        fail_all(&mut sinks, &silent_stream(watchdog.silence()));
+                        break;
                     }
+                    Watch::Probe => {}
+                }
+                match identity.is_present() {
+                    Ok(true) => watchdog.present(),
                     Ok(false) => {
                         fail_all(&mut sinks, "device lost: no longer enumerates");
                         break;
                     }
                     Err(probe) => {
-                        probe_failures += 1;
-                        if probe_failures >= UNPLUG_PROBE_FAILURES {
+                        if watchdog.probe_failed() {
                             fail_all(
                                 &mut sinks,
                                 &format!("device lost: enumerate failed: {probe}"),
@@ -827,41 +836,41 @@ fn capture_split_loop(
         .iter()
         .map(|stream| vec![Sample::new(0.0, 0.0); stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK)])
         .collect();
-    let mut timeouts = vec![0u32; streams.len()];
-    let mut probe_failures = 0u32;
-    let mut last_probe: Option<Instant> = None;
+    let mut watchdogs: Vec<Watchdog> = (0..streams.len())
+        .map(|_| Watchdog::new(Instant::now()))
+        .collect();
     let mut overflows = vec![0u64; streams.len()];
     'capture: while running.load(Ordering::Acquire) {
         for channel in 0..streams.len() {
             let result = streams[channel].read(&mut [&mut buffers[channel]], READ_TIMEOUT_US);
             match result {
                 Ok(count) => {
-                    timeouts[channel] = 0;
-                    probe_failures = 0;
+                    watchdogs[channel].delivered(Instant::now());
                     if count > 0 {
                         sinks[channel].push(&buffers[channel][..count]);
                     }
                 }
                 Err(error) if error.code == ErrorCode::Timeout => {
-                    timeouts[channel] += 1;
-                    if timeouts[channel] < UNPLUG_TIMEOUT_READS
-                        || last_probe.is_some_and(|at| at.elapsed() < PROBE_MIN_INTERVAL)
-                    {
-                        continue;
-                    }
-                    last_probe = Some(Instant::now());
-                    match identity.is_present() {
-                        Ok(true) => {
-                            timeouts[channel] = 0;
-                            probe_failures = 0;
+                    match watchdogs[channel].timed_out(Instant::now()) {
+                        Watch::Wait => continue,
+                        Watch::Silent => {
+                            let silence = watchdogs[channel].silence();
+                            fail_all(
+                                &mut sinks,
+                                &format!("stream {channel}: {}", silent_stream(silence)),
+                            );
+                            break 'capture;
                         }
+                        Watch::Probe => {}
+                    }
+                    match identity.is_present() {
+                        Ok(true) => watchdogs[channel].present(),
                         Ok(false) => {
                             fail_all(&mut sinks, "device lost: no longer enumerates");
                             break 'capture;
                         }
                         Err(probe) => {
-                            probe_failures += 1;
-                            if probe_failures >= UNPLUG_PROBE_FAILURES {
+                            if watchdogs[channel].probe_failed() {
                                 fail_all(
                                     &mut sinks,
                                     &format!("device lost: enumerate failed: {probe}"),
@@ -898,6 +907,13 @@ fn capture_split_loop(
             tracing::debug!(channel, "soapy stream deactivate failed: {error}");
         }
     }
+}
+
+fn silent_stream(silence: Duration) -> String {
+    format!(
+        "the radio stopped sending samples for {silence:?} but is still plugged in — another \
+         program may have taken it over, or it needs to be re-plugged"
+    )
 }
 
 fn fail_all(sinks: &mut [RxSink], message: &str) {
@@ -1111,6 +1127,43 @@ mod tests {
             code,
             message: format!("{code:?}"),
         }
+    }
+
+    fn failed(message: &str) -> DeviceError {
+        map_err(soapysdr::Error {
+            code: ErrorCode::Other,
+            message: message.to_string(),
+        })
+    }
+
+    #[test]
+    fn a_driver_that_cannot_claim_the_hardware_reads_as_in_use() {
+        for message in [
+            "SoapySDR::Device::make() failed: Unable to open RTL-SDR device",
+            "usb_claim_interface error -6",
+            "LIBUSB_ERROR_ACCESS",
+            "Device or resource busy",
+            "the device is in use",
+        ] {
+            assert!(
+                matches!(failed(message), DeviceError::InUse(_)),
+                "{message} must name the radio as taken, not as a plain I/O fault"
+            );
+        }
+    }
+
+    #[test]
+    fn any_other_fault_stays_an_io_error() {
+        for message in ["stream setup failed", "no such antenna", "timeout"] {
+            assert!(
+                matches!(failed(message), DeviceError::Io(_)),
+                "{message} must not be blamed on another program"
+            );
+        }
+        assert!(matches!(
+            map_err(error(ErrorCode::NotSupported)),
+            DeviceError::Unsupported(_)
+        ));
     }
 
     #[test]

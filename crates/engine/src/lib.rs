@@ -26,6 +26,7 @@ use tokio::sync::broadcast;
 pub mod audio;
 pub mod audio_recording;
 mod history;
+pub mod image;
 pub mod iq;
 mod network_export;
 pub mod occupancy;
@@ -39,18 +40,21 @@ mod time_machine;
 pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use trunking::TrunkSystem;
-pub use video::VideoPacket;
+pub use video::{VideoPacket, VideoPicture};
 
 use crate::{
     audio_recording::AudioRecordingShared,
     history::TimeMachineState,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
+    runtime::{
+        CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded, RawImage,
+    },
     scanner::{ScanPlan, ScannerState},
     sinks::{BasebandSinks, ChannelBasebandRecording},
 };
@@ -140,7 +144,14 @@ impl EngineError {
                 | Self::NetworkExport(_)
                 | Self::Scan(_)
                 | Self::StreamOutOfRange { .. }
-                | Self::DeviceAlreadyOpen(..)
+        )
+    }
+
+    #[must_use]
+    pub fn is_conflict(&self) -> bool {
+        matches!(
+            self,
+            Self::DeviceAlreadyOpen(..) | Self::Device(DeviceError::InUse(_))
         )
     }
 }
@@ -627,8 +638,10 @@ pub struct Engine {
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     decoded_tx: mpsc::SyncSender<RawDecoded>,
+    image_queue_tx: mpsc::SyncSender<RawImage>,
     decoded_dropped: Arc<AtomicU64>,
     decoded_tx_out: broadcast::Sender<DecodedRecord>,
+    image_tx: broadcast::Sender<ImageCapture>,
     trunk_tx: mpsc::Sender<trunking::TrunkInput>,
     trunk_active: AtomicBool,
     trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
@@ -649,7 +662,9 @@ impl Engine {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
+        let (image_queue_tx, image_queue_rx) = mpsc::sync_channel(image::IMAGE_QUEUE_CAP);
         let (decoded_tx_out, _) = broadcast::channel(DECODED_CHANNEL_CAP);
+        let (image_tx, _) = broadcast::channel(image::IMAGE_CHANNEL_CAP);
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
@@ -658,8 +673,10 @@ impl Engine {
             event_tx,
             fault_tx,
             decoded_tx,
+            image_queue_tx,
             decoded_dropped: Arc::new(AtomicU64::new(0)),
             decoded_tx_out,
+            image_tx,
             trunk_tx,
             trunk_active: AtomicBool::new(false),
             trunk_status: trunk_status.clone(),
@@ -669,6 +686,7 @@ impl Engine {
         });
         engine.spawn_fault_drainer(fault_rx);
         engine.spawn_decoded_pump(decoded_rx);
+        engine.spawn_image_pump(image_queue_rx);
         trunking::spawn(&engine, trunk_rx, trunk_status);
         engine
     }
@@ -721,9 +739,39 @@ impl Engine {
         }
     }
 
+    fn spawn_image_pump(self: &Arc<Self>, image_rx: mpsc::Receiver<RawImage>) {
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-images".to_string())
+            .spawn(move || {
+                while let Ok(raw) = image_rx.recv() {
+                    let Some(engine) = weak.upgrade() else { return };
+                    let _ = engine.image_tx.send(ImageCapture {
+                        device_set: raw.device_set,
+                        channel: raw.channel,
+                        at: format!("{:.9}", jiff::Timestamp::now()),
+                        freq_hz: raw.freq_hz,
+                        source: raw.image.source,
+                        mode: raw.image.mode,
+                        complete: raw.image.complete,
+                        lines: raw.image.lines,
+                        picture: Arc::new(raw.image.picture),
+                    });
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::error!("failed to spawn image pump: {e}");
+        }
+    }
+
     #[must_use]
     pub fn subscribe_decoded(&self) -> broadcast::Receiver<DecodedRecord> {
         self.decoded_tx_out.subscribe()
+    }
+
+    #[must_use]
+    pub fn subscribe_images(&self) -> broadcast::Receiver<ImageCapture> {
+        self.image_tx.subscribe()
     }
 
     #[must_use]
@@ -734,6 +782,7 @@ impl Engine {
     fn decoded_sink(&self, ds: u32, channel: u32) -> DecodedSink {
         DecodedSink::new(
             self.decoded_tx.clone(),
+            self.image_queue_tx.clone(),
             self.decoded_dropped.clone(),
             ds,
             channel,

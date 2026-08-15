@@ -13,6 +13,8 @@ pub enum DeviceError {
     Unsupported(String),
     #[error("device I/O error: {0}")]
     Io(String),
+    #[error("this radio is already in use — another program has it open ({0})")]
+    InUse(String),
     #[error("device is already streaming")]
     AlreadyStreaming,
     #[error("device is {active} and cannot start {requested} until that stops")]

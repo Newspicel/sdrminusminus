@@ -805,7 +805,7 @@
             }
           },
           "400": {
-            "description": "Unusable device, or one a device set already holds",
+            "description": "Unusable device",
             "content": {
               "application/json": {
                 "schema": {
@@ -816,6 +816,16 @@
           },
           "404": {
             "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Device already in use, here or by another program",
             "content": {
               "application/json": {
                 "schema": {

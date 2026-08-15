@@ -3955,7 +3955,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedId"];
                 };
             };
-            /** @description Unusable device, or one a device set already holds */
+            /** @description Unusable device */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3966,6 +3966,15 @@ export interface operations {
             };
             /** @description Device not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device already in use, here or by another program */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

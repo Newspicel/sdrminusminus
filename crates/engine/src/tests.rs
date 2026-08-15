@@ -761,6 +761,24 @@ impl DeviceDriver for UnopenableDriver {
     }
 }
 
+struct BusyDriver;
+
+impl DeviceDriver for BusyDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("busy", None)]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Err(DeviceError::InUse(
+            "usb_claim_interface error -6".to_string(),
+        ))
+    }
+}
+
 struct FlappingDriver {
     probes: AtomicUsize,
 }
@@ -921,6 +939,24 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
 }
 
 #[tokio::test]
+async fn a_radio_another_program_holds_is_refused_by_name() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(BusyDriver));
+    let engine = Engine::with_registry(registry, None);
+
+    let refused = engine.create_device_set("mock:busy").unwrap_err();
+    assert!(refused.is_conflict(), "{refused}");
+    assert!(
+        refused.to_string().contains("already in use"),
+        "the reason must say the radio is taken, not just fail: {refused}"
+    );
+    assert!(
+        engine.snapshot().device_sets.is_empty(),
+        "a refused open must leave no half-built set behind"
+    );
+}
+
+#[tokio::test]
 async fn hotplug_tick_emits_only_on_probe_change() {
     let mut registry = DeviceRegistry::new();
     registry.register(
@@ -987,7 +1023,8 @@ async fn one_radio_opens_into_one_device_set() {
             if device == "virtual:siggen" && *held == ds),
         "expected a reopen refusal, got {refused}"
     );
-    assert!(refused.is_bad_request());
+    assert!(refused.is_conflict());
+    assert!(!refused.is_bad_request());
     assert_eq!(engine.snapshot().device_sets.len(), 1);
 
     engine.remove_device_set(ds).unwrap();
