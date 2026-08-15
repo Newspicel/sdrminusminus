@@ -41,9 +41,10 @@ pub enum StoreError {
 }
 
 /// Page size a decoder-log query gets when it asks for none, and the ceiling every request is
-/// clamped to. The list view is a scrolling table; bulk transfer is what export is for.
+/// clamped to. The ceiling matches the largest page the log panel offers, so every option it
+/// shows is honoured; bulk transfer is what export is for.
 pub const DECODER_LOG_LIMIT_DEFAULT: u32 = 200;
-pub const DECODER_LOG_LIMIT_MAX: u32 = 1_000;
+pub const DECODER_LOG_LIMIT_MAX: u32 = 2_000;
 
 /// Hard ceiling on one export, whatever the filter matches: the whole body is built in memory
 /// before it is sent, so an unbounded export is an out-of-memory kill.
@@ -2036,6 +2037,36 @@ mod tests {
             },
         );
         assert_eq!(entries.len(), 3);
+    }
+
+    /// The ceiling has to cover the largest page the log panel offers, or picking it silently
+    /// serves a shorter one.
+    #[test]
+    fn decoder_log_serves_the_largest_page_the_panel_offers() {
+        const PANEL_MAX: u32 = 2_000;
+        let store = Store::open(None).expect("open");
+        let records: Vec<DecodedRecord> = (0..=PANEL_MAX)
+            .map(|i| {
+                record(
+                    "2026-08-09T12:00:00Z",
+                    0,
+                    adsb("3C6444", &format!("DLH{i:04}")),
+                )
+            })
+            .collect();
+        store
+            .insert_decoder_events(&records, &LogOrigin::unattributed())
+            .expect("insert");
+
+        let (entries, total) = query(
+            &store,
+            DecoderLogQuery {
+                limit: Some(PANEL_MAX),
+                ..DecoderLogQuery::default()
+            },
+        );
+        assert_eq!(entries.len(), PANEL_MAX as usize);
+        assert_eq!(total, u64::from(PANEL_MAX) + 1);
     }
 
     #[test]
