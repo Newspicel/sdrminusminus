@@ -17,6 +17,8 @@ reference inside the app.
 | `1`–`9` | Select the nth node in the patch |
 | `p` | Pin or unpin the selected node on the rack |
 | `v` | Switch between Patch and Rack |
+| `Ctrl`/`⌘ Z` | Undo the last workspace change, for every connected client |
+| `Ctrl`/`⌘ Shift Z` or `Ctrl`/`⌘ Y` | Redo |
 | Backspace | Delete the selected node or wire |
 | `?` | Open the keyboard reference |
 | Escape | Close an overlay or menu |

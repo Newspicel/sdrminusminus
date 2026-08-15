@@ -313,12 +313,25 @@ pub struct WorkspacesResponse {
     pub active: Option<i64>,
 }
 
+/// What undo and redo can reach right now.
+///
+/// The history belongs to the workspace, not to a browser: every client works on the same
+/// arrangement, so they share the steps that lead back out of it. Undoing in one window is a
+/// change like any other, and the rest see it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WorkspaceHistory {
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+
 /// `GET /api/workspaces/{id}` — the row plus its workspace.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceDetail {
     #[serde(flatten)]
     pub info: WorkspaceInfo,
     pub snapshot: WorkspaceSnapshot,
+    #[serde(default)]
+    pub history: WorkspaceHistory,
 }
 
 /// `POST /api/workspaces`.

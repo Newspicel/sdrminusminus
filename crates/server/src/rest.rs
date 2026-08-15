@@ -170,9 +170,9 @@ impl From<StoreError> for AppError {
             StoreError::Timestamp(_) | StoreError::Sources(_) | StoreError::WorkspaceLayout(_) => {
                 StatusCode::BAD_REQUEST
             }
-            StoreError::WorkspaceNameTaken(_) | StoreError::WorkspaceConflict { .. } => {
-                StatusCode::CONFLICT
-            }
+            StoreError::WorkspaceNameTaken(_)
+            | StoreError::WorkspaceConflict { .. }
+            | StoreError::WorkspaceHistoryEnd { .. } => StatusCode::CONFLICT,
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {
@@ -1789,6 +1789,88 @@ async fn activate_workspace(
 }
 
 #[utoipa::path(
+    post, path = "/api/workspaces/{id}/undo",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (
+            status = 200,
+            description = "The workspace as it was before its last change, with the history it \
+                           can still walk. The step is stored, so every client is told to reload \
+                           it — one workspace, one history, whichever browser pressed undo",
+            body = WorkspaceDetail,
+        ),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+        (status = 409, description = "Nothing left to undo", body = ApiError),
+    ),
+)]
+async fn undo_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<WorkspaceDetail>, AppError> {
+    step_history(state, id, Store::undo_workspace).await
+}
+
+#[utoipa::path(
+    post, path = "/api/workspaces/{id}/redo",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (status = 200, description = "The workspace an undo had stepped out of", body = WorkspaceDetail),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+        (status = 409, description = "Nothing left to redo", body = ApiError),
+    ),
+)]
+async fn redo_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<WorkspaceDetail>, AppError> {
+    step_history(state, id, Store::redo_workspace).await
+}
+
+/// Move the workspace along its own history and bring the hardware with it.
+///
+/// A step is an edit like any other, so it owes what an edit owes: the radios the restored graph
+/// no longer draws are closed and the ones it draws again are opened. Only for the workspace that
+/// is live, and only when the step changed what is *drawn* — undoing a drag moves a face, and
+/// closing a radio over that would be a gesture nobody made.
+async fn step_history(
+    state: AppState,
+    id: i64,
+    step: fn(&Store, i64) -> Result<WorkspaceDetail, StoreError>,
+) -> Result<Json<WorkspaceDetail>, AppError> {
+    let gps_state = state.clone();
+    let detail = tokio::task::spawn_blocking(move || -> Result<WorkspaceDetail, AppError> {
+        let _serialized = state
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = state.store.workspace(id)?;
+        let detail = step(&state.store, id)?;
+        if state.store.active_workspace_id()? == Some(id)
+            && !before.snapshot.graph.same_topology(&detail.snapshot.graph)
+        {
+            let saved = state.store.workspace_state(id)?;
+            workspace::reconcile(&state, &detail.snapshot.graph, &saved);
+            let report = bring_up(&state, id, &detail.snapshot, &saved)?;
+            for refusal in &report.refused {
+                tracing::warn!(
+                    workspace = id,
+                    node = refusal.node,
+                    reason = refusal.reason,
+                    "a node could not be restored by the history step"
+                );
+            }
+        }
+        state.engine.emit_scope(StateScope::Workspaces);
+        Ok(detail)
+    })
+    .await??;
+    reconcile_gps(gps_state).await?;
+    Ok(Json(detail))
+}
+
+#[utoipa::path(
     post, path = "/api/workspaces/{id}/apply",
     params(("id" = i64, Path, description = "Workspace id")),
     responses(
@@ -2121,6 +2203,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_workspace, update_workspace, delete_workspace))
         .routes(routes!(activate_workspace))
         .routes(routes!(apply_workspace))
+        .routes(routes!(undo_workspace))
+        .routes(routes!(redo_workspace))
         .routes(routes!(get_patch_catalog))
         .routes(routes!(list_band_regions))
         .routes(routes!(get_band_plan))

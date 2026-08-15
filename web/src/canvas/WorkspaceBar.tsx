@@ -25,6 +25,10 @@ export function WorkspaceBar({
   onActivate,
   onCreate,
   onRemove,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
   onShowShortcuts,
   onShowTools,
 }: {
@@ -35,6 +39,10 @@ export function WorkspaceBar({
   onActivate: (id: number) => void;
   onCreate: (name: string) => void;
   onRemove: (id: number) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   onShowShortcuts: () => void;
   onShowTools: () => void;
 }) {
@@ -162,6 +170,29 @@ export function WorkspaceBar({
         >
           {() => <Library />}
         </Popover>
+        <Rule />
+        {/* Disabled from the server's own answer: the history is the workspace's, so a step
+            another client took is what these buttons offer next. */}
+        <span className="flex items-center" role="group" aria-label="History">
+          <Button
+            type="button"
+            className={ICON_BTN}
+            aria-label="Undo the last change to the workspace"
+            disabled={!canUndo}
+            onClick={onUndo}
+          >
+            ↶
+          </Button>
+          <Button
+            type="button"
+            className={ICON_BTN}
+            aria-label="Redo the last undone change"
+            disabled={!canRedo}
+            onClick={onRedo}
+          >
+            ↷
+          </Button>
+        </span>
         <Rule />
         <ThemeControl />
         <Button

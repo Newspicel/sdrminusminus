@@ -18,6 +18,20 @@ on a new database includes a starter Device, Scope, and Speaker. Later workspace
 Workspace changes are saved on the server, including node position, rack layout, and regional band
 plan. One workspace is active at a time across every connected client.
 
+### Undo and redo
+
+The arrow buttons in the top bar step the workspace back through its changes, or forward again.
+`Ctrl`/`⌘ Z` and `Ctrl`/`⌘ Shift Z` do the same from the keyboard.
+
+The history is stored with the workspace rather than in the browser, so every connected client
+shares one list: undoing in one window undoes for all of them, and a step another operator takes
+is the one your buttons offer next. Each workspace keeps its last 100 arrangements, and editing
+after an undo discards the steps that were ahead of it.
+
+A step brings the hardware with it. Undoing a change that added a channel closes that channel, and
+redoing it opens it again with the settings it had. Where a radio is tuned is not part of the
+history — undo restores what the workspace draws, not the dial.
+
 ## Templates
 
 Open **Library → Templates** after selecting a Device node. A template retunes that radio, sets an
@@ -29,7 +43,8 @@ and marine VHF. The server disables templates that the selected radio cannot tun
 correctly.
 
 Applying a template changes live device and channel configuration immediately. The button names
-the target radio because this operation is not an undoable preview.
+the target radio because this is not a preview: undo removes the nodes the template merged in, but
+the radio keeps the sample rate and tuning the template gave it.
 
 ## Presets
 

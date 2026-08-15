@@ -319,6 +319,8 @@ export function App() {
       }));
     },
     toggleView: () => setView((current) => (current === "patch" ? "rack" : "patch")),
+    undo: workspace.undo,
+    redo: workspace.redo,
     showShortcuts: () => setShowShortcuts(true),
   });
 
@@ -353,6 +355,10 @@ export function App() {
                 onActivate={workspace.activate}
                 onCreate={workspace.create}
                 onRemove={workspace.remove}
+                onUndo={workspace.undo}
+                onRedo={workspace.redo}
+                canUndo={workspace.canUndo}
+                canRedo={workspace.canRedo}
                 onShowShortcuts={() => setShowShortcuts(true)}
                 onShowTools={() => setShowTools(true)}
               />

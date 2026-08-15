@@ -511,6 +511,8 @@ mod tests {
             "/api/calls",
             "/api/calls/{id}/audio",
             "/api/workspaces/{id}/apply",
+            "/api/workspaces/{id}/undo",
+            "/api/workspaces/{id}/redo",
             "/api/patch/catalog",
             "/api/tools",
             "/api/tools/run",
@@ -2277,6 +2279,91 @@ mod tests {
         assert_eq!(report.opened, 0);
         assert!(report.bound.is_empty());
         assert!(get_state(&app).await.device_sets.is_empty());
+    }
+
+    /// Undo is a server-side gesture on the workspace every client shares, and it owes what an
+    /// edit owes: the channel the undone step had added is gone from the engine too, and redo
+    /// brings it back. Anything less and the canvas would draw one radio while another one ran.
+    #[tokio::test]
+    async fn undoing_a_workspace_takes_the_engine_back_with_it() {
+        let app = test_router();
+        let workspace =
+            put_active_workspace(&app, &virtual_snapshot("siggen", &[("nfm", "nfm", "iq")])).await;
+        apply(&app, workspace).await;
+
+        let two = virtual_snapshot("siggen", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
+        let revision = workspace_detail(&app, workspace).await.info.revision;
+        let (status, body) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{workspace}"),
+            Some(&format!(
+                r#"{{"revision":{revision},"snapshot":{}}}"#,
+                serde_json::to_string(&two).unwrap()
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        apply(&app, workspace).await;
+        assert_eq!(channel_types(&app).await, vec!["nfm", "am"]);
+
+        let undone = step(&app, workspace, "undo").await;
+        assert_eq!(undone.snapshot.graph.nodes.len(), two.graph.nodes.len() - 1);
+        assert!(undone.history.can_undo && undone.history.can_redo);
+        assert_eq!(
+            channel_types(&app).await,
+            vec!["nfm"],
+            "the channel the undone step created is closed, not left running"
+        );
+        // Every client reads the same workspace, so what one undid is what the next one loads.
+        assert_eq!(
+            workspace_detail(&app, workspace).await.snapshot,
+            undone.snapshot
+        );
+
+        let redone = step(&app, workspace, "redo").await;
+        assert_eq!(redone.snapshot, two);
+        assert!(!redone.history.can_redo);
+        assert_eq!(channel_types(&app).await, vec!["nfm", "am"]);
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/workspaces/{workspace}/redo"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+    }
+
+    async fn workspace_detail(app: &Router, id: i64) -> sdrmm_wire::WorkspaceDetail {
+        let (status, body) =
+            request(app.clone(), "GET", &format!("/api/workspaces/{id}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        serde_json::from_slice(&body).expect("json")
+    }
+
+    async fn step(app: &Router, id: i64, step: &str) -> sdrmm_wire::WorkspaceDetail {
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/workspaces/{id}/{step}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        serde_json::from_slice(&body).expect("json")
+    }
+
+    async fn channel_types(app: &Router) -> Vec<String> {
+        get_state(app)
+            .await
+            .device_sets
+            .iter()
+            .flat_map(|set| &set.channels)
+            .map(|channel| channel.settings.params.type_id().to_string())
+            .collect()
     }
 
     #[tokio::test]

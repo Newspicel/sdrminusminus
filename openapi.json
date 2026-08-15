@@ -2201,6 +2201,124 @@
           }
         }
       }
+    },
+    "/api/workspaces/{id}/redo": {
+      "post": {
+        "operationId": "redo_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace an undo had stepped out of",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing left to redo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/undo": {
+      "post": {
+        "operationId": "undo_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace as it was before its last change, with the history it can still walk. The step is stored, so every client is told to reload it — one workspace, one history, whichever browser pressed undo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing left to undo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10709,6 +10827,9 @@
               "snapshot"
             ],
             "properties": {
+              "history": {
+                "$ref": "#/components/schemas/WorkspaceHistory"
+              },
               "snapshot": {
                 "$ref": "#/components/schemas/WorkspaceSnapshot"
               }
@@ -10716,6 +10837,22 @@
           }
         ],
         "description": "`GET /api/workspaces/{id}` — the row plus its workspace."
+      },
+      "WorkspaceHistory": {
+        "type": "object",
+        "description": "What undo and redo can reach right now.\n\nThe history belongs to the workspace, not to a browser: every client works on the same\narrangement, so they share the steps that lead back out of it. Undoing in one window is a\nchange like any other, and the rest see it.",
+        "required": [
+          "can_undo",
+          "can_redo"
+        ],
+        "properties": {
+          "can_redo": {
+            "type": "boolean"
+          },
+          "can_undo": {
+            "type": "boolean"
+          }
+        }
       },
       "WorkspaceInfo": {
         "type": "object",

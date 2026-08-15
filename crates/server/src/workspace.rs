@@ -184,7 +184,10 @@ pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
         .clone();
     let captured = capture(graph, &state.engine.snapshot(), &unrestored);
     stored.merge(captured);
-    stored.retain_nodes(|node| graph.node(node).is_some());
+    // A node undo can bring back is a node whose settings are still needed: pruning on the graph
+    // alone would return a restored channel at its type's defaults rather than where it was.
+    let recoverable = state.store.history_nodes(active.info.id)?;
+    stored.retain_nodes(|node| graph.node(node).is_some() || recoverable.contains(node));
     state.store.put_workspace_state(active.info.id, &stored)
 }
 

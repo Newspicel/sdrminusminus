@@ -843,6 +843,22 @@ impl PatchGraph {
         })
     }
 
+    /// Whether both graphs describe the same radios, decoders and wires — everything the engine
+    /// is brought up from — ignoring where the faces sit and what they are called.
+    ///
+    /// Moving a face is not a change to the hardware, and the paths that reconcile the engine to a
+    /// stored graph close radios and drop channels: they must not run for a drag.
+    #[must_use]
+    pub fn same_topology(&self, other: &Self) -> bool {
+        self.edges == other.edges
+            && self.nodes.len() == other.nodes.len()
+            && self
+                .nodes
+                .iter()
+                .zip(&other.nodes)
+                .all(|(a, b)| a.id == b.id && a.body == b.body)
+    }
+
     /// Structural validity: ids, geometry, and wires that name real ports of compatible type.
     /// Semantics that need the running build's channel registry are
     /// [`Self::validate_against`].
@@ -1255,6 +1271,37 @@ mod tests {
                 edge(("ch", "audio"), ("spk", "audio")),
             ],
         }
+    }
+
+    /// What the engine is brought up from is the nodes and the wires. Moving or renaming a face
+    /// changes the drawing, and the paths that reconcile hardware to a graph must not read it as
+    /// a radio to close.
+    #[test]
+    fn topology_ignores_where_a_face_sits_and_what_it_is_called() {
+        let graph = workspace();
+        let mut moved = graph.clone();
+        moved.nodes[0].position = Position { x: 900.0, y: -40.0 };
+        moved.nodes[0].size = Some(Size { w: 500.0, h: 320.0 });
+        moved.nodes[1].label = Some("Tower".to_owned());
+        assert!(graph.same_topology(&moved));
+
+        let mut rewired = graph.clone();
+        rewired.edges.pop();
+        assert!(!graph.same_topology(&rewired));
+
+        let mut fewer = graph.clone();
+        fewer.nodes.pop();
+        assert!(!graph.same_topology(&fewer));
+
+        let mut retyped = graph.clone();
+        retyped.nodes[1].body = NodeBody::Channel(ChannelNode {
+            channel_type: "am".to_owned(),
+        });
+        assert!(!graph.same_topology(&retyped));
+
+        let mut renamed = graph.clone();
+        renamed.nodes[2].id = "spk2".to_owned();
+        assert!(!graph.same_topology(&renamed));
     }
 
     /// The tags the generated TS union switches on.

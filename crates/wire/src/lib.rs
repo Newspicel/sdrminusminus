@@ -95,7 +95,8 @@ pub use tools::{
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
     PatchRefusal, UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail,
-    WorkspaceError, WorkspaceInfo, WorkspaceSettings, WorkspaceSnapshot, WorkspacesResponse,
+    WorkspaceError, WorkspaceHistory, WorkspaceInfo, WorkspaceSettings, WorkspaceSnapshot,
+    WorkspacesResponse,
 };
 pub use workspace_state::{
     WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState,

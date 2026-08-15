@@ -8,7 +8,8 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, LogScope,
     PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
-    WorkspaceError, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    WorkspaceError, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
+    WorkspacesResponse,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +26,8 @@ pub enum StoreError {
     WorkspaceNameTaken(String),
     #[error("workspace {id} moved on (revision {current}, not {sent}) — reload and reapply")]
     WorkspaceConflict { id: i64, sent: u64, current: u64 },
+    #[error("workspace {id} has nothing to {step}")]
+    WorkspaceHistoryEnd { id: i64, step: &'static str },
     #[error("invalid workspace layout: {0}")]
     WorkspaceLayout(#[from] sdrmm_wire::WorkspaceError),
     #[error("not an RFC3339 timestamp: {0}")]
@@ -174,7 +177,30 @@ const MIGRATIONS: &[&str] = &[
     -- rather than as a match for every workspace.
     ALTER TABLE decoder_log ADD COLUMN workspace INTEGER;
     ",
+    "
+    -- Undo/redo for the canvas. One list per workspace and not per connection: every client
+    -- draws the same arrangement, so a per-browser history would let two of them undo past each
+    -- other's work and each believe it had won.
+    CREATE TABLE workspace_history (
+        workspace_id INTEGER NOT NULL,
+        -- Monotonic per workspace. Entries are states, not deltas — the same shape the row
+        -- itself is stored in, so restoring one is a copy rather than an inverse operation
+        -- nothing else in the app knows how to compute.
+        seq INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        snapshot TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, seq)
+    );
+    -- Which entry the row's own snapshot is. Zero until the first edit records one, which is
+    -- also what every workspace stored before this table reads as.
+    ALTER TABLE workspaces ADD COLUMN history_at INTEGER NOT NULL DEFAULT 0;
+    ",
 ];
+
+/// How many arrangements one workspace remembers. Deep enough that a session's worth of nudges
+/// stays reachable, bounded because every entry is a whole snapshot and the table is never
+/// pruned by anything else.
+pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
 
 /// Index fields for one finalized recording, derived from its SigMF pair during
 /// reconciliation (: the files are the source of truth; rows are upserted by stem).
@@ -617,13 +643,11 @@ impl Store {
             .map_err(|err| name_taken(err, name))?;
         }
         if let Some(snapshot) = &req.snapshot {
+            let json = serde_json::to_string(snapshot)?;
+            record_history(&tx, id, &json)?;
             tx.execute(
                 "UPDATE workspaces SET snapshot = ?2, nodes = ?3 WHERE id = ?1",
-                params![
-                    id,
-                    serde_json::to_string(snapshot)?,
-                    snapshot.graph.nodes.len() as i64
-                ],
+                params![id, json, snapshot.graph.nodes.len() as i64],
             )?;
         }
         tx.execute(
@@ -633,6 +657,90 @@ impl Store {
         let info = read_workspace_info(&tx, id)?;
         tx.commit()?;
         Ok(info)
+    }
+
+    /// Step the workspace back to the arrangement before its last change, and hand back what it
+    /// now holds.
+    ///
+    /// The step is stored, not local: the row itself moves, so every client's next read — the one
+    /// the `workspaces` scope asks for — sees the same canvas. What was undone stays reachable
+    /// through [`redo_workspace`](Self::redo_workspace) until the next edit branches away from it.
+    pub fn undo_workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
+        self.step_history(id, Step::Undo)
+    }
+
+    /// Step forward again through what [`undo_workspace`](Self::undo_workspace) walked back.
+    pub fn redo_workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
+        self.step_history(id, Step::Redo)
+    }
+
+    fn step_history(&self, id: i64, step: Step) -> Result<WorkspaceDetail, StoreError> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        let at = history_at(&tx, id)?;
+        let target: Option<(i64, String)> = tx
+            .query_row(step.query(), params![id, at], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .optional()?;
+        let Some((seq, json)) = target else {
+            return Err(StoreError::WorkspaceHistoryEnd {
+                id,
+                step: step.name(),
+            });
+        };
+        // Re-serialized rather than written back verbatim: an entry recorded by an older build is
+        // brought up to today's shape on the way through, exactly as a read does it.
+        let snapshot = parse_workspace_snapshot(&json)?;
+        tx.execute(
+            "UPDATE workspaces SET snapshot = ?2, nodes = ?3, history_at = ?4, \
+             revision = revision + 1, updated_at = ?5 WHERE id = ?1",
+            params![
+                id,
+                serde_json::to_string(&snapshot)?,
+                snapshot.graph.nodes.len() as i64,
+                seq,
+                now_rfc3339()
+            ],
+        )?;
+        let detail = read_workspace(&tx, id)?;
+        tx.commit()?;
+        Ok(detail)
+    }
+
+    /// Every node id this workspace's history still names.
+    ///
+    /// What a node was tuned to is kept per node and pruned when the node leaves the graph
+    /// (`WorkspaceState::retain_nodes`). Undo puts a deleted node back, so pruning on the graph
+    /// alone would hand it back at its type's defaults — a channel returning on the wrong
+    /// frequency. A node stays remembered for as long as a step can bring it back.
+    pub fn history_nodes(&self, workspace_id: i64) -> Result<HashSet<String>, StoreError> {
+        #[derive(serde::Deserialize)]
+        struct Ids {
+            graph: Graph,
+        }
+        #[derive(serde::Deserialize)]
+        struct Graph {
+            nodes: Vec<Node>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Node {
+            id: String,
+        }
+
+        let conn = self.lock();
+        let mut stmt =
+            conn.prepare("SELECT snapshot FROM workspace_history WHERE workspace_id = ?1")?;
+        let rows = stmt.query_map(params![workspace_id], |row| row.get::<_, String>(0))?;
+        let mut nodes = HashSet::new();
+        for json in rows {
+            // A single unreadable entry costs the ids it names, not the save this is guarding:
+            // erring towards keeping settings is the whole point of the set.
+            if let Ok(ids) = serde_json::from_str::<Ids>(&json?) {
+                nodes.extend(ids.graph.nodes.into_iter().map(|node| node.id));
+            }
+        }
+        Ok(nodes)
     }
 
     /// Delete a workspace, handing back the workspace that is active afterwards. Deleting the
@@ -658,6 +766,10 @@ impl Store {
         }
         tx.execute(
             "DELETE FROM workspace_state WHERE workspace_id = ?1",
+            params![id],
+        )?;
+        tx.execute(
+            "DELETE FROM workspace_history WHERE workspace_id = ?1",
             params![id],
         )?;
         let active = active_workspace(&tx)?;
@@ -803,15 +915,129 @@ fn read_workspace_info(conn: &Connection, id: i64) -> Result<WorkspaceInfo, Stor
 
 fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreError> {
     let info = read_workspace_info(conn, id)?;
-    let json: String = conn.query_row(
-        "SELECT snapshot FROM workspaces WHERE id = ?1",
+    let (json, at): (String, i64) = conn.query_row(
+        "SELECT snapshot, history_at FROM workspaces WHERE id = ?1",
         params![id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     Ok(WorkspaceDetail {
         info,
         snapshot: parse_workspace_snapshot(&json)?,
+        history: read_history(conn, id, at)?,
     })
+}
+
+/// Which way [`Store::step_history`] walks, and the entry that lands.
+#[derive(Clone, Copy)]
+enum Step {
+    Undo,
+    Redo,
+}
+
+impl Step {
+    /// The nearest recorded state on this side of where the workspace stands.
+    fn query(self) -> &'static str {
+        match self {
+            Self::Undo => {
+                "SELECT seq, snapshot FROM workspace_history \
+                 WHERE workspace_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT 1"
+            }
+            Self::Redo => {
+                "SELECT seq, snapshot FROM workspace_history \
+                 WHERE workspace_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT 1"
+            }
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Undo => "undo",
+            Self::Redo => "redo",
+        }
+    }
+}
+
+fn history_at(conn: &Connection, id: i64) -> Result<i64, StoreError> {
+    conn.query_row(
+        "SELECT history_at FROM workspaces WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )
+    .optional()?
+    .ok_or(StoreError::WorkspaceNotFound(id))
+}
+
+fn read_history(conn: &Connection, id: i64, at: i64) -> Result<WorkspaceHistory, StoreError> {
+    let (undo, redo): (bool, bool) = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM workspace_history WHERE workspace_id = ?1 AND seq < ?2), \
+                EXISTS(SELECT 1 FROM workspace_history WHERE workspace_id = ?1 AND seq > ?2)",
+        params![id, at],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(WorkspaceHistory {
+        can_undo: undo,
+        can_redo: redo,
+    })
+}
+
+/// Record the state a write is producing, so the write can be walked back out of.
+///
+/// The entry list is the workspace's own line of arrangements: the first write also records what
+/// it is *leaving*, since undo has to be able to return there and a workspace stored before this
+/// table has no entry for where it stands. Editing after an undo branches — what redo would have
+/// led to is dropped, the same rule a text editor follows.
+fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreError> {
+    let at = history_at(conn, id)?;
+    let now = now_rfc3339();
+    let at = if at == 0 {
+        let previous: String = conn.query_row(
+            "SELECT snapshot FROM workspaces WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "DELETE FROM workspace_history WHERE workspace_id = ?1",
+            params![id],
+        )?;
+        conn.execute(
+            "INSERT INTO workspace_history (workspace_id, seq, created_at, snapshot) \
+             VALUES (?1, 1, ?2, ?3)",
+            params![id, now, previous],
+        )?;
+        1
+    } else {
+        at
+    };
+    // A write that changes nothing is not a step: the canvas re-persists the whole workspace on
+    // every gesture, and an undo that visibly does nothing is worse than one fewer step.
+    let unchanged: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM workspace_history \
+         WHERE workspace_id = ?1 AND seq = ?2 AND snapshot = ?3)",
+        params![id, at, json],
+        |row| row.get(0),
+    )?;
+    if unchanged {
+        return Ok(());
+    }
+    conn.execute(
+        "DELETE FROM workspace_history WHERE workspace_id = ?1 AND seq > ?2",
+        params![id, at],
+    )?;
+    let seq = at + 1;
+    conn.execute(
+        "INSERT INTO workspace_history (workspace_id, seq, created_at, snapshot) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![id, seq, now, json],
+    )?;
+    conn.execute(
+        "DELETE FROM workspace_history WHERE workspace_id = ?1 AND seq <= ?2",
+        params![id, seq - WORKSPACE_HISTORY_DEPTH],
+    )?;
+    conn.execute(
+        "UPDATE workspaces SET history_at = ?2 WHERE id = ?1",
+        params![id, seq],
+    )?;
+    Ok(())
 }
 
 fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
@@ -2146,6 +2372,183 @@ mod tests {
         assert_eq!(store.delete_workspace(seeded).expect("delete"), None);
         assert_eq!(store.list_workspaces().expect("list").active, None);
         assert!(store.active_workspace().expect("active").is_none());
+    }
+
+    /// A workspace without the node named here — the shape a canvas edit has, since every
+    /// gesture re-persists the whole arrangement.
+    fn without(node: &str) -> WorkspaceSnapshot {
+        let mut snapshot = WorkspaceSnapshot::starter();
+        snapshot.graph.nodes.retain(|held| held.id != node);
+        snapshot
+            .graph
+            .edges
+            .retain(|edge| edge.from.node != node && edge.to.node != node);
+        snapshot
+    }
+
+    fn write(store: &Store, id: i64, snapshot: &WorkspaceSnapshot) -> u64 {
+        let revision = store.workspace(id).expect("read").info.revision;
+        store
+            .update_workspace(
+                id,
+                &UpdateWorkspaceRequest {
+                    revision,
+                    name: None,
+                    snapshot: Some(snapshot.clone()),
+                },
+            )
+            .expect("update")
+            .revision
+    }
+
+    /// The history is the workspace's, not a client's: a step is stored, so the next read every
+    /// browser makes is the one that was stepped to.
+    #[test]
+    fn workspace_history_walks_back_out_of_its_own_edits() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        let starter = WorkspaceSnapshot::starter();
+
+        // Nothing has been edited, so there is nowhere to step.
+        let fresh = store.workspace(id).expect("read");
+        assert_eq!(fresh.history, WorkspaceHistory::default());
+        assert!(matches!(
+            store.undo_workspace(id),
+            Err(StoreError::WorkspaceHistoryEnd { step: "undo", .. })
+        ));
+
+        write(&store, id, &without("speaker"));
+        write(&store, id, &without("scope"));
+
+        let back = store.undo_workspace(id).expect("undo");
+        assert_eq!(back.snapshot, without("speaker"));
+        assert!(back.history.can_undo && back.history.can_redo);
+        // A step is a change like any other: the revision moves, so a client holding the old one
+        // cannot overwrite it without reading first.
+        assert!(back.info.revision > 3);
+        assert_eq!(back.info.nodes, 2);
+
+        let base = store.undo_workspace(id).expect("undo to the start");
+        assert_eq!(base.snapshot, starter, "the state the first edit left");
+        assert!(!base.history.can_undo && base.history.can_redo);
+        assert!(matches!(
+            store.undo_workspace(id),
+            Err(StoreError::WorkspaceHistoryEnd { step: "undo", .. })
+        ));
+
+        assert_eq!(
+            store.redo_workspace(id).expect("redo").snapshot,
+            without("speaker")
+        );
+        let forward = store.redo_workspace(id).expect("redo");
+        assert_eq!(forward.snapshot, without("scope"));
+        assert!(!forward.history.can_redo);
+        assert!(matches!(
+            store.redo_workspace(id),
+            Err(StoreError::WorkspaceHistoryEnd { step: "redo", .. })
+        ));
+    }
+
+    /// Editing after an undo branches: what redo would have led to is gone, exactly as it is in
+    /// every editor. Keeping it would offer a step forward into an arrangement nobody can reach
+    /// from what is on screen.
+    #[test]
+    fn an_edit_after_an_undo_drops_what_redo_would_have_reached() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        write(&store, id, &without("speaker"));
+        write(&store, id, &without("scope"));
+        store.undo_workspace(id).expect("undo");
+
+        write(&store, id, &without("device"));
+        let now = store.workspace(id).expect("read");
+        assert_eq!(now.snapshot, without("device"));
+        assert!(now.history.can_undo && !now.history.can_redo);
+        assert_eq!(
+            store.undo_workspace(id).expect("undo").snapshot,
+            without("speaker"),
+            "the branch it was made from"
+        );
+    }
+
+    /// A gesture that ends where it started still re-persists the whole workspace. Recording it
+    /// would cost a step that visibly does nothing.
+    #[test]
+    fn a_write_that_changes_nothing_is_not_a_step() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        write(&store, id, &WorkspaceSnapshot::starter());
+        assert!(!store.workspace(id).expect("read").history.can_undo);
+        write(&store, id, &without("speaker"));
+        write(&store, id, &without("speaker"));
+        assert_eq!(
+            store.undo_workspace(id).expect("undo").snapshot,
+            WorkspaceSnapshot::starter()
+        );
+    }
+
+    /// The list is bounded, and it is the oldest end that goes: an operator undoing reaches for
+    /// the last few gestures, never the first ones of the session.
+    #[test]
+    fn the_history_forgets_its_oldest_arrangements() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        let labelled = |at: usize| {
+            let mut snapshot = WorkspaceSnapshot::starter();
+            snapshot.graph.nodes[1].label = Some(format!("scope {at}"));
+            snapshot
+        };
+        let writes = usize::try_from(WORKSPACE_HISTORY_DEPTH).expect("depth fits") + 20;
+        for at in 0..writes {
+            write(&store, id, &labelled(at));
+        }
+        let entries: i64 = store
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM workspace_history WHERE workspace_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(entries, WORKSPACE_HISTORY_DEPTH);
+
+        for at in (writes - usize::try_from(WORKSPACE_HISTORY_DEPTH).expect("depth fits")..writes)
+            .rev()
+            .skip(1)
+        {
+            assert_eq!(
+                store.undo_workspace(id).expect("undo").snapshot,
+                labelled(at)
+            );
+        }
+        assert!(matches!(
+            store.undo_workspace(id),
+            Err(StoreError::WorkspaceHistoryEnd { .. })
+        ));
+    }
+
+    /// Where a node was tuned outlives the node while a step can bring it back — otherwise the
+    /// autosave forgets a deleted channel's frequency seconds before an undo restores it.
+    #[test]
+    fn the_history_keeps_a_deleted_nodes_settings_reachable() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        assert!(store.history_nodes(id).expect("nodes").is_empty());
+
+        write(&store, id, &without("speaker"));
+        let nodes = store.history_nodes(id).expect("nodes");
+        assert!(nodes.contains("speaker"), "the deleted node is recoverable");
+        assert!(nodes.contains("scope"));
+
+        store.delete_workspace(id).expect("delete");
+        assert!(store.history_nodes(id).expect("nodes").is_empty());
+        let rows: i64 = store
+            .lock()
+            .query_row("SELECT COUNT(*) FROM workspace_history", [], |row| {
+                row.get(0)
+            })
+            .expect("count");
+        assert_eq!(rows, 0, "deleting a workspace takes its history with it");
     }
 
     /// Layouts are re-persisted on every gesture, so an update carrying a revision the caller

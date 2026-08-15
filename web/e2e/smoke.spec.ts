@@ -604,6 +604,39 @@ test.describe("the workspace", () => {
     await expect(ruler).toBeChecked();
   });
 
+  test("undoes a change on the server, where every client reads it", async ({ page }) => {
+    // Undo is not this browser's stack: the history belongs to the workspace, so what proves the
+    // step is the stored graph the next client would load, not the canvas the gesture happened on.
+    await page.goto("/");
+    const stored = async (): Promise<string[]> => {
+      const list = await page.request.get("/api/workspaces").then((r) => r.json());
+      const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
+      return detail.snapshot.graph.nodes.map((node: { id: string }) => node.id);
+    };
+    const before = await stored();
+    const undo = page.getByRole("button", { name: /^undo/i });
+    const redo = page.getByRole("button", { name: /^redo/i });
+
+    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Speaker", exact: true }).click();
+    const added = page.locator('.react-flow__node[data-id^="speaker:"]');
+    await expect(added).toBeVisible();
+    await expect(undo).toBeEnabled();
+
+    await undo.click();
+    await expect(added).toHaveCount(0);
+    await expect.poll(stored).toEqual(before);
+    await expect(redo).toBeEnabled();
+
+    await redo.click();
+    await expect(added).toBeVisible();
+    await expect.poll(async () => (await stored()).length).toBe(before.length + 1);
+
+    // Left as it was found: these legs share one server.
+    await undo.click();
+    await expect.poll(stored).toEqual(before);
+  });
+
   test("switches the scope between its wires and works from the frequency under the pointer", async ({
     page,
   }) => {

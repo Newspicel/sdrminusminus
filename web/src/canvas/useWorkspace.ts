@@ -5,6 +5,7 @@ import {
   applyWorkspace,
   createWorkspace,
   deleteWorkspace,
+  stepWorkspace,
   updateWorkspace,
   WORKSPACES_KEY,
   workspaceQuery,
@@ -34,6 +35,13 @@ export interface WorkspaceStore {
   remove: (id: number) => void;
   apply: () => void;
   applied: PatchApplyReport | null;
+  /** Step the workspace back through its stored history, or forward again. The history is the
+   * server's and shared, so this undoes for every client — including the engine, which the step
+   * brings along. */
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   /** The list has not answered yet — distinct from "there are no workspaces", which is a real
    * state the server reports after the last one is deleted. */
   pending: boolean;
@@ -94,6 +102,16 @@ export function useWorkspace(): WorkspaceStore {
   });
   const applyMut = useMutation({ mutationFn: applyWorkspace });
   const applyAsync = applyMut.mutateAsync;
+  // The answer is the workspace the step landed on, so it goes straight into the cache: the
+  // `workspaces` invalidation the server emits reaches every *other* client, and this one should
+  // not have to wait a round trip to draw what it just asked for.
+  const stepMut = useMutation({
+    mutationFn: (variables: { id: number; step: "undo" | "redo" }) =>
+      stepWorkspace(variables.id, variables.step),
+    onSuccess: (stepped, variables) =>
+      queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], stepped),
+  });
+  const stepAsync = stepMut.mutateAsync;
 
   const queried = detail.data ?? null;
   const draft = queried === null ? undefined : drafts.get(queried.id);
@@ -199,6 +217,26 @@ export function useWorkspace(): WorkspaceStore {
     finishQueue(task);
   }, [applyAsync, finishQueue]);
 
+  // Behind the same queue as a write, and for the same reason: a step reads the workspace as it
+  // is stored, so an undo that overtook the save of the gesture being undone would step back out
+  // of the one before it and then have that gesture land on top.
+  const step = useCallback(
+    (which: "undo" | "redo") => {
+      const id = activeIdRef.current;
+      if (id === null) {
+        return;
+      }
+      const task = queue.current
+        .catch(() => undefined)
+        .then(() => stepAsync({ id, step: which }))
+        .catch(() => undefined);
+      finishQueue(task);
+    },
+    [finishQueue, stepAsync],
+  );
+  const undo = useCallback(() => step("undo"), [step]);
+  const redo = useCallback(() => step("redo"), [step]);
+
   // Applying is idempotent, so it runs once per workspace that becomes active: opening the app on
   // a workspace whose radios are attached should give you the workspace, not an empty canvas waiting
   // to be clicked into life.
@@ -222,13 +260,20 @@ export function useWorkspace(): WorkspaceStore {
       errorOf(update.error) ??
       errorOf(createMut.error) ??
       errorOf(removeMut.error) ??
-      errorOf(applyMut.error),
+      errorOf(applyMut.error) ??
+      errorOf(stepMut.error),
     save,
     activate: activateMut.mutate,
     create: createMut.mutate,
     remove: removeMut.mutate,
     apply,
     applied: applyMut.data ?? null,
+    undo,
+    redo,
+    // The server's answer, not a guess from the local draft: what a step can reach is a property
+    // of the stored history, which every client edits.
+    canUndo: queried?.history?.can_undo ?? false,
+    canRedo: queried?.history?.can_redo ?? false,
     pending: list.isPending || (activeId !== null && detail.isPending),
     unreachable: errorOf(list.error),
   };

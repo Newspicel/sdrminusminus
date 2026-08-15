@@ -416,6 +416,19 @@ export async function applyWorkspace(id: number): Promise<PatchApplyReport> {
   return unwrap(await client.POST("/api/workspaces/{id}/apply", { params: { path: { id } } }));
 }
 
+/** Step the workspace back through its own history, or forward again.
+ *
+ * The list is the server's and one per workspace, so a step is a change every client sees — the
+ * answer is the workspace as it now stands, and the `workspaces` scope tells the rest to reload. */
+export async function stepWorkspace(id: number, step: "undo" | "redo"): Promise<WorkspaceDetail> {
+  const detail = unwrap(
+    step === "undo"
+      ? await client.POST("/api/workspaces/{id}/undo", { params: { path: { id } } })
+      : await client.POST("/api/workspaces/{id}/redo", { params: { path: { id } } }),
+  );
+  return { ...detail, snapshot: migrateSnapshot(detail.snapshot) };
+}
+
 export function patchCatalogQuery() {
   return queryOptions({
     queryKey: PATCH_CATALOG_KEY,
