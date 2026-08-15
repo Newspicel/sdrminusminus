@@ -595,14 +595,35 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 22);
+        assert_eq!(all.len(), 24);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
-                "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
-                "navtex", "acars", "subghz", "atv", "dmr", "dstar", "ysf", "nxdn", "p25", "dpmr",
-                "m17", "ident",
+                "nfm",
+                "am",
+                "ssb",
+                "wfm",
+                "pocsag",
+                "adsb",
+                "ais",
+                "aprs",
+                "rtty",
+                "morse",
+                "navtex",
+                "acars",
+                "subghz",
+                "atv",
+                "dmr",
+                "dstar",
+                "ysf",
+                "nxdn",
+                "p25",
+                "dpmr",
+                "m17",
+                "ident",
+                "radio_clock",
+                "gnss",
             ])
         );
         for d in &all {
