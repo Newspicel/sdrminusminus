@@ -10,7 +10,14 @@
 
 import type { AprsPacket, DecoderEvent, DecoderKind, DvFrame } from "../lib/types";
 import { hex5 } from "./decoderLog";
-import { dvMode, dvNetwork, dvParties } from "./decoderViews";
+import {
+  candidateScore,
+  dvMode,
+  dvNetwork,
+  dvParties,
+  identMeasurements,
+  modulationLabel,
+} from "./decoderViews";
 
 /** One `label: value` pair. Only the fields a frame actually carried are emitted — an absent
  * field is a thing the transmission did not say, and a column of em dashes says it worse. */
@@ -155,6 +162,24 @@ const DETAIL: {
     // Pulse first, then gap, as the decoder measured them. Truncated at the source, so this is
     // for inspection and never for replay.
     body: timings(f.timings_us ?? []),
+  }),
+
+  // The measurements first, then the shortlist. A verdict with nothing behind it is worth less
+  // than no verdict, so the numbers it was decided from are part of the answer rather than a
+  // debugging aside.
+  ident: (r) => ({
+    fields: [
+      ["Modulation", modulationLabel(r)],
+      ["Confidence", `${Math.round(r.confidence * 100)}%`],
+      ...identMeasurements(r),
+      ...(r.features.frequency_levels > 1
+        ? ([["Frequency levels", String(r.features.frequency_levels)]] as DetailField[])
+        : []),
+    ],
+    body:
+      (r.candidates ?? []).length === 0
+        ? null
+        : (r.candidates ?? []).map((m) => `${m.name} — ${candidateScore(m)} — ${m.why}`).join("\n"),
   }),
 
   tone: (t) => ({

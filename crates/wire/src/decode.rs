@@ -331,6 +331,161 @@ pub struct ToneSquelchStatus {
     pub open: bool,
 }
 
+/// The modulation family a [`IdentReport`] settled on.
+///
+/// Coarse on purpose. What a receiver can read off an unknown waveform is how its envelope, its
+/// instantaneous frequency and its spectrum behave, and those separate *families* — they do not
+/// separate the variants inside one, which is what the protocol candidates are for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Modulation {
+    /// Nothing rose above the noise floor.
+    #[default]
+    None,
+    /// A carrier with nothing on it.
+    Carrier,
+    /// A carrier switched on and off — OOK/ASK, and the pulse modulations that look like it.
+    Ook,
+    /// Amplitude modulation with its carrier present.
+    Am,
+    /// One sideband, carrier suppressed.
+    Ssb,
+    /// Analog frequency modulation: constant envelope, one broad continuum of frequencies.
+    Fm,
+    /// Two-level frequency shift keying, GFSK and GMSK included.
+    Fsk2,
+    /// Four-level FSK — the C4FM the land-mobile digital modes transmit.
+    Fsk4,
+    /// Two-phase shift keying.
+    Psk2,
+    /// Four-phase shift keying.
+    Psk4,
+    /// Constant envelope, flat spectrum, no symbol structure to find: OFDM, spread spectrum,
+    /// and anything else that transmits something shaped like noise.
+    NoiseLike,
+    /// Something is there, and none of the tests agreed on what.
+    Unknown,
+}
+
+impl Modulation {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::None => "no signal",
+            Self::Carrier => "unmodulated carrier",
+            Self::Ook => "OOK",
+            Self::Am => "AM",
+            Self::Ssb => "SSB",
+            Self::Fm => "FM",
+            Self::Fsk2 => "2-FSK",
+            Self::Fsk4 => "4-FSK",
+            Self::Psk2 => "BPSK",
+            Self::Psk4 => "QPSK",
+            Self::NoiseLike => "noise-like",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Whether the identifier found anything to describe.
+    #[must_use]
+    pub const fn is_signal(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
+/// The measurements a classification was made from, carried so the decision can be checked
+/// rather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,
+/// not just the verdict.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IdentFeatures {
+    /// Standard deviation of the envelope over its own mean. Zero for a constant-envelope
+    /// mode, large for anything that carries information in amplitude.
+    pub envelope_variation: f32,
+    /// Fraction of the observation the carrier was keyed on. 1.0 for a continuous transmission.
+    pub duty: f32,
+    /// Keyed-on level over keyed-off level, in dB — how deep the keying goes, which is what
+    /// separates a switched carrier from one that is merely fading.
+    pub keying_depth_db: f32,
+    /// Power imbalance about the strongest spectral line, `(upper − lower) / total`. Zero for
+    /// a symmetric spectrum (AM, FM, most digital modes), ±1 for a single sideband.
+    pub spectral_asymmetry: f32,
+    /// The strongest spectral line over the median of the occupied band, in dB — how much of
+    /// a carrier there is.
+    pub carrier_db: f32,
+    /// Wiener entropy of the occupied band: 1.0 is white, 0.0 is a single tone.
+    pub spectral_flatness: f32,
+    /// Instantaneous-frequency levels the discriminator resolved: 2 or 4 for keyed modes, 1
+    /// for a carrier, 0 when the distribution is a continuum.
+    pub frequency_levels: u8,
+    /// Spread of the instantaneous frequency, in Hz — the deviation of an analog FM signal,
+    /// and roughly the outer deviation of a keyed one.
+    pub frequency_spread_hz: f64,
+    /// Strength of the spectral line the squared signal produces, over its own floor, in dB.
+    /// A BPSK signal makes one; so does MSK, which is why the FSK tests run first.
+    pub square_line_db: f32,
+    /// The same for the fourth power, which is what QPSK makes.
+    pub quartic_line_db: f32,
+}
+
+/// One protocol the waveform could be, and what says so.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ProtocolMatch {
+    pub name: String,
+    /// The channel type that decodes it, when this build has one — what the client offers to
+    /// switch the channel to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+    /// How well the measurements fit the protocol's signature, 0 to 1.
+    pub score: f32,
+    /// Set when the protocol's own framing was found in the signal, not merely resembled. A
+    /// confirmed match is an answer; an unconfirmed one is a shortlist entry.
+    #[serde(default)]
+    pub confirmed: bool,
+    /// The evidence, in a phrase: what matched, or what was recognised.
+    pub why: String,
+}
+
+/// What the signal identifier made of the slice it was pointed at.
+///
+/// Emitted on a cadence rather than per frame: there is no frame here. Each report describes one
+/// observation window, so a stream of them is a record of what was on the air and when.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IdentReport {
+    pub modulation: Modulation,
+    /// How firmly the classifier held that answer, 0 to 1.
+    pub confidence: f32,
+    /// Which sideband, when the modulation is [`Modulation::Ssb`] and the signal sits wholly to
+    /// one side of where the channel is tuned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sideband: Option<crate::channel::Sideband>,
+    /// Occupied bandwidth, in Hz.
+    pub bandwidth_hz: f64,
+    /// Where the signal's centre sits relative to the channel's own offset, in Hz — how far
+    /// the operator is off tune.
+    pub center_offset_hz: f64,
+    /// Signal-to-noise ratio in the occupied band, in dB.
+    pub snr_db: f32,
+    /// Symbols per second, when a symbol clock was found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_rate_hz: Option<f64>,
+    /// Peak frequency deviation of a keyed or analog FM signal, in Hz.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deviation_hz: Option<f64>,
+    /// Protocols that fit, best first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<ProtocolMatch>,
+    pub features: IdentFeatures,
+}
+
+impl IdentReport {
+    /// The candidate the report is actually asserting, if any: a confirmed match, or the best
+    /// resemblance when nothing was confirmed.
+    #[must_use]
+    pub fn best(&self) -> Option<&ProtocolMatch> {
+        self.candidates.first()
+    }
+}
+
 /// Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type
 /// serves all of them because the *question* is the same in every mode — who is talking, to
 /// whom, on which network — and only the names for it differ.
@@ -594,6 +749,7 @@ pub enum DecoderEvent {
     Subghz(SubghzFrame),
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
+    Ident(IdentReport),
 }
 
 impl DecoderEvent {
@@ -613,6 +769,7 @@ impl DecoderEvent {
             Self::Subghz(_) => "subghz",
             Self::Tone(_) => "tone",
             Self::Dv(_) => "dv",
+            Self::Ident(_) => "ident",
         }
     }
 
@@ -771,6 +928,27 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Ident(r) => {
+                let mut parts = vec![r.modulation.label().to_owned()];
+                if r.modulation.is_signal() {
+                    parts.push(format!("{:.1} kHz", r.bandwidth_hz / 1_000.0));
+                    if let Some(baud) = r.symbol_rate_hz {
+                        parts.push(format!("{baud:.0} Bd"));
+                    }
+                    if let Some(deviation) = r.deviation_hz {
+                        parts.push(format!("±{deviation:.0} Hz"));
+                    }
+                    parts.push(format!("{:.0} dB SNR", r.snr_db));
+                }
+                if let Some(best) = r.best() {
+                    parts.push(if best.confirmed {
+                        format!("{} (confirmed)", best.name)
+                    } else {
+                        format!("{} ({:.0}%)", best.name, best.score * 100.0)
+                    });
+                }
+                parts.join(" · ")
+            }
         }
     }
 
@@ -810,7 +988,9 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
-            Self::Rtty(_) | Self::Morse(_) | Self::Tone(_) => None,
+            // A survey of what is on a frequency names no emitter: the whole point is that
+            // whoever is transmitting has not been identified yet.
+            Self::Rtty(_) | Self::Morse(_) | Self::Tone(_) | Self::Ident(_) => None,
         }
     }
 }

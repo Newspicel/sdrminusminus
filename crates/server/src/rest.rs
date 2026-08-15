@@ -18,7 +18,7 @@ use sdrmm_wire::{
     CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
     DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NetworkExportAction,
-    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
+    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport,
     PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal,
     PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
     RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
@@ -1896,6 +1896,41 @@ async fn get_clients(State(state): State<AppState>) -> Json<ClientsResponse> {
 }
 
 #[utoipa::path(
+    get, path = "/api/occupancy",
+    params(
+        ("min_samples" = Option<u64>, Query,
+         description = "Drop buckets observed fewer times than this. A duty cycle from three \
+                        sightings is not a measurement; the default keeps that out of the report"),
+    ),
+    responses((
+        status = 200,
+        description = "How much of the time each slice of spectrum has carried a signal, busiest \
+                       first. Accumulated from the spectrum tap of every running receiver against \
+                       absolute frequency, so a scan and a retune both add to the same picture",
+        body = OccupancyReport,
+    )),
+)]
+async fn get_occupancy(
+    State(state): State<AppState>,
+    Query(query): Query<OccupancyQuery>,
+) -> Json<OccupancyReport> {
+    let occupancy = state
+        .engine
+        .occupancy()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Json(occupancy.report(query.min_samples.unwrap_or(DEFAULT_MIN_SAMPLES)))
+}
+
+/// Enough sightings that a duty cycle is a measurement rather than a coincidence.
+const DEFAULT_MIN_SAMPLES: u64 = 30;
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+struct OccupancyQuery {
+    min_samples: Option<u64>,
+}
+
+#[utoipa::path(
     get, path = "/api/auth",
     responses((
         status = 200,
@@ -2028,6 +2063,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(locate_band_region))
         .routes(routes!(get_auth))
         .routes(routes!(get_clients))
+        .routes(routes!(get_occupancy))
         .routes(routes!(get_doctor))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))

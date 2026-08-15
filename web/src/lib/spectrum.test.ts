@@ -44,15 +44,19 @@ function fakeSocket() {
         type: "StreamStopped",
         data: { stream_id: streamId, kind: "spectrum" },
       }),
-    push: (streamId: number, bins: readonly number[] = [1, 2]) =>
+    push: (
+      streamId: number,
+      bins: readonly number[] = [1, 2],
+      window: { dbMin: number; dbMax: number } = { dbMin: -110, dbMax: -20 },
+    ) =>
       frames?.({
         streamId,
         seq: 0,
         timestamp: 0n,
         centerHz: 100e6,
         spanHz: 2e6,
-        dbMin: -110,
-        dbMax: -20,
+        dbMin: window.dbMin,
+        dbMax: window.dbMax,
         bins: Uint8Array.from(bins),
       }),
     reconnect: () => status?.(true),
@@ -246,7 +250,7 @@ describe("SpectrumHub history", () => {
 
   it("is empty for a lane nobody has watched", () => {
     const hub = new SpectrumHub();
-    expect(hub.history(1, 0)).toEqual({ rows: new Uint8Array(0), count: 0, bins: 0 });
+    expect(hub.history(1, 0)).toEqual({ rows: new Uint8Array(0), count: 0, bins: 0, meta: [] });
     expect(hub.latest(1, 0)).toBeNull();
   });
 
@@ -268,6 +272,37 @@ describe("SpectrumHub history", () => {
       [5, 6],
     ]);
     expect(hub.latest(1, 0)?.centerHz).toBe(100e6);
+  });
+
+  // Without this a scrubbed row is drawn against whatever window happens to be current, which is
+  // the one thing the metadata exists to prevent.
+  it("keeps each row's own dB window, aligned with the rows", () => {
+    const fake = fakeSocket();
+    const hub = new SpectrumHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 0, () => {});
+    fake.started(9, 1);
+    fake.push(9, [1, 2], { dbMin: -110, dbMax: -20 });
+    fake.push(9, [3, 4], { dbMin: -100, dbMax: 0 });
+
+    const history = hub.history(1, 0);
+    expect(history.meta).toHaveLength(2);
+    expect(history.meta[0]).toMatchObject({ dbMin: -110, dbMax: -20, spanHz: 2e6 });
+    expect(history.meta[1]).toMatchObject({ dbMin: -100, dbMax: 0, centerHz: 100e6 });
+  });
+
+  it("drops the metadata with the rows when the bin count changes", () => {
+    const fake = fakeSocket();
+    const hub = new SpectrumHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 0, () => {});
+    fake.started(9, 1);
+    fake.push(9, [1, 2]);
+    fake.push(9, [7, 8, 9]);
+
+    const history = hub.history(1, 0);
+    expect(history.count).toBe(1);
+    expect(history.meta).toHaveLength(1);
   });
 
   it("keeps the newest rows once the ring has wrapped", () => {

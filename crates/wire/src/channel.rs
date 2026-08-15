@@ -686,6 +686,55 @@ empty_params! {
     M17Params,
 }
 
+pub const MIN_IDENT_BANDWIDTH_HZ: f64 = 1_000.0;
+pub const MAX_IDENT_BANDWIDTH_HZ: f64 = 192_000.0;
+pub const MIN_IDENT_INTERVAL_MS: u32 = 250;
+pub const MAX_IDENT_INTERVAL_MS: u32 = 10_000;
+pub const MIN_IDENT_THRESHOLD_DB: f32 = 3.0;
+pub const MAX_IDENT_THRESHOLD_DB: f32 = 40.0;
+
+fn default_ident_bandwidth_hz() -> f64 {
+    MAX_IDENT_BANDWIDTH_HZ
+}
+
+fn default_ident_interval_ms() -> u32 {
+    1_000
+}
+
+fn default_ident_threshold_db() -> f32 {
+    8.0
+}
+
+/// The signal identifier: what to search, how often to answer, and how loud a thing has to be
+/// before it is one.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IdentParams {
+    /// Slice searched for a signal, in Hz. Wide by default because the point of the mode is to
+    /// be pointed at something unknown — narrowing it is what an operator does once they can
+    /// see where the thing actually sits.
+    #[serde(default = "default_ident_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    /// Milliseconds between reports. Each one analyses the samples since the last, so this is
+    /// both the report cadence and the observation the answer stands on — up to a little over a
+    /// second, past which the cadence keeps lengthening and each report describes the second
+    /// before it rather than the whole gap.
+    #[serde(default = "default_ident_interval_ms")]
+    pub interval_ms: u32,
+    /// How far above the measured noise floor a bin must sit to be part of a signal, in dB.
+    #[serde(default = "default_ident_threshold_db")]
+    pub threshold_db: f32,
+}
+
+impl Default for IdentParams {
+    fn default() -> Self {
+        Self {
+            bandwidth_hz: default_ident_bandwidth_hz(),
+            interval_ms: default_ident_interval_ms(),
+            threshold_db: default_ident_threshold_db(),
+        }
+    }
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -713,6 +762,7 @@ pub enum ChannelParams {
     P25(P25Params),
     Dpmr(DpmrParams),
     M17(M17Params),
+    Ident(IdentParams),
 }
 
 impl ChannelParams {
@@ -741,6 +791,7 @@ impl ChannelParams {
             Self::P25(_) => "p25",
             Self::Dpmr(_) => "dpmr",
             Self::M17(_) => "m17",
+            Self::Ident(_) => "ident",
         }
     }
 }

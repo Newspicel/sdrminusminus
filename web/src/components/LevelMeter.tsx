@@ -1,0 +1,58 @@
+// A channel's signal level, as a bar with a peak marker and the number beside it.
+//
+// The number is always printed: a position on a 100px bar is not a reading, and the squelch
+// threshold is set in the same dBFS, so the two are meant to be compared directly.
+
+import { formatLevel, levelUnit } from "../lib/levels";
+import type { ChannelLevel } from "../lib/types";
+
+export function LevelMeter({
+  level,
+  squelchDb,
+}: {
+  level: ChannelLevel | undefined;
+  /** Drawn as a notch on the bar when the channel gates on level, so an operator can see how far
+   * the signal is from opening it without reading two numbers and subtracting. */
+  squelchDb?: number | null;
+}) {
+  const now = levelUnit(level?.level_db ?? Number.NEGATIVE_INFINITY);
+  const peak = levelUnit(level?.peak_db ?? Number.NEGATIVE_INFINITY);
+  const threshold = squelchDb == null ? null : levelUnit(squelchDb);
+  const open = level !== undefined && squelchDb != null && level.level_db >= squelchDb;
+
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-panel-2"
+        role="meter"
+        aria-label="Signal level"
+        aria-valuenow={Math.round(now * 100)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuetext={formatLevel(level?.level_db)}
+      >
+        <div
+          className={`absolute inset-y-0 left-0 rounded-full ${open ? "bg-accent" : "bg-accent-dim"}`}
+          style={{ width: `${now * 100}%` }}
+        />
+        {/* The peak rides above the bar rather than extending it: it is a different measurement,
+            and a bar that grew to the peak would read as the signal being that loud now. */}
+        {peak > 0 && (
+          <div
+            className="absolute inset-y-0 w-0.5 bg-ink"
+            style={{ left: `calc(${peak * 100}% - 1px)` }}
+          />
+        )}
+        {threshold !== null && (
+          <div
+            className="absolute inset-y-0 w-px bg-line-strong"
+            style={{ left: `${threshold * 100}%` }}
+          />
+        )}
+      </div>
+      <span className="legend w-16 shrink-0 text-right font-mono tabular-nums">
+        {formatLevel(level?.level_db)}
+      </span>
+    </div>
+  );
+}

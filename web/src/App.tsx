@@ -34,6 +34,8 @@ import {
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { useDecodedStore } from "./lib/decoded";
+import { iqHub } from "./lib/iq";
+import { useLevelStore } from "./lib/levels";
 import { usePositionStore, watchDevicePosition } from "./lib/position";
 import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
@@ -122,15 +124,18 @@ export function App() {
     s.addEventListener(useDecodedStore.getState().observe);
     s.addEventListener(useScannerStore.getState().observe);
     s.addEventListener(usePositionStore.getState().observe);
-    // Spectrum and video are refcounted — per device set and per channel — so several faces
-    // watching the same thing share one stream instead of replacing each other's.
+    s.addEventListener(useLevelStore.getState().observe);
+    // Spectrum, baseband and video are refcounted — per device set and per channel — so several
+    // faces watching the same thing share one stream instead of replacing each other's.
     spectrumHub.attach(s);
+    iqHub.attach(s);
     videoHub.attach(s);
     audioEngine.attach(s);
     setSocket(s);
     s.connect();
     return () => {
       spectrumHub.detach();
+      iqHub.detach();
       videoHub.detach();
       s.close();
     };

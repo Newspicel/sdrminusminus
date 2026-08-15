@@ -2,12 +2,15 @@ import { withToken } from "./auth";
 import {
   type AudioFrame,
   decodeAudio,
+  decodeIq,
   decodeSpectrum,
   decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
+  FRAME_KIND_IQ_F32,
   FRAME_KIND_SPECTRUM,
   FRAME_KIND_VIDEO_GRAY,
   frameKind,
+  type IqFrame,
   type SpectrumFrame,
   type VideoFrame,
 } from "./frame";
@@ -29,6 +32,7 @@ export class SdrSocket {
   private readonly statusListeners = new Set<(connected: boolean) => void>();
   private readonly spectrumListeners = new Set<(frame: SpectrumFrame) => void>();
   private readonly videoListeners = new Set<(frame: VideoFrame) => void>();
+  private readonly iqListeners = new Set<(frame: IqFrame) => void>();
 
   onEvent: (event: ServerEvent) => void = () => {};
   onStatus: (connected: boolean) => void = () => {};
@@ -82,6 +86,14 @@ export class SdrSocket {
 
   removeVideoListener(listener: (frame: VideoFrame) => void): void {
     this.videoListeners.delete(listener);
+  }
+
+  addIqListener(listener: (frame: IqFrame) => void): void {
+    this.iqListeners.add(listener);
+  }
+
+  removeIqListener(listener: (frame: IqFrame) => void): void {
+    this.iqListeners.delete(listener);
   }
 
   addStatusListener(listener: (connected: boolean) => void): void {
@@ -170,6 +182,15 @@ export class SdrSocket {
         const frame = decodeAudio(buffer);
         if (frame) {
           this.onAudio(frame);
+        }
+        break;
+      }
+      case FRAME_KIND_IQ_F32: {
+        const frame = decodeIq(buffer);
+        if (frame) {
+          for (const listener of this.iqListeners) {
+            listener(frame);
+          }
         }
         break;
       }

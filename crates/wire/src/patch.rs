@@ -62,6 +62,13 @@ pub fn port_stream(base: &str, name: &str) -> Option<u32> {
 pub enum PortType {
     /// Wideband complex baseband at the device rate.
     Iq,
+    /// One channel's complex baseband at *its* rate: after the down-conversion and the channel
+    /// filter, before the demodulator.
+    ///
+    /// Deliberately not [`PortType::Iq`]. A channel tap is not interchangeable with a radio's
+    /// wideband stream — nothing can host a channel on one, and typing the two the same would
+    /// make `channel → channel` a wireable cycle that the engine could never build.
+    Baseband,
     /// 48 kHz demodulated audio (Opus on the wire).
     Audio,
     /// Typed decoder and completed-call events.
@@ -87,6 +94,7 @@ impl PortType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Iq => "iq",
+            Self::Baseband => "baseband",
             Self::Audio => "audio",
             Self::Events => "events",
             Self::Video => "video",
@@ -505,7 +513,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         DeviceIsTxCapable,
     };
     use PortDirection::{In, Out};
-    use PortType::{Audio, Control, Events, Iq, Position, Tx, Video};
+    use PortType::{Audio, Baseband, Control, Events, Iq, Position, Tx, Video};
     match kind {
         // A radio's left side is what is done *to* it, and its right side is what comes off it.
         // Both inputs take one wire: one sweep owns the tuning, one baseband keys the transmitter.
@@ -524,14 +532,22 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
+        // The baseband output is the channel's own passband — what the demodulator is looking
+        // at, not what the radio handed the channel. A scope on it sees what a decoder sees.
         "channel" => vec![
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, ChannelNeedsPosition),
+            PortSpec::new(Baseband, Out, true, Always),
             PortSpec::new(Audio, Out, true, ChannelHasAudio),
             PortSpec::new(Events, Out, true, ChannelIsDecoder),
             PortSpec::new(Video, Out, true, ChannelHasVideo),
         ],
-        "scope" => vec![PortSpec::new(Iq, In, false, Always)],
+        // Two inputs, one instrument: a radio's wideband stream or one channel's passband. Both
+        // may be wired at once and the face reads the baseband, which is the narrower answer.
+        "scope" => vec![
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Baseband, In, false, Always),
+        ],
         "recorder" => vec![
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, Always),
@@ -1841,12 +1857,15 @@ mod tests {
             .into_iter()
             .map(|port| port.name)
             .collect();
-        assert_eq!(names, vec!["iq", "audio"]);
+        // Baseband is unconditional: every channel has a passband, whatever it does with it.
+        assert_eq!(names, vec!["iq", "baseband", "audio"]);
     }
 
-    /// The three things a channel's right side can carry are each conditional, and a face draws
-    /// only the ones its type actually produces: an NFM channel has no picture to send anywhere,
-    /// and a picture port on it is a socket the operator can be told to use and then refused.
+    /// The three *demodulated* things a channel's right side can carry are each conditional, and
+    /// a face draws only the ones its type actually produces: an NFM channel has no picture to
+    /// send anywhere, and a picture port on it is a socket the operator can be told to use and
+    /// then refused. The baseband tap is not one of them — it is the channel's input, and it
+    /// exists whether or not anything is demodulated from it.
     #[test]
     fn a_channels_outputs_follow_what_its_type_produces() {
         let names = |descriptor: &ChannelDescriptor| {
@@ -1865,8 +1884,8 @@ mod tests {
             has_video: true,
             ..ChannelDescriptor::default()
         };
-        assert_eq!(names(&atv), vec!["iq", "video"]);
-        assert_eq!(names(&descriptors()[1]), vec!["iq", "events"]);
+        assert_eq!(names(&atv), vec!["iq", "baseband", "video"]);
+        assert_eq!(names(&descriptors()[1]), vec!["iq", "baseband", "events"]);
 
         // And the type is what joins them: a picture cannot be poured into a readout.
         let mut graph = workspace();
@@ -1879,6 +1898,47 @@ mod tests {
                 to: PortType::Video,
             })
         );
+    }
+
+    /// The whole reason the channel tap is not typed `Iq`: a wideband stream and one channel's
+    /// passband are not interchangeable, and typing them the same would let an operator wire a
+    /// channel into a channel — a pipeline the engine has no way to build.
+    #[test]
+    fn a_channel_tap_cannot_be_wired_where_a_wideband_stream_belongs() {
+        let catalog = PatchCatalog::build();
+        let ports_of = |kind: &str| {
+            catalog
+                .nodes
+                .iter()
+                .find(|entry| entry.kind == kind)
+                .map(|entry| entry.ports.clone())
+                .unwrap_or_default()
+        };
+        let takes = |kind: &str, port_type: PortType| {
+            ports_of(kind)
+                .iter()
+                .any(|port| port.direction == PortDirection::In && port.port_type == port_type)
+        };
+
+        assert!(
+            ports_of("channel")
+                .iter()
+                .any(|port| port.direction == PortDirection::Out
+                    && port.port_type == PortType::Baseband),
+            "a channel taps out its own passband"
+        );
+        assert!(!takes("channel", PortType::Baseband));
+        assert!(!takes("recorder", PortType::Baseband));
+        assert!(!takes("signal_map", PortType::Baseband));
+        assert!(
+            takes("scope", PortType::Baseband),
+            "the scope is what reads it"
+        );
+
+        // And a wire that tries it anyway is refused, rather than left to convention.
+        let mut graph = workspace();
+        graph.edges.push(edge(("ch", "baseband"), ("ch", "iq")));
+        assert!(graph.validate().is_err());
     }
 
     #[test]

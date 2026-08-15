@@ -20,14 +20,14 @@ use crate::{
     check_input_rate, clamp_full_scale,
 };
 
-const BAUD: f64 = 4_800.0;
-const DEVIATION_HZ: f64 = 1_944.0;
-const RRC_ALPHA: f64 = 0.2;
-const BANDWIDTH_HZ: f64 = 12_500.0;
+pub(crate) const BAUD: f64 = 4_800.0;
+pub(crate) const DEVIATION_HZ: f64 = 1_944.0;
+pub(crate) const RRC_ALPHA: f64 = 0.2;
+pub(crate) const BANDWIDTH_HZ: f64 = 12_500.0;
 
 const BURST_BITS: usize = 264;
 const BURST_SYMBOLS: usize = BURST_BITS / 2;
-const SYNC_BITS: u32 = 48;
+pub(crate) const SYNC_BITS: u32 = 48;
 /// Bits of the burst before the sync field, and so symbols still to arrive when it matches.
 const HALF_PAYLOAD_BITS: usize = 108;
 const TRAILING_SYMBOLS: usize = HALF_PAYLOAD_BITS / 2;
@@ -40,7 +40,7 @@ const SUPERFRAME_STRIDE: usize = SLOT_SYMBOLS * 2;
 
 /// Bit errors tolerated in a 48-bit sync. Four is under a tenth of the pattern and well inside
 /// what its distance from the other seven allows.
-const SYNC_TOLERANCE: u32 = 4;
+pub(crate) const SYNC_TOLERANCE: u32 = 4;
 
 const DT_PI_HEADER: u8 = 0x0;
 const DT_VOICE_LC_HEADER: u8 = 0x1;
@@ -129,6 +129,19 @@ const SYNCS: [Sync; 8] = [
         slot: Some(2),
     },
 ];
+
+/// The same eight patterns as a bare list, for the signal identifier's mode search. Derived
+/// from the table the decoder hunts with, so the two cannot come to disagree about what a DMR
+/// carrier looks like.
+pub(crate) const SYNC_PATTERNS: [u64; SYNCS.len()] = {
+    let mut out = [0; SYNCS.len()];
+    let mut i = 0;
+    while i < SYNCS.len() {
+        out[i] = SYNCS[i].bits;
+        i += 1;
+    }
+    out
+};
 
 pub struct DmrChannel {
     demod: CpmDemod,

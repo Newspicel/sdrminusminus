@@ -16,18 +16,18 @@ use super::{
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 /// 4800 bit/s over 2400 symbols, at half the deviation of the 12.5 kHz modes.
-const BAUD: f64 = 2_400.0;
-const DEVIATION_HZ: f64 = 1_050.0;
-const RRC_ALPHA: f64 = 0.2;
-const BANDWIDTH_HZ: f64 = 6_250.0;
+pub(crate) const BAUD: f64 = 2_400.0;
+pub(crate) const DEVIATION_HZ: f64 = 1_050.0;
+pub(crate) const RRC_ALPHA: f64 = 0.2;
+pub(crate) const BANDWIDTH_HZ: f64 = 6_250.0;
 
-const FS1: u64 = 0x57FF_5F75_D577;
-const FS4: u64 = 0xFD55_F5DF_7FDD;
+pub(crate) const FS1: u64 = 0x57FF_5F75_D577;
+pub(crate) const FS4: u64 = 0xFD55_F5DF_7FDD;
 const FS3: u64 = 0x7D_DFF5;
 const FS2: u64 = 0x5F_F77D;
-const LONG_SYNC_BITS: u32 = 48;
+pub(crate) const LONG_SYNC_BITS: u32 = 48;
 const SHORT_SYNC_BITS: u32 = 24;
-const LONG_TOLERANCE: u32 = 4;
+pub(crate) const LONG_TOLERANCE: u32 = 4;
 /// Half the tolerance for half the pattern: 24 bits at four errors is a pattern noise matches
 /// several times a minute, and a superframe marker has no payload check behind it to catch that.
 const SHORT_TOLERANCE: u32 = 2;

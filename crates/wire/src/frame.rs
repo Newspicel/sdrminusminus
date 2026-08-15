@@ -101,6 +101,55 @@ impl AudioFrame<'_> {
     }
 }
 
+/// A block of a channel's baseband IQ, ready to encode.
+///
+/// These are the samples a decoder actually sees: after the digital down-conversion and the
+/// channel filter, at the channel's own rate, before the demodulator. Sent as contiguous bursts
+/// rather than as a continuous stream — a constellation or an eye needs consecutive samples at the
+/// full rate, and nothing that draws one needs every burst.
+///
+/// The payload length is implicit: interleaved I/Q pairs run from byte `HEADER_LEN + 12` to the
+/// end of the WS frame, so the block is always an even number of `f32`s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IqFrame<'a> {
+    pub stream_id: u16,
+    pub seq: u32,
+    /// Channel-rate sample count at the first sample of this block, so the gap between two
+    /// bursts is legible as the time it really was.
+    pub timestamp: u64,
+    /// The channel's input rate, which is the bandwidth this baseband spans.
+    pub sample_rate: f32,
+    /// Absolute frequency the baseband is centred on: the device centre plus the channel offset.
+    pub center_hz: f64,
+    /// Interleaved I, Q.
+    pub samples: &'a [f32],
+}
+
+impl IqFrame<'_> {
+    /// Serialized length: header + rate + centre + four bytes per component.
+    #[must_use]
+    pub fn encoded_len(&self) -> usize {
+        HEADER_LEN + 8 + 4 + self.samples.len() * 4
+    }
+
+    /// Encode into a fresh little-endian byte buffer.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.encoded_len());
+        buf.push(PROTOCOL_VERSION);
+        buf.push(FrameKind::IqF32 as u8);
+        buf.extend_from_slice(&self.stream_id.to_le_bytes());
+        buf.extend_from_slice(&self.seq.to_le_bytes());
+        buf.extend_from_slice(&self.timestamp.to_le_bytes());
+        buf.extend_from_slice(&self.center_hz.to_le_bytes());
+        buf.extend_from_slice(&self.sample_rate.to_le_bytes());
+        for sample in self.samples {
+            buf.extend_from_slice(&sample.to_le_bytes());
+        }
+        buf
+    }
+}
+
 /// One decoded picture ready to encode: 8-bit luma, row-major, `width · height` bytes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoFrame<'a> {
@@ -224,6 +273,57 @@ mod tests {
             assert_eq!(layout, ch_layout);
             assert_eq!(out, opus);
         }
+    }
+
+    /// Decode just enough to prove the layout matches the documented offsets.
+    fn decode_iq(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, f64, f32, Vec<f32>) {
+        let ver = buf[0];
+        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
+        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
+        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+        let center_hz = f64::from_le_bytes(buf[16..24].try_into().unwrap());
+        let sample_rate = f32::from_le_bytes(buf[24..28].try_into().unwrap());
+        let (chunks, _) = buf[28..].as_chunks::<4>();
+        let samples = chunks.iter().copied().map(f32::from_le_bytes).collect();
+        (
+            ver,
+            kind,
+            stream_id,
+            seq,
+            timestamp,
+            center_hz,
+            sample_rate,
+            samples,
+        )
+    }
+
+    #[test]
+    fn iq_roundtrip() {
+        let samples: Vec<f32> = (0..32).map(|i| i as f32 * 0.03125 - 0.5).collect();
+        let frame = IqFrame {
+            stream_id: 0x8100,
+            seq: 3,
+            timestamp: 48_000,
+            sample_rate: 24_000.0,
+            center_hz: 145_800_000.0,
+            samples: &samples,
+        };
+        let buf = frame.encode();
+        assert_eq!(buf.len(), frame.encoded_len());
+
+        let (ver, kind, sid, seq, ts, center, rate, out) = decode_iq(&buf);
+        assert_eq!(ver, PROTOCOL_VERSION);
+        assert_eq!(kind, FrameKind::IqF32);
+        assert_eq!(sid, 0x8100);
+        assert_eq!(seq, 3);
+        assert_eq!(ts, 48_000);
+        assert_eq!(center, 145_800_000.0);
+        assert_eq!(rate, 24_000.0);
+        assert_eq!(out, samples);
+        // Interleaved pairs: an odd component count would leave a reader one sample short of a
+        // complex value and is not a frame this ever produces.
+        assert_eq!(out.len() % 2, 0);
     }
 
     /// Decode just enough to prove the layout matches the documented offsets.

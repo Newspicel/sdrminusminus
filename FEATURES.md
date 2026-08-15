@@ -34,15 +34,15 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
   tuning, so the scanner's device-set spectrum tap has nothing to read it with yet
 - **[planned]** Strongest-signal "close-call" finder
 - **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter
-- **[planned]** Percentile-anchored waterfall colour range — the range is the frame's own min…max today, so a high noise floor washes the display out
-- **[planned]** Server-side zoom — zooming re-frames bins that already arrived rather than resolving finer; the readout is honest about it
+- **[planned]** Server-side zoom of the *device* spectrum — zooming a device scope re-frames bins
+  that already arrived rather than resolving finer; the readout is honest about it. A channel's
+  baseband scope resolves properly, being a transform of that channel's own samples
 - **[planned]** Pinch-zoom on touch pointers
-- **[planned]** 3D spectrogram view
-- **[planned]** Band occupancy analytics over time
+- **[planned]** 3D spectrogram view — a height-mapped surface reads worse than the 2D waterfall for
+  finding signals (the near ridge occludes the far one); the persistence display above shows the
+  same third dimension honestly. A perspective tilt of the existing waterfall, and a range–Doppler
+  surface for passive radar (§2), are the two cases that would earn it
 
-## 4. Frequency-allocation database — "what is this frequency?"
-
-- **[planned]** User-extendable and override-able entries
 
 ## 5. Recording, capture & replay
 
@@ -56,10 +56,7 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 6. UI, workspaces & onboarding
 
-- **[shipped]** Typed live-position wiring with device, gpsd, and serial NMEA GPS source nodes
-- **[planned]** Node kinds whose backends do not exist yet: UDP sink, WAV sink, and the `iq-tap` port type that goes with them
-- **[planned]** A scope on a channel tap — a scope only takes a device today
-- **[planned]** Theme/skin system and a layout marketplace
+- **[planned]** Node kinds whose backends do not exist yet: UDP sink and WAV sink
 
 ## 7. Voice & analog channels
 
@@ -72,8 +69,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 - **[planned]** NXDN SACCH/FACCH addressing and YSF callsigns — the signalling layers below
   each mode's voice framing
 - **[planned]** FreeDV
-- **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered
-  voice channels. Needs the control-channel payloads above first
 - **[planned]** Hardware AMBE dongle/server support
 
 ## 9. Aviation & marine
@@ -144,9 +139,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 - **[planned]** Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
 - **[planned]** Rotator control (GS-232, rotctld); rigctld-compatible rig control server
-- **[shipped]** GPS position sources (device / gpsd / NMEA) — live station position for ADS-B
-  and maps, bounded mobile heat-map trails, automatic Maidenhead grid locator, and dynamic SigMF
-  recording geotags
 - **[planned]** NanoVNA over USB serial — sweeps, SWR and Smith-chart panels, saved antenna profiles
 - **[planned]** Antenna calculators
 - **[planned]** Map layers — sondes, satellites, beacons, MUF
@@ -176,6 +168,4 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 20. Cross-cutting engine capabilities
 
-- **[shipped]** GPU FFT compute path (wgpu) for large transforms or many receive lanes,
-  with automatic CPU selection and fallback on headless hosts
 - **[planned]** Diversity combine / noise cancelling with a reference antenna

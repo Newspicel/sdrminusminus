@@ -10,6 +10,7 @@ import { Tabs } from "@base-ui/react/tabs";
 import { BandsPanel } from "../components/BandsPanel";
 import { BookmarksPanel } from "../components/BookmarksPanel";
 import { segment } from "../components/controls";
+import { OccupancyPanel } from "../components/OccupancyPanel";
 import { PresetsPanel } from "../components/PresetsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
 import { TemplatesPanel } from "../components/TemplatesPanel";
@@ -25,6 +26,7 @@ const TABS = [
   { id: "presets", label: "Presets" },
   { id: "bookmarks", label: "Bookmarks" },
   { id: "bands", label: "Bands" },
+  { id: "occupancy", label: "Occupancy" },
   { id: "recordings", label: "Recordings" },
 ] as const;
 
@@ -86,6 +88,9 @@ export function Library() {
       </Tabs.Panel>
       <Tabs.Panel value="bands" className="max-h-[28rem] overflow-y-auto">
         <BandsPanel active={active} />
+      </Tabs.Panel>
+      <Tabs.Panel value="occupancy" className="max-h-[28rem] overflow-y-auto">
+        <OccupancyPanel active={active} />
       </Tabs.Panel>
       <Tabs.Panel value="recordings" className="max-h-[28rem] overflow-y-auto">
         <RecordingsPanel onOpen={openRecording} />

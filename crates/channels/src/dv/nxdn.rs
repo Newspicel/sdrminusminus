@@ -15,9 +15,9 @@ use super::{
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 /// Frame sync word 0xCDF59, 20 bits.
-const FSW: u64 = 0x000C_DF59;
-const FSW_BITS: u32 = 20;
-const SYNC_TOLERANCE: u32 = 2;
+pub(crate) const FSW: u64 = 0x000C_DF59;
+pub(crate) const FSW_BITS: u32 = 20;
+pub(crate) const SYNC_TOLERANCE: u32 = 2;
 
 /// The LICH is the 16 bits after the sync.
 const LICH_BITS: usize = 8;
@@ -33,11 +33,11 @@ const POST_FSW_SYMBOLS: usize = FRAME_SYMBOLS as usize - FSW_SYMBOLS;
 const SACCH_SYMBOLS: usize = 30;
 const VOICE_START: usize = LICH_SYMBOLS + SACCH_SYMBOLS;
 
-const RRC_ALPHA: f64 = 0.2;
+pub(crate) const RRC_ALPHA: f64 = 0.2;
 
 /// Descriptors differ only in the channel width, and the width picks the symbol rate: 6.25 kHz
 /// NXDN is 2400 symbols per second at ±1050 Hz, 12.5 kHz is 4800 at ±1944 Hz.
-fn shape(bandwidth: NxdnBandwidth) -> (f64, f64, f64) {
+pub(crate) fn shape(bandwidth: NxdnBandwidth) -> (f64, f64, f64) {
     match bandwidth {
         NxdnBandwidth::Narrow => (2_400.0, 1_050.0, 6_250.0),
         NxdnBandwidth::Wide => (4_800.0, 1_944.0, 12_500.0),

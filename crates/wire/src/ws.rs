@@ -41,6 +41,7 @@ pub enum StreamKind {
     Spectrum,
     Audio,
     Video,
+    Iq,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -82,6 +83,14 @@ pub enum ServerEvent {
         device_set: u32,
         channel: u32,
     },
+    /// A subscribed channel-IQ stream is now active, carrying that channel's baseband as
+    /// [`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video
+    /// use, so the client demuxes on `(kind, stream_id)` exactly as it does there.
+    IqStreamStarted {
+        stream_id: u16,
+        device_set: u32,
+        channel: u32,
+    },
     /// A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
     /// come from different spaces.
     StreamStopped {
@@ -111,6 +120,16 @@ pub enum ServerEvent {
     /// call is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`
     /// still fires for structural changes — retention expiry, audio eviction.
     CallCompleted(Box<crate::rest::VoiceCall>),
+    /// Live signal level of every channel on one device set.
+    ///
+    /// Its own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move
+    /// continuously, and a `StateChanged` per reading would have every client refetch the whole
+    /// world ten times a second. Nothing downstream is authoritative about these — they are a
+    /// measurement, not state, and a client that misses one simply draws the next.
+    ChannelLevels {
+        device_set: u32,
+        levels: Vec<crate::state::ChannelLevel>,
+    },
     /// Live frequency-scanner progress. Its own event rather than a `StateChanged`:
     /// a scan retunes the device every dwell, and one full-state refetch per step would
     /// cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
@@ -168,6 +187,15 @@ pub enum ClientCommand {
     SubscribeVideo { device_set: u32, channel: u32 },
     /// Stop the video stream for a channel.
     UnsubscribeVideo { device_set: u32, channel: u32 },
+    /// Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at
+    /// the channel's own rate; answered with `IqStreamStarted`.
+    ///
+    /// The burst size and cadence are the server's, not the client's: they are what bounds the
+    /// bandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a
+    /// per-subscriber choice would have several clients of one channel disagree about them.
+    SubscribeIq { device_set: u32, channel: u32 },
+    /// Stop the baseband stream for a channel.
+    UnsubscribeIq { device_set: u32, channel: u32 },
     /// A fix from the desktop WebView's geolocation provider. The server accepts this only for
     /// a device-position node in the active workspace.
     PublishPosition {

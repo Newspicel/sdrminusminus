@@ -15,21 +15,21 @@ use super::{
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const BAUD: f64 = 4_800.0;
-const DEVIATION_HZ: f64 = 1_944.0;
-const RRC_ALPHA: f64 = 0.2;
-const BANDWIDTH_HZ: f64 = 12_500.0;
+pub(crate) const BAUD: f64 = 4_800.0;
+pub(crate) const DEVIATION_HZ: f64 = 1_944.0;
+pub(crate) const RRC_ALPHA: f64 = 0.2;
+pub(crate) const BANDWIDTH_HZ: f64 = 12_500.0;
 
 /// The sync every frame opens with: 0xD471C9634D, 40 bits.
-const SYNC: u64 = 0x00D4_71C9_634D;
-const SYNC_BITS: u32 = 40;
+pub(crate) const SYNC: u64 = 0x00D4_71C9_634D;
+pub(crate) const SYNC_BITS: u32 = 40;
 /// Looser than the other modes' roughly-a-tenth, and measured: a transmission's first sync
 /// meets a cold front end whose clock and level scale are still converging, and unlike the
 /// all-outer-symbol syncs of DMR and P25 this pattern mixes ±1 and ±3 — acquisition ISI was
 /// measured putting six bit errors into it where the steady state puts zero. YSF can afford
 /// the width, alone in the family: everything reported stands behind the FICH's three codes,
 /// so a chance match costs a hundred symbols of hunting and never a frame.
-const SYNC_TOLERANCE: u32 = 6;
+pub(crate) const SYNC_TOLERANCE: u32 = 6;
 
 /// The FICH occupies the 100 symbols after the sync.
 const FICH_SYMBOLS: usize = 100;

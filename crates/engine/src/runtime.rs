@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -15,7 +15,7 @@ use sdrmm_channels::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
-use sdrmm_dsp::{Ddc, Squelch};
+use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
 use sdrmm_wire::{
     ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, PositionFix,
     StreamScope,
@@ -24,6 +24,7 @@ use tokio::sync::broadcast;
 
 use crate::{
     audio::{PcmBlock, PcmPayload},
+    iq::{IqBlock, IqTap},
     network_export::NetworkExportTap,
     recording::RecorderTap,
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
@@ -122,6 +123,12 @@ pub(crate) struct ChannelSinks {
     pub(crate) video_tx: broadcast::Sender<VideoPacket>,
     /// Channel-rate samples this channel has demodulated, which stamps its pictures.
     pub(crate) video_pos: Arc<AtomicU64>,
+    pub(crate) iq_tx: broadcast::Sender<IqBlock>,
+    /// Smoothed and peak-held level in dBFS, as `f32::to_bits`. An atomic pair rather than a
+    /// message: the level is a *state* a reader samples whenever it likes, not an event, and a
+    /// DSP thread must never block to publish one.
+    pub(crate) level_db: Arc<AtomicU32>,
+    pub(crate) peak_db: Arc<AtomicU32>,
 }
 
 /// One hosted channel on the DSP thread: DDC → channel filter → squelch gate → demod → PCM and
@@ -173,6 +180,14 @@ pub(crate) struct ChannelHost {
     /// Zero-filled stand-in handed to a decoder while the gate is closed; reused, so the
     /// substitution costs no allocation in steady state.
     gated: Vec<Complex<f32>>,
+    /// Bursts this channel's passband out to whoever is watching it. Idle — and free — until
+    /// something subscribes.
+    iq_tap: IqTap,
+    /// The rate the tap paces itself against, mirrored from the pipeline it was built for.
+    input_rate: f64,
+    /// Runs on every block, gate or no gate: a channel's level is what tells an operator whether
+    /// a closed squelch is a quiet channel or a threshold set too high.
+    meter: LevelMeter,
 }
 
 impl ChannelHost {
@@ -226,6 +241,9 @@ impl ChannelHost {
             decodes,
             emits_events,
             gated: Vec::new(),
+            iq_tap: IqTap::new(input_rate),
+            input_rate,
+            meter: LevelMeter::new(input_rate),
         }))
     }
 
@@ -235,6 +253,14 @@ impl ChannelHost {
             return;
         }
         self.filter.process(&self.scratch, &mut self.filtered);
+        self.meter.process(&self.filtered);
+        self.sinks
+            .level_db
+            .store(self.meter.level_db().to_bits(), Ordering::Relaxed);
+        self.sinks
+            .peak_db
+            .store(self.meter.peak_db().to_bits(), Ordering::Relaxed);
+        self.tap_baseband(center_hz);
         let open = match self.threshold_db {
             Some(_) => self.squelch.process(&self.filtered),
             None => true,
@@ -301,6 +327,28 @@ impl ChannelHost {
                 });
             }
         }
+    }
+
+    /// Send the channel's passband on to whoever is watching it.
+    ///
+    /// Deliberately above the squelch: a gate that is closed is precisely when an operator wants
+    /// to see what is on the channel, and a tap that went quiet with the audio would be blind
+    /// exactly when it is needed. Costs one atomic load while nobody is subscribed.
+    fn tap_baseband(&mut self, center_hz: f64) {
+        if self.sinks.iq_tx.receiver_count() == 0 {
+            // A tap nobody is reading must not carry a half-filled burst across the gap until
+            // someone does: those samples were not adjacent to the ones that will follow them.
+            self.iq_tap.reset();
+            return;
+        }
+        let rate = self.input_rate as f32;
+        let center = center_hz + self.offset_hz;
+        let sinks = &self.sinks;
+        self.iq_tap.push(&self.filtered, rate, center, |block| {
+            // send() only errors when there are no receivers, which the guard above already
+            // handles; a subscriber that unsubscribed mid-block is the same non-event.
+            let _ = sinks.iq_tx.send(block);
+        });
     }
 
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
@@ -779,6 +827,9 @@ mod tests {
             pcm_pos,
             video_tx: broadcast::channel(8).0,
             video_pos: Arc::new(AtomicU64::new(0)),
+            iq_tx: broadcast::channel(crate::iq::IQ_CHANNEL_CAP).0,
+            level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
+            peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
         }
     }
 
@@ -792,6 +843,19 @@ mod tests {
         )
         .expect("host builds");
         (host, pcm_rx)
+    }
+
+    /// A host whose baseband tap is already subscribed, since the tap does nothing until one is.
+    fn tapped_host(
+        settings: &ChannelSettings,
+    ) -> (Box<ChannelHost>, broadcast::Receiver<crate::iq::IqBlock>) {
+        let (pcm_tx, _pcm_rx) = broadcast::channel(4096);
+        let mut built = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
+        let (iq_tx, iq_rx) = broadcast::channel(64);
+        built.iq_tx = iq_tx;
+        let host =
+            ChannelHost::build(RATE, settings, built, DecodedSink::null()).expect("host builds");
+        (host, iq_rx)
     }
 
     fn tone(freq_hz: f64, amp: f32, len: usize) -> Vec<Complex<f32>> {
@@ -1005,5 +1069,74 @@ mod tests {
             factor > MIN_FACTOR,
             "wfm at {DEVICE_RATE} Sa/s ran at {factor:.1}x realtime, under the {MIN_FACTOR}x floor"
         );
+    }
+
+    /// The tap's contract, end to end: an offset tone reaches the subscriber at *baseband*, which
+    /// is what makes a constellation of it mean anything.
+    #[test]
+    fn the_baseband_tap_carries_the_channel_down_converted() {
+        let mut settings = nfm_settings(None);
+        settings.offset_hz = 3_000.0;
+        let (mut host, mut rx) = tapped_host(&settings);
+
+        // A tone on the channel's own frequency: at baseband it must be DC, not 3 kHz.
+        let input = tone(3_000.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
+        for block in input.chunks(BLOCK) {
+            host.process(block, 100_000_000.0);
+        }
+
+        let burst = rx.try_recv().expect("a subscribed tap sends bursts");
+        assert_eq!(burst.samples.len(), crate::iq::IQ_BLOCK_SAMPLES);
+        assert_eq!(
+            burst.center_hz, 100_003_000.0,
+            "the tap names the absolute centre"
+        );
+        assert_eq!(burst.sample_rate, RATE as f32);
+
+        // Down-converted to DC: consecutive samples share a phase, so their mean magnitude is the
+        // magnitude of their mean. A tone left at 3 kHz would average to nearly nothing.
+        let tail = &burst.samples[burst.samples.len() / 2..];
+        let mean: Complex<f32> = tail.iter().sum::<Complex<f32>>() / tail.len() as f32;
+        let power: f32 = tail.iter().map(|s| s.norm()).sum::<f32>() / tail.len() as f32;
+        assert!(
+            mean.norm() > power * 0.9,
+            "tap output is not at baseband: |mean| {:.4} against mean |s| {power:.4}",
+            mean.norm()
+        );
+    }
+
+    /// A closed squelch is exactly when an operator wants to look at the passband, so the tap
+    /// runs above the gate rather than with it.
+    #[test]
+    fn the_baseband_tap_keeps_running_through_a_closed_squelch() {
+        let (mut host, mut rx) = tapped_host(&nfm_settings(Some(0.0)));
+
+        // Far below any threshold: the gate stays shut for the whole run.
+        let input = tone(0.0, 1e-6, crate::iq::IQ_BLOCK_SAMPLES * 4);
+        for block in input.chunks(BLOCK) {
+            host.process(block, 100_000_000.0);
+        }
+
+        assert!(
+            rx.try_recv().is_ok(),
+            "the tap went quiet with the audio instead of showing the closed channel"
+        );
+    }
+
+    /// Nothing subscribed is the common case, and it must cost no sends and no allocation.
+    #[test]
+    fn an_unwatched_tap_sends_nothing() {
+        let (mut host, _pcm) = host(&nfm_settings(None));
+        let mut rx = host.sinks.iq_tx.subscribe();
+        drop(rx);
+        rx = host.sinks.iq_tx.subscribe();
+        drop(rx);
+
+        let input = tone(0.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
+        for block in input.chunks(BLOCK) {
+            host.process(block, 100_000_000.0);
+        }
+        assert_eq!(host.sinks.iq_tx.receiver_count(), 0);
+        assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
     }
 }

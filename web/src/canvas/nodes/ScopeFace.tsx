@@ -12,11 +12,23 @@ import { Button } from "../../components/BaseControls";
 import { plotButton, segment } from "../../components/controls";
 import { formatSignedKhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
+import { Slider } from "../../components/Slider";
+import { frozenAge, frozenCursor, frozenLength, frozenRow } from "../../components/spectrumFreeze";
+import {
+  accumulateTraces,
+  type DbWindow,
+  dequantize,
+  frameWindow,
+  requantize,
+  requantizeHistory,
+  TRACE_MODES,
+  type TraceMode,
+  type TraceState,
+  traceOf,
+} from "../../components/spectrumTraces";
 import {
   clusterMarkers,
-  decibelTicks,
   FULL_VIEW,
-  frequencyTicks,
   isFullView,
   offsetToSpan,
   panView,
@@ -27,7 +39,7 @@ import {
   viewWidth,
   zoomView,
 } from "../../components/spectrumView";
-import { pixelRatio, zoomOf } from "../../gl/raster";
+import { rowsForHeight } from "../../gl/raster";
 import {
   attachWaterfall,
   COLORMAPS,
@@ -36,19 +48,20 @@ import {
   type WaterfallView,
 } from "../../gl/waterfall";
 import type { SpectrumFrame } from "../../lib/frame";
-import { spectrumHub } from "../../lib/spectrum";
-import { token } from "../../lib/tokens";
+import { SPECTRUM_HISTORY_ROWS, type SpectrumHistory, spectrumHub } from "../../lib/spectrum";
 import type { ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
-import { channelNodesOf, iqSourceOf } from "../binding";
+import { basebandSourceOf, channelNodesOf, hasBasebandWire, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
+import { BasebandView } from "./BasebandView";
 import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { DensityLayer, drawPlot, type PlotFrame, type PlotTrace } from "./scopePlot";
 
 const DRAG_SLOP_PX = 4;
 /** How close the pointer must be to a marker to grab it rather than pan the plot. */
@@ -56,12 +69,10 @@ const GRAB_PX = 10;
 const COLORMAP_KEY = "sdrmm.colormap";
 const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
-/** Rows the frequency axis reserves at the bottom of the trace canvas, in CSS pixels. */
-const AXIS_H = 16;
 /** Where a marker's label sits, under the band ruler. */
 const LABEL_TOP_PX = 28;
-/** The translucency SDR++ draws its fill under the trace at (`ImGuiCol_PlotLines` at 0.2). */
-const TRACE_FILL_ALPHA = 0.2;
+/** What the plot maps onto its height before any frame has arrived to say otherwise. */
+const EMPTY_WINDOW: DbWindow = { min: -100, max: -20 };
 
 interface FrameMeta {
   centerHz: number;
@@ -84,6 +95,35 @@ export function ScopeFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const source = iqSourceOf(workspace.graph, node.id);
+  // A channel's passband is the narrower answer, so it wins when both inputs are wired: an
+  // operator who has run a tap into this scope is asking about that channel, not about the radio.
+  const tap = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
+  const [colormap] = useState<Colormap>(readColormap);
+
+  if (tap !== null) {
+    return (
+      <NodeShell
+        node={node}
+        title="Scope"
+        category="display"
+        subtitle={`${tap.channel.settings.params.type} baseband`}
+        live
+      >
+        <FaceBody scroll={false}>
+          <BasebandView
+            key={`${tap.deviceSet}:${tap.channel.id}`}
+            deviceSet={tap.deviceSet}
+            channel={tap.channel}
+            colormap={colormap}
+            label={
+              workspace.devices.get(iqSourceOf(workspace.graph, tap.node)?.source ?? "")?.device
+                .label
+            }
+          />
+        </FaceBody>
+      </NodeShell>
+    );
+  }
 
   return (
     <NodeShell
@@ -96,9 +136,11 @@ export function ScopeFace({ node }: { node: PatchNode }) {
       <FaceBody scroll={false}>
         {set === null ? (
           <FaceEmpty>
-            {source !== null
-              ? "The radio this scope watches is not attached. The wire is kept."
-              : "Wire a device's IQ out to watch its spectrum."}
+            {hasBasebandWire(workspace.graph, node.id)
+              ? "The channel this scope taps is not running. The wire is kept."
+              : source !== null
+                ? "The radio this scope watches is not attached. The wire is kept."
+                : "Wire a device's IQ out to watch its spectrum, or a channel's baseband out to watch one channel."}
           </FaceEmpty>
         ) : (
           // Keyed on the radio *and* the lane its wire names: another device set — or another
@@ -135,15 +177,28 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   // `Spectrum` is keyed by lane, so a different lane is a different mount reading its own.
   const [seedFrame] = useState<SpectrumFrame | null>(() => spectrumHub.latest(set.id, stream));
   const frameRef = useRef<SpectrumFrame | null>(seedFrame);
-  const holdRef = useRef<Uint8Array | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
+  /** The live frame expanded to dBFS. Every trace, the phosphor and the plot read this rather
+   * than the bytes: the window they are drawn against is not always the frame's own. */
+  const liveDbRef = useRef<Float32Array | null>(null);
+  const tracesRef = useRef<TraceState | null>(null);
+  const densityRef = useRef<DensityLayer | null>(null);
+  const rowRef = useRef<Uint8Array | null>(null);
+  const frozenDbRef = useRef<Float32Array | null>(null);
 
   const [meta, setMeta] = useState<FrameMeta | null>(() =>
     seedFrame === null ? null : metaOf(seedFrame),
   );
   const [glError, setGlError] = useState<string | null>(null);
   const [view, setView] = useState<SpectrumView>(FULL_VIEW);
-  const [hold, setHold] = useState(false);
+  const [traceModes, setTraceModes] = useState<readonly TraceMode[]>([]);
+  const [phosphor, setPhosphor] = useState(false);
+  /** The dB range the plot is pinned to, or `null` to follow whatever the server sends. */
+  const [lock, setLock] = useState<DbWindow | null>(null);
+  /** The history a freeze captured, and how far back into it the operator has scrubbed. */
+  const [frozen, setFrozen] = useState<SpectrumHistory | null>(null);
+  const [scrub, setScrub] = useState(0);
+  const [waterfallH, setWaterfallH] = useState(0);
   const [colormap, setColormap] = useState<Colormap>(readColormap);
   const [traceFraction, setTraceFraction] = useState(0.32);
   const [preview, setPreview] = useState<{ channel: number; offsetHz: number } | null>(null);
@@ -151,14 +206,20 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const [picked, setPicked] = useState<number | null>(null);
 
   // The animation-frame loop and the frame subscription both outlive the render that set these,
-  // so they read the view and the max-hold switch here. Written after commit, never during
+  // so they read the view and the display switches here. Written after commit, never during
   // render: React may replay or discard a render, and the loop must not see a value from one
   // that never landed.
   const viewRef = useRef(view);
-  const holdRequested = useRef(hold);
+  const modesRef = useRef(traceModes);
+  const lockRef = useRef(lock);
+  const frozenRef = useRef(frozen);
+  const scrubRef = useRef(scrub);
   useLayoutEffect(() => {
     viewRef.current = view;
-    holdRequested.current = hold;
+    modesRef.current = traceModes;
+    lockRef.current = lock;
+    frozenRef.current = frozen;
+    scrubRef.current = scrub;
   });
 
   // Engine channel id → the node whose face tunes it. Built by following the wires rather than
@@ -269,12 +330,34 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   // and not at render, unlike the frame above, because the renderer is the previous effect's.
   useEffect(() => {
     const past = spectrumHub.history(set.id, stream);
-    rendererRef.current?.seed(past.rows, past.count, past.bins);
+    const opening = lockRef.current;
+    rendererRef.current?.seed(
+      opening === null ? past.rows : requantizeHistory(past, opening),
+      past.count,
+      past.bins,
+    );
     let count = 0;
     return spectrumHub.subscribe(set.id, stream, (frame) => {
       frameRef.current = frame;
-      rendererRef.current?.pushRow(frame.bins);
-      accumulateHold(holdRef, frame.bins, holdRequested.current);
+      const held = lockRef.current;
+      const window = held ?? frameWindow(frame);
+      const db = dequantize(frame, liveDbRef.current);
+      liveDbRef.current = db;
+      // A frozen plot still records — the hub is what it will be scrubbed over — but nothing that
+      // moves under the operator's eye is advanced while they are reading it.
+      if (frozenRef.current === null) {
+        if (held === null) {
+          rendererRef.current?.pushRow(frame.bins);
+        } else {
+          // The texture is one byte per bin with no room for a per-row window, so a plot pinned to
+          // a fixed range has to convert on the way in.
+          const row = requantize(frame.bins, frameWindow(frame), held, rowRef.current);
+          rowRef.current = row;
+          rendererRef.current?.pushRow(row);
+        }
+        tracesRef.current = accumulateTraces(tracesRef.current, db);
+        densityRef.current?.add(db, viewRef.current, window);
+      }
       // Metadata seeds from the first frame then throttles to ~4 Hz; the canvases redraw every
       // frame regardless, so this only paces the text.
       count += 1;
@@ -289,16 +372,53 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   useEffect(() => {
     let raf = 0;
     const loop = () => {
-      drawTrace(
-        traceRef.current,
+      const { frame, window } = plotSource(
+        frozenRef.current,
+        scrubRef.current,
         frameRef.current,
-        viewRef.current,
-        holdRequested.current ? holdRef.current : null,
+        liveDbRef.current,
+        lockRef.current,
+        frozenDbRef,
       );
+      drawPlot(traceRef.current, {
+        frame,
+        view: viewRef.current,
+        window,
+        traces: overlays(tracesRef.current, modesRef.current, frame),
+        density: densityRef.current,
+      });
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // The phosphor layer exists only while it is switched on: it owns a bitmap and a grid, and a
+  // scope that is not showing one should not be paying for it.
+  useEffect(() => {
+    if (!phosphor) {
+      densityRef.current = null;
+      return;
+    }
+    const layer = new DensityLayer(colormap);
+    densityRef.current = layer;
+    return () => {
+      if (densityRef.current === layer) {
+        densityRef.current = null;
+      }
+    };
+  }, [phosphor, colormap]);
+
+  // How far back the waterfall reaches, which is what turns a scrub index into a cursor position.
+  useEffect(() => {
+    const canvas = waterfallRef.current;
+    if (canvas === null) {
+      return;
+    }
+    const observer = new ResizeObserver(() => setWaterfallH(canvas.clientHeight));
+    observer.observe(canvas);
+    setWaterfallH(canvas.clientHeight);
+    return () => observer.disconnect();
   }, []);
 
   // React marks its delegated wheel listener passive, so zoom has to be bound natively or the
@@ -327,6 +447,61 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       // A blocked store costs the preference on the next load, not this session.
     }
   };
+
+  /** Re-upload every row the hub has kept under `held`. The rows already in the texture were
+   * quantized against whatever window was current when they arrived, so changing the plot's own
+   * window has to re-colour the history as well as the frames still to come. */
+  const reseed = (held: DbWindow | null): void => {
+    const past = spectrumHub.history(set.id, stream);
+    if (past.count === 0) {
+      return;
+    }
+    rendererRef.current?.seed(
+      held === null ? past.rows : requantizeHistory(past, held),
+      past.count,
+      past.bins,
+    );
+  };
+
+  const toggleTrace = (mode: TraceMode): void => {
+    setTraceModes((current) =>
+      current.includes(mode) ? current.filter((name) => name !== mode) : [...current, mode],
+    );
+  };
+
+  /** Pin the plot to the window it is showing right now, or let it follow the server again.
+   *
+   * Pinning is what makes the accumulated traces and the phosphor comparable frame to frame: the
+   * server widens its window whenever a burst arrives, and a display that follows it re-scales
+   * everything already drawn underneath. */
+  const toggleLock = (): void => {
+    const next = lock === null ? (meta === null ? EMPTY_WINDOW : displayWindow(meta, null)) : null;
+    lockRef.current = next;
+    setLock(next);
+    reseed(next);
+    densityRef.current?.clear();
+  };
+
+  const toggleFreeze = (): void => {
+    if (frozen !== null) {
+      frozenRef.current = null;
+      setFrozen(null);
+      // The lane kept filling while the plot was held; catching the texture up is what stops the
+      // waterfall from resuming with a seam in it.
+      reseed(lockRef.current);
+      return;
+    }
+    const captured = spectrumHub.history(set.id, stream);
+    frozenRef.current = captured;
+    setFrozen(captured);
+    setScrub(Math.max(0, frozenLength(captured) - 1));
+  };
+
+  const frozenRows = frozen === null ? 0 : frozenLength(frozen);
+  const cursorAt =
+    frozen === null
+      ? null
+      : frozenCursor(scrub, frozenRows, rowsForHeight(waterfallH, 1, SPECTRUM_HISTORY_ROWS));
 
   const spanHz = meta?.spanHz ?? 0;
   const pointerFraction = (clientX: number): number => {
@@ -460,6 +635,15 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
           the height it was last given and overflow the node. */}
       <canvas ref={waterfallRef} className="w-full min-h-0 flex-1" />
 
+      {/* The row the trace above is showing. Achromatic, like every other overlay on the
+          waterfall: the colormap owns hue inside that rectangle. */}
+      {cursorAt !== null && (
+        <div
+          className="pointer-events-none absolute inset-x-0 border-t border-plot-ink/80"
+          style={{ top: `calc(${traceFraction * 100}% + ${cursorAt * waterfallH}px)` }}
+        />
+      )}
+
       {meta !== null && (
         <Markers
           channels={set.channels}
@@ -473,7 +657,8 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
         <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
-          {meta !== null && `${formatCentre(meta, view)}${formatRange(meta)}`}
+          {meta !== null && `${formatCentre(meta, view)}${formatRange(displayWindow(meta, lock))}`}
+          {lock !== null && " · held"}
         </span>
         {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs the
             trace nothing. It carries its own scrim of the plot ground — the waterfall reaches
@@ -510,17 +695,54 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
               </div>
             )}
           </Popover>
-          <Button
-            type="button"
-            className={plotButton(hold)}
-            aria-pressed={hold}
-            onClick={() => {
-              holdRef.current = null;
-              setHold(!hold);
-            }}
+          {/* Everything that changes what the plot draws from the same stream, behind one
+              trigger: the toolbar sits over the trace, and six switches along it would cost more
+              of the plot than they are worth. */}
+          <Popover
+            label={traceLabel(traceModes, phosphor)}
+            triggerClass={plotButton(traceModes.length > 0 || phosphor)}
+            width="w-auto min-w-[var(--anchor-width)]"
+            padded={false}
           >
-            max hold
-          </Button>
+            {() => (
+              <div className="flex flex-col p-0.5">
+                {TRACE_MODES.map((mode) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    className={`${segment(traceModes.includes(mode))} justify-start`}
+                    aria-pressed={traceModes.includes(mode)}
+                    onClick={() => toggleTrace(mode)}
+                  >
+                    {mode}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  className={`${segment(phosphor)} justify-start`}
+                  aria-pressed={phosphor}
+                  onClick={() => {
+                    // A phosphor built over a window that keeps moving smears every level it has
+                    // drawn, so switching it on pins the display to what is on screen now.
+                    if (!phosphor && lock === null) {
+                      toggleLock();
+                    }
+                    setPhosphor(!phosphor);
+                  }}
+                >
+                  phosphor
+                </Button>
+                <Button
+                  type="button"
+                  className={`${segment(lock !== null)} justify-start`}
+                  aria-pressed={lock !== null}
+                  onClick={toggleLock}
+                >
+                  hold dB range
+                </Button>
+              </div>
+            )}
+          </Popover>
           <Button
             type="button"
             className={plotButton(bandRuler)}
@@ -529,6 +751,14 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
           >
             bands
           </Button>
+          <Button
+            type="button"
+            className={plotButton(frozen !== null)}
+            aria-pressed={frozen !== null}
+            onClick={toggleFreeze}
+          >
+            {frozen === null ? "freeze" : "live"}
+          </Button>
           {!isFullView(view) && (
             <Button type="button" className={plotButton(false)} onClick={() => setView(FULL_VIEW)}>
               {(1 / viewWidth(view)).toFixed(1)}× · reset
@@ -536,6 +766,27 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
           )}
         </div>
       </div>
+
+      {/* The scrub bar rides above the toolbar rather than inside it: it is as wide as the plot,
+          and it only exists while the plot is frozen. */}
+      {frozen !== null && frozenRows > 0 && (
+        <div
+          data-plot-chrome
+          className="absolute inset-x-1.5 bottom-8 flex items-center gap-2 rounded-[3px] bg-plot-bg/85 px-1.5 py-1"
+        >
+          <Slider
+            label="Scrub the frozen waterfall"
+            className="min-w-0 flex-1"
+            min={0}
+            max={frozenRows - 1}
+            value={Math.min(scrub, frozenRows - 1)}
+            onChange={setScrub}
+          />
+          <span className="legend w-16 shrink-0 text-right whitespace-pre text-plot-ink-dim">
+            {frozenAge(frozen, scrub)}
+          </span>
+        </div>
+      )}
 
       {glError !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
@@ -796,28 +1047,6 @@ function metaOf(frame: SpectrumFrame): FrameMeta {
   };
 }
 
-function accumulateHold(
-  ref: RefObject<Uint8Array | null>,
-  bins: Uint8Array,
-  enabled: boolean,
-): void {
-  if (!enabled) {
-    ref.current = null;
-    return;
-  }
-  const held = ref.current;
-  if (held === null || held.length !== bins.length) {
-    ref.current = Uint8Array.from(bins);
-    return;
-  }
-  for (let i = 0; i < bins.length; i++) {
-    const value = bins[i] ?? 0;
-    if (value > (held[i] ?? 0)) {
-      held[i] = value;
-    }
-  }
-}
-
 function readColormap(): Colormap {
   try {
     const stored = localStorage.getItem(COLORMAP_KEY);
@@ -835,156 +1064,70 @@ function formatCentre(meta: FrameMeta, view: SpectrumView): string {
   return `${(centre / 1e6).toFixed(4)} MHz   ${span}`;
 }
 
-function formatRange(meta: FrameMeta): string {
-  return `   ${meta.dbMin.toFixed(0)}…${meta.dbMax.toFixed(0)} dB`;
+function formatRange(window: DbWindow): string {
+  return `   ${window.min.toFixed(0)}…${window.max.toFixed(0)} dB`;
 }
 
-/** The trace, its grid and both axes. Drawn from the frame's own metadata, so the numbers on
- * screen are the ones the server measured. */
-function drawTrace(
-  canvas: HTMLCanvasElement | null,
+/** What the display popover's trigger says: the switches that are on, or the word for none. */
+function traceLabel(modes: readonly TraceMode[], phosphor: boolean): string {
+  const on = [...modes, ...(phosphor ? (["phosphor"] as const) : [])];
+  return on.length === 0 ? "traces" : on.join(" · ");
+}
+
+/** The dB range the plot maps onto its height: the pinned one if there is one, else whatever the
+ * server measured this frame under. */
+function displayWindow(meta: FrameMeta | null, held: DbWindow | null): DbWindow {
+  if (held !== null) {
+    return held;
+  }
+  return meta === null ? EMPTY_WINDOW : { min: meta.dbMin, max: meta.dbMax };
+}
+
+/** What the plot is drawing right now — the scrubbed row of a frozen history, or the live frame.
+ * `scratch` is the frozen row's buffer, reused so scrubbing does not allocate per animation
+ * frame. */
+function plotSource(
+  frozen: SpectrumHistory | null,
+  scrub: number,
   frame: SpectrumFrame | null,
-  view: SpectrumView,
-  hold: Uint8Array | null,
-): void {
-  if (!canvas) {
-    return;
+  liveDb: Float32Array | null,
+  held: DbWindow | null,
+  scratch: RefObject<Float32Array | null>,
+): { frame: PlotFrame | null; window: DbWindow } {
+  if (frozen !== null) {
+    const row = frozenRow(frozen, scrub, scratch.current);
+    scratch.current = row?.db ?? null;
+    return {
+      frame: row === null ? null : { centerHz: row.centerHz, spanHz: row.spanHz, db: row.db },
+      window: held ?? row?.window ?? EMPTY_WINDOW,
+    };
   }
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (width === 0 || height === 0) {
-    return;
+  if (frame === null || liveDb === null) {
+    return { frame: null, window: held ?? EMPTY_WINDOW };
   }
-  const rect = canvas.getBoundingClientRect();
-  const ratio = pixelRatio(window.devicePixelRatio, zoomOf(rect.width, width));
-  const w = Math.round(width * ratio);
-  const h = Math.round(height * ratio);
-  if (canvas.width !== w || canvas.height !== h) {
-    canvas.width = w;
-    canvas.height = h;
-  }
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  if (frame === null || frame.bins.length < 2 || !(frame.dbMax > frame.dbMin)) {
-    return;
-  }
-  const plotH = Math.max(1, height - AXIS_H);
-
-  ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
-  ctx.textBaseline = "middle";
-  ctx.lineWidth = 1;
-
-  // The grid is opaque: `plot-grid` is already the near-black SDR++ draws its scale lines in, so
-  // fading it further would leave nothing on the ground. Half-pixel offsets so a 1px rule lands
-  // on one device row instead of straddling two.
-  ctx.strokeStyle = token("plot-grid");
-  ctx.fillStyle = token("plot-ink-dim");
-  for (const db of decibelTicks(frame.dbMin, frame.dbMax, 4)) {
-    const y = Math.round(plotH * (1 - (db - frame.dbMin) / (frame.dbMax - frame.dbMin))) + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-    if (y > 12 && y < plotH - 4) {
-      ctx.fillText(db.toFixed(0), 4, y - 7);
-    }
-  }
-
-  const visible = frame.spanHz * viewWidth(view);
-  const ticks = frequencyTicks(
-    frame.centerHz,
-    frame.spanHz,
-    view,
-    Math.max(2, Math.floor(width / 110)),
-  );
-  ctx.textAlign = "center";
-  for (const tick of ticks) {
-    const x = Math.round(tick.at * width) + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, plotH);
-    ctx.stroke();
-    ctx.fillText(formatTick(tick.hz, visible), x, height - AXIS_H / 2);
-  }
-  ctx.textAlign = "left";
-
-  const centerAt = spanToView(view, 0.5);
-  if (centerAt >= 0 && centerAt <= 1) {
-    const x = Math.round(centerAt * width) + 0.5;
-    ctx.strokeStyle = token("plot-ink-dim");
-    ctx.globalAlpha = 0.7;
-    ctx.setLineDash([2, 4]);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, plotH);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-  }
-
-  if (hold !== null) {
-    ctx.strokeStyle = token("plot-hold");
-    tracePath(ctx, hold, view, width, plotH);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = token("plot-trace");
-  ctx.lineWidth = 1.25;
-  ctx.lineJoin = "round";
-  tracePath(ctx, frame.bins, view, width, plotH);
-  ctx.stroke();
-  // A fill under the trace gives the noise floor a body to read against without spending a
-  // second colour on it.
-  ctx.lineTo(width, plotH);
-  ctx.lineTo(0, plotH);
-  ctx.closePath();
-  ctx.fillStyle = token("plot-trace");
-  ctx.globalAlpha = TRACE_FILL_ALPHA;
-  ctx.fill();
-  ctx.globalAlpha = 1;
+  return {
+    frame: { centerHz: frame.centerHz, spanHz: frame.spanHz, db: liveDb },
+    window: held ?? frameWindow(frame),
+  };
 }
 
-/** One screen column per pixel, taking the maximum of every bin that falls in it: decimating by
- * sampling would drop exactly the narrow carriers the display exists to show. */
-function tracePath(
-  ctx: CanvasRenderingContext2D,
-  bins: Uint8Array,
-  view: SpectrumView,
-  width: number,
-  height: number,
-): void {
-  const n = bins.length;
-  const first = view.start * (n - 1);
-  const last = view.end * (n - 1);
-  ctx.beginPath();
-  for (let x = 0; x < width; x++) {
-    const from = first + ((last - first) * x) / width;
-    const to = first + ((last - first) * (x + 1)) / width;
-    const lo = Math.max(0, Math.floor(from));
-    const hi = Math.min(n - 1, Math.max(lo, Math.ceil(to) - 1));
-    let peak = 0;
-    for (let i = lo; i <= hi; i++) {
-      const value = bins[i] ?? 0;
-      if (value > peak) {
-        peak = value;
-      }
-    }
-    const y = (1 - peak / 255) * height;
-    if (x === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
+/** The accumulated traces to draw over the live one. A trace whose length no longer matches the
+ * frame is dropped rather than stretched: a changed bin count is a different frequency axis, and
+ * the accumulator resets on the next frame anyway. */
+function overlays(
+  state: TraceState | null,
+  modes: readonly TraceMode[],
+  frame: PlotFrame | null,
+): PlotTrace[] {
+  if (state === null || frame === null) {
+    return [];
+  }
+  const traces: PlotTrace[] = [];
+  for (const mode of modes) {
+    const db = traceOf(state, mode);
+    if (db.length === frame.db.length) {
+      traces.push({ mode, db });
     }
   }
-}
-
-/** Tick labels carry only the digits the current zoom can distinguish — six decimals on a 2 MHz
- * span is noise the reader has to parse past. */
-function formatTick(hz: number, visibleHz: number): string {
-  const decimals = visibleHz >= 5e6 ? 1 : visibleHz >= 5e5 ? 2 : visibleHz >= 5e4 ? 3 : 4;
-  return (hz / 1e6).toFixed(decimals);
+  return traces;
 }

@@ -16,19 +16,19 @@ use sdrmm_wire::{
 use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, vocoder::Codec2Decoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const BAUD: f64 = 4_800.0;
+pub(crate) const BAUD: f64 = 4_800.0;
 /// M17 deviates ±2400 Hz on its outer symbols and shapes with α = 0.5.
-const DEVIATION_HZ: f64 = 2_400.0;
-const RRC_ALPHA: f64 = 0.5;
-const BANDWIDTH_HZ: f64 = 9_000.0;
+pub(crate) const DEVIATION_HZ: f64 = 2_400.0;
+pub(crate) const RRC_ALPHA: f64 = 0.5;
+pub(crate) const BANDWIDTH_HZ: f64 = 9_000.0;
 
-const SYNC_LSF: u64 = 0x55F7;
-const SYNC_STREAM: u64 = 0xFF5D;
-const SYNC_PACKET: u64 = 0x75FF;
+pub(crate) const SYNC_LSF: u64 = 0x55F7;
+pub(crate) const SYNC_STREAM: u64 = 0xFF5D;
+pub(crate) const SYNC_PACKET: u64 = 0x75FF;
 const SYNC_EOT: u64 = 0x555D;
-const SYNC_BITS: u32 = 16;
+pub(crate) const SYNC_BITS: u32 = 16;
 /// Two bit errors in a 16-bit burst; the four bursts are far enough apart for that.
-const SYNC_TOLERANCE: u32 = 2;
+pub(crate) const SYNC_TOLERANCE: u32 = 2;
 
 /// Payload of every frame: 184 symbols, 368 bits.
 const PAYLOAD_SYMBOLS: usize = 184;
