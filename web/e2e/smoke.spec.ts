@@ -303,12 +303,14 @@ test.describe("the workspace", () => {
     const tuning = await tunedTo();
 
     await scopePlot.getByRole("button", { name: /^traces$/i }).click();
-    const peak = page.getByRole("dialog").getByRole("button", { name: /^peak$/i });
+    const tracesDialog = page.getByRole("dialog");
+    const peak = tracesDialog.getByRole("button", { name: /^peak$/i });
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "true");
     await peak.click();
     await expect(peak).toHaveAttribute("aria-pressed", "false");
     await page.keyboard.press("Escape");
+    await expect(tracesDialog).toBeHidden();
 
     // The trigger is labelled with the colormap in force, which on a fresh profile is the default.
     await scopePlot.getByRole("button", { name: /^classic$/i }).click();
