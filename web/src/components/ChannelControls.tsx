@@ -97,6 +97,11 @@ const ATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"atv">["standard"]>> = 
   { value: "eia525", label: "525 / 30" },
   { value: "system_a405", label: "405 / 25" },
 ];
+const ATV_COLORS: Options<NonNullable<ChannelParamsOf<"atv">["color"]>> = [
+  { value: "monochrome", label: "Mono" },
+  { value: "pal", label: "PAL" },
+  { value: "ntsc", label: "NTSC" },
+];
 const DEEMPHASIS_US: Options<number> = [
   { value: 50, label: "50 µs" },
   { value: 75, label: "75 µs" },
@@ -686,6 +691,40 @@ function ModeControls({
                 onParams({ type: "atv", settings: { ...params.settings, bandwidth_hz } })
               }
             />
+          </SettingRow>
+          <SettingRow label="Colour">
+            <Select
+              label="Composite colour system"
+              value={params.settings.color ?? "monochrome"}
+              options={ATV_COLORS}
+              onChange={(color) =>
+                onParams({ type: "atv", settings: { ...params.settings, color } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Sound">
+            <OptionalNumberField
+              label="FM sound subcarrier (MHz), empty for none"
+              placeholder="off"
+              value={
+                params.settings.sound_subcarrier_hz == null
+                  ? null
+                  : params.settings.sound_subcarrier_hz / 1_000_000
+              }
+              min={0.5}
+              max={9}
+              step={0.5}
+              onCommit={(mhz) =>
+                onParams({
+                  type: "atv",
+                  settings: {
+                    ...params.settings,
+                    sound_subcarrier_hz: mhz === null ? null : mhz * 1_000_000,
+                  },
+                })
+              }
+            />
+            <span className="legend">MHz</span>
           </SettingRow>
           <Toggle
             label="Interlace"

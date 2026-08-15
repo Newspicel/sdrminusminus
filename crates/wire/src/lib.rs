@@ -22,14 +22,15 @@ pub use bandplan::{
     BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
 };
 pub use channel::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
-    AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
-    DmrParams, DmrSlots, DpmrParams, DstarParams, FreeDvMode, FreeDvParams, GnssParams,
-    IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB,
-    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MorseParams,
-    NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud,
-    PocsagParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams,
-    SelcallSystem, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
+    AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
+    ChannelSettings, DmrParams, DmrSlots, DpmrParams, DstarParams, FreeDvMode, FreeDvParams,
+    GnssParams, IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS,
+    MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB,
+    MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
+    PocsagBaud, PocsagParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits,
+    SelcallParams, SelcallSystem, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams,
+    YsfParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
@@ -45,7 +46,8 @@ pub use device::{
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{
-    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoFrame,
+    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoData,
+    VideoFrame,
 };
 pub use network::{
     MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode, NetworkExportRequest,

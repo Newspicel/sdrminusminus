@@ -73,7 +73,7 @@ pub enum PortType {
     Audio,
     /// Typed decoder and completed-call events.
     Events,
-    /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire, ATV).
+    /// Scanned pictures, one raster per field (`VIDEO_GRAY` or `VIDEO_RGB` on the wire, ATV).
     Video,
     Control,
     /// Live station coordinates and motion.

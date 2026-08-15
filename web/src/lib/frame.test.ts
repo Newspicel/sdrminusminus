@@ -6,6 +6,7 @@ import {
   FRAME_KIND_AUDIO_OPUS,
   FRAME_KIND_SPECTRUM,
   FRAME_KIND_VIDEO_GRAY,
+  FRAME_KIND_VIDEO_RGB,
   frameKind,
   PROTOCOL_VERSION,
 } from "./frame";
@@ -40,12 +41,17 @@ function audioBuffer(opus: Uint8Array, chLayout = 1): ArrayBuffer {
   return buf;
 }
 
-function videoBuffer(width: number, height: number, luma: Uint8Array): ArrayBuffer {
-  const buf = new ArrayBuffer(16 + 4 + luma.length);
-  const view = header(buf, FRAME_KIND_VIDEO_GRAY, 0x8001, 9, 2_000_000n);
+function videoBuffer(
+  width: number,
+  height: number,
+  pixels: Uint8Array,
+  kind = FRAME_KIND_VIDEO_GRAY,
+): ArrayBuffer {
+  const buf = new ArrayBuffer(16 + 4 + pixels.length);
+  const view = header(buf, kind, 0x8001, 9, 2_000_000n);
   view.setUint16(16, width, true);
   view.setUint16(18, height, true);
-  new Uint8Array(buf, 20).set(luma);
+  new Uint8Array(buf, 20).set(pixels);
   return buf;
 }
 
@@ -134,7 +140,15 @@ describe("decodeVideo", () => {
     expect(frame?.timestamp).toBe(2_000_000n);
     expect(frame?.width).toBe(8);
     expect(frame?.height).toBe(4);
-    expect(Array.from(frame?.luma ?? [])).toEqual(Array.from(luma));
+    expect(frame?.format).toBe("gray");
+    expect(Array.from(frame?.pixels ?? [])).toEqual(Array.from(luma));
+  });
+
+  it("decodes RGB pixels without changing their channel order", () => {
+    const rgb = Uint8Array.from({ length: 2 * 2 * 3 }, (_, i) => i * 17);
+    const frame = decodeVideo(videoBuffer(2, 2, rgb, FRAME_KIND_VIDEO_RGB));
+    expect(frame?.format).toBe("rgb");
+    expect(Array.from(frame?.pixels ?? [])).toEqual(Array.from(rgb));
   });
 
   it("rejects a payload that is shorter than its geometry, and an empty one", () => {

@@ -33,14 +33,15 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `dcf77_2026_2k` | 2 k | `radio_clock` / DCF77 @ 0 Hz | 2026-08-15 12:34 CET, valid parity |
 | `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
 
-Two pairs are **not** written by `cargo xtask fixtures` and are committed instead — one
-recorded off air, one frozen render no current generator reproduces.
+Three pairs are **not** written by `cargo xtask fixtures` and are committed instead — one
+recorded off air and two frozen regression renders.
 
 | stem | rate | channel | expected |
 |---|---|---|---|
 | `dmr_call_48k` | 48 k | `dmr` @ 0 Hz | colour code 1, group call, radio ID 12345678 to talkgroup 12345678 |
 | `freedv_1600_8k` | 8 k | `freedv` @ 0 Hz, USB | FreeDV 1600 sync and decoded Codec2 speech |
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
+| `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
 
 ADS-B and GNSS are device-rate fixtures: ADS-B accepts 2–4 Msps while GPS L1 C/A uses exactly
 2.048 Msps, and neither is carried through the resampling DDC. ATV is the one whose output is not
@@ -59,9 +60,9 @@ device.
 
 ## Provenance
 
-- **Synthesized fixtures are never committed.** They are deterministic renders of the
-  virtual siggen — regenerate with `cargo xtask fixtures`. The `.gitignore` here excludes
-  all `*.sigmf-*` so a generated pair can't land in a commit by accident.
+- **Generated fixtures are never committed.** They are deterministic renders of the virtual
+  siggen — regenerate with `cargo xtask fixtures`. The `.gitignore` here excludes all
+  `*.sigmf-*` so a generated pair can't land in a commit by accident.
 - **Recorded off-air captures** arrive with their M4+ decoders: kept to seconds, stripped
   to the band of interest, and either committed case-by-case (small) or fetched by
   `cargo xtask fixtures` (). Committing one means force-adding past the
@@ -81,6 +82,9 @@ device.
   evidence left that the general CPM engine decodes what the hand-written AIS chain produced —
   `ais::tests::decodes_the_committed_fixture` reads it directly, and today's generator emits a
   different waveform (6425 samples against this one's 6250).
+- `nxdn_addressed_48k` (0.69 s, 260 KB): a frozen reference-modulator render containing a
+  complete four-quarter SACCH message and FACCH call addressing. It is committed so the
+  decoder test cannot regenerate the samples it is about to verify.
 - `freedv_1600_8k` (3 s, 188 KB): the first three seconds of the FreeDV GUI project's
   `wav/ve9qrp_1600.wav` receive test, converted from signed 16-bit mono audio to normalized
   `cf32_le` with a zero quadrature component. The source file's SHA-256 is recorded in the SigMF

@@ -2,6 +2,10 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
+use sdrmm_dsp::{
+    Viterbi5,
+    fec::conv::{CONFIDENT, ERASURE},
+};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
@@ -32,6 +36,21 @@ const FRAME_SYMBOLS: u64 = 192;
 const POST_FSW_SYMBOLS: usize = FRAME_SYMBOLS as usize - FSW_SYMBOLS;
 const SACCH_SYMBOLS: usize = 30;
 const VOICE_START: usize = LICH_SYMBOLS + SACCH_SYMBOLS;
+const SACCH_BITS: usize = SACCH_SYMBOLS * 2;
+const FACCH_BITS: usize = 144;
+const FACCH_INFO_BITS: usize = 80;
+const FACCH_FIRST: usize = VOICE_START * 2;
+const FACCH_SECOND: usize = FACCH_FIRST + FACCH_BITS;
+
+const SACCH_PUNCTURES: [usize; 12] = [5, 11, 17, 23, 29, 35, 41, 47, 53, 59, 65, 71];
+const FACCH_PUNCTURES: [usize; 48] = [
+    1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93,
+    97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169,
+    173, 177, 181, 185, 189,
+];
+
+const L3_VOICE_CALL: u32 = 0x01;
+const L3_TX_RELEASE: u32 = 0x08;
 
 pub(crate) const RRC_ALPHA: f64 = 0.2;
 
@@ -143,6 +162,9 @@ struct Decoder {
     held: Option<Held>,
     sync_at: u64,
     vocoder: MbeDecoder,
+    viterbi: Viterbi5,
+    soft: Vec<i16>,
+    sacch: SacchAssembler,
 }
 
 struct Held {
@@ -163,6 +185,9 @@ impl Decoder {
             held: None,
             sync_at: 0,
             vocoder: MbeDecoder::half_rate(),
+            viterbi: Viterbi5::new(),
+            soft: Vec::with_capacity(POST_FSW_SYMBOLS * 2),
+            sacch: SacchAssembler::default(),
         }
     }
 
@@ -175,6 +200,7 @@ impl Decoder {
         self.held = None;
         self.sync_at = 0;
         self.vocoder.reset();
+        self.sacch.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -218,7 +244,10 @@ impl Decoder {
     }
 
     fn emit(&mut self, frame: DvFrame, out: &mut ChannelOutputs) {
-        if frame.kind == DvFrameKind::Voice && self.last_kind == Some(DvFrameKind::Voice) {
+        if frame.kind == DvFrameKind::Voice
+            && self.last_kind == Some(DvFrameKind::Voice)
+            && frame.source.is_none()
+        {
             return;
         }
         self.last_kind = Some(frame.kind);
@@ -226,14 +255,18 @@ impl Decoder {
     }
 
     fn frame(&mut self) -> Option<(DvFrame, Vec<[bool; 72]>)> {
-        self.window.bits(0, POST_FSW_SYMBOLS, &mut self.bits);
+        self.window.soft_bits(0, POST_FSW_SYMBOLS, &mut self.soft);
         let mut register = 0xE4u16;
         for symbol in 0..POST_FSW_SYMBOLS {
             let pn = register & 1 != 0;
             let feedback = (register ^ (register >> 4)) & 1;
             register = register >> 1 | feedback << 8;
-            self.bits[symbol * 2] ^= pn;
+            if pn {
+                self.soft[symbol * 2] = -self.soft[symbol * 2];
+            }
         }
+        self.bits.clear();
+        self.bits.extend(self.soft.iter().map(|&bit| bit > 0));
         let information: Vec<bool> = (0..LICH_SYMBOLS).map(|i| self.bits[i * 2]).collect();
         if information.iter().filter(|b| **b).count() % 2 == 0 {
             return None;
@@ -255,6 +288,31 @@ impl Decoder {
             if outbound { "outbound" } else { "inbound" }
         ));
         let option = bits_to_u32(&information, 4, 2);
+        let sacch_start = LICH_SYMBOLS * 2;
+        if let Some(sacch) = decode_sacch(
+            &self.soft[sacch_start..sacch_start + SACCH_BITS],
+            &mut self.viterbi,
+        ) {
+            frame.color_code = Some(u16::from(sacch.ran));
+            if let Some(layer3) = self.sacch.push(sacch) {
+                apply_layer3(&mut frame, &layer3);
+            }
+        }
+        let facch_ranges: &[(usize, usize)] = match option {
+            0 => &[
+                (FACCH_FIRST, FACCH_FIRST + FACCH_BITS),
+                (FACCH_SECOND, FACCH_SECOND + FACCH_BITS),
+            ],
+            1 => &[(FACCH_FIRST, FACCH_FIRST + FACCH_BITS)],
+            2 => &[(FACCH_SECOND, FACCH_SECOND + FACCH_BITS)],
+            _ => &[],
+        };
+        for &(start, end) in facch_ranges {
+            if let Some(layer3) = decode_facch(&self.soft[start..end], &mut self.viterbi) {
+                apply_layer3(&mut frame, &layer3);
+                break;
+            }
+        }
         let mut voice = Vec::new();
         if rf_channel != 0 && matches!(functional, 0 | 2) {
             let ranges: &[(usize, usize)] = match option {
@@ -273,6 +331,138 @@ impl Decoder {
         }
         Some((frame, voice))
     }
+}
+
+#[derive(Clone, Copy)]
+struct Sacch {
+    ran: u8,
+    structure: u8,
+    data: [bool; 18],
+}
+
+struct SacchAssembler {
+    data: [bool; 72],
+    received: u8,
+}
+
+impl Default for SacchAssembler {
+    fn default() -> Self {
+        Self {
+            data: [false; 72],
+            received: 0,
+        }
+    }
+}
+
+impl SacchAssembler {
+    fn reset(&mut self) {
+        self.received = 0;
+        self.data.fill(false);
+    }
+
+    fn push(&mut self, sacch: Sacch) -> Option<[bool; 72]> {
+        let quarter = 3usize.saturating_sub(usize::from(sacch.structure));
+        if quarter == 0 {
+            self.received = 0;
+        }
+        self.data[quarter * 18..quarter * 18 + 18].copy_from_slice(&sacch.data);
+        self.received |= 1 << quarter;
+        if self.received == 0x0f {
+            self.received = 0;
+            Some(self.data)
+        } else {
+            None
+        }
+    }
+}
+
+fn decode_sacch(channel: &[i16], viterbi: &mut Viterbi5) -> Option<Sacch> {
+    if channel.len() != SACCH_BITS {
+        return None;
+    }
+    let mut deinterleaved = [ERASURE; SACCH_BITS];
+    for (i, value) in deinterleaved.iter_mut().enumerate() {
+        *value = channel[(i % 12) * 5 + i / 12];
+    }
+    let mut coded = Vec::with_capacity(80);
+    let mut read = 0;
+    for i in 0..72 {
+        if SACCH_PUNCTURES.contains(&i) {
+            coded.push(ERASURE);
+        } else {
+            coded.push(deinterleaved[read]);
+            read += 1;
+        }
+    }
+    coded.extend([-CONFIDENT; 8]);
+    let mut info = Vec::with_capacity(40);
+    viterbi.decode(&coded, &mut info);
+    if info.len() < 32 || crc_msb(0x27, 0x3f, &info[..26]) != bits_to_u32(&info, 26, 6) {
+        return None;
+    }
+    let data = std::array::from_fn(|i| info[8 + i]);
+    Some(Sacch {
+        structure: bits_to_u32(&info, 0, 2) as u8,
+        ran: bits_to_u32(&info, 2, 6) as u8,
+        data,
+    })
+}
+
+fn decode_facch(channel: &[i16], viterbi: &mut Viterbi5) -> Option<[bool; FACCH_INFO_BITS]> {
+    if channel.len() != FACCH_BITS {
+        return None;
+    }
+    let mut deinterleaved = [ERASURE; FACCH_BITS];
+    for (i, value) in deinterleaved.iter_mut().enumerate() {
+        *value = channel[(i % 16) * 9 + i / 16];
+    }
+    let mut coded = Vec::with_capacity(200);
+    let mut read = 0;
+    for i in 0..192 {
+        if FACCH_PUNCTURES.contains(&i) {
+            coded.push(ERASURE);
+        } else {
+            coded.push(deinterleaved[read]);
+            read += 1;
+        }
+    }
+    coded.extend([-CONFIDENT; 8]);
+    let mut info = Vec::with_capacity(100);
+    viterbi.decode(&coded, &mut info);
+    if info.len() < 92 || crc_msb(0x080f, 0x0fff, &info[..80]) != bits_to_u32(&info, 80, 12) {
+        return None;
+    }
+    Some(std::array::from_fn(|i| info[i]))
+}
+
+fn crc_msb(poly: u32, init: u32, bits: &[bool]) -> u32 {
+    let width = 32 - poly.leading_zeros();
+    let top = 1 << (width - 1);
+    let mask = (1 << width) - 1;
+    bits.iter().fold(init, |crc, &bit| {
+        let feedback = bit ^ (crc & top != 0);
+        ((crc << 1) ^ if feedback { poly } else { 0 }) & mask
+    })
+}
+
+fn apply_layer3(frame: &mut DvFrame, layer3: &[bool]) {
+    let message_type = bits_to_u32(layer3, 2, 6);
+    frame.kind = match message_type {
+        L3_VOICE_CALL => frame.kind,
+        L3_TX_RELEASE => DvFrameKind::Terminator,
+        _ => return,
+    };
+    frame.group_call = Some(!layer3[16]);
+    frame.source = Some(bits_to_u32(layer3, 24, 16));
+    frame.destination = Some(bits_to_u32(layer3, 40, 16));
+    frame.opcode = Some(
+        match message_type {
+            L3_VOICE_CALL => "voice call",
+            L3_TX_RELEASE => "transmit release",
+            _ => unreachable!(),
+        }
+        .to_owned(),
+    );
 }
 
 /// Whether two sync words sit a whole number of frames apart, give or take a symbol of clock
@@ -354,6 +544,70 @@ mod tests {
         // The last frame deliberately remains unreported: NXDN waits for the following sync
         // to confirm cadence before trusting its one-bit LICH parity.
         assert_tone_audio(&audio, 16);
+    }
+
+    #[test]
+    fn facch_reports_the_call_addresses_and_ran() {
+        let iq =
+            tx::addressed_transmission(&tx::Shape::default(), 17, 12_345, 234, true, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(NxdnBandwidth::Narrow), &iq);
+        let header = frames
+            .iter()
+            .find(|frame| frame.kind == DvFrameKind::Header && frame.source.is_some())
+            .expect("FACCH voice-call header");
+        assert_eq!(header.color_code, Some(17));
+        assert_eq!(header.source, Some(12_345));
+        assert_eq!(header.destination, Some(234));
+        assert_eq!(header.group_call, Some(true));
+        assert_eq!(header.opcode.as_deref(), Some("voice call"));
+
+        let release = frames
+            .iter()
+            .find(|frame| frame.kind == DvFrameKind::Terminator)
+            .expect("FACCH transmit release");
+        assert_eq!(
+            (release.source, release.destination),
+            (Some(12_345), Some(234))
+        );
+        assert_eq!(release.opcode.as_deref(), Some("transmit release"));
+    }
+
+    #[test]
+    fn sacch_superframe_supports_late_entry_addressing() {
+        let iq =
+            tx::addressed_transmission(&tx::Shape::default(), 9, 65_000, 42, false, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(NxdnBandwidth::Narrow), &iq);
+        let late_entry = frames
+            .iter()
+            .find(|frame| frame.kind == DvFrameKind::Voice && frame.source == Some(65_000))
+            .expect("four assembled SACCH quarters");
+        assert_eq!(late_entry.color_code, Some(9));
+        assert_eq!(late_entry.destination, Some(42));
+        assert_eq!(late_entry.group_call, Some(false));
+    }
+
+    #[test]
+    fn decodes_the_committed_addressed_iq_fixture() {
+        const FIXTURE: &[u8] = include_bytes!("../../../../fixtures/nxdn_addressed_48k.sigmf-data");
+        let iq: Vec<Complex<f32>> = FIXTURE
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|sample| {
+                Complex::new(
+                    f32::from_le_bytes(sample[..4].try_into().expect("I bytes")),
+                    f32::from_le_bytes(sample[4..].try_into().expect("Q bytes")),
+                )
+            })
+            .collect();
+        let frames = decode(&mut channel(NxdnBandwidth::Narrow), &iq);
+        let addressed = frames
+            .iter()
+            .find(|frame| frame.source == Some(12_345))
+            .expect("fixture FACCH/SACCH addressing");
+        assert_eq!(addressed.color_code, Some(17));
+        assert_eq!(addressed.destination, Some(234));
+        assert_eq!(addressed.group_call, Some(true));
     }
 
     #[test]

@@ -199,14 +199,14 @@ pub struct ChannelCtx {
     pub input_rate: f64,
 }
 
-/// One picture a video channel scanned out: 8-bit luma, row-major from the top line, exactly
-/// `width · height` bytes. Grayscale because that is what an analog raster carries once the
-/// colour subcarrier is left alone (: ATV decodes luma).
+/// One picture a video channel scanned out. `luma` is always present; `rgb` is either empty or
+/// three bytes per pixel when the transmission carried a supported colour subcarrier.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoPicture {
     pub width: u16,
     pub height: u16,
     pub luma: Vec<u8>,
+    pub rgb: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -570,9 +570,9 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
-        DmrParams, DpmrParams, DstarParams, FreeDvParams, GnssParams, IdentParams, M17Params,
-        MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
+        ChannelParams, DmrParams, DpmrParams, DstarParams, FreeDvParams, GnssParams, IdentParams,
+        M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
         RadioClockParams, RttyParams, SelcallParams, SsbParams, SubghzParams, WfmParams, YsfParams,
     };
 
@@ -692,6 +692,7 @@ mod tests {
                         | "am"
                         | "ssb"
                         | "wfm"
+                        | "atv"
                         | "dmr"
                         | "dstar"
                         | "ysf"
@@ -742,6 +743,9 @@ mod tests {
             if d.decoder_kind.as_deref() == Some("dv") {
                 continue;
             }
+            if d.type_id == "atv" && audio.is_empty() {
+                continue;
+            }
             let frames = audio.len() / channels;
             // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
             // 200 output frames at these tap counts.
@@ -754,13 +758,12 @@ mod tests {
         }
     }
 
-    /// The two rate rules the canvas draws. ADS-B and GNSS are handed the device's own samples;
-    /// their native ranges are mutually exclusive with the resampled exact-rate flag.
     #[test]
     fn native_rate_modes_match_their_required_device_rates() {
         for d in descriptors() {
             let expected = match d.type_id.as_str() {
                 "adsb" => Some((2_000_000.0, 4_000_000.0)),
+                "atv" => Some((2_000_000.0, 20_000_000.0)),
                 "gnss" => Some((2_048_000.0, 2_048_000.0)),
                 _ => None,
             };
@@ -874,6 +877,14 @@ mod tests {
         assert_eq!(
             occupied_band(&ChannelParams::Wfm(WfmParams::default())),
             (-100_000.0, 100_000.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Atv(AtvParams {
+                color: AtvColor::Pal,
+                sound_subcarrier_hz: Some(5_500_000.0),
+                ..AtvParams::default()
+            })),
+            (-5_033_618.75, 5_565_000.0)
         );
     }
 

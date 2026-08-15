@@ -16,7 +16,7 @@ use sdrmm_dsp::{adaptive_db_window, decimate_max, quantize_db};
 use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, VideoPacket};
 use sdrmm_wire::{
     AudioFrame, ClientCommand, IqFrame, ServerEvent, SpectrumFrame, StateScope, StreamKind,
-    VideoFrame,
+    VideoData, VideoFrame,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -901,7 +901,11 @@ fn spawn_video(
                         timestamp: packet.timestamp,
                         width: packet.picture.width,
                         height: packet.picture.height,
-                        luma: &packet.picture.luma,
+                        data: if packet.picture.rgb.is_empty() {
+                            VideoData::Gray(&packet.picture.luma)
+                        } else {
+                            VideoData::Rgb(&packet.picture.rgb)
+                        },
                     }
                     .encode();
 
