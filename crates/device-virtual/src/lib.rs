@@ -48,6 +48,14 @@ pub struct VirtualDriver {
     playback_speed: f64,
 }
 
+fn checked_speed(playback_speed: f64) -> f64 {
+    assert!(
+        playback_speed.is_finite() && playback_speed >= 1.0,
+        "playback speed must be finite and at least real time"
+    );
+    playback_speed
+}
+
 impl Default for VirtualDriver {
     fn default() -> Self {
         Self::for_build(None)
@@ -67,16 +75,21 @@ impl VirtualDriver {
 
     #[must_use]
     pub fn with_accelerated_recordings(dir: PathBuf, playback_speed: f64) -> Self {
-        assert!(
-            playback_speed.is_finite() && playback_speed >= 1.0,
-            "playback speed must be finite and at least real time"
-        );
-        Self::configured(Some(dir), true, playback_speed)
+        Self::configured(Some(dir), true, checked_speed(playback_speed))
     }
 
     #[must_use]
     pub fn for_build(recordings_dir: Option<PathBuf>) -> Self {
-        Self::configured(recordings_dir, cfg!(debug_assertions), 1.0)
+        Self::for_build_accelerated(recordings_dir, 1.0)
+    }
+
+    #[must_use]
+    pub fn for_build_accelerated(recordings_dir: Option<PathBuf>, playback_speed: f64) -> Self {
+        Self::configured(
+            recordings_dir,
+            cfg!(debug_assertions),
+            checked_speed(playback_speed),
+        )
     }
 
     fn configured(

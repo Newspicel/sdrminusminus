@@ -74,8 +74,16 @@ const TIME_MACHINE_STOP_POLLS: u32 = 200;
 
 #[must_use]
 pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
+    builtin_registry_accelerated(recordings_dir, 1.0)
+}
+
+#[must_use]
+pub fn builtin_registry_accelerated(
+    recordings_dir: Option<PathBuf>,
+    playback_speed: f64,
+) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
-    let virtual_driver = VirtualDriver::for_build(recordings_dir);
+    let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
     #[cfg(feature = "soapy")]
     registry.register(

@@ -23,7 +23,8 @@ export default defineConfig({
       `rm -rf web/${SCRATCH} && mkdir -p web/${SCRATCH}/recordings ` +
       `&& cp fixtures/*.sigmf-meta fixtures/*.sigmf-data web/${SCRATCH}/recordings/ ` +
       `&& cargo run -q -p sdrmm -- --bind 127.0.0.1:${PORT} ` +
-      `--db web/${SCRATCH}/shots.db --recordings-dir web/${SCRATCH}/recordings`,
+      `--db web/${SCRATCH}/shots.db --recordings-dir web/${SCRATCH}/recordings ` +
+      `--playback-speed 20`,
     cwd: "..",
     url: `http://127.0.0.1:${PORT}/api/state`,
     reuseExistingServer: false,
