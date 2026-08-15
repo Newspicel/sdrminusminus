@@ -48,14 +48,6 @@ Loaded at runtime as a SoapySDR module, on the same terms as librtlsdr. The publ
 
 Shipped in installers and container images as a SoapySDR module, loaded at runtime through SoapySDR's own plugin API. sdr-- neither links it nor derives from it, so the GPL applies to that library and not to this product.
 
-**SDRplay API** — Proprietary — SDRplay end user licence agreement
-
-Not distributed, and not distributable: the licence grants display and performance of the software in object form, not copying. It is a build input for SoapySDRPlay3 and a runtime dependency the operator installs, licensed for use with genuine SDRplay hardware only.
-
-**SoapySDRPlay3** — MIT
-
-Compiled from source at packaging time and shipped as a SoapySDR module. It links the SDRplay API by name and loads it from wherever the vendor installer put it, so the module is inert until that API is installed.
-
 ## Rust crates (658)
 
 | Component | Version | License |
@@ -789,16 +781,14 @@ Compiled from source at packaging time and shipped as a SoapySDR module. It link
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
 
-## Bundled native libraries (8)
+## Bundled native libraries (6)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
-| [SDRplay API](https://www.sdrplay.com/downloads/) | — | Proprietary — SDRplay end user licence agreement |
 | [SoapyHackRF](https://github.com/pothosware/SoapyHackRF) | — | MIT |
 | [SoapyRTLSDR](https://github.com/pothosware/SoapyRTLSDR) | — | BSL-1.0 |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |
-| [SoapySDRPlay3](https://github.com/pothosware/SoapySDRPlay3) | — | MIT |
 

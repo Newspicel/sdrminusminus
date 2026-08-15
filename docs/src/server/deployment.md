@@ -41,24 +41,6 @@ one present when the container started. Host udev permissions still apply to the
 installing the receiver's normal udev rule; when that is not possible, add the numeric group that
 owns the device with `group_add`. Running the whole service as root should be a last resort.
 
-### SDRplay receivers
-
-The image carries the SoapySDRPlay3 module but not the vendor API, which is licensed for use with
-genuine SDRplay hardware and cannot be redistributed. Install the API on the host, leave its
-service running there, and give the container the library plus the shared memory the service
-talks over:
-
-```yaml
-volumes:
-  - /usr/local/lib/libsdrplay_api.so.3:/usr/local/lib/libsdrplay_api.so.3:ro
-ipc: host
-```
-
-`ipc: host` is the part that is easy to miss: the API reaches `sdrplay_apiService` through POSIX
-shared memory, so a container with its own IPC namespace fails with `sdrplay_api_Open() failed`
-even though the library is right there. Without the API at all the module simply does not load,
-and every other radio works as before.
-
 ### Data and authentication
 
 The image entry point fixes persistent paths under `/data`. Add a token through an environment

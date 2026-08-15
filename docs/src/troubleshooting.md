@@ -45,13 +45,6 @@ Desktop installers and containers use a private SoapySDR tree and search the hos
 directories after it. A module in a directory neither list names is found by pointing
 `SDRMM_SOAPY_MODULE_PATH` at it; `sdrmm --doctor` prints the search path actually in use.
 
-## SoapySDR reports an error about libsdrplay_api
-
-The bundled SoapySDRPlay3 module is reporting that the SDRplay vendor API is not installed, which
-is the normal state of a machine with no SDRplay receiver. Nothing else is affected. To use an
-RSP, install the API from [SDRplay](https://www.sdrplay.com/downloads/) and make sure its service
-is running — see [SDRplay](hardware.md#sdrplay).
-
 ## A device is present but a saved node is disconnected
 
 The node intentionally waits for the same durable device identity it stored earlier. This avoids

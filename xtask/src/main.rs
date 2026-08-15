@@ -906,18 +906,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no curated Airspy module",
         dir.display()
     );
-    ensure!(
-        has("sdrplaysupport"),
-        "{} contains no SoapySDRPlay3 module",
-        dir.display()
-    );
-    ensure!(
-        !names
-            .iter()
-            .any(|name| name.contains("libsdrplay_api") || name.starts_with("sdrplay_api.")),
-        "{} carries the SDRplay vendor library, which may not be redistributed",
-        dir.display()
-    );
     let outside_modules: Vec<&String> = files
         .iter()
         .zip(&names)
@@ -965,7 +953,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "soapyhackrf-mit",
         "hackrf-gpl-2.0-or-later",
         "hackrf-bsd-3-clause",
-        "soapysdrplay3-mit",
     ] {
         ensure!(
             has(license),

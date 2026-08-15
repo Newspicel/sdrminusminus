@@ -104,29 +104,6 @@ const NATIVE: &[Native] = &[
         files: &["HackRF-GPL-2.0-or-later.txt", "HackRF-BSD-3-Clause.txt"],
     },
     Native {
-        name: "SoapySDRPlay3",
-        license: "MIT",
-        url: "https://github.com/pothosware/SoapySDRPlay3",
-        note: Some(
-            "Compiled from source at packaging time and shipped as a SoapySDR module. It links \
-             the SDRplay API by name and loads it from wherever the vendor installer put it, so \
-             the module is inert until that API is installed.",
-        ),
-        files: &["SoapySDRPlay3-MIT.txt"],
-    },
-    Native {
-        name: "SDRplay API",
-        license: "Proprietary — SDRplay end user licence agreement",
-        url: "https://www.sdrplay.com/downloads/",
-        note: Some(
-            "Not distributed, and not distributable: the licence grants display and performance \
-             of the software in object form, not copying. It is a build input for SoapySDRPlay3 \
-             and a runtime dependency the operator installs, licensed for use with genuine \
-             SDRplay hardware only.",
-        ),
-        files: &[],
-    },
-    Native {
         name: "Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote",
         license: "See the bundled package metadata",
         url: "https://github.com/pothosware",

@@ -1133,18 +1133,16 @@ mod tests {
     }
 
     #[test]
-    fn sdrplay_duo_modes_have_distinct_keys_and_probe_filters() {
-        let single = soapysdr::Args::from(
-            "driver=sdrplay, serial=123456, mode=ST, label=RSPduo Single Tuner",
-        );
-        let dual =
-            soapysdr::Args::from("driver=sdrplay, serial=123456, mode=DT, label=RSPduo Dual Tuner");
+    fn modes_of_one_serial_have_distinct_keys_and_probe_filters() {
+        let single =
+            soapysdr::Args::from("driver=example, serial=123456, mode=ST, label=Single Tuner");
+        let dual = soapysdr::Args::from("driver=example, serial=123456, mode=DT, label=Dual Tuner");
 
         assert_eq!(device_info(&single).key, "123456@ST");
         assert_eq!(device_info(&dual).key, "123456@DT");
         assert_eq!(
             ProbeIdentity::from_args(&dual).filter,
-            "driver=sdrplay,serial=123456,mode=DT"
+            "driver=example,serial=123456,mode=DT"
         );
     }
 

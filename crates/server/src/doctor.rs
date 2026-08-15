@@ -20,7 +20,6 @@ pub fn report(
     {
         let info = sdrmm_device_soapy::runtime_info();
         checks.push(soapy_check(&info));
-        checks.extend(sdrplay_check(&info, sdrplay_api_library().as_deref()));
     }
     checks.push(devices);
     checks.extend(usb_checks());
@@ -135,64 +134,6 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
             )
         }),
     }
-}
-
-#[cfg(feature = "soapy")]
-fn sdrplay_check(
-    info: &sdrmm_device_soapy::RuntimeInfo,
-    api_library: Option<&Path>,
-) -> Option<DoctorCheck> {
-    let module = info.modules.iter().find(|path| {
-        Path::new(path).file_name().is_some_and(|name| {
-            name.to_string_lossy()
-                .to_ascii_lowercase()
-                .contains("sdrplay")
-        })
-    })?;
-    let module = Path::new(module).file_name().map_or_else(
-        || module.clone(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    Some(DoctorCheck {
-        id: "sdrplay.api".to_string(),
-        name: "SDRplay API".to_string(),
-        status: CheckStatus::Ok,
-        detail: match api_library {
-            Some(library) => format!("module: {module}\nvendor API: {}", library.display()),
-            None => format!("module: {module}\nvendor API: not installed"),
-        },
-        hint: api_library.is_none().then(|| {
-            "SDRplay receivers need the vendor API, which is licensed for genuine SDRplay \
-             hardware and is not part of this package. Install it from \
-             https://www.sdrplay.com/downloads/ and make sure its service is running. Until \
-             then this one module cannot load, which is what the SoapySDR error about \
-             libsdrplay_api at startup means."
-                .to_string()
-        }),
-    })
-}
-
-#[cfg(all(feature = "soapy", not(test)))]
-fn sdrplay_api_library() -> Option<std::path::PathBuf> {
-    #[cfg(target_os = "macos")]
-    let candidates = ["/usr/local/lib/libsdrplay_api.so.3"];
-    #[cfg(target_os = "linux")]
-    let candidates = [
-        "/usr/local/lib/libsdrplay_api.so.3",
-        "/usr/lib/libsdrplay_api.so.3",
-        "/usr/lib64/libsdrplay_api.so.3",
-    ];
-    #[cfg(target_os = "windows")]
-    let candidates = [
-        "C:\\Program Files\\SDRplay\\API\\x64\\sdrplay_api.dll",
-        "C:\\Windows\\System32\\sdrplay_api.dll",
-    ];
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    let candidates: [&str; 0] = [];
-    candidates
-        .iter()
-        .map(std::path::PathBuf::from)
-        .find(|path| path.exists())
 }
 
 fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
@@ -587,45 +528,5 @@ mod tests {
         assert!(check.detail.contains("core: 0.8.1"));
         assert!(check.detail.contains("librtlsdrSupport.so"));
         assert!(check.hint.is_some_and(|hint| hint.contains("hackrf")));
-    }
-
-    #[cfg(feature = "soapy")]
-    fn runtime_with(modules: &[&str]) -> sdrmm_device_soapy::RuntimeInfo {
-        sdrmm_device_soapy::RuntimeInfo {
-            core_version: "0.8.1".to_string(),
-            search_paths: vec!["/app/soapy/modules0.8".to_string()],
-            modules: modules.iter().map(|m| (*m).to_string()).collect(),
-        }
-    }
-
-    #[cfg(feature = "soapy")]
-    #[test]
-    fn sdrplay_check_is_absent_when_the_module_is_not_staged() {
-        assert!(sdrplay_check(&runtime_with(&["librtlsdrSupport.so"]), None).is_none());
-    }
-
-    #[cfg(feature = "soapy")]
-    #[test]
-    fn sdrplay_check_names_the_vendor_library_when_it_is_installed() {
-        let library = Path::new("/usr/local/lib/libsdrplay_api.so.3");
-        let check = sdrplay_check(
-            &runtime_with(&["/app/soapy/modules0.8/libsdrPlaySupport.so"]),
-            Some(library),
-        )
-        .expect("staged module");
-        assert_eq!(check.status, CheckStatus::Ok);
-        assert!(check.detail.contains("libsdrPlaySupport.so"));
-        assert!(check.detail.contains("/usr/local/lib/libsdrplay_api.so.3"));
-        assert!(check.hint.is_none());
-    }
-
-    #[cfg(feature = "soapy")]
-    #[test]
-    fn sdrplay_check_explains_a_missing_vendor_api_without_warning() {
-        let check =
-            sdrplay_check(&runtime_with(&["libsdrPlaySupport.so"]), None).expect("staged module");
-        assert_eq!(check.status, CheckStatus::Ok);
-        assert!(check.detail.contains("not installed"));
-        assert!(check.hint.is_some_and(|hint| hint.contains("sdrplay.com")));
     }
 }

@@ -44,10 +44,6 @@ pub unsafe fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(
         .map_err(|error| DeviceError::Io(error.to_string()))?;
     unsafe { std::env::set_var("SOAPY_SDR_ROOT", root) };
     unsafe { std::env::set_var("SOAPY_SDR_PLUGIN_PATH", &search) };
-    #[cfg(target_os = "windows")]
-    unsafe {
-        prepend_vendor_library_dirs();
-    }
     Ok(())
 }
 
@@ -91,26 +87,6 @@ fn host_module_dirs() -> Vec<PathBuf> {
         .iter()
         .map(|root| Path::new(root).join("SoapySDR").join("modules0.8"))
         .collect()
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn prepend_vendor_library_dirs() {
-    let Some(program_files) = std::env::var_os("ProgramFiles") else {
-        return;
-    };
-    let api = Path::new(&program_files)
-        .join("SDRplay")
-        .join("API")
-        .join("x64");
-    if !api.is_dir() {
-        return;
-    }
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let mut dirs = vec![api];
-    dirs.extend(std::env::split_paths(&path));
-    if let Ok(joined) = std::env::join_paths(dirs) {
-        unsafe { std::env::set_var("PATH", joined) };
-    }
 }
 
 #[cfg(test)]
