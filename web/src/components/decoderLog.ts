@@ -30,6 +30,11 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   tone: "Tone",
   dv: "Digital voice",
   ident: "Signal ID",
+  ft8: "FT8",
+  ft4: "FT4",
+  psk31: "PSK31",
+  psk63: "PSK63",
+  wspr: "WSPR",
   broadcast: "Digital broadcast",
   radio_clock: "Radio clock",
   gnss: "GNSS lab",
@@ -270,7 +275,26 @@ export function eventSummary(event: DecoderEvent): string {
     }
     case "rtty":
     case "morse":
+    case "psk31":
+    case "psk63":
       return event.data.text;
+    case "ft8":
+    case "ft4": {
+      const message = event.data;
+      return join([
+        message.text,
+        `${message.snr_db >= 0 ? "+" : ""}${message.snr_db.toFixed(0)} dB`,
+        `${message.audio_hz.toFixed(0)} Hz`,
+      ]);
+    }
+    case "wspr": {
+      const spot = event.data;
+      return join([
+        spot.text,
+        `${spot.snr_db >= 0 ? "+" : ""}${spot.snr_db.toFixed(0)} dB`,
+        `${spot.audio_hz.toFixed(0)} Hz`,
+      ]);
+    }
     case "selcall":
       return `${event.data.system === "ccir1" ? "CCIR-1" : "ZVEI-1"} · ${event.data.code}`;
     case "navtex": {
@@ -383,12 +407,19 @@ export function eventStation(event: DecoderEvent): string | null {
       return (
         event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))
       );
+    case "ft8":
+    case "ft4":
+      return event.data.text.split(/\s+/)[1] ?? null;
+    case "wspr":
+      return event.data.callsign;
     case "radio_clock":
       return event.data.standard.toUpperCase();
     case "gnss":
       return `GPS-${event.data.prn}`;
     case "rtty":
     case "morse":
+    case "psk31":
+    case "psk63":
     // A Selcall sequence names the recipient, not necessarily the transmitter sending it.
     case "selcall":
     // Subaudible signalling names the channel's state, not whoever is keying up.

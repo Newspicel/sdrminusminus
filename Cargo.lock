@@ -804,6 +804,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d"
+dependencies = [
+ "crc-catalog",
+]
+
+[[package]]
+name = "crc-catalog"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
+
+[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2745,6 +2760,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mfsk-core"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eca1c3b09c8a17874f6f737a8b0391f2f0eaef226a17694ac003b1ab113072ae"
+dependencies = [
+ "crc",
+ "num-complex",
+ "num-traits",
+ "rustfft",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4304,6 +4331,7 @@ dependencies = [
  "blip25-vocoder",
  "cc",
  "codec2",
+ "mfsk-core",
  "num-complex",
  "rustfft",
  "sdrmm-channels",

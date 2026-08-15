@@ -34,6 +34,7 @@ struct PlaybackParams {
 pub struct FilePlayback {
     stem: PathBuf,
     sample_rate: f64,
+    playback_speed: f64,
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<PlaybackParams>>,
@@ -43,6 +44,10 @@ pub struct FilePlayback {
 
 impl FilePlayback {
     pub fn open(stem: &Path) -> Result<Self, DeviceError> {
+        Self::open_at_speed(stem, 1.0)
+    }
+
+    pub(crate) fn open_at_speed(stem: &Path, playback_speed: f64) -> Result<Self, DeviceError> {
         let reader = SigmfReader::open(stem).map_err(|err| open_error(stem, err))?;
         let meta = reader.meta();
         // `core:sample_rate` is optional in SigMF, but playback cannot pace without one.
@@ -102,6 +107,7 @@ impl FilePlayback {
         Ok(Self {
             stem: stem.to_path_buf(),
             sample_rate,
+            playback_speed,
             capabilities,
             settings,
             shared: Arc::new(ArcSwap::from_pointee(PlaybackParams { looping: true })),
@@ -186,6 +192,7 @@ impl SdrDevice for FilePlayback {
         let transport = self.transport.clone();
         let stem = self.stem.clone();
         let sample_rate = self.sample_rate;
+        let playback_speed = self.playback_speed;
         self.worker.start("sdrmm-playback-rx", move |running| {
             // Opened on the worker so a file that vanished since `open` surfaces through the
             // fault channel like any other dead capture, not as an rx_start error.
@@ -252,7 +259,7 @@ impl SdrDevice for FilePlayback {
                     return;
                 }
 
-                next += Duration::from_secs_f64(filled as f64 / sample_rate);
+                next += Duration::from_secs_f64(filled as f64 / sample_rate / playback_speed);
                 let now = Instant::now();
                 if next > now {
                     std::thread::sleep(next - now);

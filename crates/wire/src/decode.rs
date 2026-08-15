@@ -188,6 +188,37 @@ pub struct MorseText {
     pub wpm: f32,
 }
 
+/// One CRC-verified FT8 or FT4 message from a synchronized receive slot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WsjtMessage {
+    pub text: String,
+    pub snr_db: f32,
+    pub audio_hz: f32,
+    pub time_offset_s: f32,
+    pub hard_errors: u32,
+}
+
+/// A run of Varicode text decoded from a BPSK31 or BPSK63 carrier.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PskText {
+    pub text: String,
+}
+
+/// One WSPR beacon spot recovered from a two-minute receive slot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WsprSpot {
+    /// Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign.
+    pub text: String,
+    pub callsign: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid: Option<String>,
+    pub power_dbm: i32,
+    pub snr_db: f32,
+    pub audio_hz: f32,
+    pub time_offset_s: f32,
+    pub drift_hz: f32,
+}
+
 /// One complete five-tone selective call after the repeat marker has been expanded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct SelcallSequence {
@@ -847,6 +878,11 @@ pub enum DecoderEvent {
     Subghz(SubghzFrame),
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
+    Ft8(WsjtMessage),
+    Ft4(WsjtMessage),
+    Psk31(PskText),
+    Psk63(PskText),
+    Wspr(WsprSpot),
     Ident(IdentReport),
     Broadcast(BroadcastStatus),
     RadioClock(RadioClockFrame),
@@ -871,6 +907,11 @@ impl DecoderEvent {
             Self::Subghz(_) => "subghz",
             Self::Tone(_) => "tone",
             Self::Dv(_) => "dv",
+            Self::Ft8(_) => "ft8",
+            Self::Ft4(_) => "ft4",
+            Self::Psk31(_) => "psk31",
+            Self::Psk63(_) => "psk63",
+            Self::Wspr(_) => "wspr",
             Self::Ident(_) => "ident",
             Self::Broadcast(_) => "broadcast",
             Self::RadioClock(_) => "radio_clock",
@@ -1041,6 +1082,11 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Ft8(m) | Self::Ft4(m) => {
+                format!("{} · {:+.0} dB · {:.0} Hz", m.text, m.snr_db, m.audio_hz)
+            }
+            Self::Psk31(t) | Self::Psk63(t) => t.text.clone(),
+            Self::Wspr(s) => format!("{} · {:+.0} dB · {:.0} Hz", s.text, s.snr_db, s.audio_hz),
             Self::Ident(r) => {
                 let mut parts = vec![r.modulation.label().to_owned()];
                 if r.modulation.is_signal() {
@@ -1139,15 +1185,23 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
+            Self::Ft8(m) | Self::Ft4(m) => m.text.split_whitespace().nth(1).map(str::to_owned),
+            Self::Wspr(s) => Some(s.callsign.clone()),
+            // A survey of what is on a frequency names no emitter: the whole point is that
+            // whoever is transmitting has not been identified yet.
+            Self::Rtty(_)
+            | Self::Morse(_)
+            | Self::Psk31(_)
+            | Self::Psk63(_)
+            | Self::Tone(_)
+            | Self::Ident(_)
+            | Self::Selcall(_) => None,
             Self::Broadcast(status) => status
                 .service_id
                 .or(status.ensemble_id)
                 .map(|id| format!("{id:X}")),
             Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
             Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
-            Self::Rtty(_) | Self::Morse(_) | Self::Selcall(_) | Self::Tone(_) | Self::Ident(_) => {
-                None
-            }
         }
     }
 }
@@ -1220,6 +1274,36 @@ mod tests {
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
+            DecoderEvent::Ft8(WsjtMessage {
+                text: String::new(),
+                snr_db: 0.0,
+                audio_hz: 0.0,
+                time_offset_s: 0.0,
+                hard_errors: 0,
+            }),
+            DecoderEvent::Ft4(WsjtMessage {
+                text: String::new(),
+                snr_db: 0.0,
+                audio_hz: 0.0,
+                time_offset_s: 0.0,
+                hard_errors: 0,
+            }),
+            DecoderEvent::Psk31(PskText {
+                text: String::new(),
+            }),
+            DecoderEvent::Psk63(PskText {
+                text: String::new(),
+            }),
+            DecoderEvent::Wspr(WsprSpot {
+                text: String::new(),
+                callsign: String::new(),
+                grid: None,
+                power_dbm: 0,
+                snr_db: 0.0,
+                audio_hz: 0.0,
+                time_offset_s: 0.0,
+                drift_hz: 0.0,
+            }),
             DecoderEvent::Broadcast(BroadcastStatus::default()),
             DecoderEvent::RadioClock(RadioClockFrame {
                 standard: RadioClockStandard::Dcf77,

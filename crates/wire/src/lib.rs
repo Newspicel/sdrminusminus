@@ -28,16 +28,17 @@ pub use channel::{
     DrmMode, DrmParams, DstarParams, FreeDvMode, FreeDvParams, GnssParams, IdentParams, M17Params,
     MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ,
     MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams,
-    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, RadioClockParams,
-    RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem, Sideband,
-    SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams,
+    RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem,
+    Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,
     DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity,
     DvTrunkProtocol, GnssFrame, IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage,
-    PocsagMessage, PocsagPayload, ProtocolMatch, RadioClockFrame, RdsUpdate, RttyText,
-    SelcallSequence, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
+    PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
+    SelcallSequence, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -293,8 +294,8 @@ mod contract_tests {
     fn decoder_params_default_from_empty_settings() {
         use channel::{
             AcarsParams, AdsbParams, AisParams, AprsParams, DabParams, DatvParams, DrmParams,
-            GnssParams, MorseParams, NavtexParams, PocsagParams, RadioClockParams, RttyParams,
-            SubghzParams,
+            GnssParams, MorseParams, NavtexParams, PocsagParams, PskParams, RadioClockParams,
+            RttyParams, SubghzParams, WsjtParams, WsprParams,
         };
         for (json, expected) in [
             (
@@ -332,6 +333,26 @@ mod contract_tests {
             (
                 r#"{"type":"subghz","settings":{}}"#,
                 ChannelParams::Subghz(SubghzParams::default()),
+            ),
+            (
+                r#"{"type":"ft8","settings":{}}"#,
+                ChannelParams::Ft8(WsjtParams::default()),
+            ),
+            (
+                r#"{"type":"ft4","settings":{}}"#,
+                ChannelParams::Ft4(WsjtParams::default()),
+            ),
+            (
+                r#"{"type":"psk31","settings":{}}"#,
+                ChannelParams::Psk31(PskParams::default()),
+            ),
+            (
+                r#"{"type":"psk63","settings":{}}"#,
+                ChannelParams::Psk63(PskParams::default()),
+            ),
+            (
+                r#"{"type":"wspr","settings":{}}"#,
+                ChannelParams::Wspr(WsprParams::default()),
             ),
             (
                 r#"{"type":"dab","settings":{}}"#,

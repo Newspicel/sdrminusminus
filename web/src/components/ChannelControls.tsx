@@ -529,6 +529,50 @@ function ModeControls({
           </SettingRow>
         </>
       );
+    case "ft8":
+      return (
+        <WsjtControls
+          mode="ft8"
+          settings={params.settings}
+          onChange={(settings) => onParams({ type: "ft8", settings })}
+        />
+      );
+    case "ft4":
+      return (
+        <WsjtControls
+          mode="ft4"
+          settings={params.settings}
+          onChange={(settings) => onParams({ type: "ft4", settings })}
+        />
+      );
+    case "wspr":
+      return (
+        <WsjtControls
+          mode="wspr"
+          settings={params.settings}
+          onChange={(settings) => onParams({ type: "wspr", settings })}
+        />
+      );
+    case "psk31":
+      return (
+        <Toggle
+          label="Invert"
+          checked={params.settings.invert ?? false}
+          onChange={(invert) =>
+            onParams({ type: "psk31", settings: { ...params.settings, invert } })
+          }
+        />
+      );
+    case "psk63":
+      return (
+        <Toggle
+          label="Invert"
+          checked={params.settings.invert ?? false}
+          onChange={(invert) =>
+            onParams({ type: "psk63", settings: { ...params.settings, invert } })
+          }
+        />
+      );
     case "navtex":
       // 100 baud at a 170 Hz shift is the whole standard (ITU-R M.540); the sideband the
       // receiver landed on is the only thing left to choose.
@@ -937,6 +981,54 @@ function ModeControls({
     default:
       return unhandledMode(params);
   }
+}
+
+function WsjtControls({
+  mode,
+  settings,
+  onChange,
+}: {
+  mode: "ft8" | "ft4" | "wspr";
+  settings: ChannelParamsOf<"ft8">;
+  onChange: (settings: ChannelParamsOf<"ft8">) => void;
+}) {
+  const wspr = mode === "wspr";
+  return (
+    <>
+      <SettingRow label="Audio from">
+        <NumberField
+          label="Lowest USB audio frequency searched"
+          value={settings.audio_low_hz ?? (wspr ? 1_400 : 200)}
+          min={50}
+          max={5_450}
+          step={10}
+          onCommit={(audio_low_hz) => onChange({ ...settings, audio_low_hz })}
+        />
+        <span className="legend">Hz</span>
+      </SettingRow>
+      <SettingRow label="Audio to">
+        <NumberField
+          label="Highest USB audio frequency searched"
+          value={settings.audio_high_hz ?? (wspr ? 1_600 : 3_000)}
+          min={100}
+          max={5_500}
+          step={10}
+          onCommit={(audio_high_hz) => onChange({ ...settings, audio_high_hz })}
+        />
+        <span className="legend">Hz</span>
+      </SettingRow>
+      <SettingRow label="Candidates">
+        <NumberField
+          label="Maximum synchronized signals tried per decode pass"
+          value={settings.max_candidates ?? (wspr ? 200 : 50)}
+          min={1}
+          max={1_000}
+          step={1}
+          onCommit={(max_candidates) => onChange({ ...settings, max_candidates })}
+        />
+      </SettingRow>
+    </>
+  );
 }
 
 function unhandledMode(_params: never): null {

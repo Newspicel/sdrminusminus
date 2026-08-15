@@ -232,7 +232,7 @@ export function appendTranscript(
 /** Builds the pane's text from the store's newest-first frames. Deriving it beats accumulating
  * local state: a cleared or re-flushed store can never leave the pane showing a stale tail. */
 export function buildTranscript(
-  records: readonly DecodedRecordOf<"rtty" | "morse">[],
+  records: readonly DecodedRecordOf<"rtty" | "morse" | "psk31" | "psk63">[],
   limit = TRANSCRIPT_LIMIT,
 ): string {
   return records.reduceRight((text, r) => appendTranscript(text, r.event.data.text, limit), "");

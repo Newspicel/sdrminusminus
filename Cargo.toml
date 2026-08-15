@@ -91,6 +91,7 @@ soapysdr = { git = "https://github.com/Newspicel/rust-soapysdr", rev = "5f05fb65
 num-complex = "0.4"
 rustfft = "6"
 realfft = "3"
+mfsk-core = { version = "0.9.1", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
 rtrb = "0.3"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"

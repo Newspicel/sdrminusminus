@@ -52,7 +52,7 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 
 Not bundled. The SDRplay API it needs is commercial software licensed for use with genuine SDRplay hardware, so operators install the vendor API and this module themselves.
 
-## Rust crates (645)
+## Rust crates (648)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -136,6 +136,8 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [core-graphics-types](https://github.com/servo/core-foundation-rs) | 0.2.0 | MIT OR Apache-2.0 |
 | [cpufeatures](https://github.com/RustCrypto/utils) | 0.2.17 | MIT OR Apache-2.0 |
 | [cpufeatures](https://github.com/RustCrypto/utils) | 0.3.0 | MIT OR Apache-2.0 |
+| [crc](https://github.com/mrhooray/crc-rs.git) | 3.4.0 | MIT OR Apache-2.0 |
+| [crc-catalog](https://github.com/akhilles/crc-catalog.git) | 2.5.0 | MIT OR Apache-2.0 |
 | [crc32fast](https://github.com/srijs/rust-crc32fast) | 1.5.0 | MIT OR Apache-2.0 |
 | [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam) | 0.5.16 | MIT OR Apache-2.0 |
 | [crossbeam-utils](https://github.com/crossbeam-rs/crossbeam) | 0.8.22 | MIT OR Apache-2.0 |
@@ -311,6 +313,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [matchit](https://github.com/ibraheemdev/matchit) | 0.8.4 | MIT AND BSD-3-Clause |
 | [memchr](https://github.com/BurntSushi/memchr) | 2.8.3 | Unlicense OR MIT |
 | [memoffset](https://github.com/Gilnaa/memoffset) | 0.9.1 | MIT |
+| [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.9.1 | GPL-3.0-or-later |
 | [mime](https://github.com/hyperium/mime) | 0.3.17 | MIT OR Apache-2.0 |
 | [mime_guess](https://github.com/abonander/mime_guess) | 2.0.5 | MIT |
 | [minisign-verify](https://github.com/jedisct1/rust-minisign-verify) | 0.2.5 | MIT |
