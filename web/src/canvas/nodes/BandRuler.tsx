@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import type { BandIdentity } from "../../components/bandPlan";
 import {
@@ -137,9 +137,25 @@ function IdentifyCard({
   onClose: () => void;
 }) {
   const suggested = suggestedAt(found);
+  const cardRef = useRef<HTMLDivElement>(null);
+  // A dialog the keyboard cannot reach is a dialog whose Escape never fires and which a screen
+  // reader announces but never enters, so opening one moves focus into it and closing one hands
+  // focus back to the lane that was clicked. Keyed on `hz`: picking a second frequency while the
+  // card is open re-opens it somewhere else, which is a new dialog to the operator.
+  useLayoutEffect(() => {
+    const returnTo = document.activeElement;
+    cardRef.current?.focus();
+    return () => {
+      if (returnTo instanceof HTMLElement) {
+        returnTo.focus();
+      }
+    };
+  }, [hz]);
   return (
     <div
-      className={`absolute top-full z-20 mt-1 flex w-64 -translate-x-1/2 flex-col gap-1.5 p-2 ${SURFACE}`}
+      ref={cardRef}
+      tabIndex={-1}
+      className={`absolute top-full z-20 mt-1 flex w-64 -translate-x-1/2 flex-col gap-1.5 p-2 outline-none ${SURFACE}`}
       style={{ left: `clamp(8rem, ${at * 100}%, calc(100% - 8rem))` }}
       onKeyDown={(event) => event.key === "Escape" && onClose()}
       role="dialog"

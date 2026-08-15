@@ -12,12 +12,12 @@ import { Readout, ReadoutRow } from "./Readout";
 import { Select } from "./Select";
 import { SettingGroup, SettingRow, Settings } from "./Settings";
 import {
-  DEFAULT_RANGE,
   formatDb,
   formatMhz,
   holdCandidates,
   liveStatus,
   MIN_STEP_KHZ,
+  newRange,
   parseRanges,
   type RangeInput,
   scanRefusal,
@@ -30,7 +30,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const queryClient = useQueryClient();
   const pushed = useScannerStore((s) => (active ? s.byDeviceSet[active.id] : undefined));
   const clearLive = useScannerStore((s) => s.clear);
-  const [ranges, setRanges] = useState<RangeInput[]>([DEFAULT_RANGE]);
+  const [ranges, setRanges] = useState<RangeInput[]>(() => [newRange()]);
   const [thresholdDb, setThresholdDb] = useState(DEFAULT_THRESHOLD_DB);
   const [holdChannel, setHoldChannel] = useState("");
 
@@ -71,8 +71,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const parsed = parseRanges(ranges);
   const busy = startMut.isPending || stopMut.isPending;
   const refusal = scanRefusal(active);
-  const patchRange = (index: number, patch: Partial<RangeInput>): void =>
-    setRanges((current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const patchRange = (id: string, patch: Partial<RangeInput>): void =>
+    setRanges((current) => current.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
   if (active === null) {
     return (
@@ -113,9 +113,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
             <Settings className="p-2">
               {ranges.map((range, index) => (
                 <SettingGroup
-                  // The rows are a position in the list, and there is nothing else stable to key
-                  // them by — two ranges may legitimately hold the same three numbers.
-                  key={index}
+                  key={range.id}
                   label={ranges.length > 1 ? `Range ${index + 1}` : "Range"}
                   action={
                     ranges.length > 1 && (
@@ -123,7 +121,9 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                         type="button"
                         className={`${ICON_BTN_SM} hover:text-danger`}
                         aria-label={`Remove range ${index + 1}`}
-                        onClick={() => setRanges(ranges.filter((_, other) => other !== index))}
+                        onClick={() =>
+                          setRanges((current) => current.filter((other) => other.id !== range.id))
+                        }
                       >
                         ✕
                       </Button>
@@ -136,7 +136,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                       value={range.startMhz}
                       min={0}
                       step={0.1}
-                      onCommit={(startMhz) => patchRange(index, { startMhz })}
+                      onCommit={(startMhz) => patchRange(range.id, { startMhz })}
                       className="w-24"
                     />
                     <span className="legend">MHz</span>
@@ -148,7 +148,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                       min={0}
                       step={0.1}
                       invalid={range.stopMhz < range.startMhz}
-                      onCommit={(stopMhz) => patchRange(index, { stopMhz })}
+                      onCommit={(stopMhz) => patchRange(range.id, { stopMhz })}
                       className="w-24"
                     />
                     <span className="legend">MHz</span>
@@ -159,7 +159,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                       value={range.stepKhz}
                       min={MIN_STEP_KHZ}
                       step={MIN_STEP_KHZ}
-                      onCommit={(stepKhz) => patchRange(index, { stepKhz })}
+                      onCommit={(stepKhz) => patchRange(range.id, { stepKhz })}
                       className="w-24"
                     />
                     <span className="legend">kHz</span>
@@ -230,7 +230,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
             <Button
               type="button"
               className={BTN}
-              onClick={() => setRanges([...ranges, DEFAULT_RANGE])}
+              onClick={() => setRanges((current) => [...current, newRange()])}
             >
               Add range
             </Button>

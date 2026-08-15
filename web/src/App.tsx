@@ -1,6 +1,6 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
@@ -73,8 +73,42 @@ export function App() {
   const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
   const trunks = useMemo(() => state.data?.trunk_systems ?? [], [state.data?.trunk_systems]);
 
+  const onServerEvent = useCallback(
+    (event: ServerEvent) => {
+      switch (event.type) {
+        case "Hello":
+          void queryClient.invalidateQueries();
+          break;
+        case "StateChanged":
+          invalidateScope(queryClient, event.data.scope);
+          break;
+        case "CallCompleted":
+          appendCall(queryClient, event.data);
+          break;
+        case "Error":
+          if (!audioEngine.claimServerError(event.data.message)) {
+            pushToast(event.data.message);
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [queryClient],
+  );
+  // The socket is built once and outlives every render, so it reads the handler from here.
+  // Written after commit, never during render: React may replay or discard a render.
+  const onServerEventRef = useRef(onServerEvent);
+  useLayoutEffect(() => {
+    onServerEventRef.current = onServerEvent;
+  });
+
   useEffect(() => {
     const s = new SdrSocket();
+    // Wired before `connect()` below, not from a later effect: the first thing a fresh socket is
+    // told is `Hello`, and a handler installed a render later would miss it and leave every
+    // query showing whatever the last session cached.
+    s.onEvent = (event) => onServerEventRef.current(event);
     // The bar carries no link light: a row of chrome spent on "still fine" is a row the patch
     // does not get. A *lost* link is news, so it is said once, on the transition — every failed
     // retry closes the socket again, and a toast per attempt would be the light back, blinking.
@@ -101,32 +135,6 @@ export function App() {
       s.close();
     };
   }, []);
-
-  useEffect(() => {
-    if (socket === null) {
-      return;
-    }
-    socket.onEvent = (event: ServerEvent) => {
-      switch (event.type) {
-        case "Hello":
-          void queryClient.invalidateQueries();
-          break;
-        case "StateChanged":
-          invalidateScope(queryClient, event.data.scope);
-          break;
-        case "CallCompleted":
-          appendCall(queryClient, event.data);
-          break;
-        case "Error":
-          if (!audioEngine.claimServerError(event.data.message)) {
-            pushToast(event.data.message);
-          }
-          break;
-        default:
-          break;
-      }
-    };
-  }, [socket, queryClient]);
 
   useEffect(() => {
     if (workspace.error !== null) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSet, ScannerStatus, TemplateInfo } from "../lib/types";
 import { rankDevices } from "./devices";
-import { formatDb, liveStatus, parseRanges, scanRefusal, targetCount } from "./scanner";
+import { formatDb, liveStatus, newRange, parseRanges, scanRefusal, targetCount } from "./scanner";
 import { supports } from "./templates";
 
 describe("parseRanges", () => {
@@ -29,6 +29,21 @@ describe("parseRanges", () => {
       { startMhz: 2, stopMhz: 1, stepKhz: 25 },
     ]);
     expect(parsed).toMatch(/^range 2: /);
+  });
+});
+
+describe("newRange", () => {
+  it("hands every row its own identity, so a removal cannot slide a draft onto its neighbour", () => {
+    const rows = [newRange(), newRange(), newRange()];
+    expect(new Set(rows.map((row) => row.id)).size).toBe(3);
+    // Two rows may legitimately hold the same three numbers; only the id tells them apart.
+    expect(rows[0]).toMatchObject({ startMhz: rows[1]?.startMhz, stopMhz: rows[1]?.stopMhz });
+  });
+
+  it("stays parseable — the id is editor state, not wire state", () => {
+    expect(parseRanges([newRange()])).toEqual({
+      ranges: [{ start_hz: 145_600_000, stop_hz: 145_800_000, step_hz: 12_500 }],
+    });
   });
 });
 

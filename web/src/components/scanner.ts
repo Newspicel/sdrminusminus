@@ -5,13 +5,25 @@ import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange } from "../lib/ty
 /** One line of the range editor, in the units its fields are typed in. Numeric because the
  * editor is built from `NumberField` like every other number in the app: it holds its own draft
  * and only ever commits something finite, so "that is not a number" is not a state to model. */
-export interface RangeInput {
+export interface RangeValues {
   startMhz: number;
   stopMhz: number;
   stepKhz: number;
 }
 
-export const DEFAULT_RANGE: RangeInput = { startMhz: 145.6, stopMhz: 145.8, stepKhz: 12.5 };
+/** A row of the editor: its numbers plus an identity. Rows are removable from the middle and two
+ * of them may legitimately hold the same three numbers, so position cannot key them — a removal
+ * would slide the survivor's half-typed draft onto the wrong line. */
+export interface RangeInput extends RangeValues {
+  readonly id: string;
+}
+
+let nextRangeId = 0;
+
+export function newRange(): RangeInput {
+  nextRangeId += 1;
+  return { id: `range-${nextRangeId}`, startMhz: 145.6, stopMhz: 145.8, stepKhz: 12.5 };
+}
 
 /** The smallest step the editor accepts, in kHz — a zero step expands to an infinite sweep. */
 export const MIN_STEP_KHZ = 0.1;
@@ -20,7 +32,7 @@ export const MIN_STEP_KHZ = 0.1;
  * The wire's ranges, or the one refusal to show instead. Only the rule a single field cannot
  * enforce is left here: a stop below its start spans two fields, so no clamp can catch it.
  */
-export function parseRanges(inputs: readonly RangeInput[]): { ranges: ScanRange[] } | string {
+export function parseRanges(inputs: readonly RangeValues[]): { ranges: ScanRange[] } | string {
   const ranges: ScanRange[] = [];
   for (const [index, input] of inputs.entries()) {
     const line = inputs.length > 1 ? `range ${index + 1}: ` : "";
