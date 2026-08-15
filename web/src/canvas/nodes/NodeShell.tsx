@@ -65,7 +65,7 @@ function PortGlyph({ type }: { type: PortType }) {
         <circle cx="6" cy="6" r="4.5" {...common} />
       ) : type === "baseband" ? (
         // A half disc: derived from the IQ circle, because it is half of what that carries.
-        <path d="M6 1.5 A4.5 4.5 0 0 1 6 10.5 Z" {...common} />
+        <path d="M10.5 6 A4.5 4.5 0 0 1 1.5 6 Z" {...common} />
       ) : type === "audio" ? (
         <path d="M6 1 11 6 6 11 1 6Z" {...common} />
       ) : type === "events" ? (
