@@ -356,6 +356,38 @@ export interface paths {
         patch: operations["patch_channel"];
         trace?: never;
     };
+    "/api/devicesets/{ds}/channels/{ch}/baseband": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["record_channel_baseband"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devicesets/{ds}/channels/{ch}/network-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["network_export_channel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets/{ds}/channels/{ch}/record": {
         parameters: {
             query?: never;
@@ -446,6 +478,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["scan_device_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devicesets/{ds}/time-machine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["time_machine_device_set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1243,8 +1291,10 @@ export interface components {
         };
         ChannelInfo: {
             audio_recording?: null | components["schemas"]["AudioRecordingStatus"];
+            baseband_recording?: null | components["schemas"]["RecordingStatus"];
             /** Format: int32 */
             id: number;
+            network_export?: null | components["schemas"]["NetworkExportStatus"];
             settings: components["schemas"]["ChannelSettings"];
             /** Format: int32 */
             stream?: number;
@@ -1258,6 +1308,11 @@ export interface components {
             peak_db: number;
             /** Format: float */
             squelch_db?: number | null;
+        };
+        ChannelNetworkExportRequest: {
+            action: components["schemas"]["NetworkExportAction"];
+            node: string;
+            settings?: components["schemas"]["NetworkExportSettings"];
         };
         ChannelNode: {
             channel_type: string;
@@ -1741,6 +1796,7 @@ export interface components {
             scanner?: null | components["schemas"]["ScannerStatus"];
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
+            time_machine?: null | components["schemas"]["TimeMachineStatus"];
         };
         /** @enum {string} */
         DeviceSetStatus: "idle" | "running" | "error";
@@ -2337,6 +2393,13 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "audio_recorder";
+        } | {
+            /** @enum {string} */
+            kind: "baseband_recorder";
+        } | {
+            data: components["schemas"]["TimeMachineNode"];
+            /** @enum {string} */
+            kind: "time_machine";
         } | {
             data: components["schemas"]["NetworkExportNode"];
             /** @enum {string} */
@@ -2969,6 +3032,41 @@ export interface components {
         };
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
+        };
+        /** @enum {string} */
+        TimeMachineAction: "arm" | "capture" | "stop" | "disarm";
+        TimeMachineNode: {
+            /**
+             * Format: int32
+             * @default 10
+             */
+            history_seconds: number;
+        };
+        TimeMachineRequest: {
+            action: components["schemas"]["TimeMachineAction"];
+            node: string;
+            settings?: components["schemas"]["TimeMachineNode"];
+            /** Format: int32 */
+            stream?: number;
+        };
+        TimeMachineStatus: {
+            /** Format: int64 */
+            capacity_samples: number;
+            capture?: null | components["schemas"]["RecordingStatus"];
+            /** Format: int64 */
+            center_hz: number;
+            error?: string | null;
+            /** Format: int64 */
+            held_samples: number;
+            /** Format: int32 */
+            history_seconds: number;
+            node: string;
+            /** Format: int64 */
+            overruns: number;
+            /** Format: int64 */
+            sample_rate: number;
+            /** Format: int32 */
+            stream: number;
         };
         ToneSquelchStatus: {
             /** Format: double */
@@ -3977,6 +4075,118 @@ export interface operations {
             };
         };
     };
+    record_channel_baseband: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Channel id */
+                ch: number;
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelRecordRequest"];
+            };
+        };
+        responses: {
+            /** @description Baseband recording status: live after `start`; final counts after `stop`, where the finished SigMF pair appears in `GET /api/recordings` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingStatus"];
+                };
+            };
+            /** @description Cannot record: no recordings directory, set not running, or this channel's baseband is already recording */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    network_export_channel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Channel id */
+                ch: number;
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelNetworkExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Live status after start or final counters after stop */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkExportStatus"];
+                };
+            };
+            /** @description Invalid destination, inactive export, or conflicting owner */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     record_channel_audio: {
         parameters: {
             query?: never;
@@ -4273,6 +4483,60 @@ export interface operations {
                 };
             };
             /** @description Device set or hold channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    time_machine_device_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimeMachineRequest"];
+            };
+        };
+        responses: {
+            /** @description History status after the action: `arm` starts the rolling buffer, `capture` writes the buffered past into a SigMF pair and keeps appending, `stop` finalizes that pair, `disarm` releases the buffer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeMachineStatus"];
+                };
+            };
+            /** @description Cannot hold history: no recordings directory, set not running, a window that does not fit in memory, or an action the current state has nothing to do with */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set not found */
             404: {
                 headers: {
                     [name: string]: unknown;

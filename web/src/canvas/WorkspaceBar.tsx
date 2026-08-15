@@ -3,6 +3,7 @@ import { channelHasAudio } from "../components/channelSettings";
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
+import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
 import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import { addNode, channelSize, type GraphContext, newNodeId } from "./graph";
@@ -95,12 +96,17 @@ export function WorkspaceBar({
                         kind: "network_export" as const,
                         data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
                       }
-                    : kind === "chat_output"
+                    : kind === "time_machine"
                       ? {
-                          kind: "chat_output" as const,
-                          data: { target: { service: "discord" as const, webhook_url: "" } },
+                          kind: "time_machine" as const,
+                          data: { history_seconds: DEFAULT_HISTORY_SECONDS },
                         }
-                      : { kind }),
+                      : kind === "chat_output"
+                        ? {
+                            kind: "chat_output" as const,
+                            data: { target: { service: "discord" as const, webhook_url: "" } },
+                          }
+                        : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

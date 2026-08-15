@@ -40,6 +40,9 @@ import type {
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
+  TimeMachineAction,
+  TimeMachineNode,
+  TimeMachineStatus,
   ToolRequest,
   ToolResponse,
   ToolsResponse,
@@ -292,6 +295,49 @@ export async function deleteAudioRecording(file: string): Promise<void> {
   unwrap(
     await client.DELETE("/api/audiorecordings/{file}", {
       params: { path: { file } },
+    }),
+  );
+}
+
+export async function recordChannelBaseband(
+  ds: number,
+  ch: number,
+  action: RecordAction,
+): Promise<RecordingStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/baseband", {
+      params: { path: { ds, ch } },
+      body: { action },
+    }),
+  );
+}
+
+export async function networkExportChannel(
+  ds: number,
+  ch: number,
+  action: NetworkExportAction,
+  node: string,
+  settings: NetworkExportSettings,
+): Promise<NetworkExportStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/network-export", {
+      params: { path: { ds, ch } },
+      body: { action, node, settings },
+    }),
+  );
+}
+
+export async function controlTimeMachine(
+  ds: number,
+  action: TimeMachineAction,
+  node: string,
+  stream: number,
+  settings: TimeMachineNode,
+): Promise<TimeMachineStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/time-machine", {
+      params: { path: { ds } },
+      body: { action, node, stream, settings },
     }),
   );
 }

@@ -37,9 +37,6 @@ If something is shipped, then remove it.
 
 ## 4. Recording, replay & measurement
 
-- The rest of the per-channel sinks — a baseband file, and a per-channel network tap;
-  the network export node carries a device's IQ only
-- IQ time machine — rolling ring buffer, retro-record the last N seconds after the fact
 - Inspectrum-style offline IQ viewer in the browser
 - Annotated recordings; recording scheduler + unattended satellite-pass automation
 - Wideband recording + offline re-channelization

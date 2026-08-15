@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{audio::AudioProcessing, state::AudioRecordingStatus};
+use crate::{
+    audio::AudioProcessing,
+    network::NetworkExportStatus,
+    state::{AudioRecordingStatus, RecordingStatus},
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelDescriptor {
@@ -981,4 +985,8 @@ pub struct ChannelInfo {
     pub settings: ChannelSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_recording: Option<AudioRecordingStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseband_recording: Option<RecordingStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_export: Option<NetworkExportStatus>,
 }

@@ -13,6 +13,7 @@ pub mod position;
 pub mod rest;
 pub mod scan;
 pub mod state;
+pub mod timemachine;
 pub mod tools;
 pub mod workspace;
 pub mod workspace_state;
@@ -63,8 +64,9 @@ pub use frame::{
     VideoFrame,
 };
 pub use network::{
-    MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode, NetworkExportRequest,
-    NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat, NetworkTransport,
+    ChannelNetworkExportRequest, MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode,
+    NetworkExportRequest, NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat,
+    NetworkTransport,
 };
 pub use patch::{
     ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
@@ -96,6 +98,11 @@ pub use scan::{
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus,
     RecordingStatus, StateSnapshot, TrunkFollower, TrunkProblem, TrunkSystemStatus,
+};
+pub use timemachine::{
+    DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
+    MIN_TIME_MACHINE_SECONDS, TimeMachineAction, TimeMachineNode, TimeMachineRequest,
+    TimeMachineStatus, history_capacity_samples,
 };
 pub use tools::{
     ANTENNA_TOOL_ID, AntennaDesign, AntennaGeometry, AntennaPart, AntennaPoint, AntennaReport,
@@ -573,6 +580,7 @@ mod contract_tests {
             error: None,
             recording: None,
             network_export: None,
+            time_machine: None,
             scanner: None,
             playback: None,
         }
@@ -699,6 +707,105 @@ mod contract_tests {
                 .network_export,
             None
         );
+    }
+
+    #[test]
+    fn a_channel_states_its_baseband_sinks_only_while_they_run() {
+        let mut info: ChannelInfo =
+            serde_json::from_str(r#"{"id":3,"settings":{"params":{"type":"nfm","settings":{}}}}"#)
+                .unwrap();
+        assert_eq!(info.baseband_recording, None);
+        assert_eq!(info.network_export, None);
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(json.get("baseband_recording").is_none());
+        assert!(json.get("network_export").is_none());
+
+        info.baseband_recording = Some(RecordingStatus {
+            file: "bb_1_3_20260815T120000Z".to_owned(),
+            stream: 0,
+            started_at: "2026-08-15T12:00:00Z".to_owned(),
+            samples: 48_000,
+            bytes: 384_000,
+            overruns: 0,
+            error: None,
+        });
+        info.network_export = Some(NetworkExportStatus {
+            node: "net".to_owned(),
+            stream: 0,
+            settings: NetworkExportSettings::default(),
+            sample_rate: 48_000,
+            center_hz: 100_012_500,
+            samples: 4_096,
+            bytes: 32_768,
+            packets: 24,
+            overruns: 0,
+            error: None,
+        });
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["baseband_recording"]["samples"], 48_000);
+        assert_eq!(json["network_export"]["sample_rate"], 48_000);
+        assert_eq!(serde_json::from_value::<ChannelInfo>(json).unwrap(), info);
+    }
+
+    #[test]
+    fn a_time_machine_reports_its_window_and_only_names_a_capture_while_one_runs() {
+        let mut set = sample_device_set();
+        assert!(
+            serde_json::to_value(&set)
+                .unwrap()
+                .get("time_machine")
+                .is_none()
+        );
+
+        set.time_machine = Some(TimeMachineStatus {
+            node: "history".to_owned(),
+            stream: 0,
+            history_seconds: 10,
+            sample_rate: 2_048_000,
+            center_hz: 100_000_000,
+            held_samples: 10_240_000,
+            capacity_samples: 20_480_000,
+            overruns: 0,
+            capture: None,
+            error: None,
+        });
+        let mut json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["time_machine"]["held_samples"], 10_240_000);
+        assert!(json["time_machine"].get("capture").is_none());
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json.clone()).unwrap(),
+            set
+        );
+        assert_eq!(
+            set.time_machine.as_ref().unwrap().held_seconds(),
+            5.0,
+            "the window reads in seconds, not samples"
+        );
+
+        json.as_object_mut().unwrap().remove("time_machine");
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json)
+                .unwrap()
+                .time_machine,
+            None
+        );
+    }
+
+    #[test]
+    fn a_time_machine_request_defaults_its_stream_and_window() {
+        let request: TimeMachineRequest =
+            serde_json::from_str(r#"{"action":"capture","node":"history"}"#).unwrap();
+        assert_eq!(request.stream, 0);
+        assert_eq!(request.action, TimeMachineAction::Capture);
+        assert_eq!(
+            request.settings.history_seconds,
+            DEFAULT_TIME_MACHINE_SECONDS
+        );
+        assert!(request.settings.valid());
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["action"], "capture");
+        assert_eq!(json["settings"]["history_seconds"], 10);
     }
 
     #[test]

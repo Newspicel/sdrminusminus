@@ -4,8 +4,10 @@ import type { Workspace } from "./context";
 import { closeEngineObjects, releaseRadio } from "./remove";
 
 const api = vi.hoisted(() => ({
+  controlTimeMachine: vi.fn(async () => {}),
   deleteChannel: vi.fn(async () => {}),
   deleteDeviceSet: vi.fn(async () => {}),
+  networkExportChannel: vi.fn(async () => {}),
   networkExportDeviceSet: vi.fn(async () => {}),
 }));
 vi.mock("../lib/api", () => api);
@@ -74,11 +76,75 @@ const networkWorkspace = {
   ]),
 } as unknown as Workspace;
 
+const basebandChannel: ChannelInfo = {
+  ...channelOnLane2,
+  id: 9,
+  stream: 0,
+  network_export: {
+    node: "net-baseband",
+    stream: 0,
+    settings: networkSettings,
+    sample_rate: 48_000,
+    center_hz: 100_000_000,
+    samples: 64,
+    bytes: 512,
+    packets: 1,
+    overruns: 0,
+  },
+};
+const basebandWorkspace = {
+  ...workspace,
+  graph: {
+    nodes: [
+      node("dev", { kind: "device", data: {} }),
+      node("ch", { kind: "channel", data: { channel_type: "nfm" } }),
+      node("net-baseband", { kind: "network_export", data: networkSettings }),
+      node("history", { kind: "time_machine", data: { history_seconds: 10 } }),
+    ],
+    edges: [
+      { from: { node: "dev", port: "iq" }, to: { node: "ch", port: "iq" } },
+      { from: { node: "ch", port: "baseband" }, to: { node: "net-baseband", port: "baseband" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "history", port: "iq" } },
+    ],
+  },
+  devices: new Map([
+    [
+      "dev",
+      {
+        id: 4,
+        time_machine: { node: "history", stream: 0 },
+      } as unknown as DeviceSet,
+    ],
+  ]),
+  channels: new Map([["ch", basebandChannel]]),
+} as unknown as Workspace;
+
 describe("closeEngineObjects", () => {
   beforeEach(() => {
+    api.controlTimeMachine.mockClear();
     api.deleteChannel.mockClear();
     api.deleteDeviceSet.mockClear();
+    api.networkExportChannel.mockClear();
     api.networkExportDeviceSet.mockClear();
+  });
+
+  it("stops a baseband export on the channel it belongs to", async () => {
+    await closeEngineObjects(basebandWorkspace, ["net-baseband"]);
+    expect(api.networkExportChannel).toHaveBeenCalledWith(
+      4,
+      9,
+      "stop",
+      "net-baseband",
+      networkSettings,
+    );
+    expect(api.networkExportDeviceSet).not.toHaveBeenCalled();
+  });
+
+  it("disarms the time machine a removed sink is holding", async () => {
+    await closeEngineObjects(basebandWorkspace, ["history"]);
+    expect(api.controlTimeMachine).toHaveBeenCalledWith(4, "disarm", "history", 0, {
+      history_seconds: 10,
+    });
   });
 
   it("deletes the engine channel behind a node wired past stream 0", async () => {

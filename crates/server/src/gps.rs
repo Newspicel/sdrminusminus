@@ -9,7 +9,8 @@ use std::{
 };
 
 use sdrmm_wire::{
-    NmeaDeviceInfo, NmeaDevicesResponse, NodeBody, PositionFix, PositionSource, ServerEvent,
+    NmeaDeviceInfo, NmeaDevicesResponse, NodeBody, PatchGraph, PositionFix, PositionSource,
+    ServerEvent,
 };
 use serde::Deserialize;
 use tokio::{
@@ -453,13 +454,7 @@ fn route_position(state: &RouteState, source: &str, fix: Option<PositionFix>) {
                 }
             }
             NodeBody::Recorder => {
-                let device = graph.sources_of(target, "iq").next();
-                let device_set = device.and_then(|device| {
-                    bindings
-                        .iter()
-                        .find(|binding| binding.node == device)
-                        .map(|binding| binding.device_set)
-                });
+                let device_set = wired_device_set(graph, &bindings, target);
                 if let Some(device_set) = device_set
                     && snapshot
                         .device_sets
@@ -472,9 +467,35 @@ fn route_position(state: &RouteState, source: &str, fix: Option<PositionFix>) {
                     tracing::debug!(%error, node = target, "could not geotag recording");
                 }
             }
+            NodeBody::TimeMachine(_) => {
+                let device_set = wired_device_set(graph, &bindings, target);
+                if let Some(device_set) = device_set
+                    && snapshot
+                        .device_sets
+                        .iter()
+                        .any(|set| set.id == device_set && set.time_machine.is_some())
+                    && let Err(error) = state
+                        .engine
+                        .update_time_machine_position(device_set, fix.clone())
+                {
+                    tracing::debug!(%error, node = target, "could not geotag held history");
+                }
+            }
             _ => {}
         }
     }
+}
+
+fn wired_device_set(
+    graph: &PatchGraph,
+    bindings: &[workspace::DeviceBinding],
+    node: &str,
+) -> Option<u32> {
+    let device = graph.sources_of(node, "iq").next()?;
+    bindings
+        .iter()
+        .find(|binding| binding.node == device)
+        .map(|binding| binding.device_set)
 }
 
 fn clear_position_consumers(state: &RouteState) {
@@ -492,6 +513,11 @@ fn clear_position_consumers(state: &RouteState) {
             && let Err(error) = state.engine.update_recording_position(set.id, None)
         {
             tracing::debug!(%error, device_set = set.id, "could not clear recording GPS fix");
+        }
+        if set.time_machine.is_some()
+            && let Err(error) = state.engine.update_time_machine_position(set.id, None)
+        {
+            tracing::debug!(%error, device_set = set.id, "could not clear held history GPS fix");
         }
     }
 }

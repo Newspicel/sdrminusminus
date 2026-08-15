@@ -1076,6 +1076,168 @@
         }
       }
     },
+    "/api/devicesets/{ds}/channels/{ch}/baseband": {
+      "post": {
+        "operationId": "record_channel_baseband",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Baseband recording status: live after `start`; final counts after `stop`, where the finished SigMF pair appears in `GET /api/recordings`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot record: no recordings directory, set not running, or this channel's baseband is already recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/channels/{ch}/network-export": {
+      "post": {
+        "operationId": "network_export_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelNetworkExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Live status after start or final counters after stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkExportStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid destination, inactive export, or conflicting owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/channels/{ch}/record": {
       "post": {
         "operationId": "record_channel_audio",
@@ -1469,6 +1631,76 @@
           },
           "404": {
             "description": "Device set or hold channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/time-machine": {
+      "post": {
+        "operationId": "time_machine_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeMachineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "History status after the action: `arm` starts the rolling buffer, `capture` writes the buffered past into a SigMF pair and keeps appending, `stop` finalizes that pair, `disarm` releases the buffer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeMachineStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot hold history: no recordings directory, set not running, a window that does not fit in memory, or an action the current state has nothing to do with",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4257,10 +4489,30 @@
               }
             ]
           },
+          "baseband_recording": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecordingStatus"
+              }
+            ]
+          },
           "id": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "network_export": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetworkExportStatus"
+              }
+            ]
           },
           "settings": {
             "$ref": "#/components/schemas/ChannelSettings"
@@ -4299,6 +4551,24 @@
               "null"
             ],
             "format": "float"
+          }
+        }
+      },
+      "ChannelNetworkExportRequest": {
+        "type": "object",
+        "required": [
+          "action",
+          "node"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/NetworkExportAction"
+          },
+          "node": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NetworkExportSettings"
           }
         }
       },
@@ -6309,6 +6579,16 @@
           },
           "status": {
             "$ref": "#/components/schemas/DeviceSetStatus"
+          },
+          "time_machine": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TimeMachineStatus"
+              }
+            ]
           }
         }
       },
@@ -8708,6 +8988,38 @@
           {
             "type": "object",
             "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "baseband_recorder"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/TimeMachineNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "time_machine"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "data",
               "kind"
             ],
@@ -11051,6 +11363,117 @@
             "items": {
               "$ref": "#/components/schemas/TemplateInfo"
             }
+          }
+        }
+      },
+      "TimeMachineAction": {
+        "type": "string",
+        "enum": [
+          "arm",
+          "capture",
+          "stop",
+          "disarm"
+        ]
+      },
+      "TimeMachineNode": {
+        "type": "object",
+        "properties": {
+          "history_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 0
+          }
+        }
+      },
+      "TimeMachineRequest": {
+        "type": "object",
+        "required": [
+          "action",
+          "node"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/TimeMachineAction"
+          },
+          "node": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/TimeMachineNode"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TimeMachineStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "stream",
+          "history_seconds",
+          "sample_rate",
+          "center_hz",
+          "held_samples",
+          "capacity_samples",
+          "overruns"
+        ],
+        "properties": {
+          "capacity_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "capture": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecordingStatus"
+              }
+            ]
+          },
+          "center_hz": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "held_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "history_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "node": {
+            "type": "string"
+          },
+          "overruns": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sample_rate": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

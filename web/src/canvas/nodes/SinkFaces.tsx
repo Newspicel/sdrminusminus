@@ -20,6 +20,7 @@ import {
   callAudioUrl,
   decoderLogExportUrl,
   recordChannelAudio,
+  recordChannelBaseband,
   recordDeviceSet,
 } from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
@@ -579,6 +580,96 @@ function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
     <Readout separated={false}>
       <ReadoutRow label="Elapsed">{formatDuration(status.frames / AUDIO_RATE_HZ)}</ReadoutRow>
       <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
+      <ReadoutRow label="File">
+        <span className="block truncate" title={status.file}>
+          {status.file}
+        </span>
+      </ReadoutRow>
+    </Readout>
+  );
+}
+
+export function BasebandRecorderFace({ node }: { node: PatchNode }) {
+  const inputs = useInputs(node.id, "baseband");
+  const recording = inputs.filter((input) => input.channel.baseband_recording != null).length;
+  return (
+    <NodeShell
+      node={node}
+      title="Baseband recorder"
+      category="sink"
+      subtitle={
+        recording === 0
+          ? undefined
+          : recording === 1
+            ? "1 channel recording"
+            : `${recording} channels recording`
+      }
+      live={inputs.length > 0}
+    >
+      <FaceBody>
+        {inputs.length === 0 ? (
+          <FaceEmpty>
+            Wire a channel's baseband out to write its own IQ — down-converted, filtered and at the
+            channel's rate — as a SigMF pair.
+          </FaceEmpty>
+        ) : (
+          inputs.map((input) => <BasebandRecordInput key={input.node} input={input} />)
+        )}
+      </FaceBody>
+    </NodeShell>
+  );
+}
+
+function BasebandRecordInput({ input }: { input: Input }) {
+  const workspace = useWorkspaceContext();
+  const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
+  const status = input.channel.baseband_recording ?? null;
+  const record = useMutation({
+    mutationFn: (action: RecordAction) =>
+      recordChannelBaseband(input.deviceSet, input.channel.id, action),
+    onError: (error: Error) => pushToast(error.message),
+  });
+  return (
+    <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          className={status === null ? BTN : BTN_DANGER}
+          disabled={record.isPending}
+          title={status === null ? "Record this channel's baseband to a SigMF pair" : undefined}
+          onClick={() => record.mutate(status === null ? "start" : "stop")}
+        >
+          {status === null ? (
+            <>
+              <span aria-hidden className="text-danger">
+                ●
+              </span>
+              Record
+            </>
+          ) : (
+            "Stop"
+          )}
+        </Button>
+        <span className="legend truncate">
+          {label ?? input.channel.settings.params.type.toUpperCase()}
+        </span>
+      </div>
+      {status !== null && <BasebandRecordingReadout status={status} />}
+      {status?.error != null && (
+        <p role="alert" className="text-xs text-danger">
+          {status.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BasebandRecordingReadout({ status }: { status: RecordingStatus }) {
+  return (
+    <Readout separated={false}>
+      <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
+      <ReadoutRow label="Samples">{status.samples.toLocaleString()}</ReadoutRow>
+      {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
       <ReadoutRow label="File">
         <span className="block truncate" title={status.file}>
           {status.file}

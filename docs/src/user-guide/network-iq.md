@@ -1,10 +1,11 @@
 # Network IQ export
 
-Network IQ sends a live device stream to another analysis program without first recording it.
+Network IQ sends a live stream to another analysis program without first recording it.
 
 1. Add a **Network IQ** node.
-2. Wire a Device `IQ` output into it. On a multi-stream radio, the chosen output selects the
-   exported stream.
+2. Wire either a Device `IQ` output into it — on a multi-stream radio, the chosen output selects
+   the exported stream — or a Channel `baseband` output. One node carries one or the other; the
+   canvas refuses both wires at once.
 3. Choose UDP or TCP, the sample encoding, and a `host:port` destination.
 4. Start the receiving tool first, then press **Start export**.
 
@@ -12,6 +13,12 @@ The face reports the exact sample rate and center frequency to enter in the rece
 bytes, datagram/write count, capture overruns, and writer errors. The sample rate is locked while the
 export is active because the raw stream has no in-band rate-change message. Retuning remains
 available; update the receiver's center-frequency setting after a retune.
+
+A channel's baseband is the same wire contract at a far lower rate: the channel's own samples,
+down-converted to the channel's center and filtered to its width, which is what makes a decoder
+in another program practical over a link that could never carry the whole radio. Each channel
+takes one export of its own, and it is independent of the device-wide export — a radio can send
+its full stream to one tool while one of its channels feeds another.
 
 ## Wire contract
 

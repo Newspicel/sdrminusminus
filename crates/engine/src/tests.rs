@@ -7,8 +7,9 @@ use std::{
 use num_complex::Complex;
 use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
 use sdrmm_wire::{
-    AdsbParams, AudioProcessing, ChannelSettings, DecoderEvent, Duplex, NfmParams, ScanState,
-    Sideband, SsbParams, StreamScope,
+    AdsbParams, AudioProcessing, ChannelSettings, DecoderEvent, Duplex, MAX_TIME_MACHINE_SECONDS,
+    NfmParams, ScanState, Sideband, SsbParams, StreamScope, TimeMachineAction, TimeMachineNode,
+    TimeMachineStatus,
 };
 
 use super::*;
@@ -2310,4 +2311,323 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
     engine.remove_channel(ds, channel).expect("remove channel");
     assert!(!engine.device_sets_with_channels().contains(&ds));
     assert!(engine.channel_levels(ds).is_empty());
+}
+
+async fn wait_for_baseband_samples(engine: &Engine, ds: u32, ch: u32, min: u64) -> RecordingStatus {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let recording = engine
+            .snapshot()
+            .device_sets
+            .iter()
+            .find(|set| set.id == ds)
+            .and_then(|set| set.channels.iter().find(|channel| channel.id == ch))
+            .and_then(|channel| channel.baseband_recording.clone());
+        if let Some(recording) = recording
+            && recording.samples >= min
+        {
+            return recording;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the channel's baseband never reached {min} samples"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_channel_baseband_recording_lands_as_a_sigmf_pair_at_the_channel_rate() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(120_000.0)).unwrap();
+
+    let live = engine.start_channel_baseband_recording(ds, ch).unwrap();
+    assert!(live.file.starts_with(&format!("bb_{ds}_{ch}_")));
+    assert_eq!(live.error, None);
+    assert!(
+        engine.start_channel_baseband_recording(ds, ch).is_err(),
+        "one baseband recording per channel"
+    );
+    wait_for_baseband_samples(&engine, ds, ch, 4_800).await;
+
+    let finalized = engine.stop_channel_baseband_recording(ds, ch).unwrap();
+    assert_eq!(finalized.error, None);
+    assert!(finalized.samples >= 4_800);
+    assert_eq!(
+        finalized.bytes,
+        finalized.samples * sdrmm_recorder::BYTES_PER_SAMPLE
+    );
+    assert!(
+        engine.snapshot().device_sets[0].channels[0]
+            .baseband_recording
+            .is_none()
+    );
+
+    let stem = dir.path().join(&finalized.file);
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).unwrap();
+    assert_eq!(reader.meta().global.sample_rate, Some(48_000.0));
+    assert_eq!(
+        reader.meta().captures[0].frequency,
+        Some(100_120_000.0),
+        "a channel's baseband is centred on the channel, not the radio"
+    );
+    assert_eq!(reader.total_samples(), finalized.samples);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn removing_a_channel_finishes_the_baseband_it_was_writing() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    let live = engine.start_channel_baseband_recording(ds, ch).unwrap();
+    wait_for_baseband_samples(&engine, ds, ch, 480).await;
+
+    engine.remove_channel(ds, ch).unwrap();
+    assert!(engine.stop_channel_baseband_recording(ds, ch).is_err());
+
+    let stem = dir.path().join(&live.file);
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).expect("the pair was finalized");
+    assert!(reader.total_samples() >= 480);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_channel_network_export_carries_that_channel_and_not_the_radio() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let settings = NetworkExportSettings {
+        address: socket.local_addr().unwrap().to_string(),
+        ..NetworkExportSettings::default()
+    };
+
+    let live = engine
+        .start_channel_network_export(ds, ch, "net".to_owned(), settings.clone())
+        .unwrap();
+    assert_eq!(
+        live.sample_rate, 48_000,
+        "the channel's rate, not the radio's"
+    );
+    assert_eq!(live.node, "net");
+    assert!(
+        engine
+            .start_channel_network_export(ds, ch, "other".to_owned(), settings.clone())
+            .is_err(),
+        "one export per channel"
+    );
+
+    let mut buffer = [0u8; 2_048];
+    let read = socket.recv(&mut buffer).expect("datagram");
+    assert!(
+        read > 0 && read.is_multiple_of(8),
+        "cf32 pairs arrive whole"
+    );
+
+    assert!(
+        engine
+            .stop_channel_network_export(ds, ch, "someone-else")
+            .is_err(),
+        "another node cannot stop this export"
+    );
+    let done = engine.stop_channel_network_export(ds, ch, "net").unwrap();
+    assert!(done.bytes > 0);
+    assert_eq!(done.error, None);
+    assert!(
+        engine.snapshot().device_sets[0].channels[0]
+            .network_export
+            .is_none()
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+async fn wait_for_history(engine: &Engine, ds: u32, min: u64) -> TimeMachineStatus {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let history = engine
+            .snapshot()
+            .device_sets
+            .iter()
+            .find(|set| set.id == ds)
+            .and_then(|set| set.time_machine.clone());
+        if let Some(history) = history
+            && history.held_samples >= min
+        {
+            return history;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the time machine never held {min} samples"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn the_time_machine_captures_the_seconds_that_already_went_past() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = TimeMachineNode { history_seconds: 2 };
+
+    let armed = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Arm, settings)
+        .unwrap();
+    assert_eq!(armed.capacity_samples, 2 * 2_048_000);
+    assert_eq!(armed.history_seconds, 2);
+    assert!(armed.capture.is_none());
+    assert!(
+        engine
+            .control_time_machine(ds, "tm2".to_owned(), 0, TimeMachineAction::Arm, settings)
+            .is_err(),
+        "one time machine per radio"
+    );
+
+    let held = wait_for_history(&engine, ds, 2_048_000).await;
+    assert!(
+        held.held_samples >= 2_048_000,
+        "a second of history at least"
+    );
+
+    let capturing = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Capture, settings)
+        .unwrap();
+    let capture = capturing.capture.expect("a capture is running");
+    assert!(capture.file.starts_with(&format!("tm_{ds}_")));
+
+    let stopped = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Stop, settings)
+        .unwrap();
+    let finished = stopped.capture.expect("the stop reports what it wrote");
+    assert_eq!(finished.file, capture.file);
+    assert!(finished.samples >= 2_048_000);
+    assert!(
+        engine.snapshot().device_sets[0]
+            .time_machine
+            .as_ref()
+            .is_some_and(|history| history.capture.is_none()),
+        "the armed history stays, its capture does not"
+    );
+
+    let stem = dir.path().join(&capture.file);
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).expect("finalized pair");
+    assert!(
+        reader.total_samples() >= 2_048_000,
+        "the buffered past never reached the file: {} samples",
+        reader.total_samples()
+    );
+    assert_eq!(reader.meta().global.sample_rate, Some(2_048_000.0));
+
+    let disarmed = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Disarm, settings)
+        .unwrap();
+    assert_eq!(disarmed.node, "tm");
+    assert!(engine.snapshot().device_sets[0].time_machine.is_none());
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn an_armed_time_machine_locks_the_sample_rate_and_refuses_a_window_that_will_not_fit() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+
+    let too_wide = engine
+        .control_time_machine(
+            ds,
+            "tm".to_owned(),
+            0,
+            TimeMachineAction::Arm,
+            TimeMachineNode {
+                history_seconds: MAX_TIME_MACHINE_SECONDS,
+            },
+        )
+        .unwrap_err();
+    assert!(
+        too_wide.to_string().contains("MiB"),
+        "the refusal names the memory it would take: {too_wide}"
+    );
+
+    engine
+        .control_time_machine(
+            ds,
+            "tm".to_owned(),
+            0,
+            TimeMachineAction::Arm,
+            TimeMachineNode { history_seconds: 1 },
+        )
+        .unwrap();
+    let locked = engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                sample_rate: Some(1_024_000.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .unwrap_err();
+    assert!(
+        locked.to_string().contains("disarm it first"),
+        "the refusal says what to do: {locked}"
+    );
+
+    engine
+        .control_time_machine(
+            ds,
+            "tm".to_owned(),
+            0,
+            TimeMachineAction::Disarm,
+            TimeMachineNode::default(),
+        )
+        .unwrap();
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                sample_rate: Some(1_024_000.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("a disarmed radio retunes its rate");
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_time_machine_action_names_the_node_that_owns_the_history() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = TimeMachineNode { history_seconds: 1 };
+
+    let idle = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Capture, settings)
+        .unwrap_err();
+    assert!(idle.to_string().contains("no time machine"));
+
+    engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Arm, settings)
+        .unwrap();
+    let stranger = engine
+        .control_time_machine(
+            ds,
+            "other".to_owned(),
+            0,
+            TimeMachineAction::Capture,
+            settings,
+        )
+        .unwrap_err();
+    assert!(stranger.to_string().contains("belongs to node `tm`"));
+
+    let idle_stop = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Stop, settings)
+        .unwrap_err();
+    assert!(idle_stop.to_string().contains("not laying down a capture"));
+    engine.remove_device_set(ds).unwrap();
 }

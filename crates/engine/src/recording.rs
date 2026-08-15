@@ -87,6 +87,7 @@ pub(crate) enum RecMessage {
     Position(Option<Box<PositionFix>>),
 }
 
+#[derive(Clone)]
 pub(crate) struct RecorderTap {
     tx: mpsc::SyncSender<RecMessage>,
     shared: Arc<RecordingShared>,
@@ -195,14 +196,14 @@ fn write_loop(
 
 pub(crate) fn create_writer(
     dir: &Path,
-    ds: u32,
+    prefix: &str,
     stream: u32,
     started_at: jiff::Timestamp,
     sample_rate: f64,
     center_hz: f64,
     hw: &str,
 ) -> Result<(SigmfWriter, String), EngineError> {
-    let base = format!("rec_{ds}_{}", started_at.strftime("%Y%m%dT%H%M%SZ"));
+    let base = format!("{prefix}_{}", started_at.strftime("%Y%m%dT%H%M%SZ"));
     let mut name = base.clone();
     let mut n = 1u32;
     loop {
@@ -362,23 +363,23 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let ts = jiff::Timestamp::UNIX_EPOCH;
         let (first, name) =
-            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+            create_writer(dir.path(), "rec_3", 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z");
         let base_stem = first.stem().to_path_buf();
 
         let (second, name) =
-            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+            create_writer(dir.path(), "rec_3", 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-2");
 
         first.finalize().unwrap();
         drop(second);
         let (_third, name) =
-            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+            create_writer(dir.path(), "rec_3", 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-3");
 
         std::fs::remove_file(data_path(&base_stem)).unwrap();
         let (_fourth, name) =
-            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+            create_writer(dir.path(), "rec_3", 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-4");
     }
 }

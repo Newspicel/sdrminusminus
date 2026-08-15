@@ -1,6 +1,8 @@
 use sdrmm_wire::PositionFix;
 
-use crate::{Engine, EngineError, recording, runtime::DspCommand};
+use crate::{
+    Engine, EngineError, recording, runtime::DspCommand, time_machine::TimeMachineCommand,
+};
 
 impl Engine {
     pub fn update_channel_position(
@@ -27,6 +29,24 @@ impl Engine {
         media.position = fix.clone();
         state.send_dsp(stream, DspCommand::PositionChanged { id: ch, fix });
         Ok(())
+    }
+
+    pub fn update_time_machine_position(
+        &self,
+        ds: u32,
+        fix: Option<PositionFix>,
+    ) -> Result<(), EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let history = state.time_machine.as_ref().ok_or_else(|| {
+            EngineError::Recording("no time machine is holding this radio's history".to_owned())
+        })?;
+        history
+            .control
+            .send(TimeMachineCommand::Position(fix.map(Box::new)))
     }
 
     pub fn update_recording_position(
