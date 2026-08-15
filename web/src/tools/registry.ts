@@ -14,12 +14,22 @@ export interface ToolPanel {
   id: string;
   panel: ComponentType;
   descriptor?: ToolDescriptor;
+  /** How much of the window the tool needs. An instrument that plots a sweep beside its own
+   * readouts is unusable in a dialog sized for a calculator, so the panel declares it rather
+   * than fighting the container. */
+  size?: ToolSize;
 }
+
+export type ToolSize = "standard" | "full";
 
 export const TOOL_PANELS: readonly ToolPanel[] = [
   { id: "antenna", panel: AntennaPanel },
-  { id: "nanovna", panel: NanoVnaPanel },
+  { id: "nanovna", panel: NanoVnaPanel, size: "full" },
 ];
+
+export function toolSize(id: string | null): ToolSize {
+  return TOOL_PANELS.find((entry) => entry.id === id)?.size ?? "standard";
+}
 
 /** A tool the launcher can list. `panel` is null for a server tool this client has no UI for —
  * shown and explained rather than hidden, so a missing panel is a visible gap. */

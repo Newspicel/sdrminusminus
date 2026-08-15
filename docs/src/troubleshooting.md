@@ -41,8 +41,16 @@ URLs may send the same value as the `token` query parameter.
 5. On Linux, check the USB node permissions and reconnect after installing udev rules.
 6. Stop other SDR programs; most devices can be claimed by only one process.
 
-Desktop installers and containers use a private SoapySDR tree, so a module installed only in the
-host's default directory will not automatically appear there.
+Desktop installers and containers use a private SoapySDR tree and search the host's default module
+directories after it. A module in a directory neither list names is found by pointing
+`SDRMM_SOAPY_MODULE_PATH` at it; `sdrmm --doctor` prints the search path actually in use.
+
+## SoapySDR reports an error about libsdrplay_api
+
+The bundled SoapySDRPlay3 module is reporting that the SDRplay vendor API is not installed, which
+is the normal state of a machine with no SDRplay receiver. Nothing else is affected. To use an
+RSP, install the API from [SDRplay](https://www.sdrplay.com/downloads/) and make sure its service
+is running — see [SDRplay](hardware.md#sdrplay).
 
 ## A device is present but a saved node is disconnected
 

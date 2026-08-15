@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Button } from "../components/BaseControls";
-import { CHIP, LABEL } from "../components/controls";
+import { LABEL } from "../components/controls";
 import { toolsQuery } from "../lib/api";
 import { groupTools, launchableTools } from "./registry";
 
@@ -35,13 +35,7 @@ export function ToolsPanel({ onOpen }: { onOpen: (id: string) => void }) {
             {group.tools.map(({ descriptor }) => (
               <li key={descriptor.id}>
                 <Button type="button" className={ROW} onClick={() => onOpen(descriptor.id)}>
-                  <span className="flex items-center gap-1.5">
-                    <span className="min-w-0 truncate text-sm text-ink">{descriptor.name}</span>
-                    {descriptor.needs_hardware && <span className={CHIP}>hardware</span>}
-                  </span>
-                  <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
-                    {descriptor.summary}
-                  </span>
+                  <span className="min-w-0 truncate text-sm text-ink">{descriptor.name}</span>
                 </Button>
               </li>
             ))}

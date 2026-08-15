@@ -44,6 +44,12 @@ export function AudioControls({
     edit({ blanker: { ...blanker, threshold } }),
   );
 
+  const clicks = audio.click_removal ?? {};
+  const clickThreshold = clicks.threshold ?? AUDIO_DEFAULTS.clickThreshold;
+  const clickSlider = useDebouncedCommit((threshold: number) =>
+    edit({ click_removal: { ...clicks, threshold } }),
+  );
+
   const denoise = audio.denoise ?? {};
   const denoiseStrength = denoise.strength ?? AUDIO_DEFAULTS.denoiseStrength;
   const denoiseSlider = useDebouncedCommit((strength: number) =>
@@ -114,6 +120,31 @@ export function AudioControls({
           />
           <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums">
             {(blankerSlider.pending ?? blankerThreshold).toFixed(1)}
+            <span className="text-ink-faint">×</span>
+          </span>
+        </SettingRow>
+
+        {/* The mode picks how wide a click can be — an FM discriminator's and a static crash
+            through an AM detector are different lengths — so the only control here is how far
+            above the audio's own level something has to sit to count as one. */}
+        <SettingRow label="De-click">
+          <Checkbox
+            label="Click removal"
+            checked={clicks.enabled ?? false}
+            onChange={(enabled) => edit({ click_removal: { ...clicks, enabled } })}
+          />
+          <Slider
+            label="Click threshold"
+            className="min-w-0 flex-1"
+            disabled={!(clicks.enabled ?? false)}
+            min={AUDIO_LIMITS.clickThreshold.min}
+            max={AUDIO_LIMITS.clickThreshold.max}
+            step={0.5}
+            value={clickSlider.pending ?? clickThreshold}
+            onChange={clickSlider.change}
+          />
+          <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums">
+            {(clickSlider.pending ?? clickThreshold).toFixed(1)}
             <span className="text-ink-faint">×</span>
           </span>
         </SettingRow>

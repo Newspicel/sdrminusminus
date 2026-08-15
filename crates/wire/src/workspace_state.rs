@@ -121,6 +121,7 @@ mod tests {
             settings: ChannelSettings {
                 offset_hz,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: crate::audio::AudioProcessing::default(),
             },

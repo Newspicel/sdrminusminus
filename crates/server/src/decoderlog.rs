@@ -358,6 +358,7 @@ mod tests {
                 ChannelSettings {
                     offset_hz: 0.0,
                     squelch_db: None,
+                    squelch_auto_db: None,
                     params: ChannelParams::default_for("adsb").expect("adsb is a channel type"),
                     audio: Default::default(),
                 },

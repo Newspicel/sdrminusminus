@@ -129,6 +129,10 @@ struct AddChannelRequest {
     offset_hz: f64,
     /// Squelch threshold in dBFS; omit to leave the gate open.
     squelch_db: Option<f32>,
+    /// Track the channel's noise floor and gate this many dB above it, instead of holding the
+    /// threshold above at a fixed level. Needs `squelch_db` set: it is what the gate falls back
+    /// to when tracking is switched off.
+    squelch_auto_db: Option<f32>,
     /// Mode-specific settings object. Omit for the documented defaults; the accepted keys are
     /// the ones `list_channel_types` describes for this type.
     settings: Option<serde_json::Value>,
@@ -162,6 +166,15 @@ struct RecordRequest {
     /// Which receive stream a start records — one recording per set, on a named stream; omit
     /// for 0. Ignored on stop.
     stream: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecordChannelAudioRequest {
+    device_set: u32,
+    /// Channel id from `get_state`.
+    channel: u32,
+    /// `true` starts recording this channel's audio to a WAV file, `false` stops and finishes it.
+    start: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -301,6 +314,7 @@ impl SdrMcp {
         let settings = ChannelSettings {
             offset_hz: req.offset_hz,
             squelch_db: req.squelch_db,
+            squelch_auto_db: req.squelch_auto_db,
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
@@ -428,6 +442,31 @@ impl SdrMcp {
     }
 
     #[tool(
+        description = "Start or stop recording one channel's audio to a WAV file — what a \
+                       listener on that channel would hear, the channel's own processing \
+                       included. Independent of the device's IQ recording; a channel that \
+                       produces no audio is refused.",
+        annotations(title = "Record channel audio")
+    )]
+    async fn record_channel_audio(
+        &self,
+        Parameters(req): Parameters<RecordChannelAudioRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let engine = self.engine.clone();
+        let status = tokio::task::spawn_blocking(move || {
+            if req.start {
+                engine.start_channel_recording(req.device_set, req.channel)
+            } else {
+                engine.stop_channel_recording(req.device_set, req.channel)
+            }
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        .map_err(engine_error)?;
+        structured(&status)
+    }
+
+    #[tool(
         description = "Query the stored decoder log: aircraft, ships, pager messages, APRS \
                        packets, RDS text and more, newest first.",
         annotations(title = "Query decoder log", read_only_hint = true)
@@ -533,6 +572,7 @@ mod tests {
                 "open_device",
                 "query_decoder_log",
                 "record",
+                "record_channel_audio",
                 "remove_channel",
                 "spectrum_snapshot",
                 "start_scan",

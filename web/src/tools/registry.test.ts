@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCategory, ToolDescriptor } from "../lib/types";
-import { findTool, groupTools, launchableTools, TOOL_PANELS } from "./registry";
+import { findTool, groupTools, launchableTools, TOOL_PANELS, toolSize } from "./registry";
 
 function descriptor(
   id: string,
@@ -48,6 +48,18 @@ describe("groupTools", () => {
     const groups = groupTools(launchableTools([descriptor("antenna", "Antenna calculator")]));
     expect(groups).toHaveLength(1);
     expect(groups[0]?.label).toBe("Calculators");
+  });
+});
+
+describe("toolSize", () => {
+  it("gives the instrument the whole window and the calculator a dialog", () => {
+    expect(toolSize("nanovna")).toBe("full");
+    expect(toolSize("antenna")).toBe("standard");
+  });
+
+  it("falls back to the dialog for a tool this client has no panel for", () => {
+    expect(toolSize("unknown")).toBe("standard");
+    expect(toolSize(null)).toBe("standard");
   });
 });
 

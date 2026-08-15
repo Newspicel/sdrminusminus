@@ -13,6 +13,7 @@ use num_complex::Complex;
 use rtrb::RingBuffer;
 use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    ClickProfile,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
@@ -24,6 +25,7 @@ use tokio::sync::broadcast;
 
 use crate::{
     audio::{PcmBlock, PcmPayload},
+    audio_recording::AudioRecorderTap,
     iq::{IqBlock, IqTap},
     network_export::NetworkExportTap,
     recording::RecorderTap,
@@ -129,6 +131,10 @@ pub(crate) struct ChannelSinks {
     /// DSP thread must never block to publish one.
     pub(crate) level_db: Arc<AtomicU32>,
     pub(crate) peak_db: Arc<AtomicU32>,
+    /// Where the gate is currently opening, on the same scale and published the same way; NaN
+    /// while the squelch is off. An automatic threshold moves with the noise floor, so it is a
+    /// measurement the meter reads, not a setting the client already holds.
+    pub(crate) squelch_db: Arc<AtomicU32>,
 }
 
 /// One hosted channel on the DSP thread: DDC → noise blanker → channel filter → squelch gate →
@@ -146,6 +152,9 @@ pub(crate) struct ChannelHost {
     squelch: Squelch,
     /// `None` bypasses the gate (always open); mirrors [`ChannelSettings::squelch_db`].
     threshold_db: Option<f32>,
+    /// Audio recording armed on this channel, if any. Fed the very blocks that go to the
+    /// listener, so what is on disk is what was heard — the audio chain included.
+    audio_rec: Option<AudioRecorderTap>,
     rx: Box<dyn ChannelRx>,
     /// Blanker, filters, noise reduction and AGC, hosted here rather than inside each mode so
     /// every channel that produces audio has the same one. Silent — and skipped — until the
@@ -222,19 +231,27 @@ impl ChannelHost {
         let audio_channels = sdrmm_channels::audio_channels(&settings.params);
         let decodes = descriptor.decoder_kind.is_some();
         let emits_events = decodes && rx.needs_gated_input();
+        let mut squelch = Squelch::new(
+            input_rate,
+            settings.squelch_db.unwrap_or(0.0),
+            SQUELCH_HYSTERESIS_DB,
+            SQUELCH_HOLD_S,
+        );
+        squelch.set_auto_margin_db(settings.squelch_auto_db);
         Ok(Box::new(Self {
             ddc,
             filter,
             params: settings.params.clone(),
-            squelch: Squelch::new(
-                input_rate,
-                settings.squelch_db.unwrap_or(0.0),
-                SQUELCH_HYSTERESIS_DB,
-                SQUELCH_HOLD_S,
-            ),
+            squelch,
             threshold_db: settings.squelch_db,
+            audio_rec: None,
             rx,
-            audio: AudioChain::new(input_rate, audio_channels, &settings.audio),
+            audio: AudioChain::new(
+                input_rate,
+                audio_channels,
+                &settings.audio,
+                ClickProfile::for_params(&settings.params),
+            ),
             has_audio: descriptor.has_audio,
             outputs: ChannelOutputs::default(),
             scratch: Vec::new(),
@@ -279,6 +296,15 @@ impl ChannelHost {
             Some(_) => self.squelch.process(&self.filtered),
             None => true,
         };
+        // Published after the block, not on a settings change: with tracking on, where the gate
+        // sits is a measurement that moves with the channel's noise floor.
+        self.sinks.squelch_db.store(
+            match self.threshold_db {
+                Some(_) => self.squelch.threshold_db().to_bits(),
+                None => f32::NAN.to_bits(),
+            },
+            Ordering::Relaxed,
+        );
         // A picture is stamped with how much of the channel's own stream has gone by, so the
         // clock has to run whether or not the gate is open — a closed squelch is a gap in the
         // video, and it has to read as one.
@@ -308,11 +334,13 @@ impl ChannelHost {
                     .sinks
                     .pcm_pos
                     .fetch_add(frames as u64, Ordering::Relaxed);
-                let _ = self.sinks.pcm_tx.send(PcmBlock {
+                let block = PcmBlock {
                     start_frame: stamp,
                     channels: self.audio_channels,
                     payload: PcmPayload::Samples(Arc::from(self.outputs.audio_pcm.as_slice())),
-                });
+                };
+                self.record_audio(&block);
+                let _ = self.sinks.pcm_tx.send(block);
             }
         } else {
             // A decoder measures time in the samples it has processed — its bit clock, its
@@ -337,12 +365,27 @@ impl ChannelHost {
                     .sinks
                     .pcm_pos
                     .fetch_add(zeros as u64, Ordering::Relaxed);
-                let _ = self.sinks.pcm_tx.send(PcmBlock {
+                let block = PcmBlock {
                     start_frame: stamp,
                     channels: self.audio_channels,
                     payload: PcmPayload::Silence(zeros),
-                });
+                };
+                self.record_audio(&block);
+                let _ = self.sinks.pcm_tx.send(block);
             }
+        }
+    }
+
+    /// Hand a block to the channel's recording, if one is armed. Squelched silence goes too: a
+    /// recording is a timeline, and a gap in it has to be as long as the quiet that made it.
+    ///
+    /// A tap that reports failure is dropped here rather than left to keep failing — the cause
+    /// is already in the recording's shared state, and the control side surfaces it from there.
+    fn record_audio(&mut self, block: &PcmBlock) {
+        if let Some(tap) = &self.audio_rec
+            && !tap.push(block.clone())
+        {
+            self.audio_rec = None;
         }
     }
 
@@ -394,6 +437,7 @@ impl ChannelHost {
         if let Some(db) = settings.squelch_db {
             self.squelch.set_threshold_db(db);
         }
+        self.squelch.set_auto_margin_db(settings.squelch_auto_db);
         if settings.params != self.params {
             match sdrmm_channels::channel_filter(&settings.params) {
                 Ok(filter) => {
@@ -406,7 +450,11 @@ impl ChannelHost {
             }
         }
         let channels = sdrmm_channels::audio_channels(&settings.params);
-        self.audio.configure(channels, &settings.audio);
+        self.audio.configure(
+            channels,
+            &settings.audio,
+            ClickProfile::for_params(&settings.params),
+        );
         if let Err(e) = self.rx.apply(settings) {
             tracing::error!(error = %e, "validated channel settings rejected on dsp thread");
         } else {
@@ -424,9 +472,17 @@ impl ChannelHost {
     }
 
     /// What the audio chain has measured belongs to the station the channel just left: a
-    /// blanker's level, a notch's converged weights, a noise floor.
+    /// blanker's level, a notch's converged weights, a noise floor — and the gate's own floor,
+    /// which is the noise of a frequency this channel is no longer on.
     pub(crate) fn retuned(&mut self) {
         self.audio.reset();
+        self.squelch.reset();
+    }
+
+    /// Arm or disarm this channel's audio recording. Disarming drops the tap, which closes the
+    /// writer's queue — that drop *is* the finalize handshake.
+    fn set_audio_recording(&mut self, tap: Option<AudioRecorderTap>) {
+        self.audio_rec = tap;
     }
 }
 
@@ -457,6 +513,16 @@ pub(crate) enum DspCommand {
         tap: RecorderTap,
     },
     StopRecording,
+    /// Arm one channel's audio recording, with the same drop-is-stop handshake as
+    /// [`DspCommand::StartRecording`] — here the tap lives inside the channel's host, so
+    /// removing the channel finalizes its recording too.
+    StartChannelRecording {
+        id: u32,
+        tap: AudioRecorderTap,
+    },
+    StopChannelRecording {
+        id: u32,
+    },
     StartNetworkExport {
         tap: NetworkExportTap,
     },
@@ -818,6 +884,19 @@ fn drain_commands(
             }
             DspCommand::StartRecording { tap: armed } => *tap = Some(armed),
             DspCommand::StopRecording => *tap = None,
+            DspCommand::StartChannelRecording { id, tap: armed } => {
+                match channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    Some((_, host)) => host.set_audio_recording(Some(armed)),
+                    // Dropping the tap here closes the writer's queue, so the recording
+                    // finalizes empty instead of waiting on a channel that is gone.
+                    None => tracing::debug!(id, "audio recording for a channel no longer hosted"),
+                }
+            }
+            DspCommand::StopChannelRecording { id } => {
+                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    host.set_audio_recording(None);
+                }
+            }
             DspCommand::StartNetworkExport { tap: armed } => *network_tap = Some(armed),
             DspCommand::StopNetworkExport => *network_tap = None,
         }
@@ -843,6 +922,7 @@ mod tests {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db,
+            squelch_auto_db: None,
             params: ChannelParams::Nfm(NfmParams::default()),
             audio: Default::default(),
         }
@@ -858,6 +938,7 @@ mod tests {
             iq_tx: broadcast::channel(crate::iq::IQ_CHANNEL_CAP).0,
             level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
             peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
+            squelch_db: Arc::new(AtomicU32::new(f32::NAN.to_bits())),
         }
     }
 
@@ -961,6 +1042,7 @@ mod tests {
         let settings = ChannelSettings {
             offset_hz: 0.0,
             squelch_db: Some(-50.0),
+            squelch_auto_db: None,
             params: ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 2_700.0,
@@ -970,6 +1052,49 @@ mod tests {
         let (mut host, mut rx) = host(&settings);
         let blocks = run(&mut host, &mut rx, &tone(10_000.0, 1.0, 48_000));
         assert_silence_after_settle(&blocks, 24_000, "ssb");
+    }
+
+    /// An automatic gate is set by the channel, not by the operator: noise alone has to keep it
+    /// shut, and the same channel with a carrier on it has to open — with nobody having named a
+    /// threshold, and with the threshold it settled on published for the meter to draw.
+    #[test]
+    fn an_automatic_squelch_finds_its_own_threshold() {
+        let settings = ChannelSettings {
+            squelch_db: Some(-100.0),
+            squelch_auto_db: Some(8.0),
+            ..nfm_settings(None)
+        };
+        let (mut host, mut rx) = host(&settings);
+        let published = host.sinks.squelch_db.clone();
+
+        let mut rng = 0x1234_5678u32;
+        let mut noise = |len: usize| -> Vec<Complex<f32>> {
+            (0..len)
+                .map(|_| {
+                    let mut next = || {
+                        rng ^= rng << 13;
+                        rng ^= rng >> 17;
+                        rng ^= rng << 5;
+                        (rng as f32 / u32::MAX as f32 - 0.5) * 0.002
+                    };
+                    Complex::new(next(), next())
+                })
+                .collect()
+        };
+        let quiet = run(&mut host, &mut rx, &noise(96_000));
+        assert_silence_after_settle(&quiet, 24_000, "auto squelch on noise");
+        let threshold = f32::from_bits(published.load(Ordering::Relaxed));
+        assert!(
+            (-100.0..-30.0).contains(&threshold),
+            "threshold landed at {threshold} dB, nowhere near the noise it heard"
+        );
+
+        let loud = run(&mut host, &mut rx, &tone(0.0, 0.5, 48_000));
+        assert!(
+            loud.iter()
+                .any(|b| matches!(b.payload, PcmPayload::Samples(_))),
+            "the carrier never opened the gate"
+        );
     }
 
     /// FM capture by a 2× adjacent-channel signal destroyed the wanted audio before the
@@ -1068,6 +1193,7 @@ mod tests {
         let settings = ChannelSettings {
             offset_hz: 250_000.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
             audio: Default::default(),
         };

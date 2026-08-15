@@ -1078,6 +1078,7 @@ fn nfm_settings(offset_hz: f64) -> ChannelSettings {
     ChannelSettings {
         offset_hz,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams::default()),
         audio: Default::default(),
     }
@@ -1108,6 +1109,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Adsb(AdsbParams::default()),
                 audio: Default::default(),
             },
@@ -1133,6 +1135,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Adsb(AdsbParams {
                     crc_fix: false,
                     ref_lat: Some(0.0),
@@ -1248,6 +1251,7 @@ async fn a_channel_with_no_audio_refuses_an_audio_chain() {
     let settings = ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Pocsag(sdrmm_wire::PocsagParams::default()),
         audio: AudioProcessing {
             agc: sdrmm_wire::AudioAgcMode::Fast,
@@ -1872,6 +1876,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
     let usb = |offset_hz: f64| ChannelSettings {
         offset_hz,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Ssb(SsbParams {
             sideband: Sideband::Usb,
             bandwidth_hz: 10_000.0,
@@ -1881,6 +1886,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
     let wide_nfm = |offset_hz: f64| ChannelSettings {
         offset_hz,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams {
             bandwidth_hz: 25_000.0,
             ..NfmParams::default()
@@ -1947,6 +1953,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
             ChannelSettings {
                 offset_hz: 25_000.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },
@@ -2184,6 +2191,7 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },
@@ -2345,6 +2353,7 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },

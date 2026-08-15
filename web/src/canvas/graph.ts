@@ -319,6 +319,7 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   dmr_trunk: { w: 480, h: 360 },
   video: { w: 380, h: 320 },
   recorder: { w: 340, h: 260 },
+  audio_recorder: { w: 340, h: 300 },
   network_export: { w: 380, h: 310 },
   export: { w: 320, h: 180 },
   scanner: { w: 400, h: 400 },
@@ -334,7 +335,7 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
  * squelch adds and a notch beside it; past that the face scrolls, which is the right answer for
  * a channel carrying four notches at once.
  */
-const AUDIO_CHANNEL_H = 500;
+const AUDIO_CHANNEL_H = 560;
 
 /** The size `node`'s face opens at. */
 export function naturalSize(node: PatchNode, context: GraphContext): { w: number; h: number } {
@@ -386,6 +387,7 @@ export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
   dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
   recorder: NODE_SIZE.recorder,
+  audio_recorder: NODE_SIZE.audio_recorder,
   network_export: NODE_SIZE.network_export,
   export: NODE_SIZE.export,
   scanner: NODE_SIZE.scanner,

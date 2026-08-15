@@ -6,6 +6,8 @@ import { getToken, rejectToken, withToken } from "./auth";
 import type {
   AboutResponse,
   ApiError,
+  AudioRecordingStatus,
+  AudioRecordingsResponse,
   AuthInfo,
   BandPlan,
   BandRegionsResponse,
@@ -75,6 +77,7 @@ export const CHANNEL_TYPES_KEY = ["get", "/api/channeltypes"] as const;
 export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
+export const AUDIO_RECORDINGS_KEY = ["get", "/api/audiorecordings"] as const;
 export const CALLS_KEY = ["get", "/api/calls"] as const;
 export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
@@ -263,6 +266,39 @@ export async function recordDeviceSet(
     await client.POST("/api/devicesets/{ds}/record", {
       params: { path: { ds } },
       body: { action, stream },
+    }),
+  );
+}
+
+export function audioRecordingsQuery() {
+  return queryOptions({
+    queryKey: AUDIO_RECORDINGS_KEY,
+    queryFn: async (): Promise<AudioRecordingsResponse> =>
+      unwrap(await client.GET("/api/audiorecordings")),
+  });
+}
+
+export async function recordChannelAudio(
+  ds: number,
+  ch: number,
+  action: RecordAction,
+): Promise<AudioRecordingStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/record", {
+      params: { path: { ds, ch } },
+      body: { action },
+    }),
+  );
+}
+
+export function audioRecordingDownloadUrl(file: string): string {
+  return withToken(`/api/audiorecordings/${encodeURIComponent(file)}/download`);
+}
+
+export async function deleteAudioRecording(file: string): Promise<void> {
+  unwrap(
+    await client.DELETE("/api/audiorecordings/{file}", {
+      params: { path: { file } },
     }),
   );
 }
@@ -485,6 +521,13 @@ export function toolRunQuery(request: ToolRequest | null) {
     staleTime: Number.POSITIVE_INFINITY,
     placeholderData: keepPreviousData,
   });
+}
+
+/** One tool call that moves hardware rather than asking it something. A calibration step
+ * measures a standard the operator has just screwed on, so it is never answered from the cache
+ * and never replayed. */
+export async function runTool(request: ToolRequest): Promise<ToolResponse> {
+  return unwrap(await client.POST("/api/tools/run", { body: request }));
 }
 
 /** The build, its license, and everything it is built out of. Compiled into the binary, so it

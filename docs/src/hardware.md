@@ -16,15 +16,21 @@ Desktop installers and containers bundle a private SoapySDR 0.8.1 runtime with t
 | LimeSDR | SoapyLMS7 |
 | PlutoSDR and libiio devices | SoapyPlutoSDR |
 | Remote Soapy server | SoapyRemote |
+| SDRplay RSP | SoapySDRPlay3, with the vendor API installed separately ([below](#sdrplay)) |
 
-UHD is not included in the base package because of its size. SDRplay is supported through a
-separately installed runtime and module. Other modules may work if they match the SoapySDR 0.8
-module ABI, but are not part of the release test matrix.
+UHD is not included in the base package because of its size. Other modules may work if they match
+the SoapySDR 0.8 module ABI, but are not part of the release test matrix.
 
 Portable headless archives and source builds use the host SoapySDR installation. The release
 baseline is SoapySDR 0.8.1, SoapyRTLSDR 0.3.3, and SoapyHackRF 0.3.4; the complete curated set is
 listed in
 [`packaging/soapy/environment.yml`](https://github.com/Newspicel/sdrminusminus/blob/main/packaging/soapy/environment.yml).
+
+Modules installed on the host are searched too, after the bundled ones: a distribution package or
+a self-built module in `/usr/local/lib/SoapySDR/modules0.8` (or the Homebrew, MacPorts or
+`/usr/lib` equivalent) is loaded without copying anything into the application. Set
+`SDRMM_SOAPY_MODULE_PATH` to search your own directories first. A module built against a different
+SoapySDR generation is refused by the core and logged rather than loaded.
 
 ## Check your installation
 
@@ -83,15 +89,27 @@ by exchanging I and Q; it is independent of direct sampling.
 ## SDRplay
 
 RSP1, RSP1A/B, RSP2, RSPduo, and RSPdx/R2 receivers work through
-[SoapySDRPlay3](https://github.com/pothosware/SoapySDRPlay3). The tested baseline is module 0.5.2
-with SDRplay API 3.15 or newer.
+[SoapySDRPlay3](https://github.com/pothosware/SoapySDRPlay3). Desktop installers and the container
+carry module 0.5.2, compiled at packaging time; it needs SDRplay API 3.15 or newer underneath it.
 
-Install the proprietary API for your platform from [SDRplay](https://www.sdrplay.com/api/) first.
-Its service, library, and hardware driver are licensed for genuine SDRplay hardware and are not
-redistributed with sdr--.
+Support arrives in two halves, and only one of them can be shipped:
 
-For a source build or portable server that uses the host SoapySDR runtime, install a matching
-SoapySDRPlay3 module into that runtime:
+1. **The module** — MIT licensed, part of the package. Nothing to install.
+2. **The vendor API** — the library, service and hardware driver, licensed for use with genuine
+   SDRplay hardware and not licensed for redistribution. Install it yourself from
+   [SDRplay](https://www.sdrplay.com/downloads/).
+
+So: install the API, plug in the RSP, and the receiver appears. Until the API is installed the
+module cannot load, and SoapySDR says so once at startup with an error naming `libsdrplay_api`.
+That message is expected on a machine with no SDRplay hardware and affects nothing else;
+`sdrmm --doctor` reports the same thing in plainer words under **SDRplay API**.
+
+The API also runs a background service (`sdrplay_apiService`). If it is stopped, enumeration fails
+with `sdrplay_api_Open() failed` even though everything is installed — start the service and
+retry.
+
+A source build or portable server uses the host SoapySDR runtime, which carries no module of its
+own, so build one into it:
 
 ```sh
 git clone --branch soapy-sdrplay3-0.5.2 --depth 1 \
@@ -102,9 +120,8 @@ sudo cmake --install SoapySDRPlay3/build
 SoapySDRUtil --find="driver=sdrplay"
 ```
 
-Desktop installers and the container use their own Soapy tree. A compatible local extension must
-place the module in that tree's `lib/SoapySDR/modules0.8` directory and make the vendor API library
-and service available in the same environment. The container module directory is
+Packaged installs pick a host-installed module up as well, so this also works to replace the
+bundled module with a newer one. The container's own module directory is
 `/opt/conda/lib/SoapySDR/modules0.8`.
 
 RSPduo operating modes appear as distinct devices even when they share a serial number. sdr--

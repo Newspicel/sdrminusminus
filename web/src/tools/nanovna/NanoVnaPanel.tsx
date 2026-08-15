@@ -1,43 +1,61 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
-import {
-  ALERT,
-  BTN,
-  BTN_PRIMARY,
-  CHIP,
-  FIELD,
-  LABEL,
-  TABLE_CELL,
-  TABLE_HEAD,
-} from "../../components/controls";
+import { ALERT, BTN, BTN_PRIMARY, CHIP, FIELD, LABEL } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { NumberField } from "../../components/NumberField";
 import { Segmented } from "../../components/Segmented";
+import { Select } from "../../components/Select";
 import { Slider } from "../../components/Slider";
 import { toolRunQuery } from "../../lib/api";
-import type { NanoVnaPoint, NanoVnaSweep, NanoVnaSweepRequest } from "../../lib/types";
+import type {
+  NanoVnaCalibration,
+  NanoVnaSweep,
+  NanoVnaSweepRequest,
+  NanoVnaSweepState,
+} from "../../lib/types";
+import { analyse, readouts } from "./analysis";
+import { CalibrationPanel } from "./CalibrationPanel";
+import { DeviceReport } from "./DeviceReport";
 import {
-  formatDb,
-  formatImpedance,
-  formatVswr,
-  gainDb,
-  impedance,
-  lowestVswrIndex,
+  downloadText,
+  exportFilename,
+  sweepCsv,
+  TOUCHSTONE_FORMATS,
+  type TouchstoneFormat,
+  touchstoneS1p,
+  touchstoneS2p,
+} from "./export";
+import { MarkerReadout, SweepSummary } from "./MarkerReadout";
+import {
+  nanoVnaDescribeRequest,
   nanoVnaDevices,
   nanoVnaDevicesRequest,
+  nanoVnaIgnoredPorts,
+  nanoVnaReport,
   nanoVnaSweep,
   nanoVnaSweepRequest,
-  phaseDeg,
-  returnLossDb,
-  vswr,
 } from "./nanovna";
+import { SmithChart } from "./SmithChart";
+import { SweepChart } from "./SweepChart";
+import { CHART_VIEWS, type ChartId, chartView } from "./traces";
 
-type Trace = "s11" | "s21";
+type Tab = "measure" | "calibrate" | "device";
 
-const TRACE_OPTIONS = [
-  { value: "s11", label: "S11 return loss" },
-  { value: "s21", label: "S21 gain" },
+const TABS = [
+  { value: "measure", label: "Measure" },
+  { value: "calibrate", label: "Calibrate" },
+  { value: "device", label: "Device" },
+] as const;
+
+const CHART_OPTIONS = CHART_VIEWS.map((view) => ({ value: view.id, label: view.label }));
+
+const RANGE_PRESETS = [
+  { label: "HF", startMhz: 0.05, stopMhz: 30 },
+  { label: "6 m", startMhz: 50, stopMhz: 54 },
+  { label: "2 m", startMhz: 144, stopMhz: 148 },
+  { label: "70 cm", startMhz: 430, stopMhz: 440 },
+  { label: "Full", startMhz: 0.05, stopMhz: 900 },
 ] as const;
 
 export function NanoVnaPanel() {
@@ -46,23 +64,34 @@ export function NanoVnaPanel() {
   const [stopMhz, setStopMhz] = useState(30);
   const [points, setPoints] = useState(101);
   const [averages, setAverages] = useState(1);
+  const [tab, setTab] = useState<Tab>("measure");
   const [submitted, setSubmitted] = useState<NanoVnaSweepRequest | null>(null);
+  const [calibration, setCalibration] = useState<NanoVnaCalibration | null>(null);
+
   const devicesQuery = useQuery(toolRunQuery(nanoVnaDevicesRequest()));
   const devices = nanoVnaDevices(devicesQuery.data);
+  const ignored = nanoVnaIgnoredPorts(devicesQuery.data);
   const effectivePort = port || devices[0]?.port || "";
+
   const sweepQuery = useQuery(
     toolRunQuery(submitted === null ? null : nanoVnaSweepRequest(submitted)),
   );
   const sweep = nanoVnaSweep(sweepQuery.data);
+  const describeQuery = useQuery(
+    toolRunQuery(
+      tab === "measure" || effectivePort === "" ? null : nanoVnaDescribeRequest(effectivePort),
+    ),
+  );
+  const report = nanoVnaReport(describeQuery.data) ?? sweep?.device ?? null;
+
+  const range: NanoVnaSweepState = {
+    start_hz: Math.round(startMhz * 1e6),
+    stop_hz: Math.round(stopMhz * 1e6),
+    points: Math.round(points),
+  };
 
   function acquire() {
-    const request = {
-      port: effectivePort,
-      start_hz: Math.round(startMhz * 1e6),
-      stop_hz: Math.round(stopMhz * 1e6),
-      points: Math.round(points),
-      averages: Math.round(averages),
-    };
+    const request = { port: effectivePort, ...range, averages: Math.round(averages) };
     if (submitted !== null && JSON.stringify(submitted) === JSON.stringify(request)) {
       void sweepQuery.refetch();
     } else {
@@ -71,17 +100,17 @@ export function NanoVnaPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-        <Labelled label="Serial port">
+        <Labelled label="Instrument">
           <div className="flex gap-1.5">
             <Input
               aria-label="NanoVNA serial port"
               data-hotkeys="off"
               value={port}
-              placeholder={devices[0]?.port ?? "/dev/ttyACM0 or COM3"}
+              placeholder={devices[0]?.port ?? "no NanoVNA found"}
               onChange={(event) => setPort(event.target.value)}
-              className={`${FIELD} w-52`}
+              className={`${FIELD} w-64`}
             />
             <Button
               type="button"
@@ -89,7 +118,7 @@ export function NanoVnaPanel() {
               disabled={devicesQuery.isFetching}
               onClick={() => void devicesQuery.refetch()}
             >
-              Rescan
+              {devicesQuery.isFetching ? "Scanning…" : "Rescan"}
             </Button>
           </div>
         </Labelled>
@@ -140,224 +169,284 @@ export function NanoVnaPanel() {
         <Button
           type="button"
           className={BTN_PRIMARY}
-          disabled={effectivePort.length === 0 || sweepQuery.isFetching || stopMhz <= startMhz}
+          disabled={effectivePort === "" || sweepQuery.isFetching || stopMhz <= startMhz}
           onClick={acquire}
         >
-          {sweepQuery.isFetching ? "Sweeping…" : sweep === null ? "Acquire sweep" : "Sweep again"}
+          {sweepQuery.isFetching ? "Sweeping…" : sweep === null ? "Sweep" : "Sweep again"}
         </Button>
       </div>
 
-      {devicesQuery.isError && <p className={ALERT}>{devicesQuery.error.message}</p>}
-      {devices.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-dim">
-          <span>Detected</span>
-          {devices.map((device) => (
-            <Button
-              key={device.port}
-              type="button"
-              className={CHIP}
-              onClick={() => setPort(device.port)}
-            >
-              {device.label}
-            </Button>
-          ))}
-        </div>
-      )}
-      {devices.length === 0 && !devicesQuery.isPending && !devicesQuery.isError && (
-        <p className="text-xs text-ink-dim">
-          No serial devices were found. Enter a port path directly after connecting the NanoVNA.
-        </p>
-      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={LABEL}>Range</span>
+        {RANGE_PRESETS.map((preset) => (
+          <Button
+            key={preset.label}
+            type="button"
+            className={CHIP}
+            onClick={() => {
+              setStartMhz(preset.startMhz);
+              setStopMhz(preset.stopMhz);
+            }}
+          >
+            {preset.label}
+          </Button>
+        ))}
+      </div>
+
+      <DeviceBar
+        devices={devices}
+        ignored={ignored}
+        selected={effectivePort}
+        pending={devicesQuery.isPending}
+        error={devicesQuery.isError ? devicesQuery.error.message : null}
+        onSelect={setPort}
+      />
+
+      <Segmented label="NanoVNA section" value={tab} options={TABS} onChange={setTab} />
+
       {sweepQuery.isError && <p className={ALERT}>{sweepQuery.error.message}</p>}
-      {sweep !== null && <SweepReport sweep={sweep} />}
+      {describeQuery.isError && tab !== "measure" && (
+        <p className={ALERT}>{describeQuery.error.message}</p>
+      )}
+
+      {tab === "measure" &&
+        (sweep === null ? (
+          <p className="text-xs text-ink-dim">
+            {effectivePort === ""
+              ? "Connect a NanoVNA and rescan."
+              : "Sweep to measure S11 and S21 across the range above."}
+          </p>
+        ) : (
+          <SweepView sweep={sweep} />
+        ))}
+
+      {tab === "calibrate" && (
+        <CalibrationPanel
+          port={effectivePort}
+          range={range}
+          state={calibration ?? report?.calibration ?? null}
+          onState={setCalibration}
+        />
+      )}
+
+      {tab === "device" &&
+        (report === null ? (
+          <p className="text-xs text-ink-dim">
+            {describeQuery.isFetching ? "Reading the instrument…" : "No instrument selected."}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div>
+              <Button
+                type="button"
+                className={BTN}
+                disabled={describeQuery.isFetching}
+                onClick={() => void describeQuery.refetch()}
+              >
+                {describeQuery.isFetching ? "Reading…" : "Re-read the instrument"}
+              </Button>
+            </div>
+            <DeviceReport report={report} />
+          </div>
+        ))}
     </div>
   );
 }
 
-function SweepReport({ sweep }: { sweep: NanoVnaSweep }) {
-  const [trace, setTrace] = useState<Trace>("s11");
-  const [selected, setSelected] = useState<number | null>(null);
-  const best = lowestVswrIndex(sweep.points);
-  const marker = Math.min(selected ?? best, Math.max(0, sweep.points.length - 1));
-  const point = sweep.points[marker];
-  if (point === undefined) {
+function DeviceBar({
+  devices,
+  ignored,
+  selected,
+  pending,
+  error,
+  onSelect,
+}: {
+  devices: ReturnType<typeof nanoVnaDevices>;
+  ignored: string[];
+  selected: string;
+  pending: boolean;
+  error: string | null;
+  onSelect: (port: string) => void;
+}) {
+  if (error !== null) {
+    return <p className={ALERT}>{error}</p>;
+  }
+  if (pending) {
+    return <p className="text-xs text-ink-dim">Looking for a NanoVNA…</p>;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-dim">
+      {devices.length === 0 ? (
+        <span>
+          No NanoVNA found on any serial port. Connect one and rescan, or type its port above.
+        </span>
+      ) : (
+        devices.map((device) => (
+          <Button
+            key={device.port}
+            type="button"
+            className={`${CHIP} ${device.port === selected ? "border-accent text-accent" : ""}`}
+            onClick={() => onSelect(device.port)}
+            title={[device.manufacturer, device.product, device.serial_number]
+              .filter((field) => field !== undefined)
+              .join(" · ")}
+          >
+            {device.label}
+            {device.match_kind === "probable" && (
+              <span className="text-ink-faint">unconfirmed</span>
+            )}
+          </Button>
+        ))
+      )}
+      {ignored.length > 0 && (
+        <span className="text-ink-faint" title={ignored.join("\n")}>
+          {ignored.length} other serial {ignored.length === 1 ? "port" : "ports"} ignored
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SweepView({ sweep }: { sweep: NanoVnaSweep }) {
+  const [chart, setChart] = useState<ChartId>("magnitude");
+  const [zoom, setZoom] = useState<{ from: number; to: number } | null>(null);
+  const [marker, setMarker] = useState<number | null>(null);
+  const [format, setFormat] = useState<TouchstoneFormat>("ri");
+
+  const rows = useMemo(() => readouts(sweep.points), [sweep.points]);
+  const analysis = useMemo(() => analyse(sweep.points), [sweep.points]);
+  const visible = zoom === null ? rows : rows.slice(zoom.from, zoom.to + 1);
+  const fallback = Math.max(0, (analysis.resonance?.index ?? 0) - (zoom?.from ?? 0));
+  const lastIndex = Math.max(0, visible.length - 1);
+  const active = Math.min(marker ?? fallback, lastIndex);
+  const row = visible[active];
+  const view = chartView(chart);
+
+  if (row === undefined) {
     return <p className={ALERT}>The NanoVNA returned an empty sweep.</p>;
   }
-  const z = impedance(point.s11);
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <span className={CHIP}>
-          <span className="text-ink-faint">firmware</span>
-          {sweep.firmware}
-        </span>
-        <span className={CHIP}>
-          <span className="text-ink-faint">samples</span>
+          <span className="text-ink-faint">points</span>
           {sweep.points.length}
         </span>
         <span className={CHIP}>
-          <span className="text-ink-faint">best match</span>
-          {formatVswr(vswr(sweep.points[best]?.s11 ?? point.s11))}
+          <span className="text-ink-faint">averages</span>
+          {sweep.averages}
         </span>
+        <span className={CHIP}>
+          <span className="text-ink-faint">took</span>
+          {(sweep.elapsed_ms / 1000).toFixed(1)} s
+        </span>
+        <span className={CHIP}>
+          <span className="text-ink-faint">correction</span>
+          <span className={sweep.device.calibration.applied ? "text-ok" : "text-danger"}>
+            {sweep.device.calibration.applied ? "on" : "off"}
+          </span>
+        </span>
+        {sweep.device.bandwidth_hz !== undefined && (
+          <span className={CHIP}>
+            <span className="text-ink-faint">IF</span>
+            {sweep.device.bandwidth_hz} Hz
+          </span>
+        )}
       </div>
+
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <Segmented label="VNA trace" value={trace} options={TRACE_OPTIONS} onChange={setTrace} />
-        <label className="flex min-w-52 flex-1 items-center gap-2 font-mono text-xs text-ink-dim">
-          <span className={LABEL}>Marker</span>
-          <Slider
-            label="Sweep marker"
-            min={0}
-            max={Math.max(0, sweep.points.length - 1)}
-            value={marker}
-            onChange={setSelected}
-            className="min-w-32 flex-1"
-          />
-        </label>
+        <Segmented label="Chart" value={chart} options={CHART_OPTIONS} onChange={setChart} />
+        <div className="flex items-center gap-2">
+          {zoom !== null && (
+            <Button type="button" className={BTN} onClick={() => setZoom(null)}>
+              Reset zoom
+            </Button>
+          )}
+          <span className="font-mono text-[10px] text-ink-faint">
+            drag to move the marker · shift-drag to zoom
+          </span>
+        </div>
       </div>
-      <NanoVnaPlot points={sweep.points} trace={trace} marker={marker} onMarker={setSelected} />
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="border-b border-line">
-            <th className={TABLE_HEAD}>Frequency</th>
-            <th className={TABLE_HEAD}>VSWR</th>
-            <th className={TABLE_HEAD}>Return loss</th>
-            <th className={TABLE_HEAD}>S11 phase</th>
-            <th className={TABLE_HEAD}>Impedance</th>
-            <th className={TABLE_HEAD}>S21 gain</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="border-b border-line/60">
-            <td className={`${TABLE_CELL} text-accent`}>{formatHz(point.frequency_hz)}</td>
-            <td className={TABLE_CELL}>{formatVswr(vswr(point.s11))}</td>
-            <td className={TABLE_CELL}>{formatDb(returnLossDb(point.s11))}</td>
-            <td className={TABLE_CELL}>{phaseDeg(point.s11).toFixed(1)}°</td>
-            <td className={TABLE_CELL}>{formatImpedance(z)}</td>
-            <td className={TABLE_CELL}>{formatDb(gainDb(point.s21))}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
-function NanoVnaPlot({
-  points,
-  trace,
-  marker,
-  onMarker,
-}: {
-  points: readonly NanoVnaPoint[];
-  trace: Trace;
-  marker: number;
-  onMarker: (index: number) => void;
-}) {
-  const width = 720;
-  const height = 260;
-  const left = 58;
-  const right = 16;
-  const top = 16;
-  const bottom = 34;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const values = points.map((point) =>
-    trace === "s11" ? returnLossDb(point.s11) : gainDb(point.s21),
-  );
-  const finite = values.filter(Number.isFinite);
-  const low = finite.length === 0 ? -10 : Math.floor(Math.min(...finite) / 10) * 10;
-  const rawHigh = finite.length === 0 ? 10 : Math.ceil(Math.max(...finite) / 10) * 10;
-  const high = rawHigh <= low ? low + 10 : rawHigh;
-  const x = (index: number) => left + (index / Math.max(1, points.length - 1)) * plotWidth;
-  const y = (value: number) =>
-    top + ((high - Math.max(low, Math.min(high, value))) / (high - low)) * plotHeight;
-  const path = values
-    .map(
-      (value, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(2)},${y(value).toFixed(2)}`,
-    )
-    .join(" ");
-  const markerPoint = points[marker];
-
-  function moveMarker(event: React.PointerEvent<SVGSVGElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const localX = ((event.clientX - bounds.left) / bounds.width) * width;
-    const fraction = Math.max(0, Math.min(1, (localX - left) / plotWidth));
-    onMarker(Math.round(fraction * Math.max(0, points.length - 1)));
-  }
-
-  return (
-    <svg
-      role="img"
-      aria-label={trace === "s11" ? "S11 return loss plot" : "S21 gain plot"}
-      viewBox={`0 0 ${width} ${height}`}
-      className="w-full rounded-[3px] border border-line bg-plot-bg"
-      onPointerDown={moveMarker}
-      onPointerMove={(event) => {
-        if (event.buttons === 1) {
-          moveMarker(event);
-        }
-      }}
-    >
-      {[0, 0.25, 0.5, 0.75, 1].map((fraction) => {
-        const gridY = top + fraction * plotHeight;
-        const value = high - fraction * (high - low);
-        return (
-          <g key={fraction}>
-            <line
-              x1={left}
-              y1={gridY}
-              x2={width - right}
-              y2={gridY}
-              stroke="var(--color-plot-grid)"
-            />
-            <text
-              x={left - 8}
-              y={gridY + 4}
-              textAnchor="end"
-              className="fill-plot-ink-dim text-[10px]"
-            >
-              {value.toFixed(0)}
-            </text>
-          </g>
-        );
-      })}
-      <path
-        d={path}
-        fill="none"
-        stroke="var(--color-accent)"
-        strokeWidth={2}
-        vectorEffect="non-scaling-stroke"
-      />
-      <line
-        x1={x(marker)}
-        y1={top}
-        x2={x(marker)}
-        y2={top + plotHeight}
-        stroke="var(--color-plot-hold)"
-        strokeWidth={1}
-        vectorEffect="non-scaling-stroke"
-      />
-      <text x={left} y={height - 10} className="fill-plot-ink-dim text-[10px]">
-        {formatHz(points[0]?.frequency_hz ?? 0)}
-      </text>
-      <text
-        x={width - right}
-        y={height - 10}
-        textAnchor="end"
-        className="fill-plot-ink-dim text-[10px]"
-      >
-        {formatHz(points.at(-1)?.frequency_hz ?? 0)}
-      </text>
-      {markerPoint !== undefined && (
-        <text
-          x={x(marker)}
-          y={top + 12}
-          textAnchor={marker > points.length / 2 ? "end" : "start"}
-          className="fill-plot-hold text-[10px]"
-        >
-          {formatHz(markerPoint.frequency_hz)}
-        </text>
+      {chart === "smith" ? (
+        <div className="flex justify-center">
+          <SmithChart rows={visible} marker={active} onMarker={setMarker} />
+        </div>
+      ) : (
+        <SweepChart
+          rows={visible}
+          view={view}
+          marker={active}
+          onMarker={setMarker}
+          onZoom={(from, to) =>
+            setZoom({ from: (zoom?.from ?? 0) + from, to: (zoom?.from ?? 0) + to })
+          }
+        />
       )}
-    </svg>
+
+      <label className="flex items-center gap-2 font-mono text-xs text-ink-dim">
+        <span className={LABEL}>Marker</span>
+        <Slider
+          label="Sweep marker"
+          min={0}
+          max={lastIndex}
+          value={active}
+          onChange={setMarker}
+          className="min-w-32 flex-1"
+        />
+        <span className="w-24 text-right text-ink">{formatHz(row.frequencyHz)}</span>
+      </label>
+
+      <MarkerReadout row={row} />
+      <SweepSummary analysis={analysis} />
+
+      <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+        <div className="flex flex-col gap-1">
+          <span className={LABEL}>Touchstone format</span>
+          <Select
+            label="Touchstone number format"
+            value={format}
+            options={TOUCHSTONE_FORMATS}
+            onChange={setFormat}
+            className="w-48"
+          />
+        </div>
+        <Button
+          type="button"
+          className={BTN}
+          onClick={() =>
+            downloadText(
+              exportFilename(sweep, "s2p"),
+              "application/octet-stream",
+              touchstoneS2p(sweep, format, { recordedAt: new Date().toISOString() }),
+            )
+          }
+        >
+          Export .s2p
+        </Button>
+        <Button
+          type="button"
+          className={BTN}
+          onClick={() =>
+            downloadText(
+              exportFilename(sweep, "s1p"),
+              "application/octet-stream",
+              touchstoneS1p(sweep, format, { recordedAt: new Date().toISOString() }),
+            )
+          }
+        >
+          Export .s1p
+        </Button>
+        <Button
+          type="button"
+          className={BTN}
+          onClick={() => downloadText(exportFilename(sweep, "csv"), "text/csv", sweepCsv(sweep))}
+        >
+          Export CSV
+        </Button>
+      </div>
+    </div>
   );
 }
 

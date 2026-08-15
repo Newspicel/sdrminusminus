@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::audio::AudioProcessing;
+use crate::{audio::AudioProcessing, state::AudioRecordingStatus};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelDescriptor {
@@ -1079,6 +1079,12 @@ impl ChannelParams {
     }
 }
 
+/// How far above the tracked noise floor an automatic squelch may be asked to sit. Under the
+/// minimum the gate would chatter on the noise it is measuring; over the maximum it would take a
+/// signal far stronger than anything the channel normally carries to open at all.
+pub const MIN_SQUELCH_AUTO_MARGIN_DB: f32 = 2.0;
+pub const MAX_SQUELCH_AUTO_MARGIN_DB: f32 = 40.0;
+
 /// Per-channel settings: where the channel sits and how it demodulates.
 #[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
 pub struct ChannelSettings {
@@ -1087,8 +1093,17 @@ pub struct ChannelSettings {
     pub offset_hz: f64,
     /// Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied
     /// bandwidth, not the full DDC passband); `None` = squelch open.
+    ///
+    /// With `squelch_auto_db` set this is what the gate falls back to when the operator switches
+    /// tracking off again, not what it is currently gating on — the live threshold travels with
+    /// the channel's level, in [`crate::ChannelLevel::squelch_db`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub squelch_db: Option<f32>,
+    /// Track the channel's own noise floor and gate this many dB above it. Only means anything
+    /// while the squelch is on: `squelch_db: None` is a gate held open, and there is nothing for
+    /// a threshold to do in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub squelch_auto_db: Option<f32>,
     pub params: ChannelParams,
     /// Blanker, filters, noise reduction and AGC. Shared by every voice mode rather than
     /// written into each one's params, so what an operator learns on one channel is the same
@@ -1105,6 +1120,7 @@ impl ChannelSettings {
         Some(Self {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::default_for(type_id)?,
             audio: AudioProcessing::default_for(type_id),
         })
@@ -1124,6 +1140,8 @@ impl<'de> Deserialize<'de> for ChannelSettings {
             offset_hz: f64,
             #[serde(default)]
             squelch_db: Option<f32>,
+            #[serde(default)]
+            squelch_auto_db: Option<f32>,
             params: ChannelParams,
             #[serde(default)]
             audio: Option<AudioProcessing>,
@@ -1135,6 +1153,7 @@ impl<'de> Deserialize<'de> for ChannelSettings {
         Ok(Self {
             offset_hz: stated.offset_hz,
             squelch_db: stated.squelch_db,
+            squelch_auto_db: stated.squelch_auto_db,
             params: stated.params,
             audio,
         })
@@ -1150,4 +1169,8 @@ pub struct ChannelInfo {
     #[serde(default)]
     pub stream: u32,
     pub settings: ChannelSettings,
+    /// Audio recording running on this channel, if any. Live status, not settings: it is not
+    /// persisted with the channel and a restored workspace comes back not recording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_recording: Option<AudioRecordingStatus>,
 }

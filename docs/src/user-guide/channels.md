@@ -64,7 +64,17 @@ keyboard controls while the channel is selected. The displayed absolute frequenc
 stream's center plus the channel offset.
 
 Audio channels can gate output with squelch. A lower threshold opens more easily; setting squelch
-off passes audio continuously. NFM additionally supports:
+off passes audio continuously.
+
+**Auto** hands the threshold to the channel instead: it measures the channel's own noise floor and
+keeps the gate a chosen number of decibels above it, so a quiet channel and a noisy one are set the
+same way. The level meter draws the notch where the gate currently sits, which is the reading to
+watch while the number moves. The floor is learned from the quiet — a channel that is never quiet
+has none to find, and the gate then opens only on something louder than what is already there — and
+it is never raised while the gate is open, so a long transmission cannot squelch itself. The manual
+threshold stays where it was and is what the gate returns to when auto is switched off.
+
+NFM additionally supports:
 
 - **Detect**, which reports any recognized CTCSS tone or DCS code without gating audio;
 - **CTCSS**, which opens only for a selected standard tone;
@@ -81,6 +91,11 @@ it is off by default except the AGC on AM and SSB, which have no levelling of th
   channel filter, where a pulse is still a pulse rather than the ringing a narrow filter makes of
   it. The threshold is a multiple of the channel's own average level: lower blanks more, and low
   enough eventually blanks the signal too.
+- **De-click** removes the impulses that only exist *after* the demodulator: the clicks an FM
+  discriminator makes of its own noise, and the static crashes an AM or SSB detector passes
+  through. A sample has to stand out both from the audio's own level and from the samples around it
+  before anything is replaced, so a loud consonant is left alone. How wide a click can be is the
+  mode's to decide, not a control: a discriminator's and a detector's are different lengths.
 - **Denoise** is spectral noise reduction. It tracks what each part of the spectrum does at its
   quietest and subtracts that, so hiss drops and speech does not. Anything genuinely unchanging is
   noise by this definition, an unbroken carrier included.
@@ -90,8 +105,9 @@ it is off by default except the AGC on AM and SSB, which have no levelling of th
 - **Notches** are up to four operator-placed nulls, each with its own frequency and width. A narrow
   one removes a whistle and leaves the voice around it.
 
-The chain runs in that order: blanker on the IQ, then passband, notches, auto notch, denoise and
-AGC on the audio.
+The chain runs in that order: blanker on the IQ, then de-click, passband, notches, auto notch,
+denoise and AGC on the audio. Impulses go first because a filter turns one into the ringing it was
+meant to prevent.
 
 ## Following a DMR trunk system
 

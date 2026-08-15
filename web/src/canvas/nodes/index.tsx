@@ -12,6 +12,7 @@ import { CanvasSurface } from "./NodeShell";
 import { ScopeFace } from "./ScopeFace";
 import { SignalMapFace } from "./SignalMapFace";
 import {
+  AudioRecorderFace,
   DecoderLogFace,
   ExportFace,
   MapFace,
@@ -48,6 +49,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   dmr_trunk: mount(DmrTrunkFace),
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
+  audio_recorder: mount(AudioRecorderFace),
   network_export: mount(NetworkExportFace),
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
@@ -69,6 +71,7 @@ export const FACES: Record<NodeKind, Face> = {
   dmr_trunk: DmrTrunkFace,
   video: VideoFace,
   recorder: RecorderFace,
+  audio_recorder: AudioRecorderFace,
   network_export: NetworkExportFace,
   export: ExportFace,
   scanner: ScannerFace,

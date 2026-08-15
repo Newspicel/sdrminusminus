@@ -43,6 +43,7 @@ fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Aprs(AprsParams {
                 mode: AprsMode::Afsk1200,
                 ..AprsParams::default()
@@ -161,6 +162,7 @@ async fn pocsag_page_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Pocsag(PocsagParams {
                 baud: PocsagBaud::Auto,
                 ..PocsagParams::default()
@@ -206,6 +208,7 @@ async fn aprs_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Aprs(AprsParams {
                 mode: AprsMode::Afsk1200,
                 ..AprsParams::default()
@@ -252,6 +255,7 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Ais(AisParams {
                 ais_channel: AisChannel::B,
             }),
@@ -314,6 +318,7 @@ async fn a_mic_e_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Aprs(AprsParams::default()),
             audio: Default::default(),
         },
@@ -358,6 +363,7 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Nfm(NfmParams {
                 tone_mode: NfmToneMode::Ctcss,
                 ctcss_hz: Some(88.5),
@@ -392,6 +398,7 @@ async fn selcall_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Selcall(SelcallParams {
                 system: SelcallSystem::Ccir1,
             }),
@@ -430,6 +437,7 @@ async fn freedv_recording_survives_the_virtual_device_and_acquires_sync() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Freedv(FreeDvParams::default()),
             audio: Default::default(),
         },
@@ -476,6 +484,7 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Adsb(AdsbParams::default()),
             audio: Default::default(),
         },
@@ -509,6 +518,7 @@ async fn gps_ca_acquisition_survives_virtual_device_playback() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Gnss(GnssParams {
                 prn: 7,
                 doppler_hz: 2_000,
@@ -552,6 +562,7 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Adsb(AdsbParams::default()),
             audio: Default::default(),
         },
@@ -590,6 +601,7 @@ async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Rtty(params),
             audio: Default::default(),
         },
@@ -632,6 +644,7 @@ async fn psk31_and_psk63_text_survive_the_ddc_and_reach_the_decoded_stream() {
             ChannelSettings {
                 offset_hz,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params,
                 audio: Default::default(),
             },
@@ -664,6 +677,7 @@ async fn ft8_message_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Ft8(WsjtParams::default()),
             audio: Default::default(),
         },
@@ -692,6 +706,7 @@ async fn ft4_message_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Ft4(WsjtParams::default()),
             audio: Default::default(),
         },
@@ -718,6 +733,7 @@ async fn wspr_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Wspr(WsprParams::default()),
             audio: Default::default(),
         },
@@ -747,6 +763,7 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Morse(MorseParams::default()),
             audio: Default::default(),
         },
@@ -783,6 +800,7 @@ async fn navtex_broadcast_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Navtex(NavtexParams::default()),
             audio: Default::default(),
         },
@@ -829,6 +847,7 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Acars(AcarsParams::default()),
             audio: Default::default(),
         },
@@ -874,6 +893,7 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Subghz(SubghzParams::default()),
             audio: Default::default(),
         },
@@ -915,6 +935,7 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Ident(IdentParams {
                 interval_ms: 500,
                 ..IdentParams::default()
@@ -980,6 +1001,7 @@ async fn dab_mode_i_lock_survives_a_recorded_virtual_device_and_ddc() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Dab(DabParams::default()),
             audio: Default::default(),
         },
@@ -1017,6 +1039,7 @@ async fn datv_qpsk_lock_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Datv(DatvParams {
                 standard: DatvStandard::DvbS2,
                 symbol_rate: 250_000.0,
@@ -1096,6 +1119,7 @@ async fn drm30_lock_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Drm(DrmParams {
                 mode: DrmMode::Drm30,
                 bandwidth_hz: 10_000.0,
@@ -1138,6 +1162,7 @@ async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Adsb(AdsbParams::default()),
             audio: Default::default(),
         },
@@ -1175,6 +1200,7 @@ async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Adsb(AdsbParams::default()),
                 audio: Default::default(),
             },
@@ -1218,6 +1244,7 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 50.0,
                 stereo: false,
@@ -1279,6 +1306,7 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
     let settings = |offset_hz: f64| ChannelSettings {
         offset_hz,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Wfm(WfmParams {
             deemphasis_us: 50.0,
             stereo: false,

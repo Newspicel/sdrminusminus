@@ -1426,6 +1426,7 @@ mod tests {
                 channels: vec![ChannelSettings {
                     offset_hz: 100_000.0,
                     squelch_db: Some(-60.0),
+                    squelch_auto_db: None,
                     params: ChannelParams::Nfm(NfmParams::default()),
                     audio: Default::default(),
                 }],

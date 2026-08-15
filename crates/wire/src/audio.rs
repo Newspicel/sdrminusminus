@@ -10,6 +10,11 @@ pub const MAX_AUDIO_NOTCHES: usize = 4;
 
 pub const MIN_BLANKER_THRESHOLD: f32 = 1.5;
 pub const MAX_BLANKER_THRESHOLD: f32 = 20.0;
+/// How far above the audio's own level a sample may be asked to sit before it counts as a
+/// click. Below the minimum the stage would start cutting speech transients; above the maximum
+/// it would sit there doing nothing.
+pub const MIN_CLICK_THRESHOLD: f32 = 2.0;
+pub const MAX_CLICK_THRESHOLD: f32 = 20.0;
 /// Voice-band limits for everything tuned in the audio domain, at the 48 kHz PCM rate every
 /// channel produces.
 pub const MIN_AUDIO_TONE_HZ: f64 = 30.0;
@@ -23,6 +28,10 @@ fn default_blanker_threshold() -> f32 {
 
 fn default_denoise_strength() -> f32 {
     0.5
+}
+
+fn default_click_threshold() -> f32 {
+    6.0
 }
 
 fn default_filter_low_hz() -> f64 {
@@ -77,6 +86,31 @@ impl Default for DenoiseSettings {
         Self {
             enabled: false,
             strength: default_denoise_strength(),
+        }
+    }
+}
+
+/// Impulse removal in the demodulated audio: FM's own discriminator clicks, and the static
+/// crashes that reach an envelope or product detector.
+///
+/// How wide a click can be is the *mode's* to say — a demodulator's clicks are as long as that
+/// demodulator makes them — so the only thing set here is how far above the audio's own level a
+/// sample has to sit before it is treated as one.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ClickRemovalSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Multiple of the audio's average magnitude. Lower cuts more, and eventually starts taking
+    /// the edge off consonants.
+    #[serde(default = "default_click_threshold")]
+    pub threshold: f32,
+}
+
+impl Default for ClickRemovalSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            threshold: default_click_threshold(),
         }
     }
 }
@@ -156,9 +190,10 @@ impl AudioAgcMode {
 /// Everything a voice channel does to its audio after the demodulator, plus the one stage that
 /// has to run before it.
 ///
-/// Stages run in the order they are declared: the blanker on IQ, then passband, notches,
-/// adaptive notch, noise reduction and AGC on the demodulated audio. Filtering first keeps the
-/// junk outside the passband out of everything downstream, and the AGC runs last so what it
+/// Stages run in the order they are declared: the blanker on IQ, then click removal, passband,
+/// notches, adaptive notch, noise reduction and AGC on the demodulated audio. Impulses go first,
+/// because a filter turns one into the ringing it was supposed to prevent; filtering next keeps
+/// the junk outside the passband out of everything downstream; and the AGC runs last so what it
 /// levels is what the listener actually hears.
 ///
 /// Every stage is off by default, which is what a channel had before this existed.
@@ -166,6 +201,8 @@ impl AudioAgcMode {
 pub struct AudioProcessing {
     #[serde(default)]
     pub blanker: NoiseBlankerSettings,
+    #[serde(default)]
+    pub click_removal: ClickRemovalSettings,
     #[serde(default)]
     pub filter: AudioFilterSettings,
     #[serde(default)]
@@ -198,6 +235,7 @@ impl AudioProcessing {
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.blanker.enabled
+            || self.click_removal.enabled
             || self.filter.enabled
             || !self.notches.is_empty()
             || self.auto_notch
@@ -215,6 +253,14 @@ impl AudioProcessing {
             return Err(format!(
                 "noise blanker threshold must be in {MIN_BLANKER_THRESHOLD}..={MAX_BLANKER_THRESHOLD}, got {}",
                 self.blanker.threshold
+            ));
+        }
+        if !self.click_removal.threshold.is_finite()
+            || !(MIN_CLICK_THRESHOLD..=MAX_CLICK_THRESHOLD).contains(&self.click_removal.threshold)
+        {
+            return Err(format!(
+                "click removal threshold must be in {MIN_CLICK_THRESHOLD}..={MAX_CLICK_THRESHOLD}, got {}",
+                self.click_removal.threshold
             ));
         }
         if !self.denoise.strength.is_finite() || !(0.0..=1.0).contains(&self.denoise.strength) {
@@ -291,8 +337,9 @@ mod tests {
 
     #[test]
     fn every_stage_counts_as_active_on_its_own() {
-        let stages: [fn(&mut AudioProcessing); 6] = [
+        let stages: [fn(&mut AudioProcessing); 7] = [
             |a| a.blanker.enabled = true,
+            |a| a.click_removal.enabled = true,
             |a| a.filter.enabled = true,
             |a| a.notches.push(NotchSettings::default()),
             |a| a.auto_notch = true,
@@ -312,9 +359,11 @@ mod tests {
 
     #[test]
     fn out_of_range_settings_are_named_rather_than_clamped() {
-        let bad: [Break; 7] = [
+        let bad: [Break; 9] = [
             (|a| a.blanker.threshold = 0.5, "blanker"),
             (|a| a.blanker.threshold = f32::NAN, "blanker nan"),
+            (|a| a.click_removal.threshold = 1.0, "click threshold"),
+            (|a| a.click_removal.threshold = f32::NAN, "click nan"),
             (|a| a.denoise.strength = 1.5, "strength"),
             (|a| a.filter.low_hz = 5.0, "low cut"),
             (|a| a.filter.high_hz = 200.0, "crossed cuts"),

@@ -90,6 +90,7 @@ async fn recorded_siggen_replays_and_demodulates() {
             ChannelSettings {
                 offset_hz: NFM_CARRIER_OFFSET_HZ,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },

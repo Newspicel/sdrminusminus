@@ -203,7 +203,11 @@ impl SdrDevice for FilePlayback {
                     return;
                 }
             };
-            let n = ((sample_rate * BLOCK_SECS).round() as usize).max(1);
+            // [`BLOCK_SECS`] of wall clock, not of recorded time: a block that stayed
+            // real-time-sized would make an accelerated stream wake `speed` times as often for
+            // the same recording, and per-wake scheduler slack, not the requested speed, would
+            // decide how fast the tape ran.
+            let n = ((sample_rate * BLOCK_SECS * playback_speed).round() as usize).max(1);
             let mut block = vec![Complex::new(0.0f32, 0.0); n];
             let mut next = Instant::now();
             'stream: while running.load(Ordering::Acquire) {
@@ -512,6 +516,32 @@ mod tests {
                 "im mismatch at {i}"
             );
         }
+    }
+
+    /// An accelerated playback carries `speed` times as many samples per block as a real-time
+    /// one, so both wake the same number of times per second and the samples are unchanged.
+    /// A 20× stream sized in recorded time woke 20× as often, which is how a loaded runner
+    /// came to replay it at a third of the speed the test had asked for.
+    #[test]
+    fn accelerated_playback_keeps_the_real_time_wake_up_rate() {
+        const SPEED: f64 = 8.0;
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(300_000);
+        let stem = record(dir.path(), "accelerated", &recorded);
+
+        let mut real_time = FilePlayback::open(&stem).unwrap();
+        let rx = start(&mut real_time);
+        let block = rx.recv_timeout(Duration::from_secs(2)).unwrap().len();
+        real_time.rx_stop();
+        assert_eq!(block, (250_000.0 * BLOCK_SECS) as usize);
+
+        let mut fast = FilePlayback::open_at_speed(&stem, SPEED).unwrap();
+        let rx = start(&mut fast);
+        let fast_block = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        fast.rx_stop();
+
+        assert_eq!(fast_block.len(), block * SPEED as usize);
+        assert_bits_eq(&recorded[..fast_block.len()], &fast_block);
     }
 
     #[test]

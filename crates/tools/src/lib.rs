@@ -144,7 +144,8 @@ mod tests {
     use std::sync::Arc;
 
     use sdrmm_wire::{
-        AntennaDesign, AntennaRequest, NanoVnaDevice, NanoVnaRequest, NanoVnaResult, ToolCategory,
+        AntennaDesign, AntennaRequest, NanoVnaDevice, NanoVnaMatch, NanoVnaRequest, NanoVnaResult,
+        ToolCategory,
     };
 
     use super::*;
@@ -154,15 +155,21 @@ mod tests {
     struct NanoVnaBackendStub;
 
     impl nanovna::Backend for NanoVnaBackendStub {
-        fn devices(&self) -> Result<Vec<NanoVnaDevice>, String> {
-            Ok(vec![NanoVnaDevice {
-                port: "fixture-port".to_owned(),
-                label: "Fixture NanoVNA".to_owned(),
-                likely_nanovna: true,
-                serial_number: Some("fixture-serial".to_owned()),
-                usb_vid: Some(0x0483),
-                usb_pid: Some(0x5740),
-            }])
+        fn devices(&self) -> Result<(Vec<NanoVnaDevice>, Vec<String>), String> {
+            Ok((
+                vec![NanoVnaDevice {
+                    port: "fixture-port".to_owned(),
+                    label: "Fixture NanoVNA".to_owned(),
+                    match_kind: NanoVnaMatch::Confirmed,
+                    model: Some("NanoVNA-H4".to_owned()),
+                    manufacturer: Some("nanovna.com".to_owned()),
+                    product: Some("NanoVNA_H4".to_owned()),
+                    serial_number: Some("fixture-serial".to_owned()),
+                    usb_vid: Some(0x0483),
+                    usb_pid: Some(0x5740),
+                }],
+                vec!["fixture-gnss".to_owned()],
+            ))
         }
 
         fn connect(&self, _port: &str) -> Result<Box<dyn nanovna::Connection>, String> {
@@ -250,10 +257,18 @@ mod tests {
         let response = registry
             .run(ToolRequest::NanoVna(NanoVnaRequest::ListDevices))
             .expect("fixture discovery answers");
-        let ToolResponse::NanoVna(NanoVnaResult::Devices { devices }) = response else {
+        let ToolResponse::NanoVna(result) = response else {
+            panic!("the NanoVNA tool must answer under its own tag");
+        };
+        let NanoVnaResult::Devices {
+            devices,
+            ignored_ports,
+        } = *result
+        else {
             panic!("the NanoVNA tool must return device discovery");
         };
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].port, "fixture-port");
+        assert_eq!(ignored_ports, vec!["fixture-gnss".to_owned()]);
     }
 }

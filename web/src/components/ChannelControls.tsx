@@ -3,7 +3,13 @@ import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
 import { AudioControls } from "./AudioControls";
 import { Checkbox } from "./Checkbox";
-import { type ChannelParamsOf, channelHasAudio, offsetLimitHz } from "./channelSettings";
+import {
+  AUDIO_DEFAULTS,
+  AUDIO_LIMITS,
+  type ChannelParamsOf,
+  channelHasAudio,
+  offsetLimitHz,
+} from "./channelSettings";
 import type { Options } from "./controls";
 import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
@@ -164,8 +170,10 @@ export function ChannelControls({
   const settings = channel.settings;
   const offsetHz = settings.offset_hz ?? 0;
   const squelchDb = settings.squelch_db ?? null;
+  const autoMarginDb = settings.squelch_auto_db ?? null;
   const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
   const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
+  const marginSlider = useDebouncedCommit((db) => onEdit({ squelch_auto_db: db }));
   const limitHz = offsetLimitHz(spanHz, descriptor);
 
   return (
@@ -193,11 +201,12 @@ export function ChannelControls({
           }}
         />
         {/* Drawn whether or not squelch is on, so switching it does not resize the face under
-            the pointer — off, the threshold is the one it will open at. */}
+            the pointer — off, the threshold is the one it will open at. With tracking on it is
+            the level the gate falls back to, and the live threshold is on the meter above. */}
         <Slider
           label="Squelch threshold (dB)"
           className="min-w-0 flex-1"
-          disabled={squelchDb === null}
+          disabled={squelchDb === null || autoMarginDb !== null}
           min={-120}
           max={0}
           step={1}
@@ -206,10 +215,46 @@ export function ChannelControls({
         />
         <span
           className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
-            squelchDb === null ? "text-ink-faint opacity-45" : "text-ink"
+            squelchDb === null || autoMarginDb !== null ? "text-ink-faint opacity-45" : "text-ink"
           }`}
         >
           {(squelchSlider.pending ?? squelchDb ?? offSquelchDb).toFixed(0)}{" "}
+          <span className="text-ink-faint">dB</span>
+        </span>
+      </SettingRow>
+
+      {/* Tracking needs a gate to move: with the squelch off there is no threshold to place,
+          so the row follows it rather than offering a control that would do nothing. */}
+      <SettingRow label="Auto">
+        <Checkbox
+          label="Track the noise floor"
+          checked={autoMarginDb !== null}
+          disabled={squelchDb === null}
+          onChange={(on) => {
+            marginSlider.cancel();
+            onEdit({
+              squelch_auto_db: on
+                ? (marginSlider.pending ?? AUDIO_DEFAULTS.squelchAutoMarginDb)
+                : null,
+            });
+          }}
+        />
+        <Slider
+          label="Decibels above the noise floor the gate opens at"
+          className="min-w-0 flex-1"
+          disabled={squelchDb === null || autoMarginDb === null}
+          min={AUDIO_LIMITS.squelchAutoMarginDb.min}
+          max={AUDIO_LIMITS.squelchAutoMarginDb.max}
+          step={1}
+          value={marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb}
+          onChange={marginSlider.change}
+        />
+        <span
+          className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
+            autoMarginDb === null ? "text-ink-faint opacity-45" : "text-ink"
+          }`}
+        >
+          +{(marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb).toFixed(0)}{" "}
           <span className="text-ink-faint">dB</span>
         </span>
       </SettingRow>

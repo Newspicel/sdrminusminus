@@ -68,6 +68,92 @@
         }
       }
     },
+    "/api/audiorecordings": {
+      "get": {
+        "operationId": "list_audio_recordings",
+        "responses": {
+          "200": {
+            "description": "The audio-recording library, read off the files themselves",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioRecordingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audiorecordings/{file}": {
+      "delete": {
+        "operationId": "delete_audio_recording",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Audio recording file name, extension included",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Audio recording removed"
+          },
+          "404": {
+            "description": "Audio recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audiorecordings/{file}/download": {
+      "get": {
+        "operationId": "download_audio_recording",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Audio recording file name, extension included",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recording as a WAV, streamed with an exact `Content-Length`",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Audio recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth": {
       "get": {
         "operationId": "get_auth",
@@ -979,6 +1065,87 @@
           },
           "400": {
             "description": "Invalid channel settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/channels/{ch}/record": {
+      "post": {
+        "operationId": "record_channel_audio",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recording status: live after `start`; final counts after `stop`, where `error` reports a recording that was cut short and the finished file appears in `GET /api/audiorecordings`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioRecordingStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot record: no recordings directory, set not running, channel already recording, not recording, or a channel with no audio",
             "content": {
               "application/json": {
                 "schema": {
@@ -3401,7 +3568,7 @@
       },
       "AudioProcessing": {
         "type": "object",
-        "description": "Everything a voice channel does to its audio after the demodulator, plus the one stage that\nhas to run before it.\n\nStages run in the order they are declared: the blanker on IQ, then passband, notches,\nadaptive notch, noise reduction and AGC on the demodulated audio. Filtering first keeps the\njunk outside the passband out of everything downstream, and the AGC runs last so what it\nlevels is what the listener actually hears.\n\nEvery stage is off by default, which is what a channel had before this existed.",
+        "description": "Everything a voice channel does to its audio after the demodulator, plus the one stage that\nhas to run before it.\n\nStages run in the order they are declared: the blanker on IQ, then click removal, passband,\nnotches, adaptive notch, noise reduction and AGC on the demodulated audio. Impulses go first,\nbecause a filter turns one into the ringing it was supposed to prevent; filtering next keeps\nthe junk outside the passband out of everything downstream; and the AGC runs last so what it\nlevels is what the listener actually hears.\n\nEvery stage is off by default, which is what a channel had before this existed.",
         "properties": {
           "agc": {
             "$ref": "#/components/schemas/AudioAgcMode"
@@ -3413,6 +3580,9 @@
           "blanker": {
             "$ref": "#/components/schemas/NoiseBlankerSettings"
           },
+          "click_removal": {
+            "$ref": "#/components/schemas/ClickRemovalSettings"
+          },
           "denoise": {
             "$ref": "#/components/schemas/DenoiseSettings"
           },
@@ -3423,6 +3593,113 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/NotchSettings"
+            }
+          }
+        }
+      },
+      "AudioRecordingInfo": {
+        "type": "object",
+        "description": "One finished audio recording in the library. There is no index row behind this: a WAV\ndescribes itself, so the directory listing *is* the library (: the files on disk are\nthe source of truth) and the file name is the id.",
+        "required": [
+          "file",
+          "channels",
+          "sample_rate",
+          "frames",
+          "bytes",
+          "duration_s",
+          "created_at"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "channels": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "description": "RFC3339 UTC, from the file's own modification time — a WAV has nowhere to keep the\nwall clock, and the name carries the start only as a second-resolution stamp."
+          },
+          "duration_s": {
+            "type": "number",
+            "format": "double"
+          },
+          "file": {
+            "type": "string",
+            "description": "File name inside the audio-recordings directory, extension included. Also the path\nsegment that downloads or deletes it."
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sample_rate": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AudioRecordingStatus": {
+        "type": "object",
+        "description": "Live audio recording on one channel: what the listener hears, written to a WAV file as it is\nproduced. Its own status rather than a second [`RecordingStatus`] because the two record\ndifferent things — one the radio's raw IQ, the other one channel's demodulated audio — and\nthey run independently of each other.",
+        "required": [
+          "file",
+          "started_at",
+          "channels",
+          "frames",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "channels": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Interleave the file was opened with. A WAV header states its channel count once, so this\nis also what the recording is pinned to: a mode switched to a different layout mid-file\nends the recording with an `error` rather than writing frames no reader can interpret.",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fatal fault (queue overflow, disk error, layout change); the writer has stopped and the\nfile has been finalized, but the cause stays visible (CLAUDE.md no-silent-failure)."
+          },
+          "file": {
+            "type": "string",
+            "description": "File name inside the server's audio-recordings directory, extension included."
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sample frames written so far; at 48 kHz these are the recording's own clock.",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          }
+        }
+      },
+      "AudioRecordingsResponse": {
+        "type": "object",
+        "description": "`GET /api/audiorecordings`.",
+        "required": [
+          "recordings"
+        ],
+        "properties": {
+          "recordings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AudioRecordingInfo"
             }
           }
         }
@@ -4146,6 +4423,17 @@
           "settings"
         ],
         "properties": {
+          "audio_recording": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AudioRecordingStatus",
+                "description": "Audio recording running on this channel, if any. Live status, not settings: it is not\npersisted with the channel and a restored workspace comes back not recording."
+              }
+            ]
+          },
           "id": {
             "type": "integer",
             "format": "int32",
@@ -4185,6 +4473,14 @@
             "type": "number",
             "format": "float",
             "description": "Loudest recent level, held then decayed."
+          },
+          "squelch_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Where the gate is actually opening, in the same dBFS as the levels above; absent while\nthe squelch is off. It rides with the level rather than with the channel's settings\nbecause an automatic threshold *is* a measurement — it moves with the noise floor, and a\nsettings field that changed on its own would be a state invalidation per reading."
           }
         }
       },
@@ -4818,6 +5114,18 @@
         ],
         "description": "Type-discriminated demod parameters. Adjacently tagged so the generated TS is a\ndiscriminated union on `type`, and `{\"type\":\"nfm\",\"settings\":{}}` deserializes with\nevery field at its default."
       },
+      "ChannelRecordRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/channels/{ch}/record` — start or stop recording one channel's\naudio. The stream is not named here the way [`RecordRequest`] names one: a channel already\nsits on exactly one of them.",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RecordAction"
+          }
+        }
+      },
       "ChannelSettings": {
         "type": "object",
         "description": "Per-channel settings: where the channel sits and how it demodulates.",
@@ -4837,13 +5145,21 @@
           "params": {
             "$ref": "#/components/schemas/ChannelParams"
           },
+          "squelch_auto_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Track the channel's own noise floor and gate this many dB above it. Only means anything\nwhile the squelch is on: `squelch_db: None` is a gate held open, and there is nothing for\na threshold to do in it."
+          },
           "squelch_db": {
             "type": [
               "number",
               "null"
             ],
             "format": "float",
-            "description": "Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied\nbandwidth, not the full DDC passband); `None` = squelch open."
+            "description": "Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied\nbandwidth, not the full DDC passband); `None` = squelch open.\n\nWith `squelch_auto_db` set this is what the gate falls back to when the operator switches\ntracking off again, not what it is currently gating on — the live threshold travels with\nthe channel's level, in [`crate::ChannelLevel::squelch_db`]."
           }
         }
       },
@@ -4928,6 +5244,20 @@
           "warn",
           "fail"
         ]
+      },
+      "ClickRemovalSettings": {
+        "type": "object",
+        "description": "Impulse removal in the demodulated audio: FM's own discriminator clicks, and the static\ncrashes that reach an envelope or product detector.\n\nHow wide a click can be is the *mode's* to say — a demodulator's clicks are as long as that\ndemodulator makes them — so the only thing set here is how far above the audio's own level a\nsample has to sit before it is treated as one.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "threshold": {
+            "type": "number",
+            "format": "float",
+            "description": "Multiple of the audio's average magnitude. Lower cuts more, and eventually starts taking\nthe edge off consonants."
+          }
+        }
       },
       "ClientCommand": {
         "oneOf": [
@@ -7464,6 +7794,253 @@
           }
         }
       },
+      "NanoVnaCalStep": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "status"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "reset"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "open"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "short"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "load"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "thru"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "isolation"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "finish"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "enable"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "step"
+            ],
+            "properties": {
+              "step": {
+                "type": "string",
+                "enum": [
+                  "disable"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "slot",
+              "step"
+            ],
+            "properties": {
+              "slot": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "step": {
+                "type": "string",
+                "enum": [
+                  "save"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "slot",
+              "step"
+            ],
+            "properties": {
+              "slot": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "step": {
+                "type": "string",
+                "enum": [
+                  "recall"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One move in the guided calibration. Each maps to a `cal` subcommand on the instrument, so a\npanel walking an operator through open/short/load/thru never has to build shell text itself."
+      },
+      "NanoVnaCalibrateRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NanoVnaCalStep"
+          },
+          {
+            "type": "object",
+            "required": [
+              "port"
+            ],
+            "properties": {
+              "port": {
+                "type": "string"
+              },
+              "range": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/NanoVnaSweepState",
+                    "description": "Applied by [`NanoVnaCalStep::Reset`], which is where a calibration begins: every standard\nafter it has to be measured over the range the measurement will use."
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "NanoVnaCalibration": {
+        "type": "object",
+        "required": [
+          "port",
+          "standards",
+          "error_terms",
+          "applied",
+          "raw"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "error_terms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "port": {
+            "type": "string"
+          },
+          "raw": {
+            "type": "string"
+          },
+          "standards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NanoVnaStandard"
+            }
+          }
+        }
+      },
       "NanoVnaComplex": {
         "type": "object",
         "required": [
@@ -7486,17 +8063,35 @@
         "required": [
           "port",
           "label",
-          "likely_nanovna"
+          "match_kind"
         ],
         "properties": {
           "label": {
             "type": "string"
           },
-          "likely_nanovna": {
-            "type": "boolean"
+          "manufacturer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "match_kind": {
+            "$ref": "#/components/schemas/NanoVnaMatch"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "port": {
             "type": "string"
+          },
+          "product": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "serial_number": {
             "type": [
@@ -7522,6 +8117,119 @@
           }
         }
       },
+      "NanoVnaDeviceReport": {
+        "type": "object",
+        "description": "Everything the instrument will say about itself, read back over the shell.",
+        "required": [
+          "port",
+          "firmware",
+          "info",
+          "calibration",
+          "commands"
+        ],
+        "properties": {
+          "bandwidth_hz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "battery_mv": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "board": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calibration": {
+            "$ref": "#/components/schemas/NanoVnaCalibration"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "electrical_delay_s": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "firmware": {
+            "type": "string"
+          },
+          "harmonic_threshold_hz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "info": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "port": {
+            "type": "string"
+          },
+          "power": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The drive level the firmware reports, where 255 is its own automatic choice.",
+            "minimum": 0
+          },
+          "s21_offset_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "sweep": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NanoVnaSweepState"
+              }
+            ]
+          },
+          "tcxo_hz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "NanoVnaMatch": {
+        "type": "string",
+        "description": "How sure discovery is that a port carries a VNA. USB serial numbers are shared across whole\nfamilies of boards, so a matching id alone is `Probable` and only the product or vendor\nstring promotes it to `Confirmed`.",
+        "enum": [
+          "confirmed",
+          "probable"
+        ]
+      },
       "NanoVnaPoint": {
         "type": "object",
         "required": [
@@ -7540,6 +8248,17 @@
           },
           "s21": {
             "$ref": "#/components/schemas/NanoVnaComplex"
+          }
+        }
+      },
+      "NanoVnaPortRequest": {
+        "type": "object",
+        "required": [
+          "port"
+        ],
+        "properties": {
+          "port": {
+            "type": "string"
           }
         }
       },
@@ -7562,6 +8281,27 @@
           {
             "allOf": [
               {
+                "$ref": "#/components/schemas/NanoVnaPortRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "describe"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
                 "$ref": "#/components/schemas/NanoVnaSweepRequest"
               },
               {
@@ -7579,6 +8319,27 @@
                 }
               }
             ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NanoVnaCalibrateRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "calibrate"
+                    ]
+                  }
+                }
+              }
+            ]
           }
         ]
       },
@@ -7588,6 +8349,7 @@
             "type": "object",
             "required": [
               "devices",
+              "ignored_ports",
               "kind"
             ],
             "properties": {
@@ -7597,6 +8359,13 @@
                   "$ref": "#/components/schemas/NanoVnaDevice"
                 }
               },
+              "ignored_ports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Serial ports that are present but are not a VNA, by name only — the panel lists\ninstruments, and an operator whose clone went unrecognised still needs to see that\nthe port exists before typing it in."
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -7604,6 +8373,27 @@
                 ]
               }
             }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NanoVnaDeviceReport"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "device"
+                    ]
+                  }
+                }
+              }
+            ]
           },
           {
             "allOf": [
@@ -7625,16 +8415,47 @@
                 }
               }
             ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NanoVnaCalibration"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "calibration"
+                    ]
+                  }
+                }
+              }
+            ]
           }
+        ]
+      },
+      "NanoVnaStandard": {
+        "type": "string",
+        "enum": [
+          "load",
+          "open",
+          "short",
+          "thru",
+          "isolation"
         ]
       },
       "NanoVnaSweep": {
         "type": "object",
         "required": [
-          "port",
-          "firmware",
+          "device",
           "requested_points",
           "averages",
+          "elapsed_ms",
           "points"
         ],
         "properties": {
@@ -7643,17 +8464,19 @@
             "format": "int32",
             "minimum": 0
           },
-          "firmware": {
-            "type": "string"
+          "device": {
+            "$ref": "#/components/schemas/NanoVnaDeviceReport"
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "points": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/NanoVnaPoint"
             }
-          },
-          "port": {
-            "type": "string"
           },
           "requested_points": {
             "type": "integer",
@@ -7683,6 +8506,31 @@
           },
           "port": {
             "type": "string"
+          },
+          "start_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stop_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "NanoVnaSweepState": {
+        "type": "object",
+        "required": [
+          "start_hz",
+          "stop_hz",
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "start_hz": {
             "type": "integer",
@@ -8214,6 +9062,21 @@
                 "type": "string",
                 "enum": [
                   "recorder"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "WAV recording of what a channel's audio *sounds* like, one file per wired channel. Its\nown kind rather than a mode of the recorder above, because the two record different\nthings from different places in the chain: one the radio's raw IQ, the other one\nchannel's demodulated audio, after everything the channel does to it.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "audio_recorder"
                 ]
               }
             }

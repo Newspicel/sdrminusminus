@@ -3,7 +3,7 @@
 // The number is always printed: a position on a 100px bar is not a reading, and the squelch
 // threshold is set in the same dBFS, so the two are meant to be compared directly.
 
-import { formatLevel, levelUnit } from "../lib/levels";
+import { formatLevel, gateDb, gateOpen, levelUnit } from "../lib/levels";
 import type { ChannelLevel } from "../lib/types";
 
 export function LevelMeter({
@@ -12,13 +12,16 @@ export function LevelMeter({
 }: {
   level: ChannelLevel | undefined;
   /** Drawn as a notch on the bar when the channel gates on level, so an operator can see how far
-   * the signal is from opening it without reading two numbers and subtracting. */
+   * the signal is from opening it without reading two numbers and subtracting. Only what the
+   * channel is *set* to: the live reading below supersedes it, and is the one that moves when
+   * the gate tracks the noise floor. */
   squelchDb?: number | null;
 }) {
   const now = levelUnit(level?.level_db ?? Number.NEGATIVE_INFINITY);
   const peak = levelUnit(level?.peak_db ?? Number.NEGATIVE_INFINITY);
-  const threshold = squelchDb == null ? null : levelUnit(squelchDb);
-  const open = level !== undefined && squelchDb != null && level.level_db >= squelchDb;
+  const gate = gateDb(level, squelchDb);
+  const threshold = gate === null ? null : levelUnit(gate);
+  const open = gateOpen(level, squelchDb);
 
   return (
     <div className="flex items-center gap-2">

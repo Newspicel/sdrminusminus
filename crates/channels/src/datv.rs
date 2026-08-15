@@ -76,6 +76,7 @@ pub(crate) fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelErr
     let p = params(&ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Datv(*p),
         audio: sdrmm_wire::AudioProcessing::default(),
     })?;
@@ -210,6 +211,7 @@ mod tests {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Datv(DatvParams {
                 standard,
                 symbol_rate,

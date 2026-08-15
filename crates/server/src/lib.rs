@@ -402,18 +402,24 @@ mod tests {
             request: sdrmm_wire::ToolRequest,
         ) -> Result<sdrmm_wire::ToolResponse, sdrmm_tools::ToolError> {
             match request {
-                sdrmm_wire::ToolRequest::NanoVna(sdrmm_wire::NanoVnaRequest::ListDevices) => Ok(
-                    sdrmm_wire::ToolResponse::NanoVna(sdrmm_wire::NanoVnaResult::Devices {
-                        devices: vec![sdrmm_wire::NanoVnaDevice {
-                            port: "fixture-port".to_owned(),
-                            label: "Fixture NanoVNA".to_owned(),
-                            likely_nanovna: true,
-                            serial_number: Some("fixture-serial".to_owned()),
-                            usb_vid: Some(0x0483),
-                            usb_pid: Some(0x5740),
-                        }],
-                    }),
-                ),
+                sdrmm_wire::ToolRequest::NanoVna(sdrmm_wire::NanoVnaRequest::ListDevices) => {
+                    Ok(sdrmm_wire::ToolResponse::NanoVna(Box::new(
+                        sdrmm_wire::NanoVnaResult::Devices {
+                            devices: vec![sdrmm_wire::NanoVnaDevice {
+                                port: "fixture-port".to_owned(),
+                                label: "Fixture NanoVNA".to_owned(),
+                                match_kind: sdrmm_wire::NanoVnaMatch::Confirmed,
+                                model: Some("NanoVNA-H4".to_owned()),
+                                manufacturer: Some("nanovna.com".to_owned()),
+                                product: Some("NanoVNA_H4".to_owned()),
+                                serial_number: Some("fixture-serial".to_owned()),
+                                usb_vid: Some(0x0483),
+                                usb_pid: Some(0x5740),
+                            }],
+                            ignored_ports: vec!["fixture-gnss".to_owned()],
+                        },
+                    )))
+                }
                 request => Err(sdrmm_tools::ToolError::WrongTool {
                     tool: sdrmm_wire::NANOVNA_TOOL_ID,
                     got: request.tool_id().to_owned(),
@@ -557,6 +563,10 @@ mod tests {
             "/api/bookmarks",
             "/api/bookmarks/{id}",
             "/api/devicesets/{ds}/record",
+            "/api/devicesets/{ds}/channels/{ch}/record",
+            "/api/audiorecordings",
+            "/api/audiorecordings/{file}",
+            "/api/audiorecordings/{file}/download",
             "/api/devicesets/{ds}/network-export",
             "/api/devicesets/{ds}/playback",
             "/api/recordings",
@@ -585,6 +595,8 @@ mod tests {
             "ChannelSettings",
             "PresetSnapshot",
             "RecordingStatus",
+            "AudioRecordingStatus",
+            "AudioRecordingInfo",
             "NetworkExportStatus",
             "RecordingInfo",
             "DecoderLogEntry",
@@ -609,6 +621,9 @@ mod tests {
             "AntennaReport",
             "NanoVnaRequest",
             "NanoVnaSweep",
+            "NanoVnaDeviceReport",
+            "NanoVnaCalibration",
+            "NanoVnaCalStep",
         ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
@@ -1021,6 +1036,7 @@ mod tests {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Nfm(NfmParams::default()),
             audio: Default::default(),
         }
@@ -1608,6 +1624,175 @@ mod tests {
         assert!(list_recordings(&app).await.is_empty());
         let (status, _) =
             request(app, "DELETE", &format!("/api/recordings/{}", rec.id), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    async fn record_channel(app: &Router, ds: u32, ch: u32, action: &str) -> (StatusCode, Bytes) {
+        request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/channels/{ch}/record"),
+            Some(&format!(r#"{{"action":"{action}"}}"#)),
+        )
+        .await
+    }
+
+    async fn list_audio_recordings(app: &Router) -> Vec<sdrmm_wire::AudioRecordingInfo> {
+        let (status, body) = request(app.clone(), "GET", "/api/audiorecordings", None).await;
+        assert_eq!(status, StatusCode::OK);
+        serde_json::from_slice::<sdrmm_wire::AudioRecordingsResponse>(&body)
+            .expect("json")
+            .recordings
+    }
+
+    /// The virtual radio runs in real time, so a recording's own frame count is what says
+    /// whether any audio has been written yet.
+    async fn wait_for_recorded_frames(app: &Router, ds: u32, ch: u32, min: u64) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let recording = get_state(app)
+                .await
+                .device_sets
+                .iter()
+                .find(|s| s.id == ds)
+                .expect("set listed")
+                .channels
+                .iter()
+                .find(|c| c.id == ch)
+                .expect("channel listed")
+                .audio_recording
+                .clone();
+            if recording.is_some_and(|r| r.frames >= min) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the audio recording never reached {min} frames"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn channel_audio_record_list_download_and_delete_roundtrip_over_http() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let ds = create_virtual_set(&app).await;
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/channels"),
+            Some(r#"{"settings":{"params":{"type":"nfm","settings":{}}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let ch = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
+
+        let (status, body) = record_channel(&app, ds, ch, "start").await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let live: sdrmm_wire::AudioRecordingStatus = serde_json::from_slice(&body).expect("json");
+        assert!(live.file.ends_with(".wav"));
+        assert_eq!(live.channels, 1);
+        live.started_at.parse::<jiff::Timestamp>().expect("rfc3339");
+
+        wait_for_recorded_frames(&app, ds, ch, 4_800).await;
+
+        let (status, body) = record_channel(&app, ds, ch, "stop").await;
+        assert_eq!(status, StatusCode::OK);
+        let done: sdrmm_wire::AudioRecordingStatus = serde_json::from_slice(&body).expect("json");
+        assert_eq!(done.file, live.file);
+        assert!(done.frames > 0);
+        assert_eq!(done.bytes, done.frames * 2);
+        assert_eq!(done.error, None);
+
+        let listed = list_audio_recordings(&app).await;
+        assert_eq!(listed.len(), 1);
+        let rec = &listed[0];
+        assert_eq!(rec.file, done.file);
+        assert_eq!((rec.channels, rec.sample_rate), (1, 48_000));
+        assert_eq!(rec.frames, done.frames);
+        assert!(rec.duration_s > 0.0);
+        rec.created_at
+            .parse::<jiff::Timestamp>()
+            .expect("rfc3339 created_at");
+
+        let (status, wav) = request(
+            app.clone(),
+            "GET",
+            &format!("/api/audiorecordings/{}/download", rec.file),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&wav[..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(wav.len() as u64, 44 + rec.bytes);
+
+        let (status, _) = request(
+            app.clone(),
+            "DELETE",
+            &format!("/api/audiorecordings/{}", rec.file),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(list_audio_recordings(&app).await.is_empty());
+        let (status, _) = request(
+            app.clone(),
+            "DELETE",
+            &format!("/api/audiorecordings/{}", rec.file),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The file name in the path is a caller's string. Anything that is not one of these
+    /// recordings — a traversal, another extension, a name nothing wrote — is a 404, never a
+    /// file from somewhere else on the disk.
+    #[tokio::test]
+    async fn an_audio_recording_name_cannot_reach_outside_its_directory() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        std::fs::write(dir.path().join("secret.wav"), b"not yours").expect("plant");
+        let app = recording_router(dir.path());
+        for name in [
+            "..%2Fsecret.wav",
+            "..",
+            "nothing.wav",
+            "notes.txt",
+            "%2Fetc%2Fpasswd",
+        ] {
+            let (status, _) = request(
+                app.clone(),
+                "GET",
+                &format!("/api/audiorecordings/{name}/download"),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{name} was served");
+        }
+    }
+
+    #[tokio::test]
+    async fn recording_a_channel_that_makes_no_audio_is_refused() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let ds = create_virtual_set(&app).await;
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/channels"),
+            Some(r#"{"settings":{"params":{"type":"adsb","settings":{}}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let ch = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
+
+        let (status, body) = record_channel(&app, ds, ch, "start").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(String::from_utf8_lossy(&body).contains("no audio"));
+
+        let (status, _) = record_channel(&app, ds, 9_999, "start").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
@@ -3206,13 +3391,20 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         let response: sdrmm_wire::ToolResponse = serde_json::from_slice(&body).expect("json");
-        let sdrmm_wire::ToolResponse::NanoVna(sdrmm_wire::NanoVnaResult::Devices { devices }) =
-            response
+        let sdrmm_wire::ToolResponse::NanoVna(result) = response else {
+            panic!("a NanoVNA call must answer under the NanoVNA tag");
+        };
+        let sdrmm_wire::NanoVnaResult::Devices {
+            devices,
+            ignored_ports,
+        } = *result
         else {
             panic!("NanoVNA discovery must return the device result");
         };
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].port, "fixture-port");
+        assert_eq!(devices[0].match_kind, sdrmm_wire::NanoVnaMatch::Confirmed);
+        assert_eq!(ignored_ports, vec!["fixture-gnss".to_owned()]);
     }
 
     #[tokio::test]

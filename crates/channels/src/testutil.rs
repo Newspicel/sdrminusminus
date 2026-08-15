@@ -13,6 +13,7 @@ pub(crate) fn settings(params: ChannelParams) -> ChannelSettings {
     ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
+        squelch_auto_db: None,
         params,
         audio: sdrmm_wire::AudioProcessing::default(),
     }

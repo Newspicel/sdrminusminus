@@ -191,6 +191,38 @@ pub struct RecordingsResponse {
     pub recordings: Vec<RecordingInfo>,
 }
 
+/// `POST /api/devicesets/{ds}/channels/{ch}/record` — start or stop recording one channel's
+/// audio. The stream is not named here the way [`RecordRequest`] names one: a channel already
+/// sits on exactly one of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ChannelRecordRequest {
+    pub action: RecordAction,
+}
+
+/// One finished audio recording in the library. There is no index row behind this: a WAV
+/// describes itself, so the directory listing *is* the library (: the files on disk are
+/// the source of truth) and the file name is the id.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AudioRecordingInfo {
+    /// File name inside the audio-recordings directory, extension included. Also the path
+    /// segment that downloads or deletes it.
+    pub file: String,
+    pub channels: u8,
+    pub sample_rate: u32,
+    pub frames: u64,
+    pub bytes: u64,
+    pub duration_s: f64,
+    /// RFC3339 UTC, from the file's own modification time — a WAV has nowhere to keep the
+    /// wall clock, and the name carries the start only as a second-resolution stamp.
+    pub created_at: String,
+}
+
+/// `GET /api/audiorecordings`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AudioRecordingsResponse {
+    pub recordings: Vec<AudioRecordingInfo>,
+}
+
 /// `POST /api/devicesets/{ds}/playback` — drive the replay transport of a set whose device is
 /// a recording. Looping is not an action here: it is the `loop` device setting, applied like
 /// any other (see [`crate::PlaybackStatus`]).

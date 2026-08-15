@@ -127,9 +127,21 @@ const NATIVE: &[Native] = &[
         license: "MIT",
         url: "https://github.com/pothosware/SoapySDRPlay3",
         note: Some(
-            "Not bundled. The SDRplay API it needs is commercial software licensed for use with \
-             genuine SDRplay hardware, so operators install the vendor API and this module \
-             themselves.",
+            "Compiled from source at packaging time and shipped as a SoapySDR module. It links \
+             the SDRplay API by name and loads it from wherever the vendor installer put it, so \
+             the module is inert until that API is installed.",
+        ),
+        files: &["SoapySDRPlay3-MIT.txt"],
+    },
+    Native {
+        name: "SDRplay API",
+        license: "Proprietary — SDRplay end user licence agreement",
+        url: "https://www.sdrplay.com/downloads/",
+        note: Some(
+            "Not distributed, and not distributable: the licence grants display and performance \
+             of the software in object form, not copying. It is a build input for SoapySDRPlay3 \
+             and a runtime dependency the operator installs, licensed for use with genuine \
+             SDRplay hardware only.",
         ),
         files: &[],
     },

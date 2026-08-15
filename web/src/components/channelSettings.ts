@@ -25,6 +25,8 @@ export function mergeChannelSettings(
   return {
     offset_hz: edit.offset_hz ?? current.offset_hz ?? 0,
     squelch_db: edit.squelch_db !== undefined ? edit.squelch_db : (current.squelch_db ?? null),
+    squelch_auto_db:
+      edit.squelch_auto_db !== undefined ? edit.squelch_auto_db : (current.squelch_auto_db ?? null),
     params: edit.params ?? current.params,
     audio: edit.audio ?? current.audio ?? {},
   };
@@ -35,6 +37,8 @@ export function mergeChannelSettings(
  * reason: the wire makes every field optional and the panel has to render one anyway. */
 export const AUDIO_DEFAULTS = {
   blankerThreshold: 5,
+  clickThreshold: 6,
+  squelchAutoMarginDb: 8,
   denoiseStrength: 0.5,
   filterLowHz: 300,
   filterHighHz: 3_000,
@@ -46,6 +50,8 @@ export const AUDIO_DEFAULTS = {
 export const AUDIO_LIMITS = {
   maxNotches: 4,
   blankerThreshold: { min: 1.5, max: 20 },
+  clickThreshold: { min: 2, max: 20 },
+  squelchAutoMarginDb: { min: 2, max: 40 },
   toneHz: { min: 30, max: 20_000 },
   notchWidthHz: { min: 10, max: 2_000 },
 } as const;
@@ -90,6 +96,7 @@ export function audioChainActive(audio: AudioProcessing | undefined): boolean {
   }
   return (
     (audio.blanker?.enabled ?? false) ||
+    (audio.click_removal?.enabled ?? false) ||
     (audio.filter?.enabled ?? false) ||
     (audio.notches?.length ?? 0) > 0 ||
     (audio.auto_notch ?? false) ||

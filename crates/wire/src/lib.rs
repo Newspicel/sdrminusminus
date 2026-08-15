@@ -20,9 +20,10 @@ pub mod ws;
 
 pub use about::{AboutResponse, Attribution, ComponentSource, LicenseTextResponse};
 pub use audio::{
-    AudioAgcMode, AudioFilterSettings, AudioProcessing, DenoiseSettings, MAX_AUDIO_NOTCHES,
-    MAX_AUDIO_TONE_HZ, MAX_BLANKER_THRESHOLD, MAX_NOTCH_WIDTH_HZ, MIN_AUDIO_TONE_HZ,
-    MIN_BLANKER_THRESHOLD, MIN_NOTCH_WIDTH_HZ, NoiseBlankerSettings, NotchSettings,
+    AudioAgcMode, AudioFilterSettings, AudioProcessing, ClickRemovalSettings, DenoiseSettings,
+    MAX_AUDIO_NOTCHES, MAX_AUDIO_TONE_HZ, MAX_BLANKER_THRESHOLD, MAX_CLICK_THRESHOLD,
+    MAX_NOTCH_WIDTH_HZ, MIN_AUDIO_TONE_HZ, MIN_BLANKER_THRESHOLD, MIN_CLICK_THRESHOLD,
+    MIN_NOTCH_WIDTH_HZ, NoiseBlankerSettings, NotchSettings,
 };
 pub use bandplan::{
     BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
@@ -33,8 +34,9 @@ pub use channel::{
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
     ChannelSettings, DabMode, DabParams, DatvParams, DatvStandard, DmrParams, DmrSlots, DpmrParams,
     DrmMode, DrmParams, DstarParams, FreeDvMode, FreeDvParams, GnssParams, IdentParams, M17Params,
-    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ,
-    MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams,
+    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB,
+    MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
+    MIN_IDENT_THRESHOLD_DB, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams,
     NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams,
     RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem,
     Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams,
@@ -78,32 +80,36 @@ pub use position::{
     MIN_NMEA_UPDATE_INTERVAL_MS, NmeaDeviceInfo, NmeaDevicesResponse, PositionFix, PositionSource,
 };
 pub use rest::{
-    ApiError, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse, ClientsResponse,
-    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
-    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DevicesResponse, EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, OccupancyBucket,
-    OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice,
-    PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall,
+    ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse, AuthInfo,
+    Bookmark, ChannelRecordRequest, ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest,
+    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
+    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
+    EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport,
+    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
+    PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat,
+    RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall,
     VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{
-    ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot,
-    TrunkFollower, TrunkProblem, TrunkSystemStatus,
+    AudioRecordingStatus, ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus,
+    RecordingStatus, StateSnapshot, TrunkFollower, TrunkProblem, TrunkSystemStatus,
 };
 pub use tools::{
     ANTENNA_TOOL_ID, AntennaDesign, AntennaGeometry, AntennaPart, AntennaPoint, AntennaReport,
     AntennaRequest, AntennaSegment, AntennaSegmentRole, GroundPlaneParams, InvertedVParams,
     MAX_ANTENNA_FREQ_HZ, MAX_APEX_ANGLE_DEG, MAX_FEEDLINE_VELOCITY_FACTOR, MAX_NANOVNA_AVERAGES,
-    MAX_NANOVNA_FREQ_HZ, MAX_NANOVNA_POINTS, MAX_NANOVNA_PORT_LEN, MAX_RADIAL_SLOPE_DEG,
-    MAX_RADIALS, MAX_VELOCITY_FACTOR, MAX_YAGI_DIRECTORS, MAX_YAGI_SPACING_WL, MIN_ANTENNA_FREQ_HZ,
-    MIN_APEX_ANGLE_DEG, MIN_FEEDLINE_VELOCITY_FACTOR, MIN_NANOVNA_FREQ_HZ, MIN_NANOVNA_POINTS,
-    MIN_VELOCITY_FACTOR, MIN_YAGI_SPACING_WL, NANOVNA_TOOL_ID, NanoVnaComplex, NanoVnaDevice,
-    NanoVnaPoint, NanoVnaRequest, NanoVnaResult, NanoVnaSweep, NanoVnaSweepRequest, ToolCategory,
-    ToolDescriptor, ToolRequest, ToolResponse, ToolsResponse, YagiParams,
+    MAX_NANOVNA_CAL_SLOT, MAX_NANOVNA_FREQ_HZ, MAX_NANOVNA_POINTS, MAX_NANOVNA_PORT_LEN,
+    MAX_RADIAL_SLOPE_DEG, MAX_RADIALS, MAX_VELOCITY_FACTOR, MAX_YAGI_DIRECTORS,
+    MAX_YAGI_SPACING_WL, MIN_ANTENNA_FREQ_HZ, MIN_APEX_ANGLE_DEG, MIN_FEEDLINE_VELOCITY_FACTOR,
+    MIN_NANOVNA_FREQ_HZ, MIN_NANOVNA_POINTS, MIN_VELOCITY_FACTOR, MIN_YAGI_SPACING_WL,
+    NANOVNA_TOOL_ID, NanoVnaCalStep, NanoVnaCalibrateRequest, NanoVnaCalibration, NanoVnaComplex,
+    NanoVnaDevice, NanoVnaDeviceReport, NanoVnaMatch, NanoVnaPoint, NanoVnaPortRequest,
+    NanoVnaRequest, NanoVnaResult, NanoVnaStandard, NanoVnaSweep, NanoVnaSweepRequest,
+    NanoVnaSweepState, ToolCategory, ToolDescriptor, ToolRequest, ToolResponse, ToolsResponse,
+    YagiParams,
 };
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
@@ -318,6 +324,7 @@ mod contract_tests {
         let settings: ChannelSettings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.offset_hz, 0.0);
         assert_eq!(settings.squelch_db, None);
+        assert_eq!(settings.squelch_auto_db, None);
         assert_eq!(
             settings.params,
             ChannelParams::Wfm(WfmParams {
@@ -325,6 +332,80 @@ mod contract_tests {
                 stereo: true,
             })
         );
+    }
+
+    /// An automatic squelch is a channel setting like any other: it has to survive storage, and
+    /// a channel that never had one must not grow one on the way back.
+    #[test]
+    fn an_automatic_squelch_margin_roundtrips_and_is_absent_by_default() {
+        let plain: ChannelSettings =
+            serde_json::from_str(r#"{"params":{"type":"nfm","settings":{}}}"#).unwrap();
+        let json = serde_json::to_value(&plain).unwrap();
+        assert!(json.get("squelch_auto_db").is_none());
+
+        let auto: ChannelSettings = serde_json::from_str(
+            r#"{"squelch_db":-70.0,"squelch_auto_db":8.0,"params":{"type":"nfm","settings":{}}}"#,
+        )
+        .unwrap();
+        assert_eq!(auto.squelch_auto_db, Some(8.0));
+        let back: ChannelSettings =
+            serde_json::from_str(&serde_json::to_string(&auto).unwrap()).unwrap();
+        assert_eq!(back, auto);
+    }
+
+    /// The live threshold rides with the level, and a channel whose gate is off states no
+    /// threshold at all rather than a number a meter would draw a line at.
+    #[test]
+    fn a_channel_level_carries_the_gate_it_is_measured_against() {
+        let open = ChannelLevel {
+            channel: 1,
+            level_db: -42.0,
+            peak_db: -30.0,
+            squelch_db: None,
+        };
+        let json = serde_json::to_value(open).unwrap();
+        assert!(json.get("squelch_db").is_none());
+        let gated = ChannelLevel {
+            squelch_db: Some(-61.5),
+            ..open
+        };
+        assert_eq!(
+            serde_json::to_value(gated).unwrap()["squelch_db"],
+            serde_json::json!(-61.5)
+        );
+        let back: ChannelLevel =
+            serde_json::from_str(r#"{"channel":1,"level_db":-42.0,"peak_db":-30.0}"#).unwrap();
+        assert_eq!(back, open);
+    }
+
+    /// A channel's audio recording is live status: absent unless one is running, and back to
+    /// absent for a peer that has never heard of the field.
+    #[test]
+    fn a_channel_states_an_audio_recording_only_while_one_runs() {
+        let mut info: ChannelInfo =
+            serde_json::from_str(r#"{"id":3,"settings":{"params":{"type":"nfm","settings":{}}}}"#)
+                .unwrap();
+        assert_eq!(info.audio_recording, None);
+        assert!(
+            serde_json::to_value(&info)
+                .unwrap()
+                .get("audio_recording")
+                .is_none()
+        );
+
+        info.audio_recording = Some(AudioRecordingStatus {
+            file: "ch_1_3_20260815T120000Z.wav".to_owned(),
+            started_at: "2026-08-15T12:00:00Z".to_owned(),
+            channels: 1,
+            frames: 48_000,
+            bytes: 96_000,
+            error: None,
+        });
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["audio_recording"]["frames"], 48_000);
+        assert!(json["audio_recording"].get("error").is_none());
+        let back: ChannelInfo = serde_json::from_value(json).unwrap();
+        assert_eq!(back, info);
     }
 
     /// Every M4 decoder type must deserialize from an empty `settings` object at its

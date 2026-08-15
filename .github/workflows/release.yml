@@ -397,8 +397,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
+      # cmake here rather than with the Tauri prerequisites below: SoapySDRPlay3 is compiled
+      # before the bundle is, and patchelf sets the module's rpath the same way staging does.
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends patchelf
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends patchelf cmake
       - id: soapy
         uses: mamba-org/setup-micromamba@v3
         with:
@@ -428,6 +430,41 @@ jobs:
               echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
             fi
             packaging/soapy/stage-unix.sh "$PREFIX" apps/desktop/resources/soapy
+          fi
+      # SoapySDRPlay3 is compiled here instead of installed from a package: no platform ships it,
+      # because it links a vendor API that is licensed for use with genuine SDRplay hardware and
+      # cannot be redistributed. Only the MIT-licensed module reaches the bundle; the SDK it was
+      # built against is deleted with the runner, and the module finds the operator's own copy of
+      # the vendor library at runtime.
+      - name: Stage SoapySDRPlay3
+        shell: bash
+        env:
+          PREFIX: ${{ steps.soapy.outputs.environment-path }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/sdrplay-sdk"
+          modules=apps/desktop/resources/soapy/lib/SoapySDR/modules0.8
+          if [ "$RUNNER_OS" = Windows ]; then
+            choco install innoextract --no-progress --yes
+            powershell -NoProfile -File packaging/sdrplay/fetch-api.ps1 -Destination "$sdk"
+            powershell -NoProfile -File packaging/sdrplay/build-module.ps1 \
+              -Prefix "$PREFIX" -Sdk "$sdk" -Destination "$modules"
+            # Through PowerShell, because the path is a Windows one and this shell is not.
+            powershell -NoProfile -Command "Remove-Item -Recurse -Force '$sdk'"
+          else
+            packaging/sdrplay/fetch-api.sh "$sdk"
+            # The Intel slice is cross-built on the arm64 runner, and CMake names that
+            # architecture the way the Apple toolchain does rather than the way the triple does.
+            architecture=""
+            if [ "$RUNNER_OS" = macOS ]; then
+              case "${TARGET%%-*}" in
+                aarch64) architecture=arm64 ;;
+                *) architecture="${TARGET%%-*}" ;;
+              esac
+            fi
+            packaging/sdrplay/build-module.sh "$PREFIX" "$sdk" "$modules" "$architecture"
+            rm -rf "$sdk"
           fi
           cargo xtask soapy-bundle-check
       - name: Sign the staged Soapy runtime
@@ -575,7 +612,7 @@ jobs:
           # a listing tool that cannot name what it holds — look identical from a bare exit code.
           carries() {
             local listing="$1" artifact="$2" module
-            for module in soapysdr rtlsdr hackrf; do
+            for module in soapysdr rtlsdr hackrf sdrplaysupport; do
               if ! grep -qi "$module" <<< "$listing"; then
                 echo "$artifact carries no $module. It holds:" >&2
                 echo "$listing" >&2
@@ -592,7 +629,10 @@ jobs:
             # bundle's binaries name has to resolve from inside the bundle or out of the shared
             # cache, which is what 0.1.2 got wrong — it shipped a complete Soapy payload and a
             # main binary that asked for a libiconv nobody had.
-            cargo xtask link-check "$app"
+            #
+            # The vendor SDRplay library is the one deliberate exception: the module names it,
+            # nothing carries it, and the operator's own install answers for it.
+            cargo xtask link-check "$app" --external libsdrplay_api
           elif [ "$RUNNER_OS" = Linux ]; then
             deb="$(find "$bundle/deb" -name '*.deb' -print -quit)"
             carries "$(dpkg-deb --contents "$deb")" "$deb"

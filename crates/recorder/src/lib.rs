@@ -1,6 +1,8 @@
-//! `sdrmm-recorder` — SigMF v1.2.6 IO (: this crate only reads and writes SigMF
-//! pairs; the recording tap lives in the engine, playback in `device-virtual`). One
-//! recording is `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel `cf32_le`.
+//! `sdrmm-recorder` — recording file IO (this crate only reads and writes files; the taps that
+//! feed them live in the engine, playback in `device-virtual`). Two kinds, because they hold
+//! two different things: a radio's raw IQ as a SigMF v1.2.6 pair — `<stem>.sigmf-meta` +
+//! `<stem>.sigmf-data`, mono-channel `cf32_le` — and one channel's demodulated audio as a WAV.
+mod audio;
 mod export;
 
 use std::{
@@ -9,6 +11,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub use audio::{
+    AUDIO_BYTES_PER_SAMPLE, AUDIO_SUFFIX, AudioInfo, AudioWriter, read_audio_info, scan_audio,
+};
 pub use export::{Export, ExportKind};
 use num_complex::Complex;
 use sdrmm_wire::PositionFix;

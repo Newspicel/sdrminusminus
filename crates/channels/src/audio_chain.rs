@@ -6,8 +6,8 @@
 //! be a second set of constants to get wrong.
 
 use num_complex::Complex;
-use sdrmm_dsp::{Agc, AutoNotch, Biquad, NoiseBlanker, SpectralDenoiser};
-use sdrmm_wire::{AudioProcessing, NotchSettings};
+use sdrmm_dsp::{Agc, AutoNotch, Biquad, ClickRemover, NoiseBlanker, SpectralDenoiser};
+use sdrmm_wire::{AudioProcessing, ChannelParams, NotchSettings};
 
 use crate::AUDIO_RATE;
 
@@ -20,10 +20,61 @@ const AGC_MAX_GAIN: f32 = 100.0;
 /// expects when they drag a passband edge onto a neighbouring station.
 const BUTTERWORTH_Q: [f64; 2] = [0.541_196_1, 1.306_562_9];
 
+/// How wide an impulse the click remover has to be able to replace, per detector.
+///
+/// The mode decides this and the operator does not, because it is not a taste: a click is as
+/// long as the demodulator that made it, and a window wider than that is only more audio being
+/// drawn from to patch over one sample.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ClickProfile {
+    /// FM discriminators click once per loop of the noisy IQ vector around the origin: a spike
+    /// of a couple of samples, no more.
+    #[default]
+    Discriminator,
+    /// Envelope and product detectors pass a static crash through at roughly its own length,
+    /// which is what an atmospheric arrives as after the channel filter has stretched it.
+    Detector,
+    /// A vocoder's output is synthesised, so an impulse in it is a decoding artefact rather
+    /// than a click off the air. The narrowest window there is: enough to catch a single bad
+    /// sample, never enough to chew a syllable of speech that was reconstructed on purpose.
+    Vocoder,
+}
+
+impl ClickProfile {
+    /// Which detector this channel's audio comes out of.
+    #[must_use]
+    pub fn for_params(params: &ChannelParams) -> Self {
+        match params {
+            ChannelParams::Am(_) | ChannelParams::Ssb(_) | ChannelParams::Atv(_) => Self::Detector,
+            ChannelParams::Dmr(_)
+            | ChannelParams::Dstar(_)
+            | ChannelParams::Ysf(_)
+            | ChannelParams::Nxdn(_)
+            | ChannelParams::P25(_)
+            | ChannelParams::Dpmr(_)
+            | ChannelParams::M17(_)
+            | ChannelParams::Freedv(_)
+            | ChannelParams::Dab(_)
+            | ChannelParams::Datv(_)
+            | ChannelParams::Drm(_) => Self::Vocoder,
+            _ => Self::Discriminator,
+        }
+    }
+
+    fn width_s(self) -> f64 {
+        match self {
+            Self::Discriminator => 100e-6,
+            Self::Detector => 400e-6,
+            Self::Vocoder => 60e-6,
+        }
+    }
+}
+
 /// One channel's audio chain, sized to the interleave the mode produces.
 pub struct AudioChain {
     settings: AudioProcessing,
     iq_rate: f64,
+    profile: ClickProfile,
     blanker: Option<NoiseBlanker>,
     /// One independent set of filters per interleaved audio channel: stereo WFM's two sides are
     /// two signals, and sharing a filter's state between them would fold one into the other.
@@ -33,15 +84,21 @@ pub struct AudioChain {
 
 impl AudioChain {
     #[must_use]
-    pub fn new(iq_rate: f64, audio_channels: u8, settings: &AudioProcessing) -> Self {
+    pub fn new(
+        iq_rate: f64,
+        audio_channels: u8,
+        settings: &AudioProcessing,
+        profile: ClickProfile,
+    ) -> Self {
         let mut chain = Self {
             settings: AudioProcessing::default(),
             iq_rate,
+            profile,
             blanker: None,
             planes: Vec::new(),
             deinterleaved: Vec::new(),
         };
-        chain.configure(audio_channels, settings);
+        chain.configure(audio_channels, settings, profile);
         chain
     }
 
@@ -51,7 +108,12 @@ impl AudioChain {
     /// Runs where the host applies settings, which is the DSP thread, and switching a stage on
     /// there allocates — the same bounded deviation the channel filter and the demodulators
     /// beside it already make on a settings change. Steady-state processing allocates nothing.
-    pub fn configure(&mut self, audio_channels: u8, settings: &AudioProcessing) {
+    pub fn configure(
+        &mut self,
+        audio_channels: u8,
+        settings: &AudioProcessing,
+        profile: ClickProfile,
+    ) {
         let planes = usize::from(audio_channels).max(1);
         if settings.blanker.enabled {
             match &mut self.blanker {
@@ -67,11 +129,15 @@ impl AudioChain {
             self.planes.resize_with(planes, Plane::default);
         }
         let agc_changed = rebuild || settings.agc != self.settings.agc;
+        // A mode change is a different detector, so the click window it needs is a different
+        // one; nothing else about the stage's state carries over.
+        let profile_changed = rebuild || profile != self.profile;
         for plane in &mut self.planes {
-            plane.configure(settings, agc_changed);
+            plane.configure(settings, agc_changed, profile, profile_changed);
         }
         self.deinterleaved.resize_with(planes, Vec::new);
         self.settings = settings.clone();
+        self.profile = profile;
     }
 
     /// Forget everything accreted from the signal the channel just left.
@@ -120,6 +186,7 @@ impl AudioChain {
 /// The audio stages for one interleaved channel, in the order they run.
 #[derive(Default)]
 struct Plane {
+    clicks: Option<ClickRemover>,
     highpass: Vec<Biquad>,
     lowpass: Vec<Biquad>,
     notches: Vec<Biquad>,
@@ -129,8 +196,27 @@ struct Plane {
 }
 
 impl Plane {
-    fn configure(&mut self, settings: &AudioProcessing, agc_changed: bool) {
+    fn configure(
+        &mut self,
+        settings: &AudioProcessing,
+        agc_changed: bool,
+        profile: ClickProfile,
+        profile_changed: bool,
+    ) {
         let rate = f64::from(AUDIO_RATE);
+        match (&mut self.clicks, settings.click_removal.enabled) {
+            (Some(clicks), true) if !profile_changed => {
+                clicks.set_threshold(settings.click_removal.threshold);
+            }
+            (slot, true) => {
+                *slot = Some(ClickRemover::new(
+                    rate,
+                    profile.width_s(),
+                    settings.click_removal.threshold,
+                ));
+            }
+            (slot, false) => *slot = None,
+        }
         if settings.filter.enabled {
             self.highpass = butterworth(rate, settings.filter.low_hz, true);
             self.lowpass = butterworth(rate, settings.filter.high_hz, false);
@@ -170,6 +256,9 @@ impl Plane {
     }
 
     fn reset(&mut self) {
+        if let Some(clicks) = &mut self.clicks {
+            clicks.reset();
+        }
         for section in self.highpass.iter_mut().chain(&mut self.lowpass) {
             section.reset();
         }
@@ -185,6 +274,11 @@ impl Plane {
     }
 
     fn process(&mut self, pcm: &mut [f32]) {
+        // First: an impulse that has been through the passband is already the ringing this
+        // stage exists to prevent.
+        if let Some(clicks) = &mut self.clicks {
+            clicks.process(pcm);
+        }
         for section in self.highpass.iter_mut().chain(&mut self.lowpass) {
             section.process(pcm);
         }
@@ -224,8 +318,8 @@ fn notch(rate: f64, settings: &NotchSettings) -> Biquad {
 #[cfg(test)]
 mod tests {
     use sdrmm_wire::{
-        AudioAgcMode, AudioFilterSettings, DenoiseSettings, NoiseBlankerSettings,
-        NotchSettings as Notch,
+        AudioAgcMode, AudioFilterSettings, ClickRemovalSettings, DenoiseSettings,
+        NoiseBlankerSettings, NotchSettings as Notch, SsbParams,
     };
 
     use super::*;
@@ -235,7 +329,7 @@ mod tests {
     const RATE: f64 = AUDIO_RATE as f64;
 
     fn chain(settings: AudioProcessing) -> AudioChain {
-        AudioChain::new(IQ_RATE, 1, &settings)
+        AudioChain::new(IQ_RATE, 1, &settings, ClickProfile::Discriminator)
     }
 
     fn tone(freq_hz: f64, amplitude: f32, len: usize) -> Vec<f32> {
@@ -280,6 +374,10 @@ mod tests {
             blanker: NoiseBlankerSettings {
                 enabled: true,
                 threshold: 4.0,
+            },
+            click_removal: ClickRemovalSettings {
+                enabled: true,
+                threshold: 6.0,
             },
             filter: AudioFilterSettings {
                 enabled: true,
@@ -392,6 +490,81 @@ mod tests {
         assert!(peak < 0.2, "impulse survived at {peak}");
     }
 
+    /// Clicks are the one stage a mode configures rather than the operator, so the chain has to
+    /// take them out of the audio the demodulator handed it.
+    #[test]
+    fn click_removal_takes_the_impulses_out_of_the_audio() {
+        let settings = AudioProcessing {
+            click_removal: ClickRemovalSettings {
+                enabled: true,
+                threshold: 6.0,
+            },
+            ..AudioProcessing::default()
+        };
+        let mut input = tone(800.0, 0.2, 48_000);
+        for n in (1_000..input.len()).step_by(700) {
+            input[n] = 3.0;
+        }
+        let output = run(&mut chain(settings), &input);
+        let settled = &output[8_000..];
+        let peak = settled.iter().fold(0.0f32, |a, s| a.max(s.abs()));
+        assert!(peak < 0.3, "a click survived at {peak}");
+        assert!(
+            tone_amplitude(settled, 800.0, RATE) > 0.18,
+            "the audio under them went with them"
+        );
+    }
+
+    /// The window is the detector's, not the operator's: a static crash six samples wide is
+    /// what an AM channel has to remove and an FM one never sees.
+    #[test]
+    fn a_detector_mode_removes_a_wider_click_than_a_discriminator_does() {
+        let settings = AudioProcessing {
+            click_removal: ClickRemovalSettings {
+                enabled: true,
+                threshold: 6.0,
+            },
+            ..AudioProcessing::default()
+        };
+        let mut input = tone(800.0, 0.2, 48_000);
+        for n in (1_000..input.len() - 8).step_by(700) {
+            input[n..n + 6].fill(3.0);
+        }
+        let peak_with = |profile| {
+            let mut chain = AudioChain::new(IQ_RATE, 1, &settings, profile);
+            run(&mut chain, &input)[8_000..]
+                .iter()
+                .fold(0.0f32, |a, s| a.max(s.abs()))
+        };
+        assert!(peak_with(ClickProfile::Discriminator) > 1.0);
+        assert!(peak_with(ClickProfile::Detector) < 0.3);
+    }
+
+    #[test]
+    fn every_mode_lands_on_the_detector_that_made_its_audio() {
+        use sdrmm_wire::{DmrParams, NfmParams, WfmParams};
+        for (params, profile) in [
+            (
+                ChannelParams::Nfm(NfmParams::default()),
+                ClickProfile::Discriminator,
+            ),
+            (
+                ChannelParams::Wfm(WfmParams::default()),
+                ClickProfile::Discriminator,
+            ),
+            (
+                ChannelParams::Ssb(SsbParams::default()),
+                ClickProfile::Detector,
+            ),
+            (
+                ChannelParams::Dmr(DmrParams::default()),
+                ClickProfile::Vocoder,
+            ),
+        ] {
+            assert_eq!(ClickProfile::for_params(&params), profile, "{params:?}");
+        }
+    }
+
     /// Stereo is two signals sharing one buffer: each side must be filtered by its own state,
     /// or one channel's history leaks into the other's audio.
     #[test]
@@ -410,7 +583,8 @@ mod tests {
             .zip(&right)
             .flat_map(|(&l, &r)| [l, r])
             .collect();
-        AudioChain::new(IQ_RATE, 2, &settings).process_audio(&mut interleaved);
+        AudioChain::new(IQ_RATE, 2, &settings, ClickProfile::Discriminator)
+            .process_audio(&mut interleaved);
 
         let taken: Vec<f32> = interleaved
             .iter()
@@ -455,6 +629,7 @@ mod tests {
                 }],
                 ..AudioProcessing::default()
             },
+            ClickProfile::Discriminator,
         );
         let mut block = tone(1_000.0, 0.01, 1_200);
         chain.process_audio(&mut block);
@@ -473,7 +648,7 @@ mod tests {
             ..AudioProcessing::default()
         });
         run(&mut chain, &tone(100.0, 0.5, 24_000));
-        chain.configure(1, &AudioProcessing::default());
+        chain.configure(1, &AudioProcessing::default(), ClickProfile::Discriminator);
         let output = run(&mut chain, &tone(100.0, 0.5, 24_000));
         assert!(rms(&output[12_000..]) > 0.3, "the filter kept filtering");
     }

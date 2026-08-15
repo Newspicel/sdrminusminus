@@ -39,7 +39,7 @@ pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
-pub use audio_chain::AudioChain;
+pub use audio_chain::{AudioChain, ClickProfile};
 pub use dab::DabChannel;
 pub use datv::DatvChannel;
 pub use drm::DrmChannel;

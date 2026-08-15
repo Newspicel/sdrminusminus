@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeMap,
-    path::Path,
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
@@ -18,6 +17,9 @@ use sdrmm_wire::{
 use soapysdr::{Direction, ErrorCode};
 
 mod caps;
+mod runtime;
+
+pub use runtime::{RuntimeInfo, configure_bundled_runtime, runtime_info};
 
 const DRIVER_ID: &str = "soapy";
 const READ_TIMEOUT_US: i64 = 100_000;
@@ -29,40 +31,6 @@ const OVERFLOW_LOG_EVERY: u64 = 1000;
 const GAIN_MODE_SETTING: &str = "gain_mode";
 
 static ENUMERATE_LOCK: Mutex<()> = Mutex::new(());
-
-/// Details from the loaded SoapySDR core, used by `sdrmm --doctor` and package smoke tests.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RuntimeInfo {
-    pub core_version: String,
-    pub search_paths: Vec<String>,
-    pub modules: Vec<String>,
-}
-
-#[must_use]
-pub fn runtime_info() -> RuntimeInfo {
-    RuntimeInfo {
-        core_version: soapysdr::library_version(),
-        search_paths: soapysdr::module_search_paths(),
-        modules: soapysdr::list_modules(),
-    }
-}
-
-/// Select the application's private Soapy tree before the first enumerate or device open.
-///
-/// # Safety
-/// The caller must invoke this during single-threaded process startup, before any other thread
-/// can read or write the process environment and before constructing a [`SoapyDriver`].
-pub unsafe fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(), DeviceError> {
-    if !modules.is_dir() {
-        return Err(DeviceError::Io(format!(
-            "bundled Soapy module directory is missing: {}",
-            modules.display()
-        )));
-    }
-    unsafe { std::env::set_var("SOAPY_SDR_ROOT", root) };
-    unsafe { std::env::set_var("SOAPY_SDR_PLUGIN_PATH", modules) };
-    Ok(())
-}
 
 fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::Error> {
     let _guard = ENUMERATE_LOCK

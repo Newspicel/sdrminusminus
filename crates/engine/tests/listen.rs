@@ -44,6 +44,7 @@ fn settings(params: ChannelParams, offset_hz: f64, squelch_db: Option<f32>) -> C
     ChannelSettings {
         offset_hz,
         squelch_db,
+        squelch_auto_db: None,
         params,
         audio: Default::default(),
     }

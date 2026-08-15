@@ -52,12 +52,19 @@ cargo xtask desktop --bundles dmg
 ```
 
 Use `deb,appimage` on Linux and `msi,nsis` on Windows. Before bundling, stage the matching locked
-Soapy runtime into `apps/desktop/resources/soapy` with the scripts under `packaging/soapy`, then
-verify it:
+Soapy runtime into `apps/desktop/resources/soapy` with the scripts under `packaging/soapy`, add the
+SoapySDRPlay3 module with the scripts under `packaging/sdrplay`, then verify the result:
 
 ```sh
+packaging/sdrplay/fetch-api.sh /tmp/sdrplay-sdk
+packaging/sdrplay/build-module.sh "$CONDA_PREFIX" /tmp/sdrplay-sdk \
+  apps/desktop/resources/soapy/lib/SoapySDR/modules0.8
 cargo xtask soapy-bundle-check
 ```
+
+The second step downloads the SDRplay API to compile against, which accepts SDRplay's licence. It
+is a build input only: the check refuses a tree that carries the vendor library, because the
+licence covers use rather than redistribution.
 
 Release CI performs this staging from the immutable platform lockfiles. A bundle must include the
 core, baseline modules, transitive libraries, and their notices.

@@ -312,6 +312,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                         ChannelSettings {
                             offset_hz: freq_hz - entry.center_hz,
                             squelch_db: None,
+                            squelch_auto_db: None,
                             audio: AudioProcessing::default_for(params.type_id()),
                             params,
                         }

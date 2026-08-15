@@ -195,6 +195,7 @@ mod tests {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: ChannelParams::Dab(DabParams::default()),
             audio: Default::default(),
         }

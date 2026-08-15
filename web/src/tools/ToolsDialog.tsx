@@ -4,11 +4,19 @@ import { useRef } from "react";
 import { BTN, SURFACE } from "../components/controls";
 import { PortalContainerProvider } from "../components/PortalContainer";
 import { toolsQuery } from "../lib/api";
-import { findTool, type LaunchableTool, launchableTools } from "./registry";
+import { findTool, type LaunchableTool, launchableTools, toolSize } from "./registry";
+
+/** A calculator is read at a glance; an instrument is worked in. The full size leaves only
+ * enough margin to keep the dialog reading as a window over the workspace. */
+const SIZES = {
+  standard: "max-h-[80vh] w-full max-w-3xl",
+  full: "h-[94vh] w-[97vw] max-w-none",
+} as const;
 
 export function ToolsDialog({ tool, onClose }: { tool: string | null; onClose: () => void }) {
   const tools = useQuery(toolsQuery());
   const active = findTool(launchableTools(tools.data?.tools ?? []), tool);
+  const size = SIZES[toolSize(tool)];
   // A tool's own dropdowns portal into the dialog rather than to the body: a popup left at the
   // document root paints under a dialog that sits above it, and the operator clicks the panel
   // behind it instead of the option they aimed at.
@@ -27,16 +35,18 @@ export function ToolsDialog({ tool, onClose }: { tool: string | null; onClose: (
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-bg/70" />
         <Dialog.Popup
           ref={portalContainer}
-          className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[80vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col`}
+          className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex ${size} -translate-x-1/2 -translate-y-1/2 flex-col`}
         >
           <PortalContainerProvider container={portalContainer}>
             <div className="flex shrink-0 items-baseline justify-between gap-4 border-b border-line px-4 py-3">
               <Dialog.Title className="text-base font-medium text-ink">
                 {active?.descriptor.name ?? "Tool"}
               </Dialog.Title>
-              <Dialog.Description className="legend">
-                {active?.descriptor.summary ?? "This build no longer offers that tool"}
-              </Dialog.Description>
+              {active === null && (
+                <Dialog.Description className="legend">
+                  This build no longer offers that tool
+                </Dialog.Description>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto p-4">

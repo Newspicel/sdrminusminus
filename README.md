@@ -45,8 +45,9 @@ wire the Device's IQ output to it, wire its audio output to the Speaker, and tun
 `+300 kHz` for a 1 kHz test tone.
 
 For a real receiver, choose it instead of the signal generator. Desktop installers and containers
-bundle SoapySDR support for RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and
-SoapyRemote. SDRplay requires its separately licensed runtime. See the
+bundle SoapySDR support for RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR,
+SoapyRemote, and SDRplay — the SDRplay module is included, but its vendor API is licensed for
+genuine SDRplay hardware and you install that yourself. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
 troubleshooting.
 

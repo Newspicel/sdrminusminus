@@ -44,6 +44,29 @@ pub struct RecordingStatus {
     pub error: Option<String>,
 }
 
+/// Live audio recording on one channel: what the listener hears, written to a WAV file as it is
+/// produced. Its own status rather than a second [`RecordingStatus`] because the two record
+/// different things — one the radio's raw IQ, the other one channel's demodulated audio — and
+/// they run independently of each other.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AudioRecordingStatus {
+    /// File name inside the server's audio-recordings directory, extension included.
+    pub file: String,
+    /// RFC3339 UTC.
+    pub started_at: String,
+    /// Interleave the file was opened with. A WAV header states its channel count once, so this
+    /// is also what the recording is pinned to: a mode switched to a different layout mid-file
+    /// ends the recording with an `error` rather than writing frames no reader can interpret.
+    pub channels: u8,
+    /// Sample frames written so far; at 48 kHz these are the recording's own clock.
+    pub frames: u64,
+    pub bytes: u64,
+    /// Fatal fault (queue overflow, disk error, layout change); the writer has stopped and the
+    /// file has been finalized, but the cause stays visible (CLAUDE.md no-silent-failure).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// Transport of a device set replaying a recording (`virtual:file:`). Absent on a live radio:
 /// there is no position to seek in a signal that is still arriving.
 ///
@@ -105,6 +128,12 @@ pub struct ChannelLevel {
     pub level_db: f32,
     /// Loudest recent level, held then decayed.
     pub peak_db: f32,
+    /// Where the gate is actually opening, in the same dBFS as the levels above; absent while
+    /// the squelch is off. It rides with the level rather than with the channel's settings
+    /// because an automatic threshold *is* a measurement — it moves with the noise floor, and a
+    /// settings field that changed on its own would be a state invalidation per reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub squelch_db: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

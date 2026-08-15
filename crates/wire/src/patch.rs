@@ -420,6 +420,11 @@ pub enum NodeBody {
     Video,
     /// SigMF recording of a device's IQ.
     Recorder,
+    /// WAV recording of what a channel's audio *sounds* like, one file per wired channel. Its
+    /// own kind rather than a mode of the recorder above, because the two record different
+    /// things from different places in the chain: one the radio's raw IQ, the other one
+    /// channel's demodulated audio, after everything the channel does to it.
+    AudioRecorder,
     /// Unframed raw IQ sent over UDP datagrams or a TCP byte stream.
     NetworkExport(NetworkExportNode),
     /// CSV/JSON export of the stored decoder log.
@@ -445,6 +450,7 @@ impl NodeBody {
             Self::ChatOutput(_) => "chat_output",
             Self::Video => "video",
             Self::Recorder => "recorder",
+            Self::AudioRecorder => "audio_recorder",
             Self::NetworkExport(_) => "network_export",
             Self::Export => "export",
             Self::Scanner => "scanner",
@@ -465,6 +471,7 @@ impl NodeBody {
             Self::Scanner | Self::DmrTrunk(_) => NodeCategory::Feature,
             Self::Speaker
             | Self::Recorder
+            | Self::AudioRecorder
             | Self::NetworkExport(_)
             | Self::ChatOutput(_)
             | Self::Export => NodeCategory::Sink,
@@ -556,6 +563,9 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, Always),
         ],
+        // Several channels at once, like the speaker: one file each, and an operator recording
+        // a net does not want a node per voice.
+        "audio_recorder" => vec![PortSpec::new(Audio, In, true, Always)],
         "network_export" => vec![PortSpec::new(Iq, In, false, Always)],
         "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
@@ -641,6 +651,7 @@ impl PatchCatalog {
                 ),
                 entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
+                entry(&NodeBody::AudioRecorder, "Audio recorder"),
                 entry(
                     &NodeBody::NetworkExport(NetworkExportNode::default()),
                     "Network IQ",
@@ -2014,6 +2025,12 @@ mod tests {
         );
         assert!(!takes("channel", PortType::Baseband));
         assert!(!takes("recorder", PortType::Baseband));
+        // The two recorders take different things from different places in the chain: raw IQ
+        // off the radio, and demodulated audio off a channel.
+        assert!(takes("recorder", PortType::Iq));
+        assert!(!takes("recorder", PortType::Audio));
+        assert!(takes("audio_recorder", PortType::Audio));
+        assert!(!takes("audio_recorder", PortType::Iq));
         assert!(!takes("signal_map", PortType::Baseband));
         assert!(
             takes("scope", PortType::Baseband),

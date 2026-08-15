@@ -35,6 +35,25 @@ RUN case "$TARGETARCH" in \
        done
 
 
+# --- SoapySDRPlay3 -------------------------------------------------------------------------
+# No platform packages this module, because it links a vendor API that is licensed for use with
+# genuine SDRplay hardware and may not be redistributed. The MIT module is compiled here and is
+# all that reaches the image; the SDK it was built against stays in this stage, and the vendor
+# library and its service are the operator's to provide (docs/src/server/deployment.md).
+FROM debian:trixie-slim AS sdrplay
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential cmake ca-certificates curl git patchelf python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=soapy /opt/conda /opt/conda
+COPY packaging/sdrplay /packaging/sdrplay
+RUN install -d /modules \
+    && /packaging/sdrplay/fetch-api.sh /tmp/sdrplay-sdk \
+    && /packaging/sdrplay/build-module.sh /opt/conda /tmp/sdrplay-sdk /modules \
+    && rm -rf /tmp/sdrplay-sdk \
+    && test -n "$(find /modules -iname '*sdrPlaySupport*' -print -quit)"
+
+
 # --- workspace skeleton ------------------------------------------------------------------
 FROM debian:trixie-slim AS planner
 WORKDIR /plan
@@ -116,8 +135,7 @@ LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminu
       org.opencontainers.image.licenses="MIT"
 
 # The pinned private environment includes the core, curated modules, transitive shared libraries,
-# package metadata, and licenses. UHD and SDRplay remain optional packs because of their size and
-# redistribution constraints.
+# package metadata, and licenses. UHD remains an optional pack because of its size.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates curl \
@@ -125,12 +143,11 @@ RUN apt-get update \
     && useradd --system --uid 10001 --user-group --create-home --home-dir /home/sdrmm sdrmm
 
 COPY --from=soapy /opt/conda /opt/conda
+COPY --from=sdrplay /modules/. /opt/conda/lib/SoapySDR/modules0.8/
 COPY --from=builder /out/sdrmm /usr/local/bin/sdrmm
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/sdrmm/THIRD_PARTY_NOTICES.md
 
-ENV SDRMM_SOAPY_ROOT=/opt/conda \
-    SDRMM_SOAPY_MODULE_PATH=/opt/conda/lib/SoapySDR/modules0.8 \
-    SOAPY_SDR_ROOT=/opt/conda \
+ENV SOAPY_SDR_ROOT=/opt/conda \
     SOAPY_SDR_PLUGIN_PATH=/opt/conda/lib/SoapySDR/modules0.8 \
     LD_LIBRARY_PATH=/opt/conda/lib \
     PATH=/opt/conda/bin:$PATH

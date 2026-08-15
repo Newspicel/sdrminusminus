@@ -18,9 +18,11 @@ pub use antenna::{
     YagiParams,
 };
 pub use nanovna::{
-    MAX_NANOVNA_AVERAGES, MAX_NANOVNA_FREQ_HZ, MAX_NANOVNA_POINTS, MAX_NANOVNA_PORT_LEN,
-    MIN_NANOVNA_FREQ_HZ, MIN_NANOVNA_POINTS, NANOVNA_TOOL_ID, NanoVnaComplex, NanoVnaDevice,
-    NanoVnaPoint, NanoVnaRequest, NanoVnaResult, NanoVnaSweep, NanoVnaSweepRequest,
+    MAX_NANOVNA_AVERAGES, MAX_NANOVNA_CAL_SLOT, MAX_NANOVNA_FREQ_HZ, MAX_NANOVNA_POINTS,
+    MAX_NANOVNA_PORT_LEN, MIN_NANOVNA_FREQ_HZ, MIN_NANOVNA_POINTS, NANOVNA_TOOL_ID, NanoVnaCalStep,
+    NanoVnaCalibrateRequest, NanoVnaCalibration, NanoVnaComplex, NanoVnaDevice,
+    NanoVnaDeviceReport, NanoVnaMatch, NanoVnaPoint, NanoVnaPortRequest, NanoVnaRequest,
+    NanoVnaResult, NanoVnaStandard, NanoVnaSweep, NanoVnaSweepRequest, NanoVnaSweepState,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -84,8 +86,11 @@ impl ToolRequest {
 #[non_exhaustive]
 pub enum ToolResponse {
     Antenna(AntennaReport),
+    // Boxed so one tool's large answer does not set the size of every other tool's: a sweep
+    // carries its points and the instrument's whole reported state. Serialises as the bare
+    // result, so the wire shape is the same either way.
     #[serde(rename = "nanovna")]
-    NanoVna(NanoVnaResult),
+    NanoVna(Box<NanoVnaResult>),
 }
 
 impl ToolResponse {

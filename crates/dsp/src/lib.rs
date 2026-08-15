@@ -44,7 +44,7 @@ pub use fm::FmDemod;
 pub use iir::{Biquad, ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
 pub use level::{LEVEL_FLOOR_DB, LevelMeter};
 pub use nco::Nco;
-pub use noise::{AutoNotch, NoiseBlanker, SpectralDenoiser};
+pub use noise::{AutoNotch, ClickRemover, NoiseBlanker, SpectralDenoiser};
 pub use pll::{Costas, LoopFilter, Pll};
 pub use resamp::FracResampler;
 pub use spectrum::{SpectrumAnalyzer, adaptive_db_window, decimate_max, quantize_db};

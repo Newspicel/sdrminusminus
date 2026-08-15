@@ -358,6 +358,7 @@ impl Follower {
         let settings = ChannelSettings {
             offset_hz: grant.freq_hz as f64 - carrier.center_hz,
             squelch_db: None,
+            squelch_auto_db: None,
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
@@ -620,6 +621,7 @@ mod tests {
                 ChannelSettings {
                     offset_hz: 0.0,
                     squelch_db: None,
+                    squelch_auto_db: None,
                     params: ChannelParams::Dmr(DmrParams::default()),
                     audio: Default::default(),
                 },

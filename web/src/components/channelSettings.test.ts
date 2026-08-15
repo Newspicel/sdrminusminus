@@ -38,6 +38,7 @@ describe("mergeChannelSettings", () => {
     expect(mergeChannelSettings(base, { offset_hz: -12_500 })).toEqual({
       ...base,
       audio: {},
+      squelch_auto_db: null,
       offset_hz: -12_500,
     });
   });
@@ -53,6 +54,17 @@ describe("mergeChannelSettings", () => {
   it("distinguishes squelch off (null) from unchanged (undefined)", () => {
     expect(mergeChannelSettings(base, { squelch_db: null }).squelch_db).toBeNull();
     expect(mergeChannelSettings(base, {}).squelch_db).toBe(-70);
+  });
+
+  // The two squelch fields are edited from two controls, so an edit to one must not decide the
+  // other: turning tracking on keeps the manual threshold the gate falls back to.
+  it("keeps the manual threshold when the automatic margin is set, and the reverse", () => {
+    const auto = mergeChannelSettings(base, { squelch_auto_db: 8 });
+    expect(auto.squelch_auto_db).toBe(8);
+    expect(auto.squelch_db).toBe(-70);
+    expect(mergeChannelSettings(auto, { squelch_auto_db: null }).squelch_auto_db).toBeNull();
+    expect(mergeChannelSettings(auto, { squelch_db: -80 }).squelch_auto_db).toBe(8);
+    expect(mergeChannelSettings(base, {}).squelch_auto_db).toBeNull();
   });
 
   it("swaps params wholesale without touching placement", () => {
@@ -85,6 +97,7 @@ describe("mergeChannelSettings", () => {
     expect(next).toEqual({
       offset_hz: 1_000,
       squelch_db: null,
+      squelch_auto_db: null,
       audio: {},
       params: {
         type: "rtty",
@@ -242,6 +255,7 @@ describe("audioChainActive", () => {
     expect(audioChainActive({ blanker: { enabled: true } })).toBe(true);
     expect(audioChainActive({ denoise: { enabled: true } })).toBe(true);
     expect(audioChainActive({ filter: { enabled: true } })).toBe(true);
+    expect(audioChainActive({ click_removal: { enabled: true } })).toBe(true);
     expect(audioChainActive({ notches: [{ freq_hz: 1_000, width_hz: 100 }] })).toBe(true);
   });
 });

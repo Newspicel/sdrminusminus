@@ -16,12 +16,19 @@ import {
 import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
 import { VideoView } from "../../components/VideoView";
-import { callAudioUrl, decoderLogExportUrl, recordDeviceSet } from "../../lib/api";
+import {
+  callAudioUrl,
+  decoderLogExportUrl,
+  recordChannelAudio,
+  recordDeviceSet,
+} from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
+import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf } from "../../lib/position";
 import { pushToast } from "../../lib/toasts";
 import type {
+  AudioRecordingStatus,
   DeviceSet,
   PatchNode,
   RecordAction,
@@ -516,6 +523,97 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
       </ReadoutRow>
       <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
       {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
+      <ReadoutRow label="File">
+        <span className="block truncate" title={status.file}>
+          {status.file}
+        </span>
+      </ReadoutRow>
+    </Readout>
+  );
+}
+
+/** One file per wired channel, so a net recorded across three receivers is three recordings and
+ * not one mixdown nobody can separate again. */
+export function AudioRecorderFace({ node }: { node: PatchNode }) {
+  const inputs = useInputs(node.id, "audio");
+  const recording = inputs.filter((input) => input.channel.audio_recording != null).length;
+  return (
+    <NodeShell
+      node={node}
+      title="Audio recorder"
+      category="sink"
+      subtitle={
+        recording === 0
+          ? undefined
+          : recording === 1
+            ? "1 channel recording"
+            : `${recording} channels recording`
+      }
+      live={inputs.length > 0}
+    >
+      <FaceBody>
+        {inputs.length === 0 ? (
+          <FaceEmpty>Wire a channel's audio out to record what it sounds like.</FaceEmpty>
+        ) : (
+          inputs.map((input) => <AudioRecordInput key={input.node} input={input} />)
+        )}
+      </FaceBody>
+    </NodeShell>
+  );
+}
+
+function AudioRecordInput({ input }: { input: Input }) {
+  const workspace = useWorkspaceContext();
+  const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
+  const status = input.channel.audio_recording ?? null;
+  const record = useMutation({
+    mutationFn: (action: RecordAction) =>
+      recordChannelAudio(input.deviceSet, input.channel.id, action),
+    onError: (error: Error) => pushToast(error.message),
+  });
+  return (
+    <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          className={status === null ? BTN : BTN_DANGER}
+          disabled={record.isPending}
+          title={status === null ? "Record this channel's audio to a WAV file" : undefined}
+          onClick={() => record.mutate(status === null ? "start" : "stop")}
+        >
+          {status === null ? (
+            <>
+              <span aria-hidden className="text-danger">
+                ●
+              </span>
+              Record
+            </>
+          ) : (
+            "Stop"
+          )}
+        </Button>
+        <span className="legend truncate">
+          {label ?? input.channel.settings.params.type.toUpperCase()}
+        </span>
+      </div>
+      {status !== null && <AudioRecordingReadout status={status} />}
+      {status?.error != null && (
+        <p role="alert" className="text-xs text-danger">
+          {status.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The recording's own frame clock rather than the wall clock: a squelched channel writes
+ * silence, so what is on disk is exactly the time that has gone by — and if the writer stops,
+ * the readout stops with it instead of counting air nothing captured. */
+function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
+  return (
+    <Readout separated={false}>
+      <ReadoutRow label="Elapsed">{formatDuration(status.frames / AUDIO_RATE_HZ)}</ReadoutRow>
+      <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
       <ReadoutRow label="File">
         <span className="block truncate" title={status.file}>
           {status.file}

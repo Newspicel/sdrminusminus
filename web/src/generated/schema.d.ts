@@ -36,6 +36,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/audiorecordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_audio_recordings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audiorecordings/{file}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_audio_recording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audiorecordings/{file}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["download_audio_recording"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth": {
         parameters: {
             query?: never;
@@ -306,6 +354,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["patch_channel"];
+        trace?: never;
+    };
+    "/api/devicesets/{ds}/channels/{ch}/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["record_channel_audio"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/devicesets/{ds}/device": {
@@ -1205,9 +1269,10 @@ export interface components {
          * @description Everything a voice channel does to its audio after the demodulator, plus the one stage that
          *     has to run before it.
          *
-         *     Stages run in the order they are declared: the blanker on IQ, then passband, notches,
-         *     adaptive notch, noise reduction and AGC on the demodulated audio. Filtering first keeps the
-         *     junk outside the passband out of everything downstream, and the AGC runs last so what it
+         *     Stages run in the order they are declared: the blanker on IQ, then click removal, passband,
+         *     notches, adaptive notch, noise reduction and AGC on the demodulated audio. Impulses go first,
+         *     because a filter turns one into the ringing it was supposed to prevent; filtering next keeps
+         *     the junk outside the passband out of everything downstream; and the AGC runs last so what it
          *     levels is what the listener actually hears.
          *
          *     Every stage is off by default, which is what a channel had before this existed.
@@ -1217,9 +1282,72 @@ export interface components {
             /** @description Remove steady carriers without being told where they are. */
             auto_notch?: boolean;
             blanker?: components["schemas"]["NoiseBlankerSettings"];
+            click_removal?: components["schemas"]["ClickRemovalSettings"];
             denoise?: components["schemas"]["DenoiseSettings"];
             filter?: components["schemas"]["AudioFilterSettings"];
             notches?: components["schemas"]["NotchSettings"][];
+        };
+        /**
+         * @description One finished audio recording in the library. There is no index row behind this: a WAV
+         *     describes itself, so the directory listing *is* the library (: the files on disk are
+         *     the source of truth) and the file name is the id.
+         */
+        AudioRecordingInfo: {
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int32 */
+            channels: number;
+            /**
+             * @description RFC3339 UTC, from the file's own modification time — a WAV has nowhere to keep the
+             *     wall clock, and the name carries the start only as a second-resolution stamp.
+             */
+            created_at: string;
+            /** Format: double */
+            duration_s: number;
+            /**
+             * @description File name inside the audio-recordings directory, extension included. Also the path
+             *     segment that downloads or deletes it.
+             */
+            file: string;
+            /** Format: int64 */
+            frames: number;
+            /** Format: int32 */
+            sample_rate: number;
+        };
+        /** @description `GET /api/audiorecordings`. */
+        AudioRecordingsResponse: {
+            recordings: components["schemas"]["AudioRecordingInfo"][];
+        };
+        /**
+         * @description Live audio recording on one channel: what the listener hears, written to a WAV file as it is
+         *     produced. Its own status rather than a second [`RecordingStatus`] because the two record
+         *     different things — one the radio's raw IQ, the other one channel's demodulated audio — and
+         *     they run independently of each other.
+         */
+        AudioRecordingStatus: {
+            /** Format: int64 */
+            bytes: number;
+            /**
+             * Format: int32
+             * @description Interleave the file was opened with. A WAV header states its channel count once, so this
+             *     is also what the recording is pinned to: a mode switched to a different layout mid-file
+             *     ends the recording with an `error` rather than writing frames no reader can interpret.
+             */
+            channels: number;
+            /**
+             * @description Fatal fault (queue overflow, disk error, layout change); the writer has stopped and the
+             *     file has been finalized, but the cause stays visible (CLAUDE.md no-silent-failure).
+             */
+            error?: string | null;
+            /** @description File name inside the server's audio-recordings directory, extension included. */
+            file: string;
+            /**
+             * Format: int64
+             * @description Sample frames written so far; at 48 kHz these are the recording's own clock.
+             */
+            frames: number;
+            /** @description RFC3339 UTC. */
+            started_at: string;
         };
         /**
          * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
@@ -1542,6 +1670,7 @@ export interface components {
         };
         /** @description A live channel instance inside a device set. */
         ChannelInfo: {
+            audio_recording?: null | components["schemas"]["AudioRecordingStatus"];
             /** Format: int32 */
             id: number;
             settings: components["schemas"]["ChannelSettings"];
@@ -1573,6 +1702,14 @@ export interface components {
              * @description Loudest recent level, held then decayed.
              */
             peak_db: number;
+            /**
+             * Format: float
+             * @description Where the gate is actually opening, in the same dBFS as the levels above; absent while
+             *     the squelch is off. It rides with the level rather than with the channel's settings
+             *     because an automatic threshold *is* a measurement — it moves with the noise floor, and a
+             *     settings field that changed on its own would be a state invalidation per reading.
+             */
+            squelch_db?: number | null;
         };
         /**
          * @description A channel node's payload. The *type* is topology — it decides the node's ports — while the
@@ -1724,6 +1861,14 @@ export interface components {
             /** @enum {string} */
             type: "gnss";
         };
+        /**
+         * @description `POST /api/devicesets/{ds}/channels/{ch}/record` — start or stop recording one channel's
+         *     audio. The stream is not named here the way [`RecordRequest`] names one: a channel already
+         *     sits on exactly one of them.
+         */
+        ChannelRecordRequest: {
+            action: components["schemas"]["RecordAction"];
+        };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
             /**
@@ -1740,8 +1885,19 @@ export interface components {
             params: components["schemas"]["ChannelParams"];
             /**
              * Format: float
+             * @description Track the channel's own noise floor and gate this many dB above it. Only means anything
+             *     while the squelch is on: `squelch_db: None` is a gate held open, and there is nothing for
+             *     a threshold to do in it.
+             */
+            squelch_auto_db?: number | null;
+            /**
+             * Format: float
              * @description Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied
              *     bandwidth, not the full DDC passband); `None` = squelch open.
+             *
+             *     With `squelch_auto_db` set this is what the gate falls back to when the operator switches
+             *     tracking off again, not what it is currently gating on — the live threshold travels with
+             *     the channel's level, in [`crate::ChannelLevel::squelch_db`].
              */
             squelch_db?: number | null;
         };
@@ -1768,6 +1924,23 @@ export interface components {
          * @enum {string}
          */
         CheckStatus: "ok" | "warn" | "fail";
+        /**
+         * @description Impulse removal in the demodulated audio: FM's own discriminator clicks, and the static
+         *     crashes that reach an envelope or product detector.
+         *
+         *     How wide a click can be is the *mode's* to say — a demodulator's clicks are as long as that
+         *     demodulator makes them — so the only thing set here is how far above the audio's own level a
+         *     sample has to sit before it is treated as one.
+         */
+        ClickRemovalSettings: {
+            enabled?: boolean;
+            /**
+             * Format: float
+             * @description Multiple of the audio's average magnitude. Lower cuts more, and eventually starts taking
+             *     the edge off consonants.
+             */
+            threshold?: number;
+        };
         ClientCommand: {
             /** @description Start receiving spectrum frames for a device set at the requested rate/resolution. */
             data: {
@@ -2758,6 +2931,62 @@ export interface components {
              */
             wpm: number;
         };
+        NanoVnaCalibrateRequest: components["schemas"]["NanoVnaCalStep"] & {
+            port: string;
+            range?: null | components["schemas"]["NanoVnaSweepState"];
+        };
+        NanoVnaCalibration: {
+            applied: boolean;
+            error_terms: string[];
+            port: string;
+            raw: string;
+            standards: components["schemas"]["NanoVnaStandard"][];
+        };
+        /**
+         * @description One move in the guided calibration. Each maps to a `cal` subcommand on the instrument, so a
+         *     panel walking an operator through open/short/load/thru never has to build shell text itself.
+         */
+        NanoVnaCalStep: {
+            /** @enum {string} */
+            step: "status";
+        } | {
+            /** @enum {string} */
+            step: "reset";
+        } | {
+            /** @enum {string} */
+            step: "open";
+        } | {
+            /** @enum {string} */
+            step: "short";
+        } | {
+            /** @enum {string} */
+            step: "load";
+        } | {
+            /** @enum {string} */
+            step: "thru";
+        } | {
+            /** @enum {string} */
+            step: "isolation";
+        } | {
+            /** @enum {string} */
+            step: "finish";
+        } | {
+            /** @enum {string} */
+            step: "enable";
+        } | {
+            /** @enum {string} */
+            step: "disable";
+        } | {
+            /** Format: int32 */
+            slot: number;
+            /** @enum {string} */
+            step: "save";
+        } | {
+            /** Format: int32 */
+            slot: number;
+            /** @enum {string} */
+            step: "recall";
+        };
         NanoVnaComplex: {
             /** Format: double */
             im: number;
@@ -2766,41 +2995,102 @@ export interface components {
         };
         NanoVnaDevice: {
             label: string;
-            likely_nanovna: boolean;
+            manufacturer?: string | null;
+            match_kind: components["schemas"]["NanoVnaMatch"];
+            model?: string | null;
             port: string;
+            product?: string | null;
             serial_number?: string | null;
             /** Format: int32 */
             usb_pid?: number | null;
             /** Format: int32 */
             usb_vid?: number | null;
         };
+        /** @description Everything the instrument will say about itself, read back over the shell. */
+        NanoVnaDeviceReport: {
+            /** Format: int32 */
+            bandwidth_hz?: number | null;
+            /** Format: int32 */
+            battery_mv?: number | null;
+            board?: string | null;
+            calibration: components["schemas"]["NanoVnaCalibration"];
+            commands: string[];
+            /** Format: double */
+            electrical_delay_s?: number | null;
+            firmware: string;
+            /** Format: int64 */
+            harmonic_threshold_hz?: number | null;
+            info: string[];
+            port: string;
+            /**
+             * Format: int32
+             * @description The drive level the firmware reports, where 255 is its own automatic choice.
+             */
+            power?: number | null;
+            /** Format: double */
+            s21_offset_db?: number | null;
+            sweep?: null | components["schemas"]["NanoVnaSweepState"];
+            /** Format: int64 */
+            tcxo_hz?: number | null;
+        };
+        /**
+         * @description How sure discovery is that a port carries a VNA. USB serial numbers are shared across whole
+         *     families of boards, so a matching id alone is `Probable` and only the product or vendor
+         *     string promotes it to `Confirmed`.
+         * @enum {string}
+         */
+        NanoVnaMatch: "confirmed" | "probable";
         NanoVnaPoint: {
             /** Format: int64 */
             frequency_hz: number;
             s11: components["schemas"]["NanoVnaComplex"];
             s21: components["schemas"]["NanoVnaComplex"];
         };
+        NanoVnaPortRequest: {
+            port: string;
+        };
         NanoVnaRequest: {
             /** @enum {string} */
             action: "list_devices";
-        } | (components["schemas"]["NanoVnaSweepRequest"] & {
+        } | (components["schemas"]["NanoVnaPortRequest"] & {
+            /** @enum {string} */
+            action: "describe";
+        }) | (components["schemas"]["NanoVnaSweepRequest"] & {
             /** @enum {string} */
             action: "sweep";
+        }) | (components["schemas"]["NanoVnaCalibrateRequest"] & {
+            /** @enum {string} */
+            action: "calibrate";
         });
         NanoVnaResult: {
             devices: components["schemas"]["NanoVnaDevice"][];
+            /**
+             * @description Serial ports that are present but are not a VNA, by name only — the panel lists
+             *     instruments, and an operator whose clone went unrecognised still needs to see that
+             *     the port exists before typing it in.
+             */
+            ignored_ports: string[];
             /** @enum {string} */
             kind: "devices";
-        } | (components["schemas"]["NanoVnaSweep"] & {
+        } | (components["schemas"]["NanoVnaDeviceReport"] & {
+            /** @enum {string} */
+            kind: "device";
+        }) | (components["schemas"]["NanoVnaSweep"] & {
             /** @enum {string} */
             kind: "sweep";
+        }) | (components["schemas"]["NanoVnaCalibration"] & {
+            /** @enum {string} */
+            kind: "calibration";
         });
+        /** @enum {string} */
+        NanoVnaStandard: "load" | "open" | "short" | "thru" | "isolation";
         NanoVnaSweep: {
             /** Format: int32 */
             averages: number;
-            firmware: string;
+            device: components["schemas"]["NanoVnaDeviceReport"];
+            /** Format: int64 */
+            elapsed_ms: number;
             points: components["schemas"]["NanoVnaPoint"][];
-            port: string;
             /** Format: int32 */
             requested_points: number;
         };
@@ -2810,6 +3100,14 @@ export interface components {
             /** Format: int32 */
             points: number;
             port: string;
+            /** Format: int64 */
+            start_hz: number;
+            /** Format: int64 */
+            stop_hz: number;
+        };
+        NanoVnaSweepState: {
+            /** Format: int32 */
+            points: number;
             /** Format: int64 */
             start_hz: number;
             /** Format: int64 */
@@ -2990,6 +3288,9 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "recorder";
+        } | {
+            /** @enum {string} */
+            kind: "audio_recorder";
         } | {
             /** @description Unframed raw IQ sent over UDP datagrams or a TCP byte stream. */
             data: components["schemas"]["NetworkExportNode"];
@@ -4507,6 +4808,88 @@ export interface operations {
             };
         };
     };
+    list_audio_recordings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The audio-recording library, read off the files themselves */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioRecordingsResponse"];
+                };
+            };
+        };
+    };
+    delete_audio_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Audio recording file name, extension included */
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audio recording removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Audio recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    download_audio_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Audio recording file name, extension included */
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recording as a WAV, streamed with an exact `Content-Length` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": string;
+                };
+            };
+            /** @description Audio recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     get_auth: {
         parameters: {
             query?: never;
@@ -5164,6 +5547,62 @@ export interface operations {
                 content?: never;
             };
             /** @description Invalid channel settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    record_channel_audio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Channel id */
+                ch: number;
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelRecordRequest"];
+            };
+        };
+        responses: {
+            /** @description Recording status: live after `start`; final counts after `stop`, where `error` reports a recording that was cut short and the finished file appears in `GET /api/audiorecordings` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioRecordingStatus"];
+                };
+            };
+            /** @description Cannot record: no recordings directory, set not running, channel already recording, not recording, or a channel with no audio */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FLUSH_MS, formatLevel, LEVEL_FLOOR_DB, levelUnit, useLevelStore } from "./levels";
-import type { ServerEvent } from "./types";
+import {
+  FLUSH_MS,
+  formatLevel,
+  gateDb,
+  gateOpen,
+  LEVEL_FLOOR_DB,
+  levelUnit,
+  useLevelStore,
+} from "./levels";
+import type { ChannelLevel, ServerEvent } from "./types";
 
 function update(deviceSet: number, levels: [number, number, number][]): ServerEvent {
   return {
@@ -106,6 +114,31 @@ describe("levelUnit", () => {
 
   it("takes a different floor when asked", () => {
     expect(levelUnit(-30, -60)).toBeCloseTo(0.5, 6);
+  });
+});
+
+function reading(over: Partial<ChannelLevel> = {}): ChannelLevel {
+  return { channel: 1, level_db: -50, peak_db: -40, ...over };
+}
+
+describe("the gate a level is measured against", () => {
+  it("prefers the measured threshold to the setting", () => {
+    // Tracking moves the gate, so the setting is only what it would fall back to.
+    expect(gateDb(reading({ squelch_db: -62 }), -100)).toBe(-62);
+    expect(gateOpen(reading({ squelch_db: -62 }), -100)).toBe(true);
+    expect(gateOpen(reading({ level_db: -70, squelch_db: -62 }), -100)).toBe(false);
+  });
+
+  it("falls back to the setting until a reading arrives", () => {
+    expect(gateDb(undefined, -70)).toBe(-70);
+    expect(gateOpen(undefined, -70)).toBe(false);
+    expect(gateDb(reading(), -70)).toBe(-70);
+  });
+
+  it("has no gate at all where nothing states one", () => {
+    expect(gateDb(reading(), null)).toBeNull();
+    expect(gateDb(undefined, undefined)).toBeNull();
+    expect(gateOpen(reading(), null)).toBe(false);
   });
 });
 

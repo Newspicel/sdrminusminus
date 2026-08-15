@@ -46,7 +46,7 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 5. Recording, capture & replay
 
-- **[planned]** Per-channel sinks — audio recording, baseband file, UDP out to external tools
+- **[planned]** The rest of the per-channel sinks — a baseband file, and UDP out to external tools
 - **[planned]** RF replay-capture workflow — record a burst, annotate it, analyze it
 - **[planned]** **IQ time machine** — rolling ring buffer, retro-record the last N seconds after the fact
 - **[planned]** Inspectrum-style offline IQ viewer in the browser
@@ -110,8 +110,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 - **[planned]** Visualize signals such as 4FSK directly, without placing them behind a decoder.
 
 ## 16. Audio processing
-
-- **[planned]** Adaptive/auto DSP — auto-squelch and per-mode click removal; the auto-notch and the audio AGC have shipped
+17. 
+- **[planned]** A floor that jumps up in one step is read as a signal until the channel next falls quiet, which is the deliberate half of the auto-squelch trade; a smarter estimator would tell the two apart
 
 ## 17. Station services & hardware integration
 

@@ -20,6 +20,9 @@
       "resources/soapy/bin": ".",
       "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "icon": [
       "icons/128x128.png",
       "icons/128x128@2x.png",

@@ -19,6 +19,7 @@ import { Shortcuts } from "./components/Shortcuts";
 import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import {
+  AUDIO_RECORDINGS_KEY,
   BOOKMARKS_KEY,
   CALLS_KEY,
   channelTypesQuery,
@@ -432,6 +433,7 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "recordings":
       void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
+      void queryClient.invalidateQueries({ queryKey: AUDIO_RECORDINGS_KEY });
       break;
     case "workspaces":
       void queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });

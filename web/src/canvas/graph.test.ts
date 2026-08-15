@@ -339,6 +339,7 @@ describe("ports", () => {
       "gps",
       "scanner",
       "recorder",
+      "audio_recorder",
       "network_export",
       "chat_output",
       "export",

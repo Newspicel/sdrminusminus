@@ -9,24 +9,25 @@ use axum::{
 };
 use sdrmm_engine::EngineError;
 use sdrmm_recorder::{
-    Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path, scan_stems,
+    AUDIO_SUFFIX, Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path,
+    read_audio_info, scan_audio, scan_stems,
 };
 use sdrmm_tools::ToolError;
 use sdrmm_wire::{
-    AboutResponse, ApiError, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
-    BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
-    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
-    CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
-    DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
-    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NetworkExportAction,
-    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal,
-    PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
-    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
-    ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
-    TemplatesResponse, ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest,
-    VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    AboutResponse, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingStatus,
+    AudioRecordingsResponse, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse, Bookmark,
+    ChannelRecordRequest, ChannelSettings, ChannelTypesResponse, ClientCommand, ClientsResponse,
+    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
+    CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport,
+    ExportFormat, LicenseTextResponse, LocateQuery, NetworkExportAction, NetworkExportRequest,
+    NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus,
+    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
+    RecordingFormat, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus,
+    ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, ToolRequest,
+    ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
+    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -821,6 +822,201 @@ async fn record_device_set(
 }
 
 #[utoipa::path(
+    post, path = "/api/devicesets/{ds}/channels/{ch}/record",
+    params(
+        ("ds" = u32, Path, description = "Device set id"),
+        ("ch" = u32, Path, description = "Channel id"),
+    ),
+    request_body = ChannelRecordRequest,
+    responses(
+        (
+            status = 200,
+            description = "Recording status: live after `start`; final counts after `stop`, \
+                           where `error` reports a recording that was cut short and the \
+                           finished file appears in `GET /api/audiorecordings`",
+            body = AudioRecordingStatus,
+        ),
+        (
+            status = 400,
+            description = "Cannot record: no recordings directory, set not running, channel \
+                           already recording, not recording, or a channel with no audio",
+            body = ApiError,
+        ),
+        (status = 404, description = "Device set or channel not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn record_channel_audio(
+    State(state): State<AppState>,
+    Path((ds, ch)): Path<(u32, u32)>,
+    Json(req): Json<ChannelRecordRequest>,
+) -> Result<Json<AudioRecordingStatus>, AppError> {
+    let engine = state.engine.clone();
+    let status = tokio::task::spawn_blocking(move || match req.action {
+        RecordAction::Start => engine
+            .start_channel_recording(ds, ch)
+            .map_err(AppError::from),
+        RecordAction::Stop => engine
+            .stop_channel_recording(ds, ch)
+            .map_err(AppError::from),
+    })
+    .await??;
+    Ok(Json(status))
+}
+
+#[utoipa::path(
+    get, path = "/api/audiorecordings",
+    responses((
+        status = 200,
+        description = "The audio-recording library, read off the files themselves",
+        body = AudioRecordingsResponse,
+    )),
+)]
+async fn list_audio_recordings(
+    State(state): State<AppState>,
+) -> Result<Json<AudioRecordingsResponse>, AppError> {
+    let engine = state.engine.clone();
+    let recordings = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
+        let Some(dir) = engine.audio_recordings_dir() else {
+            return Ok(Vec::new());
+        };
+        let files = scan_audio(&dir)
+            .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
+        Ok(files.iter().filter_map(|path| audio_info(path)).collect())
+    })
+    .await??;
+    Ok(Json(AudioRecordingsResponse { recordings }))
+}
+
+/// One listed file. A recording still being written is listed too — its counts are simply what
+/// is on disk so far — and one that cannot be read at all is skipped with a warning rather than
+/// failing the whole library.
+fn audio_info(path: &std::path::Path) -> Option<AudioRecordingInfo> {
+    let file = path.file_name().and_then(|name| name.to_str())?.to_owned();
+    let info = match read_audio_info(path) {
+        Ok(info) => info,
+        Err(err) => {
+            tracing::warn!(path = %path.display(), error = %err, "skipping unreadable audio recording");
+            return None;
+        }
+    };
+    Some(AudioRecordingInfo {
+        file,
+        channels: info.channels,
+        sample_rate: info.sample_rate,
+        frames: info.frames,
+        bytes: info.bytes,
+        duration_s: info.duration_s(),
+        created_at: file_created_at(path),
+    })
+}
+
+/// A WAV carries no wall clock, so the file's own modification time stands in. Unreadable or
+/// pre-epoch times read as the epoch rather than failing a listing over a timestamp.
+fn file_created_at(path: &std::path::Path) -> String {
+    let at = std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|since| jiff::Timestamp::from_second(since.as_secs() as i64).ok())
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    at.to_string()
+}
+
+/// Resolve a listed file name to a path inside the audio directory. The name is a path segment
+/// from the caller, so it is checked rather than trusted: anything with a separator, a parent
+/// hop, or the wrong extension names something that is not one of these recordings.
+fn audio_recording_path(state: &AppState, file: &str) -> Result<std::path::PathBuf, AppError> {
+    let missing = || AppError::not_found(format!("audio recording `{file}` not found"));
+    let dir = state.engine.audio_recordings_dir().ok_or_else(missing)?;
+    let plain = !file.is_empty()
+        && file.ends_with(AUDIO_SUFFIX)
+        && !file.contains(['/', '\\'])
+        && !file.contains("..");
+    if !plain {
+        return Err(missing());
+    }
+    let path = dir.join(file);
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(missing())
+    }
+}
+
+#[utoipa::path(
+    get, path = "/api/audiorecordings/{file}/download",
+    params(("file" = String, Path, description = "Audio recording file name, extension included")),
+    responses(
+        (
+            status = 200,
+            description = "The recording as a WAV, streamed with an exact `Content-Length`",
+            content((String = "audio/wav")),
+        ),
+        (status = 404, description = "Audio recording not found", body = ApiError),
+    ),
+)]
+async fn download_audio_recording(
+    State(state): State<AppState>,
+    Path(file): Path<String>,
+) -> Result<Response, AppError> {
+    let name = file.clone();
+    // Opened before the response starts, on the blocking pool: a file that has vanished has to
+    // become a 404 rather than a body that dies part-way through.
+    let (handle, len) =
+        tokio::task::spawn_blocking(move || -> Result<(std::fs::File, u64), AppError> {
+            let path = audio_recording_path(&state, &file)?;
+            let handle = std::fs::File::open(&path)
+                .map_err(|err| AppError::internal(format!("open {}: {err}", path.display())))?;
+            // Pinned here, like an export's: the length is published as a `Content-Length`
+            // before a byte is sent, so the copy is measured against this and not against
+            // whatever the file becomes while a live recording keeps writing it.
+            let len = handle
+                .metadata()
+                .map_err(|err| AppError::internal(format!("stat {}: {err}", path.display())))?
+                .len();
+            Ok((handle, len))
+        })
+        .await??;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "audio/wav".to_string()),
+            (header::CONTENT_LENGTH, len.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{name}\""),
+            ),
+        ],
+        Body::from_stream(byte_stream(std::io::Read::take(handle, len))),
+    )
+        .into_response())
+}
+
+#[utoipa::path(
+    delete, path = "/api/audiorecordings/{file}",
+    params(("file" = String, Path, description = "Audio recording file name, extension included")),
+    responses(
+        (status = 204, description = "Audio recording removed"),
+        (status = 404, description = "Audio recording not found", body = ApiError),
+    ),
+)]
+async fn delete_audio_recording(
+    State(state): State<AppState>,
+    Path(file): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        let path = audio_recording_path(&state, &file)?;
+        std::fs::remove_file(&path)
+            .map_err(|err| AppError::internal(format!("delete {}: {err}", path.display())))?;
+        engine.emit_scope(StateScope::Recordings);
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     post, path = "/api/devicesets/{ds}/network-export",
     params(("ds" = u32, Path, description = "Device set id")),
     request_body = NetworkExportRequest,
@@ -956,7 +1152,7 @@ async fn download_recording(
             format!("attachment; filename=\"{}\"", export.file_name()),
         ),
     ];
-    Ok((headers, Body::from_stream(export_stream(export))).into_response())
+    Ok((headers, Body::from_stream(byte_stream(export))).into_response())
 }
 
 /// A recording that vanished between the index and the disk is a 404; one the container
@@ -974,11 +1170,11 @@ fn export_error(id: i64, err: sdrmm_recorder::SigmfError) -> AppError {
     }
 }
 
-/// Pump the export off the blocking pool in chunks. File reads of this size must not run on a
+/// Pump a download off the blocking pool in chunks. File reads of this size must not run on a
 /// tokio worker, and the bounded channel is what makes the download obey backpressure: a slow
 /// client parks the reader instead of pulling a whole recording into memory.
-fn export_stream(
-    mut export: Export,
+fn byte_stream(
+    mut source: impl std::io::Read + Send + 'static,
 ) -> impl futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send + 'static {
     /// Big enough that a gigabyte-scale download is not millions of wakeups, small enough
     /// that a few concurrent downloads stay well inside a sane memory budget.
@@ -988,7 +1184,7 @@ fn export_stream(
     tokio::task::spawn_blocking(move || {
         loop {
             let mut chunk = vec![0u8; CHUNK];
-            let read = match std::io::Read::read(&mut export, &mut chunk) {
+            let read = match source.read(&mut chunk) {
                 Ok(0) => return,
                 Ok(read) => read,
                 // The error rides the stream so the body aborts: the `Content-Length` has
@@ -2189,6 +2385,10 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
         .routes(routes!(record_device_set))
+        .routes(routes!(record_channel_audio))
+        .routes(routes!(list_audio_recordings))
+        .routes(routes!(download_audio_recording))
+        .routes(routes!(delete_audio_recording))
         .routes(routes!(network_export_device_set))
         .routes(routes!(control_playback))
         .routes(routes!(list_recordings))

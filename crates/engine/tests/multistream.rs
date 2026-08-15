@@ -44,6 +44,7 @@ fn nfm(offset_hz: f64, squelch_db: Option<f32>) -> ChannelSettings {
     ChannelSettings {
         offset_hz,
         squelch_db,
+        squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams::default()),
         audio: Default::default(),
     }
@@ -684,6 +685,7 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
     let pocsag = ChannelSettings {
         offset_hz: PAGING_OFFSET_HZ,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Pocsag(PocsagParams {
             baud: PocsagBaud::Auto,
             ..PocsagParams::default()

@@ -60,6 +60,7 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
             ChannelSettings {
                 offset_hz: OFFSET_HZ,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Atv(params),
                 audio: Default::default(),
             },
@@ -130,6 +131,7 @@ async fn a_channel_without_video_refuses_the_subscription() {
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
+                squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },

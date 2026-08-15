@@ -15,14 +15,16 @@ use sdrmm_device::{DeviceError, DeviceRegistry, PlaybackShared, check_stream_set
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
-    Capabilities, ChannelDescriptor, ChannelInfo, ChannelLevel, ChannelParams, ChannelSettings,
-    DecodedRecord, DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, NetworkExportSettings,
-    NetworkExportStatus, PlaybackRequest, PlaybackStatus, PositionFix, RecordingStatus,
-    ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TrunkSystemStatus,
+    AudioRecordingStatus, Capabilities, ChannelDescriptor, ChannelInfo, ChannelLevel,
+    ChannelParams, ChannelSettings, DecodedRecord, DeviceInfo, DeviceSet, DeviceSetStatus,
+    DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest, PlaybackStatus,
+    PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
+    StateSnapshot, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
 pub mod audio;
+pub mod audio_recording;
 pub mod iq;
 mod network_export;
 pub mod occupancy;
@@ -41,6 +43,7 @@ pub use trunking::TrunkSystem;
 pub use video::VideoPacket;
 
 use crate::{
+    audio_recording::AudioRecordingShared,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
     runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
@@ -194,6 +197,18 @@ fn validate_channel(
             ChannelError::InvalidSettings(format!("squelch_db must be finite, got {db}")).into(),
         );
     }
+    if let Some(margin) = settings.squelch_auto_db
+        && (!margin.is_finite()
+            || !(sdrmm_wire::MIN_SQUELCH_AUTO_MARGIN_DB..=sdrmm_wire::MAX_SQUELCH_AUTO_MARGIN_DB)
+                .contains(&margin))
+    {
+        return Err(ChannelError::InvalidSettings(format!(
+            "squelch_auto_db must be in {}..={} dB above the noise floor, got {margin}",
+            sdrmm_wire::MIN_SQUELCH_AUTO_MARGIN_DB,
+            sdrmm_wire::MAX_SQUELCH_AUTO_MARGIN_DB
+        ))
+        .into());
+    }
     if let Err(reason) = settings.audio.validate() {
         return Err(ChannelError::InvalidSettings(reason).into());
     }
@@ -322,6 +337,7 @@ impl ChannelMedia {
                 iq_tx,
                 level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
                 peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
+                squelch_db: Arc::new(AtomicU32::new(f32::NAN.to_bits())),
             },
             audio_tx,
             encoder: Some(encoder),
@@ -358,6 +374,50 @@ struct RecordingState {
     /// Counter/fault values already surfaced to clients; the hotplug tick diffs against them.
     samples_seen: u64,
     error_seen: bool,
+}
+
+/// One channel's live audio recording, control side. The tap is kept here as well as on the DSP
+/// thread so a pipeline rebuild — a rate change, a mode change — can re-arm the replacement host
+/// instead of ending the recording behind the operator's back; both copies have to go before the
+/// writer's queue closes, which is why stopping drops this whole value before joining.
+struct ChannelAudioRecording {
+    /// File name inside the audio directory — what clients display and download by.
+    file: String,
+    /// The lane the channel is on, which is the queue a stop has to reach.
+    stream: u32,
+    /// RFC3339 UTC.
+    started_at: String,
+    channels: u8,
+    tap: audio_recording::AudioRecorderTap,
+    shared: Arc<AudioRecordingShared>,
+    writer: JoinHandle<()>,
+    /// Counters already surfaced to clients; the hotplug tick diffs against them.
+    frames_seen: u64,
+    error_seen: bool,
+}
+
+impl ChannelAudioRecording {
+    fn status(&self) -> AudioRecordingStatus {
+        AudioRecordingStatus {
+            file: self.file.clone(),
+            started_at: self.started_at.clone(),
+            channels: self.channels,
+            frames: self.shared.frames(),
+            bytes: self.shared.bytes(),
+            error: self.shared.error(),
+        }
+    }
+
+    /// Joins the writer thread. The caller must already have arranged for the DSP-side tap to
+    /// drop (`StopChannelRecording` queued, the channel removed, or the runtime stopped); the
+    /// control-side clone goes here, and the queue closes with the second of the two.
+    fn join(self) {
+        let Self { tap, writer, .. } = self;
+        drop(tap);
+        if writer.join().is_err() {
+            tracing::error!("audio recording writer thread panicked");
+        }
+    }
 }
 
 struct NetworkExportState {
@@ -438,6 +498,10 @@ struct DeviceSetState {
     next_channel_id: u32,
     error: Option<String>,
     recording: Option<RecordingState>,
+    /// Audio recordings running on this set's channels, keyed by channel id. Beside `channels`
+    /// rather than inside it for the same reason `media` is: a recording outlives the pipeline
+    /// swaps its channel goes through, and `ChannelInfo` is a projection, not a home.
+    audio_recordings: HashMap<u32, ChannelAudioRecording>,
     network_export: Option<NetworkExportState>,
     /// Running frequency scan. The scan thread drives this set's centre frequency, so
     /// while it is present client retunes are refused rather than fought over.
@@ -470,7 +534,17 @@ impl DeviceSetState {
             capabilities: self.capabilities.clone(),
             settings: self.settings.clone(),
             status: self.status,
-            channels: self.channels.clone(),
+            channels: self
+                .channels
+                .iter()
+                .map(|channel| ChannelInfo {
+                    audio_recording: self
+                        .audio_recordings
+                        .get(&channel.id)
+                        .map(ChannelAudioRecording::status),
+                    ..channel.clone()
+                })
+                .collect(),
             overruns,
             error: self.error.clone(),
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
@@ -528,6 +602,21 @@ impl DeviceSetState {
                 streams = self.rx_streams(),
                 "dsp command for a stream this device set does not have"
             ),
+        }
+    }
+
+    /// Hand a replacement host the audio recording its predecessor was feeding. Every pipeline
+    /// swap goes through this: a channel rebuilt for a new rate or a new mode has to come back
+    /// still recording, or a rate change would end a recording nobody asked to end.
+    fn rearm_audio_recording(&self, ch: u32, stream: u32) {
+        if let Some(recording) = self.audio_recordings.get(&ch) {
+            self.send_dsp(
+                stream,
+                DspCommand::StartChannelRecording {
+                    id: ch,
+                    tap: recording.tap.clone(),
+                },
+            );
         }
     }
 }
@@ -762,6 +851,10 @@ impl Engine {
             if let Some(recording) = &recording {
                 state.send_dsp(recording.stream, DspCommand::StopRecording);
             }
+            // Same for every channel's audio: no more samples are coming, so the files are
+            // finished whether or not anybody stops them.
+            let audio_recordings: Vec<ChannelAudioRecording> =
+                state.audio_recordings.drain().map(|(_, rec)| rec).collect();
             let network_export = state.network_export.take();
             if let Some(export) = &network_export {
                 state.send_dsp(export.stream, DspCommand::StopNetworkExport);
@@ -788,6 +881,9 @@ impl Engine {
                 self.emit(ServerEvent::StateChanged {
                     scope: StateScope::Recordings,
                 });
+            }
+            for recording in audio_recordings {
+                recording.join();
             }
             if let Some(mut export) = network_export {
                 export.join();
@@ -1002,10 +1098,11 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        let (grown, rec_faults, export_faults, changed) = {
+        let (grown, rec_faults, audio_rec_faults, export_faults, changed) = {
             let mut inner = self.lock();
             let mut grown: Vec<(u32, u64)> = Vec::new();
             let mut rec_faults: Vec<(u32, String)> = Vec::new();
+            let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
             let mut export_faults: Vec<(u32, String)> = Vec::new();
             let mut changed: Vec<u32> = Vec::new();
             for (id, s) in inner.device_sets.iter_mut() {
@@ -1030,6 +1127,20 @@ impl Engine {
                         dirty = true;
                     }
                 }
+                for (ch, recording) in &mut s.audio_recordings {
+                    let frames = recording.shared.frames();
+                    if frames != recording.frames_seen {
+                        recording.frames_seen = frames;
+                        dirty = true;
+                    }
+                    if let Some(error) = recording.shared.error()
+                        && !recording.error_seen
+                    {
+                        recording.error_seen = true;
+                        audio_rec_faults.push((*id, *ch, error));
+                        dirty = true;
+                    }
+                }
                 if let Some(export) = &mut s.network_export {
                     let samples = export.shared.samples();
                     if samples != export.samples_seen {
@@ -1051,13 +1162,16 @@ impl Engine {
             if !changed.is_empty() {
                 inner.revision += 1;
             }
-            (grown, rec_faults, export_faults, changed)
+            (grown, rec_faults, audio_rec_faults, export_faults, changed)
         };
         for (ds, dropped) in grown {
             tracing::warn!(ds, dropped, "capture ring overrun: device samples dropped");
         }
         for (ds, error) in rec_faults {
             tracing::warn!(ds, error = %error, "recording fault");
+        }
+        for (ds, channel, error) in audio_rec_faults {
+            tracing::warn!(ds, channel, error = %error, "audio recording fault");
         }
         for (ds, error) in export_faults {
             tracing::warn!(ds, error = %error, "network export fault");
@@ -1424,6 +1538,7 @@ impl Engine {
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
                     recording: None,
+                    audio_recordings: HashMap::new(),
                     network_export: None,
                     scanner: None,
                     rate_patches: 0,
@@ -1750,6 +1865,7 @@ impl Engine {
                     }
                     state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     state.send_dsp(stream, DspCommand::AddChannel { id, host });
+                    state.rearm_audio_recording(id, stream);
                 }
                 Err(e) => {
                     // The rate was pre-validated against every channel before the device
@@ -1758,8 +1874,15 @@ impl Engine {
                     tracing::error!(ds, channel = id, error = %e, "channel rebuild failed after rate change; removing channel");
                     state.channels.retain(|c| c.id != id);
                     dead.extend(state.media.remove(&id));
+                    let recording = state.audio_recordings.remove(&id);
                     state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     inner.revision += 1;
+                    // Outside the lock, like the encoder joins: the RemoveChannel above has
+                    // already guaranteed the DSP-side tap drops, so this cannot hang.
+                    drop(inner);
+                    if let Some(recording) = recording {
+                        recording.join();
+                    }
                 }
             }
             return;
@@ -1870,6 +1993,7 @@ impl Engine {
                 id,
                 stream,
                 settings: settings.clone(),
+                audio_recording: None,
             });
             if let Some(handle) = media.take() {
                 state.media.insert(id, handle);
@@ -1939,6 +2063,9 @@ impl Engine {
                 &settings,
             )?);
         }
+        // A recording the patch orphans: the channel is about to become a type that produces no
+        // audio, so its file is finished here rather than left open on a stream that stops.
+        let mut orphaned: Option<ChannelAudioRecording> = None;
         let staged = loop {
             if let Err(e) = validate_channel(&descriptor, &settings, device_rate) {
                 break Err(e);
@@ -1984,6 +2111,11 @@ impl Engine {
                     }
                     state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
                     state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
+                    if descriptor.has_audio {
+                        state.rearm_audio_recording(ch, stream);
+                    } else {
+                        orphaned = state.audio_recordings.remove(&ch);
+                    }
                 }
                 None => {
                     if prev.offset_hz != settings.offset_hz {
@@ -1997,6 +2129,7 @@ impl Engine {
                     }
                     if prev.params != settings.params
                         || prev.squelch_db != settings.squelch_db
+                        || prev.squelch_auto_db != settings.squelch_auto_db
                         || prev.audio != settings.audio
                     {
                         state.send_dsp(
@@ -2020,6 +2153,19 @@ impl Engine {
             inner.revision += 1;
             break Ok(());
         };
+        // Outside the lock, like every other writer join: the RemoveChannel above has already
+        // guaranteed the DSP-side tap drops, so this cannot hang.
+        if let Some(recording) = orphaned {
+            tracing::info!(
+                ds,
+                channel = ch,
+                "channel audio recording finished: the channel no longer produces audio"
+            );
+            recording.join();
+            self.emit(ServerEvent::StateChanged {
+                scope: StateScope::Recordings,
+            });
+        }
         staged?;
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
@@ -2030,7 +2176,7 @@ impl Engine {
     /// Remove a channel from a device set ( DELETE channels), tearing down its DSP
     /// pipeline and joining its encoder thread.
     pub fn remove_channel(&self, ds: u32, ch: u32) -> Result<(), EngineError> {
-        let handle = {
+        let (handle, recording) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -2044,14 +2190,20 @@ impl Engine {
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             state.channels.retain(|c| c.id != ch);
             let handle = state.media.remove(&ch);
+            let recording = state.audio_recordings.remove(&ch);
             // Queued under `inner` in the same critical section as the state removal: every
             // rebuild swap re-checks membership under `inner` before queueing, so nothing
             // can re-add the host after this — the DSP-side PCM sender is guaranteed to
             // drop and the encoder join below cannot hang.
             state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
             inner.revision += 1;
-            handle
+            (handle, recording)
         };
+        // A channel that is gone cannot go on recording: the host has taken its tap with it, so
+        // finalizing here is what turns the file into a playable one.
+        if let Some(recording) = recording {
+            recording.join();
+        }
         if let Some(handle) = handle {
             handle.shutdown();
         }
@@ -2216,6 +2368,196 @@ impl Engine {
             samples: shared.samples(),
             bytes: shared.bytes(),
             overruns: overruns_now - overruns_at_start,
+            error: shared.error(),
+        })
+    }
+
+    /// Where channel audio recordings are written, under the recordings directory. `None` when
+    /// this build has no recordings directory at all, which is also what makes recording refuse.
+    #[must_use]
+    pub fn audio_recordings_dir(&self) -> Option<PathBuf> {
+        self.recordings_dir
+            .as_deref()
+            .map(audio_recording::audio_dir)
+    }
+
+    /// Start recording one channel's audio into a WAV file. What is written is what a listener
+    /// on that channel would hear — the audio chain has already run, and a closed squelch is
+    /// silence of the right length rather than a hole in the timeline.
+    ///
+    /// One recording per channel. The file, the writer thread and the directory come up
+    /// control-side so their errors surface here, and the tap then arms through the channel's
+    /// own lane in the same critical section as the state commit.
+    pub fn start_channel_recording(
+        &self,
+        ds: u32,
+        ch: u32,
+    ) -> Result<AudioRecordingStatus, EngineError> {
+        loop {
+            let (stream, channels) = {
+                let inner = self.lock();
+                let state = inner
+                    .device_sets
+                    .get(&ds)
+                    .ok_or(EngineError::DeviceSetNotFound(ds))?;
+                let channel = state
+                    .channels
+                    .iter()
+                    .find(|c| c.id == ch)
+                    .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+                if state.audio_recordings.contains_key(&ch) {
+                    return Err(EngineError::Recording(
+                        "this channel is already recording".to_string(),
+                    ));
+                }
+                if state.status != DeviceSetStatus::Running {
+                    return Err(EngineError::Recording(
+                        "device set is not running".to_string(),
+                    ));
+                }
+                // A decoder-only channel emits no PCM at all, so a recording of it would be a
+                // file that never grows; refuse it here rather than leave one running empty.
+                if !descriptor_for(&channel.settings.params)?.has_audio {
+                    return Err(EngineError::Recording(format!(
+                        "`{}` channels produce no audio to record",
+                        channel.settings.params.type_id()
+                    )));
+                }
+                (
+                    channel.stream,
+                    sdrmm_channels::audio_channels(&channel.settings.params),
+                )
+            };
+            // After the lookups, so a missing set or channel stays a 404 even with recording off.
+            let Some(dir) = self.audio_recordings_dir() else {
+                return Err(EngineError::Recording(
+                    "no recordings directory configured".to_string(),
+                ));
+            };
+            std::fs::create_dir_all(&dir)
+                .map_err(|e| EngineError::RecordingIo(format!("create {}: {e}", dir.display())))?;
+            let started_at = jiff::Timestamp::now();
+            let writer = audio_recording::create_writer(
+                &dir,
+                ds,
+                ch,
+                started_at,
+                sdrmm_channels::AUDIO_RATE,
+                channels,
+            )?;
+            let path = writer.path().to_path_buf();
+            let file = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            let (tap, blocks, shared) = audio_recording::create_tap();
+            let thread = audio_recording::spawn_writer(writer, blocks, shared.clone())?;
+
+            let committed = {
+                let mut inner = self.lock();
+                match inner.device_sets.get_mut(&ds) {
+                    // Re-checked at commit: the layout the header states has to be the one the
+                    // channel is still producing, and a channel that changed type while the
+                    // file was opening is a different recording than the one asked for.
+                    Some(state)
+                        if state.status == DeviceSetStatus::Running
+                            && !state.audio_recordings.contains_key(&ch)
+                            && state.channels.iter().any(|c| {
+                                c.id == ch
+                                    && c.stream == stream
+                                    && sdrmm_channels::audio_channels(&c.settings.params)
+                                        == channels
+                            }) =>
+                    {
+                        let recording = ChannelAudioRecording {
+                            file,
+                            stream,
+                            started_at: started_at.to_string(),
+                            channels,
+                            tap: tap.clone(),
+                            shared,
+                            writer: thread,
+                            frames_seen: 0,
+                            error_seen: false,
+                        };
+                        let status = recording.status();
+                        state.audio_recordings.insert(ch, recording);
+                        state.send_dsp(stream, DspCommand::StartChannelRecording { id: ch, tap });
+                        inner.revision += 1;
+                        Ok(status)
+                    }
+                    _ => Err((tap, thread, path)),
+                }
+            };
+            match committed {
+                Ok(status) => {
+                    self.emit(ServerEvent::StateChanged {
+                        scope: StateScope::DeviceSet(ds),
+                    });
+                    return Ok(status);
+                }
+                Err((tap, thread, path)) => {
+                    drop(tap);
+                    if thread.join().is_err() {
+                        tracing::error!("audio recording writer thread panicked");
+                    }
+                    if let Err(e) = std::fs::remove_file(&path)
+                        && e.kind() != std::io::ErrorKind::NotFound
+                    {
+                        tracing::warn!(path = %path.display(), error = %e, "aborted audio recording left a file behind");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Stop one channel's audio recording and hand back its final counters — including a fault
+    /// that had already stopped the writer, which is the only place it is reported from.
+    pub fn stop_channel_recording(
+        &self,
+        ds: u32,
+        ch: u32,
+    ) -> Result<AudioRecordingStatus, EngineError> {
+        let recording = {
+            let mut inner = self.lock();
+            let state = inner
+                .device_sets
+                .get_mut(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let Some(recording) = state.audio_recordings.remove(&ch) else {
+                return Err(EngineError::Recording(
+                    "this channel is not recording".to_string(),
+                ));
+            };
+            state.send_dsp(
+                recording.stream,
+                DspCommand::StopChannelRecording { id: ch },
+            );
+            inner.revision += 1;
+            recording
+        };
+        let (file, started_at, channels, shared) = (
+            recording.file.clone(),
+            recording.started_at.clone(),
+            recording.channels,
+            recording.shared.clone(),
+        );
+        recording.join();
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::Recordings,
+        });
+        // Counters read after the join, so what comes back counts the blocks the writer was
+        // still holding rather than the ones it had already flushed.
+        Ok(AudioRecordingStatus {
+            file,
+            started_at,
+            channels,
+            frames: shared.frames(),
+            bytes: shared.bytes(),
             error: shared.error(),
         })
     }
@@ -2466,6 +2808,12 @@ impl Engine {
                     channel: channel.id,
                     level_db: f32::from_bits(media.sinks.level_db.load(Ordering::Relaxed)),
                     peak_db: f32::from_bits(media.sinks.peak_db.load(Ordering::Relaxed)),
+                    // NaN is how the DSP thread says "no gate": a channel with the squelch off
+                    // has no threshold, which is not the same as one at the bottom of the scale.
+                    squelch_db: Some(f32::from_bits(
+                        media.sinks.squelch_db.load(Ordering::Relaxed),
+                    ))
+                    .filter(|db| db.is_finite()),
                 })
             })
             .collect()
@@ -2760,6 +3108,11 @@ fn teardown_set(mut removed: DeviceSetState) -> bool {
     }
     lock_runtime(&removed.runtime).stop();
     let finalized = removed.recording.take().map(RecordingState::join).is_some();
+    // The DSP threads are joined above, so every host — and every tap inside one — is already
+    // gone; joining here only waits for the writers to flush what they were handed.
+    for (_, recording) in removed.audio_recordings.drain() {
+        recording.join();
+    }
     if let Some(mut export) = removed.network_export.take() {
         export.join();
     }

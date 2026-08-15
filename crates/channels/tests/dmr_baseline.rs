@@ -579,6 +579,7 @@ fn synthetic_call_decodes_through_an_impaired_channel() {
         ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
+            squelch_auto_db: None,
             params: dmr_params(),
             audio: Default::default(),
         },

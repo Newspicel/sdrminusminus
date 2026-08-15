@@ -1029,6 +1029,21 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no curated Airspy module",
         dir.display()
     );
+    ensure!(
+        has("sdrplaysupport"),
+        "{} contains no SoapySDRPlay3 module",
+        dir.display()
+    );
+    // The other half of SDRplay support is the vendor API, which is licensed for display and
+    // performance in object form and not for copying. Staging it would put a licence violation
+    // in every installer, and the module is built to find the operator's own copy anyway.
+    ensure!(
+        !names
+            .iter()
+            .any(|name| name.contains("libsdrplay_api") || name.starts_with("sdrplay_api.")),
+        "{} carries the SDRplay vendor library, which may not be redistributed",
+        dir.display()
+    );
     // A module is a wrapper around a driver library that ships as its own file, and the two are
     // staged by different rules — the modules by name, their libraries by walking what each one
     // records. 0.1.2 shipped every module on macOS and not one driver library, which no check
@@ -1082,6 +1097,7 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "soapyhackrf-mit",
         "hackrf-gpl-2.0-or-later",
         "hackrf-bsd-3-clause",
+        "soapysdrplay3-mit",
     ] {
         ensure!(
             has(license),
@@ -1293,6 +1309,7 @@ fn aprs_burst() -> Vec<Complex<f32>> {
     let settings = ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
+        squelch_auto_db: None,
         params: ChannelParams::Aprs(AprsParams {
             mode: AprsMode::Afsk1200,
             ..AprsParams::default()
