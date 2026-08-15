@@ -61,13 +61,22 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
                         audio: calls.audio(call.id),
                         call: (*call).clone(),
                     };
-                    if let Err(error) = delivery_tx.try_send(delivery) {
-                        tracing::error!(
-                            output = %binding.node,
-                            call = call.id,
-                            %error,
-                            "chat output delivery queue is full"
-                        );
+                    match delivery_tx.try_send(delivery) {
+                        Ok(()) => {}
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            tracing::error!(
+                                output = %binding.node,
+                                call = call.id,
+                                "chat output delivery queue is full"
+                            );
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            tracing::error!(
+                                output = %binding.node,
+                                call = call.id,
+                                "chat output delivery worker has stopped"
+                            );
+                        }
                     }
                 }
             }
@@ -156,9 +165,11 @@ async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), String> {
         } => {
             send_matrix(
                 client,
-                homeserver_url,
-                room_id,
-                access_token,
+                MatrixTarget {
+                    homeserver_url,
+                    room_id,
+                    access_token,
+                },
                 &delivery.node,
                 &delivery.call,
                 delivery.audio.clone(),
@@ -196,7 +207,7 @@ async fn send_discord(
         }
         None => request.json(&payload).send().await,
     }
-    .map_err(|error| format!("Discord request: {error}"))?;
+    .map_err(|error| format!("Discord request: {}", error.without_url()))?;
     checked("Discord", response).await
 }
 
@@ -205,23 +216,26 @@ struct MatrixUpload {
     content_uri: String,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy)]
+struct MatrixTarget<'a> {
+    homeserver_url: &'a str,
+    room_id: &'a str,
+    access_token: &'a str,
+}
+
 async fn send_matrix(
     client: &Client,
-    homeserver_url: &str,
-    room_id: &str,
-    access_token: &str,
+    target: MatrixTarget<'_>,
     output_node: &str,
     call: &VoiceCall,
     audio: Option<Bytes>,
 ) -> Result<(), String> {
-    let base =
-        Url::parse(homeserver_url).map_err(|error| format!("Matrix homeserver URL: {error}"))?;
+    let base = Url::parse(target.homeserver_url)
+        .map_err(|error| format!("Matrix homeserver URL: {error}"))?;
     let summary = format_call(call);
     let content = match audio {
         Some(audio) => {
-            let mut upload_url = base
-                .join("/_matrix/media/v3/upload")
+            let mut upload_url = matrix_url(&base, &["_matrix", "media", "v3", "upload"])
                 .map_err(|error| format!("Matrix upload URL: {error}"))?;
             let filename = format!("{}-call-{}.wav", call.mode.label().to_lowercase(), call.id);
             upload_url
@@ -229,17 +243,17 @@ async fn send_matrix(
                 .append_pair("filename", &filename);
             let response = client
                 .post(upload_url)
-                .bearer_auth(access_token)
+                .bearer_auth(target.access_token)
                 .header(reqwest::header::CONTENT_TYPE, "audio/wav")
                 .body(audio.clone())
                 .send()
                 .await
-                .map_err(|error| format!("Matrix upload: {error}"))?;
+                .map_err(|error| format!("Matrix upload: {}", error.without_url()))?;
             let response = checked_response("Matrix upload", response).await?;
             let uploaded: MatrixUpload = response
                 .json()
                 .await
-                .map_err(|error| format!("Matrix upload response: {error}"))?;
+                .map_err(|error| format!("Matrix upload response: {}", error.without_url()))?;
             json!({
                 "msgtype": "m.audio",
                 "body": summary,
@@ -254,29 +268,39 @@ async fn send_matrix(
         None => json!({ "msgtype": "m.text", "body": summary }),
     };
     let transaction = matrix_transaction(output_node, call);
-    let mut send_url = base;
-    send_url
-        .path_segments_mut()
-        .map_err(|_| "Matrix homeserver URL cannot be a base URL".to_owned())?
-        .clear()
-        .extend([
+    let send_url = matrix_url(
+        &base,
+        &[
             "_matrix",
             "client",
             "v3",
             "rooms",
-            room_id,
+            target.room_id,
             "send",
             "m.room.message",
             &transaction,
-        ]);
+        ],
+    )
+    .map_err(|error| format!("Matrix message URL: {error}"))?;
     let response = client
         .put(send_url)
-        .bearer_auth(access_token)
+        .bearer_auth(target.access_token)
         .json(&content)
         .send()
         .await
-        .map_err(|error| format!("Matrix message: {error}"))?;
+        .map_err(|error| format!("Matrix message: {}", error.without_url()))?;
     checked("Matrix message", response).await
+}
+
+fn matrix_url(base: &Url, segments: &[&str]) -> Result<Url, String> {
+    let mut url = base.clone();
+    url.set_query(None);
+    url.set_fragment(None);
+    url.path_segments_mut()
+        .map_err(|_| "homeserver cannot be used as a base URL".to_owned())?
+        .pop_if_empty()
+        .extend(segments);
+    Ok(url)
 }
 
 fn matrix_transaction(output_node: &str, call: &VoiceCall) -> String {
@@ -345,16 +369,27 @@ async fn checked(service: &str, response: Response) -> Result<(), String> {
     checked_response(service, response).await.map(|_| ())
 }
 
-async fn checked_response(service: &str, response: Response) -> Result<Response, String> {
+async fn checked_response(service: &str, mut response: Response) -> Result<Response, String> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
     }
-    let body = response
-        .text()
-        .await
-        .unwrap_or_else(|error| format!("unreadable response: {error}"));
-    let body: String = body.chars().take(MAX_ERROR_BODY).collect();
+    let mut body = Vec::with_capacity(MAX_ERROR_BODY);
+    while body.len() < MAX_ERROR_BODY {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(error) => {
+                return Err(format!(
+                    "{service} returned {status}: unreadable response: {}",
+                    error.without_url()
+                ));
+            }
+        };
+        let remaining = MAX_ERROR_BODY - body.len();
+        body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+    }
+    let body = String::from_utf8_lossy(&body);
     Err(format!("{service} returned {status}: {body}"))
 }
 
@@ -371,7 +406,10 @@ mod tests {
         routing::any,
     };
     use reqwest::StatusCode;
-    use sdrmm_wire::{DvMode, EventAudio};
+    use sdrmm_wire::{
+        ChatOutputNode, DmrTrunkNode, DvMode, EventAudio, PatchEdge, PatchGraph, PatchNode,
+        PortRef, Position, RackLayout, UpdateWorkspaceRequest, WorkspaceSnapshot,
+    };
 
     use super::*;
 
@@ -385,6 +423,29 @@ mod tests {
     }
 
     type Captures = Arc<Mutex<Vec<Captured>>>;
+
+    fn node(id: &str, body: NodeBody) -> PatchNode {
+        PatchNode {
+            id: id.to_owned(),
+            body,
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        }
+    }
+
+    fn edge(from: (&str, &str), to: (&str, &str)) -> PatchEdge {
+        PatchEdge {
+            from: PortRef {
+                node: from.0.to_owned(),
+                port: from.1.to_owned(),
+            },
+            to: PortRef {
+                node: to.0.to_owned(),
+                port: to.1.to_owned(),
+            },
+        }
+    }
 
     fn call() -> VoiceCall {
         VoiceCall {
@@ -449,7 +510,14 @@ mod tests {
             content_type,
             body,
         });
-        if uri.starts_with("/_matrix/media/v3/upload") {
+        if uri == "/oversized-error" {
+            return (
+                StatusCode::BAD_REQUEST,
+                "x".repeat(MAX_ERROR_BODY.saturating_mul(4)),
+            )
+                .into_response();
+        }
+        if uri.contains("/_matrix/media/v3/upload") {
             return (
                 StatusCode::OK,
                 r#"{"content_uri":"mxc://matrix.test/audio7"}"#,
@@ -468,6 +536,51 @@ mod tests {
         assert!(text.contains("Colour code: 3"));
         assert!(text.contains("Frequency: 451.125000 MHz"));
         assert!(text.contains("Duration: 1.2 s"));
+    }
+
+    #[test]
+    fn resolve_maps_configured_outputs_and_the_events_port() {
+        let store = Store::open(None).expect("open store");
+        let active = store
+            .active_workspace()
+            .expect("read active workspace")
+            .expect("seeded workspace");
+        let configured = ChatOutputTarget::Discord {
+            webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+        };
+        let graph = PatchGraph {
+            nodes: vec![
+                node("system", NodeBody::DmrTrunk(DmrTrunkNode::default())),
+                node(
+                    "configured",
+                    NodeBody::ChatOutput(ChatOutputNode {
+                        target: configured.clone(),
+                    }),
+                ),
+                node("empty", NodeBody::ChatOutput(ChatOutputNode::default())),
+            ],
+            edges: vec![
+                edge(("system", "events"), ("configured", "events")),
+                edge(("system", "events"), ("empty", "events")),
+            ],
+        };
+        store
+            .update_workspace(
+                active.info.id,
+                &UpdateWorkspaceRequest {
+                    revision: active.info.revision,
+                    name: None,
+                    snapshot: Some(WorkspaceSnapshot::new(graph, RackLayout::default())),
+                },
+            )
+            .expect("update workspace");
+
+        let bindings = resolve(&store).expect("resolve outputs");
+
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].node, "configured");
+        assert_eq!(bindings[0].sources, HashSet::from(["system".to_owned()]));
+        assert_eq!(bindings[0].target, configured);
     }
 
     #[tokio::test]
@@ -502,13 +615,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn discord_sends_metadata_as_json_without_audio() {
+        let (base, captures) = server().await;
+        send_discord(
+            &Client::new(),
+            &format!("{base}/api/webhooks/1/token"),
+            &call(),
+            None,
+        )
+        .await
+        .expect("Discord delivery");
+        let captured = captures.lock().expect("captures");
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, Method::POST);
+        assert!(
+            captured[0]
+                .content_type
+                .as_deref()
+                .is_some_and(|value| value.starts_with("application/json"))
+        );
+        let body: serde_json::Value =
+            serde_json::from_slice(&captured[0].body).expect("Discord JSON");
+        assert!(
+            body["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("DMR call"))
+        );
+        assert_eq!(body["allowed_mentions"]["parse"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn discord_request_errors_do_not_expose_the_webhook_url() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener");
+        let address = listener.local_addr().expect("local address");
+        drop(listener);
+        let secret = "webhook-secret";
+
+        let error = send_discord(
+            &Client::new(),
+            &format!("http://{address}/api/webhooks/1/{secret}"),
+            &call(),
+            None,
+        )
+        .await
+        .expect_err("connection failure");
+
+        assert!(error.starts_with("Discord request:"));
+        assert!(!error.contains(secret));
+    }
+
+    #[tokio::test]
     async fn matrix_creates_one_audio_event_after_uploading_the_wav() {
         let (base, captures) = server().await;
         send_matrix(
             &Client::new(),
-            &base,
-            "!radio:matrix.test",
-            "matrix-secret",
+            MatrixTarget {
+                homeserver_url: &format!("{base}/matrix/"),
+                room_id: "!radio:matrix.test",
+                access_token: "matrix-secret",
+            },
             "chat",
             &call(),
             Some(Bytes::from_static(b"RIFF-wave")),
@@ -521,7 +688,7 @@ mod tests {
         assert!(
             captured[0]
                 .uri
-                .starts_with("/_matrix/media/v3/upload?filename=")
+                .starts_with("/matrix/_matrix/media/v3/upload?filename=")
         );
         assert_eq!(
             captured[0].authorization.as_deref(),
@@ -530,7 +697,7 @@ mod tests {
         assert_eq!(captured[0].content_type.as_deref(), Some("audio/wav"));
         assert_eq!(captured[0].body, Bytes::from_static(b"RIFF-wave"));
         assert_eq!(captured[1].method, Method::PUT);
-        assert!(captured[1].uri.contains("/_matrix/client/v3/rooms/"));
+        assert!(captured[1].uri.contains("/matrix/_matrix/client/v3/rooms/"));
         assert!(captured[1].uri.contains("/send/m.room.message/"));
         let event: serde_json::Value =
             serde_json::from_slice(&captured[1].body).expect("event JSON");
@@ -542,5 +709,54 @@ mod tests {
                 .as_str()
                 .is_some_and(|body| body.contains("talkgroup 91"))
         );
+    }
+
+    #[tokio::test]
+    async fn matrix_sends_one_text_event_without_audio() {
+        let (base, captures) = server().await;
+        let homeserver_url = format!("{base}/matrix");
+        send_matrix(
+            &Client::new(),
+            MatrixTarget {
+                homeserver_url: &homeserver_url,
+                room_id: "!radio:matrix.test",
+                access_token: "matrix-secret",
+            },
+            "chat",
+            &call(),
+            None,
+        )
+        .await
+        .expect("Matrix delivery");
+        let captured = captures.lock().expect("captures");
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, Method::PUT);
+        assert!(captured[0].uri.contains("/matrix/_matrix/client/v3/rooms/"));
+        assert_eq!(
+            captured[0].authorization.as_deref(),
+            Some("Bearer matrix-secret")
+        );
+        let event: serde_json::Value =
+            serde_json::from_slice(&captured[0].body).expect("event JSON");
+        assert_eq!(event["msgtype"], "m.text");
+        assert!(event.get("url").is_none());
+    }
+
+    #[tokio::test]
+    async fn error_response_body_is_bounded_before_formatting() {
+        let (base, _) = server().await;
+        let response = Client::new()
+            .get(format!("{base}/oversized-error"))
+            .send()
+            .await
+            .expect("error response");
+
+        let error = checked_response("Test", response)
+            .await
+            .expect_err("non-success response");
+        let (_, body) = error.split_once(": ").expect("error body");
+
+        assert_eq!(body.len(), MAX_ERROR_BODY);
+        assert!(body.bytes().all(|byte| byte == b'x'));
     }
 }

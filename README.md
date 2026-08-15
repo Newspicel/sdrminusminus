@@ -68,8 +68,9 @@ for an RTL-SDR and HackRF example.
 
 ## Build from source
 
-You need the pinned Rust toolchain, Node 26, pnpm 11, and SoapySDR 0.8 development files. On
-Debian or Ubuntu, install `libsoapysdr-dev`; on macOS, run `brew install soapysdr`.
+You need the pinned Rust toolchain, a C/C++ compiler, Node 26, pnpm 11, and SoapySDR 0.8
+development files. On Debian or Ubuntu, install `build-essential libsoapysdr-dev`; on macOS, run
+`xcode-select --install` and `brew install soapysdr`.
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git

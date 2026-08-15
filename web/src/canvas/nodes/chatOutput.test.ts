@@ -4,6 +4,7 @@ import { chatOutputConfigured } from "./chatOutput";
 describe("chat output configuration", () => {
   it("needs a Discord webhook URL", () => {
     expect(chatOutputConfigured({ service: "discord", webhook_url: "" })).toBe(false);
+    expect(chatOutputConfigured({ service: "discord", webhook_url: "   " })).toBe(false);
     expect(
       chatOutputConfigured({
         service: "discord",
@@ -19,6 +20,14 @@ describe("chat output configuration", () => {
         homeserver_url: "https://matrix.example",
         room_id: "!radio:matrix.example",
         access_token: "",
+      }),
+    ).toBe(false);
+    expect(
+      chatOutputConfigured({
+        service: "matrix",
+        homeserver_url: "https://matrix.example",
+        room_id: "!radio:matrix.example",
+        access_token: "   ",
       }),
     ).toBe(false);
     expect(

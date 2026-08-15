@@ -4644,6 +4644,7 @@ dependencies = [
  "jiff",
  "serde",
  "serde_json",
+ "url",
  "utoipa",
 ]
 

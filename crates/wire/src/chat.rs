@@ -59,8 +59,9 @@ impl ChatOutputTarget {
 }
 
 fn valid_url(value: &str) -> bool {
-    value.len() <= MAX_CHAT_URL_LEN
-        && (value.is_empty() || value.starts_with("http://") || value.starts_with("https://"))
+    value.is_empty()
+        || value.len() <= MAX_CHAT_URL_LEN
+            && url::Url::parse(value).is_ok_and(|url| url.scheme() == "https")
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -88,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoints_are_bounded_http_urls() {
+    fn endpoints_are_bounded_https_urls() {
         assert!(ChatOutputTarget::default().valid());
         assert!(
             ChatOutputTarget::Discord {
@@ -99,6 +100,18 @@ mod tests {
         assert!(
             !ChatOutputTarget::Discord {
                 webhook_url: "ftp://discord.example/hook".to_owned(),
+            }
+            .valid()
+        );
+        assert!(
+            !ChatOutputTarget::Discord {
+                webhook_url: "http://discord.example/hook".to_owned(),
+            }
+            .valid()
+        );
+        assert!(
+            !ChatOutputTarget::Discord {
+                webhook_url: "https://".to_owned(),
             }
             .valid()
         );

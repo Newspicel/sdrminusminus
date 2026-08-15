@@ -46,7 +46,10 @@ function ChatOutputNodeFace({ node }: { node: PatchNodeOf<"chat_output"> }) {
               label="Chat service"
               value={target.service}
               options={CHAT_SERVICES}
-              onChange={(service) =>
+              onChange={(service) => {
+                if (service === target.service) {
+                  return;
+                }
                 editTarget(
                   service === "discord"
                     ? { service: "discord", webhook_url: "" }
@@ -56,8 +59,8 @@ function ChatOutputNodeFace({ node }: { node: PatchNodeOf<"chat_output"> }) {
                         room_id: "",
                         access_token: "",
                       },
-                )
-              }
+                );
+              }}
             />
           </SettingRow>
           {target.service === "discord" ? (
@@ -121,6 +124,7 @@ function DraftField({
   useEffect(() => setDraft(value), [value]);
   const commit = () => {
     const next = draft.trim();
+    setDraft(next);
     if (next !== value) {
       onCommit(next);
     }
