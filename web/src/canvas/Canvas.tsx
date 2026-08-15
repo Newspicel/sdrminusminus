@@ -27,6 +27,7 @@ import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
 import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
+import { useClipboard } from "./clipboard";
 import { useWorkspaceContext } from "./context";
 import {
   addEdge,
@@ -70,6 +71,21 @@ export function Canvas() {
     toFlowEdges(workspace.graph, workspace.context),
   );
 
+  // What a paste has just added, until the write it made comes back around and the fresh faces
+  // can be selected. Only a selected face is draggable, so a paste that left the originals
+  // selected would answer the gesture that always follows it by moving the wrong nodes.
+  const pasted = useRef<ReadonlySet<string>>(new Set());
+  const selection = nodes.filter((node) => node.selected).map((node) => node.id);
+  useClipboard(
+    workspace,
+    // A node reached by its number key is selected in this application but not in React Flow, so
+    // the keyboard's own selection is what the chord falls back to.
+    selection.length > 0 ? selection : workspace.selected === null ? [] : [workspace.selected],
+    useCallback((ids: readonly string[]) => {
+      pasted.current = new Set(ids);
+    }, []),
+  );
+
   const held = useRef<PatchGraph>(workspace.graph);
   const context = workspace.context;
   useEffect(() => {
@@ -78,6 +94,11 @@ export function Canvas() {
       return;
     }
     held.current = workspace.graph;
+    const fresh = pasted.current;
+    const arrived = workspace.graph.nodes.some((node) => fresh.has(node.id));
+    if (arrived) {
+      pasted.current = new Set();
+    }
     // Reconciled, not replaced: a fresh object per node would drop React Flow's own `selected`
     // flag and its measured handle bounds, so after any write the library would consider
     // nothing selected while the node still rendered as selected — and Backspace would stop
@@ -85,7 +106,8 @@ export function Canvas() {
     setNodes((previous) =>
       toFlowNodes(workspace.graph).map((node) => {
         const mounted = previous.find((candidate) => candidate.id === node.id);
-        return mounted === undefined ? node : { ...mounted, ...node, selected: mounted.selected };
+        const selected = arrived ? fresh.has(node.id) : (mounted?.selected ?? false);
+        return mounted === undefined ? { ...node, selected } : { ...mounted, ...node, selected };
       }),
     );
     setEdges(toFlowEdges(workspace.graph, context));

@@ -45,6 +45,8 @@ export const BINDINGS: readonly Binding[] = [
   // meets it: pressing undo here undoes for whoever else has the workspace open.
   { keys: "Ctrl / ⌘ Z", what: "Undo the last change — the workspace's history, so for everyone" },
   { keys: "Ctrl / ⌘ Shift Z", what: "Redo (Ctrl / ⌘ Y too)" },
+  { keys: "Ctrl / ⌘ C", what: "Copy the selected nodes and the wires between them" },
+  { keys: "Ctrl / ⌘ V", what: "Paste them beside the originals — a copied radio names none" },
   { keys: "Backspace", what: "Delete the selected node or wire (right-click offers it too)" },
   { keys: "?", what: "This list" },
   { keys: "Esc", what: "Close an overlay or a menu" },
@@ -164,8 +166,11 @@ export function useHotkeys(actions: HotkeyActions): void {
 
 /** A field being typed into owns every key it receives, and so does a control that has already
  * claimed the same keys — `data-hotkeys="off"` is how the dial keeps its own arrows, and how
- * every Base UI control that reads arrows, Home/End or typeahead letters keeps theirs. */
-function isTyping(target: EventTarget | null): boolean {
+ * every Base UI control that reads arrows, Home/End or typeahead letters keeps theirs.
+ *
+ * Exported because the canvas reads the same rule for its own chords: two guards would drift, and
+ * a copy taken out of a text field is the browser's to make, not this application's. */
+export function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
   }

@@ -19,6 +19,8 @@ reference inside the app.
 | `v` | Switch between Patch and Rack |
 | `Ctrl`/`⌘ Z` | Undo the last workspace change, for every connected client |
 | `Ctrl`/`⌘ Shift Z` or `Ctrl`/`⌘ Y` | Redo |
+| `Ctrl`/`⌘ C` | Copy the selected nodes and the wires between them |
+| `Ctrl`/`⌘ V` | Paste them beside the originals |
 | Backspace | Delete the selected node or wire |
 | `?` | Open the keyboard reference |
 | Escape | Close an overlay or menu |

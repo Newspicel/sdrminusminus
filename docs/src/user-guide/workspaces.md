@@ -32,6 +32,17 @@ A step brings the hardware with it. Undoing a change that added a channel closes
 redoing it opens it again with the settings it had. Where a radio is tuned is not part of the
 history — undo restores what the workspace draws, not the dial.
 
+### Copy and paste
+
+`Ctrl`/`⌘ C` copies the selected nodes on the patch, together with the wires that run between
+them. `Ctrl`/`⌘ V` pastes them beside the originals and selects the copies, so the next drag moves
+what was just pasted. Pasting again leaves a second copy rather than stacking one on the other.
+
+Wires leaving the selection are not copied — they name nodes the copy does not carry. A copied
+Device names no radio: a radio is opened once and belongs to one node, so choose the radio for the
+new Device node yourself. The clipboard lasts as long as the browser tab, so a chain copied from
+one workspace can be pasted into another.
+
 ## Templates
 
 Open **Library → Templates** after selecting a Device node. A template retunes that radio, sets an

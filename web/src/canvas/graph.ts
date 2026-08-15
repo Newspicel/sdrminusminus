@@ -91,6 +91,12 @@ export function portStream(base: string, name: string): number | null {
   return n - 1;
 }
 
+/** `crates/wire/src/patch.rs`'s `MAX_NODES` / `MAX_EDGES`. The server validates the whole snapshot
+ * on every write, so a gesture that would cross either is refused where it is made rather than
+ * taking the next write down with it. */
+export const MAX_NODES = 128;
+export const MAX_EDGES = 256;
+
 /** A fresh node id. Ids only have to be unique within one graph and stable for the node's life;
  * `crypto.randomUUID` is available in every browser this ships to and needs no counter that a
  * second client could collide with. */
