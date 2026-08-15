@@ -338,6 +338,7 @@ describe("ports", () => {
       "scanner",
       "recorder",
       "network_export",
+      "chat_output",
       "export",
     ];
     expect(viewports.filter((kind) => !isResizable(kind))).toEqual([]);

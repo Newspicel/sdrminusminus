@@ -1699,6 +1699,20 @@ export interface components {
         ChannelTypesResponse: {
             types: components["schemas"]["ChannelDescriptor"][];
         };
+        ChatOutputNode: {
+            target: components["schemas"]["ChatOutputTarget"];
+        };
+        ChatOutputTarget: {
+            /** @enum {string} */
+            service: "discord";
+            webhook_url: string;
+        } | {
+            access_token: string;
+            homeserver_url: string;
+            room_id: string;
+            /** @enum {string} */
+            service: "matrix";
+        };
         /**
          * @description How a check came out. `Warn` is "works, but something is degraded or absent"; `Fail` is
          *     "this will not work as configured".
@@ -2850,6 +2864,10 @@ export interface components {
             data: components["schemas"]["DmrTrunkNode"];
             /** @enum {string} */
             kind: "dmr_trunk";
+        } | {
+            data: components["schemas"]["ChatOutputNode"];
+            /** @enum {string} */
+            kind: "chat_output";
         } | {
             /** @enum {string} */
             kind: "video";

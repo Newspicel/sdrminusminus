@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD,
-    MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
+    ChatOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN,
+    MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
@@ -415,6 +415,7 @@ pub enum NodeBody {
     /// The stored decoder log, filtered to the decoders wired into it.
     DecoderLog,
     DmrTrunk(DmrTrunkNode),
+    ChatOutput(ChatOutputNode),
     /// The raster a video channel scans out.
     Video,
     /// SigMF recording of a device's IQ.
@@ -441,6 +442,7 @@ impl NodeBody {
             Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
             Self::DmrTrunk(_) => "dmr_trunk",
+            Self::ChatOutput(_) => "chat_output",
             Self::Video => "video",
             Self::Recorder => "recorder",
             Self::NetworkExport(_) => "network_export",
@@ -461,9 +463,11 @@ impl NodeBody {
             | Self::DecoderLog
             | Self::Video => NodeCategory::Display,
             Self::Scanner | Self::DmrTrunk(_) => NodeCategory::Feature,
-            Self::Speaker | Self::Recorder | Self::NetworkExport(_) | Self::Export => {
-                NodeCategory::Sink
-            }
+            Self::Speaker
+            | Self::Recorder
+            | Self::NetworkExport(_)
+            | Self::ChatOutput(_)
+            | Self::Export => NodeCategory::Sink,
         }
     }
 
@@ -571,6 +575,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, In, true, Always),
             PortSpec::new(Events, Out, true, Always),
         ],
+        "chat_output" => vec![PortSpec::new(Events, In, true, Always)],
         _ => Vec::new(),
     }
 }
@@ -629,6 +634,10 @@ impl PatchCatalog {
                 entry(
                     &NodeBody::DmrTrunk(DmrTrunkNode::default()),
                     "DMR trunk system",
+                ),
+                entry(
+                    &NodeBody::ChatOutput(ChatOutputNode::default()),
+                    "Discord / Matrix",
                 ),
                 entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
@@ -946,6 +955,15 @@ impl PatchGraph {
                         })
                     });
                     if !only_dmr {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
+                }
+                NodeBody::ChatOutput(settings) => {
+                    let only_calls = self.sources_of(&node.id, "events").all(|source| {
+                        self.node(source)
+                            .is_some_and(|source| matches!(source.body, NodeBody::DmrTrunk(_)))
+                    });
+                    if !settings.target.valid() || !only_calls {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
                 }
@@ -1358,6 +1376,35 @@ mod tests {
         assert_eq!(
             other.validate(),
             Err(PatchError::NodeSettings("system".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_chat_output_accepts_only_completed_dmr_trunk_calls() {
+        let output = node(
+            "chat",
+            NodeBody::ChatOutput(ChatOutputNode {
+                target: crate::ChatOutputTarget::Discord {
+                    webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+                },
+            }),
+        );
+        let calls = PatchGraph {
+            nodes: vec![
+                node("system", NodeBody::DmrTrunk(DmrTrunkNode::default())),
+                output.clone(),
+            ],
+            edges: vec![edge(("system", "events"), ("chat", "events"))],
+        };
+        calls.validate().expect("completed calls");
+
+        let raw = PatchGraph {
+            nodes: vec![channel("carrier", "dmr"), output],
+            edges: vec![edge(("carrier", "events"), ("chat", "events"))],
+        };
+        assert_eq!(
+            raw.validate(),
+            Err(PatchError::NodeSettings("chat".to_owned()))
         );
     }
 

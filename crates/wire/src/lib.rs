@@ -1,6 +1,7 @@
 pub mod about;
 pub mod bandplan;
 pub mod channel;
+pub mod chat;
 pub mod decode;
 pub mod device;
 pub mod doctor;
@@ -32,6 +33,9 @@ pub use channel::{
     RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem,
     Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams,
     YsfParams,
+};
+pub use chat::{
+    ChatOutputNode, ChatOutputTarget, MAX_CHAT_TOKEN_LEN, MAX_CHAT_URL_LEN, MAX_MATRIX_ROOM_ID_LEN,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,

@@ -1,0 +1,106 @@
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+pub const MAX_CHAT_URL_LEN: usize = 2_048;
+pub const MAX_MATRIX_ROOM_ID_LEN: usize = 255;
+pub const MAX_CHAT_TOKEN_LEN: usize = 4_096;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "service", rename_all = "snake_case")]
+pub enum ChatOutputTarget {
+    Discord {
+        webhook_url: String,
+    },
+    Matrix {
+        homeserver_url: String,
+        room_id: String,
+        access_token: String,
+    },
+}
+
+impl Default for ChatOutputTarget {
+    fn default() -> Self {
+        Self::Discord {
+            webhook_url: String::new(),
+        }
+    }
+}
+
+impl ChatOutputTarget {
+    #[must_use]
+    pub fn configured(&self) -> bool {
+        match self {
+            Self::Discord { webhook_url } => !webhook_url.trim().is_empty(),
+            Self::Matrix {
+                homeserver_url,
+                room_id,
+                access_token,
+            } => [homeserver_url, room_id, access_token]
+                .into_iter()
+                .all(|value| !value.trim().is_empty()),
+        }
+    }
+
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        match self {
+            Self::Discord { webhook_url } => valid_url(webhook_url),
+            Self::Matrix {
+                homeserver_url,
+                room_id,
+                access_token,
+            } => {
+                valid_url(homeserver_url)
+                    && room_id.len() <= MAX_MATRIX_ROOM_ID_LEN
+                    && access_token.len() <= MAX_CHAT_TOKEN_LEN
+            }
+        }
+    }
+}
+
+fn valid_url(value: &str) -> bool {
+    value.len() <= MAX_CHAT_URL_LEN
+        && (value.is_empty() || value.starts_with("http://") || value.starts_with("https://"))
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ChatOutputNode {
+    pub target: ChatOutputTarget,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matrix_requires_every_credential_before_delivery() {
+        let mut target = ChatOutputTarget::Matrix {
+            homeserver_url: "https://matrix.example".to_owned(),
+            room_id: "!radio:example".to_owned(),
+            access_token: String::new(),
+        };
+        assert!(!target.configured());
+        if let ChatOutputTarget::Matrix { access_token, .. } = &mut target {
+            *access_token = "secret".to_owned();
+        }
+        assert!(target.configured());
+        assert!(target.valid());
+    }
+
+    #[test]
+    fn endpoints_are_bounded_http_urls() {
+        assert!(ChatOutputTarget::default().valid());
+        assert!(
+            ChatOutputTarget::Discord {
+                webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+            }
+            .valid()
+        );
+        assert!(
+            !ChatOutputTarget::Discord {
+                webhook_url: "ftp://discord.example/hook".to_owned(),
+            }
+            .valid()
+        );
+    }
+}

@@ -9,6 +9,7 @@ const CATALOG: PatchCatalog = {
     { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
     { kind: "scope", name: "Scope", category: "display", ports: [] },
     { kind: "speaker", name: "Speaker", category: "sink", ports: [] },
+    { kind: "chat_output", name: "Discord / Matrix", category: "sink", ports: [] },
     { kind: "scanner", name: "Scanner", category: "feature", ports: [] },
   ],
 };
@@ -48,6 +49,7 @@ describe("paletteGroups", () => {
       { id: "channel:nfm", name: "NFM", kind: "channel", type: TYPES[0] },
     ]);
     expect(groups[2]?.items[0]?.id).toBe("channel:adsb");
+    expect(groups[4]?.items.map((item) => item.id)).toContain("chat_output");
     expect(groups[0]?.items.map((item) => item.id)).toEqual(["device", "gps:gpsd", "gps:nmea"]);
   });
 
@@ -113,6 +115,6 @@ describe("filterPalette", () => {
 
   it("matches names case-insensitively and drops emptied sections", () => {
     const hits = filterPalette(groups, "sc");
-    expect(hits.map((group) => group.title)).toEqual(["Displays", "Tools"]);
+    expect(hits.map((group) => group.title)).toEqual(["Displays", "Sinks", "Tools"]);
   });
 });
