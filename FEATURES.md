@@ -59,7 +59,6 @@ If something is shipped, then remove it.
 - VOR, VOR localizer (multi-VOR fix), ILS, DSC
 - Inmarsat STD-C / AERO
 - VDL Mode 2; HFDL; Iridium bursts
-- ADS-B / AIS log enrichment against offline aircraft and ship databases
 
 ### Data, text & paging®
 
