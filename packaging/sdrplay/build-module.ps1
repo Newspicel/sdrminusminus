@@ -13,7 +13,7 @@ Get-Content (Join-Path $PSScriptRoot "api.env") | ForEach-Object {
 $Destination = [System.IO.Path]::GetFullPath($Destination)
 if (-not (Test-Path $Destination)) { throw "No module directory at $Destination" }
 $import = Join-Path $Sdk "lib\sdrplay_api.lib"
-if (-not (Test-Path $import)) { throw "No sdrplay_api.lib under $Sdk\lib — run fetch-api.ps1 first" }
+if (-not (Test-Path $import)) { throw "No sdrplay_api.lib under $Sdk\lib - run fetch-api.ps1 first" }
 if (-not (Test-Path (Join-Path $Sdk "include\sdrplay_api.h"))) { throw "No headers under $Sdk\include" }
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("sdrplay-module-" + [System.Guid]::NewGuid().ToString("N"))
