@@ -735,14 +735,17 @@ test.describe("the workspace", () => {
       scope.locator('.react-flow__handle[data-handleid="baseband"]'),
     );
 
-    // The tap is the narrower answer, so the scope opens on it — and the toggle is what takes the
-    // operator back to the radio without cutting the wire.
+    // Wiring a tap in offers the narrower view without taking the radio away: the scope stays on
+    // the spectrum until the toggle says otherwise.
     await expect(sources).toBeVisible();
-    await expect(scope.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
+    await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
     await activate(scope);
+    await sources.getByRole("button", { name: "BASE" }).click();
+    await expect(scope.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
+    await expect(scope.getByRole("button", { name: "TRACES" })).toHaveCount(0);
+
     await sources.getByRole("button", { name: "IQ" }).click();
     await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
-    await expect(scope.getByRole("button", { name: "SPECTRUM" })).toHaveCount(0);
 
     // Right-clicking names the frequency under the pointer. A quarter of the way across a
     // 2.048 MHz span centred on 100 MHz is 99.488 MHz, give or take where the pixel landed.

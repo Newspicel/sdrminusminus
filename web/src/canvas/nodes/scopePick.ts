@@ -15,8 +15,8 @@ export type ScopeSource = "iq" | "baseband";
  *
  * A pick the patch cannot honour falls back rather than blanking the face: pulling the IQ wire
  * out of a scope showing the radio leaves it on the channel tap it still has, and the toggle goes
- * with the wire. With nothing picked the tap wins, because a channel's passband is the narrower
- * answer — an operator who has run a tap into this scope is asking about that channel.
+ * with the wire. Nothing picked is the radio, tap or no tap — the spectrum is what a scope is for,
+ * and running a tap in is an offer of the narrower view rather than a demand for it.
  */
 export function scopeSource(chosen: ScopeSource, hasIq: boolean, hasTap: boolean): ScopeSource {
   if (chosen === "iq" && hasIq) {

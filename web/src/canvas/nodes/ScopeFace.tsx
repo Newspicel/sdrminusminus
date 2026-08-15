@@ -120,7 +120,7 @@ export function ScopeFace({ node }: { node: PatchNode }) {
   const source = iqSourceOf(workspace.graph, node.id);
   const tap = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
   const [colormap] = useState<Colormap>(readColormap);
-  const [chosen, setChosen] = useState<ScopeSource>("baseband");
+  const [chosen, setChosen] = useState<ScopeSource>("iq");
   const shown = scopeSource(chosen, source !== null, tap !== null);
 
   // Only a scope holding both wires has anything to switch between; with one, the toggle would be
