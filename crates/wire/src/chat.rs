@@ -5,7 +5,7 @@ pub const MAX_CHAT_URL_LEN: usize = 2_048;
 pub const MAX_MATRIX_ROOM_ID_LEN: usize = 255;
 pub const MAX_CHAT_TOKEN_LEN: usize = 4_096;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "service", rename_all = "snake_case")]
 pub enum ChatOutputTarget {
     Discord {
@@ -16,6 +16,27 @@ pub enum ChatOutputTarget {
         room_id: String,
         access_token: String,
     },
+}
+
+impl std::fmt::Debug for ChatOutputTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Discord { .. } => formatter
+                .debug_struct("Discord")
+                .field("webhook_url", &"[redacted]")
+                .finish(),
+            Self::Matrix {
+                homeserver_url,
+                room_id,
+                ..
+            } => formatter
+                .debug_struct("Matrix")
+                .field("homeserver_url", homeserver_url)
+                .field("room_id", room_id)
+                .field("access_token", &"[redacted]")
+                .finish(),
+        }
+    }
 }
 
 impl Default for ChatOutputTarget {
@@ -115,5 +136,30 @@ mod tests {
             }
             .valid()
         );
+    }
+
+    #[test]
+    fn debug_output_redacts_credentials() {
+        let discord_secret = "discord-secret";
+        let discord = ChatOutputTarget::Discord {
+            webhook_url: format!("https://discord.example/webhooks/{discord_secret}"),
+        };
+        let discord_debug = format!("{discord:?}");
+        assert!(discord_debug.contains("Discord"));
+        assert!(discord_debug.contains("[redacted]"));
+        assert!(!discord_debug.contains(discord_secret));
+
+        let matrix_secret = "matrix-secret";
+        let matrix = ChatOutputTarget::Matrix {
+            homeserver_url: "https://matrix.example".to_owned(),
+            room_id: "!radio:matrix.example".to_owned(),
+            access_token: matrix_secret.to_owned(),
+        };
+        let matrix_debug = format!("{matrix:?}");
+        assert!(matrix_debug.contains("Matrix"));
+        assert!(matrix_debug.contains("https://matrix.example"));
+        assert!(matrix_debug.contains("!radio:matrix.example"));
+        assert!(matrix_debug.contains("[redacted]"));
+        assert!(!matrix_debug.contains(matrix_secret));
     }
 }
