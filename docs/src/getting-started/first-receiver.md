@@ -35,8 +35,8 @@ audio tone.
 
 ## 3. Start audio
 
-Select the NFM node and press Space, or use the Speaker node's control. Your browser may require a
-click before it permits audio playback. Adjust the channel squelch if the tone stays muted.
+Use the Speaker node's control. Your browser may require a click before it permits audio playback.
+Adjust the channel squelch if the tone stays muted.
 
 You now have a complete receiver:
 

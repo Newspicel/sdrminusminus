@@ -9,7 +9,6 @@ export interface HotkeyActions {
   cycleMode: (direction: number) => void;
   adjustSquelch: (deltaDb: number) => void;
   toggleSquelch: () => void;
-  toggleAudio: () => void;
   selectChannel: (direction: number) => void;
   /** Zero-based node index from the number row — the patch in stored order. */
   selectNode: (index: number) => void;
@@ -36,7 +35,6 @@ export const BINDINGS: readonly Binding[] = [
   // the sheet names both rather than the one that happens to be right for one keyboard.
   { keys: "- / + =", what: "Squelch down / up 2 dB" },
   { keys: "s", what: "Squelch on / off" },
-  { keys: "Space", what: "Start / stop audio on the selected channel" },
   { keys: "1 – 9", what: "Select the nth node" },
   { keys: "p", what: "Pin / unpin the selected face on the rack" },
   { keys: "v", what: "Swap the patch and the rack" },
@@ -60,11 +58,6 @@ export function useHotkeys(actions: HotkeyActions): void {
       // Browser and OS shortcuts keep their meaning, and a field being typed into owns every
       // key it receives.
       if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) {
-        return;
-      }
-      // A focused button owns its own activation keys. Tuning stays available from anywhere,
-      // but Space must press the button under focus rather than start audio.
-      if ((event.key === " " || event.key === "Enter") && isActivatable(event.target)) {
         return;
       }
       const act = latest.current;
@@ -111,9 +104,6 @@ export function useHotkeys(actions: HotkeyActions): void {
         case "v":
           act.toggleView();
           break;
-        case " ":
-          act.toggleAudio();
-          break;
         case "?":
           act.showShortcuts();
           break;
@@ -124,17 +114,13 @@ export function useHotkeys(actions: HotkeyActions): void {
           }
           return;
       }
-      // Only reached by a handled key: Space would scroll, `/` would open quick-find, and the
-      // arrows would move whatever the browser thinks is focused.
+      // Only reached by a handled key: `/` would open quick-find and the arrows would move
+      // whatever the browser thinks is focused.
       event.preventDefault();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
-}
-
-function isActivatable(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && target.closest("button, a[href], summary") !== null;
 }
 
 /** A field being typed into owns every key it receives, and so does a control that has already

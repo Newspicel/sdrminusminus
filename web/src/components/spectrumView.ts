@@ -105,9 +105,22 @@ export function niceStep(raw: number): number {
   return nice * magnitude;
 }
 
-/** How far apart, as a fraction of the plot's width, two marker labels must sit to be legible
- * side by side. Roughly the widest `MODE +000.0k` label on a scope at its default size. */
+/** What a marker label is assumed to span, as a fraction of the plot's width, before the plot has
+ * been measured. Roughly the widest `MODE +000.000 kHz` caption on a scope at its default size. */
 export const MARKER_LABEL_GAP = 0.18;
+
+/** A monospace glyph and the chip's own border, padding and gutter, at the caption's font size. */
+const LABEL_CHAR_PX = 6;
+const LABEL_CHROME_PX = 16;
+
+/** The width a caption is drawn at, as a fraction of a plot `plotWidthPx` across. Unmeasured
+ * plots fall back to the nominal width rather than to zero, which would read as "nothing ever
+ * collides" for the frame before the first measurement lands. */
+export function labelWidth(text: string, plotWidthPx: number): number {
+  return plotWidthPx > 0
+    ? (text.length * LABEL_CHAR_PX + LABEL_CHROME_PX) / plotWidthPx
+    : MARKER_LABEL_GAP;
+}
 
 /**
  * Markers grouped into the sets whose labels would land on top of each other, each ascending by
@@ -118,18 +131,26 @@ export const MARKER_LABEL_GAP = 0.18;
  * label that opens into the whole set, rather than as a permanent stack: six labels down the
  * middle of the trace hide more of the signal than the collision did.
  *
+ * Collision is decided by what the captions actually take up — labels are centred on their marker,
+ * so two collide only closer than the mean of their widths — and not by a fixed fraction of the
+ * plot: on a wide scope that grouped markers a hundred kilohertz apart, which had room to stand
+ * side by side, behind one label the operator had to hover to read.
+ *
  * Membership is measured against the group's *first* marker, not the previous one, so a group
- * never spans more than `gap` — the one label stands where all of them are.
+ * never spans more than one collision — the one label stands where all of them are.
  */
-export function clusterMarkers<T extends { at: number }>(
+export function clusterMarkers<T extends { at: number; width: number }>(
   markers: readonly T[],
-  gap = MARKER_LABEL_GAP,
 ): T[][] {
   const clusters: T[][] = [];
   for (const marker of markers.toSorted((a, b) => a.at - b.at)) {
     const open = clusters.at(-1);
     const anchor = open?.[0];
-    if (open === undefined || anchor === undefined || marker.at - anchor.at >= gap) {
+    if (
+      open === undefined ||
+      anchor === undefined ||
+      marker.at - anchor.at >= (anchor.width + marker.width) / 2
+    ) {
       clusters.push([marker]);
     } else {
       open.push(marker);

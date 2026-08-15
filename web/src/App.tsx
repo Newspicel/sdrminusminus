@@ -298,17 +298,6 @@ export function App() {
         squelch_db: current.squelch_db == null ? -60 : null,
       }));
     },
-    toggleAudio: () => {
-      if (selectedSet === null || selectedChannel === null || socket === null) {
-        return;
-      }
-      if (audioEngine.isPlaying(selectedSet.id, selectedChannel.id)) {
-        audioEngine.stop(selectedSet.id, selectedChannel.id);
-      } else {
-        audioEngine.attach(socket);
-        audioEngine.start(selectedSet.id, selectedChannel.id);
-      }
-    },
     selectChannel: (direction) => {
       if (channelNodes.length === 0) {
         return;

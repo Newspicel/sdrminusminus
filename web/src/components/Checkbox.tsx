@@ -13,8 +13,6 @@ export function Checkbox({
 }) {
   return (
     <Primitive.Root
-      // Space toggles the box; without this it would also start audio (`useHotkeys`).
-      data-hotkeys="off"
       aria-label={label}
       checked={checked}
       onCheckedChange={onChange}

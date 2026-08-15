@@ -604,6 +604,77 @@ test.describe("the workspace", () => {
     await expect(ruler).toBeChecked();
   });
 
+  test("switches the scope between its wires and works from the frequency under the pointer", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
+    const scope = node("scope");
+    await expect(scope.getByText(/waiting for the first frame/i)).toHaveCount(0);
+    await fitPatch(page);
+
+    // One wire in, one instrument: nothing to switch between, so nothing is offered.
+    const sources = scope.getByRole("group", { name: "Scope source" });
+    await expect(sources).toHaveCount(0);
+
+    await dragWire(
+      page,
+      page
+        .locator(
+          '.react-flow__node[data-id^="channel:"] .react-flow__handle[data-handleid="baseband"]',
+        )
+        .first(),
+      scope.locator('.react-flow__handle[data-handleid="baseband"]'),
+    );
+
+    // The tap is the narrower answer, so the scope opens on it — and the toggle is what takes the
+    // operator back to the radio without cutting the wire.
+    await expect(sources).toBeVisible();
+    await expect(scope.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
+    await sources.getByRole("button", { name: "IQ" }).click();
+    await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
+    await expect(scope.getByRole("button", { name: "SPECTRUM" })).toHaveCount(0);
+
+    // Right-clicking names the frequency under the pointer. A quarter of the way across a
+    // 2.048 MHz span centred on 100 MHz is 99.488 MHz, give or take where the pixel landed.
+    const plot = scope.locator(".bg-plot-bg");
+    const box = await plot.boundingBox();
+    if (box === null) {
+      throw new Error("a visible spectrum to right-click");
+    }
+    const at = { x: Math.round(box.width * 0.25), y: Math.round(box.height * 0.6) };
+    await plot.click({ button: "right", position: at });
+    const menu = page.getByRole("dialog", { name: /^Frequency / });
+    await expect(menu).toBeVisible();
+    await expect(menu).toContainText(/99\.4\d\d MHz/);
+
+    await menu.getByRole("button", { name: /^Mark this frequency/ }).click();
+    const label = menu.getByRole("textbox", { name: "Bookmark label" });
+    await label.fill("smoke mark");
+    await menu.getByRole("button", { name: "Save bookmark" }).click();
+    await expect(menu).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const bookmarks = await page.request.get("/api/bookmarks").then((r) => r.json());
+        return bookmarks.find((b: { label: string }) => b.label === "smoke mark")?.freq_hz ?? 0;
+      })
+      .toBeGreaterThan(99_400_000);
+    // A mark you cannot see is not a mark: it is drawn back onto the plot it was taken from.
+    await expect(plot.getByText("smoke mark")).toBeVisible();
+
+    await plot.click({ button: "right", position: at });
+    await menu.getByRole("button", { name: /channel here$/ }).click();
+    // The node is drawn and wired here; the frequency is a setting on the channel apply creates,
+    // so what proves the gesture landed is the engine's own offset.
+    await expect
+      .poll(async () => {
+        const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
+        const offsets = state.device_sets[0]?.channels.map((c) => c.settings.offset_hz ?? 0) ?? [];
+        return offsets.filter((offset) => Math.abs(offset + 512_000) < 30_000).length;
+      })
+      .toBe(1);
+  });
+
   test("runs a tool beside the receiver without touching the patch", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();

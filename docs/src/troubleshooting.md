@@ -53,7 +53,7 @@ variant shown on the node. Use **Forget this radio** only when you want to choos
 ## Spectrum works but audio is silent
 
 - Confirm the channel's `audio` output is wired to a Speaker.
-- Select the channel and press Space to start its audio stream.
+- Start the stream from the Speaker node's control.
 - Click once in the page if the browser blocked autoplay.
 - Disable squelch temporarily or lower its threshold.
 - Make sure the channel marker is over the signal and its full occupied bandwidth fits inside the

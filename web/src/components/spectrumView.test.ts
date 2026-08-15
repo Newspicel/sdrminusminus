@@ -5,6 +5,8 @@ import {
   FULL_VIEW,
   frequencyTicks,
   isFullView,
+  labelWidth,
+  MARKER_LABEL_GAP,
   niceStep,
   offsetToSpan,
   panView,
@@ -136,31 +138,70 @@ describe("decibelTicks", () => {
   });
 });
 
+describe("labelWidth", () => {
+  it("shrinks a caption's share of the plot as the plot grows", () => {
+    expect(labelWidth("NFM +0 kHz", 400)).toBeGreaterThan(labelWidth("NFM +0 kHz", 1600));
+  });
+
+  it("falls back to the nominal width until the plot has been measured", () => {
+    expect(labelWidth("NFM +0 kHz", 0)).toBe(MARKER_LABEL_GAP);
+  });
+});
+
 describe("clusterMarkers", () => {
+  const wide = { width: 0.18 };
+
   it("leaves markers that do not collide on their own", () => {
-    const clusters = clusterMarkers([{ at: 0.1 }, { at: 0.5 }, { at: 0.9 }]);
-    expect(clusters).toEqual([[{ at: 0.1 }], [{ at: 0.5 }], [{ at: 0.9 }]]);
+    const clusters = clusterMarkers([
+      { at: 0.1, ...wide },
+      { at: 0.5, ...wide },
+      { at: 0.9, ...wide },
+    ]);
+    expect(clusters.map((group) => group.length)).toEqual([1, 1, 1]);
   });
 
   it("groups the decoders sharing one frequency", () => {
-    const clusters = clusterMarkers([{ at: 0.4 }, { at: 0.4 }, { at: 0.4 }]);
+    const clusters = clusterMarkers([
+      { at: 0.4, ...wide },
+      { at: 0.4, ...wide },
+      { at: 0.4, ...wide },
+    ]);
     expect(clusters).toHaveLength(1);
     expect(clusters[0]).toHaveLength(3);
   });
 
   it("orders groups and their members by position, not by arrival", () => {
     const clusters = clusterMarkers([
-      { id: 9, at: 0.42 },
-      { id: 4, at: 0.4 },
-      { id: 1, at: 0.9 },
+      { id: 9, at: 0.42, ...wide },
+      { id: 4, at: 0.4, ...wide },
+      { id: 1, at: 0.9, ...wide },
     ]);
     expect(clusters.map((group) => group.map((m) => m.id))).toEqual([[4, 9], [1]]);
   });
 
   // Measured against the group's first member, so a run of markers each just inside the gap
   // cannot chain into one group whose label would stand nowhere near half of them.
-  it("never spans more than the gap", () => {
-    const clusters = clusterMarkers([{ at: 0 }, { at: 0.1 }, { at: 0.2 }, { at: 0.3 }], 0.18);
+  it("never spans more than one collision", () => {
+    const clusters = clusterMarkers([
+      { at: 0, ...wide },
+      { at: 0.1, ...wide },
+      { at: 0.2, ...wide },
+      { at: 0.3, ...wide },
+    ]);
     expect(clusters.map((group) => group.length)).toEqual([2, 2]);
+  });
+
+  it("leaves narrow captions side by side where wide ones would collide", () => {
+    const positions = [{ at: 0.4 }, { at: 0.5 }];
+    expect(clusterMarkers(positions.map((m) => ({ ...m, width: 0.18 })))).toHaveLength(1);
+    expect(clusterMarkers(positions.map((m) => ({ ...m, width: 0.06 })))).toHaveLength(2);
+  });
+
+  it("measures a collision against both captions, not one", () => {
+    const clusters = clusterMarkers([
+      { at: 0.4, width: 0.02 },
+      { at: 0.5, width: 0.3 },
+    ]);
+    expect(clusters).toHaveLength(1);
   });
 });

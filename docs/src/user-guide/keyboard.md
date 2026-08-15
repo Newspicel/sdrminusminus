@@ -14,7 +14,6 @@ reference inside the app.
 | `m` / `M` | Cycle the selected channel's analog mode forward or backward |
 | `-` / `+` or `=` | Lower or raise squelch by 2 dB |
 | `s` | Toggle squelch |
-| Space | Start or stop audio on the selected channel |
 | `1`–`9` | Select the nth node in the patch |
 | `p` | Pin or unpin the selected node on the rack |
 | `v` | Switch between Patch and Rack |

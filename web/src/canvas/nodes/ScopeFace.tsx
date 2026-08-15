@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Fragment,
   type ReactNode,
@@ -9,8 +10,9 @@ import {
   useState,
 } from "react";
 import { Button } from "../../components/BaseControls";
-import { plotButton, segment } from "../../components/controls";
-import { formatSignedKhz } from "../../components/format";
+import { identify, suggestedAt } from "../../components/bandPlan";
+import { type Options, plotButton, segment, segmentSm } from "../../components/controls";
+import { formatMhz, formatSignedKhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
 import { Slider } from "../../components/Slider";
 import { frozenAge, frozenCursor, frozenLength, frozenRow } from "../../components/spectrumFreeze";
@@ -30,6 +32,7 @@ import {
   clusterMarkers,
   FULL_VIEW,
   isFullView,
+  labelWidth,
   offsetToSpan,
   panView,
   type SpectrumView,
@@ -47,20 +50,33 @@ import {
   DEFAULT_COLORMAP,
   type WaterfallView,
 } from "../../gl/waterfall";
+import { bookmarksQuery } from "../../lib/api";
 import type { SpectrumFrame } from "../../lib/frame";
 import { SPECTRUM_HISTORY_ROWS, type SpectrumHistory, spectrumHub } from "../../lib/spectrum";
-import type { ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
+import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { basebandSourceOf, channelNodesOf, hasBasebandWire, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { patchNode } from "../graph";
+import { addEdge, addNode, newNodeId, patchNode, streamPort } from "../graph";
+import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
 import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
+import {
+  bookmarkDraft,
+  channelTypeAt,
+  pickAt,
+  type ScopePick,
+  type ScopeSource,
+  scopeSource,
+  takeCreationTune,
+  tuneOnCreate,
+} from "./scopePick";
 import { DensityLayer, drawPlot, type PlotFrame, type PlotTrace } from "./scopePlot";
 
 const DRAG_SLOP_PX = 4;
@@ -91,16 +107,42 @@ interface Gesture {
   moved: boolean;
 }
 
+/** The two instruments a scope can be, in the order the wires are drawn into it. */
+const SOURCES: Options<ScopeSource> = [
+  { value: "iq", label: "IQ" },
+  { value: "baseband", label: "Base" },
+];
+
 export function ScopeFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const source = iqSourceOf(workspace.graph, node.id);
-  // A channel's passband is the narrower answer, so it wins when both inputs are wired: an
-  // operator who has run a tap into this scope is asking about that channel, not about the radio.
   const tap = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
   const [colormap] = useState<Colormap>(readColormap);
+  const [chosen, setChosen] = useState<ScopeSource>("baseband");
+  const shown = scopeSource(chosen, source !== null, tap !== null);
 
-  if (tap !== null) {
+  // Only a scope holding both wires has anything to switch between; with one, the toggle would be
+  // a control with a single position. It sits in the title bar rather than in the plot's own
+  // toolbar because it decides *which* toolbar is drawn.
+  const actions =
+    source !== null && tap !== null ? (
+      <span className="flex items-center" role="group" aria-label="Scope source">
+        {SOURCES.map((option) => (
+          <Button
+            key={option.value}
+            type="button"
+            className={segmentSm(shown === option.value)}
+            aria-pressed={shown === option.value}
+            onClick={() => setChosen(option.value)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </span>
+    ) : undefined;
+
+  if (shown === "baseband" && tap !== null) {
     return (
       <NodeShell
         node={node}
@@ -108,6 +150,7 @@ export function ScopeFace({ node }: { node: PatchNode }) {
         category="display"
         subtitle={`${tap.channel.settings.params.type} baseband`}
         live
+        actions={actions}
       >
         <FaceBody scroll={false}>
           <BasebandView
@@ -132,14 +175,17 @@ export function ScopeFace({ node }: { node: PatchNode }) {
       category="display"
       subtitle={set?.device.label}
       live={set !== null}
+      actions={actions}
     >
       <FaceBody scroll={false}>
         {set === null ? (
+          // The IQ wire is named first: this branch is the spectrum, so a scope holding both
+          // wires is here because its radio is the missing half, not its channel.
           <FaceEmpty>
-            {hasBasebandWire(workspace.graph, node.id)
-              ? "The channel this scope taps is not running. The wire is kept."
-              : source !== null
-                ? "The radio this scope watches is not attached. The wire is kept."
+            {source !== null
+              ? "The radio this scope watches is not attached. The wire is kept."
+              : hasBasebandWire(workspace.graph, node.id)
+                ? "The channel this scope taps is not running. The wire is kept."
                 : "Wire a device's IQ out to watch its spectrum, or a channel's baseband out to watch one channel."}
           </FaceEmpty>
         ) : (
@@ -163,9 +209,11 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const { applyPatch } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
+  const placeNode = useNodePlacement();
   // Read here and not only inside the ruler: the toolbar toggle has to reflect it too, and the
   // setting is the workspace's, so every scope on the canvas draws the same answer.
-  const { ruler: bandRuler, setRuler } = useBandPlan();
+  const { plan, ruler: bandRuler, setRuler } = useBandPlan();
+  const bookmarks = useQuery(bookmarksQuery());
 
   const plotRef = useRef<HTMLDivElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
@@ -198,12 +246,28 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   /** The history a freeze captured, and how far back into it the operator has scrubbed. */
   const [frozen, setFrozen] = useState<SpectrumHistory | null>(null);
   const [scrub, setScrub] = useState(0);
-  const [waterfallH, setWaterfallH] = useState(0);
+  /** Where the waterfall sits inside the plot, in pixels. Measured rather than derived from the
+   * trace's fraction: the band ruler is a flex sibling above the trace, so the split is that
+   * fraction of the *remaining* height and every overlay placed on the waterfall from the
+   * fraction alone lands one ruler too high — on the frequency axis. The canvas runs the full
+   * width of the plot, so its width is also every overlay's. */
+  const [waterfall, setWaterfall] = useState({ top: 0, height: 0, width: 0 });
   const [colormap, setColormap] = useState<Colormap>(readColormap);
   const [traceFraction, setTraceFraction] = useState(0.32);
-  const [preview, setPreview] = useState<{ channel: number; offsetHz: number } | null>(null);
+  const [preview, setPreview] = useState<{
+    channel: number;
+    offsetHz: number;
+  } | null>(null);
   const [panning, setPanning] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
+  /** The right-click menu, stamped with the frame it was opened in — a pan, a zoom or a retune
+   * moves the spectrum out from under it, and a menu still naming the old frequency is worse
+   * than no menu. */
+  const [menu, setMenu] = useState<{
+    pick: ScopePick;
+    at: ScopeMenuAt;
+    frame: string;
+  } | null>(null);
 
   // The animation-frame loop and the frame subscription both outlive the render that set these,
   // so they read the view and the display switches here. Written after commit, never during
@@ -281,11 +345,72 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       ...current,
       graph: patchNode(current.graph, face, (drawn) =>
         drawn.kind === "channel"
-          ? { ...drawn, kind: "channel" as const, data: { channel_type: suggested.type } }
+          ? {
+              ...drawn,
+              kind: "channel" as const,
+              data: { channel_type: suggested.type },
+            }
           : drawn,
       ),
     }));
   };
+
+  /** Tune whatever the operator is working on to a picked frequency: the selected channel where
+   * there is one, and the receiver itself where there is not. The same rule a click follows. */
+  const tuneTo = (pick: ScopePick): void => {
+    if (selectedChannel !== null) {
+      tuneChannel(selectedChannel, pick.offsetHz);
+    } else {
+      tuneCenter(pick.hz);
+    }
+  };
+
+  /** Draw a channel at a picked frequency and wire it to the lane this scope is watching.
+   *
+   * The node carries the type; the frequency is a setting on the engine channel apply has yet to
+   * create, so it is left with `tuneOnCreate` for the effect below to land. */
+  const addChannelAt = (pick: ScopePick, channelType: string): void => {
+    if (deviceNode === undefined) {
+      return;
+    }
+    const id = newNodeId("channel");
+    tuneOnCreate(id, pick.offsetHz);
+    workspace.edit((snapshot) => ({
+      ...snapshot,
+      graph: addEdge(
+        addNode(snapshot.graph, {
+          id,
+          kind: "channel",
+          data: { channel_type: channelType },
+          position: placeNode(snapshot.graph, "channel"),
+        }),
+        {
+          from: { node: deviceNode, port: streamPort("iq", stream) },
+          to: { node: id, port: "iq" },
+        },
+      ),
+    }));
+    workspace.apply();
+    workspace.select(id);
+  };
+
+  // `applyEdit` is rebuilt every render, and the tune below must not be keyed on that.
+  const editRef = useRef(applyEdit);
+  useLayoutEffect(() => {
+    editRef.current = applyEdit;
+  });
+
+  // The opening tune of a channel drawn on the plot, landed on the first render that finds the
+  // engine channel behind its node. Unconditional rather than keyed: `takeCreationTune` clears as
+  // it reads, so every render after the first is a handful of misses.
+  useEffect(() => {
+    for (const [channel, face] of faces) {
+      const offsetHz = takeCreationTune(face);
+      if (offsetHz !== undefined) {
+        editRef.current(set.id, channel, { offset_hz: offsetHz });
+      }
+    }
+  });
 
   useEffect(() => {
     const canvas = waterfallRef.current;
@@ -409,15 +534,22 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     };
   }, [phosphor, colormap]);
 
-  // How far back the waterfall reaches, which is what turns a scrub index into a cursor position.
+  // How far back the waterfall reaches — which is what turns a scrub index into a cursor position
+  // — and where it begins, which is where anything drawn over it belongs.
   useEffect(() => {
     const canvas = waterfallRef.current;
     if (canvas === null) {
       return;
     }
-    const observer = new ResizeObserver(() => setWaterfallH(canvas.clientHeight));
+    const measure = () =>
+      setWaterfall({
+        top: canvas.offsetTop,
+        height: canvas.clientHeight,
+        width: canvas.clientWidth,
+      });
+    const observer = new ResizeObserver(measure);
     observer.observe(canvas);
-    setWaterfallH(canvas.clientHeight);
+    measure();
     return () => observer.disconnect();
   }, []);
 
@@ -501,7 +633,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const cursorAt =
     frozen === null
       ? null
-      : frozenCursor(scrub, frozenRows, rowsForHeight(waterfallH, 1, SPECTRUM_HISTORY_ROWS));
+      : frozenCursor(scrub, frozenRows, rowsForHeight(waterfall.height, 1, SPECTRUM_HISTORY_ROWS));
 
   const spanHz = meta?.spanHz ?? 0;
   const pointerFraction = (clientX: number): number => {
@@ -597,6 +729,43 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     }
   };
 
+  // A menu opened against one window must not survive a pan, a zoom or someone else's retune —
+  // the same rule the band ruler's identify card follows, and stamped rather than cleared from an
+  // effect so the stale card never reaches the paint after the gesture.
+  const frameStamp = `${meta?.centerHz}:${meta?.spanHz}:${view.start}:${view.end}`;
+  const openMenu = menu?.frame === frameStamp ? menu : null;
+  const menuType =
+    openMenu === null
+      ? null
+      : channelTypeAt(
+          plan === null ? null : suggestedAt(identify(plan, openMenu.pick.hz)),
+          set.channels.find((channel) => channel.id === selectedChannel),
+        );
+
+  const onContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const plot = plotRef.current;
+    // An inactive face leaves the pointer to the canvas, whose own menu offers what can be done
+    // to the *node*. Bringing it forward first is what makes the frequency under the pointer a
+    // thing this scope can speak about at all.
+    if (!active || meta === null || plot === null || !onPlotSurface(event.target, plot)) {
+      return;
+    }
+    event.preventDefault();
+    // React Flow opens the node menu from a `contextmenu` on the node wrapper this plot sits in;
+    // two menus over one click is one too many.
+    event.stopPropagation();
+    const rect = plot.getBoundingClientRect();
+    const at = pointerFraction(event.clientX);
+    setMenu({
+      pick: pickAt(meta.centerHz, meta.spanHz, view, at),
+      at: {
+        x: at,
+        y: rect.height === 0 ? 0 : (event.clientY - rect.top) / rect.height,
+      },
+      frame: frameStamp,
+    });
+  };
+
   return (
     <div
       ref={plotRef}
@@ -607,6 +776,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onContextMenu={onContextMenu}
       onDoubleClick={(event) => {
         // Guarded here too, and not only in `onPointerDown`: this path never consults the
         // gesture, so two quick jabs at a toolbar button would recentre the radio.
@@ -640,7 +810,18 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       {cursorAt !== null && (
         <div
           className="pointer-events-none absolute inset-x-0 border-t border-plot-ink/80"
-          style={{ top: `calc(${traceFraction * 100}% + ${cursorAt * waterfallH}px)` }}
+          style={{ top: `${waterfall.top + cursorAt * waterfall.height}px` }}
+        />
+      )}
+
+      {meta !== null && (
+        <Bookmarks
+          bookmarks={bookmarks.data ?? []}
+          centerHz={meta.centerHz}
+          spanHz={meta.spanHz}
+          view={view}
+          labelTop={waterfall.top + 3}
+          widthPx={waterfall.width}
         />
       )}
 
@@ -652,6 +833,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
           selected={selectedChannel}
           preview={preview}
           onSelect={selectChannel}
+          widthPx={waterfall.width}
         />
       )}
 
@@ -788,6 +970,24 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         </div>
       )}
 
+      {openMenu !== null && menuType !== null && (
+        <ScopeMenu
+          pick={openMenu.pick}
+          at={openMenu.at}
+          channelType={menuType}
+          draft={bookmarkDraft(openMenu.pick.hz, plan)}
+          onTune={() => {
+            tuneTo(openMenu.pick);
+            setMenu(null);
+          }}
+          onChannel={() => {
+            addChannelAt(openMenu.pick, menuType);
+            setMenu(null);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
       {glError !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
           <span className="rounded-[3px] border border-danger bg-bg/90 px-2 py-1 font-mono text-xs text-danger">
@@ -856,6 +1056,7 @@ function Markers({
   selected,
   preview,
   onSelect,
+  widthPx,
 }: {
   channels: readonly ChannelInfo[];
   view: SpectrumView;
@@ -863,6 +1064,8 @@ function Markers({
   selected: number | null;
   preview: { channel: number; offsetHz: number } | null;
   onSelect: (channel: number) => void;
+  /** How wide the plot is drawn, in pixels: what decides whether two captions collide. */
+  widthPx: number;
 }) {
   const visible = spanHz * viewWidth(view);
   const drawn = channels
@@ -874,6 +1077,7 @@ function Markers({
         offsetHz,
         id: channel.id,
         at: spanToView(view, offsetToSpan(offsetHz, spanHz)),
+        width: labelWidth(markerName(channel, offsetHz), widthPx),
       };
     })
     .filter((marker) => marker.at >= -0.02 && marker.at <= 1.02);
@@ -957,6 +1161,78 @@ function Markers({
                 ))}
             </div>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Saved frequencies that fall inside the window, as dashed ticks along the plot.
+ *
+ * Coloured where the channel markers are achromatic, and labelled at the top of the waterfall
+ * rather than under the ruler: a bookmark is something the operator wrote down, not something the
+ * receiver is doing, and the two must never be read as the same kind of mark. Inert — a bookmark
+ * is tuned from the menu that made it, and a hit strip here would take the pointer away from the
+ * channel markers that are dragged.
+ *
+ * The tick is decorative and the caption is not: with colour and position removed, the name and
+ * the frequency it carries are the whole of what a mark says.
+ */
+function Bookmarks({
+  bookmarks,
+  centerHz,
+  spanHz,
+  view,
+  labelTop,
+  widthPx,
+}: {
+  bookmarks: readonly Bookmark[];
+  centerHz: number;
+  spanHz: number;
+  view: SpectrumView;
+  /** Where the labels sit, in pixels down the plot: just inside the waterfall. */
+  labelTop: number;
+  /** How wide the plot is drawn, in pixels: what decides whether two captions collide. */
+  widthPx: number;
+}) {
+  if (!(spanHz > 0)) {
+    return null;
+  }
+  const drawn = bookmarks
+    .map((bookmark) => ({
+      bookmark,
+      at: spanToView(view, offsetToSpan(bookmark.freq_hz - centerHz, spanHz)),
+      width: labelWidth(bookmark.label, widthPx),
+    }))
+    .filter((mark) => mark.at >= 0 && mark.at <= 1);
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {drawn.map(({ bookmark, at }) => (
+        <span
+          key={bookmark.id}
+          aria-hidden
+          className="absolute inset-y-0 w-0 border-l border-dashed border-accent/50"
+          style={{ left: `${at * 100}%` }}
+        />
+      ))}
+      {clusterMarkers(drawn).map((members) => {
+        const anchor = members[0];
+        if (anchor === undefined) {
+          return null;
+        }
+        return (
+          <span
+            key={anchor.bookmark.id}
+            title={members
+              .map((mark) => `${mark.bookmark.label} — ${formatMhz(mark.bookmark.freq_hz)}`)
+              .join("\n")}
+            className="absolute -translate-x-1/2 rounded-[2px] border border-accent/40 bg-bg/85 px-1 py-px font-mono text-[10px] whitespace-nowrap text-accent"
+            style={{ left: `${anchor.at * 100}%`, top: `${labelTop}px` }}
+          >
+            {anchor.bookmark.label}
+            {members.length > 1 && <span className="ml-1 text-ink-dim">×{members.length}</span>}
+          </span>
         );
       })}
     </div>

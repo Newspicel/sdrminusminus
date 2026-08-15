@@ -86,6 +86,18 @@ export function segment(selected: boolean): string {
   );
 }
 
+/** [`segment`] for a face's title bar, which is shorter than a control row. Its own constant
+ * rather than an override at the call site, for the reason `ICON_BTN_SM` is: two `h-*` utilities
+ * set the same property, and the one Tailwind emits last wins whatever order they are written. */
+export function segmentSm(selected: boolean): string {
+  return (
+    `${INTERACTIVE} h-5 px-1.5 font-mono text-[10px] tracking-[0.09em] uppercase ` +
+    (selected
+      ? "bg-accent/15 font-medium text-accent"
+      : "text-ink-faint hover:bg-panel-2 hover:text-ink")
+  );
+}
+
 /** A choice list for `Select` and `Segmented`. Typed off the value union at the call site, so a
  * renamed or added wire variant breaks here instead of shipping an option the server rejects. */
 export type Options<T> = readonly { value: T; label: string }[];
