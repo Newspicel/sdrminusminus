@@ -10,9 +10,10 @@ use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
-    ChannelSettings, DecodedRecord, DecoderEvent, IdentParams, Modulation, MorseParams,
-    NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RdsUpdate, RttyParams,
-    SubghzEncoding, SubghzParams, WfmParams,
+    ChannelSettings, DecodedRecord, DecoderEvent, DvFrameKind, DvMode, FreeDvParams, GnssParams,
+    IdentParams, Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud,
+    PocsagParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SubghzEncoding,
+    SubghzParams, WfmParams,
 };
 use tempfile::TempDir;
 
@@ -25,10 +26,10 @@ const DECODE_TIMEOUT: Duration = Duration::from_secs(30);
 const NARROW_DEVICE_RATE: f64 = 240_000.0;
 /// Device rate for the audio-rate decoders (RTTY, Morse run at 8 kHz).
 const AUDIO_DEVICE_RATE: f64 = 48_000.0;
-/// ADS-B fills its whole 2 Msps channel, so it is the one mode that cannot be resampled into
-/// place: the device has to run at exactly the channel rate (see the wideband check in
-/// `validate_channel`). Everything else here deliberately runs at a different device rate.
+/// ADS-B fills its whole 2 Msps channel, so it cannot be resampled into place. GNSS below has
+/// the same native-rate constraint at 2.048 Msps; the narrow modes deliberately exercise DDC.
 const ADSB_DEVICE_RATE: f64 = 2_000_000.0;
+const GNSS_DEVICE_RATE: f64 = 2_048_000.0;
 const CENTER_HZ: f64 = 145_000_000.0;
 /// The AX.25 burst a station would key for `frame`, straight out of the modulator that pairs
 /// with the decoder under test. A modulator produces its own channel rate and nothing else, so
@@ -357,6 +358,75 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!(status.open, "the tone the channel was set to must open it");
 }
 
+#[tokio::test]
+async fn selcall_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 5_000.0;
+    let mut iq =
+        testgen::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO_DEVICE_RATE).unwrap();
+    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "selcall_ccir1", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Selcall(SelcallParams {
+                system: SelcallSystem::Ccir1,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Selcall(_)),
+    )
+    .await;
+    let DecoderEvent::Selcall(call) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(call.code, "12234");
+    assert_eq!(call.system, SelcallSystem::Ccir1);
+}
+
+#[tokio::test]
+async fn freedv_recording_survives_the_virtual_device_and_acquires_sync() {
+    const FIXTURE: &[u8] = include_bytes!("../../../fixtures/freedv_1600_8k.sigmf-data");
+    let iq = FIXTURE
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|sample| {
+            Complex::new(
+                f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                f32::from_le_bytes([sample[4], sample[5], sample[6], sample[7]]),
+            )
+        })
+        .collect();
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(dir.path(), "freedv_1600", iq, 8_000.0);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Freedv(FreeDvParams::default()),
+        },
+        |event| {
+            matches!(
+                event,
+                DecoderEvent::Dv(frame)
+                    if frame.mode == DvMode::FreeDv && frame.kind == DvFrameKind::Header
+            )
+        },
+    )
+    .await;
+    let DecoderEvent::Dv(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.opcode.as_deref(), Some("1600"));
+}
+
 /// ADS-B end to end at 2 Msps, the lowest rate that carries it — one sample per half-chip.
 #[tokio::test]
 async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
@@ -400,6 +470,35 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
     let (lat, lon) = (message.lat.unwrap(), message.lon.unwrap());
     assert!((lat - 52.2657).abs() < 0.02, "lat {lat}");
     assert!((lon - 3.9184).abs() < 0.02, "lon {lon}");
+}
+
+#[tokio::test]
+async fn gps_ca_acquisition_survives_virtual_device_playback() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let iq = testgen::gnss::acquisition(7, 1_000.0, 317, 2);
+    let device = plant(dir.path(), "gps-l1-ca", iq, GNSS_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Gnss(GnssParams {
+                prn: 7,
+                doppler_hz: 2_000,
+                threshold: 2.5,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Gnss(frame) if frame.prn == 7),
+    )
+    .await;
+    let DecoderEvent::Gnss(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.doppler_hz, 1_000.0);
+    assert!((frame.code_phase_chips - 158.34).abs() < 0.6);
+    assert!(frame.cn0_db_hz > 40.0);
 }
 
 /// A roll-call reply carries its address only on the parity, so it is decodable only in the

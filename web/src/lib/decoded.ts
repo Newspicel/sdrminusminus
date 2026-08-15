@@ -315,6 +315,7 @@ function stationId(event: DecoderEvent): string | null {
     case "navtex":
     case "acars":
     case "subghz":
+    case "selcall":
     case "rtty":
     case "morse":
     // Subaudible signalling describes the channel, not a station on it — the transmitter it
@@ -326,6 +327,8 @@ function stationId(event: DecoderEvent): string | null {
     // An identification describes one observation window of whatever is on the frequency; the
     // transmitter it belongs to is what the report is trying to work out.
     case "ident":
+    case "radio_clock":
+    case "gnss":
       return null;
   }
 }

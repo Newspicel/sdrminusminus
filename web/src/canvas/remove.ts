@@ -1,4 +1,4 @@
-import { deleteChannel, deleteDeviceSet } from "../lib/api";
+import { deleteChannel, deleteDeviceSet, networkExportDeviceSet } from "../lib/api";
 import { iqSourceOf } from "./binding";
 import type { Workspace } from "./context";
 import { nodeOf } from "./graph";
@@ -49,6 +49,12 @@ export async function closeEngineObjects(
       const set = owner === undefined ? undefined : workspace.devices.get(owner);
       if (channel !== undefined && set !== undefined) {
         await deleteChannel(set.id, channel.id);
+      }
+    } else if (node?.kind === "network_export") {
+      const source = iqSourceOf(workspace.graph, id);
+      const set = source === null ? undefined : workspace.devices.get(source.source);
+      if (set?.network_export?.node === id) {
+        await networkExportDeviceSet(set.id, "stop", id, source?.stream ?? 0, node.data);
       }
     }
   }

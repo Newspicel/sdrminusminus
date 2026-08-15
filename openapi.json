@@ -1073,6 +1073,76 @@
         }
       }
     },
+    "/api/devicesets/{ds}/network-export": {
+      "post": {
+        "operationId": "network_export_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Live status after start or final counters after stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkExportStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid destination, inactive export, or conflicting owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/playback": {
       "post": {
         "operationId": "control_playback",
@@ -1718,6 +1788,80 @@
           },
           "422": {
             "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "operationId": "list_tools",
+        "responses": {
+          "200": {
+            "description": "Every tool this build offers. Tools stand beside the receiver: they own no device set and no channel, and a build without a tool's hardware support simply does not list it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/run": {
+      "post": {
+        "operationId": "run_tool",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tool's answer, tagged with the same tool id the request carried",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The tool refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tool in this build",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The tool's hardware is not attached",
             "content": {
               "application/json": {
                 "schema": {
@@ -2414,6 +2558,368 @@
             "format": "double"
           }
         }
+      },
+      "AntennaDesign": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Half-wave, centre fed, horizontal.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dipole"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A dipole with its legs sloped down from a single support.",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/InvertedVParams",
+                "description": "A dipole with its legs sloped down from a single support."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "inverted_v"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Quarter-wave vertical over radials.",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/GroundPlaneParams",
+                "description": "Quarter-wave vertical over radials."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ground_plane"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Five-eighths-wave vertical with a base loading coil.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "five_eighths_vertical"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Half-wave folded dipole, the ~300 Ω driven element of a Yagi.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "folded_dipole"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "End-fed half-wave with a quarter-wave matching stub.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "j_pole"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reflector, driven element and directors on a boom.",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/YagiParams",
+                "description": "Reflector, driven element and directors on a boom."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "yagi"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Full-wave square loop (quad), fed at a corner or the middle of a side.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "quad_loop"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Half-wave wire fed at its high-impedance end through a transformer.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "end_fed_half_wave"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The antenna to cut. Adjacently tagged like [`crate::ChannelParams`]: the designs that take\nno choices are bare tags, the rest carry their settings."
+      },
+      "AntennaGeometry": {
+        "type": "object",
+        "description": "The antenna as a shape: enough to draw it to scale from any angle.",
+        "required": [
+          "segments",
+          "feed"
+        ],
+        "properties": {
+          "feed": {
+            "$ref": "#/components/schemas/AntennaPoint",
+            "description": "Where the feedline attaches."
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AntennaSegment"
+            }
+          }
+        }
+      },
+      "AntennaPart": {
+        "type": "object",
+        "description": "One thing to cut, bend or buy.",
+        "required": [
+          "name",
+          "count",
+          "length_m"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of this part the design needs.",
+            "minimum": 0
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "length_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "position_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Where it sits along the boom, measured from the reflector. Only the designs that have\na boom set it."
+          }
+        }
+      },
+      "AntennaPoint": {
+        "type": "object",
+        "description": "A point on the antenna, in metres from the origin. `x` runs along the elements, `y` is up,\n`z` is the boom's depth. The origin is the feedpoint, or the base of anything that stands on\none.",
+        "required": [
+          "x_m",
+          "y_m",
+          "z_m"
+        ],
+        "properties": {
+          "x_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "y_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "z_m": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "AntennaReport": {
+        "type": "object",
+        "description": "What the calculator worked out.",
+        "required": [
+          "design",
+          "frequency_hz",
+          "wavelength_m",
+          "velocity_factor",
+          "parts",
+          "geometry",
+          "balanced",
+          "notes"
+        ],
+        "properties": {
+          "balanced": {
+            "type": "boolean",
+            "description": "Whether the feedpoint is balanced, and so wants a balun ahead of coax."
+          },
+          "design": {
+            "$ref": "#/components/schemas/AntennaDesign",
+            "description": "The design that produced this, echoed so a cached report can name itself."
+          },
+          "feedpoint_ohms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Estimated feedpoint impedance in free space. `None` where the design's own matching\nnetwork sets it and a raw figure would mislead."
+          },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/AntennaGeometry",
+            "description": "The same design as a shape, to scale, for a drawing of it."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Everything the numbers alone do not say: what to trim, what to match with, what the\nestimate assumes."
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AntennaPart"
+            }
+          },
+          "velocity_factor": {
+            "type": "number",
+            "format": "double"
+          },
+          "wavelength_m": {
+            "type": "number",
+            "format": "double",
+            "description": "Free-space wavelength, before any correction factor."
+          }
+        }
+      },
+      "AntennaRequest": {
+        "type": "object",
+        "description": "`POST /api/tools/run` with `\"tool\": \"antenna\"`.",
+        "required": [
+          "frequency_hz",
+          "design"
+        ],
+        "properties": {
+          "design": {
+            "$ref": "#/components/schemas/AntennaDesign"
+          },
+          "feedline_velocity_factor": {
+            "type": "number",
+            "format": "double",
+            "description": "Velocity factor of the coax, used only by designs that include a matching section.\nSolid polyethylene is 0.66, foam 0.80, PTFE 0.70."
+          },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "velocity_factor": {
+            "type": "number",
+            "format": "double",
+            "description": "End-effect factor applied to every resonant element."
+          }
+        }
+      },
+      "AntennaSegment": {
+        "type": "object",
+        "description": "One straight piece of the antenna, as drawn.",
+        "required": [
+          "label",
+          "role",
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/AntennaPoint"
+          },
+          "label": {
+            "type": "string",
+            "description": "The part this piece is. Where the report lists a part under the same name, the segment is\nexactly that long."
+          },
+          "role": {
+            "$ref": "#/components/schemas/AntennaSegmentRole"
+          },
+          "to": {
+            "$ref": "#/components/schemas/AntennaPoint"
+          }
+        }
+      },
+      "AntennaSegmentRole": {
+        "type": "string",
+        "description": "What a drawn piece does, so a view can colour it without reading its name.",
+        "enum": [
+          "driven",
+          "parasitic",
+          "radial",
+          "matching",
+          "feedline",
+          "structure"
+        ]
       },
       "ApiError": {
         "type": "object",
@@ -3381,7 +3887,7 @@
               "null"
             ],
             "format": "double",
-            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B uses this to preserve pulse timing, while ATV uses it to retain wide chroma and\nsound subcarriers. Mutually exclusive with `exact_rate_only`."
+            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B preserves pulse timing, ATV retains wide chroma and sound subcarriers, and GNSS\nretains chip timing. Mutually exclusive with `exact_rate_only`."
           },
           "needs_position": {
             "type": "boolean",
@@ -3472,6 +3978,24 @@
                 "type": "string",
                 "enum": [
                   "nfm"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/SelcallParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "selcall"
                 ]
               }
             }
@@ -3844,12 +4368,66 @@
             ],
             "properties": {
               "settings": {
+                "$ref": "#/components/schemas/FreeDvParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "freedv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
                 "$ref": "#/components/schemas/IdentParams"
               },
               "type": {
                 "type": "string",
                 "enum": [
                   "ident"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/RadioClockParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "radio_clock"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/GnssParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "gnss"
                 ]
               }
             }
@@ -4569,6 +5147,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/SelcallSequence"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "selcall"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/NavtexMessage"
               },
               "kind": {
@@ -4665,6 +5261,42 @@
                 "type": "string",
                 "enum": [
                   "ident"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RadioClockFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "radio_clock"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/GnssFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "gnss"
                 ]
               }
             }
@@ -4944,6 +5576,17 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "network_export": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetworkExportStatus",
+                "description": "Active raw-IQ network export, if any."
+              }
+            ]
           },
           "overruns": {
             "type": "integer",
@@ -5601,7 +6244,8 @@
           "nxdn",
           "p25",
           "dpmr",
-          "m17"
+          "m17",
+          "freedv"
         ]
       },
       "DvSlotActivity": {
@@ -5781,6 +6425,24 @@
           "value": {}
         }
       },
+      "FreeDvMode": {
+        "type": "string",
+        "description": "FreeDV air-interface generation. The initial implementation supports the interoperable\n1600 mode; making the generation explicit prevents a future default change from silently\nselecting an incompatible waveform on a saved channel.",
+        "enum": [
+          "mode1600"
+        ]
+      },
+      "FreeDvParams": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/FreeDvMode"
+          },
+          "sideband": {
+            "$ref": "#/components/schemas/Sideband"
+          }
+        }
+      },
       "GainStage": {
         "type": "object",
         "description": "A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA).",
@@ -5814,11 +6476,108 @@
           }
         }
       },
+      "GnssFrame": {
+        "type": "object",
+        "description": "GPS L1 C/A acquisition state or one parity-checked NAV subframe.",
+        "required": [
+          "prn",
+          "doppler_hz",
+          "code_phase_chips",
+          "cn0_db_hz"
+        ],
+        "properties": {
+          "cn0_db_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "code_phase_chips": {
+            "type": "number",
+            "format": "float"
+          },
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "prn": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "subframe": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "tow_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "week": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "words": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GnssParams": {
+        "type": "object",
+        "description": "Educational GPS L1 C/A acquisition and NAV-message settings.",
+        "properties": {
+          "doppler_hz": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Symmetric acquisition search span around the tuned L1 carrier.",
+            "minimum": 0
+          },
+          "prn": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result\ninspectable and bounds the work done on the DSP thread.",
+            "minimum": 0
+          },
+          "threshold": {
+            "type": "number",
+            "format": "float",
+            "description": "Acquisition peak divided by the mean correlation floor."
+          }
+        }
+      },
       "GpsNode": {
         "type": "object",
         "properties": {
           "source": {
             "$ref": "#/components/schemas/PositionSource"
+          }
+        }
+      },
+      "GroundPlaneParams": {
+        "type": "object",
+        "properties": {
+          "radial_slope_deg": {
+            "type": "number",
+            "format": "double",
+            "description": "How far the radials droop below horizontal. Sloping them raises the feedpoint\nimpedance from about 36 Ω towards 50 Ω."
+          },
+          "radials": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -5987,6 +6746,16 @@
           }
         }
       },
+      "InvertedVParams": {
+        "type": "object",
+        "properties": {
+          "apex_angle_deg": {
+            "type": "number",
+            "format": "double",
+            "description": "Angle between the two legs. 180° is a flat dipole; the legs shorten as it closes."
+          }
+        }
+      },
       "ItuRegion": {
         "type": "string",
         "enum": [
@@ -6132,6 +6901,149 @@
             "description": "Swap mark and space (equivalent to reversing the sideband)."
           }
         }
+      },
+      "NetworkExportAction": {
+        "type": "string",
+        "enum": [
+          "start",
+          "stop"
+        ]
+      },
+      "NetworkExportNode": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NetworkExportSettings"
+          }
+        ]
+      },
+      "NetworkExportRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/network-export`.",
+        "required": [
+          "action",
+          "node"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/NetworkExportAction"
+          },
+          "node": {
+            "type": "string",
+            "description": "Patch-node identity. A set permits one active exporter and only its owner may stop it."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NetworkExportSettings"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NetworkExportSettings": {
+        "type": "object",
+        "description": "An unframed, interleaved IQ stream sent to a network analysis tool.\n\nUDP preserves datagram boundaries but carries no sequence header. TCP is one continuous byte\nstream. In both cases the receiver must be configured with the radio's sample rate and center\nfrequency separately.",
+        "properties": {
+          "address": {
+            "type": "string",
+            "default": "127.0.0.1:7355"
+          },
+          "format": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NetworkSampleFormat"
+              }
+            ],
+            "default": "cf32_le"
+          },
+          "transport": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NetworkTransport"
+              }
+            ],
+            "default": "udp"
+          }
+        }
+      },
+      "NetworkExportStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "stream",
+          "settings",
+          "sample_rate",
+          "center_hz",
+          "samples",
+          "bytes",
+          "packets",
+          "overruns"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "center_hz": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "node": {
+            "type": "string"
+          },
+          "overruns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Capture-ring samples lost while this export was active.",
+            "minimum": 0
+          },
+          "packets": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sample_rate": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NetworkExportSettings"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NetworkSampleFormat": {
+        "type": "string",
+        "enum": [
+          "cf32_le",
+          "ci16_le",
+          "cu8"
+        ]
+      },
+      "NetworkTransport": {
+        "type": "string",
+        "enum": [
+          "udp",
+          "tcp"
+        ]
       },
       "NfmParams": {
         "type": "object",
@@ -6426,6 +7338,26 @@
                 "type": "string",
                 "enum": [
                   "recorder"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Unframed raw IQ sent over UDP datagrams or a TCP byte stream.",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/NetworkExportNode",
+                "description": "Unframed raw IQ sent over UDP datagrams or a TCP byte stream."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "network_export"
                 ]
               }
             }
@@ -7305,6 +8237,70 @@
         ],
         "description": "One pinned node and the cells it occupies."
       },
+      "RadioClockFrame": {
+        "type": "object",
+        "description": "One complete civil-time minute recovered from a long-wave radio-clock service.",
+        "required": [
+          "standard",
+          "datetime",
+          "symbols"
+        ],
+        "properties": {
+          "datetime": {
+            "type": "string",
+            "description": "ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;\nWWVB is UTC."
+          },
+          "dst": {
+            "type": "boolean"
+          },
+          "dut1_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "leap_warning": {
+            "type": "boolean"
+          },
+          "standard": {
+            "$ref": "#/components/schemas/RadioClockStandard"
+          },
+          "symbols": {
+            "type": "string",
+            "description": "The 60 received symbols (`0`, `1`, `M` marker, `?` invalid)."
+          },
+          "utc_offset_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "RadioClockParams": {
+        "type": "object",
+        "properties": {
+          "invert": {
+            "type": "boolean",
+            "description": "Reverse the received AM envelope for an inverting receiver or recording."
+          },
+          "standard": {
+            "$ref": "#/components/schemas/RadioClockStandard"
+          }
+        }
+      },
+      "RadioClockStandard": {
+        "type": "string",
+        "description": "Long-wave civil time service carried by the radio-clock channel.",
+        "enum": [
+          "dcf77",
+          "wwvb",
+          "msf",
+          "jjy"
+        ]
+      },
       "Range": {
         "type": "object",
         "description": "An inclusive numeric range with an optional step, in the setting's native unit.",
@@ -7794,6 +8790,46 @@
             "minimum": 0
           }
         }
+      },
+      "SelcallParams": {
+        "type": "object",
+        "properties": {
+          "system": {
+            "$ref": "#/components/schemas/SelcallSystem"
+          }
+        }
+      },
+      "SelcallSequence": {
+        "type": "object",
+        "description": "One complete five-tone selective call after the repeat marker has been expanded.",
+        "required": [
+          "system",
+          "code",
+          "tone_ms"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Five decoded digits/group symbols. Consecutive equal digits are represented literally,\nnot by the on-air repeat marker."
+          },
+          "system": {
+            "$ref": "#/components/schemas/SelcallSystem"
+          },
+          "tone_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Median detected tone duration, rounded to milliseconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "SelcallSystem": {
+        "type": "string",
+        "description": "Five-tone sequential selective-calling plan.",
+        "enum": [
+          "ccir1",
+          "zvei1"
+        ]
       },
       "ServerEvent": {
         "oneOf": [
@@ -8843,6 +9879,107 @@
           }
         }
       },
+      "ToolCategory": {
+        "type": "string",
+        "description": "What kind of thing a tool is, so the launcher can group them.",
+        "enum": [
+          "calculator",
+          "instrument",
+          "reference"
+        ]
+      },
+      "ToolDescriptor": {
+        "type": "object",
+        "description": "One tool the server can run, as advertised by `GET /api/tools`.",
+        "required": [
+          "id",
+          "name",
+          "summary",
+          "category",
+          "needs_hardware"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/ToolCategory"
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable id, and the tag of this tool's [`ToolRequest`] variant."
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs_hardware": {
+            "type": "boolean",
+            "description": "Whether running it needs hardware attached. Feature-gated tools are absent from the\nlist entirely; this marks the ones that are compiled in but may still find nothing."
+          },
+          "summary": {
+            "type": "string",
+            "description": "One line, shown under the name in the launcher."
+          }
+        }
+      },
+      "ToolRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "request",
+              "tool"
+            ],
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/AntennaRequest"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "antenna"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "`POST /api/tools/run` — one call to one tool. The tag is the tool id, so the body names its\nown destination and no path parameter can disagree with it."
+      },
+      "ToolResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "result",
+              "tool"
+            ],
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/AntennaReport"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "antenna"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "What a tool answered, tagged with the same id the request carried."
+      },
+      "ToolsResponse": {
+        "type": "object",
+        "description": "`GET /api/tools`.",
+        "required": [
+          "tools"
+        ],
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDescriptor"
+            }
+          }
+        }
+      },
       "TrunkFollower": {
         "type": "object",
         "required": [
@@ -9282,6 +10419,22 @@
             "items": {
               "$ref": "#/components/schemas/WorkspaceInfo"
             }
+          }
+        }
+      },
+      "YagiParams": {
+        "type": "object",
+        "properties": {
+          "directors": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Directors in front of the driven element. Zero is a two-element reflector Yagi.",
+            "minimum": 0
+          },
+          "spacing_wavelengths": {
+            "type": "number",
+            "format": "double",
+            "description": "Boom spacing between neighbouring elements, in wavelengths."
           }
         }
       },
