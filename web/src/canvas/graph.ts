@@ -1,4 +1,4 @@
-import { rateMismatch } from "../components/channelSettings";
+import { channelHasAudio, rateMismatch } from "../components/channelSettings";
 import type {
   Capabilities,
   ChannelDescriptor,
@@ -322,6 +322,30 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   export: { w: 320, h: 180 },
   scanner: { w: 400, h: 400 },
 };
+
+/**
+ * What a channel face opens at once it carries the audio-processing chain.
+ *
+ * A channel is the one kind with two right sizes. Every mode that produces audio has the whole
+ * chain in its column — AGC, blanker, denoise, auto-notch, passband — and every mode that only
+ * decodes has none of it, so one height either scrolls the voice modes or leaves an acre of dead
+ * space under the data ones. Tall enough for the deepest voice column plus the row NFM's tone
+ * squelch adds and a notch beside it; past that the face scrolls, which is the right answer for
+ * a channel carrying four notches at once.
+ */
+const AUDIO_CHANNEL_H = 500;
+
+/** The size `node`'s face opens at. */
+export function naturalSize(node: PatchNode, context: GraphContext): { w: number; h: number } {
+  return node.kind === "channel"
+    ? channelSize(channelHasAudio(descriptorOf(context, node)))
+    : NODE_SIZE[node.kind];
+}
+
+/** [`naturalSize`] for a channel that does not exist yet, which is what a drop is placing. */
+export function channelSize(hasAudio: boolean): { w: number; h: number } {
+  return { w: NODE_SIZE.channel.w, h: hasAudio ? AUDIO_CHANNEL_H : NODE_SIZE.channel.h };
+}
 
 /**
  * Whether this kind can be resized at all.

@@ -1,10 +1,11 @@
 import { Button } from "../components/BaseControls";
+import { channelHasAudio } from "../components/channelSettings";
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
 import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { addNode, newNodeId } from "./graph";
+import { addNode, channelSize, type GraphContext, newNodeId } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
 import { useNodePlacement } from "./placement";
@@ -16,6 +17,20 @@ const VIEWS: Options<View> = [
   { value: "patch", label: "Patch" },
   { value: "rack", label: "Rack" },
 ];
+
+/** The footprint a channel about to be added will take, so the drop leaves room for the face the
+ * operator is actually going to see. Every other kind is the size its kind is. */
+function channelDrop(
+  kind: NodeKind,
+  channelType: string | undefined,
+  context: GraphContext,
+): { w: number; h: number } | undefined {
+  if (kind !== "channel") {
+    return undefined;
+  }
+  const descriptor = context.channelTypes.find((type) => type.type_id === (channelType ?? "nfm"));
+  return channelSize(channelHasAudio(descriptor));
+}
 
 export function WorkspaceBar({
   view,
@@ -56,7 +71,11 @@ export function WorkspaceBar({
     workspace.edit((snapshot) => {
       const node = {
         id,
-        position: placeNode(snapshot.graph, kind),
+        position: placeNode(
+          snapshot.graph,
+          kind,
+          channelDrop(kind, channelType, workspace.context),
+        ),
         ...(kind === "channel"
           ? { kind: "channel" as const, data: { channel_type: channelType ?? "nfm" } }
           : kind === "device"

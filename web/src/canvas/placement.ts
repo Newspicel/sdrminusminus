@@ -12,15 +12,26 @@ export interface PlacementRect {
 
 const SCREEN_GAP = 24;
 
-/** Place new nodes against the camera the operator is looking through, using React Flow's last
- * measured face sizes when they are available. The provider outlives the patch/rack switch, so
- * the last patch viewport remains the target when a recording is opened from the rack. */
-export function useNodePlacement(): (graph: PatchGraph, kind: NodeKind) => Position {
+/** The provider outlives the patch/rack switch, so the last patch viewport remains the target
+ * when a recording is opened from the rack; occupied footprints come from React Flow's last
+ * measured sizes when it has them. */
+/**
+ * Place new nodes against the camera the operator is looking through.
+ *
+ * `size` is the face the caller is about to add, for the kinds whose height is not the kind's
+ * alone — a channel's depends on whether its mode produces audio (`naturalSize`). Left out, the
+ * kind's own size stands.
+ */
+export function useNodePlacement(): (
+  graph: PatchGraph,
+  kind: NodeKind,
+  size?: { w: number; h: number },
+) => Position {
   const flow = useReactFlow();
   const store = useStoreApi();
 
   return useCallback(
-    (graph, kind) => {
+    (graph, kind, requested) => {
       const { width, height } = store.getState();
       const { x, y, zoom } = flow.getViewport();
       const gap = SCREEN_GAP / zoom;
@@ -32,7 +43,7 @@ export function useNodePlacement(): (graph: PatchGraph, kind: NodeKind) => Posit
       };
       const rendered = new Map(flow.getNodes().map((node) => [node.id, node]));
       const occupied = graph.nodes.map((node) => nodeRect(node, rendered.get(node.id)));
-      const size = NODE_SIZE[kind];
+      const size = requested ?? NODE_SIZE[kind];
 
       // Width is zero only before React Flow has mounted for the first time. The top bar cannot
       // be clicked in that interval, but keeping a deterministic fallback makes the helper safe

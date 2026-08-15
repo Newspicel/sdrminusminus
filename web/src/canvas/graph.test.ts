@@ -12,6 +12,7 @@ import type {
 } from "../lib/types";
 import {
   addEdge,
+  channelSize,
   connectionRefusal,
   edgeKey,
   edgeWarning,
@@ -22,6 +23,7 @@ import {
   moveSlot,
   NODE_MIN_SIZE,
   NODE_SIZE,
+  naturalSize,
   newNodeId,
   nodeMinSize,
   PORT_STEP_PX,
@@ -342,6 +344,29 @@ describe("ports", () => {
     ];
     expect(viewports.filter((kind) => !isResizable(kind))).toEqual([]);
     expect(controls.filter(isResizable)).toEqual([]);
+  });
+
+  /** A face carrying the audio chain is a taller column than one that only decodes, and the
+   * whole point of stating it here is that the two are not the same box. */
+  it("opens an audio channel taller than a data one", () => {
+    const nfm = node("nfm", { kind: "channel", data: { channel_type: "nfm" } });
+    const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
+    expect(naturalSize(nfm, context).h).toBeGreaterThan(naturalSize(adsb, context).h);
+    expect(naturalSize(adsb, context)).toEqual(NODE_SIZE.channel);
+    expect(naturalSize(nfm, context).w).toBe(NODE_SIZE.channel.w);
+  });
+
+  /** Both surfaces place a channel before its type list has arrived, and a face that opened
+   * short and grew would move every node the drop was measured against. */
+  it("assumes the taller face while the channel type is unknown", () => {
+    const unknown = node("x", { kind: "channel", data: { channel_type: "wefax" } });
+    expect(naturalSize(unknown, context)).toEqual(channelSize(true));
+  });
+
+  it("leaves every other kind the size its kind is", () => {
+    for (const kind of ["device", "scope", "speaker", "gps"] as NodeKind[]) {
+      expect(naturalSize(node(kind, { kind }), context)).toEqual(NODE_SIZE[kind]);
+    }
   });
 
   /** The floor for a fixed kind is its size: nothing may shrink it, so the two must not drift. */

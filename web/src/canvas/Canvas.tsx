@@ -37,7 +37,7 @@ import {
   type GraphContext,
   isPinned,
   isResizable,
-  NODE_SIZE,
+  naturalSize,
   nodeOf,
   patchNode,
   pin,
@@ -65,7 +65,7 @@ const DELETE_KEYS = ["Backspace", "Delete"];
 export function Canvas() {
   const workspace = useWorkspaceContext();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>(
-    toFlowNodes(workspace.graph),
+    toFlowNodes(workspace.graph, workspace.context),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
     toFlowEdges(workspace.graph, workspace.context),
@@ -91,6 +91,9 @@ export function Canvas() {
   useEffect(() => {
     if (sameGraph(held.current, workspace.graph)) {
       setEdges(toFlowEdges(workspace.graph, context));
+      // The channel type list arrives after the first paint and is what decides how tall a
+      // channel's face opens, so a graph that has not changed can still have a size to settle.
+      setNodes((previous) => withNaturalSizes(previous, workspace.graph, context));
       return;
     }
     held.current = workspace.graph;
@@ -104,7 +107,7 @@ export function Canvas() {
     // nothing selected while the node still rendered as selected — and Backspace would stop
     // deleting it.
     setNodes((previous) =>
-      toFlowNodes(workspace.graph).map((node) => {
+      toFlowNodes(workspace.graph, context).map((node) => {
         const mounted = previous.find((candidate) => candidate.id === node.id);
         const selected = arrived ? fresh.has(node.id) : (mounted?.selected ?? false);
         return mounted === undefined ? { ...node, selected } : { ...mounted, ...node, selected };
@@ -127,7 +130,7 @@ export function Canvas() {
           // at: writing the natural size back would freeze this node at today's default and
           // silently opt it out of every later one. A kind that cannot be resized drops any size
           // a older build stored for it, rather than being pinned to it forever.
-          const natural = NODE_SIZE[node.kind];
+          const natural = naturalSize(node, workspace.context);
           const { width: w, height: h } = flow;
           const resized =
             isResizable(node.kind) &&
@@ -423,11 +426,32 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   );
 }
 
-function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
+/** Carry a fresh natural size onto already-mounted faces, leaving everything React Flow has
+ * measured or selected alone. The same array comes back when nothing moved, so an edge-only
+ * update does not re-render the patch. */
+function withNaturalSizes(
+  mounted: Node<FlowData>[],
+  graph: PatchGraph,
+  context: GraphContext,
+): Node<FlowData>[] {
+  const fresh = new Map(toFlowNodes(graph, context).map((node) => [node.id, node]));
+  let changed = false;
+  const next = mounted.map((node) => {
+    const size = fresh.get(node.id);
+    if (size === undefined || (size.width === node.width && size.height === node.height)) {
+      return node;
+    }
+    changed = true;
+    return { ...node, width: size.width, height: size.height };
+  });
+  return changed ? next : mounted;
+}
+
+function toFlowNodes(graph: PatchGraph, context: GraphContext): Node<FlowData>[] {
   return graph.nodes.map((node) => {
     // A stored size only counts for a kind that can be resized; every other face is the size its
-    // kind is (`NODE_SIZE`), whatever an older build wrote into the workspace.
-    const natural = NODE_SIZE[node.kind];
+    // kind is (`naturalSize`), whatever an older build wrote into the workspace.
+    const natural = naturalSize(node, context);
     const size = (isResizable(node.kind) ? node.size : null) ?? natural;
     return {
       id: node.id,

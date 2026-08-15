@@ -1,11 +1,12 @@
 import { type CSSProperties, memo, useCallback, useRef, useState } from "react";
 
-import type { NodeKind, PatchNode, RackLayout } from "../lib/types";
+import type { PatchNode, RackLayout } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import {
+  type GraphContext,
   isResizable,
   moveSlot,
-  NODE_SIZE,
+  naturalSize,
   placeSlot,
   RACK_COLS,
   RACK_ROWS,
@@ -138,7 +139,10 @@ export function Rack() {
                 a column of controls across one puts the same acre of dead space beside it that
                 fixing the sizes removed from the patch. Never larger than the bay: a face given
                 less room than it wants shrinks and scrolls rather than covering its neighbour. */}
-            <div className="relative max-h-full max-w-full" style={faceSize(node.kind)}>
+            <div
+              className="relative max-h-full max-w-full"
+              style={faceSize(node, workspace.context)}
+            >
               <RackFace node={node} />
               <Grips node={slot.node} onBegin={begin} />
             </div>
@@ -151,10 +155,12 @@ export function Rack() {
 
 /** The box the face gets inside its bay: the whole bay for an instrument that is worth more room,
  * and its own size for everything else (`isResizable`). */
-function faceSize(kind: NodeKind): CSSProperties {
-  return isResizable(kind)
-    ? { width: "100%", height: "100%" }
-    : { width: NODE_SIZE[kind].w, height: NODE_SIZE[kind].h };
+function faceSize(node: PatchNode, context: GraphContext): CSSProperties {
+  if (isResizable(node.kind)) {
+    return { width: "100%", height: "100%" };
+  }
+  const size = naturalSize(node, context);
+  return { width: size.w, height: size.h };
 }
 
 /**
