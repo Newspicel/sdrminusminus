@@ -136,6 +136,7 @@ export function useClipboard(
         pastes.current = 0;
         pushToast(
           copied.nodes.length === 1 ? "Copied 1 node" : `Copied ${copied.nodes.length} nodes`,
+          "info",
         );
         event.preventDefault();
         return;

@@ -27,7 +27,10 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
     }
     applyPatch(active.id, { center_hz: startHz + (stopHz - startHz) / 2 });
     if (suggested !== null) {
-      pushToast(`${suggested.type.toUpperCase()} is the mode for this band — set it on a channel`);
+      pushToast(
+        `${suggested.type.toUpperCase()} is the mode for this band — set it on a channel`,
+        "info",
+      );
     }
   };
 
