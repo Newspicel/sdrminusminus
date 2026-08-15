@@ -12,7 +12,6 @@ import type {
 } from "../lib/types";
 import {
   addEdge,
-  channelSize,
   connectionRefusal,
   edgeKey,
   edgeWarning,
@@ -21,9 +20,8 @@ import {
   isResizable,
   migrateSnapshot,
   moveSlot,
-  NODE_MIN_SIZE,
   NODE_SIZE,
-  naturalSize,
+  type NodeSize,
   newNodeId,
   nodeMinSize,
   PORT_STEP_PX,
@@ -308,12 +306,13 @@ describe("ports", () => {
       port_type: "events",
       direction: "in",
     })) as PortSpec[];
+    const floor = nodeMinSize("decoder_log", []);
     expect(nodeMinSize("decoder_log", deep)).toEqual({
-      w: NODE_MIN_SIZE.decoder_log.w,
+      w: floor.w,
       h: PORT_TOP_PX + PORT_STEP_PX * 20,
     });
-    expect(nodeMinSize("decoder_log", deep).h).toBeGreaterThan(NODE_MIN_SIZE.decoder_log.h);
-    expect(nodeMinSize("decoder_log", deep.slice(0, 1))).toEqual(NODE_MIN_SIZE.decoder_log);
+    expect(nodeMinSize("decoder_log", deep).h).toBeGreaterThan(floor.h);
+    expect(nodeMinSize("decoder_log", deep.slice(0, 1))).toEqual(floor);
   });
 
   it("resizes the viewports and nothing else", () => {
@@ -333,31 +332,15 @@ describe("ports", () => {
     expect(controls.filter(isResizable)).toEqual([]);
   });
 
-  it("opens an audio channel taller than a data one", () => {
-    const nfm = node("nfm", { kind: "channel", data: { channel_type: "nfm" } });
-    const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
-    expect(naturalSize(nfm, context).h).toBeGreaterThan(naturalSize(adsb, context).h);
-    expect(naturalSize(adsb, context)).toEqual(NODE_SIZE.channel);
-    expect(naturalSize(nfm, context).w).toBe(NODE_SIZE.channel.w);
-  });
-
-  it("assumes the taller face while the channel type is unknown", () => {
-    const unknown = node("x", { kind: "channel", data: { channel_type: "wefax" } });
-    expect(naturalSize(unknown, context)).toEqual(channelSize(true));
-  });
-
-  it("leaves every other kind the size its kind is", () => {
-    for (const kind of ["device", "scope", "speaker", "gps"] as NodeKind[]) {
-      expect(naturalSize(node(kind, { kind }), context)).toEqual(NODE_SIZE[kind]);
+  it("gives every kind a width and only the viewports a height", () => {
+    for (const [kind, size] of Object.entries(NODE_SIZE) as [NodeKind, NodeSize][]) {
+      expect(size.w).toBeGreaterThan(0);
+      expect(size.h !== undefined).toBe(isResizable(kind));
     }
   });
 
-  it("floors every fixed kind at its own size", () => {
-    for (const [kind, size] of Object.entries(NODE_SIZE) as [NodeKind, typeof NODE_SIZE.scope][]) {
-      if (!isResizable(kind)) {
-        expect(NODE_MIN_SIZE[kind]).toEqual(size);
-      }
-    }
+  it("floors a content-sized kind at its width and its ports' depth", () => {
+    expect(nodeMinSize("speaker", [])).toEqual({ w: NODE_SIZE.speaker.w, h: PORT_TOP_PX });
   });
 });
 

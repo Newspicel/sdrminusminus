@@ -481,7 +481,7 @@ function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
         <ul className="flex flex-wrap gap-2">
           {images.map((image) => (
             <li key={image.id}>
-              <button
+              <Button
                 type="button"
                 className={`${BTN} p-0.5`}
                 aria-current={image.id === open?.id}
@@ -497,7 +497,7 @@ function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
                     className="h-12 w-16 rounded-xs bg-black object-contain"
                   />
                 )}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
