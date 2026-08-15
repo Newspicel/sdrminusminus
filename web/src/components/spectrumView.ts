@@ -105,6 +105,39 @@ export function niceStep(raw: number): number {
   return nice * magnitude;
 }
 
+/** How far apart, as a fraction of the plot's width, two marker labels must sit to be legible
+ * side by side. Roughly the widest `MODE +000.0k` label on a scope at its default size. */
+export const MARKER_LABEL_GAP = 0.18;
+
+/**
+ * Markers grouped into the sets whose labels would land on top of each other, each ascending by
+ * position and the groups themselves ascending by their first member.
+ *
+ * Several channels on one frequency is ordinary — a DMR carrier and its trunk follower, an NFM
+ * and the tone decoder watching it — and their labels coincide exactly. A group is drawn as one
+ * label that opens into the whole set, rather than as a permanent stack: six labels down the
+ * middle of the trace hide more of the signal than the collision did.
+ *
+ * Membership is measured against the group's *first* marker, not the previous one, so a group
+ * never spans more than `gap` — the one label stands where all of them are.
+ */
+export function clusterMarkers<T extends { at: number }>(
+  markers: readonly T[],
+  gap = MARKER_LABEL_GAP,
+): T[][] {
+  const clusters: T[][] = [];
+  for (const marker of markers.toSorted((a, b) => a.at - b.at)) {
+    const open = clusters.at(-1);
+    const anchor = open?.[0];
+    if (open === undefined || anchor === undefined || marker.at - anchor.at >= gap) {
+      clusters.push([marker]);
+    } else {
+      open.push(marker);
+    }
+  }
+  return clusters;
+}
+
 /** Keep a view inside the span without changing its width: a pan that runs off the end stops
  * there instead of shrinking, which would silently change the zoom level mid-drag. */
 function slide(view: SpectrumView): SpectrumView {

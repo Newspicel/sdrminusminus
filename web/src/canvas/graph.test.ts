@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ChannelDescriptor,
   DeviceSet,
+  NodeKind,
   PatchCatalog,
   PatchGraph,
   PatchNode,
@@ -16,9 +17,11 @@ import {
   edgeWarning,
   type GraphContext,
   isPinned,
+  isResizable,
   migrateSnapshot,
   moveSlot,
   NODE_MIN_SIZE,
+  NODE_SIZE,
   newNodeId,
   nodeMinSize,
   PORT_STEP_PX,
@@ -308,18 +311,38 @@ describe("ports", () => {
     }
   });
 
-  /** Ports sit at `PORT_TOP_PX + PORT_STEP_PX × index`: five outputs run past the device kind's
-   * 120px floor, so the floor follows the port count or the resizer clips the lowest handles. */
+  /** Ports sit at `PORT_TOP_PX + PORT_STEP_PX × index`, so a kind with more ports than its base
+   * floor has rows for must refuse to shrink past its lowest handle — a clipped port is a wire
+   * that cannot be grabbed. The two sides stack independently, so it is the deeper of them. */
   it("grows the resize floor with the port count", () => {
-    const graph = workspace();
-    const dev = deviceNode(graph);
-    const five = portsOf({ ...context, bound: bound("dev", { rx: 5 }) }, graph, dev);
-    expect(nodeMinSize("device", five)).toEqual({
-      w: NODE_MIN_SIZE.device.w,
-      h: PORT_TOP_PX + PORT_STEP_PX * 5,
+    const deep = Array.from({ length: 20 }, (_, index) => ({
+      name: `events${index}`,
+      port_type: "events",
+      direction: "in",
+    })) as PortSpec[];
+    expect(nodeMinSize("decoder_log", deep)).toEqual({
+      w: NODE_MIN_SIZE.decoder_log.w,
+      h: PORT_TOP_PX + PORT_STEP_PX * 20,
     });
-    expect(nodeMinSize("device", five).h).toBeGreaterThan(NODE_MIN_SIZE.device.h);
-    expect(nodeMinSize("device", portsOf(context, graph, dev))).toEqual(NODE_MIN_SIZE.device);
+    expect(nodeMinSize("decoder_log", deep).h).toBeGreaterThan(NODE_MIN_SIZE.decoder_log.h);
+    expect(nodeMinSize("decoder_log", deep.slice(0, 1))).toEqual(NODE_MIN_SIZE.decoder_log);
+  });
+
+  /** A face that is a column of controls is the size its kind is; only the instruments resize. */
+  it("resizes the viewports and nothing else", () => {
+    const viewports: NodeKind[] = ["scope", "map", "signal_map", "readout", "decoder_log", "video"];
+    const controls: NodeKind[] = ["device", "channel", "gps", "scanner", "recorder", "export"];
+    expect(viewports.filter((kind) => !isResizable(kind))).toEqual([]);
+    expect(controls.filter(isResizable)).toEqual([]);
+  });
+
+  /** The floor for a fixed kind is its size: nothing may shrink it, so the two must not drift. */
+  it("floors every fixed kind at its own size", () => {
+    for (const [kind, size] of Object.entries(NODE_SIZE) as [NodeKind, typeof NODE_SIZE.scope][]) {
+      if (!isResizable(kind)) {
+        expect(NODE_MIN_SIZE[kind]).toEqual(size);
+      }
+    }
   });
 });
 

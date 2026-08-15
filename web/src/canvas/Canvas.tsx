@@ -27,6 +27,7 @@ import {
   edgeWarning,
   type GraphContext,
   isPinned,
+  isResizable,
   NODE_SIZE,
   nodeOf,
   patchNode,
@@ -94,14 +95,21 @@ export function Canvas() {
           }
           // A size is stored only once the face has been resized away from what its kind opens
           // at: writing the natural size back would freeze this node at today's default and
-          // silently opt it out of every later one.
+          // silently opt it out of every later one. A kind that cannot be resized drops any size
+          // a older build stored for it, rather than being pinned to it forever.
           const natural = NODE_SIZE[node.kind];
           const { width: w, height: h } = flow;
-          const size =
-            w != null && h != null && (w !== natural.w || h !== natural.h)
-              ? { size: { w, h } }
-              : {};
-          return { ...node, position: { x: flow.position.x, y: flow.position.y }, ...size };
+          const resized =
+            isResizable(node.kind) &&
+            w != null &&
+            h != null &&
+            (w !== natural.w || h !== natural.h);
+          const { size: _dropped, ...rest } = node;
+          return {
+            ...rest,
+            position: { x: flow.position.x, y: flow.position.y },
+            ...(resized ? { size: { w: w as number, h: h as number } } : {}),
+          };
         }),
       },
     }));
@@ -338,7 +346,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
         })),
       ),
     );
-    if (node.size != null) {
+    if (node.size != null && isResizable(node.kind)) {
       items.push(
         item("Reset size", () =>
           workspace.edit((snapshot) => ({
@@ -384,19 +392,17 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
 
 function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
   return graph.nodes.map((node) => {
-    // No stored size means the face has never been resized by hand, and it opens at the size its
-    // kind needs: a width, and a height only where the content is a viewport rather than a
-    // column of controls (`NODE_SIZE`). Leaving the height off is what lets React Flow measure
-    // the face and give it exactly the room its instrument asks for.
+    // A stored size only counts for a kind that can be resized; every other face is the size its
+    // kind is (`NODE_SIZE`), whatever an older build wrote into the workspace.
     const natural = NODE_SIZE[node.kind];
-    const size = node.size ?? natural;
+    const size = (isResizable(node.kind) ? node.size : null) ?? natural;
     return {
       id: node.id,
       type: node.kind,
       position: node.position,
       data: { node },
       width: size.w,
-      ...(size.h == null ? {} : { height: size.h }),
+      height: size.h ?? natural.h,
     };
   });
 }

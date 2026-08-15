@@ -12,12 +12,16 @@ export function Slider({
   onChange,
   onCommit,
   className,
+  disabled = false,
 }: {
   label: string;
   value: number;
   min: number;
   max: number;
   step?: number;
+  /** Drawn and laid out, but inert: a setting that is switched off keeps its row rather than
+   * collapsing it and resizing everything below on a click. */
+  disabled?: boolean;
   onChange: (value: number) => void;
   /** Fired once on release instead of per pixel, for a sweep whose every intermediate value
    * would be a real request — a playback seek, not a gain the DSP can take continuously. */
@@ -30,7 +34,8 @@ export function Slider({
       // The slider owns the arrows, Home and End; without this the tuning layer would act on
       // them too (`useHotkeys`).
       data-hotkeys="off"
-      className={`flex ${className ?? "w-24"}`}
+      className={`flex ${className ?? "w-24"} ${disabled ? "opacity-45" : ""}`}
+      disabled={disabled}
       value={value}
       min={min}
       max={max}
@@ -51,7 +56,7 @@ export function Slider({
       {/* The thumb is a `<div>`, so nothing gives it a cursor for free. `data-dragging` on the
           control, not only the thumb: a sweep that outruns the pointer leaves it over bare
           track, and the grip must not let go visually while the value is still moving. */}
-      <Primitive.Control className="flex h-7 w-full cursor-pointer touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
+      <Primitive.Control className="flex h-7 w-full cursor-pointer touch-none items-center data-disabled:cursor-default data-dragging:cursor-grabbing pointer-coarse:h-10">
         <Primitive.Track className="h-1.5 w-full rounded-full bg-panel-2">
           <Primitive.Indicator className="rounded-full bg-accent-dim" />
           <Primitive.Thumb

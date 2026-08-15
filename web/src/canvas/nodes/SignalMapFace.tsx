@@ -3,7 +3,7 @@ import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, BTN_PRIMARY, FIELD, LABEL } from "../../components/controls";
 import { formatHz, formatSignedKhz } from "../../components/format";
 import { MapPanel } from "../../components/MapPanel";
-import { NumberField } from "../../components/NumberField";
+import { OffsetStepper } from "../../components/OffsetStepper";
 import type { SpectrumFrame } from "../../lib/frame";
 import { type PositionSample, positionSourcesOf, usePositionStore } from "../../lib/position";
 import {
@@ -20,7 +20,6 @@ import { patchNode } from "../graph";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 const LEVEL_REFRESH_MS = 200;
-const OFFSET_STEPS_HZ = [-25_000, -5_000, 5_000, 25_000];
 const MAX_OFFSET_HZ = 1_000_000_000_000;
 
 export function SignalMapFace({ node }: { node: PatchNode }) {
@@ -175,35 +174,16 @@ function SignalSurvey({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-end gap-2 border-b border-line bg-panel-2 p-2">
         <fieldset
-          className="flex min-w-72 flex-1 flex-wrap items-center gap-1 disabled:opacity-60"
+          className="flex min-w-72 flex-1 flex-wrap items-center gap-2 disabled:opacity-60"
           disabled={samples.length > 0}
           title={samples.length > 0 ? "Clear the current survey before changing offset" : undefined}
         >
-          {OFFSET_STEPS_HZ.map((step) => (
-            <Button
-              key={step}
-              type="button"
-              className={`${BTN} font-mono tabular-nums`}
-              onClick={() => {
-                const next = node.data.offset_hz + step;
-                const clamped = Math.max(-offsetLimitHz, Math.min(offsetLimitHz, next));
-                updateSettings(clamped, node.data.bandwidth_hz);
-              }}
-            >
-              {step > 0 ? "+" : "−"}
-              {Math.abs(step) / 1000}k
-            </Button>
-          ))}
-          <NumberField
-            label="Offset (kHz)"
-            value={node.data.offset_hz / 1000}
-            min={-offsetLimitHz / 1000}
-            max={offsetLimitHz / 1000}
-            step={0.5}
-            onCommit={(khz) => updateSettings(Math.round(khz * 1000), node.data.bandwidth_hz)}
-            className="w-24"
+          <span className="legend">Offset (kHz)</span>
+          <OffsetStepper
+            offsetHz={node.data.offset_hz}
+            limitHz={offsetLimitHz}
+            onOffset={(offset) => updateSettings(offset, node.data.bandwidth_hz)}
           />
-          <span className="legend">kHz</span>
         </fieldset>
         <label className={`${LABEL} flex w-28 flex-col items-stretch gap-1`}>
           Width (kHz)

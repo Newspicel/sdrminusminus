@@ -3,6 +3,7 @@ import { Button, Form, Input } from "../components/BaseControls";
 import { Checkbox } from "../components/Checkbox";
 import { BTN_QUIET, FIELD, ICON_BTN, LABEL, segment } from "../components/controls";
 import { Select } from "../components/Select";
+import { SettingRow, Settings } from "../components/Settings";
 import type { WorkspaceInfo } from "../lib/types";
 import { useBandPlan } from "../lib/useBandPlan";
 
@@ -95,17 +96,19 @@ function BandSettings() {
   const { region, regions, ruler, setRegion, setRuler } = useBandPlan();
 
   return (
-    <div className="flex flex-col gap-2">
-      <Select
-        label="Band plan region"
-        value={region ?? ""}
-        options={regions.map((entry) => ({ value: entry.id, label: entry.name }))}
-        onChange={setRegion}
-      />
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-dim">
-        <Checkbox checked={ruler} onChange={setRuler} />
-        Draw the ruler on every scope
-      </label>
-    </div>
+    <Settings>
+      <SettingRow label="Region">
+        <Select
+          label="Band plan region"
+          value={region ?? ""}
+          options={regions.map((entry) => ({ value: entry.id, label: entry.name }))}
+          onChange={setRegion}
+        />
+      </SettingRow>
+      <SettingRow label="Ruler">
+        <Checkbox label="Draw the ruler on every scope" checked={ruler} onChange={setRuler} />
+        <span className="text-xs text-ink-dim">Draw it on every scope</span>
+      </SettingRow>
+    </Settings>
   );
 }

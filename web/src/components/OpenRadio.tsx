@@ -116,7 +116,6 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
         <span className={LABEL}>Via</span>
         <Select
           label="Network protocol"
-          className="w-full"
           value={driver}
           options={NETWORK_BACKENDS.map((b) => ({ value: b.driver, label: b.label }))}
           onChange={setDriver}

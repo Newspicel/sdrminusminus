@@ -1,6 +1,6 @@
 import { Button } from "../../components/BaseControls";
 import { ChannelControls } from "../../components/ChannelControls";
-import { channelHasAudio, channelHasVideo, rateMismatch } from "../../components/channelSettings";
+import { channelHasVideo, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
@@ -83,9 +83,9 @@ export function ChannelFace({ node }: { node: PatchNode }) {
  * far end. A stream that arrives nowhere looks exactly like one that never started, and this is
  * the only place the difference shows.
  *
- * The `events` port is deliberately absent: every NFM channel declares the `tone` decoder and
- * almost none of them is set to look for one, so a line here would fire on the commonest channel
- * in the app to report something that is usually not a mistake.
+ * Only video. `events` is absent because every NFM channel declares the `tone` decoder and almost
+ * none is set to look for one; `audio` because an unwired speaker is the normal state of every
+ * decoder-only channel, so the line fired on nearly every face in the patch.
  */
 function unwiredOutputs(
   graph: PatchGraph,
@@ -93,14 +93,7 @@ function unwiredOutputs(
   descriptor: ChannelDescriptor | undefined,
 ): string[] {
   const reaches = (port: string): boolean => targetsOf(graph, node, port).length > 0;
-  const missing: string[] = [];
-  if (channelHasAudio(descriptor) && !reaches("audio")) {
-    missing.push("audio out reaches no speaker");
-  }
-  if (channelHasVideo(descriptor) && !reaches("video")) {
-    missing.push("video out reaches no screen");
-  }
-  return missing;
+  return channelHasVideo(descriptor) && !reaches("video") ? ["video out reaches no screen"] : [];
 }
 
 function RateMismatch({

@@ -1,18 +1,18 @@
 import { useState } from "react";
 import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
-import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
-import { type ChannelParamsOf, clampOffsetHz, offsetLimitHz } from "./channelSettings";
-import { BTN, CHECK_LABEL, LABEL, type Options } from "./controls";
+import { type ChannelParamsOf, offsetLimitHz } from "./channelSettings";
+import type { Options } from "./controls";
 import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
+import { OffsetStepper } from "./OffsetStepper";
 import { Segmented } from "./Segmented";
 import { Select, withCurrent } from "./Select";
+import { SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
-const OFFSET_STEPS_HZ = [-25_000, -5_000, 5_000, 25_000];
 const DEFAULT_SQUELCH_DB = -60;
 
 // Choice lists for the wire enums, typed off the generated union so a renamed or added variant
@@ -136,81 +136,55 @@ export function ChannelControls({
   const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
   const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
   const limitHz = offsetLimitHz(spanHz, descriptor);
-  const limitKhz = limitHz === null ? undefined : limitHz / 1000;
 
   return (
-    <div className="flex flex-col gap-2 p-2">
-      <div className="flex flex-wrap items-center gap-1">
-        {OFFSET_STEPS_HZ.map((step) => (
-          <Button
-            key={step}
-            type="button"
-            className={`${BTN} font-mono tabular-nums`}
-            onClick={() =>
-              onEdit((current) => ({
-                offset_hz: clampOffsetHz((current.offset_hz ?? 0) + step, limitHz),
-              }))
-            }
-          >
-            {step > 0 ? "+" : "−"}
-            {Math.abs(step) / 1000}k
-          </Button>
-        ))}
-        <NumberField
-          label="Offset (kHz)"
-          value={offsetHz / 1000}
-          min={limitKhz !== undefined ? -limitKhz : undefined}
-          max={limitKhz}
-          step={0.5}
-          onCommit={(khz) => onEdit({ offset_hz: Math.round(khz * 1000) })}
-          className="w-24"
+    <Settings className="p-2">
+      <SettingRow label="Offset (kHz)">
+        <OffsetStepper
+          offsetHz={offsetHz}
+          limitHz={limitHz}
+          onOffset={(offset_hz) => onEdit({ offset_hz })}
         />
-        <span className="legend">kHz</span>
-      </div>
+      </SettingRow>
 
-      {/* Wrapping, not nowrap: a node face is as narrow as the operator drags it, and the
-          threshold readout must stay beside its slider rather than be clipped. */}
-      <div className={`${LABEL} flex-wrap`}>
-        {/* The label is the box and its word, not the row: with the slider inside it too, a
-            click anywhere in the row — the threshold readout included — was forwarded to the
-            box and turned squelch off. */}
-        <label className={CHECK_LABEL}>
-          <Checkbox
-            checked={squelchDb !== null}
-            onChange={(on) => {
-              if (on) {
-                onEdit({ squelch_db: offSquelchDb });
-              } else {
-                setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
-                squelchSlider.cancel();
-                onEdit({ squelch_db: null });
-              }
-            }}
-          />
-          <span className="legend">Squelch</span>
-        </label>
-        {squelchDb !== null && (
-          <>
-            <Slider
-              label="Squelch threshold (dB)"
-              className="w-24"
-              min={-120}
-              max={0}
-              step={1}
-              value={squelchSlider.pending ?? squelchDb}
-              onChange={squelchSlider.change}
-            />
-            <span className="w-12 text-right font-mono text-xs text-ink tabular-nums">
-              {(squelchSlider.pending ?? squelchDb).toFixed(0)}
-            </span>
-          </>
-        )}
-      </div>
+      <SettingRow label="Squelch">
+        <Checkbox
+          label="Squelch"
+          checked={squelchDb !== null}
+          onChange={(on) => {
+            if (on) {
+              onEdit({ squelch_db: offSquelchDb });
+            } else {
+              setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
+              squelchSlider.cancel();
+              onEdit({ squelch_db: null });
+            }
+          }}
+        />
+        {/* Drawn whether or not squelch is on, so switching it does not resize the face under
+            the pointer — off, the threshold is the one it will open at. */}
+        <Slider
+          label="Squelch threshold (dB)"
+          className="min-w-0 flex-1"
+          disabled={squelchDb === null}
+          min={-120}
+          max={0}
+          step={1}
+          value={squelchSlider.pending ?? squelchDb ?? offSquelchDb}
+          onChange={squelchSlider.change}
+        />
+        <span
+          className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
+            squelchDb === null ? "text-ink-faint opacity-45" : "text-ink"
+          }`}
+        >
+          {(squelchSlider.pending ?? squelchDb ?? offSquelchDb).toFixed(0)}{" "}
+          <span className="text-ink-faint">dB</span>
+        </span>
+      </SettingRow>
 
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
-      </div>
-    </div>
+      <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
+    </Settings>
   );
 }
 
@@ -227,16 +201,14 @@ function ModeControls({
       const set = (settings: ChannelParamsOf<"nfm">) => onParams({ type: "nfm", settings });
       return (
         <>
-          <label className={LABEL}>
-            BW
+          <SettingRow label="Bandwidth">
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 12_500}
               optionsHz={[12_500, 25_000]}
               onCommit={(bandwidth_hz) => set({ ...params.settings, bandwidth_hz })}
             />
-          </label>
-          <label className={LABEL}>
-            Tone
+          </SettingRow>
+          <SettingRow label="Tone">
             <Select
               label="Tone squelch"
               value={mode}
@@ -252,28 +224,26 @@ function ModeControls({
                 })
               }
             />
-          </label>
+          </SettingRow>
           {mode === "ctcss" && (
-            <label className={LABEL}>
-              CTCSS
+            <SettingRow label="CTCSS">
               <Select
                 label="CTCSS tone"
                 value={params.settings.ctcss_hz ?? CTCSS_DEFAULT_HZ}
                 options={CTCSS_OPTIONS}
                 onChange={(ctcss_hz) => set({ ...params.settings, ctcss_hz })}
               />
-            </label>
+            </SettingRow>
           )}
           {mode === "dcs" && (
-            <label className={LABEL}>
-              DCS
+            <SettingRow label="DCS">
               <Select
                 label="DCS code"
                 value={params.settings.dcs_code ?? DCS_DEFAULT_CODE}
                 options={DCS_OPTIONS}
                 onChange={(dcs_code) => set({ ...params.settings, dcs_code })}
               />
-            </label>
+            </SettingRow>
           )}
         </>
       );
@@ -281,8 +251,7 @@ function ModeControls({
     case "am":
       return (
         <>
-          <label className={LABEL}>
-            BW
+          <SettingRow label="Bandwidth">
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 10_000}
               optionsHz={[5_000, 8_000, 10_000]}
@@ -290,7 +259,7 @@ function ModeControls({
                 onParams({ type: "am", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </SettingRow>
           <Toggle
             label="AGC"
             checked={params.settings.agc ?? true}
@@ -301,16 +270,17 @@ function ModeControls({
     case "ssb":
       return (
         <>
-          <Segmented
-            label="Sideband"
-            value={params.settings.sideband ?? "usb"}
-            options={SIDEBANDS}
-            onChange={(sideband) =>
-              onParams({ type: "ssb", settings: { ...params.settings, sideband } })
-            }
-          />
-          <label className={LABEL}>
-            BW
+          <SettingRow label="Sideband">
+            <Segmented
+              label="Sideband"
+              value={params.settings.sideband ?? "usb"}
+              options={SIDEBANDS}
+              onChange={(sideband) =>
+                onParams({ type: "ssb", settings: { ...params.settings, sideband } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Bandwidth">
             <NumberField
               label="SSB bandwidth (Hz)"
               value={params.settings.bandwidth_hz ?? 2_700}
@@ -322,8 +292,8 @@ function ModeControls({
               }
               className="w-20"
             />
-            Hz
-          </label>
+            <span className="legend">Hz</span>
+          </SettingRow>
           <Toggle
             label="AGC"
             checked={params.settings.agc ?? true}
@@ -334,8 +304,7 @@ function ModeControls({
     case "wfm":
       return (
         <>
-          <label className={LABEL}>
-            De-emphasis
+          <SettingRow label="De-emphasis">
             <Select
               label="De-emphasis (µs)"
               value={params.settings.deemphasis_us ?? 50}
@@ -344,7 +313,7 @@ function ModeControls({
                 onParams({ type: "wfm", settings: { ...params.settings, deemphasis_us } })
               }
             />
-          </label>
+          </SettingRow>
           <Toggle
             label="Stereo"
             checked={params.settings.stereo ?? true}
@@ -357,8 +326,7 @@ function ModeControls({
     case "pocsag":
       return (
         <>
-          <label className={LABEL}>
-            Baud
+          <SettingRow label="Baud">
             <Select
               label="POCSAG baud"
               value={params.settings.baud ?? "auto"}
@@ -367,9 +335,8 @@ function ModeControls({
                 onParams({ type: "pocsag", settings: { ...params.settings, baud } })
               }
             />
-          </label>
-          <label className={LABEL}>
-            BW
+          </SettingRow>
+          <SettingRow label="Bandwidth">
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 12_500}
               optionsHz={[12_500, 25_000]}
@@ -377,7 +344,7 @@ function ModeControls({
                 onParams({ type: "pocsag", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </SettingRow>
           <Toggle
             label="Invert"
             checked={params.settings.invert ?? false}
@@ -389,20 +356,17 @@ function ModeControls({
       );
     case "adsb":
       return (
-        <>
-          <Toggle
-            label="CRC fix"
-            checked={params.settings.crc_fix ?? true}
-            onChange={(crc_fix) =>
-              onParams({ type: "adsb", settings: { ...params.settings, crc_fix } })
-            }
-          />
-        </>
+        <Toggle
+          label="CRC fix"
+          checked={params.settings.crc_fix ?? true}
+          onChange={(crc_fix) =>
+            onParams({ type: "adsb", settings: { ...params.settings, crc_fix } })
+          }
+        />
       );
     case "ais":
       return (
-        <span className={LABEL}>
-          Channel
+        <SettingRow label="Channel">
           <Segmented
             label="AIS channel"
             value={params.settings.ais_channel ?? "a"}
@@ -411,13 +375,12 @@ function ModeControls({
               onParams({ type: "ais", settings: { ...params.settings, ais_channel } })
             }
           />
-        </span>
+        </SettingRow>
       );
     case "aprs":
       return (
         <>
-          <label className={LABEL}>
-            Mode
+          <SettingRow label="Mode">
             <Select
               label="APRS mode"
               value={params.settings.mode ?? "afsk1200"}
@@ -426,9 +389,8 @@ function ModeControls({
                 onParams({ type: "aprs", settings: { ...params.settings, mode } })
               }
             />
-          </label>
-          <label className={LABEL}>
-            BW
+          </SettingRow>
+          <SettingRow label="Bandwidth">
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 12_500}
               optionsHz={[12_500, 25_000]}
@@ -436,14 +398,13 @@ function ModeControls({
                 onParams({ type: "aprs", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </SettingRow>
         </>
       );
     case "rtty":
       return (
         <>
-          <span className={LABEL}>
-            Baud
+          <SettingRow label="Baud">
             <PresetNumberField
               label="RTTY baud"
               value={params.settings.baud ?? 45.45}
@@ -455,9 +416,8 @@ function ModeControls({
                 onParams({ type: "rtty", settings: { ...params.settings, baud } })
               }
             />
-          </span>
-          <span className={LABEL}>
-            Shift
+          </SettingRow>
+          <SettingRow label="Shift">
             <PresetNumberField
               label="RTTY shift (Hz)"
               value={params.settings.shift_hz ?? 170}
@@ -469,10 +429,9 @@ function ModeControls({
                 onParams({ type: "rtty", settings: { ...params.settings, shift_hz } })
               }
             />
-            Hz
-          </span>
-          <label className={LABEL}>
-            Stop
+            <span className="legend">Hz</span>
+          </SettingRow>
+          <SettingRow label="Stop bits">
             <Select
               label="RTTY stop bits"
               value={params.settings.stop_bits ?? "one_and_half"}
@@ -481,7 +440,7 @@ function ModeControls({
                 onParams({ type: "rtty", settings: { ...params.settings, stop_bits } })
               }
             />
-          </label>
+          </SettingRow>
           <Toggle
             label="Invert"
             checked={params.settings.invert ?? false}
@@ -501,8 +460,7 @@ function ModeControls({
     case "morse":
       return (
         <>
-          <label className={LABEL}>
-            BW
+          <SettingRow label="Bandwidth">
             <NumberField
               label="CW filter bandwidth (Hz)"
               value={params.settings.bandwidth_hz ?? 400}
@@ -513,10 +471,9 @@ function ModeControls({
                 onParams({ type: "morse", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-            Hz
-          </label>
-          <label className={LABEL}>
-            WPM
+            <span className="legend">Hz</span>
+          </SettingRow>
+          <SettingRow label="WPM">
             <OptionalNumberField
               label="Morse speed (WPM), empty to auto-track"
               placeholder="auto"
@@ -526,7 +483,7 @@ function ModeControls({
               step={1}
               onCommit={(wpm) => onParams({ type: "morse", settings: { ...params.settings, wpm } })}
             />
-          </label>
+          </SettingRow>
         </>
       );
     case "navtex":
@@ -543,8 +500,7 @@ function ModeControls({
       );
     case "acars":
       return (
-        <label className={LABEL}>
-          BW
+        <SettingRow label="Bandwidth">
           <BandwidthSelect
             valueHz={params.settings.bandwidth_hz ?? 12_500}
             optionsHz={[8_000, 12_500, 25_000]}
@@ -552,21 +508,22 @@ function ModeControls({
               onParams({ type: "acars", settings: { ...params.settings, bandwidth_hz } })
             }
           />
-        </label>
+        </SettingRow>
       );
     case "subghz":
       return (
         <>
-          <Segmented
-            label="Modulation"
-            value={params.settings.modulation ?? "ook"}
-            options={SUBGHZ_MODULATIONS}
-            onChange={(modulation) =>
-              onParams({ type: "subghz", settings: { ...params.settings, modulation } })
-            }
-          />
-          <label className={LABEL}>
-            BW
+          <SettingRow label="Modulation">
+            <Segmented
+              label="Modulation"
+              value={params.settings.modulation ?? "ook"}
+              options={SUBGHZ_MODULATIONS}
+              onChange={(modulation) =>
+                onParams({ type: "subghz", settings: { ...params.settings, modulation } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Bandwidth">
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 150_000}
               optionsHz={[50_000, 100_000, 150_000]}
@@ -574,9 +531,8 @@ function ModeControls({
                 onParams({ type: "subghz", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
-          <label className={LABEL}>
-            Min pulse
+          </SettingRow>
+          <SettingRow label="Min pulse">
             <NumberField
               label="Shortest keying edge accepted (µs)"
               value={params.settings.min_pulse_us ?? 80}
@@ -588,10 +544,9 @@ function ModeControls({
               }
               className="w-20"
             />
-            µs
-          </label>
-          <label className={LABEL}>
-            Frame gap
+            <span className="legend">µs</span>
+          </SettingRow>
+          <SettingRow label="Frame gap">
             <NumberField
               label="Silence that ends a frame (µs)"
               value={params.settings.frame_gap_us ?? 5_000}
@@ -603,23 +558,24 @@ function ModeControls({
               }
               className="w-24"
             />
-            µs
-          </label>
+            <span className="legend">µs</span>
+          </SettingRow>
         </>
       );
     case "atv":
       return (
         <>
-          <Segmented
-            label="Modulation"
-            value={params.settings.modulation ?? "am"}
-            options={ATV_MODULATIONS}
-            onChange={(modulation) =>
-              onParams({ type: "atv", settings: { ...params.settings, modulation } })
-            }
-          />
-          <label className={LABEL}>
-            Lines
+          <SettingRow label="Modulation">
+            <Segmented
+              label="Modulation"
+              value={params.settings.modulation ?? "am"}
+              options={ATV_MODULATIONS}
+              onChange={(modulation) =>
+                onParams({ type: "atv", settings: { ...params.settings, modulation } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Lines">
             <Select
               label="Scanning standard"
               value={params.settings.standard ?? "ccir625"}
@@ -628,9 +584,8 @@ function ModeControls({
                 onParams({ type: "atv", settings: { ...params.settings, standard } })
               }
             />
-          </label>
-          <label className={LABEL}>
-            BW
+          </SettingRow>
+          <SettingRow label="Bandwidth">
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 1_500_000}
               optionsHz={[500_000, 1_000_000, 1_500_000, 1_600_000]}
@@ -638,7 +593,7 @@ function ModeControls({
                 onParams({ type: "atv", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </SettingRow>
           <Toggle
             label="Interlace"
             checked={params.settings.interlace ?? true}
@@ -658,12 +613,16 @@ function ModeControls({
     case "dmr":
       return (
         <>
-          <Segmented
-            label="Slot"
-            value={params.settings.slots ?? "both"}
-            options={DMR_SLOTS}
-            onChange={(slots) => onParams({ type: "dmr", settings: { ...params.settings, slots } })}
-          />
+          <SettingRow label="Slot">
+            <Segmented
+              label="Slot"
+              value={params.settings.slots ?? "both"}
+              options={DMR_SLOTS}
+              onChange={(slots) =>
+                onParams({ type: "dmr", settings: { ...params.settings, slots } })
+              }
+            />
+          </SettingRow>
           <Toggle
             label="Ignore data CRC"
             checked={params.settings.ignore_crc ?? false}
@@ -675,14 +634,16 @@ function ModeControls({
       );
     case "nxdn":
       return (
-        <Segmented
-          label="Width"
-          value={params.settings.bandwidth ?? "narrow"}
-          options={NXDN_WIDTHS}
-          onChange={(bandwidth) =>
-            onParams({ type: "nxdn", settings: { ...params.settings, bandwidth } })
-          }
-        />
+        <SettingRow label="Width">
+          <Segmented
+            label="Width"
+            value={params.settings.bandwidth ?? "narrow"}
+            options={NXDN_WIDTHS}
+            onChange={(bandwidth) =>
+              onParams({ type: "nxdn", settings: { ...params.settings, bandwidth } })
+            }
+          />
+        </SettingRow>
       );
     // Everything about these four — symbol rate, deviation, channel width, sync patterns — is
     // fixed by the mode, so there is nothing to offer beyond the frequency the operator tuned.
@@ -728,10 +689,9 @@ function Toggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className={CHECK_LABEL}>
-      <Checkbox checked={checked} onChange={onChange} />
-      {label}
-    </label>
+    <SettingRow label={label}>
+      <Checkbox label={label} checked={checked} onChange={onChange} />
+    </SettingRow>
   );
 }
 
@@ -755,7 +715,7 @@ function PresetNumberField({
   onCommit: (value: number) => void;
 }) {
   return (
-    <span className="flex items-center gap-1">
+    <>
       <Segmented label={`${label} presets`} value={value} options={presets} onChange={onCommit} />
       <NumberField
         label={label}
@@ -765,6 +725,6 @@ function PresetNumberField({
         step={step}
         onCommit={onCommit}
       />
-    </span>
+    </>
   );
 }

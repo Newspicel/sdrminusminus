@@ -1,50 +1,53 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { FaceBody, FaceEmpty, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, startScan, stopScan } from "../lib/api";
 import { useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet } from "../lib/types";
-import { Button, Input } from "./BaseControls";
-import { BTN, FIELD, LABEL } from "./controls";
+import { Button } from "./BaseControls";
+import { BTN, BTN_DANGER, BTN_PRIMARY, ICON_BTN_SM } from "./controls";
+import { NumberField } from "./NumberField";
+import { Readout, ReadoutRow } from "./Readout";
 import { Select } from "./Select";
+import { SettingGroup, SettingRow, Settings } from "./Settings";
 import {
   DEFAULT_RANGE,
   formatDb,
   formatMhz,
   holdCandidates,
   liveStatus,
+  MIN_STEP_KHZ,
   parseRanges,
   type RangeInput,
   scanRefusal,
   targetCount,
 } from "./scanner";
 
+const DEFAULT_THRESHOLD_DB = -55;
+
 export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const queryClient = useQueryClient();
   const pushed = useScannerStore((s) => (active ? s.byDeviceSet[active.id] : undefined));
   const clearLive = useScannerStore((s) => s.clear);
   const [ranges, setRanges] = useState<RangeInput[]>([DEFAULT_RANGE]);
-  const [thresholdDb, setThresholdDb] = useState("-55");
-  const [holdChannel, setHoldChannel] = useState<string>("");
+  const [thresholdDb, setThresholdDb] = useState(DEFAULT_THRESHOLD_DB);
+  const [holdChannel, setHoldChannel] = useState("");
 
   const status = liveStatus(active, pushed);
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
 
   const startMut = useMutation({
-    mutationFn: async (ds: number) => {
+    mutationFn: async (deviceSet: number) => {
       const parsed = parseRanges(ranges);
       if (typeof parsed === "string") {
         throw new Error(parsed);
       }
-      const threshold = Number(thresholdDb);
-      if (!Number.isFinite(threshold)) {
-        throw new Error("the threshold must be a number in dB");
-      }
       const hold = holdChannel === "" ? undefined : Number(holdChannel);
-      return startScan(ds, {
+      return startScan(deviceSet, {
         ranges: parsed.ranges,
         frequencies: [],
-        threshold_db: threshold,
+        threshold_db: thresholdDb,
         dwell_ms: 250,
         resume_ms: 1500,
         measure_bw_hz: 12_500,
@@ -57,86 +60,173 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
 
   const stopMut = useMutation({
     mutationFn: stopScan,
-    onSuccess: (_status, ds) => {
+    onSuccess: (_status, deviceSet) => {
       // The pushed status outlives the scan; drop it or the panel keeps showing the last step.
-      clearLive(ds);
+      clearLive(deviceSet);
     },
     onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
   const parsed = parseRanges(ranges);
-  const count = typeof parsed === "string" ? 0 : targetCount(parsed.ranges);
-  const running = status !== null;
   const busy = startMut.isPending || stopMut.isPending;
   const refusal = scanRefusal(active);
+  const patchRange = (index: number, patch: Partial<RangeInput>): void =>
+    setRanges((current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+
+  if (active === null) {
+    return (
+      <FaceBody>
+        <FaceEmpty>
+          Wire this out to a device; the scanner then drives that radio's tuning.
+        </FaceEmpty>
+      </FaceBody>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      {running ? (
-        <div className="flex flex-col gap-1 rounded border border-line bg-panel-2 px-3 py-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <span
-              className={`font-mono text-sm ${
-                status.state === "holding" ? "text-accent" : "text-ink"
-              }`}
-            >
-              {status.state === "holding" ? "holding" : "scanning"} · {formatMhz(status.current_hz)}
-            </span>
-            <span className="font-mono text-xs text-ink-dim">{formatDb(status.current_db)}</span>
-          </div>
-          <div className="font-mono text-[10px] text-ink-dim">
-            {status.targets} targets · {status.sweeps} sweeps · {status.hits} hits
-            {status.settings.hold_channel != null && ` · channel ${status.settings.hold_channel}`}
-          </div>
-          {status.error != null && (
-            <div role="alert" className="font-mono text-xs text-danger">
-              {status.error}
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {ranges.map((range, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-2">
-              <Input
-                className={`${FIELD} w-24`}
-                inputMode="decimal"
-                aria-label={`Range ${i + 1} start (MHz)`}
-                value={range.startMhz}
-                onChange={(e) => updateRange(setRanges, i, { startMhz: e.target.value })}
-              />
-              <span className="text-ink-faint">–</span>
-              <Input
-                className={`${FIELD} w-24`}
-                inputMode="decimal"
-                aria-label={`Range ${i + 1} stop (MHz)`}
-                value={range.stopMhz}
-                onChange={(e) => updateRange(setRanges, i, { stopMhz: e.target.value })}
-              />
-              <span className="legend">MHz · step</span>
-              <Input
-                className={`${FIELD} w-20`}
-                inputMode="decimal"
-                aria-label={`Range ${i + 1} step (kHz)`}
-                value={range.stepKhz}
-                onChange={(e) => updateRange(setRanges, i, { stepKhz: e.target.value })}
-              />
-              <span className="legend">kHz</span>
-              {ranges.length > 1 && (
-                <Button
-                  type="button"
-                  className={`${BTN} hover:border-danger hover:text-danger`}
-                  aria-label={`Remove range ${i + 1}`}
-                  onClick={() => setRanges(ranges.filter((_, j) => j !== i))}
+    <>
+      <FaceBody>
+        {status !== null ? (
+          <Readout separated={false}>
+            <ReadoutRow label="State">
+              <span className={status.state === "holding" ? "text-accent" : ""}>
+                {status.state === "holding" ? "holding" : "scanning"}
+              </span>
+            </ReadoutRow>
+            <ReadoutRow label="Frequency">{formatMhz(status.current_hz)}</ReadoutRow>
+            <ReadoutRow label="Level">{formatDb(status.current_db)}</ReadoutRow>
+            <ReadoutRow label="Targets">{status.targets}</ReadoutRow>
+            <ReadoutRow label="Sweeps">{status.sweeps}</ReadoutRow>
+            <ReadoutRow label="Hits">{status.hits}</ReadoutRow>
+            {status.settings.hold_channel != null && (
+              <ReadoutRow label="Listening on">channel {status.settings.hold_channel}</ReadoutRow>
+            )}
+            {status.error != null && (
+              <ReadoutRow label="Fault">
+                <span className="text-danger">{status.error}</span>
+              </ReadoutRow>
+            )}
+          </Readout>
+        ) : (
+          <>
+            <Settings className="p-2">
+              {ranges.map((range, index) => (
+                <SettingGroup
+                  // The rows are a position in the list, and there is nothing else stable to key
+                  // them by — two ranges may legitimately hold the same three numbers.
+                  key={index}
+                  label={ranges.length > 1 ? `Range ${index + 1}` : "Range"}
+                  action={
+                    ranges.length > 1 && (
+                      <Button
+                        type="button"
+                        className={`${ICON_BTN_SM} hover:text-danger`}
+                        aria-label={`Remove range ${index + 1}`}
+                        onClick={() => setRanges(ranges.filter((_, other) => other !== index))}
+                      >
+                        ✕
+                      </Button>
+                    )
+                  }
                 >
-                  ×
-                </Button>
-              )}
-            </div>
-          ))}
+                  <SettingRow label="From">
+                    <NumberField
+                      label={`Range ${index + 1} start (MHz)`}
+                      value={range.startMhz}
+                      min={0}
+                      step={0.1}
+                      onCommit={(startMhz) => patchRange(index, { startMhz })}
+                      className="w-24"
+                    />
+                    <span className="legend">MHz</span>
+                  </SettingRow>
+                  <SettingRow label="To">
+                    <NumberField
+                      label={`Range ${index + 1} stop (MHz)`}
+                      value={range.stopMhz}
+                      min={0}
+                      step={0.1}
+                      invalid={range.stopMhz < range.startMhz}
+                      onCommit={(stopMhz) => patchRange(index, { stopMhz })}
+                      className="w-24"
+                    />
+                    <span className="legend">MHz</span>
+                  </SettingRow>
+                  <SettingRow label="Step">
+                    <NumberField
+                      label={`Range ${index + 1} step (kHz)`}
+                      value={range.stepKhz}
+                      min={MIN_STEP_KHZ}
+                      step={MIN_STEP_KHZ}
+                      onCommit={(stepKhz) => patchRange(index, { stepKhz })}
+                      className="w-24"
+                    />
+                    <span className="legend">kHz</span>
+                  </SettingRow>
+                </SettingGroup>
+              ))}
 
-          <div className="flex flex-wrap items-center gap-2">
+              <SettingGroup label="Sweep">
+                <SettingRow label="Threshold">
+                  <NumberField
+                    label="Scan threshold (dB)"
+                    value={thresholdDb}
+                    min={-120}
+                    max={0}
+                    step={1}
+                    onCommit={setThresholdDb}
+                    className="w-24"
+                  />
+                  <span className="legend">dB</span>
+                </SettingRow>
+                <SettingRow label="Listen on">
+                  <Select
+                    label="Hold channel"
+                    value={holdChannel}
+                    options={[
+                      { value: "", label: "nothing" },
+                      ...holdCandidates(active).map((channel) => ({
+                        value: String(channel.id),
+                        label: `channel ${channel.id} (${channel.settings.params.type})`,
+                      })),
+                    ]}
+                    onChange={setHoldChannel}
+                  />
+                </SettingRow>
+              </SettingGroup>
+            </Settings>
+
+            <Readout>
+              <ReadoutRow label="Targets">
+                {typeof parsed === "string" ? (
+                  <span className="text-danger">{parsed}</span>
+                ) : (
+                  `${targetCount(parsed.ranges)} per sweep`
+                )}
+              </ReadoutRow>
+              {refusal !== null && (
+                <ReadoutRow label="Refused">
+                  <span className="text-danger">{refusal}</span>
+                </ReadoutRow>
+              )}
+            </Readout>
+          </>
+        )}
+      </FaceBody>
+
+      <FaceFooter>
+        {status !== null ? (
+          <Button
+            type="button"
+            className={BTN_DANGER}
+            disabled={busy}
+            onClick={() => stopMut.mutate(active.id)}
+          >
+            Stop scan
+          </Button>
+        ) : (
+          <>
             <Button
               type="button"
               className={BTN}
@@ -144,70 +234,17 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
             >
               Add range
             </Button>
-            <label className={LABEL}>
-              Threshold
-              <Input
-                className={`${FIELD} w-20`}
-                inputMode="decimal"
-                aria-label="Scan threshold (dB)"
-                value={thresholdDb}
-                onChange={(e) => setThresholdDb(e.target.value)}
-              />
-              dB
-            </label>
-            <label className={LABEL}>
-              Listen on
-              <Select
-                label="Hold channel"
-                value={holdChannel}
-                options={[
-                  { value: "", label: "nothing" },
-                  ...holdCandidates(active).map((c) => ({
-                    value: String(c.id),
-                    label: `channel ${c.id} (${c.settings.params.type})`,
-                  })),
-                ]}
-                onChange={setHoldChannel}
-              />
-            </label>
-            <span className="font-mono text-[10px] text-ink-dim">
-              {typeof parsed === "string" ? parsed : `${count} targets`}
-            </span>
-          </div>
-        </>
-      )}
-
-      <div className="flex gap-2">
-        {running ? (
-          <Button
-            type="button"
-            className={BTN}
-            disabled={!active || busy}
-            onClick={() => active && stopMut.mutate(active.id)}
-          >
-            Stop scan
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            className={BTN}
-            disabled={!active || busy || typeof parsed === "string" || refusal !== null}
-            onClick={() => active && startMut.mutate(active.id)}
-          >
-            Start scan
-          </Button>
+            <Button
+              type="button"
+              className={BTN_PRIMARY}
+              disabled={busy || typeof parsed === "string" || refusal !== null}
+              onClick={() => startMut.mutate(active.id)}
+            >
+              Start scan
+            </Button>
+          </>
         )}
-      </div>
-      {!active && <span className="text-sm text-ink-dim">Open a device to scan.</span>}
-      {refusal !== null && <span className="text-sm text-ink-dim">{refusal}</span>}
-    </div>
+      </FaceFooter>
+    </>
   );
-}
-
-function updateRange(
-  setRanges: React.Dispatch<React.SetStateAction<RangeInput[]>>,
-  index: number,
-  patch: Partial<RangeInput>,
-): void {
-  setRanges((current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)));
 }

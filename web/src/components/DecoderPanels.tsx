@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
 import { Button } from "./BaseControls";
-import { BTN } from "./controls";
+import { ALERT, BTN, CHIP, TABLE_CELL, TABLE_HEAD } from "./controls";
 import {
   ageClass,
   aircraftRow,
@@ -27,10 +27,7 @@ import {
 } from "./decoderViews";
 
 const PANE = "flex flex-col gap-2 p-3";
-const CAPTION = "text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
 const EMPTY = "text-sm text-ink-dim";
-const TH = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
-const TD = "px-2 py-1 font-mono text-xs tabular-nums";
 
 /** Targets and pager/APRS ages are wall-clock relative, so the views need a clock. One shared
  * 1 Hz tick drives every age column — this is a re-render of local state, not a refetch. */
@@ -74,7 +71,7 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
       </div>
 
       <div>
-        <div className={CAPTION}>RadioText</div>
+        <div className="legend">RadioText</div>
         <div className="overflow-x-auto whitespace-nowrap rounded border border-line bg-panel px-2 py-1.5 font-mono text-sm text-ink">
           {rds.radiotext?.trim() || <span className="text-ink-dim">—</span>}
         </div>
@@ -82,22 +79,19 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <div className="flex flex-wrap items-center gap-1">
-          <span className={CAPTION}>AF</span>
+          <span className="legend">AF</span>
           {altFreqs.length === 0 ? (
             <span className="font-mono text-xs text-ink-dim">—</span>
           ) : (
             altFreqs.map((af) => (
-              <span
-                key={af}
-                className="rounded border border-line px-1.5 py-0.5 font-mono text-xs tabular-nums text-ink-dim"
-              >
+              <span key={af} className={CHIP}>
                 {af}
               </span>
             ))
           )}
         </div>
         <div className="ml-auto flex items-center gap-2 font-mono text-xs tabular-nums text-ink-dim">
-          <span className={CAPTION}>Quality</span>
+          <span className="legend">Quality</span>
           <span className={quality.className}>{quality.label}</span>
           <span>
             {quality.groups} groups · {quality.blockErrors} block errors ·{" "}
@@ -198,7 +192,7 @@ function TargetTable({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex items-baseline gap-2">
-        <span className={CAPTION}>{title}</span>
+        <span className="legend">{title}</span>
         <span className="font-mono text-[10px] tabular-nums text-ink-dim">{rows.length}</span>
       </div>
       {rows.length === 0 ? (
@@ -208,22 +202,22 @@ function TargetTable({
           <table className="w-full min-w-[32rem] border-collapse">
             <thead>
               <tr className="border-b border-line">
-                <th className={TH} scope="col">
+                <th className={TABLE_HEAD} scope="col">
                   <SortButton label={idHeader + arrow("id")} onClick={() => onSort("id")} />
                 </th>
-                <th className={TH} scope="col">
+                <th className={TABLE_HEAD} scope="col">
                   {labelHeader}
                 </th>
-                <th className={TH} scope="col">
+                <th className={TABLE_HEAD} scope="col">
                   {primaryHeader}
                 </th>
-                <th className={TH} scope="col">
+                <th className={TABLE_HEAD} scope="col">
                   {secondaryHeader}
                 </th>
-                <th className={TH} scope="col">
+                <th className={TABLE_HEAD} scope="col">
                   Position
                 </th>
-                <th className={TH} scope="col">
+                <th className={TABLE_HEAD} scope="col">
                   <SortButton label={`Age${arrow("age")}`} onClick={() => onSort("age")} />
                 </th>
               </tr>
@@ -231,12 +225,12 @@ function TargetTable({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} className={`border-b border-line/50 ${ageClass(row.ageMs)}`}>
-                  <td className={`${TD} font-semibold`}>{row.id}</td>
-                  <td className={TD}>{row.label}</td>
-                  <td className={TD}>{row.primary}</td>
-                  <td className={TD}>{row.secondary || "—"}</td>
-                  <td className={TD}>{row.position}</td>
-                  <td className={`${TD} text-right`}>{formatAge(row.ageMs)}</td>
+                  <td className={`${TABLE_CELL} font-semibold`}>{row.id}</td>
+                  <td className={TABLE_CELL}>{row.label}</td>
+                  <td className={TABLE_CELL}>{row.primary}</td>
+                  <td className={TABLE_CELL}>{row.secondary || "—"}</td>
+                  <td className={TABLE_CELL}>{row.position}</td>
+                  <td className={`${TABLE_CELL} text-right`}>{formatAge(row.ageMs)}</td>
                 </tr>
               ))}
             </tbody>
@@ -286,7 +280,7 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
   return (
     <div className={PANE}>
       <div className="flex items-center gap-3">
-        <span className={CAPTION}>{kind === "morse" ? "Morse" : "RTTY"}</span>
+        <span className="legend">{kind === "morse" ? "Morse" : "RTTY"}</span>
         {wpm !== null && (
           <span className="font-mono text-xs tabular-nums text-ink">
             {wpm.toFixed(0)} <span className="text-ink-dim">WPM</span>
@@ -298,10 +292,7 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
       </div>
 
       {copyError !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
+        <div role="alert" className={`${ALERT} flex items-center justify-between gap-3`}>
           <span>Copy failed: {copyError}</span>
           <Button type="button" className="shrink-0 underline" onClick={() => setCopyError(null)}>
             dismiss
@@ -358,7 +349,7 @@ export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
         <span className="font-mono text-xs tabular-nums text-accent">
           {label === "" ? "no tone" : label}
         </span>
-        <span className={CAPTION}>{status.open ? "open" : "muted"}</span>
+        <span className="legend">{status.open ? "open" : "muted"}</span>
       </div>
     </div>
   );

@@ -293,39 +293,68 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
-export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
-  device: { w: 360 },
-  gps: { w: 340 },
-  channel: { w: 380 },
-  scope: { w: 520, h: 340 },
-  speaker: { w: 300 },
+/**
+ * The size a face is. Every kind states both axes and most kinds are only ever that size
+ * (`isResizable`), so a control is laid out once against a width that is known here rather than
+ * against whatever the operator last dragged — no breakpoints, no reflow, and two radios on one
+ * canvas are the same box whether or not their drivers declare the same settings.
+ */
+export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
+  device: { w: 380, h: 420 },
+  gps: { w: 360, h: 260 },
+  channel: { w: 440, h: 300 },
+  scope: { w: 520, h: 360 },
+  speaker: { w: 320, h: 200 },
   map: { w: 520, h: 380 },
   signal_map: { w: 600, h: 440 },
   readout: { w: 560, h: 320 },
-  decoder_log: { w: 760, h: 380 },
+  decoder_log: { w: 720, h: 380 },
   dmr_trunk: { w: 480, h: 360 },
-  video: { w: 380 },
-  recorder: { w: 300 },
-  export: { w: 300 },
-  scanner: { w: 400 },
+  video: { w: 380, h: 320 },
+  recorder: { w: 340, h: 260 },
+  export: { w: 320, h: 180 },
+  scanner: { w: 400, h: 400 },
 };
 
-/** How far the resizer may shrink a face before its instrument stops being readable. */
+/**
+ * Whether this kind can be resized at all.
+ *
+ * Only the faces whose content is a viewport — a plot, a map, a table, a picture — where more
+ * room is more of the instrument. A face that is a column of controls has one right size, and
+ * leaving it draggable meant every patch drifted into a set of boxes at fourteen different
+ * heights for no reading gained.
+ */
+export function isResizable(kind: NodeKind): boolean {
+  return RESIZABLE.has(kind);
+}
+
+const RESIZABLE = new Set<NodeKind>([
+  "scope",
+  "map",
+  "signal_map",
+  "readout",
+  "decoder_log",
+  "dmr_trunk",
+  "video",
+]);
+
+/** How far the resizer may shrink a face before its instrument stops being readable. Only the
+ * resizable kinds have one; the rest are the size they are. */
 export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
-  device: { w: 260, h: 120 },
-  gps: { w: 280, h: 140 },
-  channel: { w: 280, h: 120 },
+  device: NODE_SIZE.device,
+  gps: NODE_SIZE.gps,
+  channel: NODE_SIZE.channel,
   scope: { w: 320, h: 200 },
-  speaker: { w: 220, h: 100 },
+  speaker: NODE_SIZE.speaker,
   map: { w: 300, h: 220 },
   signal_map: { w: 400, h: 300 },
   readout: { w: 300, h: 160 },
   decoder_log: { w: 360, h: 200 },
   dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
-  recorder: { w: 220, h: 100 },
-  export: { w: 220, h: 100 },
-  scanner: { w: 300, h: 160 },
+  recorder: NODE_SIZE.recorder,
+  export: NODE_SIZE.export,
+  scanner: NODE_SIZE.scanner,
 };
 
 /** Vertical space the shell's header takes, so ports are spread down the body only. Ports start

@@ -21,10 +21,22 @@ export const BTN_DANGER =
   `${INTERACTIVE} h-7 border border-line-strong bg-panel-2 px-2.5 text-xs text-ink ` +
   "hover:border-danger hover:bg-danger/10 hover:text-danger";
 
+const ICON_BASE =
+  `${INTERACTIVE} justify-center border border-transparent text-ink-dim ` +
+  "hover:bg-panel-2 hover:text-ink";
+
 /** Square-silhouette button for a single glyph; the padding, not the glyph, carries the size. */
-export const ICON_BTN =
-  `${INTERACTIVE} size-7 justify-center border border-transparent text-ink-dim ` +
-  "hover:bg-panel-2 hover:text-ink pointer-coarse:size-10";
+export const ICON_BTN = `${ICON_BASE} size-7 pointer-coarse:size-10`;
+
+/**
+ * The same button where the row it sits in is shorter than a control: a face's title bar, a
+ * settings group's header.
+ *
+ * Its own constant rather than `${ICON_BTN} size-5` at the call site — two `size-*` utilities set
+ * the same properties, so the one Tailwind emits last wins whatever order they are written in,
+ * and every such override was silently rendering at 28px.
+ */
+export const ICON_BTN_SM = `${ICON_BASE} size-5 pointer-coarse:size-10`;
 
 /** Deliberately unsized: a filter strip wants its fields side by side and a settings row wants
  * them filling the column, so width is the caller's decision. */
@@ -46,6 +58,17 @@ export const CHIP =
   "font-mono text-xs text-ink";
 
 export const SURFACE = "rounded-md border border-line-strong bg-panel-3 shadow-pop";
+
+/** A refusal or a fault, stated in place. Never the only signal — the control that caused it
+ * keeps its own state. */
+export const ALERT =
+  "rounded-[3px] border border-danger bg-danger/10 px-3 py-1.5 font-mono text-xs text-danger";
+
+/** Column heading and body cell for the app's data tables — the decoder log and the target
+ * lists. Figures are mono and tabular so a column can be compared down its length. */
+export const TABLE_HEAD =
+  "px-2 py-1 text-left font-mono text-[10px] tracking-[0.09em] uppercase text-ink-dim";
+export const TABLE_CELL = "px-2 py-1 align-top font-mono text-xs tabular-nums";
 
 export function plotButton(on: boolean): string {
   return (

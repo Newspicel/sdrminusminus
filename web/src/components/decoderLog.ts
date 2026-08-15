@@ -38,16 +38,17 @@ export const LIMIT_OPTIONS = [100, 500, 2000];
  * the tail is a "what is happening now" readout, not a second copy of the log. */
 export const LIVE_ROW_CAP = 200;
 
+/**
+ * What the operator narrows *within* the node's own scope. Which decoders and which radios a log
+ * shows is the wires' answer, not a dropdown's — a log node shows what is plugged into it, and a
+ * picker that could contradict the patch is a second place to read the same fact.
+ */
 export interface LogFilter {
-  /** `""` = every decoder. */
-  kind: string;
-  /** `""` = every device set; otherwise the set id as the `<select>` carries it. */
-  deviceSet: string;
   q: string;
   limit: number;
 }
 
-export const DEFAULT_LOG_FILTER: LogFilter = { kind: "", deviceSet: "", q: "", limit: 500 };
+export const DEFAULT_LOG_FILTER: LogFilter = { q: "", limit: 500 };
 
 /** A stored entry and a live frame, reduced to what the table draws. `live` marks rows that
  * exist only in this browser's tail — they are not (yet) a query the server would answer with. */
@@ -97,34 +98,12 @@ function inSources(record: DecodedRecord, sources: ReadonlySet<string>): boolean
   return sources.has(`${record.device_set}:${record.channel}`);
 }
 
-/** The distinct device sets a wire scope spans, ascending — the only sets the "device set"
- * dropdown can usefully offer, since no other set has a row that could pass the scope. */
-export function sourceSets(sources: string): number[] {
-  const ids = new Set<number>();
-  for (const source of sourceSet(sources)) {
-    const id = Number(source.split(":")[0]);
-    if (Number.isInteger(id)) {
-      ids.add(id);
-    }
-  }
-  // `toSorted` wants lib es2023 (tsconfig pins es2022); the spread already prevents the
-  // mutation the rule guards against.
-  // oxlint-disable-next-line unicorn/no-array-sort
-  return [...ids].sort((a, b) => a - b);
-}
-
 export function toQuery(filter: LogFilter, wires: WireScope): DecoderLogFilter {
   const query: DecoderLogFilter = {
     limit: filter.limit,
     nodes: wires.nodes,
     sources: wires.sources,
   };
-  if (filter.kind !== "") {
-    query.kind = filter.kind;
-  }
-  if (filter.deviceSet !== "") {
-    query.device_set = Number(filter.deviceSet);
-  }
   const q = filter.q.trim();
   if (q !== "") {
     query.q = q;
@@ -135,24 +114,17 @@ export function toQuery(filter: LogFilter, wires: WireScope): DecoderLogFilter {
 /** Whether anything but the row limit is narrowing the view — an empty result means "nothing
  * logged" or "nothing matched", and only the filter tells the two apart. */
 export function isFiltered(filter: LogFilter): boolean {
-  return filter.kind !== "" || filter.deviceSet !== "" || filter.q.trim() !== "";
+  return filter.q.trim() !== "";
 }
 
-/** The filter the server applies, re-applied to the live tail — otherwise "kind: ADS-B" would
- * still stream AIS rows in from the store, and a log node would tail every decoder in the
- * workspace rather than the ones wired into it. */
+/** The filter the server applies, re-applied to the live tail — otherwise a log node would tail
+ * every decoder in the workspace rather than the ones wired into it. */
 export function matchesFilter(
   record: DecodedRecord,
   filter: LogFilter,
   sources: ReadonlySet<string>,
 ): boolean {
   if (!inSources(record, sources)) {
-    return false;
-  }
-  if (filter.kind !== "" && record.event.kind !== filter.kind) {
-    return false;
-  }
-  if (filter.deviceSet !== "" && record.device_set !== Number(filter.deviceSet)) {
     return false;
   }
   const q = filter.q.trim().toLowerCase();
@@ -380,33 +352,6 @@ export function hex5(address: number): string {
   return address.toString(16).toUpperCase().padStart(5, "0");
 }
 
-/** UTC, matching the RFC3339 the server stamps and exports — a log correlated against other
- * receivers must not silently shift with the browser's zone. */
-export function formatLogTime(at: string): string {
-  const ms = Date.parse(at);
-  if (Number.isNaN(ms)) {
-    return "--:--:--";
-  }
-  const d = new Date(ms);
-  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
-}
-
-/** Known decoders first, then any kind the stored log holds that this build does not know about
- * (an older row, a decoder added since) — a filter that cannot select a visible row is a bug. */
-export function kindOptions(entries: readonly DecoderLogEntry[]): string[] {
-  const known = new Set<string>(DECODER_KINDS);
-  const extra = new Set<string>();
-  for (const entry of entries) {
-    if (!known.has(entry.kind)) {
-      extra.add(entry.kind);
-    }
-  }
-  // `toSorted` wants lib es2023 (tsconfig pins es2022); the spread already prevents the
-  // mutation the rule guards against.
-  // oxlint-disable-next-line unicorn/no-array-sort
-  return [...DECODER_KINDS, ...[...extra].sort()];
-}
-
 export function droppedNotice(lost: number, dropped: number): string | null {
   if (lost <= 0 && dropped <= 0) {
     return null;
@@ -441,8 +386,4 @@ function position(lat: number | null | undefined, lon: number | null | undefined
 function timeMs(at: string): number {
   const ms = Date.parse(at);
   return Number.isNaN(ms) ? 0 : ms;
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
 }

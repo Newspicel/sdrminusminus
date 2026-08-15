@@ -5,19 +5,19 @@ import { formatDb, liveStatus, parseRanges, scanRefusal, targetCount } from "./s
 import { supports } from "./TemplatesPanel";
 
 describe("parseRanges", () => {
-  it("converts the MHz/kHz the user types into wire Hz", () => {
-    const parsed = parseRanges([{ startMhz: "145.6", stopMhz: "145.8", stepKhz: "12.5" }]);
-    expect(parsed).toEqual({
+  it("converts the MHz/kHz the editor holds into whole wire Hz", () => {
+    expect(parseRanges([{ startMhz: 145.6, stopMhz: 145.8, stepKhz: 12.5 }])).toEqual({
       ranges: [{ start_hz: 145_600_000, stop_hz: 145_800_000, step_hz: 12_500 }],
+    });
+    // Binary fractions do not land on whole hertz on their own, and the server counts in them.
+    const odd = parseRanges([{ startMhz: 433.075, stopMhz: 434.79, stepKhz: 8.33 }]);
+    expect(odd).toEqual({
+      ranges: [{ start_hz: 433_075_000, stop_hz: 434_790_000, step_hz: 8_330 }],
     });
   });
 
-  it("explains the first unusable field instead of sending it", () => {
-    expect(parseRanges([{ startMhz: "", stopMhz: "145.8", stepKhz: "12.5" }])).toMatch(/numbers/);
-    expect(parseRanges([{ startMhz: "145.6", stopMhz: "145.8", stepKhz: "0" }])).toMatch(
-      /greater than zero/,
-    );
-    expect(parseRanges([{ startMhz: "146", stopMhz: "145", stepKhz: "12.5" }])).toMatch(
+  it("refuses what no single field can catch", () => {
+    expect(parseRanges([{ startMhz: 146, stopMhz: 145, stepKhz: 12.5 }])).toMatch(
       /below the start/,
     );
     expect(parseRanges([])).toMatch(/at least one range/);
@@ -25,8 +25,8 @@ describe("parseRanges", () => {
 
   it("names the offending line when there is more than one", () => {
     const parsed = parseRanges([
-      { startMhz: "145.6", stopMhz: "145.8", stepKhz: "12.5" },
-      { startMhz: "1", stopMhz: "2", stepKhz: "x" },
+      { startMhz: 145.6, stopMhz: 145.8, stepKhz: 12.5 },
+      { startMhz: 2, stopMhz: 1, stepKhz: 25 },
     ]);
     expect(parsed).toMatch(/^range 2: /);
   });

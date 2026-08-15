@@ -2,13 +2,14 @@ import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext, useRef } from "react";
 import { Button } from "../../components/BaseControls";
-import { ICON_BTN } from "../../components/controls";
+import { ICON_BTN_SM } from "../../components/controls";
 import { PortalContainerProvider } from "../../components/PortalContainer";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import {
   isPinned,
+  isResizable,
   nodeMinSize,
   PORT_STEP_PX,
   PORT_TOP_PX,
@@ -115,7 +116,7 @@ export function NodeShell({
       } ${live ? "" : "opacity-60"}`}
     >
       <PortalContainerProvider container={portalContainer}>
-        {surface === "canvas" && (
+        {surface === "canvas" && isResizable(node.kind) && (
           <NodeResizer
             minWidth={minimum.w}
             minHeight={minimum.h}
@@ -148,9 +149,7 @@ export function NodeShell({
               aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
               aria-pressed={pinned}
               title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
-              className={`${ICON_BTN} size-5 ${
-                pinned ? "bg-accent/15 text-accent" : "text-ink-faint"
-              }`}
+              className={`${ICON_BTN_SM} ${pinned ? "bg-accent/15 text-accent" : "text-ink-faint"}`}
               onClick={() =>
                 workspace.edit((snapshot) => ({
                   ...snapshot,
@@ -166,7 +165,7 @@ export function NodeShell({
               type="button"
               aria-label={`Remove ${node.label ?? title}`}
               title="Remove from the patch"
-              className={`${ICON_BTN} size-5 text-ink-faint hover:text-danger`}
+              className={`${ICON_BTN_SM} text-ink-faint hover:text-danger`}
               onClick={remove}
             >
               ✕
@@ -286,4 +285,17 @@ export function FaceBody({ children, scroll = true }: { children: ReactNode; scr
 /** What a face shows instead of its instrument when there is nothing behind it yet. */
 export function FaceEmpty({ children }: { children: ReactNode }) {
   return <p className="p-3 text-sm text-ink-dim">{children}</p>;
+}
+
+/**
+ * The strip along the bottom of a face where what it *does* lives — open, forget, record, scan,
+ * export, clear. One place per face, always the same place, so an action is never mistaken for a
+ * setting and is never hunted for among them. Sits below the body whatever the body's height.
+ */
+export function FaceFooter({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line p-2">
+      {children}
+    </div>
+  );
 }

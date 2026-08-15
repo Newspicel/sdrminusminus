@@ -6,44 +6,41 @@
 // operator has to ask to be current.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
 import { Button, Input } from "./BaseControls";
-import { BTN, FIELD } from "./controls";
+import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
 import { eventDetail } from "./decoderDetail";
 import {
   buildRows,
   collectLive,
   DEFAULT_LOG_FILTER,
   droppedNotice,
-  formatLogTime,
   isFiltered,
   kindLabel,
-  kindOptions,
   LIMIT_OPTIONS,
   type LogFilter,
   type LogRow,
   matchesFilter,
   sourceSet,
-  sourceSets,
   toQuery,
   type WireScope,
 } from "./decoderLog";
+import { formatClock } from "./decoderViews";
 import { formatMhz } from "./format";
 import { Select } from "./Select";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const CLEAR_ARM_MS = 3000;
-const CELL = "px-2 py-1 align-top";
-const HEAD = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
 
 const NO_FRAMES = {};
 
 /**
  * `wires` is the scope: the decoders feeding this log, by patch node and by the coordinates those
- * nodes hold right now. It narrows both the stored page and the live tail, and it is not a
- * control the operator can clear — a log node shows what is wired into it, and the dropdowns
- * below only narrow further.
+ * nodes hold right now. It narrows both the stored page and the live tail, and it is the *whole*
+ * of which decoders and which radios this node shows — that is what the patch is for, so the
+ * search box and the row cap are the only narrowing offered here.
  */
 export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const queryClient = useQueryClient();
@@ -84,9 +81,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const wired = useMemo(() => sourceSet(wires.sources), [wires.sources]);
 
   const entries = useMemo(() => log.data?.entries ?? [], [log.data]);
-  // Straight off the wires, not off the page: a set that is wired in but silent must stay in the
-  // list, and a set that is not wired in is a choice that could only ever show nothing.
-  const sets = useMemo(() => sourceSets(wires.sources), [wires.sources]);
   const rows = useMemo(
     () => buildRows(entries, collectLive(frames, filter, wired)),
     [entries, frames, filter, wired],
@@ -118,50 +112,135 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const total = log.data?.total ?? 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          label="Decoder"
-          value={filter.kind}
-          options={[
-            { value: "", label: "All decoders" },
-            ...kindOptions(entries).map((k) => ({ value: k, label: kindLabel(k) })),
-          ]}
-          onChange={(kind) => patch({ kind })}
-        />
+    <>
+      <FaceBody scroll={false}>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
+          <div className="flex items-center gap-2">
+            <Input
+              className={`${FIELD} min-w-0 flex-1`}
+              placeholder="Search station or summary"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search decoder log"
+            />
+            <Select
+              label="Row limit"
+              className="w-28 shrink-0"
+              value={filter.limit}
+              options={LIMIT_OPTIONS.map((n) => ({ value: n, label: `${n} rows` }))}
+              onChange={(limit) => patch({ limit })}
+            />
+          </div>
 
-        <Select
-          label="Device set"
-          value={filter.deviceSet}
-          options={[
-            { value: "", label: "All devices" },
-            ...sets.map((id) => ({ value: String(id), label: `Set ${id}` })),
-          ]}
-          onChange={(deviceSet) => patch({ deviceSet })}
-        />
+          {error !== null && (
+            <div role="alert" className={`${ALERT} flex items-center justify-between gap-3`}>
+              <span>Rejected: {error}</span>
+              <Button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
+                dismiss
+              </Button>
+            </div>
+          )}
 
-        <Input
-          className={`${FIELD} min-w-0 flex-1 text-sm`}
-          placeholder="Search station or summary"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search decoder log"
-        />
+          {log.isError && (
+            <div role="alert" className={ALERT}>
+              Log unavailable: {log.error.message}
+            </div>
+          )}
 
-        <Select
-          label="Row limit"
-          value={filter.limit}
-          options={LIMIT_OPTIONS.map((n) => ({ value: n, label: `${n} rows` }))}
-          onChange={(limit) => patch({ limit })}
-        />
+          {dropped !== null && (
+            <div role="status" className={`${ALERT} bg-transparent tabular-nums`}>
+              {dropped}
+            </div>
+          )}
 
+          <div className="flex flex-wrap items-center gap-x-3 font-mono text-[10px] tabular-nums text-ink-dim">
+            <span>
+              {rows.length} shown · {total} stored
+            </span>
+            {armed && (
+              <span className="text-danger">Clear removes every stored row this node can see.</span>
+            )}
+            {cleared !== null && <span>{cleared} rows cleared.</span>}
+          </div>
+
+          {/* Fills the panel it is docked in: a fixed cap would waste a tall panel and overflow a
+          short one. */}
+          <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
+            <table className="w-full border-collapse font-mono text-xs">
+              <thead className="sticky top-0 bg-panel">
+                <tr className="border-b border-line">
+                  <th className={TABLE_HEAD}>Time</th>
+                  <th className={TABLE_HEAD}>Kind</th>
+                  <th className={`${TABLE_HEAD} text-right`}>Frequency</th>
+                  <th className={TABLE_HEAD}>Station</th>
+                  <th className={TABLE_HEAD}>Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <Fragment key={row.key}>
+                    {/* The whole row is the control: a summary is truncated by design, and the frame
+                    behind it is what the reader is after. */}
+                    {/* No live/stored distinction is drawn: every row arrives through the tail and
+                    turns into its stored twin within a flush, so marking the difference would be
+                    half a second of tint on every row in the table. */}
+                    <tr
+                      className="cursor-pointer border-b border-line/50 hover:bg-panel-2"
+                      aria-expanded={opened === row.key}
+                      onClick={() => setOpened(opened === row.key ? null : row.key)}
+                    >
+                      <td
+                        className={`${TABLE_CELL} whitespace-nowrap tabular-nums text-ink-dim`}
+                        title={row.at}
+                      >
+                        {formatClock(row.at)}
+                      </td>
+                      <td className={`${TABLE_CELL} whitespace-nowrap text-ink-dim`}>
+                        {kindLabel(row.kind)}
+                      </td>
+                      <td
+                        className={`${TABLE_CELL} whitespace-nowrap text-right tabular-nums text-ink`}
+                      >
+                        {formatMhz(row.freqHz)}
+                      </td>
+                      <td className={`${TABLE_CELL} whitespace-nowrap text-ink`}>
+                        {row.station ?? "—"}
+                      </td>
+                      <td className={`${TABLE_CELL} max-w-0 truncate text-ink`} title={row.summary}>
+                        {row.summary}
+                      </td>
+                    </tr>
+                    {opened === row.key && (
+                      <tr className="border-b border-line/50 bg-panel-2">
+                        <td colSpan={5} className="px-3 py-2">
+                          <RowDetail row={row} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+
+            {rows.length === 0 && (
+              <div className="px-3 py-2 text-sm text-ink-dim">
+                {log.isPending
+                  ? "Loading…"
+                  : isFiltered(filter)
+                    ? "No rows match this filter."
+                    : "Nothing logged yet from the decoders wired in."}
+              </div>
+            )}
+          </div>
+        </div>
+      </FaceBody>
+      <FaceFooter>
         <a className={BTN} href={decoderLogExportUrl("csv", query)} download>
           CSV
         </a>
         <a className={BTN} href={decoderLogExportUrl("json", query)} download>
           JSON
         </a>
-
         <Button
           type="button"
           className={`${BTN} hover:border-danger hover:text-danger ${
@@ -172,116 +251,8 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
         >
           {armed ? "Confirm clear" : "Clear"}
         </Button>
-      </div>
-
-      {error !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
-          <span>Rejected: {error}</span>
-          <Button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-            dismiss
-          </Button>
-        </div>
-      )}
-
-      {log.isError && (
-        <div
-          role="alert"
-          className="rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
-          Log unavailable: {log.error.message}
-        </div>
-      )}
-
-      {dropped !== null && (
-        <div
-          role="status"
-          className="rounded border border-danger/50 px-3 py-1.5 font-mono text-xs tabular-nums text-danger"
-        >
-          {dropped}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-x-3 font-mono text-[10px] tabular-nums text-ink-dim">
-        <span>
-          {rows.length} shown · {total} stored
-        </span>
-        {armed && (
-          <span className="text-danger">
-            Clear removes every stored row from the decoders wired in that matches this filter.
-          </span>
-        )}
-        {cleared !== null && <span>{cleared} rows cleared.</span>}
-      </div>
-
-      {/* Fills the panel it is docked in: a fixed cap would waste a tall panel and overflow a
-          short one. */}
-      <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
-        <table className="w-full border-collapse font-mono text-xs">
-          <thead className="sticky top-0 bg-panel">
-            <tr className="border-b border-line">
-              <th className={HEAD}>Time UTC</th>
-              <th className={HEAD}>Kind</th>
-              <th className={`${HEAD} text-right`}>Frequency</th>
-              <th className={HEAD}>Station</th>
-              <th className={HEAD}>Summary</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <Fragment key={row.key}>
-                {/* The whole row is the control: a summary is truncated by design, and the frame
-                    behind it is what the reader is after. */}
-                {/* No live/stored distinction is drawn: every row arrives through the tail and
-                    turns into its stored twin within a flush, so marking the difference would be
-                    half a second of tint on every row in the table. */}
-                <tr
-                  className="cursor-pointer border-b border-line/50 hover:bg-panel-2"
-                  aria-expanded={opened === row.key}
-                  onClick={() => setOpened(opened === row.key ? null : row.key)}
-                >
-                  <td
-                    className={`${CELL} whitespace-nowrap tabular-nums text-ink-dim`}
-                    title={row.at}
-                  >
-                    {formatLogTime(row.at)}
-                  </td>
-                  <td className={`${CELL} whitespace-nowrap text-ink-dim`}>
-                    {kindLabel(row.kind)}
-                  </td>
-                  <td className={`${CELL} whitespace-nowrap text-right tabular-nums text-ink`}>
-                    {formatMhz(row.freqHz)}
-                  </td>
-                  <td className={`${CELL} whitespace-nowrap text-ink`}>{row.station ?? "—"}</td>
-                  <td className={`${CELL} max-w-0 truncate text-ink`} title={row.summary}>
-                    {row.summary}
-                  </td>
-                </tr>
-                {opened === row.key && (
-                  <tr className="border-b border-line/50 bg-panel-2">
-                    <td colSpan={5} className="px-3 py-2">
-                      <RowDetail row={row} />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-
-        {rows.length === 0 && (
-          <div className="px-3 py-2 text-sm text-ink-dim">
-            {log.isPending
-              ? "Loading…"
-              : isFiltered(filter)
-                ? "No rows match this filter."
-                : "Nothing logged yet from the decoders wired in."}
-          </div>
-        )}
-      </div>
-    </div>
+      </FaceFooter>
+    </>
   );
 }
 

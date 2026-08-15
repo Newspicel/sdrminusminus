@@ -1,4 +1,6 @@
 import {
+  Fragment,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   useEffect,
@@ -10,6 +12,7 @@ import { plotButton, segment } from "../../components/controls";
 import { formatSignedKhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
 import {
+  clusterMarkers,
   decibelTicks,
   FULL_VIEW,
   frequencyTicks,
@@ -53,6 +56,8 @@ const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
 /** Rows the frequency axis reserves at the bottom of the trace canvas, in CSS pixels. */
 const AXIS_H = 16;
+/** Where a marker's label sits, under the band ruler. */
+const LABEL_TOP_PX = 28;
 /** The translucency SDR++ draws its fill under the trace at (`ImGuiCol_PlotLines` at 0.2). */
 const TRACE_FILL_ALPHA = 0.2;
 
@@ -600,60 +605,127 @@ function Markers({
   onSelect: (channel: number) => void;
 }) {
   const visible = spanHz * viewWidth(view);
+  const drawn = channels
+    .map((channel) => {
+      const offsetHz =
+        preview?.channel === channel.id ? preview.offsetHz : (channel.settings.offset_hz ?? 0);
+      return {
+        channel,
+        offsetHz,
+        id: channel.id,
+        at: spanToView(view, offsetToSpan(offsetHz, spanHz)),
+      };
+    })
+    .filter((marker) => marker.at >= -0.02 && marker.at <= 1.02);
   return (
     // Markers must not steal gestures from the plot: the layer is pointer-transparent and only
     // each marker's own hit strip takes the pointer.
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {channels.map((channel) => {
-        const offsetHz =
-          preview?.channel === channel.id ? preview.offsetHz : (channel.settings.offset_hz ?? 0);
-        const at = spanToView(view, offsetToSpan(offsetHz, spanHz));
-        if (at < -0.02 || at > 1.02) {
+      {clusterMarkers(drawn).map((members) => {
+        const anchor = members[0];
+        if (anchor === undefined) {
           return null;
         }
-        const active = channel.id === selected;
-        const bandwidth = bandwidthHz(channel.settings.params);
+        // Which one the collapsed label speaks for: whichever the operator is working on, so
+        // picking a channel names it even where five others share its frequency.
+        const shown = members.find((member) => member.channel.id === selected) ?? anchor;
+        const stacked = members.length > 1;
         return (
-          <div key={channel.id}>
-            {bandwidth !== null && visible > 0 && (
-              <span
-                aria-hidden
-                className={`absolute inset-y-0 -translate-x-1/2 ${active ? "bg-plot-ink/12" : "bg-plot-ink/6"}`}
-                style={{ left: `${at * 100}%`, width: `${(bandwidth / visible) * 100}%` }}
-              />
-            )}
-            <span
-              aria-hidden
-              className={`absolute inset-y-0 -translate-x-1/2 ${
-                active ? "w-0.5 bg-plot-ink" : "w-px bg-plot-ink-dim"
-              }`}
-              style={{ left: `${at * 100}%` }}
-            />
-            <Button
-              type="button"
-              // The hit strip is invisible and wide; the drawn line stays 1px, because ink and
-              // target size are different budgets.
-              className="pointer-events-auto absolute inset-y-0 w-5 -translate-x-1/2 cursor-ew-resize"
-              style={{ left: `${at * 100}%` }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelect(channel.id);
-              }}
-              aria-label={`${channel.settings.params.type} channel at ${formatSignedKhz(offsetHz)} — drag to tune`}
-            />
-            <span
-              aria-hidden
-              className={`absolute top-7 -translate-x-1/2 rounded-[2px] border px-1 py-px font-mono text-[10px] whitespace-nowrap tabular-nums ${
-                active ? "border-accent bg-bg text-accent" : "border-line bg-bg/85 text-ink-dim"
-              }`}
-              style={{ left: `${at * 100}%` }}
+          <div key={anchor.channel.id}>
+            {members.map(({ channel, offsetHz, at }) => {
+              const active = channel.id === selected;
+              const bandwidth = bandwidthHz(channel.settings.params);
+              return (
+                <Fragment key={channel.id}>
+                  {bandwidth !== null && visible > 0 && (
+                    <span
+                      aria-hidden
+                      className={`absolute inset-y-0 -translate-x-1/2 ${active ? "bg-plot-ink/12" : "bg-plot-ink/6"}`}
+                      style={{ left: `${at * 100}%`, width: `${(bandwidth / visible) * 100}%` }}
+                    />
+                  )}
+                  <span
+                    aria-hidden
+                    className={`absolute inset-y-0 -translate-x-1/2 ${
+                      active ? "w-0.5 bg-plot-ink" : "w-px bg-plot-ink-dim"
+                    }`}
+                    style={{ left: `${at * 100}%` }}
+                  />
+                  <Button
+                    type="button"
+                    // The hit strip is invisible and wide; the drawn line stays 1px, because ink
+                    // and target size are different budgets.
+                    className="pointer-events-auto absolute inset-y-0 w-5 -translate-x-1/2 cursor-ew-resize"
+                    style={{ left: `${at * 100}%` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect(channel.id);
+                    }}
+                    aria-label={`${channel.settings.params.type} channel at ${formatSignedKhz(offsetHz)} — drag to tune`}
+                  />
+                </Fragment>
+              );
+            })}
+
+            {/* The label is its own hover target, and only as big as it looks: the hit strip
+                beside it runs the height of the plot, and opening the stack from there meant
+                brushing anywhere near the trace unfolded it. Taking the pointer costs the plot
+                nothing — a press here still bubbles to the plot's own handlers, which hit-test
+                by x and grab the same marker. */}
+            <div
+              className="pointer-events-auto group absolute flex -translate-x-1/2 flex-col items-center gap-1"
+              style={{ left: `${shown.at * 100}%`, top: LABEL_TOP_PX }}
             >
-              {channel.settings.params.type.toUpperCase()} {formatSignedKhz(offsetHz)}
-            </span>
+              <MarkerLabel
+                active={shown.channel.id === selected}
+                className={stacked ? "group-hover:hidden" : ""}
+              >
+                {markerName(shown.channel, shown.offsetHz)}
+                {stacked && <span className="ml-1 text-plot-ink-dim">×{members.length}</span>}
+              </MarkerLabel>
+              {/* Unfolded only while the pointer is on the label: a permanent stack costs the
+                  trace a label's height per channel, which is the whole plot on a busy one. */}
+              {stacked &&
+                members.map(({ channel, offsetHz }) => (
+                  <MarkerLabel
+                    key={channel.id}
+                    active={channel.id === selected}
+                    className="hidden group-hover:block"
+                  >
+                    {markerName(channel, offsetHz)}
+                  </MarkerLabel>
+                ))}
+            </div>
           </div>
         );
       })}
     </div>
+  );
+}
+
+function markerName(channel: ChannelInfo, offsetHz: number): string {
+  return `${channel.settings.params.type.toUpperCase()} ${formatSignedKhz(offsetHz)}`;
+}
+
+/** One marker's caption, in the flow of its cluster's label column. */
+function MarkerLabel({
+  active,
+  className,
+  children,
+}: {
+  active: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={`rounded-[2px] border px-1 py-px font-mono text-[10px] whitespace-nowrap tabular-nums ${
+        active ? "border-accent bg-bg text-accent" : "border-line bg-bg/85 text-ink-dim"
+      } ${className ?? ""}`}
+    >
+      {children}
+    </span>
   );
 }
 

@@ -2,55 +2,41 @@
 // readout logic are testable without a DOM (and the pattern the decoder views use).
 import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange } from "../lib/types";
 
-/** One line of the range editor: three MHz/kHz fields as the user typed them. */
+/** One line of the range editor, in the units its fields are typed in. Numeric because the
+ * editor is built from `NumberField` like every other number in the app: it holds its own draft
+ * and only ever commits something finite, so "that is not a number" is not a state to model. */
 export interface RangeInput {
-  startMhz: string;
-  stopMhz: string;
-  stepKhz: string;
+  startMhz: number;
+  stopMhz: number;
+  stepKhz: number;
 }
 
-export const DEFAULT_RANGE: RangeInput = {
-  startMhz: "145.6",
-  stopMhz: "145.8",
-  stepKhz: "12.5",
-};
+export const DEFAULT_RANGE: RangeInput = { startMhz: 145.6, stopMhz: 145.8, stepKhz: 12.5 };
 
+/** The smallest step the editor accepts, in kHz — a zero step expands to an infinite sweep. */
+export const MIN_STEP_KHZ = 0.1;
+
+/**
+ * The wire's ranges, or the one refusal to show instead. Only the rule a single field cannot
+ * enforce is left here: a stop below its start spans two fields, so no clamp can catch it.
+ */
 export function parseRanges(inputs: readonly RangeInput[]): { ranges: ScanRange[] } | string {
   const ranges: ScanRange[] = [];
-  for (const [i, input] of inputs.entries()) {
-    const start = number(input.startMhz);
-    const stop = number(input.stopMhz);
-    const step = number(input.stepKhz);
-    const line = inputs.length > 1 ? `range ${i + 1}: ` : "";
-    if (start === null || stop === null || step === null) {
-      return `${line}enter numbers for start, stop and step`;
-    }
-    if (step <= 0) {
-      return `${line}the step must be greater than zero`;
-    }
-    if (stop < start) {
+  for (const [index, input] of inputs.entries()) {
+    const line = inputs.length > 1 ? `range ${index + 1}: ` : "";
+    if (input.stopMhz < input.startMhz) {
       return `${line}the stop frequency is below the start`;
     }
     ranges.push({
-      start_hz: start * 1e6,
-      stop_hz: stop * 1e6,
-      step_hz: step * 1e3,
+      start_hz: Math.round(input.startMhz * 1e6),
+      stop_hz: Math.round(input.stopMhz * 1e6),
+      step_hz: Math.round(input.stepKhz * 1e3),
     });
   }
   if (ranges.length === 0) {
     return "add at least one range";
   }
   return { ranges };
-}
-
-/** A field's value, or `null` if it is not a usable number. `Number("")` is 0, so a blank
- * field would otherwise silently scan DC. */
-function number(text: string): number | null {
-  if (text.trim() === "") {
-    return null;
-  }
-  const value = Number(text);
-  return Number.isFinite(value) ? value : null;
 }
 
 /** How many frequencies the ranges expand to — shown before starting, because a scan whose

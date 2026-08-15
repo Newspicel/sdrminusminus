@@ -1,7 +1,7 @@
 import { type Node, useReactFlow, useStoreApi } from "@xyflow/react";
 import { useCallback } from "react";
 import type { NodeKind, PatchGraph, Position } from "../lib/types";
-import { NODE_MIN_SIZE, NODE_SIZE } from "./graph";
+import { NODE_SIZE } from "./graph";
 
 export interface PlacementRect {
   x: number;
@@ -32,15 +32,7 @@ export function useNodePlacement(): (graph: PatchGraph, kind: NodeKind) => Posit
       };
       const rendered = new Map(flow.getNodes().map((node) => [node.id, node]));
       const occupied = graph.nodes.map((node) => nodeRect(node, rendered.get(node.id)));
-      const peers = graph.nodes
-        .filter((node) => node.kind === kind && node.size == null)
-        .map((node) => measuredSize(rendered.get(node.id))?.h)
-        .filter((value): value is number => value !== undefined);
-      const natural = NODE_SIZE[kind];
-      const size = {
-        w: natural.w,
-        h: natural.h ?? Math.max(NODE_MIN_SIZE[kind].h, ...peers),
-      };
+      const size = NODE_SIZE[kind];
 
       // Width is zero only before React Flow has mounted for the first time. The top bar cannot
       // be clicked in that interval, but keeping a deterministic fallback makes the helper safe
@@ -102,7 +94,7 @@ function nodeRect(node: PatchGraph["nodes"][number], rendered: Node | undefined)
     x: rendered?.position.x ?? node.position.x,
     y: rendered?.position.y ?? node.position.y,
     w: measured?.w ?? stored?.w ?? natural.w,
-    h: measured?.h ?? stored?.h ?? natural.h ?? NODE_MIN_SIZE[node.kind].h,
+    h: measured?.h ?? stored?.h ?? natural.h,
   };
 }
 

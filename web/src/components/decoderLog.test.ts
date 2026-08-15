@@ -9,16 +9,13 @@ import {
   droppedNotice,
   eventStation,
   eventSummary,
-  formatLogTime,
   isFiltered,
   kindLabel,
-  kindOptions,
   type LogFilter,
   liveRow,
   matchesFilter,
   NO_WIRES,
   sourceSet,
-  sourceSets,
   storedRow,
   toQuery,
 } from "./decoderLog";
@@ -95,10 +92,12 @@ describe("toQuery", () => {
     expect(toQuery(filter({ q: "   " }), wires)).toEqual({ limit: 500, ...wires });
   });
 
-  it("carries every set field, with the device set as a number", () => {
-    expect(
-      toQuery(filter({ kind: "ais", deviceSet: "2", q: " nord ", limit: 100 }), wires),
-    ).toEqual({ kind: "ais", device_set: 2, q: "nord", limit: 100, ...wires });
+  it("carries every set field, trimmed", () => {
+    expect(toQuery(filter({ q: " nord ", limit: 100 }), wires)).toEqual({
+      q: "nord",
+      limit: 100,
+      ...wires,
+    });
   });
 
   // Both halves travel, always: the node ids are what match a row written in any run, and the
@@ -112,20 +111,11 @@ describe("toQuery", () => {
 describe("isFiltered", () => {
   it("ignores the row limit", () => {
     expect(isFiltered(filter({ limit: 100 }))).toBe(false);
-    expect(isFiltered(filter({ kind: "ais" }))).toBe(true);
-    expect(isFiltered(filter({ deviceSet: "0" }))).toBe(true);
     expect(isFiltered(filter({ q: " x " }))).toBe(true);
   });
 });
 
 describe("matchesFilter", () => {
-  it("applies the server's filter to the live tail", () => {
-    expect(matchesFilter(record(), filter({ kind: "ais" }), WIRED)).toBe(false);
-    expect(matchesFilter(record(), filter({ kind: "adsb" }), WIRED)).toBe(true);
-    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "0" }), WIRED)).toBe(false);
-    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "1" }), WIRED)).toBe(true);
-  });
-
   it("searches station and summary case-insensitively", () => {
     expect(matchesFilter(record(), filter({ q: "DLH" }), WIRED)).toBe(true);
     expect(matchesFilter(record(), filter({ q: "3C6444" }), WIRED)).toBe(true);
@@ -160,7 +150,7 @@ describe("collectLive", () => {
   });
 
   it("honours the filter and the cap", () => {
-    expect(collectLive(frames, filter({ kind: "ais" }), WIRED)).toHaveLength(1);
+    expect(collectLive(frames, filter({ q: "nordlicht" }), WIRED)).toHaveLength(1);
     expect(collectLive(frames, filter(), WIRED, 2).map((r) => r.at)).toEqual([
       "2026-08-09T12:00:03Z",
       "2026-08-09T12:00:02Z",
@@ -298,31 +288,6 @@ describe("eventStation", () => {
     expect(eventStation({ kind: "rtty", data: { text: "x" } })).toBeNull();
     expect(eventStation({ kind: "morse", data: { text: "x", wpm: 12 } })).toBeNull();
     expect(eventStation({ kind: "rds", data: { block_errors: 0, groups: 1 } })).toBeNull();
-  });
-});
-
-describe("formatLogTime", () => {
-  it("renders UTC regardless of the browser zone", () => {
-    expect(formatLogTime("2026-08-09T12:03:04Z")).toBe("12:03:04");
-    expect(formatLogTime("2026-08-09T12:03:04+02:00")).toBe("10:03:04");
-  });
-
-  it("shows a placeholder rather than Invalid Date", () => {
-    expect(formatLogTime("nope")).toBe("--:--:--");
-  });
-});
-
-describe("option lists", () => {
-  it("appends kinds only the stored log knows", () => {
-    expect(kindOptions([])).toEqual(DECODER_KINDS);
-    expect(kindOptions([entry({ kind: "dmr" }), entry({ kind: "dmr" })]).at(-1)).toBe("dmr");
-  });
-
-  // Off the wires, not off the page: a wired set that has been silent all session must stay
-  // selectable, and a set nothing is wired to could only ever select an empty table.
-  it("offers the device sets the wires span, ascending and deduped", () => {
-    expect(sourceSets("3:0,7:1,3:2")).toEqual([3, 7]);
-    expect(sourceSets("")).toEqual([]);
   });
 });
 

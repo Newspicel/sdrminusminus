@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
-import { BTN, BTN_QUIET, CHIP, LABEL } from "../../components/controls";
+import { BTN, BTN_QUIET } from "../../components/controls";
 import { isTunable, tuningRange } from "../../components/dial";
 import { DIAL_ID, FrequencyDial } from "../../components/FrequencyDial";
 import { DeviceChoices, deviceId } from "../../components/OpenRadio";
 import { PlaybackTransport } from "../../components/PlaybackTransport";
 import { RadioSettings } from "../../components/RadioSettings";
+import { Readout, ReadoutRow } from "../../components/Readout";
 import { createDeviceSet, STATE_KEY, stateQuery } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
 import type {
@@ -21,7 +22,7 @@ import { claimedDevices, deviceRefOf, refMatches, unboundChannels } from "../bin
 import { useWorkspaceContext } from "../context";
 import { patchNode, rxStreamCount, streamLabel } from "../graph";
 import { releaseRadio } from "../remove";
-import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 /** An id has to be unique in the document. Stream 0's dial keeps the bare id — it is the one the
  * `f` keyboard binding reaches, and a single-stream radio only has that one. */
@@ -183,7 +184,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       <NodeShell node={node} title="Device" category="source" subtitle="no radio" live={false}>
         <FaceBody>
           <div className="flex flex-col gap-2 p-2">
-            <span className={LABEL}>Open a device</span>
             <DeviceChoices
               onChoose={bind}
               onAddNetwork={(id) => openNetwork.mutate(id)}
@@ -201,23 +201,23 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     return (
       <NodeShell node={node} title="Device" category="source" subtitle="not attached" live={false}>
         <FaceBody>
-          <div className="flex flex-col gap-2 p-2">
-            <p className="text-sm text-ink-dim">
-              Waiting for <span className="font-mono text-ink">{refLabel(reference)}</span>. Its
-              wires stay drawn and nothing else will be bound here — plug it back in and this node
-              picks it up.
-            </p>
-            <Button
-              type="button"
-              className={`${BTN} self-start`}
-              title="Unbind this node so it can name another radio"
-              onClick={() => forget.mutate()}
-              disabled={forget.isPending}
-            >
-              Forget this radio
-            </Button>
-          </div>
+          <p className="p-3 text-sm text-ink-dim">
+            Waiting for <span className="font-mono text-ink">{refLabel(reference)}</span>. Its wires
+            stay drawn and nothing else will be bound here — plug it back in and this node picks it
+            up.
+          </p>
         </FaceBody>
+        <FaceFooter>
+          <Button
+            type="button"
+            className={BTN}
+            title="Unbind this node so it can name another radio"
+            onClick={() => forget.mutate()}
+            disabled={forget.isPending}
+          >
+            Forget radio
+          </Button>
+        </FaceFooter>
       </NodeShell>
     );
   }
@@ -234,60 +234,47 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       subtitle={<span className={set.status === "error" ? "text-danger" : ""}>{set.status}</span>}
     >
       <FaceBody>
-        <div className="flex min-h-full flex-col">
-          <Tuner node={node.id} set={set} scanning={scanning} />
+        <Tuner node={node.id} set={set} scanning={scanning} />
 
-          {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
+        {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
 
-          <div className="p-2">
-            <RadioSettings active={set} />
-          </div>
+        <RadioSettings active={set} className="p-2" />
 
-          {(overruns > 0 || set.error != null) && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-line p-2">
-              {overruns > 0 && (
-                <span
-                  className={CHIP}
-                  title="Device samples dropped at the capture ring since the radio opened — the DSP thread is behind, and audio and spectrum have gaps"
-                >
-                  <span className="legend">Overruns</span>
-                  {overruns}
-                </span>
-              )}
-              {set.error != null && (
-                <p role="alert" className="font-mono text-xs text-danger">
-                  Device fault · {set.error}
-                </p>
-              )}
-            </div>
-          )}
+        {(overruns > 0 || orphans.length > 0) && (
+          <Readout>
+            {overruns > 0 && (
+              <ReadoutRow
+                label="Overruns"
+                title="Device samples dropped at the capture ring since the radio opened — the DSP thread is behind, and audio and spectrum have gaps"
+              >
+                {overruns}
+              </ReadoutRow>
+            )}
+            {orphans.length > 0 && (
+              <ReadoutRow label="Channels with no node">
+                {orphans.map((channel) => channel.settings.params.type).join(" · ")}
+              </ReadoutRow>
+            )}
+          </Readout>
+        )}
 
-          {orphans.length > 0 && (
-            <div className="flex flex-col gap-1 border-t border-line p-2">
-              <span className={LABEL}>Channels with no node</span>
-              <span className="flex flex-wrap gap-1">
-                {orphans.map((channel) => (
-                  <span key={channel.id} className={CHIP}>
-                    {channel.settings.params.type}
-                  </span>
-                ))}
-              </span>
-            </div>
-          )}
-
-          <div className="mt-auto flex justify-end border-t border-line p-2">
-            <Button
-              type="button"
-              className={BTN_QUIET}
-              title="Close this radio and unbind the node — the USB device is released and the wires stay drawn"
-              onClick={() => forget.mutate()}
-              disabled={forget.isPending}
-            >
-              {forget.isPending ? "Closing…" : "Forget radio"}
-            </Button>
-          </div>
-        </div>
+        {set.error != null && (
+          <p role="alert" className="border-t border-line p-2 font-mono text-xs text-danger">
+            Device fault · {set.error}
+          </p>
+        )}
       </FaceBody>
+      <FaceFooter>
+        <Button
+          type="button"
+          className={BTN_QUIET}
+          title="Close this radio and unbind the node — the USB device is released and the wires stay drawn"
+          onClick={() => forget.mutate()}
+          disabled={forget.isPending}
+        >
+          {forget.isPending ? "Closing…" : "Forget radio"}
+        </Button>
+      </FaceFooter>
     </NodeShell>
   );
 }

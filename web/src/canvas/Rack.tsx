@@ -1,8 +1,17 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { type CSSProperties, memo, useCallback, useRef, useState } from "react";
 
-import type { PatchNode, RackLayout } from "../lib/types";
+import type { NodeKind, PatchNode, RackLayout } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { moveSlot, placeSlot, RACK_COLS, RACK_ROWS, type RackEdge, resizeSlot } from "./graph";
+import {
+  isResizable,
+  moveSlot,
+  NODE_SIZE,
+  placeSlot,
+  RACK_COLS,
+  RACK_ROWS,
+  type RackEdge,
+  resizeSlot,
+} from "./graph";
 import { FACES } from "./nodes";
 
 /** A pointer gesture on a face. Held in a ref: a drag must not re-render the rack on its own
@@ -96,7 +105,9 @@ export function Rack() {
   return (
     <div
       ref={hostRef}
-      className="grid min-h-0 flex-1 gap-px bg-line/40 p-px"
+      // The patch's own ground: a bay is now usually wider than the face mounted in it, so what
+      // shows between them is a wall rather than the hairline the separator colour was drawn for.
+      className="grid min-h-0 flex-1 gap-px bg-bg p-px"
       style={{
         gridTemplateColumns: `repeat(${RACK_COLS}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${RACK_ROWS}, minmax(0, 1fr))`,
@@ -116,19 +127,34 @@ export function Rack() {
             // The same handle React Flow puts on a patch node, so a face is addressable by node
             // in either view.
             data-id={slot.node}
-            className="relative min-h-0 min-w-0"
+            className="flex min-h-0 min-w-0 items-center justify-center"
             style={{
               gridColumn: `${slot.x + 1} / span ${slot.w}`,
               gridRow: `${slot.y + 1} / span ${slot.h}`,
             }}
           >
-            <RackFace node={node} />
-            <Grips node={slot.node} onBegin={begin} />
+            {/* A bay is how much of the wall the operator gave this instrument; the face inside
+                it is still the size its kind is. Only a viewport grows into its bay — stretching
+                a column of controls across one puts the same acre of dead space beside it that
+                fixing the sizes removed from the patch. Never larger than the bay: a face given
+                less room than it wants shrinks and scrolls rather than covering its neighbour. */}
+            <div className="relative max-h-full max-w-full" style={faceSize(node.kind)}>
+              <RackFace node={node} />
+              <Grips node={slot.node} onBegin={begin} />
+            </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+/** The box the face gets inside its bay: the whole bay for an instrument that is worth more room,
+ * and its own size for everything else (`isResizable`). */
+function faceSize(kind: NodeKind): CSSProperties {
+  return isResizable(kind)
+    ? { width: "100%", height: "100%" }
+    : { width: NODE_SIZE[kind].w, height: NODE_SIZE[kind].h };
 }
 
 /**

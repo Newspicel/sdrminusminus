@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { CHIP, LABEL } from "../../components/controls";
+import { CHIP } from "../../components/controls";
 import { Select } from "../../components/Select";
+import { SettingRow, Settings } from "../../components/Settings";
 import { callsQuery } from "../../lib/api";
 import type { DmrTrunkProtocol, DvTrunkProtocol, PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
@@ -57,28 +58,24 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
       live={sources.length > 0}
     >
       <FaceBody>
-        <div className="flex flex-wrap items-end gap-3 border-b border-line p-2">
-          <label className="flex flex-col gap-1">
-            <span className={LABEL}>Protocol</span>
+        <Settings className="border-b border-line p-2">
+          <SettingRow label="Protocol">
             <Select
               label="Protocol"
-              className="w-48"
               value={protocol}
               options={DMR_TRUNK_PROTOCOLS}
               onChange={(next) => edit({ protocol: next })}
             />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className={LABEL}>Keep calls</span>
+          </SettingRow>
+          <SettingRow label="Keep calls">
             <Select
               label="Keep calls"
-              className="w-28"
               value={node.data.retention_seconds ?? 300}
               options={RETENTION_OPTIONS}
               onChange={(next) => edit({ retention_seconds: next })}
             />
-          </label>
-        </div>
+          </SettingRow>
+        </Settings>
         {sources.length === 0 ? (
           <FaceEmpty>Wire DMR decoder events into the events input.</FaceEmpty>
         ) : (

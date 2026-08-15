@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clusterMarkers,
   decibelTicks,
   FULL_VIEW,
   frequencyTicks,
@@ -132,5 +133,34 @@ describe("decibelTicks", () => {
 
   it("returns nothing for an inverted range", () => {
     expect(decibelTicks(0, -10, 4)).toEqual([]);
+  });
+});
+
+describe("clusterMarkers", () => {
+  it("leaves markers that do not collide on their own", () => {
+    const clusters = clusterMarkers([{ at: 0.1 }, { at: 0.5 }, { at: 0.9 }]);
+    expect(clusters).toEqual([[{ at: 0.1 }], [{ at: 0.5 }], [{ at: 0.9 }]]);
+  });
+
+  it("groups the decoders sharing one frequency", () => {
+    const clusters = clusterMarkers([{ at: 0.4 }, { at: 0.4 }, { at: 0.4 }]);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toHaveLength(3);
+  });
+
+  it("orders groups and their members by position, not by arrival", () => {
+    const clusters = clusterMarkers([
+      { id: 9, at: 0.42 },
+      { id: 4, at: 0.4 },
+      { id: 1, at: 0.9 },
+    ]);
+    expect(clusters.map((group) => group.map((m) => m.id))).toEqual([[4, 9], [1]]);
+  });
+
+  // Measured against the group's first member, so a run of markers each just inside the gap
+  // cannot chain into one group whose label would stand nowhere near half of them.
+  it("never spans more than the gap", () => {
+    const clusters = clusterMarkers([{ at: 0 }, { at: 0.1 }, { at: 0.2 }, { at: 0.3 }], 0.18);
+    expect(clusters.map((group) => group.length)).toEqual([2, 2]);
   });
 });

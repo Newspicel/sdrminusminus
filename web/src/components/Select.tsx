@@ -15,12 +15,17 @@ export function withCurrent<T extends string | number>(
     : [{ value, label: `${format(value)} (current)` }, ...options];
 }
 
+/** One trigger size everywhere. A dropped list is read top to bottom, so past a point extra width
+ * only stretches the trigger away from its label — and `w-full` under the cap is what lets the
+ * same trigger shrink inside a node dragged to its minimum instead of overflowing it. */
+const TRIGGER = "w-full max-w-52";
+
 export function Select<T extends string | number>({
   label,
   value,
   options,
   onChange,
-  className,
+  className = TRIGGER,
 }: {
   label: string;
   value: T;
@@ -47,7 +52,7 @@ export function Select<T extends string | number>({
         // would act on them too (`useHotkeys`).
         data-hotkeys="off"
         aria-label={label}
-        className={`${FIELD} justify-between ${className ?? ""}`}
+        className={`${FIELD} justify-between ${className}`}
       >
         <Primitive.Value className="truncate" />
         <Primitive.Icon aria-hidden className="shrink-0 text-ink-faint">

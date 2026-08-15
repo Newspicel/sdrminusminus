@@ -217,16 +217,19 @@ test.describe("the workspace", () => {
       expect(await rowOffset(channel, port)).toBeLessThan(1);
     }
 
+    // The threshold is drawn whether or not squelch is on — switching it must not resize the face
+    // under the pointer — so "off" is the slider going inert, not the row disappearing.
     const squelch = channel.getByRole("checkbox", { name: /squelch/i });
-    await squelch.click();
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
-    await expect(threshold).toBeAttached();
+    await expect(threshold).toBeDisabled();
+    await squelch.click();
+    await expect(threshold).toBeEnabled();
     expect(await cursor(squelch)).toBe("pointer");
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
-    await channel.getByText("-60", { exact: true }).click();
+    await channel.getByText("-60 dB", { exact: true }).click();
     await expect(squelch).toBeChecked();
     await squelch.click();
-    await expect(threshold).toHaveCount(0);
+    await expect(threshold).toBeDisabled();
 
     await expect(node("scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 

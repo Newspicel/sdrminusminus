@@ -1,11 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/BaseControls";
-import { BTN, BTN_DANGER, CHIP, LABEL } from "../../components/controls";
+import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
 import type { WireScope } from "../../components/decoderLog";
 import { MapPanel } from "../../components/MapPanel";
+import { Readout, ReadoutRow } from "../../components/Readout";
 import {
   deriveRecordControl,
   formatBytes,
@@ -29,7 +30,7 @@ import type {
 } from "../../lib/types";
 import { type Input, inputsOf, iqSourceOf } from "../binding";
 import { deviceSetOf, useWorkspaceContext } from "../context";
-import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One channel wired into a sink, resolved to the engine objects behind it. */
 function useInputs(node: string, port: string): Input[] {
@@ -314,13 +315,13 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
       live={inputs.length > 0}
     >
-      <FaceBody scroll={false}>
-        {inputs.length === 0 ? (
+      {inputs.length === 0 ? (
+        <FaceBody scroll={false}>
           <FaceEmpty>Wire decoders in; their frames are what this log holds.</FaceEmpty>
-        ) : (
-          <DecoderLogPanel wires={wireScope(inputs)} />
-        )}
-      </FaceBody>
+        </FaceBody>
+      ) : (
+        <DecoderLogPanel wires={wireScope(inputs)} />
+      )}
     </NodeShell>
   );
 }
@@ -380,21 +381,24 @@ export function ExportFace({ node }: { node: PatchNode }) {
       live={inputs.length > 0}
     >
       <FaceBody>
-        {inputs.length === 0 ? (
-          <FaceEmpty>Wire decoders in; their stored rows are what gets exported.</FaceEmpty>
-        ) : (
-          <div className="flex flex-col gap-2 p-2">
-            <span className={LABEL}>Stored rows</span>
-            <div className="flex gap-2">
-              {(["csv", "json"] as const).map((format) => (
-                <a key={format} className={BTN} href={decoderLogExportUrl(format, wires)} download>
-                  {format.toUpperCase()}
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
+        <FaceEmpty>
+          {inputs.length === 0
+            ? "Wire decoders in; their stored rows are what gets exported."
+            : "Every row these decoders have logged, as one file."}
+        </FaceEmpty>
       </FaceBody>
+      <FaceFooter>
+        {(["csv", "json"] as const).map((format) => (
+          <a
+            key={format}
+            className={`${BTN} ${inputs.length === 0 ? "pointer-events-none opacity-45" : ""}`}
+            href={decoderLogExportUrl(format, wires)}
+            download
+          >
+            {format.toUpperCase()}
+          </a>
+        ))}
+      </FaceFooter>
     </NodeShell>
   );
 }
@@ -413,13 +417,13 @@ export function RecorderFace({ node }: { node: PatchNode }) {
       subtitle={set?.recording == null ? undefined : "recording"}
       live={set !== null}
     >
-      <FaceBody>
-        {set === null ? (
+      {set === null ? (
+        <FaceBody>
           <FaceEmpty>Wire a device's IQ out to record it.</FaceEmpty>
-        ) : (
-          <RecordControl set={set} stream={stream} />
-        )}
-      </FaceBody>
+        </FaceBody>
+      ) : (
+        <RecordControl set={set} stream={stream} />
+      )}
     </NodeShell>
   );
 }
@@ -432,43 +436,54 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
     onError: (error: Error) => pushToast(error.message),
   });
   const control = deriveRecordControl(set);
-  if (control.kind === "idle") {
-    return (
-      <div className="flex flex-col gap-2 p-2">
-        <Button
-          type="button"
-          className={BTN}
-          disabled={!control.canStart || record.isPending}
-          title={control.canStart ? "Record IQ to a SigMF pair" : "The radio must be running"}
-          onClick={() => record.mutate("start")}
-        >
-          <span aria-hidden className="text-danger">
-            ●
-          </span>
-          Record
-        </Button>
-      </div>
-    );
-  }
-  const status = control.status;
+  const status = control.kind === "idle" ? null : control.status;
+  const canStart = control.kind === "idle" && control.canStart;
   return (
-    <div className="flex flex-col gap-2 p-2">
-      <Button
-        type="button"
-        className={BTN_DANGER}
-        disabled={record.isPending}
-        onClick={() => record.mutate("stop")}
-      >
-        Stop
-      </Button>
-      <RecordingReadout status={status} sampleRate={set.settings.sample_rate ?? 0} />
-      <span className={CHIP}>{status.file}</span>
-      {status.error != null && (
-        <p role="alert" className="text-xs text-danger">
-          {status.error}
-        </p>
-      )}
-    </div>
+    <>
+      <FaceBody>
+        {status === null ? (
+          <FaceEmpty>
+            {canStart
+              ? "Ready. Recording writes a SigMF pair beside the server's other captures."
+              : "The radio has to be running before it can be recorded."}
+          </FaceEmpty>
+        ) : (
+          <>
+            <RecordingReadout status={status} sampleRate={set.settings.sample_rate ?? 0} />
+            {status.error != null && (
+              <p role="alert" className="border-t border-line p-2 text-xs text-danger">
+                {status.error}
+              </p>
+            )}
+          </>
+        )}
+      </FaceBody>
+      <FaceFooter>
+        {status === null ? (
+          <Button
+            type="button"
+            className={BTN}
+            disabled={!canStart || record.isPending}
+            title="Record IQ to a SigMF pair"
+            onClick={() => record.mutate("start")}
+          >
+            <span aria-hidden className="text-danger">
+              ●
+            </span>
+            Record
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            className={BTN_DANGER}
+            disabled={record.isPending}
+            onClick={() => record.mutate("stop")}
+          >
+            Stop
+          </Button>
+        )}
+      </FaceFooter>
+    </>
   );
 }
 
@@ -486,10 +501,18 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
     return () => clearInterval(timer);
   }, [faulted]);
   return (
-    <span className={CHIP}>
-      {formatDuration(recordingElapsedS(status, now, sampleRate))} · {formatBytes(status.bytes)}
-      {status.overruns > 0 && ` · ${status.overruns} drops`}
-    </span>
+    <Readout separated={false}>
+      <ReadoutRow label="Elapsed">
+        {formatDuration(recordingElapsedS(status, now, sampleRate))}
+      </ReadoutRow>
+      <ReadoutRow label="Written">{formatBytes(status.bytes)}</ReadoutRow>
+      {status.overruns > 0 && <ReadoutRow label="Drops">{status.overruns}</ReadoutRow>}
+      <ReadoutRow label="File">
+        <span className="block truncate" title={status.file}>
+          {status.file}
+        </span>
+      </ReadoutRow>
+    </Readout>
   );
 }
 
@@ -506,15 +529,7 @@ export function ScannerFace({ node }: { node: PatchNode }) {
       subtitle={scanning ? "owns this radio" : undefined}
       live={set !== null}
     >
-      <FaceBody>
-        {set === null ? (
-          <FaceEmpty>
-            Wire this out to a device; the scanner then drives that radio's tuning.
-          </FaceEmpty>
-        ) : (
-          <ScannerPanel active={set} />
-        )}
-      </FaceBody>
+      <ScannerPanel active={set} />
     </NodeShell>
   );
 }
