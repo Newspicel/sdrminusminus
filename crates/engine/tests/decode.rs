@@ -489,7 +489,10 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
 async fn gps_ca_acquisition_survives_virtual_device_playback() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let iq = testgen::gnss::acquisition(7, 1_000.0, 317, 2);
+    // A full second of continuous C/A, not a burst: the channel joins a paced stream wherever
+    // playback has reached, and the decoder only searches one millisecond in twenty, so a
+    // burst would be acquired at one lucky join alignment and never at any other.
+    let iq = testgen::gnss::acquisition(7, 1_000.0, 317, 1_000);
     let device = plant(dir.path(), "gps-l1-ca", iq, GNSS_DEVICE_RATE);
     let record = decode_first(
         &engine,
