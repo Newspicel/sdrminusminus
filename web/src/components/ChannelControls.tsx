@@ -115,6 +115,12 @@ const SUBGHZ_MODULATIONS: Options<NonNullable<ChannelParamsOf<"subghz">["modulat
   { value: "ook", label: "OOK/ASK" },
   { value: "fsk", label: "FSK" },
 ];
+const RADIO_CLOCK_STANDARDS: Options<NonNullable<ChannelParamsOf<"radio_clock">["standard"]>> = [
+  { value: "dcf77", label: "DCF77" },
+  { value: "wwvb", label: "WWVB" },
+  { value: "msf", label: "MSF" },
+  { value: "jjy", label: "JJY" },
+];
 
 /**
  * One channel's settings, addressed by the device set it lives on and the engine channel itself.
@@ -515,6 +521,75 @@ function ModeControls({
             onParams({ type: "navtex", settings: { ...params.settings, invert } })
           }
         />
+      );
+    case "radio_clock":
+      return (
+        <>
+          <SettingRow label="Service">
+            <Select
+              label="Radio clock service"
+              value={params.settings.standard ?? "dcf77"}
+              options={RADIO_CLOCK_STANDARDS}
+              onChange={(standard) =>
+                onParams({
+                  type: "radio_clock",
+                  settings: { ...params.settings, standard },
+                })
+              }
+            />
+          </SettingRow>
+          <Toggle
+            label="Invert"
+            checked={params.settings.invert ?? false}
+            onChange={(invert) =>
+              onParams({ type: "radio_clock", settings: { ...params.settings, invert } })
+            }
+          />
+        </>
+      );
+    case "gnss":
+      return (
+        <>
+          <SettingRow label="GPS PRN">
+            <NumberField
+              label="GPS L1 C/A satellite PRN"
+              value={params.settings.prn ?? 1}
+              min={1}
+              max={32}
+              step={1}
+              onCommit={(prn) => onParams({ type: "gnss", settings: { ...params.settings, prn } })}
+              className="w-16"
+            />
+          </SettingRow>
+          <SettingRow label="Doppler">
+            <NumberField
+              label="Symmetric Doppler search span (Hz)"
+              value={params.settings.doppler_hz ?? 10_000}
+              min={500}
+              max={20_000}
+              step={500}
+              onCommit={(doppler_hz) =>
+                onParams({ type: "gnss", settings: { ...params.settings, doppler_hz } })
+              }
+              className="w-20"
+            />
+            <span className="legend">Hz</span>
+          </SettingRow>
+          <SettingRow label="Acquire above">
+            <NumberField
+              label="Correlation peak-to-floor acquisition threshold"
+              value={params.settings.threshold ?? 2.5}
+              min={1.5}
+              max={20}
+              step={0.1}
+              onCommit={(threshold) =>
+                onParams({ type: "gnss", settings: { ...params.settings, threshold } })
+              }
+              className="w-16"
+            />
+            <span className="legend">× floor</span>
+          </SettingRow>
+        </>
       );
     case "acars":
       return (

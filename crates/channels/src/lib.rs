@@ -5,11 +5,13 @@ mod am;
 mod aprs;
 mod atv;
 mod dv;
+mod gnss;
 mod ident;
 mod morse;
 mod navtex;
 mod nfm;
 mod pocsag;
+mod radio_clock;
 mod rds;
 mod rtty;
 mod selcall;
@@ -35,12 +37,14 @@ pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
     YsfChannel,
 };
+pub use gnss::GnssChannel;
 pub use ident::IdentChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
 use num_complex::Complex;
 pub use pocsag::PocsagChannel;
+pub use radio_clock::RadioClockChannel;
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
 use sdrmm_wire::{
@@ -112,6 +116,8 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::M17(_) => dv::m17::occupied_band(),
         ChannelParams::Freedv(p) => dv::freedv::occupied_band(p),
         ChannelParams::Ident(p) => ident::occupied_band(p),
+        ChannelParams::RadioClock(_) => radio_clock::occupied_band(),
+        ChannelParams::Gnss(_) => gnss::occupied_band(),
     }
 }
 
@@ -169,6 +175,8 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::M17(_) => Ok(dv::m17::channel_filter()),
         ChannelParams::Freedv(p) => dv::freedv::channel_filter(p),
         ChannelParams::Ident(p) => ident::channel_filter(p),
+        ChannelParams::RadioClock(_) => Ok(radio_clock::channel_filter()),
+        ChannelParams::Gnss(_) => Ok(gnss::channel_filter()),
     }
 }
 
@@ -458,6 +466,16 @@ const REGISTRY: &[Registration] = &[
         create: boxed::<IdentChannel>,
         create_tx: None,
     },
+    Registration {
+        descriptor: RadioClockChannel::descriptor,
+        create: boxed::<RadioClockChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: GnssChannel::descriptor,
+        create: boxed::<GnssChannel>,
+        create_tx: None,
+    },
 ];
 
 /// Descriptors for every compiled-in channel type (: static registry).
@@ -553,9 +571,9 @@ mod tests {
 
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
-        DmrParams, DpmrParams, DstarParams, FreeDvParams, IdentParams, M17Params, MorseParams,
-        NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, RttyParams, SelcallParams,
-        SsbParams, SubghzParams, WfmParams, YsfParams,
+        DmrParams, DpmrParams, DstarParams, FreeDvParams, GnssParams, IdentParams, M17Params,
+        MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
+        RadioClockParams, RttyParams, SelcallParams, SsbParams, SubghzParams, WfmParams, YsfParams,
     };
 
     use super::*;
@@ -587,6 +605,8 @@ mod tests {
             "m17" => ChannelParams::M17(M17Params::default()),
             "freedv" => ChannelParams::Freedv(FreeDvParams::default()),
             "ident" => ChannelParams::Ident(IdentParams::default()),
+            "radio_clock" => ChannelParams::RadioClock(RadioClockParams::default()),
+            "gnss" => ChannelParams::Gnss(GnssParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -594,14 +614,37 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 24);
+        assert_eq!(all.len(), 26);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
-                "nfm", "selcall", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty",
-                "morse", "navtex", "acars", "subghz", "atv", "dmr", "dstar", "ysf", "nxdn", "p25",
-                "dpmr", "m17", "freedv", "ident",
+                "nfm",
+                "selcall",
+                "am",
+                "ssb",
+                "wfm",
+                "pocsag",
+                "adsb",
+                "ais",
+                "aprs",
+                "rtty",
+                "morse",
+                "navtex",
+                "acars",
+                "subghz",
+                "atv",
+                "dmr",
+                "dstar",
+                "ysf",
+                "nxdn",
+                "p25",
+                "dpmr",
+                "m17",
+                "freedv",
+                "ident",
+                "radio_clock",
+                "gnss",
             ])
         );
         for d in &all {
@@ -626,6 +669,8 @@ mod tests {
                 "m17" => (9_000.0, 48_000.0),
                 "freedv" => (1_400.0, 8_000.0),
                 "ident" => (192_000.0, 240_000.0),
+                "radio_clock" => (200.0, 2_000.0),
+                "gnss" => (2_046_000.0, 2_048_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
@@ -709,16 +754,19 @@ mod tests {
         }
     }
 
-    /// The two rate rules the canvas draws. ADS-B is the one type handed the
-    /// device's own samples, and *because* it is, no type is exact-rate any more: the flag and
-    /// the range are mutually exclusive, and a type claiming both would leave the canvas telling
-    /// the operator to set a rate the engine then refuses.
+    /// The two rate rules the canvas draws. ADS-B and GNSS are handed the device's own samples;
+    /// their native ranges are mutually exclusive with the resampled exact-rate flag.
     #[test]
-    fn only_adsb_runs_at_the_device_rate_and_nothing_is_exact_rate() {
+    fn native_rate_modes_match_their_required_device_rates() {
         for d in descriptors() {
+            let expected = match d.type_id.as_str() {
+                "adsb" => Some((2_000_000.0, 4_000_000.0)),
+                "gnss" => Some((2_048_000.0, 2_048_000.0)),
+                _ => None,
+            };
             assert_eq!(
                 d.native_rate_range(),
-                (d.type_id == "adsb").then_some((2_000_000.0, 4_000_000.0)),
+                expected,
                 "{} native rate range",
                 d.type_id
             );

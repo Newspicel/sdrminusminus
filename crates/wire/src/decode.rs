@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::RadioClockStandard;
+
 /// RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a
 /// slowly-accreting picture rather than a stream of independent frames, so an event is the
 /// current best view of the station, emitted only when a field actually changed.
@@ -748,6 +750,42 @@ impl DvFrame {
     }
 }
 
+/// One complete civil-time minute recovered from a long-wave radio-clock service.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RadioClockFrame {
+    pub standard: RadioClockStandard,
+    /// ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;
+    /// WWVB is UTC.
+    pub datetime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utc_offset_minutes: Option<i16>,
+    #[serde(default)]
+    pub dst: bool,
+    #[serde(default)]
+    pub leap_warning: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dut1_seconds: Option<f32>,
+    /// The 60 received symbols (`0`, `1`, `M` marker, `?` invalid).
+    pub symbols: String,
+}
+
+/// GPS L1 C/A acquisition state or one parity-checked NAV subframe.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct GnssFrame {
+    pub prn: u8,
+    pub doppler_hz: f32,
+    pub code_phase_chips: f32,
+    pub cn0_db_hz: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subframe: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tow_seconds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub week: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
@@ -765,6 +803,8 @@ pub enum DecoderEvent {
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
     Ident(IdentReport),
+    RadioClock(RadioClockFrame),
+    Gnss(GnssFrame),
 }
 
 impl DecoderEvent {
@@ -786,6 +826,8 @@ impl DecoderEvent {
             Self::Tone(_) => "tone",
             Self::Dv(_) => "dv",
             Self::Ident(_) => "ident",
+            Self::RadioClock(_) => "radio_clock",
+            Self::Gnss(_) => "gnss",
         }
     }
 
@@ -973,6 +1015,32 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::RadioClock(r) => {
+                let mut parts = vec![
+                    format!("{:?}", r.standard).to_uppercase(),
+                    r.datetime.clone(),
+                ];
+                if r.leap_warning {
+                    parts.push("leap warning".to_owned());
+                }
+                parts.join(" · ")
+            }
+            Self::Gnss(g) => {
+                let mut parts = vec![
+                    format!("GPS PRN {}", g.prn),
+                    format!("{:+.0} Hz", g.doppler_hz),
+                    format!("{:.1} dB-Hz", g.cn0_db_hz),
+                ];
+                if let Some(id) = g.subframe {
+                    parts.push(format!("subframe {id}"));
+                } else {
+                    parts.push("acquired".to_owned());
+                }
+                if let Some(tow) = g.tow_seconds {
+                    parts.push(format!("TOW {tow} s"));
+                }
+                parts.join(" · ")
+            }
         }
     }
 
@@ -1012,10 +1080,11 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
-            Self::Rtty(_) | Self::Morse(_) | Self::Selcall(_) | Self::Tone(_) => None,
-            // A survey of what is on a frequency names no emitter: the whole point is that
-            // whoever is transmitting has not been identified yet.
-            Self::Ident(_) => None,
+            Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
+            Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
+            Self::Rtty(_) | Self::Morse(_) | Self::Selcall(_) | Self::Tone(_) | Self::Ident(_) => {
+                None
+            }
         }
     }
 }
@@ -1088,6 +1157,25 @@ mod tests {
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
+            DecoderEvent::RadioClock(RadioClockFrame {
+                standard: RadioClockStandard::Dcf77,
+                datetime: "2026-08-15T12:34:00+02:00".to_owned(),
+                utc_offset_minutes: Some(120),
+                dst: true,
+                leap_warning: false,
+                dut1_seconds: None,
+                symbols: String::new(),
+            }),
+            DecoderEvent::Gnss(GnssFrame {
+                prn: 1,
+                doppler_hz: 0.0,
+                code_phase_chips: 0.0,
+                cn0_db_hz: 40.0,
+                subframe: None,
+                tow_seconds: None,
+                week: None,
+                words: Vec::new(),
+            }),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());
@@ -1170,6 +1258,37 @@ mod tests {
         });
         assert_eq!(decoded.summary(), "24 bit A1B2C3 · addr 0A1B2 · btn 3 · ×4");
         assert_eq!(decoded.station().as_deref(), Some("0A1B2"));
+    }
+
+    #[test]
+    fn clock_and_gnss_summaries_keep_the_measurements_used_by_the_live_log() {
+        let clock = DecoderEvent::RadioClock(RadioClockFrame {
+            standard: RadioClockStandard::Dcf77,
+            datetime: "2026-08-15T12:34:00+02:00".to_owned(),
+            utc_offset_minutes: Some(120),
+            dst: true,
+            leap_warning: false,
+            dut1_seconds: None,
+            symbols: String::new(),
+        });
+        assert_eq!(clock.summary(), "DCF77 · 2026-08-15T12:34:00+02:00");
+        assert_eq!(clock.station().as_deref(), Some("DCF77"));
+
+        let gnss = DecoderEvent::Gnss(GnssFrame {
+            prn: 7,
+            doppler_hz: 1_000.0,
+            code_phase_chips: 158.34,
+            cn0_db_hz: 44.5,
+            subframe: None,
+            tow_seconds: None,
+            week: None,
+            words: Vec::new(),
+        });
+        assert_eq!(
+            gnss.summary(),
+            "GPS PRN 7 · +1000 Hz · 44.5 dB-Hz · acquired"
+        );
+        assert_eq!(gnss.station().as_deref(), Some("GPS-7"));
     }
 
     /// A Mic-E packet's TNC2 line is the packed binary it was sent as, so the log row names

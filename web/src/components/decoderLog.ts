@@ -30,6 +30,8 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   tone: "Tone",
   dv: "Digital voice",
   ident: "Signal ID",
+  radio_clock: "Radio clock",
+  gnss: "GNSS lab",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -323,6 +325,20 @@ export function eventSummary(event: DecoderEvent): string {
         best == null ? null : `${best.name} (${candidateScore(best)})`,
       ]);
     }
+    case "radio_clock": {
+      const r = event.data;
+      return join([r.standard.toUpperCase(), r.datetime, r.leap_warning ? "leap warning" : null]);
+    }
+    case "gnss": {
+      const g = event.data;
+      return join([
+        `GPS PRN ${g.prn}`,
+        `${g.doppler_hz >= 0 ? "+" : ""}${g.doppler_hz.toFixed(0)} Hz`,
+        `${g.cn0_db_hz.toFixed(1)} dB-Hz`,
+        g.subframe == null ? "acquired" : `subframe ${g.subframe}`,
+        g.tow_seconds == null ? null : `TOW ${g.tow_seconds} s`,
+      ]);
+    }
   }
 }
 
@@ -354,6 +370,10 @@ export function eventStation(event: DecoderEvent): string | null {
       return (
         event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))
       );
+    case "radio_clock":
+      return event.data.standard.toUpperCase();
+    case "gnss":
+      return `GPS-${event.data.prn}`;
     case "rtty":
     case "morse":
     // A Selcall sequence names the recipient, not necessarily the transmitter sending it.

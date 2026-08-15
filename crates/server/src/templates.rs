@@ -4,8 +4,8 @@ use std::sync::LazyLock;
 
 use sdrmm_wire::{
     AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams, ChannelSettings,
-    DeviceNode, NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef,
-    Position, TemplateInfo, WfmParams,
+    DeviceNode, GnssParams, NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode, PocsagParams,
+    PortRef, Position, RadioClockParams, TemplateInfo, WfmParams,
 };
 
 /// One channel in a template: its absolute frequency and a constructor for its params.
@@ -230,6 +230,41 @@ static TEMPLATES: &[Entry] = &[
         shape: Shape::Log,
         readout: false,
         exact_rate: false,
+    },
+    Entry {
+        id: "radio-clock",
+        name: "Radio clock",
+        description: "DCF77 civil time and minute-code inspection.",
+        explainer: "DCF77 lowers its 77.5 kHz carrier once per second. The pulse width carries \
+                    the next minute's time and date, with separate parity checks for minute, \
+                    hour and calendar fields. Select WWVB, MSF or JJY in the channel settings \
+                    and retune to the service used in your region.",
+        center_hz: 77_500.0,
+        sample_rate: 240_000.0,
+        channels: &[(77_500.0, || {
+            ChannelParams::RadioClock(RadioClockParams::default())
+        })],
+        shape: Shape::Log,
+        readout: false,
+        exact_rate: false,
+    },
+    Entry {
+        id: "gnss-lab",
+        name: "GNSS lab",
+        description: "Inspect GPS L1 C/A acquisition and NAV subframes.",
+        explainer: "This educational receiver searches one GPS PRN at a time so the code \
+                    phase, Doppler and correlation strength stay visible. After acquisition \
+                    it checks the 50 bit/s navigation-word parity and reports subframe ID, \
+                    time of week and the truncated GPS week from subframe 1. It is not a \
+                    navigation-grade position solution.",
+        center_hz: 1_575_420_000.0,
+        sample_rate: 2_048_000.0,
+        channels: &[(1_575_420_000.0, || {
+            ChannelParams::Gnss(GnssParams::default())
+        })],
+        shape: Shape::Log,
+        readout: false,
+        exact_rate: true,
     },
     Entry {
         id: "ham-2m",

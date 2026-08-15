@@ -24,6 +24,7 @@ sdrmm-dsp.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-recorder.workspace = true
+sdrmm-tools.workspace = true
 
 # `macros` for the FromRequest/FromRequestParts derives that remap extractor rejections
 # onto the ApiError contract.

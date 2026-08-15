@@ -11,19 +11,22 @@ use sdrmm_engine::EngineError;
 use sdrmm_recorder::{
     Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path, scan_stems,
 };
+use sdrmm_tools::ToolError;
 use sdrmm_wire::{
     AboutResponse, ApiError, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
     BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
     ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
     CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
-    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NmeaDevicesResponse, NodeBody,
-    OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
-    PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus,
-    RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
-    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NetworkExportAction,
+    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport,
+    PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal,
+    PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
+    ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
+    TemplatesResponse, ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest,
+    VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
+    WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -171,6 +174,27 @@ impl From<StoreError> for AppError {
                 StatusCode::CONFLICT
             }
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self {
+            status,
+            body: ApiError {
+                error: err.to_string(),
+                detail: None,
+            },
+        }
+    }
+}
+
+impl From<ToolError> for AppError {
+    fn from(err: ToolError) -> Self {
+        let status = if err.is_not_found() {
+            StatusCode::NOT_FOUND
+        } else if err.is_bad_request() {
+            StatusCode::BAD_REQUEST
+        } else if err.is_unavailable() {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
         };
         Self {
             status,
@@ -793,6 +817,37 @@ async fn record_device_set(
     })
     .await??;
     gps_state.gps.route_current(&gps_state);
+    Ok(Json(status))
+}
+
+#[utoipa::path(
+    post, path = "/api/devicesets/{ds}/network-export",
+    params(("ds" = u32, Path, description = "Device set id")),
+    request_body = NetworkExportRequest,
+    responses(
+        (status = 200, description = "Live status after start or final counters after stop", body = NetworkExportStatus),
+        (status = 400, description = "Invalid destination, inactive export, or conflicting owner", body = ApiError),
+        (status = 404, description = "Device set not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn network_export_device_set(
+    State(state): State<AppState>,
+    Path(ds): Path<u32>,
+    Json(req): Json<NetworkExportRequest>,
+) -> Result<Json<NetworkExportStatus>, AppError> {
+    let engine = state.engine.clone();
+    let status = tokio::task::spawn_blocking(move || -> Result<NetworkExportStatus, AppError> {
+        match req.action {
+            NetworkExportAction::Start => engine
+                .start_network_export(ds, req.node, req.stream, req.settings)
+                .map_err(AppError::from),
+            NetworkExportAction::Stop => engine
+                .stop_network_export(ds, &req.node)
+                .map_err(AppError::from),
+        }
+    })
+    .await??;
     Ok(Json(status))
 }
 
@@ -1940,6 +1995,47 @@ async fn get_doctor(State(state): State<AppState>) -> Result<Json<DoctorReport>,
 }
 
 #[utoipa::path(
+    get, path = "/api/tools",
+    responses((
+        status = 200,
+        description = "Every tool this build offers. Tools stand beside the receiver: they own \
+                       no device set and no channel, and a build without a tool's hardware \
+                       support simply does not list it",
+        body = ToolsResponse,
+    )),
+)]
+async fn list_tools(State(state): State<AppState>) -> Json<ToolsResponse> {
+    Json(ToolsResponse {
+        tools: state.tools.descriptors(),
+    })
+}
+
+#[utoipa::path(
+    post, path = "/api/tools/run",
+    request_body = ToolRequest,
+    responses(
+        (
+            status = 200,
+            description = "The tool's answer, tagged with the same tool id the request carried",
+            body = ToolResponse,
+        ),
+        (status = 400, description = "The tool refused the request", body = ApiError),
+        (status = 404, description = "No such tool in this build", body = ApiError),
+        (status = 503, description = "The tool's hardware is not attached", body = ApiError),
+    ),
+)]
+async fn run_tool(
+    State(state): State<AppState>,
+    Json(request): Json<ToolRequest>,
+) -> Result<Json<ToolResponse>, AppError> {
+    let tools = state.tools.clone();
+    // Tools are blocking by contract — an instrument tool talks to a serial port — so none of
+    // them may run on a tokio worker, however cheap this particular one is.
+    let response = tokio::task::spawn_blocking(move || tools.run(request)).await??;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
     get, path = "/api/about",
     responses((
         status = 200,
@@ -2011,6 +2107,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
         .routes(routes!(record_device_set))
+        .routes(routes!(network_export_device_set))
         .routes(routes!(control_playback))
         .routes(routes!(list_recordings))
         .routes(routes!(delete_recording))
@@ -2032,6 +2129,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_clients))
         .routes(routes!(get_occupancy))
         .routes(routes!(get_doctor))
+        .routes(routes!(list_tools))
+        .routes(routes!(run_tool))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
 }

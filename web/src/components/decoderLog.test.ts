@@ -309,6 +309,37 @@ describe("droppedNotice", () => {
   });
 });
 
+describe("clock and GNSS summaries", () => {
+  it("keeps acquisition measurements visible in the live log", () => {
+    const event: DecoderEvent = {
+      kind: "gnss",
+      data: {
+        prn: 7,
+        doppler_hz: 1000,
+        code_phase_chips: 158.34,
+        cn0_db_hz: 44.5,
+      },
+    };
+    expect(eventSummary(event)).toBe("GPS PRN 7 · +1000 Hz · 44.5 dB-Hz · acquired");
+    expect(eventStation(event)).toBe("GPS-7");
+  });
+
+  it("names the clock service beside its decoded civil time", () => {
+    const event: DecoderEvent = {
+      kind: "radio_clock",
+      data: {
+        standard: "dcf77",
+        datetime: "2026-08-15T12:34:00+02:00",
+        dst: true,
+        leap_warning: false,
+        symbols: "M000",
+      },
+    };
+    expect(eventSummary(event)).toBe("DCF77 · 2026-08-15T12:34:00+02:00");
+    expect(eventStation(event)).toBe("DCF77");
+  });
+});
+
 /** These three mirror `DecoderEvent::summary` in `crates/wire/src/decode.rs`; a live row and the
  * stored row it becomes a second later must read identically in the same table. */
 describe("wave-2 summaries", () => {

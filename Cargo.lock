@@ -4461,6 +4461,7 @@ dependencies = [
  "sdrmm-dsp",
  "sdrmm-engine",
  "sdrmm-recorder",
+ "sdrmm-tools",
  "sdrmm-wire",
  "serde",
  "serde_json",
@@ -4475,6 +4476,14 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "sdrmm-tools"
+version = "0.0.0"
+dependencies = [
+ "sdrmm-wire",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

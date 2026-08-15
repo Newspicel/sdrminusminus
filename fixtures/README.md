@@ -30,6 +30,8 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `acars_downlink_240k` | 240 k | `acars` @ −40 kHz | `D-AIBC` / `LH0400` `[H1]`, `SDR-- FIXTURE` |
 | `subghz_ev1527_500k` | 500 k | `subghz` @ +100 kHz | 24-bit PWM `0A1B23`, address `0A1B2`, button 3 |
 | `atv_ccir625_2m4` | 2.4 M | `atv` @ +200 kHz | 625/25 AM, five vertical bars black to white |
+| `dcf77_2026_2k` | 2 k | `radio_clock` / DCF77 @ 0 Hz | 2026-08-15 12:34 CET, valid parity |
+| `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
 
 Two pairs are **not** written by `cargo xtask fixtures` and are committed instead — one
 recorded off air, one frozen render no current generator reproduces.
@@ -40,10 +42,9 @@ recorded off air, one frozen render no current generator reproduces.
 | `freedv_1600_8k` | 8 k | `freedv` @ 0 Hz, USB | FreeDV 1600 sync and decoded Codec2 speech |
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
 
-ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
-channel, so a resampling DDC cannot carry it and the engine refuses the channel at any other
-rate (). ATV is the one whose output is not a log line: play it, wire the channel's
-face into view, and the picture is on the face itself.
+ADS-B and GNSS are device-rate fixtures: ADS-B accepts 2–4 Msps while GPS L1 C/A uses exactly
+2.048 Msps, and neither is carried through the resampling DDC. ATV is the one whose output is not
+a log line: play it, wire the channel's face into view, and the picture is on the face itself.
 
 Every fixture is a SigMF pair — `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel
 `cf32_le` — readable by `sdrmm-recorder` and playable in-app as a `virtual:file:<stem>`
