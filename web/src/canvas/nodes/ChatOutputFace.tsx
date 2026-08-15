@@ -97,10 +97,10 @@ function ChatOutputNodeFace({ node }: { node: PatchNodeOf<"chat_output"> }) {
         </Settings>
         <FaceEmpty>
           {inputs === 0
-            ? "Wire a DMR trunk system's events output into this sink."
+            ? "Wire an Events output from any decoder or DMR trunk into this sink."
             : configured
-              ? "Each completed call is sent once with its metadata and WAV audio."
-              : "Enter the destination credentials to start sending completed calls."}
+              ? "Each event is sent once; completed calls include metadata and WAV audio."
+              : "Enter the destination credentials to start sending events."}
         </FaceEmpty>
       </FaceBody>
     </NodeShell>

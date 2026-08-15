@@ -958,14 +958,8 @@ impl PatchGraph {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
                 }
-                NodeBody::ChatOutput(settings) => {
-                    let only_calls = self.sources_of(&node.id, "events").all(|source| {
-                        self.node(source)
-                            .is_some_and(|source| matches!(source.body, NodeBody::DmrTrunk(_)))
-                    });
-                    if !settings.target.valid() || !only_calls {
-                        return Err(PatchError::NodeSettings(node.id.clone()));
-                    }
+                NodeBody::ChatOutput(settings) if !settings.target.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 _ => {}
             }
@@ -1380,7 +1374,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_output_accepts_only_completed_dmr_trunk_calls() {
+    fn a_chat_output_accepts_decoder_and_completed_call_events() {
         let output = node(
             "chat",
             NodeBody::ChatOutput(ChatOutputNode {
@@ -1398,14 +1392,11 @@ mod tests {
         };
         calls.validate().expect("completed calls");
 
-        let raw = PatchGraph {
+        let decoded = PatchGraph {
             nodes: vec![channel("carrier", "dmr"), output],
             edges: vec![edge(("carrier", "events"), ("chat", "events"))],
         };
-        assert_eq!(
-            raw.validate(),
-            Err(PatchError::NodeSettings("chat".to_owned()))
-        );
+        decoded.validate().expect("decoded events");
     }
 
     #[test]

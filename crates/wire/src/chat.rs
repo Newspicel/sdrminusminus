@@ -31,7 +31,7 @@ impl std::fmt::Debug for ChatOutputTarget {
                 ..
             } => formatter
                 .debug_struct("Matrix")
-                .field("homeserver_url", homeserver_url)
+                .field("homeserver_url", &debug_homeserver_url(homeserver_url))
                 .field("room_id", room_id)
                 .field("access_token", &"[redacted]")
                 .finish(),
@@ -82,7 +82,19 @@ impl ChatOutputTarget {
 fn valid_https_url(value: &str) -> bool {
     value.is_empty()
         || value.len() <= MAX_CHAT_URL_LEN
-            && url::Url::parse(value).is_ok_and(|url| url.scheme() == "https")
+            && url::Url::parse(value).is_ok_and(|url| {
+                url.scheme() == "https" && url.username().is_empty() && url.password().is_none()
+            })
+}
+
+fn debug_homeserver_url(value: &str) -> &str {
+    if url::Url::parse(value)
+        .is_ok_and(|url| !url.username().is_empty() || url.password().is_some())
+    {
+        "[redacted]"
+    } else {
+        value
+    }
 }
 
 fn valid_discord_webhook(value: &str) -> bool {
@@ -164,6 +176,14 @@ mod tests {
         }
         let target = matrix("https://matrix.example", "!radio:example", "secret");
         assert!(target.configured() && target.valid());
+        assert!(
+            !matrix(
+                "https://matrix-user:matrix-password@matrix.example",
+                "!radio:example",
+                "secret",
+            )
+            .valid()
+        );
     }
 
     #[test]
@@ -237,5 +257,17 @@ mod tests {
         assert!(matrix_debug.contains("!radio:matrix.example"));
         assert!(matrix_debug.contains("[redacted]"));
         assert!(!matrix_debug.contains(matrix_secret));
+
+        let user = "matrix-user";
+        let password = "matrix-password";
+        let matrix = ChatOutputTarget::Matrix {
+            homeserver_url: format!("https://{user}:{password}@matrix.example"),
+            room_id: "!radio:matrix.example".to_owned(),
+            access_token: "matrix-secret".to_owned(),
+        };
+        let matrix_debug = format!("{matrix:?}");
+        assert!(!matrix_debug.contains(user));
+        assert!(!matrix_debug.contains(password));
+        assert!(matrix_debug.contains("homeserver_url: \"[redacted]\""));
     }
 }
