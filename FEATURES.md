@@ -79,7 +79,7 @@ If something is shipped, then remove it.
 ### Weather, satellite & imaging
 
 - NOAA APT; Meteor M-2 LRPT
-- Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
+- Radiosonde (RS41 …) + map/log feature, DFM, M10/M20, iMet
 - HF WEFAX — the DSP is the easy half; the picture transport ATV shipped is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
 - SSTV RX; APRS weather aggregation
 
