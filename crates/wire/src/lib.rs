@@ -40,8 +40,8 @@ pub use channel::{
     MIN_IDENT_THRESHOLD_DB, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams,
     NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams,
     RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem,
-    Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams,
-    YsfParams,
+    Sideband, SsbParams, SstvMode, SstvParams, SubghzModulation, SubghzParams, WfmParams,
+    WsjtParams, WsprParams, YsfParams,
 };
 pub use chat::{
     ChatOutputNode, ChatOutputTarget, MAX_CHAT_TOKEN_LEN, MAX_CHAT_URL_LEN, MAX_MATRIX_ROOM_ID_LEN,
@@ -51,7 +51,8 @@ pub use decode::{
     DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity,
     DvTrunkProtocol, GnssFrame, IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage,
     PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
-    SelcallSequence, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
+    SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
+    WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -83,14 +84,14 @@ pub use position::{
 };
 pub use rest::{
     ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse, AuthInfo,
-    Bookmark, ChannelRecordRequest, ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
-    EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat,
-    RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall,
-    VoiceCallsResponse,
+    Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest, ChannelTypesResponse,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage, ExportFormat,
+    LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
+    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,

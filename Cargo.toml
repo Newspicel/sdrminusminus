@@ -134,6 +134,9 @@ cc = "1"
 
 resvg = { version = "0.48", default-features = false }
 
+# PNG encoding for the captured-picture store; the same version resvg already pulls in.
+png = { version = "0.18", default-features = false }
+
 [workspace.lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"

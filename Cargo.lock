@@ -4601,6 +4601,7 @@ dependencies = [
  "libc",
  "mime_guess",
  "num-complex",
+ "png 0.18.1",
  "reqwest",
  "rmcp",
  "rusqlite",

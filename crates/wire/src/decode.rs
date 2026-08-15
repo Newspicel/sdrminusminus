@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::RadioClockStandard;
+use crate::{RadioClockStandard, channel::SstvMode};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RdsUpdate {
@@ -640,6 +640,17 @@ pub struct GnssFrame {
     pub words: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SstvPicture {
+    pub seq: u32,
+    pub mode: SstvMode,
+    pub width: u16,
+    pub height: u16,
+    pub lines: u16,
+    pub complete: bool,
+    pub duration_ms: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
@@ -665,6 +676,7 @@ pub enum DecoderEvent {
     Broadcast(BroadcastStatus),
     RadioClock(RadioClockFrame),
     Gnss(GnssFrame),
+    Sstv(SstvPicture),
 }
 
 impl DecoderEvent {
@@ -693,6 +705,7 @@ impl DecoderEvent {
             Self::Broadcast(_) => "broadcast",
             Self::RadioClock(_) => "radio_clock",
             Self::Gnss(_) => "gnss",
+            Self::Sstv(_) => "sstv",
         }
     }
 
@@ -919,6 +932,18 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Sstv(p) => {
+                let mut parts = vec![
+                    p.mode.label().to_owned(),
+                    format!("{}×{}", p.width, p.height),
+                ];
+                parts.push(if p.complete {
+                    format!("complete in {} s", p.duration_ms / 1_000)
+                } else {
+                    format!("{} of {} lines", p.lines, p.height)
+                });
+                parts.join(" · ")
+            }
         }
     }
 
@@ -967,6 +992,7 @@ impl DecoderEvent {
                 .map(|id| format!("{id:X}")),
             Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
             Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
+            Self::Sstv(p) => Some(p.mode.label().to_owned()),
         }
     }
 }
@@ -983,6 +1009,36 @@ pub struct DecodedRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_sstv_picture_summarises_its_mode_size_and_outcome() {
+        let complete = DecoderEvent::Sstv(SstvPicture {
+            seq: 1,
+            mode: SstvMode::MartinM1,
+            width: 320,
+            height: 256,
+            lines: 256,
+            complete: true,
+            duration_ms: 114_300,
+        });
+        assert_eq!(complete.kind(), "sstv");
+        assert_eq!(
+            complete.summary(),
+            "Martin M1 · 320×256 · complete in 114 s"
+        );
+        assert_eq!(complete.station().as_deref(), Some("Martin M1"));
+
+        let cut_short = DecoderEvent::Sstv(SstvPicture {
+            seq: 2,
+            mode: SstvMode::Robot36,
+            width: 320,
+            height: 240,
+            lines: 96,
+            complete: false,
+            duration_ms: 14_500,
+        });
+        assert_eq!(cut_short.summary(), "Robot 36 · 320×240 · 96 of 240 lines");
+    }
 
     #[test]
     fn decoder_event_is_adjacently_tagged() {

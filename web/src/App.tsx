@@ -25,6 +25,7 @@ import {
   channelTypesQuery,
   DECODER_LOG_KEY,
   DEVICES_KEY,
+  IMAGES_KEY,
   PRESETS_KEY,
   patchCatalogQuery,
   RECORDINGS_KEY,
@@ -42,6 +43,8 @@ import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
 import { pushToast } from "./lib/toasts";
 import type {
+  CapturedImage,
+  CapturedImagesResponse,
   PatchGraph,
   ServerEvent,
   StateScope,
@@ -87,6 +90,9 @@ export function App() {
           break;
         case "CallCompleted":
           appendCall(queryClient, event.data);
+          break;
+        case "ImageCaptured":
+          appendImage(queryClient, event.data);
           break;
         case "Error":
           if (!audioEngine.claimServerError(event.data.message)) {
@@ -377,6 +383,14 @@ function appendCall(queryClient: QueryClient, call: VoiceCall) {
   }));
 }
 
+const MAX_CACHED_IMAGES = 512;
+
+function appendImage(queryClient: QueryClient, image: CapturedImage) {
+  queryClient.setQueryData(IMAGES_KEY, (previous: CapturedImagesResponse | undefined) => ({
+    images: [image, ...(previous?.images ?? [])].slice(0, MAX_CACHED_IMAGES),
+  }));
+}
+
 function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
   switch (scope.scope) {
     case "all":
@@ -408,6 +422,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "calls":
       void queryClient.invalidateQueries({ queryKey: CALLS_KEY });
+      break;
+    case "images":
+      void queryClient.invalidateQueries({ queryKey: IMAGES_KEY });
       break;
   }
 }

@@ -8,6 +8,7 @@ import {
   identMeasurements,
   modulationLabel,
 } from "./decoderViews";
+import { SSTV_MODE_LABELS } from "./sstvModes";
 
 export type DetailField = readonly [label: string, value: string];
 
@@ -292,6 +293,16 @@ const DETAIL: {
       ["GPS week (10 bit)", g.week == null ? undefined : String(g.week)],
     ]),
     body: (g.words ?? []).join(" ") || null,
+  }),
+  sstv: (p) => ({
+    fields: fields([
+      ["Mode", SSTV_MODE_LABELS[p.mode]],
+      ["Size", `${p.width} \u00d7 ${p.height}`],
+      ["Lines received", `${p.lines} of ${p.height}`],
+      ["State", p.complete ? "complete" : "cut short"],
+      ["Took", `${(p.duration_ms / 1000).toFixed(1)} s`],
+    ]),
+    body: null,
   }),
 };
 

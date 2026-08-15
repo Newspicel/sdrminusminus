@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sdrmm_channels::VideoPicture;
+pub use sdrmm_channels::VideoPicture;
 
 pub(crate) const VIDEO_CHANNEL_CAP: usize = 8;
 

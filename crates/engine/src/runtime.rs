@@ -13,7 +13,7 @@ use num_complex::Complex;
 use rtrb::RingBuffer;
 use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    ClickProfile,
+    ClickProfile, DecodedImage,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
@@ -62,9 +62,17 @@ pub(crate) struct RawDecoded {
     pub(crate) event: DecoderEvent,
 }
 
+pub(crate) struct RawImage {
+    pub(crate) device_set: u32,
+    pub(crate) channel: u32,
+    pub(crate) freq_hz: f64,
+    pub(crate) image: DecodedImage,
+}
+
 #[derive(Clone)]
 pub(crate) struct DecodedSink {
     tx: mpsc::SyncSender<RawDecoded>,
+    image_tx: mpsc::SyncSender<RawImage>,
     dropped: Arc<AtomicU64>,
     device_set: u32,
     channel: u32,
@@ -73,12 +81,14 @@ pub(crate) struct DecodedSink {
 impl DecodedSink {
     pub(crate) fn new(
         tx: mpsc::SyncSender<RawDecoded>,
+        image_tx: mpsc::SyncSender<RawImage>,
         dropped: Arc<AtomicU64>,
         device_set: u32,
         channel: u32,
     ) -> Self {
         Self {
             tx,
+            image_tx,
             dropped,
             device_set,
             channel,
@@ -89,7 +99,9 @@ impl DecodedSink {
     pub(crate) fn null() -> Self {
         let (tx, rx) = mpsc::sync_channel(1);
         drop(rx);
-        Self::new(tx, Arc::new(AtomicU64::new(0)), 0, 0)
+        let (image_tx, image_rx) = mpsc::sync_channel(1);
+        drop(image_rx);
+        Self::new(tx, image_tx, Arc::new(AtomicU64::new(0)), 0, 0)
     }
 
     fn publish(&self, freq_hz: f64, event: DecoderEvent) {
@@ -100,6 +112,18 @@ impl DecodedSink {
             event,
         };
         if self.tx.try_send(record).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn publish_image(&self, freq_hz: f64, image: DecodedImage) {
+        let raw = RawImage {
+            device_set: self.device_set,
+            channel: self.channel,
+            freq_hz,
+            image,
+        };
+        if self.image_tx.try_send(raw).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -348,10 +372,13 @@ impl ChannelHost {
     }
 
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
-        if !self.outputs.events.is_empty() {
+        if !self.outputs.events.is_empty() || !self.outputs.images.is_empty() {
             let freq_hz = center_hz + self.offset_hz;
             for event in self.outputs.events.drain(..) {
                 self.decoded.publish(freq_hz, event);
+            }
+            for image in self.outputs.images.drain(..) {
+                self.decoded.publish_image(freq_hz, image);
             }
         }
         for picture in self.outputs.video.drain(..) {

@@ -19,6 +19,8 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
   digital voice modes.
 - Acquire DAB/DAB+, narrow-band DVB-S/S2 DATV, and DRM30/DRM+ carriers with lock, SNR, and
   frequency-error diagnostics.
+- Receive SSTV in twelve scanning modes, watch each picture build up line by line, and keep every
+  one that arrives in the server's picture store.
 - Display live spectrum and waterfall views, decoded readouts, position maps, logs, and ATV video.
 - Scan frequency ranges, save workspaces and presets, search regional band plans, and record IQ as
   SigMF for later playback.

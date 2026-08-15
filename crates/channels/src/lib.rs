@@ -21,6 +21,7 @@ mod rds;
 mod rtty;
 mod selcall;
 mod ssb;
+mod sstv;
 mod subghz;
 pub mod tone_squelch;
 mod tx;
@@ -63,6 +64,7 @@ use sdrmm_wire::{
 };
 pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
+pub use sstv::SstvChannel;
 pub use subghz::SubghzChannel;
 pub use weak_signal::{Ft4Channel, Ft8Channel, WsprChannel};
 pub use wfm::WfmChannel;
@@ -107,6 +109,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
         ChannelParams::Atv(p) => atv::occupied_band(p),
+        ChannelParams::Sstv(p) => sstv::occupied_band(p),
         ChannelParams::Dab(_) => dab::occupied_band(),
         ChannelParams::Datv(p) => datv::occupied_band(p),
         ChannelParams::Drm(p) => drm::occupied_band(p),
@@ -164,6 +167,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
         ChannelParams::Atv(p) => atv::channel_filter(p),
+        ChannelParams::Sstv(p) => sstv::channel_filter(p),
         ChannelParams::Dab(_) => Ok(dab::channel_filter()),
         ChannelParams::Datv(p) => datv::channel_filter(p),
         ChannelParams::Drm(p) => drm::channel_filter(p),
@@ -210,12 +214,22 @@ pub struct VideoPicture {
     pub rgb: Vec<u8>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedImage {
+    pub source: &'static str,
+    pub mode: String,
+    pub complete: bool,
+    pub lines: u16,
+    pub picture: VideoPicture,
+}
+
 #[derive(Default)]
 pub struct ChannelOutputs {
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
     pub events: Vec<DecoderEvent>,
     pub video: Vec<VideoPicture>,
+    pub images: Vec<DecodedImage>,
     pub iq_tap: Vec<Complex<f32>>,
 }
 
@@ -225,6 +239,7 @@ impl ChannelOutputs {
         self.audio_rate = 0;
         self.events.clear();
         self.video.clear();
+        self.images.clear();
         self.iq_tap.clear();
     }
 }
@@ -369,6 +384,11 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: AtvChannel::descriptor,
         create: boxed::<AtvChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: SstvChannel::descriptor,
+        create: boxed::<SstvChannel>,
         create_tx: None,
     },
     Registration {
@@ -550,7 +570,8 @@ mod tests {
         ChannelParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams, DstarParams,
         FreeDvParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams,
         NxdnParams, P25Params, PocsagParams, PskParams, RadioClockParams, RttyParams,
-        SelcallParams, SsbParams, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+        SelcallParams, SsbParams, SstvParams, SubghzParams, WfmParams, WsjtParams, WsprParams,
+        YsfParams,
     };
 
     use super::*;
@@ -573,6 +594,7 @@ mod tests {
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
             "atv" => ChannelParams::Atv(AtvParams::default()),
+            "sstv" => ChannelParams::Sstv(SstvParams::default()),
             "dab" => ChannelParams::Dab(DabParams::default()),
             "datv" => ChannelParams::Datv(DatvParams::default()),
             "drm" => ChannelParams::Drm(DrmParams::default()),
@@ -599,7 +621,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 34);
+        assert_eq!(all.len(), 35);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -619,6 +641,7 @@ mod tests {
                 "acars",
                 "subghz",
                 "atv",
+                "sstv",
                 "dab",
                 "datv",
                 "drm",
@@ -657,6 +680,7 @@ mod tests {
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
                 "atv" => (1_500_000.0, 2_000_000.0),
+                "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),
                 "datv" => (1_500_000.0, 2_000_000.0),
                 "drm" => (100_000.0, 192_000.0),
@@ -703,7 +727,7 @@ mod tests {
             );
             assert_eq!(
                 d.has_video,
-                d.type_id == "atv",
+                matches!(d.type_id.as_str(), "atv" | "sstv"),
                 "{} video flag does not match its mode class",
                 d.type_id
             );

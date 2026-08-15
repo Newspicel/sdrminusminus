@@ -51,6 +51,7 @@ thiserror.workspace = true
 
 rust-embed.workspace = true
 mime_guess.workspace = true
+png.workspace = true
 tracing.workspace = true
 
 # `--doctor`'s USB-permission check asks for the effective uid, which only the Linux arm needs.

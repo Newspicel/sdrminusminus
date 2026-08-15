@@ -516,6 +516,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_images"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/images/{id}/png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["captured_image"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/occupancy": {
         parameters: {
             query?: never;
@@ -1250,6 +1282,31 @@ export interface components {
             /** Format: int32 */
             tx_streams?: number;
         };
+        CapturedImage: {
+            at: string;
+            /** Format: int32 */
+            channel: number;
+            complete: boolean;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: double */
+            freq_hz: number;
+            /** Format: int32 */
+            height: number;
+            /** Format: int64 */
+            id: number;
+            image?: null | components["schemas"]["EventImage"];
+            image_error?: string | null;
+            /** Format: int32 */
+            lines: number;
+            mode: string;
+            source: string;
+            /** Format: int32 */
+            width: number;
+        };
+        CapturedImagesResponse: {
+            images: components["schemas"]["CapturedImage"][];
+        };
         ChannelCapabilities: {
             antennas: string[];
             bandwidth_ranges: components["schemas"]["Range"][];
@@ -1377,6 +1434,10 @@ export interface components {
             settings: components["schemas"]["AtvParams"];
             /** @enum {string} */
             type: "atv";
+        } | {
+            settings: components["schemas"]["SstvParams"];
+            /** @enum {string} */
+            type: "sstv";
         } | {
             settings: components["schemas"]["DabParams"];
             /** @enum {string} */
@@ -1722,6 +1783,10 @@ export interface components {
             data: components["schemas"]["GnssFrame"];
             /** @enum {string} */
             kind: "gnss";
+        } | {
+            data: components["schemas"]["SstvPicture"];
+            /** @enum {string} */
+            kind: "sstv";
         };
         DecoderLogEntry: {
             at: string;
@@ -1949,6 +2014,10 @@ export interface components {
         /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
         EventAudio: {
+            media_type: string;
+            url: string;
+        };
+        EventImage: {
             media_type: string;
             url: string;
         };
@@ -2872,6 +2941,10 @@ export interface components {
             /** @enum {string} */
             type: "CallCompleted";
         } | {
+            data: components["schemas"]["CapturedImage"];
+            /** @enum {string} */
+            type: "ImageCaptured";
+        } | {
             data: {
                 /** Format: int32 */
                 device_set: number;
@@ -2927,6 +3000,27 @@ export interface components {
             bandwidth_hz?: number;
             sideband?: components["schemas"]["Sideband"];
         };
+        /** @enum {string} */
+        SstvMode: "robot36" | "robot72" | "martin_m1" | "martin_m2" | "scottie_s1" | "scottie_s2" | "scottie_dx" | "pd50" | "pd90" | "pd120" | "pd180" | "sc2180";
+        SstvParams: {
+            keep_partial?: boolean;
+            mode?: null | components["schemas"]["SstvMode"];
+            slant_correction?: boolean;
+        };
+        SstvPicture: {
+            complete: boolean;
+            /** Format: int32 */
+            duration_ms: number;
+            /** Format: int32 */
+            height: number;
+            /** Format: int32 */
+            lines: number;
+            mode: components["schemas"]["SstvMode"];
+            /** Format: int32 */
+            seq: number;
+            /** Format: int32 */
+            width: number;
+        };
         StateScope: {
             /** @enum {string} */
             scope: "all";
@@ -2956,6 +3050,9 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "calls";
+        } | {
+            /** @enum {string} */
+            scope: "images";
         } | {
             /** @enum {string} */
             scope: "workspaces";
@@ -4572,6 +4669,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DoctorReport"];
+                };
+            };
+        };
+    };
+    list_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pictures captured from scanning modes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapturedImagesResponse"];
+                };
+            };
+        };
+    };
+    captured_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Captured picture id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The captured picture */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Picture not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

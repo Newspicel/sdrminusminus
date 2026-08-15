@@ -234,6 +234,34 @@ describe("eventSummary", () => {
       }),
     ).toBe('DL1ABC-7>S32U6T:`(_fn"Oj/ · Returning');
     expect(eventSummary({ kind: "rtty", data: { text: "CQ CQ" } })).toBe("CQ CQ");
+    expect(
+      eventSummary({
+        kind: "sstv",
+        data: {
+          seq: 1,
+          mode: "martin_m1",
+          width: 320,
+          height: 256,
+          lines: 256,
+          complete: true,
+          duration_ms: 114_300,
+        },
+      }),
+    ).toBe("Martin M1 \u00b7 320\u00d7256 \u00b7 complete in 114 s");
+    expect(
+      eventSummary({
+        kind: "sstv",
+        data: {
+          seq: 2,
+          mode: "robot36",
+          width: 320,
+          height: 240,
+          lines: 96,
+          complete: false,
+          duration_ms: 14_500,
+        },
+      }),
+    ).toBe("Robot 36 \u00b7 320\u00d7240 \u00b7 96 of 240 lines");
     expect(eventSummary({ kind: "tone", data: { ctcss_hz: 88.5, open: true } })).toBe(
       "CTCSS 88.5 Hz · open",
     );

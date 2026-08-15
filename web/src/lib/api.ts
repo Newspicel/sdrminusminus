@@ -12,6 +12,7 @@ import type {
   BandPlan,
   BandRegionsResponse,
   Bookmark,
+  CapturedImagesResponse,
   ChannelSettings,
   ChannelTypesResponse,
   CreateBookmarkRequest,
@@ -80,6 +81,7 @@ export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
 export const AUDIO_RECORDINGS_KEY = ["get", "/api/audiorecordings"] as const;
 export const CALLS_KEY = ["get", "/api/calls"] as const;
+export const IMAGES_KEY = ["get", "/api/images"] as const;
 export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
@@ -107,6 +109,17 @@ export function callsQuery() {
 }
 
 export function callAudioUrl(url: string): string {
+  return withToken(url);
+}
+
+export function imagesQuery() {
+  return queryOptions({
+    queryKey: IMAGES_KEY,
+    queryFn: async (): Promise<CapturedImagesResponse> => unwrap(await client.GET("/api/images")),
+  });
+}
+
+export function capturedImageUrl(url: string): string {
   return withToken(url);
 }
 

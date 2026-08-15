@@ -13,6 +13,7 @@ pub mod radio_clock;
 pub mod rds;
 pub mod rtty;
 pub mod selcall;
+pub mod sstv;
 pub mod subghz;
 pub mod weak_signal;
 pub mod wfm;
