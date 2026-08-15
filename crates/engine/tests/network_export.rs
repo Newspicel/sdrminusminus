@@ -5,12 +5,12 @@ use std::{
     io::Read,
     net::{TcpListener, UdpSocket},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sdrmm_device::DeviceRegistry;
 use sdrmm_device_virtual::VirtualDriver;
-use sdrmm_engine::Engine;
+use sdrmm_engine::{Engine, EngineError};
 use sdrmm_wire::{DeviceSettings, NetworkExportSettings, NetworkSampleFormat, NetworkTransport};
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -35,9 +35,12 @@ fn virtual_device_exports_mtu_safe_ci16_udp() {
         address: receiver.local_addr().expect("address").to_string(),
     };
 
-    engine
+    let started = engine
         .start_network_export(ds, "udp".to_owned(), 0, settings.clone())
         .expect("start UDP export");
+    assert_eq!(started.node, "udp");
+    assert_eq!(started.settings, settings);
+    assert_eq!(started.samples, 0);
     let mut datagram = [0u8; 2_048];
     let received = receiver.recv(&mut datagram).expect("IQ datagram");
     assert!(
@@ -62,6 +65,7 @@ fn virtual_device_exports_mtu_safe_ci16_udp() {
             },
         )
         .expect_err("raw export pins its sample rate");
+    assert!(matches!(rate_error, EngineError::NetworkExport(_)));
     assert!(rate_error.to_string().contains("locked"));
     assert!(
         engine.stop_network_export(ds, "another-node").is_err(),
@@ -83,8 +87,22 @@ fn virtual_device_exports_mtu_safe_ci16_udp() {
 fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     let address = listener.local_addr().expect("address");
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking listener");
     let reader = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept exporter");
+        let deadline = Instant::now() + WAIT;
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "exporter never connected");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept exporter: {error}"),
+            }
+        };
+        stream.set_nonblocking(false).expect("blocking stream");
         stream.set_read_timeout(Some(WAIT)).expect("timeout");
         let mut bytes = [0u8; 16];
         stream.read_exact(&mut bytes).expect("two complex samples");

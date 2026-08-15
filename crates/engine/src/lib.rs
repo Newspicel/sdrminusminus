@@ -38,7 +38,7 @@ pub use trunking::TrunkSystem;
 pub use video::VideoPacket;
 
 use crate::{
-    network_export::NetworkExportShared,
+    network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
     runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
     scanner::{ScanPlan, ScannerState},
@@ -352,6 +352,15 @@ struct NetworkExportState {
     overruns_at_start: u64,
     samples_seen: u64,
     error_seen: bool,
+}
+
+enum NetworkExportCommit {
+    Started(NetworkExportStatus),
+    Aborted {
+        tap: NetworkExportTap,
+        writer: JoinHandle<()>,
+        patch_in_flight: bool,
+    },
 }
 
 impl NetworkExportState {
@@ -1373,12 +1382,17 @@ impl Engine {
             if let Some(new_rate) = delta.sample_rate
                 && new_rate != sample_rate_of(&state.settings)
             {
+                if state.network_export.is_some() {
+                    return Err(EngineError::NetworkExport(
+                        "sample rate is locked while exporting; stop the export first".to_string(),
+                    ));
+                }
                 // SigMF `core:sample_rate` is global-scope — one rate per file — so a live
                 // recording pins the device rate; center retunes stay allowed (they land as
                 // capture segments).
-                if state.recording.is_some() || state.network_export.is_some() {
+                if state.recording.is_some() {
                     return Err(EngineError::Recording(
-                        "sample rate is locked while recording or exporting; stop it first"
+                        "sample rate is locked while recording; stop the recording first"
                             .to_string(),
                     ));
                 }
@@ -1389,9 +1403,8 @@ impl Engine {
                 rate_change = true;
             }
             let runtime = state.runtime.clone();
-            // The guard closes the patch-vs-record race for the whole apply-to-merge window:
-            // `start_recording`'s commit refuses while it is up, so a recording can never pin
-            // a rate this patch is about to change.
+            // The guard closes the patch-vs-sink race for the whole apply-to-merge window: raw
+            // sink commits refuse while it is up, so they cannot pin a rate this patch will leave.
             let guard = rate_change.then(|| {
                 state.rate_patches += 1;
                 RatePatchGuard { engine: self, ds }
@@ -1414,10 +1427,11 @@ impl Engine {
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let old_rate = sample_rate_of(&state.settings);
             // A same-rate delta carries no guard, so if another patch moved the rate while
-            // `apply` ran, this delta may now be a rate change under a recording that
-            // committed in between. Merging would break the one-rate-per-file invariant;
-            // revert the device instead and lose cleanly.
-            if (state.recording.is_some() || state.network_export.is_some())
+            // `apply` ran, this delta may now be a rate change under a raw sink committed in
+            // between. Merging would invalidate its fixed-rate contract; revert and fail.
+            let locked_by_export = state.network_export.is_some();
+            let locked_by_recording = state.recording.is_some();
+            if (locked_by_export || locked_by_recording)
                 && delta.sample_rate.is_some_and(|r| r != old_rate)
             {
                 drop(inner);
@@ -1426,14 +1440,31 @@ impl Engine {
                     ..DeviceSettings::default()
                 };
                 if let Err(e) = lock_runtime(&runtime).apply(&revert) {
-                    return Err(EngineError::Recording(format!(
-                        "sample rate is locked while recording or exporting, and reverting the device to \
+                    let owner = if locked_by_export {
+                        "exporting"
+                    } else {
+                        "recording"
+                    };
+                    let message = format!(
+                        "sample rate is locked while {owner}, and reverting the device to \
                          {old_rate} Hz failed: {e}"
-                    )));
+                    );
+                    return Err(if locked_by_export {
+                        EngineError::NetworkExport(message)
+                    } else {
+                        EngineError::Recording(message)
+                    });
                 }
-                return Err(EngineError::Recording(
-                    "sample rate is locked while recording or exporting; stop it first".to_string(),
-                ));
+                return Err(if locked_by_export {
+                    EngineError::NetworkExport(
+                        "sample rate is locked while exporting; stop the export first".to_string(),
+                    )
+                } else {
+                    EngineError::Recording(
+                        "sample rate is locked while recording; stop the recording first"
+                            .to_string(),
+                    )
+                });
             }
             // The request first, then the device's truth over the top. Both are needed: a
             // backend that reports a field must win (a HackRF asked for 13 dB of LNA holds
@@ -2025,7 +2056,7 @@ impl Engine {
         node: String,
         stream: u32,
         settings: NetworkExportSettings,
-    ) -> Result<(), EngineError> {
+    ) -> Result<NetworkExportStatus, EngineError> {
         if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
             return Err(EngineError::NetworkExport(
                 "node id is empty or too long".to_owned(),
@@ -2059,7 +2090,7 @@ impl Engine {
                 sample_rate_of(&state.settings)
             };
             let (tap, shared, writer) = network_export::start(&settings)?;
-            let (aborted, patch_in_flight) = {
+            let commit = {
                 let mut inner = self.lock();
                 match inner.device_sets.get_mut(&ds) {
                     Some(state)
@@ -2074,7 +2105,7 @@ impl Engine {
                             .for_stream(stream, &state.capabilities.per_stream)
                             .center_hz
                             .unwrap_or(DEFAULT_CENTER_HZ);
-                        state.network_export = Some(NetworkExportState {
+                        let export = NetworkExportState {
                             node: node.clone(),
                             stream,
                             settings: settings.clone(),
@@ -2085,27 +2116,45 @@ impl Engine {
                             overruns_at_start: state.overruns_total(),
                             samples_seen: 0,
                             error_seen: false,
-                        });
+                        };
+                        let status = export.status(state.overruns_total());
+                        state.network_export = Some(export);
                         state.send_dsp(stream, DspCommand::StartNetworkExport { tap });
                         inner.revision += 1;
-                        (None, false)
+                        NetworkExportCommit::Started(status)
                     }
-                    Some(state) if state.rate_patches > 0 => (Some((tap, writer)), true),
-                    _ => (Some((tap, writer)), false),
+                    Some(state) if state.rate_patches > 0 => NetworkExportCommit::Aborted {
+                        tap,
+                        writer,
+                        patch_in_flight: true,
+                    },
+                    _ => NetworkExportCommit::Aborted {
+                        tap,
+                        writer,
+                        patch_in_flight: false,
+                    },
                 }
             };
-            let Some((tap, writer)) = aborted else {
-                self.emit(ServerEvent::StateChanged {
-                    scope: StateScope::DeviceSet(ds),
-                });
-                return Ok(());
-            };
-            drop(tap);
-            join_network_writer(writer);
-            if patch_in_flight {
-                return Err(EngineError::NetworkExport(
-                    "a sample-rate change is in flight; retry once it completes".to_owned(),
-                ));
+            match commit {
+                NetworkExportCommit::Started(status) => {
+                    self.emit(ServerEvent::StateChanged {
+                        scope: StateScope::DeviceSet(ds),
+                    });
+                    return Ok(status);
+                }
+                NetworkExportCommit::Aborted {
+                    tap,
+                    writer,
+                    patch_in_flight,
+                } => {
+                    drop(tap);
+                    join_network_writer(writer);
+                    if patch_in_flight {
+                        return Err(EngineError::NetworkExport(
+                            "a sample-rate change is in flight; retry once it completes".to_owned(),
+                        ));
+                    }
+                }
             }
         }
     }

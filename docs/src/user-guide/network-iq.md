@@ -39,6 +39,13 @@ program must be listening before export starts. TCP avoids datagram loss and reo
 receiver that cannot keep up eventually fills the bounded export queue; sdr-- then stops the
 writer and surfaces the error rather than leaving an unmarked hole.
 
+## Security
+
+The API caller chooses the destination host and port, and an active export can send several
+megabits per second. Keep the server restricted to trusted callers. In particular, configure the
+[shared token](../server/configuration.md#shared-token-authentication) and appropriate network
+access controls whenever the HTTP server is reachable beyond the local desktop.
+
 ## Standards and conventions
 
 There is no universal “raw IQ over UDP” standard. GNU Radio's network blocks deliberately let

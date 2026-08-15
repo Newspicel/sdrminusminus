@@ -2,13 +2,15 @@ import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, FIELD } from "../../components/controls";
-import { deriveNetworkExportControl } from "../../components/networkExport";
+import {
+  deriveNetworkExportControl,
+  networkExportControlsLocked,
+  networkExportMutationOptions,
+} from "../../components/networkExport";
 import { formatBytes } from "../../components/recordings";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
-import { networkExportDeviceSet } from "../../lib/api";
-import { pushToast } from "../../lib/toasts";
-import type { NetworkExportAction, PatchNode, PatchNodeOf } from "../../lib/types";
+import type { PatchNode, PatchNodeOf } from "../../lib/types";
 import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
@@ -56,16 +58,14 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
       ),
     }));
   };
-  const exportIq = useMutation({
-    mutationFn: (action: NetworkExportAction) => {
-      if (set === null || source === null) {
-        return Promise.reject(new Error("Wire a running device's IQ into this sink first."));
-      }
-      return networkExportDeviceSet(set.id, action, node.id, source.stream, settings);
-    },
-    onError: (error: Error) => pushToast(error.message),
-  });
-  const locked = control.kind === "active" || exportIq.isPending;
+  const exportIq = useMutation(
+    networkExportMutationOptions(
+      set === null || source === null ? null : { deviceSet: set.id, stream: source.stream },
+      node.id,
+      settings,
+    ),
+  );
+  const locked = networkExportControlsLocked(control, exportIq.isPending);
 
   return (
     <NodeShell

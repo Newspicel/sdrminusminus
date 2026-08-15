@@ -1492,6 +1492,7 @@ async fn rate_patch_is_rejected_while_recording_center_retune_is_captured() {
             },
         )
         .unwrap_err();
+    assert!(matches!(err, EngineError::Recording(_)));
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     let snap = engine.snapshot();
     assert_eq!(snap.device_sets[0].settings.sample_rate, Some(2_048_000.0));

@@ -816,21 +816,12 @@ async fn network_export_device_set(
     let engine = state.engine.clone();
     let status = tokio::task::spawn_blocking(move || -> Result<NetworkExportStatus, AppError> {
         match req.action {
-            NetworkExportAction::Start => {
-                engine.start_network_export(ds, req.node, req.stream, req.settings)?;
-                engine
-                    .snapshot()
-                    .device_sets
-                    .into_iter()
-                    .find(|set| set.id == ds)
-                    .and_then(|set| set.network_export)
-                    .ok_or_else(|| {
-                        AppError::internal(
-                            "network export vanished before its first status snapshot".to_owned(),
-                        )
-                    })
-            }
-            NetworkExportAction::Stop => Ok(engine.stop_network_export(ds, &req.node)?),
+            NetworkExportAction::Start => engine
+                .start_network_export(ds, req.node, req.stream, req.settings)
+                .map_err(AppError::from),
+            NetworkExportAction::Stop => engine
+                .stop_network_export(ds, &req.node)
+                .map_err(AppError::from),
         }
     })
     .await??;
