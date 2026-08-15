@@ -87,6 +87,9 @@ pub(crate) struct AppState {
     pub(crate) calls: Arc<calls::Calls>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
+    /// The tool plane: calculators and instruments that stand beside the receiver and share
+    /// nothing with it but the process.
+    pub(crate) tools: Arc<sdrmm_tools::ToolRegistry>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
     /// `(workspace, node, device set)` triples apply has already handed their stored settings.
     ///
@@ -117,6 +120,7 @@ impl AppState {
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            tools: Arc::new(sdrmm_tools::ToolRegistry::with_builtins()),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
@@ -508,6 +512,8 @@ mod tests {
             "/api/calls/{id}/audio",
             "/api/workspaces/{id}/apply",
             "/api/patch/catalog",
+            "/api/tools",
+            "/api/tools/run",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -534,6 +540,11 @@ mod tests {
             "DeviceRef",
             "PatchCatalog",
             "PatchApplyReport",
+            "ToolDescriptor",
+            "ToolRequest",
+            "ToolResponse",
+            "AntennaDesign",
+            "AntennaReport",
         ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
@@ -3009,6 +3020,82 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The launcher renders whatever this lists, so a tool that is compiled in must be
+    /// discoverable without the client knowing its name in advance.
+    #[tokio::test]
+    async fn tools_lists_what_this_build_offers() {
+        let (status, body) = request(test_router(), "GET", "/api/tools", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let tools: sdrmm_wire::ToolsResponse = serde_json::from_slice(&body).expect("json");
+        let antenna = tools
+            .tools
+            .iter()
+            .find(|tool| tool.id == sdrmm_wire::ANTENNA_TOOL_ID)
+            .expect("the antenna calculator is a builtin");
+        assert!(!antenna.needs_hardware);
+        assert!(!antenna.summary.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_tool_call_answers_under_the_tag_it_was_asked_with() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(
+                r#"{"tool":"antenna","request":{"frequency_hz":145500000.0,
+                    "design":{"type":"yagi","settings":{"directors":3,
+                    "spacing_wavelengths":0.2}}}}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let response: sdrmm_wire::ToolResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(response.tool_id(), sdrmm_wire::ANTENNA_TOOL_ID);
+        let sdrmm_wire::ToolResponse::Antenna(report) = response else {
+            panic!("an antenna request is answered by the antenna tool");
+        };
+        assert_eq!(report.frequency_hz, 145_500_000.0);
+        assert!(
+            report
+                .parts
+                .iter()
+                .any(|part| part.name == "Director 3" && part.position_m.is_some())
+        );
+    }
+
+    /// A tool refusing a number is a bad request, not a server fault, and the reason has to
+    /// name the field the operator typed.
+    #[tokio::test]
+    async fn a_tool_refusal_is_a_typed_bad_request() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(r#"{"tool":"antenna","request":{"frequency_hz":0.0,"design":{"type":"dipole"}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error: ApiError = serde_json::from_slice(&body).expect("json");
+        assert!(error.error.contains("frequency_hz"), "{}", error.error);
+    }
+
+    /// An unknown tag is a schema mismatch, and must come back as the documented error body
+    /// rather than axum's plain text.
+    #[tokio::test]
+    async fn an_unknown_tool_tag_is_refused_in_the_error_shape() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(r#"{"tool":"nanovna","request":{}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        let error: ApiError = serde_json::from_slice(&body).expect("json");
+        assert_eq!(error.error, "invalid request body");
     }
 
     /// The notices are a shipping obligation, so the route that delivers them is part of the

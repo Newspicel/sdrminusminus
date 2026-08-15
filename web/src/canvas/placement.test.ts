@@ -51,7 +51,7 @@ describe("useNodePlacement", () => {
 
     expect(flow.fitBounds).toHaveBeenCalledTimes(1);
     const [bounds, options] = flow.fitBounds.mock.calls[0] ?? [];
-    expect(options).toEqual({ padding: 0.12 });
+    expect(options).toEqual({ padding: 0 });
     expect(bounds.x).toBeLessThanOrEqual(0);
     expect(bounds.y).toBeLessThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(1_200);
@@ -95,17 +95,13 @@ describe("dropPosition", () => {
     expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
   });
 
-  it("places a node just beyond a crowded viewport instead of overlapping", () => {
+  it("places a node clear of the others when the visible area is full", () => {
     const occupied = [{ x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h }];
-    const position = dropPosition(viewport, size, occupied, 20);
+    const first = dropPosition(viewport, size, occupied, 20);
+    const second = dropPosition(viewport, size, occupied, 20);
 
-    expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
-    expect(
-      position.x < viewport.x ||
-        position.y < viewport.y ||
-        position.x + size.w > viewport.x + viewport.w ||
-        position.y + size.h > viewport.y + viewport.h,
-    ).toBe(true);
+    expect(second).toEqual(first);
+    expect(occupied.every((rect) => !overlaps(first, rect))).toBe(true);
   });
 
   it("finds a clear position for the fixed-size starter patch", () => {
@@ -127,5 +123,17 @@ describe("dropPosition", () => {
           position.y >= rect.y + rect.h,
       ),
     ).toBe(true);
+  });
+
+  it("stays beside the view rather than across the patch when it has to widen", () => {
+    const occupied = [
+      { x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h },
+      { x: 20_000, y: 20_000, w: 400, h: 400 },
+    ];
+    const position = dropPosition(viewport, size, occupied, 20);
+
+    expect(position.x).toBeLessThan(viewport.x + viewport.w + size.w);
+    expect(position.y).toBeLessThan(viewport.y + viewport.h + size.h);
+    expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
   });
 });

@@ -1799,6 +1799,80 @@
         }
       }
     },
+    "/api/tools": {
+      "get": {
+        "operationId": "list_tools",
+        "responses": {
+          "200": {
+            "description": "Every tool this build offers. Tools stand beside the receiver: they own no device set and no channel, and a build without a tool's hardware support simply does not list it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/run": {
+      "post": {
+        "operationId": "run_tool",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The tool's answer, tagged with the same tool id the request carried",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The tool refused the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tool in this build",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The tool's hardware is not attached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces": {
       "get": {
         "operationId": "list_workspaces",
@@ -2484,6 +2558,368 @@
             "format": "double"
           }
         }
+      },
+      "AntennaDesign": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Half-wave, centre fed, horizontal.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dipole"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A dipole with its legs sloped down from a single support.",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/InvertedVParams",
+                "description": "A dipole with its legs sloped down from a single support."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "inverted_v"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Quarter-wave vertical over radials.",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/GroundPlaneParams",
+                "description": "Quarter-wave vertical over radials."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ground_plane"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Five-eighths-wave vertical with a base loading coil.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "five_eighths_vertical"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Half-wave folded dipole, the ~300 Ω driven element of a Yagi.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "folded_dipole"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "End-fed half-wave with a quarter-wave matching stub.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "j_pole"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Reflector, driven element and directors on a boom.",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/YagiParams",
+                "description": "Reflector, driven element and directors on a boom."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "yagi"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Full-wave square loop (quad), fed at a corner or the middle of a side.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "quad_loop"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Half-wave wire fed at its high-impedance end through a transformer.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "end_fed_half_wave"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The antenna to cut. Adjacently tagged like [`crate::ChannelParams`]: the designs that take\nno choices are bare tags, the rest carry their settings."
+      },
+      "AntennaGeometry": {
+        "type": "object",
+        "description": "The antenna as a shape: enough to draw it to scale from any angle.",
+        "required": [
+          "segments",
+          "feed"
+        ],
+        "properties": {
+          "feed": {
+            "$ref": "#/components/schemas/AntennaPoint",
+            "description": "Where the feedline attaches."
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AntennaSegment"
+            }
+          }
+        }
+      },
+      "AntennaPart": {
+        "type": "object",
+        "description": "One thing to cut, bend or buy.",
+        "required": [
+          "name",
+          "count",
+          "length_m"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of this part the design needs.",
+            "minimum": 0
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "length_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "position_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Where it sits along the boom, measured from the reflector. Only the designs that have\na boom set it."
+          }
+        }
+      },
+      "AntennaPoint": {
+        "type": "object",
+        "description": "A point on the antenna, in metres from the origin. `x` runs along the elements, `y` is up,\n`z` is the boom's depth. The origin is the feedpoint, or the base of anything that stands on\none.",
+        "required": [
+          "x_m",
+          "y_m",
+          "z_m"
+        ],
+        "properties": {
+          "x_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "y_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "z_m": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "AntennaReport": {
+        "type": "object",
+        "description": "What the calculator worked out.",
+        "required": [
+          "design",
+          "frequency_hz",
+          "wavelength_m",
+          "velocity_factor",
+          "parts",
+          "geometry",
+          "balanced",
+          "notes"
+        ],
+        "properties": {
+          "balanced": {
+            "type": "boolean",
+            "description": "Whether the feedpoint is balanced, and so wants a balun ahead of coax."
+          },
+          "design": {
+            "$ref": "#/components/schemas/AntennaDesign",
+            "description": "The design that produced this, echoed so a cached report can name itself."
+          },
+          "feedpoint_ohms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Estimated feedpoint impedance in free space. `None` where the design's own matching\nnetwork sets it and a raw figure would mislead."
+          },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/AntennaGeometry",
+            "description": "The same design as a shape, to scale, for a drawing of it."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Everything the numbers alone do not say: what to trim, what to match with, what the\nestimate assumes."
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AntennaPart"
+            }
+          },
+          "velocity_factor": {
+            "type": "number",
+            "format": "double"
+          },
+          "wavelength_m": {
+            "type": "number",
+            "format": "double",
+            "description": "Free-space wavelength, before any correction factor."
+          }
+        }
+      },
+      "AntennaRequest": {
+        "type": "object",
+        "description": "`POST /api/tools/run` with `\"tool\": \"antenna\"`.",
+        "required": [
+          "frequency_hz",
+          "design"
+        ],
+        "properties": {
+          "design": {
+            "$ref": "#/components/schemas/AntennaDesign"
+          },
+          "feedline_velocity_factor": {
+            "type": "number",
+            "format": "double",
+            "description": "Velocity factor of the coax, used only by designs that include a matching section.\nSolid polyethylene is 0.66, foam 0.80, PTFE 0.70."
+          },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "velocity_factor": {
+            "type": "number",
+            "format": "double",
+            "description": "End-effect factor applied to every resonant element."
+          }
+        }
+      },
+      "AntennaSegment": {
+        "type": "object",
+        "description": "One straight piece of the antenna, as drawn.",
+        "required": [
+          "label",
+          "role",
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/AntennaPoint"
+          },
+          "label": {
+            "type": "string",
+            "description": "The part this piece is. Where the report lists a part under the same name, the segment is\nexactly that long."
+          },
+          "role": {
+            "$ref": "#/components/schemas/AntennaSegmentRole"
+          },
+          "to": {
+            "$ref": "#/components/schemas/AntennaPoint"
+          }
+        }
+      },
+      "AntennaSegmentRole": {
+        "type": "string",
+        "description": "What a drawn piece does, so a view can colour it without reading its name.",
+        "enum": [
+          "driven",
+          "parasitic",
+          "radial",
+          "matching",
+          "feedline",
+          "structure"
+        ]
       },
       "ApiError": {
         "type": "object",
@@ -5882,6 +6318,21 @@
           }
         }
       },
+      "GroundPlaneParams": {
+        "type": "object",
+        "properties": {
+          "radial_slope_deg": {
+            "type": "number",
+            "format": "double",
+            "description": "How far the radials droop below horizontal. Sloping them raises the feedpoint\nimpedance from about 36 Ω towards 50 Ω."
+          },
+          "radials": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "IdentFeatures": {
         "type": "object",
         "description": "The measurements a classification was made from, carried so the decision can be checked\nrather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,\nnot just the verdict.",
@@ -6044,6 +6495,16 @@
             ],
             "format": "double",
             "description": "Symbols per second, when a symbol clock was found."
+          }
+        }
+      },
+      "InvertedVParams": {
+        "type": "object",
+        "properties": {
+          "apex_angle_deg": {
+            "type": "number",
+            "format": "double",
+            "description": "Angle between the two legs. 180° is a flat dipole; the legs shorten as it closes."
           }
         }
       },
@@ -9066,6 +9527,107 @@
           }
         }
       },
+      "ToolCategory": {
+        "type": "string",
+        "description": "What kind of thing a tool is, so the launcher can group them.",
+        "enum": [
+          "calculator",
+          "instrument",
+          "reference"
+        ]
+      },
+      "ToolDescriptor": {
+        "type": "object",
+        "description": "One tool the server can run, as advertised by `GET /api/tools`.",
+        "required": [
+          "id",
+          "name",
+          "summary",
+          "category",
+          "needs_hardware"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/ToolCategory"
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable id, and the tag of this tool's [`ToolRequest`] variant."
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs_hardware": {
+            "type": "boolean",
+            "description": "Whether running it needs hardware attached. Feature-gated tools are absent from the\nlist entirely; this marks the ones that are compiled in but may still find nothing."
+          },
+          "summary": {
+            "type": "string",
+            "description": "One line, shown under the name in the launcher."
+          }
+        }
+      },
+      "ToolRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "request",
+              "tool"
+            ],
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/AntennaRequest"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "antenna"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "`POST /api/tools/run` — one call to one tool. The tag is the tool id, so the body names its\nown destination and no path parameter can disagree with it."
+      },
+      "ToolResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "result",
+              "tool"
+            ],
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/AntennaReport"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "antenna"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "What a tool answered, tagged with the same id the request carried."
+      },
+      "ToolsResponse": {
+        "type": "object",
+        "description": "`GET /api/tools`.",
+        "required": [
+          "tools"
+        ],
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDescriptor"
+            }
+          }
+        }
+      },
       "TrunkFollower": {
         "type": "object",
         "required": [
@@ -9505,6 +10067,22 @@
             "items": {
               "$ref": "#/components/schemas/WorkspaceInfo"
             }
+          }
+        }
+      },
+      "YagiParams": {
+        "type": "object",
+        "properties": {
+          "directors": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Directors in front of the driven element. Zero is a two-element reflector Yagi.",
+            "minimum": 0
+          },
+          "spacing_wavelengths": {
+            "type": "number",
+            "format": "double",
+            "description": "Boom spacing between neighbouring elements, in wavelengths."
           }
         }
       },

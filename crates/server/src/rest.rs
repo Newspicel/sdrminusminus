@@ -11,6 +11,7 @@ use sdrmm_engine::EngineError;
 use sdrmm_recorder::{
     Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path, scan_stems,
 };
+use sdrmm_tools::ToolError;
 use sdrmm_wire::{
     AboutResponse, ApiError, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
     BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
@@ -23,8 +24,9 @@ use sdrmm_wire::{
     PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
     RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
     ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
-    TemplatesResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo,
-    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    TemplatesResponse, ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest,
+    VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
+    WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -172,6 +174,27 @@ impl From<StoreError> for AppError {
                 StatusCode::CONFLICT
             }
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self {
+            status,
+            body: ApiError {
+                error: err.to_string(),
+                detail: None,
+            },
+        }
+    }
+}
+
+impl From<ToolError> for AppError {
+    fn from(err: ToolError) -> Self {
+        let status = if err.is_not_found() {
+            StatusCode::NOT_FOUND
+        } else if err.is_bad_request() {
+            StatusCode::BAD_REQUEST
+        } else if err.is_unavailable() {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
         };
         Self {
             status,
@@ -1972,6 +1995,47 @@ async fn get_doctor(State(state): State<AppState>) -> Result<Json<DoctorReport>,
 }
 
 #[utoipa::path(
+    get, path = "/api/tools",
+    responses((
+        status = 200,
+        description = "Every tool this build offers. Tools stand beside the receiver: they own \
+                       no device set and no channel, and a build without a tool's hardware \
+                       support simply does not list it",
+        body = ToolsResponse,
+    )),
+)]
+async fn list_tools(State(state): State<AppState>) -> Json<ToolsResponse> {
+    Json(ToolsResponse {
+        tools: state.tools.descriptors(),
+    })
+}
+
+#[utoipa::path(
+    post, path = "/api/tools/run",
+    request_body = ToolRequest,
+    responses(
+        (
+            status = 200,
+            description = "The tool's answer, tagged with the same tool id the request carried",
+            body = ToolResponse,
+        ),
+        (status = 400, description = "The tool refused the request", body = ApiError),
+        (status = 404, description = "No such tool in this build", body = ApiError),
+        (status = 503, description = "The tool's hardware is not attached", body = ApiError),
+    ),
+)]
+async fn run_tool(
+    State(state): State<AppState>,
+    Json(request): Json<ToolRequest>,
+) -> Result<Json<ToolResponse>, AppError> {
+    let tools = state.tools.clone();
+    // Tools are blocking by contract — an instrument tool talks to a serial port — so none of
+    // them may run on a tokio worker, however cheap this particular one is.
+    let response = tokio::task::spawn_blocking(move || tools.run(request)).await??;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
     get, path = "/api/about",
     responses((
         status = 200,
@@ -2065,6 +2129,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_clients))
         .routes(routes!(get_occupancy))
         .routes(routes!(get_doctor))
+        .routes(routes!(list_tools))
+        .routes(routes!(run_tool))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
 }

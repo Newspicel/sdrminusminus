@@ -11,6 +11,7 @@ members = [
     "crates/channels",
     "crates/recorder",
     "crates/engine",
+    "crates/tools",
     "crates/server",
     "apps/sdrmm",
     "apps/desktop",
@@ -30,6 +31,7 @@ default-members = [
     "crates/channels",
     "crates/recorder",
     "crates/engine",
+    "crates/tools",
     "crates/server",
     "apps/sdrmm",
     "xtask",
@@ -54,6 +56,7 @@ sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-device-net = { path = "crates/device-net" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-recorder = { path = "crates/recorder" }
+sdrmm-tools = { path = "crates/tools" }
 # default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
 # disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }

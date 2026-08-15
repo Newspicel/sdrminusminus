@@ -27,6 +27,7 @@ export function WorkspaceBar({
   onRemove,
   onShowShortcuts,
   onShowAbout,
+  onShowTools,
 }: {
   view: View;
   onView: (view: View) => void;
@@ -37,6 +38,7 @@ export function WorkspaceBar({
   onRemove: (id: number) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
+  onShowTools: () => void;
 }) {
   const workspace = useWorkspaceContext();
   const placeNode = useNodePlacement();
@@ -147,6 +149,12 @@ export function WorkspaceBar({
       </Popover>
 
       <span className="ml-auto flex items-center gap-1">
+        {/* Tools stand beside the receiver, not in the patch: they open over whatever view is
+            up and leave the graph exactly as it was. */}
+        <Button type="button" className={BTN_QUIET} onClick={onShowTools}>
+          Tools
+        </Button>
+        <Rule />
         <Popover
           label="Library"
           triggerClass={BTN_QUIET}
