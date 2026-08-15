@@ -54,6 +54,21 @@ export function refMatches(reference: DeviceRef, info: DeviceInfo): boolean {
   return reference.key == null || reference.key === info.key;
 }
 
+/** The radios the other device nodes have already named.
+ *
+ * A device set binds to at most one node ([`bindDevices`]), and the engine opens a radio once, so
+ * naming one of these here would leave a node that can never bind and a radio whose face is
+ * somewhere else on the canvas. The picker drops them instead of offering a dead choice. */
+export function claimedDevices(graph: PatchGraph, exceptNode: string): DeviceRef[] {
+  const claimed: DeviceRef[] = [];
+  for (const node of graph.nodes) {
+    if (node.kind === "device" && node.id !== exceptNode && node.data.device != null) {
+      claimed.push(node.data.device);
+    }
+  }
+  return claimed;
+}
+
 /** Device node id → the running device set it drives. A set is claimed by at most one node, in
  * stored node order, so serial-less clones each bind their own. */
 export function bindDevices(graph: PatchGraph, sets: readonly DeviceSet[]): Map<string, DeviceSet> {

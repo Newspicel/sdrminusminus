@@ -87,6 +87,69 @@ pub fn decimate_max(db: &[f32], out: &mut [f32]) {
     }
 }
 
+/// Where the noise floor is read from the distribution of bins. A low percentile and not the
+/// minimum, which is one unlucky bin, and not the mean, which every signal present drags upward.
+const FLOOR_PERCENTILE: f32 = 0.25;
+/// How far above `db_min` the noise floor is placed. Nonzero so noise renders as the low end of
+/// the colormap rather than as its background — a floor sitting exactly at the bottom is
+/// indistinguishable from a dead receiver.
+const FLOOR_MARGIN_DB: f32 = 10.0;
+/// Dynamic range above the noise floor when nothing louder needs the room.
+const DEFAULT_DB_RANGE: f32 = 70.0;
+/// Headroom kept above the loudest bin when a signal is strong enough to widen the window past
+/// [`DEFAULT_DB_RANGE`]. Generous on purpose: with a tight margin the loudest thing on screen is
+/// pinned to the last entry of the colormap, which is the failure this whole function exists to
+/// avoid — just applied to a real carrier instead of to noise.
+const PEAK_MARGIN_DB: f32 = 15.0;
+/// The window for a frame with no finite bin at all — a lane that has not produced a spectrum
+/// yet. Any finite pair will do; this one matches the range a quiet receiver settles into.
+const EMPTY_WINDOW: (f32, f32) = (-100.0, -100.0 + DEFAULT_DB_RANGE);
+
+/// The dB window a frame is quantized over: `(db_min, db_max)`.
+///
+/// Anchored to the noise floor, never to the peak. A peak-anchored window puts whatever is
+/// loudest at the top of the scale, so a receiver hearing nothing — an RTL-SDR at zero gain, an
+/// antenna left off — paints its own noise in the colour a full-strength carrier should have had.
+/// The floor is what the operator needs held still; the ceiling only has to stay above the
+/// loudest bin.
+///
+/// Pass the *decimated* bins, the ones that will actually be drawn, rather than the raw FFT:
+/// [`decimate_max`] takes a maximum over each output bin's share and so lifts the apparent floor
+/// by several dB, and the estimate has to describe what reaches the screen.
+///
+/// `scratch` is the caller's reusable buffer; it is overwritten and its contents are not
+/// meaningful afterwards. Nothing is allocated once it has grown to `db.len()`.
+///
+/// The result is a pure function of one frame, so a peak that moves between frames moves the
+/// ceiling with it. That only leads while something sits more than
+/// `DEFAULT_DB_RANGE - PEAK_MARGIN_DB` above the floor; below that the floor term wins and the
+/// window holds still on its own.
+#[must_use]
+pub fn adaptive_db_window(db: &[f32], scratch: &mut Vec<f32>) -> (f32, f32) {
+    let Some(floor) = percentile(db, scratch, FLOOR_PERCENTILE) else {
+        return EMPTY_WINDOW;
+    };
+    let peak = db
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(f32::NEG_INFINITY, f32::max);
+    let min = floor - FLOOR_MARGIN_DB;
+    (min, (min + DEFAULT_DB_RANGE).max(peak + PEAK_MARGIN_DB))
+}
+
+/// The value at `q` of `db`'s finite entries, `q` in `[0, 1]`. `None` when nothing is finite.
+/// Non-finite bins are dropped rather than clamped: `decimate_max` writes `-inf` for a bin with
+/// no input, which is an absence, not a very quiet measurement.
+fn percentile(db: &[f32], scratch: &mut Vec<f32>, q: f32) -> Option<f32> {
+    scratch.clear();
+    scratch.extend(db.iter().copied().filter(|v| v.is_finite()));
+    let last = scratch.len().checked_sub(1)?;
+    let at = (last as f32 * q.clamp(0.0, 1.0)) as usize;
+    let (_, nth, _) = scratch.select_nth_unstable_by(at, f32::total_cmp);
+    Some(*nth)
+}
+
 /// Quantize dB values to `u8` over `[db_min, db_max]` (: the window travels in the
 /// frame header so the client can map bytes back to dB). Values clamp to the range.
 pub fn quantize_db(db: &[f32], db_min: f32, db_max: f32, out: &mut [u8]) {
@@ -143,6 +206,92 @@ mod tests {
         decimate_max(&db, &mut out);
         // The spike falls in the 4th output bin (37/10) and must survive.
         assert_eq!(out[3], -3.0);
+    }
+
+    /// Where a bin lands in the colormap, as the client computes it.
+    fn position(db: f32, window: (f32, f32)) -> f32 {
+        (db - window.0) / (window.1 - window.0)
+    }
+
+    /// A receiver hearing only its own noise — an RTL-SDR at zero gain, the report this window
+    /// was rewritten for. Nothing about a flat spectrum may reach the top of the scale.
+    #[test]
+    fn bare_noise_stays_at_the_bottom_of_the_scale() {
+        let mut scratch = Vec::new();
+        // Exponential-ish spread around a -60 dBFS floor, no signal anywhere.
+        let noise: Vec<f32> = (0..512)
+            .map(|i| -60.0 + ((i * 37) % 23) as f32 * 0.5 - 5.0)
+            .collect();
+        let window = adaptive_db_window(&noise, &mut scratch);
+
+        let hottest = noise.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!(
+            position(hottest, window) < 0.4,
+            "loudest noise bin reached {:.2} of the scale, window {window:?}",
+            position(hottest, window)
+        );
+    }
+
+    /// The floor holds still while a carrier comes and goes: only the ceiling may move, or the
+    /// waterfall would recolour its whole noise field every time a transmission starts.
+    #[test]
+    fn a_carrier_moves_the_ceiling_and_not_the_floor() {
+        let mut scratch = Vec::new();
+        let mut bins = vec![-95.0f32; 512];
+        let quiet = adaptive_db_window(&bins, &mut scratch);
+        bins[100] = -12.0;
+        let loud = adaptive_db_window(&bins, &mut scratch);
+
+        assert!((quiet.0 - loud.0).abs() < f32::EPSILON, "floor moved");
+        assert!(
+            loud.1 > quiet.1,
+            "ceiling did not make room for the carrier"
+        );
+        let at = position(-12.0, loud);
+        assert!(
+            (0.75..1.0).contains(&at),
+            "carrier at {at:.2} of the scale, window {loud:?}"
+        );
+    }
+
+    /// A quarter of the band occupied must not drag the floor estimate up into the signal.
+    #[test]
+    fn floor_ignores_an_occupied_quarter_of_the_band() {
+        let mut scratch = Vec::new();
+        let mut bins = vec![-95.0f32; 400];
+        bins.extend(std::iter::repeat_n(-40.0f32, 100));
+        let (min, _) = adaptive_db_window(&bins, &mut scratch);
+        assert!(
+            (-95.0 - FLOOR_MARGIN_DB - min).abs() < 1.0,
+            "floor read as {min}, expected the noise and not the occupancy"
+        );
+    }
+
+    /// `decimate_max` writes `-inf` into bins it had no input for; those are an absence, and a
+    /// frame of nothing else must still produce a usable window rather than an infinite one.
+    #[test]
+    fn non_finite_bins_do_not_reach_the_window() {
+        let mut scratch = Vec::new();
+        assert_eq!(
+            adaptive_db_window(&[f32::NEG_INFINITY; 8], &mut scratch),
+            EMPTY_WINDOW
+        );
+        assert_eq!(adaptive_db_window(&[], &mut scratch), EMPTY_WINDOW);
+
+        let mixed = [f32::NEG_INFINITY, -70.0, -70.0, f32::NAN, -70.0];
+        let (min, max) = adaptive_db_window(&mixed, &mut scratch);
+        assert!(min.is_finite() && max.is_finite(), "{min} {max}");
+        assert!((min - (-80.0)).abs() < f32::EPSILON, "floor read as {min}");
+    }
+
+    /// The window always has width, or `quantize_db` would divide by nothing.
+    #[test]
+    fn window_is_never_empty() {
+        let mut scratch = Vec::new();
+        for bins in [vec![0.0f32; 4], vec![-200.0f32; 4], vec![-60.0f32; 1]] {
+            let (min, max) = adaptive_db_window(&bins, &mut scratch);
+            assert!(max > min, "degenerate window {min}..{max}");
+        }
     }
 
     #[test]

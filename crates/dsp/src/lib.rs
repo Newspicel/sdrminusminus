@@ -43,7 +43,7 @@ pub use iir::{ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
 pub use nco::Nco;
 pub use pll::{Costas, LoopFilter, Pll};
 pub use resamp::FracResampler;
-pub use spectrum::{SpectrumAnalyzer, decimate_max, quantize_db};
+pub use spectrum::{SpectrumAnalyzer, adaptive_db_window, decimate_max, quantize_db};
 pub use squelch::Squelch;
 pub use sync::{BitSync, SymbolSync, farrow};
 pub use tone::{Envelope, Goertzel, KeyingSlicer, KeyingTiming, ToneCorrelator};

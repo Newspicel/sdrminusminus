@@ -131,6 +131,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 arc-swap = "1"
 clap = { version = "4", features = ["derive", "env"] }
+# Cross-platform file events for `cargo xtask dev`; xtask only.
+notify = "8.2.0"
 
 # Scoped temp dirs for filesystem tests (SigMF IO, recordings REST); dev-dependency only.
 tempfile = "3"

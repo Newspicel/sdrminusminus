@@ -32,7 +32,7 @@ pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use recording::FinalizedRecording;
-pub use runtime::{SpectrumSnapshot, adaptive_db_window};
+pub use runtime::SpectrumSnapshot;
 pub use trunking::TrunkSystem;
 pub use video::VideoPacket;
 
@@ -96,6 +96,8 @@ pub enum EngineError {
     ChannelNotFound(u32, u32),
     #[error("stream {stream} is out of range: this device has {streams} rx streams")]
     StreamOutOfRange { stream: u32, streams: u32 },
+    #[error("device {0} is already open in device set {1}")]
+    DeviceAlreadyOpen(String, u32),
     #[error(transparent)]
     Device(#[from] DeviceError),
     #[error(transparent)]
@@ -133,6 +135,7 @@ impl EngineError {
                 | Self::Recording(_)
                 | Self::Scan(_)
                 | Self::StreamOutOfRange { .. }
+                | Self::DeviceAlreadyOpen(..)
         )
     }
 }
@@ -1104,8 +1107,22 @@ impl Engine {
     }
 
     /// Open a device into a new device set and start streaming ( POST devicesets).
+    ///
+    /// # Errors
+    /// [`EngineError::DeviceAlreadyOpen`] when a set already holds this radio. One receiver is one
+    /// set: a second open would either be refused by the driver holding the handle or — for a
+    /// backend that allows it, a replayed file or a network endpoint — hand out two faces and two
+    /// sets of settings for one stream, only one of which the radio is actually running.
     pub fn create_device_set(&self, device_id: &str) -> Result<u32, EngineError> {
+        self.refuse_reopen(device_id)?;
         let (info, device) = self.registry.open(device_id)?;
+        // The key a driver adopts is not always the one that was asked for — a network endpoint is
+        // canonicalized — so the identity the open reports is checked as well, before the device
+        // gets a capture thread.
+        if let Err(already) = self.refuse_reopen(&info.id()) {
+            drop(device);
+            return Err(already);
+        }
         let capabilities = device.capabilities().clone();
         let settings = device.settings().clone();
         // Taken before the device moves into its runtime — afterwards it is behind the capture
@@ -1179,6 +1196,18 @@ impl Engine {
             });
         }
         Ok(id)
+    }
+
+    fn refuse_reopen(&self, device_id: &str) -> Result<(), EngineError> {
+        let inner = self.lock();
+        match inner
+            .device_sets
+            .iter()
+            .find(|(_, set)| set.info.id() == device_id)
+        {
+            Some((id, _)) => Err(EngineError::DeviceAlreadyOpen(device_id.to_owned(), *id)),
+            None => Ok(()),
+        }
     }
 
     /// Close a device set and stop its threads ( DELETE devicesets).

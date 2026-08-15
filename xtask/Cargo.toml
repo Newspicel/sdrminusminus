@@ -24,6 +24,7 @@ sdrmm-channels = { workspace = true, features = ["test-signals"] }
 sdrmm-wire.workspace = true
 sdrmm-modem.workspace = true
 num-complex.workspace = true
+notify.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 resvg.workspace = true

@@ -12,12 +12,20 @@ import { Slider } from "./Slider";
 import { settingLabel } from "./settingLabel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
-// The label track is measured off the block's own width, not the viewport's: these rows render
-// inside a node the operator can drag down to 260 px — where a fixed column would push the
-// control off the edge — and out to the width of the desk, where a driver's `digital_agc` should
-// read as a name rather than as `DIGITAL_A…`.
-const ROW =
-  "grid grid-cols-[minmax(0,5.5rem)_minmax(0,1fr)] @xs:grid-cols-[minmax(0,8rem)_minmax(0,1fr)] @md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)] items-center gap-3";
+// One grid for the whole block, with every row a `subgrid` of it, so the label track is measured
+// once across all of them and each control starts on the same line — a grid per row would size
+// each label to its own words and stagger the controls down the node.
+//
+// The track is measured off the block's own width, not the viewport's: these rows render inside a
+// node the operator can drag down to 260 px — where a fixed column would push the control off the
+// edge — and out to the width of the desk, where a driver's `digital_agc` should read as a name
+// rather than as `DIGITAL_A…`. `fit-content` keeps that ceiling from also being the floor: the
+// column takes the width of the longest label present, so `Rate` does not sit a finger's width
+// from its dropdown on a node dragged wide.
+const SETTINGS =
+  "grid grid-cols-[fit-content(5.5rem)_minmax(0,1fr)] @xs:grid-cols-[fit-content(8rem)_minmax(0,1fr)] @md:grid-cols-[fit-content(11rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-2";
+
+const ROW = "col-span-2 grid grid-cols-subgrid items-center";
 
 // A dropped-down list is read top to bottom, so past a point extra width only stretches the
 // trigger away from its label. Sliders take the rest of the row, where width *is* resolution.
@@ -58,150 +66,158 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
       : [];
 
   return (
-    <div className="@container flex flex-col gap-2">
-      <div className={ROW}>
-        <span className="legend">Rate</span>
-        {caps.sample_rates.length === 1 && rateRange == null ? (
-          // One rate and nothing to pick between it and: a recording plays at the rate it was
-          // captured at, and a single-rate receiver says the same thing. A dropdown of one is
-          // a control that cannot act, so this is a readout.
-          <span className="font-mono text-xs text-ink">{formatMsps(sampleRate)}</span>
-        ) : caps.sample_rates.length > 0 ? (
-          <Select
-            label="Sample rate"
-            className={PICKER}
-            value={sampleRate}
-            options={withCurrent(
-              sampleRate,
-              caps.sample_rates.map((rate) => ({ value: rate, label: formatMsps(rate) })),
-              formatMsps,
-            )}
-            onChange={(sample_rate) => applyPatch(active.id, { sample_rate })}
-          />
-        ) : (
-          <span className="flex items-center gap-2">
-            <NumberField
-              label="Sample rate (MS/s)"
-              value={sampleRate / 1e6}
-              min={rateRange ? rateRange.min / 1e6 : undefined}
-              max={rateRange ? rateRange.max / 1e6 : undefined}
-              step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
-              onCommit={(msps) => applyPatch(active.id, { sample_rate: Math.round(msps * 1e6) })}
-              className="w-24"
+    <div className="@container">
+      <div className={SETTINGS}>
+        <div className={ROW}>
+          <span className="legend">Rate</span>
+          {caps.sample_rates.length === 1 && rateRange == null ? (
+            // One rate and nothing to pick between it and: a recording plays at the rate it was
+            // captured at, and a single-rate receiver says the same thing. A dropdown of one is
+            // a control that cannot act, so this is a readout.
+            <span className="font-mono text-xs text-ink">{formatMsps(sampleRate)}</span>
+          ) : caps.sample_rates.length > 0 ? (
+            <Select
+              label="Sample rate"
+              className={PICKER}
+              value={sampleRate}
+              options={withCurrent(
+                sampleRate,
+                caps.sample_rates.map((rate) => ({ value: rate, label: formatMsps(rate) })),
+                formatMsps,
+              )}
+              onChange={(sample_rate) => applyPatch(active.id, { sample_rate })}
             />
-            <span className="legend">MS/s</span>
-          </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <NumberField
+                label="Sample rate (MS/s)"
+                value={sampleRate / 1e6}
+                min={rateRange ? rateRange.min / 1e6 : undefined}
+                max={rateRange ? rateRange.max / 1e6 : undefined}
+                step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
+                onCommit={(msps) => applyPatch(active.id, { sample_rate: Math.round(msps * 1e6) })}
+                className="w-24"
+              />
+              <span className="legend">MS/s</span>
+            </span>
+          )}
+        </div>
+
+        {caps.bandwidths.length > 0 && (
+          <div className={ROW}>
+            <span className="legend">Filter</span>
+            <Select
+              label="Analog bandwidth"
+              className={PICKER}
+              value={bandwidth}
+              options={withCurrent(
+                bandwidth,
+                caps.bandwidths.map((hz) => ({ value: hz, label: formatHz(hz) })),
+                formatHz,
+              )}
+              onChange={(hz) => applyPatch(active.id, { bandwidth: hz })}
+            />
+          </div>
         )}
-      </div>
 
-      {caps.bandwidths.length > 0 && (
-        <div className={ROW}>
-          <span className="legend">Filter</span>
-          <Select
-            label="Analog bandwidth"
-            className={PICKER}
-            value={bandwidth}
-            options={withCurrent(
-              bandwidth,
-              caps.bandwidths.map((hz) => ({ value: hz, label: formatHz(hz) })),
-              formatHz,
-            )}
-            onChange={(hz) => applyPatch(active.id, { bandwidth: hz })}
-          />
-        </div>
-      )}
+        {caps.antennas.length > 1 && !streamedAntenna && (
+          <div className={ROW}>
+            <span className="legend">Antenna</span>
+            <Select
+              label="Antenna"
+              className={PICKER}
+              value={settings.antenna ?? caps.antennas[0] ?? ""}
+              options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
+              onChange={(antenna) => applyPatch(active.id, { antenna })}
+            />
+          </div>
+        )}
 
-      {caps.antennas.length > 1 && !streamedAntenna && (
-        <div className={ROW}>
-          <span className="legend">Antenna</span>
-          <Select
-            label="Antenna"
-            className={PICKER}
-            value={settings.antenna ?? caps.antennas[0] ?? ""}
-            options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
-            onChange={(antenna) => applyPatch(active.id, { antenna })}
-          />
-        </div>
-      )}
+        {!streamedGain &&
+          caps.gains.map((stage) => (
+            <GainControl
+              key={stage.name}
+              stage={stage}
+              value={
+                settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
+              }
+              onCommit={(db) =>
+                applyPatch(active.id, { gains: [{ stage: stage.name, value_db: db }] })
+              }
+            />
+          ))}
 
-      {!streamedGain &&
-        caps.gains.map((stage) => (
-          <GainControl
-            key={stage.name}
-            stage={stage}
-            value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
-            onCommit={(db) =>
-              applyPatch(active.id, { gains: [{ stage: stage.name, value_db: db }] })
-            }
+        {streams.map((stream) => {
+          const port = streamLabel("iq", stream, streams.length);
+          // The lane's resolved view: its override where one exists, the radio-wide value
+          // otherwise — the same fallback the engine applies, so the control shows what the lane
+          // is actually running at.
+          const lane = forStream(settings, stream, scope);
+          return (
+            // Also a subgrid, so a lane's rows keep the label track the shared rows measured
+            // instead of starting a column of their own under the header.
+            <div key={stream} className={`${ROW} gap-y-2 border-t border-line pt-2`}>
+              <span className="legend col-span-2">{port}</span>
+              {streamedAntenna && (
+                <div className={ROW}>
+                  <span className="legend">Antenna</span>
+                  <Select
+                    label={`${port} antenna`}
+                    className={PICKER}
+                    value={lane.antenna ?? caps.antennas[0] ?? ""}
+                    options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
+                    onChange={(antenna) =>
+                      applyPatch(active.id, { streams: [{ stream, antenna }] })
+                    }
+                  />
+                </div>
+              )}
+              {streamedGain &&
+                caps.gains.map((stage) => (
+                  <GainControl
+                    key={stage.name}
+                    stage={stage}
+                    port={port}
+                    value={
+                      lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
+                    }
+                    onCommit={(db) =>
+                      applyPatch(active.id, {
+                        streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }],
+                      })
+                    }
+                  />
+                ))}
+            </div>
+          );
+        })}
+
+        {/* Only where the radio has a correction to make. HackRF has no register for one and
+            SpyServer's protocol no field, so their backends refuse it; a recording and the signal
+            generator swallow it and do nothing. Drawn everywhere, the knob looked identical
+            whether it worked, errored, or lied. */}
+        {caps.ppm && (
+          <div className={ROW}>
+            <span className="legend">PPM</span>
+            <NumberField
+              label="Frequency correction (ppm)"
+              value={settings.ppm ?? 0}
+              step={1}
+              onCommit={(ppm) => applyPatch(active.id, { ppm })}
+              className="w-20"
+            />
+          </div>
+        )}
+
+        {extras.map((setting) => (
+          <ExtraControl
+            key={setting.name}
+            setting={setting}
+            raw={settings.extra?.find((e) => e.name === setting.name)?.value}
+            onCommit={(value) => applyPatch(active.id, { extra: [{ name: setting.name, value }] })}
           />
         ))}
-
-      {streams.map((stream) => {
-        const port = streamLabel("iq", stream, streams.length);
-        // The lane's resolved view: its override where one exists, the radio-wide value
-        // otherwise — the same fallback the engine applies, so the control shows what the lane
-        // is actually running at.
-        const lane = forStream(settings, stream, scope);
-        return (
-          <div key={stream} className="flex flex-col gap-2 border-t border-line pt-2">
-            <span className="legend">{port}</span>
-            {streamedAntenna && (
-              <div className={ROW}>
-                <span className="legend">Antenna</span>
-                <Select
-                  label={`${port} antenna`}
-                  className={PICKER}
-                  value={lane.antenna ?? caps.antennas[0] ?? ""}
-                  options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
-                  onChange={(antenna) => applyPatch(active.id, { streams: [{ stream, antenna }] })}
-                />
-              </div>
-            )}
-            {streamedGain &&
-              caps.gains.map((stage) => (
-                <GainControl
-                  key={stage.name}
-                  stage={stage}
-                  port={port}
-                  value={
-                    lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
-                  }
-                  onCommit={(db) =>
-                    applyPatch(active.id, {
-                      streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }],
-                    })
-                  }
-                />
-              ))}
-          </div>
-        );
-      })}
-
-      {/* Only where the radio has a correction to make. HackRF has no register for one and
-          SpyServer's protocol no field, so their backends refuse it; a recording and the signal
-          generator swallow it and do nothing. Drawn everywhere, the knob looked identical
-          whether it worked, errored, or lied. */}
-      {caps.ppm && (
-        <div className={ROW}>
-          <span className="legend">PPM</span>
-          <NumberField
-            label="Frequency correction (ppm)"
-            value={settings.ppm ?? 0}
-            step={1}
-            onCommit={(ppm) => applyPatch(active.id, { ppm })}
-            className="w-20"
-          />
-        </div>
-      )}
-
-      {extras.map((setting) => (
-        <ExtraControl
-          key={setting.name}
-          setting={setting}
-          raw={settings.extra?.find((e) => e.name === setting.name)?.value}
-          onCommit={(value) => applyPatch(active.id, { extra: [{ name: setting.name, value }] })}
-        />
-      ))}
+      </div>
     </div>
   );
 }

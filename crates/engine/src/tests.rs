@@ -1013,6 +1013,24 @@ async fn probes_virtual_device() {
 }
 
 #[tokio::test]
+async fn one_radio_opens_into_one_device_set() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let refused = engine.create_device_set("virtual:siggen").unwrap_err();
+    assert!(
+        matches!(&refused, EngineError::DeviceAlreadyOpen(device, held)
+            if device == "virtual:siggen" && *held == ds),
+        "expected a reopen refusal, got {refused}"
+    );
+    assert!(refused.is_bad_request());
+    assert_eq!(engine.snapshot().device_sets.len(), 1);
+
+    // Closing it hands the radio back: the refusal is about the set holding it, not the device.
+    engine.remove_device_set(ds).unwrap();
+    engine.create_device_set("virtual:siggen").unwrap();
+}
+
+#[tokio::test]
 async fn spectrum_flows_with_a_visible_tone() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();

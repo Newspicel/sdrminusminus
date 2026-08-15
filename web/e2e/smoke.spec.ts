@@ -305,7 +305,8 @@ test.describe("the workspace", () => {
     await maxHold.click();
     await expect(maxHold).toHaveAttribute("aria-pressed", "false");
 
-    await scopePlot.getByRole("button", { name: /^magma$/i }).click();
+    // The trigger is labelled with the colormap in force, which on a fresh profile is the default.
+    await scopePlot.getByRole("button", { name: /^classic$/i }).click();
     await page.getByRole("button", { name: /^viridis$/i }).click();
     await expect(
       scopePlot.locator('button[aria-haspopup="dialog"]', { hasText: /^viridis$/i }),

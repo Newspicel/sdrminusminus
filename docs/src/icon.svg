@@ -5,18 +5,20 @@
        spectrum the receiver draws, and the name.
 
        Colours are  dark-theme tokens resolved to sRGB, because a static asset
-       cannot read CSS variables: bg #141210, line #3a3733, accent #f3ae51. The floor is the
-       accent one lightness step down (oklch .68 .115 72) rather than `accent-dim` — at 16px
-       the dashes are two pixels and need the 6.4:1 they get here, not 5.1:1.
+       cannot read CSS variables: bg #101113, line #333639, accent #76acfc. The floor is the
+       accent one lightness step down (oklch .68 .12 258) rather than `accent-dim` — at 16px
+       the dashes are two pixels and need the 6.5:1 they get here, not 4.4:1. That step is
+       shorter than a gold mark's would be: the blue accent already sits at L .74, so the floor
+       has less room beneath it before it stops clearing the ratio the dashes need.
 
        Geometry is tuned for the 16px favicon: the gap between the dashes, and the gap above
        them, both stay ≥ 1.5px once rasterised — that is what keeps the floor from closing up
        into one bar and taking the name with it. (No, the name cannot be written in here: an
        XML comment may not contain two hyphens.) -->
-  <rect x="12" y="12" width="488" height="488" rx="112" fill="#141210"/>
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#3a3733" stroke-width="8"/>
+  <rect x="12" y="12" width="488" height="488" rx="112" fill="#101113"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#333639" stroke-width="8"/>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M104 284 H172 L256 108 L340 284 H408" stroke="#f3ae51" stroke-width="46"/>
-    <path d="M108 404 H208 M304 404 H404" stroke="#c48c3f" stroke-width="46"/>
+    <path d="M104 284 H172 L256 108 L340 284 H408" stroke="#76acfc" stroke-width="46"/>
+    <path d="M108 404 H208 M304 404 H404" stroke="#6899e2" stroke-width="46"/>
   </g>
 </svg>

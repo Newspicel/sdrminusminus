@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Input } from "../../components/BaseControls";
 import { FIELD, LABEL } from "../../components/controls";
 import { Select } from "../../components/Select";
-import { TextAutocomplete } from "../../components/TextAutocomplete";
+import { type AutocompleteSuggestion, TextAutocomplete } from "../../components/TextAutocomplete";
 import { nmeaDevicesQuery } from "../../lib/api";
 import { gridLocator, usePositionStore } from "../../lib/position";
 import type { NmeaDeviceInfo, PatchNode, PositionSource } from "../../lib/types";
@@ -127,10 +127,7 @@ function NmeaSettings({
           label="Serial device"
           className="flex-1"
           placeholder="Choose a detected device or enter a path"
-          suggestions={(devices.data?.devices ?? []).map((device) => ({
-            value: device.path,
-            detail: nmeaDeviceLabel(device),
-          }))}
+          suggestions={(devices.data?.devices ?? []).map(nmeaSuggestion)}
           onCommit={(device) => {
             if (device !== source.device) {
               onChange({ ...source, device, update_interval_ms: updateInterval });
@@ -141,6 +138,11 @@ function NmeaSettings({
       </div>
       {devices.isError && (
         <span className="text-[10px] text-danger">Serial device discovery failed</span>
+      )}
+      {devices.isSuccess && devices.data.devices.length === 0 && (
+        <span className="text-[10px] text-ink-dim">
+          No serial receiver detected — plug one in, or type its path.
+        </span>
       )}
       <div className="grid grid-cols-2 gap-2">
         <div className={LABEL}>
@@ -178,9 +180,6 @@ function NmeaSettings({
           />
         </label>
       </div>
-      <span className="text-[10px] text-ink-faint">
-        NMEA receivers push sentences; update rate limits how often fixes are published.
-      </span>
     </div>
   );
 }
@@ -206,10 +205,16 @@ export function validGpsdAddress(address: string): boolean {
   return /^[a-z0-9._-]+$/i.test(host);
 }
 
-function nmeaDeviceLabel(device: NmeaDeviceInfo): string {
+/** A detected port as one suggestion: the path is the value, and whatever the USB descriptor says
+ * is behind it is the second line — left off, rather than repeating the path, for a port that
+ * reports no identity of its own. */
+export function nmeaSuggestion(device: NmeaDeviceInfo): AutocompleteSuggestion {
   const description = device.product ?? device.manufacturer;
+  if (description == null) {
+    return { value: device.path };
+  }
   const serial = device.serial == null ? "" : ` · ${device.serial}`;
-  return description == null ? device.path : `${description}${serial}`;
+  return { value: device.path, detail: `${description}${serial}` };
 }
 
 function sourceName(source: PositionSource): string {

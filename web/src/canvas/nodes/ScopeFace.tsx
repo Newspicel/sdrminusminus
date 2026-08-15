@@ -24,7 +24,13 @@ import {
   zoomView,
 } from "../../components/spectrumView";
 import { pixelRatio, zoomOf } from "../../gl/raster";
-import { attachWaterfall, COLORMAPS, type Colormap, type WaterfallView } from "../../gl/waterfall";
+import {
+  attachWaterfall,
+  COLORMAPS,
+  type Colormap,
+  DEFAULT_COLORMAP,
+  type WaterfallView,
+} from "../../gl/waterfall";
 import type { SpectrumFrame } from "../../lib/frame";
 import { spectrumHub } from "../../lib/spectrum";
 import { token } from "../../lib/tokens";
@@ -47,7 +53,8 @@ const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
 /** Rows the frequency axis reserves at the bottom of the trace canvas, in CSS pixels. */
 const AXIS_H = 16;
-const GRID_ALPHA = 0.16;
+/** The translucency SDR++ draws its fill under the trace at (`ImGuiCol_PlotLines` at 0.2). */
+const TRACE_FILL_ALPHA = 0.2;
 
 interface FrameMeta {
   centerHz: number;
@@ -455,11 +462,24 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
           {meta !== null && `${formatCentre(meta, view)}${formatRange(meta)}`}
         </span>
         {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs the
-            trace nothing. */}
-        <div data-plot-chrome className="pointer-events-auto flex items-center gap-1 self-start">
-          <Popover label={colormap} triggerClass={plotButton(false)} width="w-36">
+            trace nothing. It carries its own scrim of the plot ground — the waterfall reaches
+            this corner and a colormap's low end is not always dark (Classic's is a saturated
+            blue), so the labels cannot borrow their contrast from whatever is underneath. */}
+        <div
+          data-plot-chrome
+          className="pointer-events-auto flex items-center gap-1 self-start rounded-[3px] bg-plot-bg/85 p-0.5"
+        >
+          {/* Sized like `Select`'s list and not like a panel: six one-word choices, so the
+              popup shrinks to the longest of them and only holds the trigger's width as a
+              floor. A fixed width here left most of every row empty. */}
+          <Popover
+            label={colormap}
+            triggerClass={plotButton(false)}
+            width="w-auto min-w-[var(--anchor-width)]"
+            padded={false}
+          >
             {(close) => (
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col p-0.5">
                 {COLORMAPS.map((name) => (
                   <Button
                     key={name}
@@ -558,7 +578,7 @@ function Divider({
     >
       <span
         aria-hidden
-        className="absolute inset-x-0 top-1 h-px bg-plot-ink-dim/25 group-hover:bg-accent"
+        className="absolute inset-x-0 top-1 h-px bg-plot-ink-dim/45 group-hover:bg-accent"
       />
     </div>
   );
@@ -720,9 +740,9 @@ function accumulateHold(
 function readColormap(): Colormap {
   try {
     const stored = localStorage.getItem(COLORMAP_KEY);
-    return COLORMAPS.find((name) => name === stored) ?? "magma";
+    return COLORMAPS.find((name) => name === stored) ?? DEFAULT_COLORMAP;
   } catch {
-    return "magma";
+    return DEFAULT_COLORMAP;
   }
 }
 
@@ -777,13 +797,11 @@ function drawTrace(
   ctx.textBaseline = "middle";
   ctx.lineWidth = 1;
 
-  // Gridlines stay lighter-weight than the data they sit behind. The alpha comes from
-  // `globalAlpha`, not a translucent colour: canvas parses far fewer colour syntaxes than CSS
-  // does, and a value it rejects silently leaves the previous, opaque one in place.
-  // Half-pixel offsets so a 1px rule lands on one device row instead of straddling two.
+  // The grid is opaque: `plot-grid` is already the near-black SDR++ draws its scale lines in, so
+  // fading it further would leave nothing on the ground. Half-pixel offsets so a 1px rule lands
+  // on one device row instead of straddling two.
   ctx.strokeStyle = token("plot-grid");
   ctx.fillStyle = token("plot-ink-dim");
-  ctx.globalAlpha = GRID_ALPHA;
   for (const db of decibelTicks(frame.dbMin, frame.dbMax, 4)) {
     const y = Math.round(plotH * (1 - (db - frame.dbMin) / (frame.dbMax - frame.dbMin))) + 0.5;
     ctx.beginPath();
@@ -791,9 +809,7 @@ function drawTrace(
     ctx.lineTo(width, y);
     ctx.stroke();
     if (y > 12 && y < plotH - 4) {
-      ctx.globalAlpha = 1;
       ctx.fillText(db.toFixed(0), 4, y - 7);
-      ctx.globalAlpha = GRID_ALPHA;
     }
   }
 
@@ -811,18 +827,15 @@ function drawTrace(
     ctx.moveTo(x, 0);
     ctx.lineTo(x, plotH);
     ctx.stroke();
-    ctx.globalAlpha = 1;
     ctx.fillText(formatTick(tick.hz, visible), x, height - AXIS_H / 2);
-    ctx.globalAlpha = GRID_ALPHA;
   }
-  ctx.globalAlpha = 1;
   ctx.textAlign = "left";
 
   const centerAt = spanToView(view, 0.5);
   if (centerAt >= 0 && centerAt <= 1) {
     const x = Math.round(centerAt * width) + 0.5;
     ctx.strokeStyle = token("plot-ink-dim");
-    ctx.globalAlpha = 0.45;
+    ctx.globalAlpha = 0.7;
     ctx.setLineDash([2, 4]);
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -849,7 +862,7 @@ function drawTrace(
   ctx.lineTo(0, plotH);
   ctx.closePath();
   ctx.fillStyle = token("plot-trace");
-  ctx.globalAlpha = 0.09;
+  ctx.globalAlpha = TRACE_FILL_ALPHA;
   ctx.fill();
   ctx.globalAlpha = 1;
 }

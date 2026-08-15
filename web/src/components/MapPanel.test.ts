@@ -4,9 +4,12 @@ import type { TargetCollection } from "../lib/map/layers";
 import type { PositionSample } from "../lib/position";
 import {
   framePositionOnce,
+  frameSignalOnce,
   frameTargetsOnce,
   positionCollection,
+  signalCollection,
   updatePositionSources,
+  updateSignalSource,
 } from "./MapPanel";
 
 function sample(latitude: number, longitude: number, receivedAt: number): PositionSample {
@@ -50,6 +53,30 @@ describe("MapPanel position data", () => {
   });
 });
 
+describe("MapPanel signal survey data", () => {
+  it("publishes dBFS measurements as point properties", () => {
+    const source = { setData: vi.fn() } as unknown as Pick<GeoJSONSource, "setData">;
+    const samples = [
+      {
+        latitude: 52.52,
+        longitude: 13.405,
+        frequencyHz: 145_500_000,
+        levelDbfs: -64.5,
+        measuredAt: 1,
+        observations: 2,
+      },
+    ];
+
+    const collection = updateSignalSource(source, samples);
+
+    expect(source.setData).toHaveBeenCalledWith(collection);
+    expect(collection.features[0]).toMatchObject({
+      geometry: { coordinates: [13.405, 52.52] },
+      properties: { level: -64.5, observations: 2 },
+    });
+  });
+});
+
 describe("MapPanel auto framing", () => {
   it("frames the first GPS fix even when targets arrived first", () => {
     const fitBounds = vi.fn();
@@ -83,5 +110,27 @@ describe("MapPanel auto framing", () => {
       ],
       { padding: 56, maxZoom: 14, duration: 0 },
     );
+  });
+
+  it("frames a signal survey once without stealing a manually moved view", () => {
+    const fitBounds = vi.fn();
+    const map = { fitBounds } as unknown as Pick<MapLibreMap, "fitBounds">;
+    const framed = { current: false };
+    const signals = signalCollection([
+      {
+        latitude: 48.1,
+        longitude: 11.5,
+        frequencyHz: 145_500_000,
+        levelDbfs: -70,
+        measuredAt: 1,
+        observations: 1,
+      },
+    ]);
+
+    frameSignalOnce(map, signals, framed);
+    frameSignalOnce(map, signals, framed);
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(framed.current).toBe(true);
   });
 });

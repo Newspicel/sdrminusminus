@@ -353,6 +353,28 @@ pub struct DmrTrunkNode {
     pub retention_seconds: u32,
 }
 
+pub const DEFAULT_SIGNAL_MAP_OFFSET_HZ: i64 = 0;
+pub const DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ: u64 = 12_500;
+pub const MAX_SIGNAL_MAP_OFFSET_HZ: i64 = 1_000_000_000_000;
+pub const MAX_SIGNAL_MAP_BANDWIDTH_HZ: u64 = 100_000_000;
+
+/// The IQ-relative slice a signal survey measures while pairing spectrum frames with positions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct SignalMapNode {
+    pub offset_hz: i64,
+    pub bandwidth_hz: u64,
+}
+
+impl Default for SignalMapNode {
+    fn default() -> Self {
+        Self {
+            offset_hz: DEFAULT_SIGNAL_MAP_OFFSET_HZ,
+            bandwidth_hz: DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ,
+        }
+    }
+}
+
 impl Default for DmrTrunkNode {
     fn default() -> Self {
         Self {
@@ -374,6 +396,8 @@ pub enum NodeBody {
     Speaker,
     /// MapLibre, one layer per connected decoder.
     Map,
+    /// A drive survey of one RF slice, pairing spectrum power with GPS fixes.
+    SignalMap(SignalMapNode),
     /// The live picture a decoder holds — an RDS station, a table of aircraft, a teleprinter
     /// roll — one readout per connected decoder. This is the *state* a decoder accumulates, which
     /// is the half of its output that a log row cannot carry; the frames themselves are read in
@@ -402,6 +426,7 @@ impl NodeBody {
             Self::Scope => "scope",
             Self::Speaker => "speaker",
             Self::Map => "map",
+            Self::SignalMap(_) => "signal_map",
             Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
             Self::DmrTrunk(_) => "dmr_trunk",
@@ -417,9 +442,12 @@ impl NodeBody {
         match self {
             Self::Device(_) | Self::Gps(_) => NodeCategory::Source,
             Self::Channel(_) => NodeCategory::Channel,
-            Self::Scope | Self::Map | Self::Readout | Self::DecoderLog | Self::Video => {
-                NodeCategory::Display
-            }
+            Self::Scope
+            | Self::Map
+            | Self::SignalMap(_)
+            | Self::Readout
+            | Self::DecoderLog
+            | Self::Video => NodeCategory::Display,
             Self::Scanner | Self::DmrTrunk(_) => NodeCategory::Feature,
             Self::Speaker | Self::Recorder | Self::Export => NodeCategory::Sink,
         }
@@ -509,6 +537,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, In, true, Always),
             PortSpec::new(Position, In, true, Always),
         ],
+        "signal_map" => vec![
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Position, In, false, Always),
+        ],
         "readout" | "decoder_log" | "export" => {
             vec![PortSpec::new(Events, In, true, Always)]
         }
@@ -565,6 +597,10 @@ impl PatchCatalog {
                 entry(&NodeBody::Scope, "Scope"),
                 entry(&NodeBody::Speaker, "Speaker"),
                 entry(&NodeBody::Map, "Map"),
+                entry(
+                    &NodeBody::SignalMap(SignalMapNode::default()),
+                    "Signal survey",
+                ),
                 entry(&NodeBody::Readout, "Readout"),
                 entry(&NodeBody::DecoderLog, "Decoder log"),
                 entry(
@@ -837,6 +873,13 @@ impl PatchGraph {
                     }
                 }
                 NodeBody::Gps(gps) => validate_gps_source(&gps.source)?,
+                NodeBody::SignalMap(settings) => {
+                    if settings.offset_hz.unsigned_abs() > MAX_SIGNAL_MAP_OFFSET_HZ as u64
+                        || !(1..=MAX_SIGNAL_MAP_BANDWIDTH_HZ).contains(&settings.bandwidth_hz)
+                    {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
+                }
                 NodeBody::DmrTrunk(settings) => {
                     if settings.retention_seconds != 0
                         && !(10..=86_400).contains(&settings.retention_seconds)
@@ -2008,6 +2051,61 @@ mod tests {
             .find(|port| port.name == "position")
             .expect("position input");
         assert_eq!(position.condition, PortCondition::ChannelNeedsPosition);
+
+        let signal_map = catalog
+            .nodes
+            .iter()
+            .find(|node| node.kind == "signal_map")
+            .expect("signal survey in the palette");
+        assert_eq!(signal_map.category, NodeCategory::Display);
+        assert_eq!(
+            signal_map
+                .ports
+                .iter()
+                .map(|port| port.port_type)
+                .collect::<Vec<_>>(),
+            [PortType::Iq, PortType::Position]
+        );
+    }
+
+    #[test]
+    fn signal_map_settings_are_bounded() {
+        let mut graph = PatchGraph {
+            nodes: vec![node(
+                "survey",
+                NodeBody::SignalMap(SignalMapNode::default()),
+            )],
+            edges: Vec::new(),
+        };
+        assert_eq!(graph.validate(), Ok(()));
+
+        let NodeBody::SignalMap(settings) = &mut graph.nodes[0].body else {
+            panic!("signal map");
+        };
+        settings.offset_hz = MAX_SIGNAL_MAP_OFFSET_HZ + 1;
+        assert_eq!(
+            graph.validate(),
+            Err(PatchError::NodeSettings("survey".to_owned()))
+        );
+
+        let NodeBody::SignalMap(settings) = &mut graph.nodes[0].body else {
+            panic!("signal map");
+        };
+        settings.offset_hz = -(MAX_SIGNAL_MAP_OFFSET_HZ + 1);
+        assert_eq!(
+            graph.validate(),
+            Err(PatchError::NodeSettings("survey".to_owned()))
+        );
+
+        let NodeBody::SignalMap(settings) = &mut graph.nodes[0].body else {
+            panic!("signal map");
+        };
+        settings.offset_hz = DEFAULT_SIGNAL_MAP_OFFSET_HZ;
+        settings.bandwidth_hz = 0;
+        assert_eq!(
+            graph.validate(),
+            Err(PatchError::NodeSettings("survey".to_owned()))
+        );
     }
 
     #[test]

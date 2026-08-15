@@ -34,8 +34,6 @@ const FFT_SIZE: usize = 4096;
 const TARGET_FPS: f64 = 30.0;
 /// Ring depth in samples (~0.5 s at 2.4 Msps) — absorbs scheduling jitter before overrun.
 pub(crate) const RING_CAPACITY: usize = 1 << 20;
-/// Dynamic range below the per-frame peak used for the adaptive dB window default.
-const DEFAULT_DB_RANGE: f32 = 80.0;
 /// Squelch gate feel, tuned for voice: 6 dB hysteresis and a 100 ms hold keep fades and
 /// syllable gaps from chattering the gate.
 const SQUELCH_HYSTERESIS_DB: f32 = 6.0;
@@ -736,13 +734,6 @@ fn drain_commands(
             DspCommand::StopRecording => *tap = None,
         }
     }
-}
-
-#[must_use]
-pub fn adaptive_db_window(db: &[f32]) -> (f32, f32) {
-    let peak = db.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let peak = if peak.is_finite() { peak } else { 0.0 };
-    (peak - DEFAULT_DB_RANGE, peak)
 }
 
 #[cfg(test)]

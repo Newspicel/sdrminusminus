@@ -17,7 +17,7 @@ import type {
   PatchNode,
 } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
-import { deviceRefOf, refMatches, unboundChannels } from "../binding";
+import { claimedDevices, deviceRefOf, refMatches, unboundChannels } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode, rxStreamCount, streamLabel } from "../graph";
 import { releaseRadio } from "../remove";
@@ -189,6 +189,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               onAddNetwork={(id) => openNetwork.mutate(id)}
               busy={open.isPending || openNetwork.isPending}
               error={open.error?.message ?? openNetwork.error?.message ?? null}
+              claimed={claimedDevices(workspace.graph, node.id)}
             />
           </div>
         </FaceBody>

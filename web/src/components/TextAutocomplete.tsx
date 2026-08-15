@@ -42,6 +42,10 @@ export function TextAutocomplete({
       items={suggestions}
       value={draft}
       itemToStringValue={(suggestion) => suggestion.value}
+      // A picker with an escape hatch, not a search box: these lists are a handful of discovered
+      // items, and the default filters them against the committed value — so opening the list
+      // offered exactly the one entry already in the field and hid every other choice.
+      mode="none"
       openOnInputClick
       onValueChange={(next, details) => {
         setDraft(next);
@@ -73,18 +77,33 @@ export function TextAutocomplete({
             data-hotkeys="off"
             className={`${SURFACE} max-w-[calc(100vw-1rem)] min-w-[var(--anchor-width)]`}
           >
-            <Primitive.Empty className="px-2 py-1.5 text-xs text-ink-dim">
-              No detected match. A custom value is still accepted.
+            {/* The padding belongs to the sentence, not to `Empty`. Base UI keeps this element
+                mounted so its live region can announce, and nulls only the children — carrying
+                the padding itself left a blank strip above every non-empty list. */}
+            <Primitive.Empty className="text-xs text-ink-dim">
+              <span className="block px-2 py-1.5">
+                No detected match. A custom value is still accepted.
+              </span>
             </Primitive.Empty>
             <Primitive.List className="flex max-h-[var(--available-height)] flex-col overflow-y-auto p-0.5">
               {(suggestion: AutocompleteSuggestion) => (
                 <Primitive.Item
                   value={suggestion}
-                  className="flex cursor-default flex-col items-start rounded-[3px] px-2 py-1 text-xs leading-tight text-ink-dim data-highlighted:bg-panel-2 data-highlighted:text-ink"
+                  // The committed value is marked the way a `Select` marks its own, by fill and
+                  // hue: an unmarked list of every choice reads as if nothing were chosen.
+                  className={(state) =>
+                    "flex cursor-default flex-col items-start rounded-[3px] px-2 py-1 text-xs " +
+                    "leading-tight " +
+                    (suggestion.value === value
+                      ? "bg-accent/15 text-accent"
+                      : state.highlighted
+                        ? "bg-panel-2 text-ink"
+                        : "text-ink")
+                  }
                 >
-                  <span className="font-mono text-ink">{suggestion.value}</span>
+                  <span className="font-mono">{suggestion.value}</span>
                   {suggestion.detail !== undefined && (
-                    <span className="text-ink-dim">{suggestion.detail}</span>
+                    <span className="opacity-70">{suggestion.detail}</span>
                   )}
                 </Primitive.Item>
               )}

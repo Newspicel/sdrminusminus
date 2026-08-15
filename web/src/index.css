@@ -1,9 +1,11 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/base.css";
 
-/* The instrument palette. Authored in OKLCH so the light theme is the same role
-   table re-anchored rather than a second set of hand-picked values, and so elevation is a
-   lightness step — on an L≈.2 ground a drop shadow cannot reach popover-grade edge contrast at
+/* The instrument palette: neutral graphite surfaces at hue 255 — cool enough to read as metal
+   rather than paper, low enough in chroma that the ground never competes with data — and one
+   blue accent for what the operator is acting on. Authored in OKLCH so the light theme is the
+   same role table re-anchored rather than a second set of hand-picked values, and so elevation is
+   a lightness step — on an L≈.2 ground a drop shadow cannot reach popover-grade edge contrast at
    any alpha, so depth has to live in the surface itself.
 
    `@theme` declares the roles to Tailwind (it needs them at build time to emit `bg-panel` and
@@ -16,36 +18,43 @@
    silently ignores the assignment and keeps the colour it last had. That is how the max-hold
    trace came to be drawn in the live trace's colour. */
 @theme static {
-  --color-bg: oklch(0.185 0.006 75);
-  --color-panel: oklch(0.225 0.007 75);
-  --color-panel-2: oklch(0.265 0.008 75);
-  --color-panel-3: oklch(0.305 0.009 75);
-  --color-line: oklch(0.34 0.008 75);
-  --color-line-strong: oklch(0.52 0.009 75);
-  --color-ink: oklch(0.92 0.008 80);
-  --color-ink-dim: oklch(0.7 0.01 80);
-  --color-ink-faint: oklch(0.6 0.01 80);
-  --color-accent: oklch(0.8 0.135 72);
-  --color-accent-dim: oklch(0.62 0.1 72);
-  --color-danger: oklch(0.7 0.16 27);
-  --color-ok: oklch(0.78 0.14 155);
+  --color-bg: oklch(0.178 0.004 255);
+  --color-panel: oklch(0.215 0.005 255);
+  --color-panel-2: oklch(0.255 0.006 255);
+  --color-panel-3: oklch(0.3 0.007 255);
+  --color-line: oklch(0.33 0.007 255);
+  --color-line-strong: oklch(0.5 0.009 255);
+  --color-ink: oklch(0.95 0.003 255);
+  --color-ink-dim: oklch(0.74 0.006 255);
+  --color-ink-faint: oklch(0.62 0.008 255);
+  --color-accent: oklch(0.74 0.13 258);
+  --color-accent-dim: oklch(0.58 0.115 258);
+  --color-danger: oklch(0.7 0.17 25);
+  --color-ok: oklch(0.78 0.15 155);
 
-  /* The plot never inverts: it is a screen set into the panel, not paper. Its overlays are
-     achromatic because the colormap owns hue inside that rectangle — an isoluminant cursor over
-     a colormap is invisible, and a coloured one is a conjunction search. */
-  --color-plot-bg: oklch(0.16 0.008 75);
-  --color-plot-grid: oklch(0.55 0.006 80);
-  --color-plot-trace: oklch(0.93 0.02 85);
-  --color-plot-hold: oklch(0.62 0.015 85);
-  --color-plot-ink: oklch(0.97 0.01 85);
-  --color-plot-ink-dim: oklch(0.72 0.01 85);
+  /* The plot never inverts: it is a screen set into the panel, not paper. These six are SDR++'s
+     own numbers — its Dark theme's `WaterfallBackground`, `PlotLines`, `FFTHoldColor`, `Text` and
+     `TextDisabled`, plus the `IM_COL32(50, 50, 50, 255)` its FFT grid is drawn in — kept as hex
+     rather than restated in OKLCH so the match stays checkable against upstream. An operator
+     coming from SDR++ reads the same trace on the same ground here.
+
+     `ink` and `ink-dim` stay achromatic, and everything drawn *over* the waterfall is built from
+     those two: the colormap owns hue inside that rectangle, an isoluminant cursor over it is
+     invisible and a coloured one is a conjunction search. The two hues that are licensed here —
+     the trace and the max-hold — are data, not overlay, and they never cross the waterfall. */
+  --color-plot-bg: #000000;
+  --color-plot-grid: #323232;
+  --color-plot-trace: #66e5ff;
+  --color-plot-hold: #ffff00;
+  --color-plot-ink: #ffffff;
+  --color-plot-ink-dim: #7f7f7f;
 
   /* Hue encodes the data type a port and its wire carry, and nothing else. Each is
      paired with a marker shape in `NodeShell`, so the graph reads by shape alone; the set stays
      small on purpose — four streams the engine moves, tuning ownership, and the transmit input
      reserved for transmit, which is drawn hollow because nothing can fill it yet.
      Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
-  --color-port-iq: oklch(0.72 0.11 235);
+  --color-port-iq: oklch(0.72 0.11 228);
   --color-port-audio: oklch(0.74 0.12 158);
   --color-port-events: oklch(0.78 0.11 85);
   --color-port-video: oklch(0.76 0.12 35);
@@ -54,7 +63,7 @@
 
   /* The category strip on a node header: what the box *is*, before its label is read. Low
      chroma — this is a silkscreen mark, not a status light. */
-  --color-cat-source: oklch(0.62 0.07 235);
+  --color-cat-source: oklch(0.62 0.07 228);
   --color-cat-channel: oklch(0.62 0.07 300);
   --color-cat-display: oklch(0.62 0.05 200);
   --color-cat-feature: oklch(0.62 0.07 60);
@@ -86,22 +95,24 @@
     inset 0 1px 0 oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.44);
 }
 
-/* Light is the same role table re-anchored: surfaces to L .92–1.0, ink to L .27–.53, accents
-   darkened and de-chromatised to stay legible on a light ground. The plot tokens are absent on
-   purpose — they are theme-independent. */
+/* Light is the same role table re-anchored: surfaces to L .94–1.0, ink to L .26–.56, and the
+   accent darkened to L .52 — a light ground needs the accent *below* it in lightness, where the
+   dark theme needs it above, so the same hue is carried at a different lightness and a higher
+   chroma to hold its identity there. The plot tokens are absent on purpose — they are
+   theme-independent. */
 @layer base {
   :root[data-theme="light"] {
-    --color-bg: oklch(0.955 0.004 80);
-    --color-panel: oklch(0.985 0.003 80);
-    --color-panel-2: oklch(0.925 0.005 80);
+    --color-bg: oklch(0.968 0.002 255);
+    --color-panel: oklch(0.99 0.002 255);
+    --color-panel-2: oklch(0.94 0.004 255);
     --color-panel-3: oklch(1 0 0);
-    --color-line: oklch(0.865 0.006 80);
-    --color-line-strong: oklch(0.6 0.008 80);
-    --color-ink: oklch(0.27 0.012 75);
-    --color-ink-dim: oklch(0.47 0.012 75);
-    --color-ink-faint: oklch(0.53 0.012 75);
-    --color-accent: oklch(0.56 0.125 62);
-    --color-accent-dim: oklch(0.68 0.1 62);
+    --color-line: oklch(0.895 0.005 255);
+    --color-line-strong: oklch(0.62 0.01 255);
+    --color-ink: oklch(0.26 0.012 255);
+    --color-ink-dim: oklch(0.47 0.012 255);
+    --color-ink-faint: oklch(0.56 0.012 255);
+    --color-accent: oklch(0.52 0.16 258);
+    --color-accent-dim: oklch(0.62 0.13 258);
     --color-danger: oklch(0.51 0.19 27);
     --color-ok: oklch(0.5 0.115 155);
 
@@ -109,14 +120,14 @@
        ground — under the 3:1 floor a non-text graphic has to clear, which made a patch
        unreadable in this theme ( carried it as an open defect). Each is the
        lightness that puts its hue at 3.5:1 on `bg`, 3.2:1 on `panel-2`. */
-    --color-port-iq: oklch(0.592 0.11 235);
+    --color-port-iq: oklch(0.592 0.11 228);
     --color-port-audio: oklch(0.583 0.12 158);
     --color-port-events: oklch(0.599 0.11 85);
     --color-port-video: oklch(0.61 0.12 35);
     --color-port-control: oklch(0.606 0.1 300);
     --color-port-tx: oklch(0.613 0.12 345);
 
-    --color-cat-source: oklch(0.594 0.07 235);
+    --color-cat-source: oklch(0.594 0.07 228);
     --color-cat-channel: oklch(0.603 0.07 300);
     --color-cat-display: oklch(0.592 0.05 200);
     --color-cat-feature: oklch(0.602 0.07 60);

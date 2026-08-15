@@ -2,13 +2,18 @@
 //! every check CI runs is runnable here first.
 #![allow(clippy::expect_used)]
 
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    sync::mpsc::{self, RecvTimeoutError},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
+use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use num_complex::Complex;
 
 mod bandplan;
@@ -33,7 +38,7 @@ enum Cmd {
     /// Writes `crates/server/data/notices.json` and `THIRD_PARTY_NOTICES.md`; `check` verifies
     /// both are current.
     Licenses,
-    /// Server + Vite dev server with HMR.
+    /// Auto-reloading server + Vite dev server with HMR.
     Dev,
     /// Full local gate = fmt + clippy + biome + oxlint + tsgo + web build + codegen-drift.
     Check,
@@ -209,26 +214,117 @@ fn dev(root: &Path) -> Result<()> {
         .spawn()
         .context("spawn vite dev server (is pnpm installed?)")?;
 
-    let status = Command::new("cargo")
-        .args(["run", "-p", "sdrmm", "--", "--dev-cors"])
-        .current_dir(root)
-        .status()
-        .context("run server");
+    let result = watch_rust_server(root, &mut vite);
 
     kill_process_tree(&mut vite);
-    let status = status?;
-    if !status.success() {
-        bail!("server exited with {status}");
+    result
+}
+
+const DEV_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const DEV_FILE_SCAN_INTERVAL: Duration = Duration::from_millis(500);
+const DEV_RESTART_DEBOUNCE: Duration = Duration::from_millis(250);
+
+fn watch_rust_server(root: &Path, vite: &mut Child) -> Result<()> {
+    let (changes_tx, changes_rx) = mpsc::channel();
+    let mut watcher = PollWatcher::new(
+        changes_tx,
+        Config::default().with_poll_interval(DEV_FILE_SCAN_INTERVAL),
+    )
+    .context("start backend watcher")?;
+    watcher
+        .watch(root, RecursiveMode::NonRecursive)
+        .context("watch workspace manifests")?;
+    for path in [root.join("crates"), root.join("apps/sdrmm")] {
+        watcher
+            .watch(&path, RecursiveMode::Recursive)
+            .with_context(|| format!("watch {}", path.display()))?;
     }
-    Ok(())
+
+    let mut server = Some(spawn_rust_server(root)?);
+    let result = (|| -> Result<()> {
+        let mut last_change = None;
+        loop {
+            if dev_interrupted() {
+                return Ok(());
+            }
+            if let Some(status) = vite.try_wait().context("poll Vite dev server")? {
+                bail!("Vite dev server exited with {status}");
+            }
+            if let Some(child) = server.as_mut()
+                && let Some(status) = child.try_wait().context("poll Rust server")?
+            {
+                eprintln!("Rust server exited with {status}; waiting for a backend change");
+                server = None;
+            }
+
+            match changes_rx.recv_timeout(DEV_POLL_INTERVAL) {
+                Ok(Ok(event)) if is_backend_change(root, &event) => {
+                    last_change = Some(Instant::now());
+                }
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => return Err(error).context("watch backend inputs"),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => bail!("backend watcher stopped"),
+            }
+
+            if last_change.is_some_and(|changed| changed.elapsed() >= DEV_RESTART_DEBOUNCE) {
+                if let Some(mut child) = server.take() {
+                    kill_process_tree(&mut child);
+                }
+                println!("backend changed; restarting Rust server");
+                server = Some(spawn_rust_server(root)?);
+                last_change = None;
+            }
+        }
+    })();
+
+    if let Some(mut child) = server {
+        kill_process_tree(&mut child);
+    }
+    result
+}
+
+fn is_backend_change(root: &Path, event: &Event) -> bool {
+    if matches!(event.kind, EventKind::Access(_)) {
+        return false;
+    }
+    let crates = root.join("crates");
+    let server = root.join("apps/sdrmm");
+    let manifest = root.join("Cargo.toml");
+    let lockfile = root.join("Cargo.lock");
+    event.paths.iter().any(|path| {
+        path == &manifest
+            || path == &lockfile
+            || path.starts_with(&crates)
+            || path.starts_with(&server)
+    })
+}
+
+fn rust_server_command(root: &Path) -> Command {
+    let mut server = Command::new("cargo");
+    server
+        .args(["run", "-p", "sdrmm", "--", "--dev-cors"])
+        .current_dir(root);
+    server
+}
+
+fn spawn_rust_server(root: &Path) -> Result<Child> {
+    let mut server = rust_server_command(root);
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut server, 0);
+    server.spawn().context("spawn Rust server")
 }
 
 #[cfg(unix)]
 struct InterruptHandler(libc::sigaction);
 
 #[cfg(unix)]
+static DEV_INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
 impl InterruptHandler {
     fn install() -> Result<Self> {
+        DEV_INTERRUPTED.store(false, Ordering::Relaxed);
         let mut action = unsafe { std::mem::zeroed::<libc::sigaction>() };
         action.sa_sigaction = preserve_dev_supervisor as *const () as libc::sighandler_t;
         action.sa_flags = libc::SA_RESTART;
@@ -250,7 +346,19 @@ impl Drop for InterruptHandler {
 }
 
 #[cfg(unix)]
-extern "C" fn preserve_dev_supervisor(_: libc::c_int) {}
+extern "C" fn preserve_dev_supervisor(_: libc::c_int) {
+    DEV_INTERRUPTED.store(true, Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn dev_interrupted() -> bool {
+    DEV_INTERRUPTED.load(Ordering::Relaxed)
+}
+
+#[cfg(not(unix))]
+fn dev_interrupted() -> bool {
+    false
+}
 
 #[cfg(unix)]
 fn kill_process_tree(child: &mut Child) {
@@ -301,6 +409,57 @@ mod dev_tests {
         }
         let _handler = InterruptHandler::install().expect("install Ctrl-C handler");
         assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+        assert!(dev_interrupted());
+    }
+}
+
+#[cfg(test)]
+mod dev_command_tests {
+    use super::*;
+
+    #[test]
+    fn rust_server_command_enables_development_cors() {
+        let root = Path::new("workspace");
+        let server = rust_server_command(root);
+
+        assert_eq!(server.get_program(), "cargo");
+        assert_eq!(server.get_current_dir(), Some(root));
+        assert_eq!(
+            server.get_args().collect::<Vec<_>>(),
+            ["run", "-p", "sdrmm", "--", "--dev-cors"]
+        );
+    }
+
+    #[test]
+    fn backend_change_filter_accepts_only_watched_build_inputs() {
+        let root = Path::new("/workspace");
+        for path in [
+            "/workspace/Cargo.toml",
+            "/workspace/Cargo.lock",
+            "/workspace/crates/server/src/lib.rs",
+            "/workspace/apps/sdrmm/src/main.rs",
+        ] {
+            let event = Event::new(EventKind::Any).add_path(path.into());
+            assert!(is_backend_change(root, &event), "ignored {path}");
+        }
+
+        for path in [
+            "/workspace/README.md",
+            "/workspace/web/src/App.tsx",
+            "/workspace/xtask/src/main.rs",
+        ] {
+            let event = Event::new(EventKind::Any).add_path(path.into());
+            assert!(!is_backend_change(root, &event), "accepted {path}");
+        }
+    }
+
+    #[test]
+    fn backend_change_filter_ignores_file_access() {
+        use notify::event::AccessKind;
+
+        let event = Event::new(EventKind::Access(AccessKind::Any))
+            .add_path("/workspace/crates/server/src/lib.rs".into());
+        assert!(!is_backend_change(Path::new("/workspace"), &event));
     }
 }
 

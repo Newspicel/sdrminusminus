@@ -12,8 +12,8 @@ use axum::{
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
-use sdrmm_dsp::{decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, VideoPacket, adaptive_db_window};
+use sdrmm_dsp::{adaptive_db_window, decimate_max, quantize_db};
+use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, VideoPacket};
 use sdrmm_wire::{
     AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind, VideoFrame,
 };
@@ -641,6 +641,8 @@ fn spawn_spectrum(
     tokio::spawn(async move {
         let mut dec = vec![0f32; bins];
         let mut quant = vec![0u8; bins];
+        // Reused across frames so the window's percentile costs no allocation after the first.
+        let mut window = Vec::with_capacity(bins);
         let mut throttle = FrameThrottle::new(fps);
 
         loop {
@@ -650,8 +652,11 @@ fn spawn_spectrum(
                         continue;
                     }
 
+                    // The window is read from the decimated bins, not from `snap.db`: those are
+                    // what the client draws, and max-decimation lifts the floor above the raw
+                    // FFT's.
                     decimate_max(&snap.db, &mut dec);
-                    let (db_min, db_max) = adaptive_db_window(&snap.db);
+                    let (db_min, db_max) = adaptive_db_window(&dec, &mut window);
                     quantize_db(&dec, db_min, db_max, &mut quant);
 
                     let frame = SpectrumFrame {

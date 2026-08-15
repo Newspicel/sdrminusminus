@@ -14,8 +14,13 @@ const HISTORY_ROWS = 1024;
  * rather than a blank rectangle filling in. */
 const PREROLL_MARGIN = "128px";
 
-export const COLORMAPS = ["magma", "inferno", "plasma", "viridis", "gray"] as const;
+/** Index order is the wire format between `setColormap` and `uMap` — a name's position here is
+ * the integer the shader switches on, so reordering this list re-colours every plot. `classic`
+ * leads because it is the default, which also makes it what an unknown name falls back to. */
+export const COLORMAPS = ["classic", "magma", "inferno", "plasma", "viridis", "gray"] as const;
 export type Colormap = (typeof COLORMAPS)[number];
+
+export const DEFAULT_COLORMAP: Colormap = "classic";
 
 const VERT = `#version 300 es
 in vec2 aPos;
@@ -41,9 +46,49 @@ vec3 poly(float t, vec3 c0, vec3 c1, vec3 c2, vec3 c3, vec3 c4, vec3 c5, vec3 c6
   return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
 }
 
+// SDR++'s Classic map, its fifteen stops verbatim (root/res/colormaps/classic.json) and
+// interpolated the way it interpolates them: straight lines between adjacent stops, in sRGB.
+// #FE6D16 and #FF0000 each appear twice on purpose — the repeat is what holds orange and red flat
+// across their share of the range instead of sweeping through.
+const vec3 CLASSIC[15] = vec3[15](
+  vec3(0.00000, 0.00000, 0.12549),
+  vec3(0.00000, 0.00000, 0.18824),
+  vec3(0.00000, 0.00000, 0.31373),
+  vec3(0.00000, 0.00000, 0.56863),
+  vec3(0.11765, 0.56471, 1.00000),
+  vec3(1.00000, 1.00000, 1.00000),
+  vec3(1.00000, 1.00000, 0.00000),
+  vec3(0.99608, 0.42745, 0.08627),
+  vec3(0.99608, 0.42745, 0.08627),
+  vec3(1.00000, 0.00000, 0.00000),
+  vec3(1.00000, 0.00000, 0.00000),
+  vec3(0.77647, 0.00000, 0.00000),
+  vec3(0.62353, 0.00000, 0.00000),
+  vec3(0.45882, 0.00000, 0.00000),
+  vec3(0.29020, 0.00000, 0.00000)
+);
+
+vec3 classic(float t) {
+  float x = t * 14.0;
+  // min() rather than clamp on the index: at t == 1 the floor is already 14, and reading stop 15
+  // to interpolate towards would run off the end of the array.
+  int i = min(int(floor(x)), 13);
+  return mix(CLASSIC[i], CLASSIC[i + 1], x - float(i));
+}
+
 vec3 colormap(float t) {
   t = clamp(t, 0.0, 1.0);
   if (uMap == 1) {
+    return poly(t,
+      vec3(-0.00213649, -0.00074966, -0.00538613),
+      vec3(0.25166054, 0.67752324, 2.49402660),
+      vec3(8.35371728, -3.57771951, 0.31446790),
+      vec3(-27.66873309, 14.26473078, -13.64921319),
+      vec3(52.17613981, -27.94360607, 12.94416944),
+      vec3(-50.76852536, 29.04658282, 4.23415299),
+      vec3(18.65570507, -11.48977352, -5.60196151));
+  }
+  if (uMap == 2) {
     return poly(t,
       vec3(0.00021894, 0.00165100, -0.01948090),
       vec3(0.10651342, 0.56395644, 3.93271239),
@@ -53,7 +98,7 @@ vec3 colormap(float t) {
       vec3(-71.31942824, 32.62606426, 73.20951986),
       vec3(25.13112622, -12.24266895, -23.07032500));
   }
-  if (uMap == 2) {
+  if (uMap == 3) {
     return poly(t,
       vec3(0.05873234, 0.02333671, 0.54334018),
       vec3(2.17651463, 0.23838342, 0.75396046),
@@ -63,7 +108,7 @@ vec3 colormap(float t) {
       vec3(10.02306558, 71.41361770, -54.07218656),
       vec3(-3.65871384, -22.93153465, 18.19190779));
   }
-  if (uMap == 3) {
+  if (uMap == 4) {
     return poly(t,
       vec3(0.27772733, 0.00540734, 0.33409981),
       vec3(0.10509304, 1.40461353, 1.38459016),
@@ -73,17 +118,10 @@ vec3 colormap(float t) {
       vec3(4.77638500, -13.74514538, -65.35303263),
       vec3(-5.43545586, 4.64585261, 26.31243525));
   }
-  if (uMap == 4) {
+  if (uMap == 5) {
     return vec3(t);
   }
-  return poly(t,
-    vec3(-0.00213649, -0.00074966, -0.00538613),
-    vec3(0.25166054, 0.67752324, 2.49402660),
-    vec3(8.35371728, -3.57771951, 0.31446790),
-    vec3(-27.66873309, 14.26473078, -13.64921319),
-    vec3(52.17613981, -27.94360607, 12.94416944),
-    vec3(-50.76852536, 29.04658282, 4.23415299),
-    vec3(18.65570507, -11.48977352, -5.60196151));
+  return classic(t);
 }
 
 void main() {

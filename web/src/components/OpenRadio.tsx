@@ -1,8 +1,9 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { refMatches } from "../canvas/binding";
 import { devicesQuery, doctorQuery } from "../lib/api";
-import type { DeviceInfo } from "../lib/types";
+import type { DeviceInfo, DeviceRef } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
 import { Select } from "./Select";
@@ -32,6 +33,15 @@ export function visibleDevices(
       ? devices
       : devices.filter((device) => device.driver !== "virtual" || isRecordingDevice(device)),
   );
+}
+
+/** The devices still free to be named here: one radio is one open device set behind one node, so
+ * the ones another node already holds are not a choice this node can make (`claimedDevices`). */
+export function unclaimedDevices(
+  devices: readonly DeviceInfo[],
+  claimed: readonly DeviceRef[],
+): readonly DeviceInfo[] {
+  return devices.filter((device) => !claimed.some((reference) => refMatches(reference, device)));
 }
 
 export function groupDevices(devices: readonly DeviceInfo[]): {
@@ -209,17 +219,22 @@ export function DeviceChoices({
   onAddNetwork,
   busy = false,
   error = null,
+  claimed = [],
 }: {
   onChoose: (device: DeviceInfo) => void;
   onAddNetwork: (deviceId: string) => void;
   busy?: boolean;
   error?: string | null;
+  /** Radios other nodes already name, which this one may not name a second time. */
+  claimed?: readonly DeviceRef[];
 }) {
   const devices = useQuery(devicesQuery());
   const [showDoctor, setShowDoctor] = useState(false);
   const [showNetwork, setShowNetwork] = useState(false);
-  const found = visibleDevices(devices.data?.devices ?? []);
+  const visible = visibleDevices(devices.data?.devices ?? []);
+  const found = unclaimedDevices(visible, claimed);
   const { radios, recordings } = groupDevices(found);
+  const elsewhere = visible.length - found.length;
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -240,7 +255,9 @@ export function DeviceChoices({
       {devices.isPending && <p className="text-sm text-ink-dim">Looking for devices…</p>}
       {!devices.isPending && radios.length === 0 && (
         <p className="text-sm text-ink-dim">
-          No radios found. Plug one in, open a recording, or check the diagnostics below.
+          {elsewhere > 0
+            ? "Every radio found is already open on another node. Plug one in, open a recording, or move that node's wires here."
+            : "No radios found. Plug one in, open a recording, or check the diagnostics below."}
         </p>
       )}
 

@@ -31,6 +31,7 @@ import {
   targetDetail,
 } from "../lib/map/layers";
 import { type PositionSample, usePositionStore } from "../lib/position";
+import { SIGNAL_MAX_DBFS, SIGNAL_MIN_DBFS, type SignalSurveySample } from "../lib/signalSurvey";
 import { formatMhz } from "./format";
 
 // MapLibre v6 ships its worker as a separate file and derives its URL from `import.meta.url`,
@@ -75,6 +76,7 @@ export function MapPanel({
   kinds,
   references = [],
   positionNodes = [],
+  signalSamples,
   active = true,
   className,
 }: {
@@ -83,6 +85,9 @@ export function MapPanel({
    * the targets they anchor. */
   references?: readonly (readonly [number, number])[];
   positionNodes?: readonly string[];
+  /** Aggregated drive-survey readings. Present, even when empty, enables the signal layer and
+   * its absolute dBFS legend. */
+  signalSamples?: readonly SignalSurveySample[];
   /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
    * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with
    * one gesture, since the two cannot share a wheel. */
@@ -98,6 +103,7 @@ export function MapPanel({
   const selectedRef = useRef<{ kind: MapKind; id: string } | null>(null);
   const targetFramedRef = useRef(false);
   const positionFramedRef = useRef(false);
+  const signalFramedRef = useRef(false);
   // The map is built once and outlives any number of wire changes, so the listeners and the draw
   // tick read the wired kinds, the references and the theme colours from here rather than
   // closing over them.
@@ -107,7 +113,10 @@ export function MapPanel({
   referencesRef.current = references;
   const positionNodesRef = useRef(positionNodes);
   positionNodesRef.current = positionNodes;
+  const signalSamplesRef = useRef<readonly SignalSurveySample[] | null>(signalSamples ?? null);
+  signalSamplesRef.current = signalSamples ?? null;
   const positionDrawnRef = useRef("");
+  const signalDrawnRef = useRef<readonly SignalSurveySample[] | null>(null);
   const edgeRef = useRef("");
   const accentRef = useRef("");
 
@@ -117,6 +126,7 @@ export function MapPanel({
   const [detail, setDetail] = useState<TargetDetail | null>(null);
   const [basemap, setBasemap] = useState<"pending" | "online" | "offline">("pending");
   const [positionCount, setPositionCount] = useState(0);
+  const [signalCount, setSignalCount] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -133,11 +143,11 @@ export function MapPanel({
 
     // One token does double duty: the offline backdrop, and the outline that keeps every target
     // readable against whichever basemap is under it.
-    const edge = themeColor(container, "--color-bg", "#0b0e14");
+    const edge = themeColor(container, "--color-bg", "#101113");
     edgeRef.current = edge;
     // The station mark is *ours* — the one place the map spends the app accent rather than a
     // kind colour, so it can never be mistaken for a target.
-    accentRef.current = themeColor(container, "--color-accent", "#e0a458");
+    accentRef.current = themeColor(container, "--color-accent", "#76acfc");
 
     void (async () => {
       const style = await fetchStyle();
@@ -160,6 +170,7 @@ export function MapPanel({
       map.on("style.load", () => {
         installReferenceLayer(map, accentRef.current, edge, referencesRef.current);
         installLayers(map, edge, kindsRef.current);
+        installSignalLayers(map, edge, signalSamplesRef.current !== null);
         installPositionLayers(map, accentRef.current, edge, positionNodesRef.current.length > 0);
         readyRef.current = true;
         drawnRef.current = {};
@@ -172,6 +183,7 @@ export function MapPanel({
         if (event.originalEvent !== undefined) {
           targetFramedRef.current = true;
           positionFramedRef.current = true;
+          signalFramedRef.current = true;
         }
       });
 
@@ -225,6 +237,17 @@ export function MapPanel({
         );
         setPositionCount(collection.points.features.length);
         framePositionOnce(map, collection.points, positionFramedRef);
+      }
+
+      const surveySamples = signalSamplesRef.current;
+      if (surveySamples !== null && surveySamples !== signalDrawnRef.current) {
+        signalDrawnRef.current = surveySamples;
+        const collection = updateSignalSource(
+          map.getSource<GeoJSONSource>(SIGNAL_SOURCE),
+          surveySamples,
+        );
+        setSignalCount(collection.features.length);
+        frameSignalOnce(map, collection, signalFramedRef);
       }
 
       for (const kind of kindsRef.current) {
@@ -340,6 +363,19 @@ export function MapPanel({
     positionDrawnRef.current = "\0";
   }, [positionNodesKey]);
 
+  const signalEnabled = signalSamples !== undefined;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || !readyRef.current) {
+      return;
+    }
+    installSignalLayers(map, edgeRef.current, signalEnabled);
+    signalDrawnRef.current = null;
+    if (!signalEnabled) {
+      setSignalCount(0);
+    }
+  }, [signalEnabled]);
+
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>
       {/* Sized in flow, not `absolute inset-0`: MapLibre stamps `maplibregl-map` onto this
@@ -364,6 +400,25 @@ export function MapPanel({
               <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-accent" />
               <span className="text-ink-dim">GPS trail</span>
               <span className="ml-auto text-ink">{positionCount}</span>
+            </div>
+          )}
+          {signalSamples !== undefined && (
+            <div className="flex min-w-36 flex-col gap-1 font-mono text-[10px] tabular-nums">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-ink-dim">Signal cells</span>
+                <span className="text-ink">{signalCount}</span>
+              </div>
+              <div
+                className="h-1.5 w-full rounded-full"
+                style={{
+                  background:
+                    "linear-gradient(to right, #231942, #5e2b83, #b33f62, #ef8354, #f6d365)",
+                }}
+              />
+              <div className="flex justify-between text-ink-faint">
+                <span>{SIGNAL_MIN_DBFS} dBFS</span>
+                <span>{SIGNAL_MAX_DBFS} dBFS</span>
+              </div>
             </div>
           )}
         </div>
@@ -420,6 +475,8 @@ const EMPTY_POSITION_HISTORY: readonly PositionSample[] = Object.freeze([]);
 const POSITION_SOURCE = "station-position-history";
 const POSITION_ROUTE_SOURCE = "station-position-route";
 const POSITION_LAYERS = ["station-position-heat", "station-position-route", "station-position-fix"];
+const SIGNAL_SOURCE = "signal-survey";
+const SIGNAL_LAYERS = ["signal-survey-heat", "signal-survey-points"];
 
 interface PositionFeature {
   type: "Feature";
@@ -491,6 +548,37 @@ export function updatePositionSources(
   const collection = positionCollection(tracks);
   void pointsSource?.setData(collection.points);
   void routeSource?.setData(collection.route);
+  return collection;
+}
+
+interface SignalFeature {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: { level: number; observations: number };
+}
+
+export interface SignalCollection {
+  type: "FeatureCollection";
+  features: SignalFeature[];
+}
+
+export function signalCollection(samples: readonly SignalSurveySample[]): SignalCollection {
+  return {
+    type: "FeatureCollection",
+    features: samples.map((sample) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [sample.longitude, sample.latitude] },
+      properties: { level: sample.levelDbfs, observations: sample.observations },
+    })),
+  };
+}
+
+export function updateSignalSource(
+  source: Pick<GeoJSONSource, "setData"> | undefined,
+  samples: readonly SignalSurveySample[],
+): SignalCollection {
+  const collection = signalCollection(samples);
+  void source?.setData(collection);
   return collection;
 }
 
@@ -626,6 +714,89 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
       },
     });
   }
+}
+
+function installSignalLayers(map: MapLibreMap, edge: string, enabled: boolean): void {
+  for (const layer of SIGNAL_LAYERS) {
+    if (map.getLayer(layer) !== undefined) {
+      map.removeLayer(layer);
+    }
+  }
+  if (map.getSource(SIGNAL_SOURCE) !== undefined) {
+    map.removeSource(SIGNAL_SOURCE);
+  }
+  if (!enabled) {
+    return;
+  }
+
+  map.addSource(SIGNAL_SOURCE, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: SIGNAL_LAYERS[0] ?? "signal-survey-heat",
+    type: "heatmap",
+    source: SIGNAL_SOURCE,
+    maxzoom: 17,
+    paint: {
+      "heatmap-weight": [
+        "interpolate",
+        ["linear"],
+        ["get", "level"],
+        SIGNAL_MIN_DBFS,
+        0.05,
+        SIGNAL_MAX_DBFS,
+        1,
+      ],
+      "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.35, 15, 1.25],
+      "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 3, 15, 20],
+      "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.8, 17, 0.2],
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(35,25,66,0)",
+        0.15,
+        "#231942",
+        0.35,
+        "#5e2b83",
+        0.55,
+        "#b33f62",
+        0.75,
+        "#ef8354",
+        1,
+        "#f6d365",
+      ],
+    },
+  });
+  map.addLayer({
+    id: SIGNAL_LAYERS[1] ?? "signal-survey-points",
+    type: "circle",
+    source: SIGNAL_SOURCE,
+    minzoom: 13,
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 2, 17, 6],
+      "circle-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0, 15, 0.9],
+      "circle-color": [
+        "interpolate",
+        ["linear"],
+        ["get", "level"],
+        SIGNAL_MIN_DBFS,
+        "#231942",
+        -95,
+        "#5e2b83",
+        -70,
+        "#b33f62",
+        -45,
+        "#ef8354",
+        SIGNAL_MAX_DBFS,
+        "#f6d365",
+      ],
+      "circle-stroke-color": edge,
+      "circle-stroke-width": 1,
+    },
+  });
 }
 
 function installPositionLayers(
@@ -765,6 +936,21 @@ export function frameTargetsOnce(
 export function framePositionOnce(
   map: Pick<MapLibreMap, "fitBounds">,
   collection: PositionCollection,
+  framed: FrameFlag,
+): void {
+  if (framed.current || collection.features.length === 0) {
+    return;
+  }
+  framed.current = true;
+  framePoints(
+    map,
+    collection.features.map((feature) => feature.geometry.coordinates),
+  );
+}
+
+export function frameSignalOnce(
+  map: Pick<MapLibreMap, "fitBounds">,
+  collection: SignalCollection,
   framed: FrameFlag,
 ): void {
   if (framed.current || collection.features.length === 0) {

@@ -8,6 +8,7 @@ import {
   NETWORK_BACKENDS,
   networkDeviceId,
   rankDevices,
+  unclaimedDevices,
   visibleDevices,
 } from "./OpenRadio";
 
@@ -56,6 +57,41 @@ describe("visibleDevices", () => {
       "rtlsdr:00000001",
       "virtual:file:/recordings/airband",
     ]);
+  });
+});
+
+describe("unclaimedDevices", () => {
+  const devices = [
+    device("rtlsdr", "00000001", "RTL-SDR 00000001"),
+    device("rtlsdr", "00000002", "RTL-SDR 00000002"),
+    device("virtual", "siggen", "Signal Generator"),
+  ];
+
+  it("drops the radios another node already names", () => {
+    expect(
+      unclaimedDevices(devices, [{ backend: "rtlsdr", key: "00000001" }]).map(deviceId),
+    ).toEqual(["rtlsdr:00000002", "virtual:siggen"]);
+    expect(
+      unclaimedDevices(
+        [{ driver: "rtlsdr", key: "0@rx", label: "RTL-SDR", serial: "0" }],
+        [{ backend: "rtlsdr", serial: "0", key: "0@rx" }],
+      ),
+    ).toEqual([]);
+  });
+
+  /** A serial-less reference names its backend's one device, so it claims that one and no other. */
+  it("matches a keyed reference and a bare backend alike", () => {
+    expect(
+      unclaimedDevices(devices, [{ backend: "virtual", key: "siggen" }]).map(deviceId),
+    ).toEqual(["rtlsdr:00000001", "rtlsdr:00000002"]);
+    expect(unclaimedDevices(devices, [{ backend: "virtual" }]).map(deviceId)).toEqual([
+      "rtlsdr:00000001",
+      "rtlsdr:00000002",
+    ]);
+  });
+
+  it("offers everything when no node holds a radio", () => {
+    expect(unclaimedDevices(devices, [])).toEqual(devices);
   });
 });
 

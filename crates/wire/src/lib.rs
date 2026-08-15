@@ -40,11 +40,12 @@ pub use device::{
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame, VideoFrame};
 pub use patch::{
-    ChannelNode, DeviceNode, DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES,
-    MAX_STREAMS, NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog, PatchEdge, PatchError,
-    PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat,
-    PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, Size,
-    port_stream, stream_port,
+    ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
+    DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
+    MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog,
+    PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection,
+    PortRef, PortRepeat, PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout,
+    RackSlot, SignalMapNode, Size, port_stream, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,

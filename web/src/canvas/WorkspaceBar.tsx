@@ -55,12 +55,17 @@ export function WorkspaceBar({
             ? { kind: "device" as const, data: {} }
             : kind === "gps"
               ? { kind: "gps" as const, data: { source: source ?? { type: "device" } } }
-              : kind === "dmr_trunk"
+              : kind === "signal_map"
                 ? {
-                    kind: "dmr_trunk" as const,
-                    data: { protocol: "auto", retention_seconds: 300 },
+                    kind: "signal_map" as const,
+                    data: { offset_hz: 0, bandwidth_hz: 12_500 },
                   }
-                : { kind }),
+                : kind === "dmr_trunk"
+                  ? {
+                      kind: "dmr_trunk" as const,
+                      data: { protocol: "auto", retention_seconds: 300 },
+                    }
+                  : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

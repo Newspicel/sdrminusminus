@@ -241,7 +241,7 @@ async fn get_nmea_devices() -> Result<Json<NmeaDevicesResponse>, AppError> {
     request_body = CreateDeviceSetRequest,
     responses(
         (status = 200, description = "Device set created", body = CreatedId),
-        (status = 400, description = "Unknown or unusable device", body = ApiError),
+        (status = 400, description = "Unusable device, or one a device set already holds", body = ApiError),
         (status = 404, description = "Device not found", body = ApiError),
         (status = 422, description = "Malformed request body", body = ApiError),
     ),

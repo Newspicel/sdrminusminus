@@ -739,7 +739,7 @@
             }
           },
           "400": {
-            "description": "Unknown or unusable device",
+            "description": "Unusable device, or one a device set already holds",
             "content": {
               "application/json": {
                 "schema": {
@@ -5966,6 +5966,26 @@
           },
           {
             "type": "object",
+            "description": "A drive survey of one RF slice, pairing spectrum power with GPS fixes.",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SignalMapNode",
+                "description": "A drive survey of one RF slice, pairing spectrum power with GPS fixes."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "signal_map"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "The live picture a decoder holds — an RDS station, a table of aircraft, a teleprinter\nroll — one readout per connected decoder. This is the *state* a decoder accumulates, which\nis the half of its output that a log row cannot carry; the frames themselves are read in\n[`NodeBody::DecoderLog`], so nothing here repeats it.",
             "required": [
               "kind"
@@ -7732,6 +7752,23 @@
           "usb",
           "lsb"
         ]
+      },
+      "SignalMapNode": {
+        "type": "object",
+        "description": "The IQ-relative slice a signal survey measures while pairing spectrum frames with positions.",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "integer",
+            "format": "int64",
+            "default": 12500,
+            "minimum": 0
+          },
+          "offset_hz": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0
+          }
+        }
       },
       "Size": {
         "type": "object",

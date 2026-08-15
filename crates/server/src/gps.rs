@@ -689,14 +689,96 @@ where
     })
 }
 
+/// The serial ports a GPS node may be pointed at.
+///
+/// Two passes, because a serial port list is mostly not receivers. First the ports nothing can be
+/// received from at all: macOS publishes a dial-in twin (`/dev/tty.*`) of each callout device,
+/// which blocks on carrier detect and so never yields a sentence, plus pseudo-ports with no
+/// hardware behind them. Then, of what is left, the ports that identify themselves as a
+/// receiver — a laptop lists a monitor's control channel and a dev board's virtual COM port beside
+/// the GPS puck, and offering those as position sources is offering wrong answers.
+///
+/// The whole list is offered only when nothing identifies itself: a receiver wired to a generic
+/// USB-serial adapter reports the adapter's identity rather than its own, and an empty picker
+/// would strand it. Short of opening every port and listening for sentences — which resets some
+/// boards and disturbs others — the descriptor is all there is to go on.
 pub(crate) fn nmea_devices() -> Result<NmeaDevicesResponse, String> {
-    let mut devices = tokio_serial::available_ports()
+    let ports = tokio_serial::available_ports()
         .map_err(|error| format!("list serial devices: {error}"))?
         .into_iter()
+        .filter(is_openable_port)
         .map(nmea_device_info)
+        .collect();
+    Ok(NmeaDevicesResponse {
+        devices: offered_ports(ports),
+    })
+}
+
+fn offered_ports(mut ports: Vec<NmeaDeviceInfo>) -> Vec<NmeaDeviceInfo> {
+    ports.sort_by(|left, right| {
+        receiver_rank(left)
+            .cmp(&receiver_rank(right))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    let receivers = ports
+        .iter()
+        .filter(|port| receiver_rank(port) == RECEIVER)
+        .cloned()
         .collect::<Vec<_>>();
-    devices.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(NmeaDevicesResponse { devices })
+    if receivers.is_empty() {
+        ports
+    } else {
+        receivers
+    }
+}
+
+/// Port names macOS lists that are not a serial device anyone can receive from.
+const PSEUDO_PORTS: [&str; 4] = [
+    "Bluetooth-Incoming-Port",
+    "debug-console",
+    "wlan-debug",
+    "WirelessiAP",
+];
+
+fn is_openable_port(info: &SerialPortInfo) -> bool {
+    let name = info.port_name.rsplit('/').next().unwrap_or(&info.port_name);
+    // The dot is the macOS marker: Linux names (`ttyUSB0`, `ttyAMA0`) carry none, so only the
+    // `tty.` twin of a `cu.` callout device is dropped here.
+    !name.starts_with("tty.") && !PSEUDO_PORTS.iter().any(|pseudo| name.contains(pseudo))
+}
+
+/// USB vendors whose serial ports are receivers rather than generic adapters.
+const GNSS_USB_VIDS: [u16; 2] = [0x1546, 0x091e]; // u-blox, Garmin
+
+const GNSS_WORDS: [&str; 10] = [
+    "gps", "gnss", "glonass", "galileo", "beidou", "u-blox", "ublox", "garmin", "sirf", "navilock",
+];
+
+/// The rank a port has to hold to be offered on its own (`nmea_devices`).
+const RECEIVER: u8 = 0;
+
+/// A puck first, then anything else on USB, then the legacy ports a machine always has: the
+/// receiver is what the picker exists to name, and a 16550 port is what it is least likely to be.
+fn receiver_rank(device: &NmeaDeviceInfo) -> u8 {
+    let described = device
+        .product
+        .iter()
+        .chain(device.manufacturer.iter())
+        .any(|text| {
+            let text = text.to_lowercase();
+            GNSS_WORDS.iter().any(|word| text.contains(word))
+        });
+    if described
+        || device
+            .usb_vid
+            .is_some_and(|vid| GNSS_USB_VIDS.contains(&vid))
+    {
+        RECEIVER
+    } else if device.usb_vid.is_some() {
+        1
+    } else {
+        2
+    }
 }
 
 fn nmea_device_info(info: SerialPortInfo) -> NmeaDeviceInfo {
@@ -880,6 +962,84 @@ mod tests {
             (device.usb_vid, device.usb_pid),
             (Some(0x1546), Some(0x01a7))
         );
+    }
+
+    #[test]
+    fn only_openable_ports_are_offered_and_receivers_rank_first() {
+        for pseudo in [
+            "/dev/cu.Bluetooth-Incoming-Port",
+            "/dev/cu.debug-console",
+            "/dev/tty.usbmodem11401",
+        ] {
+            assert!(
+                !is_openable_port(&SerialPortInfo {
+                    port_name: pseudo.to_owned(),
+                    port_type: SerialPortType::Unknown,
+                }),
+                "offered {pseudo}"
+            );
+        }
+        assert!(is_openable_port(&SerialPortInfo {
+            port_name: "/dev/cu.usbmodem11401".to_owned(),
+            port_type: SerialPortType::Unknown,
+        }));
+        assert!(is_openable_port(&SerialPortInfo {
+            port_name: "/dev/ttyUSB0".to_owned(),
+            port_type: SerialPortType::Unknown,
+        }));
+
+        let port = |product: Option<&str>, vid: Option<u16>| NmeaDeviceInfo {
+            path: "/dev/ttyUSB0".to_owned(),
+            product: product.map(ToOwned::to_owned),
+            manufacturer: None,
+            serial: None,
+            usb_vid: vid,
+            usb_pid: None,
+        };
+        assert_eq!(receiver_rank(&port(Some("u-blox GNSS receiver"), None)), 0);
+        assert_eq!(receiver_rank(&port(None, Some(0x1546))), 0);
+        // What the picker was offering as position sources beside the puck.
+        assert_eq!(
+            receiver_rank(&port(Some("LG Monitor Controls"), Some(1))),
+            1
+        );
+        assert_eq!(
+            receiver_rank(&port(Some("STM32 Virtual ComPort"), Some(1))),
+            1
+        );
+        assert_eq!(
+            receiver_rank(&port(Some("FT232R USB UART"), Some(0x0403))),
+            1
+        );
+        assert_eq!(receiver_rank(&port(None, None)), 2);
+    }
+
+    #[test]
+    fn the_picker_is_offered_receivers_alone_unless_there_are_none() {
+        let named = |path: &str, product: Option<&str>| NmeaDeviceInfo {
+            path: path.to_owned(),
+            product: product.map(ToOwned::to_owned),
+            manufacturer: None,
+            serial: None,
+            usb_vid: Some(0x1234),
+            usb_pid: None,
+        };
+        let monitor = named("/dev/cu.usbmodem306", Some("LG Monitor Controls"));
+        let board = named("/dev/cu.usbmodem9A4", Some("STM32 Virtual ComPort"));
+        let puck = named("/dev/cu.usbmodem11401", Some("u-blox GNSS receiver"));
+
+        assert_eq!(
+            offered_ports(vec![monitor.clone(), board.clone(), puck.clone()])
+                .iter()
+                .map(|port| port.path.as_str())
+                .collect::<Vec<_>>(),
+            ["/dev/cu.usbmodem11401"]
+        );
+
+        // A receiver on a generic adapter reports the adapter, so an all-anonymous list is offered
+        // whole rather than leaving the picker with nothing to name.
+        assert_eq!(offered_ports(vec![monitor, board]).len(), 2);
+        assert!(offered_ports(Vec::new()).is_empty());
     }
 
     #[test]

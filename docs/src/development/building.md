@@ -43,14 +43,15 @@ The server embeds `web/dist` at compile time and listens on <http://localhost:80
 application before compiling a distributable binary; when the directory is absent, the server
 build script creates a placeholder so backend-only development can still compile.
 
-For UI work:
+For local development:
 
 ```sh
 cargo xtask dev
 ```
 
-This runs `sdrmm` with development CORS on port `8080` and Vite with hot module replacement on
-<http://localhost:5173>. Vite proxies API and WebSocket traffic to the Rust server.
+This runs `sdrmm` with development CORS on port `8080`, restarting it when backend inputs change,
+and Vite with hot module replacement on <http://localhost:5173>. Vite proxies API and WebSocket
+traffic to the Rust server.
 
 ## Backend feature flags
 

@@ -2128,6 +2128,11 @@ export interface components {
             /** @enum {string} */
             kind: "map";
         } | {
+            /** @description A drive survey of one RF slice, pairing spectrum power with GPS fixes. */
+            data: components["schemas"]["SignalMapNode"];
+            /** @enum {string} */
+            kind: "signal_map";
+        } | {
             /** @enum {string} */
             kind: "readout";
         } | {
@@ -2892,6 +2897,19 @@ export interface components {
         };
         /** @enum {string} */
         Sideband: "usb" | "lsb";
+        /** @description The IQ-relative slice a signal survey measures while pairing spectrum frames with positions. */
+        SignalMapNode: {
+            /**
+             * Format: int64
+             * @default 12500
+             */
+            bandwidth_hz: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            offset_hz: number;
+        };
         /** @description Face size in canvas units. Absent means the node's natural size. */
         Size: {
             /** Format: float */
@@ -3821,7 +3839,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedId"];
                 };
             };
-            /** @description Unknown or unusable device */
+            /** @description Unusable device, or one a device set already holds */
             400: {
                 headers: {
                     [name: string]: unknown;
