@@ -3,9 +3,9 @@
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
-    AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams, ChannelSettings,
-    DeviceNode, GnssParams, NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode, PocsagParams,
-    PortRef, Position, RadioClockParams, TemplateInfo, WfmParams,
+    AdsbParams, AisParams, AmParams, AprsParams, AudioProcessing, ChannelNode, ChannelParams,
+    ChannelSettings, DeviceNode, GnssParams, NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode,
+    PocsagParams, PortRef, Position, RadioClockParams, TemplateInfo, WfmParams,
 };
 
 /// One channel in a template: its absolute frequency and a constructor for its params.
@@ -307,10 +307,14 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                 let channels: Vec<ChannelSettings> = entry
                     .channels
                     .iter()
-                    .map(|(freq_hz, params)| ChannelSettings {
-                        offset_hz: freq_hz - entry.center_hz,
-                        squelch_db: None,
-                        params: params(),
+                    .map(|(freq_hz, params)| {
+                        let params = params();
+                        ChannelSettings {
+                            offset_hz: freq_hz - entry.center_hz,
+                            squelch_db: None,
+                            audio: AudioProcessing::default_for(params.type_id()),
+                            params,
+                        }
                     })
                     .collect();
                 let freqs = entry.channels.iter().map(|(f, _)| *f);

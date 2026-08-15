@@ -13,7 +13,8 @@ use rmcp::{
 use schemars::JsonSchema;
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DecoderLogQuery, DeviceSettings, ScanRange, ScanSettings,
+    AudioProcessing, ChannelParams, ChannelSettings, DecoderLogQuery, DeviceSettings, ScanRange,
+    ScanSettings,
 };
 use serde::Deserialize;
 
@@ -300,6 +301,7 @@ impl SdrMcp {
         let settings = ChannelSettings {
             offset_hz: req.offset_hz,
             squelch_db: req.squelch_db,
+            audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
         let engine = self.engine.clone();

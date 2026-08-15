@@ -1,4 +1,5 @@
-//! SSB: 48 kHz IQ → one-sided complex band filter → real part → optional AGC.
+//! SSB: 48 kHz IQ → one-sided complex band filter → real part. Levelling is the channel's
+//! shared audio chain, which every voice mode carries (see `sdrmm_wire::AudioProcessing`).
 //!
 //! The filter and the product detector are `sdrmm_modem::analog::SsbDemod`'s filtering tier;
 //! [`sideband_filter`] stays here because the host runtime needs the same band as its own
@@ -14,7 +15,7 @@ use std::{
 };
 
 use num_complex::Complex;
-use sdrmm_dsp::{Agc, FirC, RealDecimator, design_bandpass, design_lowpass};
+use sdrmm_dsp::{FirC, RealDecimator, design_bandpass, design_lowpass};
 use sdrmm_modem::analog::{
     Sideband as EngineSideband, SsbDemod, SsbDetector, SsbMethod, SsbParams as SsbWaveform,
 };
@@ -22,7 +23,7 @@ use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, Sideband, Ss
 
 use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelOutputs, ChannelRx, ChannelTx, TxPayload,
-    audio_agc, check_input_rate, clamp_full_scale,
+    check_input_rate, clamp_full_scale,
     tx::{Burst, TxQueue},
 };
 
@@ -43,7 +44,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct SsbChannel {
     demod: SsbDemod,
-    agc: Option<Agc>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&SsbParams, ChannelError> {
@@ -96,18 +96,6 @@ fn demodulator(p: &SsbParams) -> Result<SsbDemod, ChannelError> {
     Ok(SsbDemod::new(&waveform(p)?, SsbDetector::Filter, false))
 }
 
-impl SsbChannel {
-    fn set_agc(&mut self, enabled: bool) {
-        if enabled {
-            if self.agc.is_none() {
-                self.agc = Some(audio_agc());
-            }
-        } else {
-            self.agc = None;
-        }
-    }
-}
-
 impl ChannelRx for SsbChannel {
     fn descriptor() -> &'static ChannelDescriptor {
         &DESCRIPTOR
@@ -116,16 +104,14 @@ impl ChannelRx for SsbChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
-        let demod = demodulator(p)?;
-        let mut chan = Self { demod, agc: None };
-        chan.set_agc(p.agc);
-        Ok(chan)
+        Ok(Self {
+            demod: demodulator(p)?,
+        })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         self.demod = demodulator(p)?;
-        self.set_agc(p.agc);
         Ok(())
     }
 
@@ -135,9 +121,6 @@ impl ChannelRx for SsbChannel {
         // output — any extra gain would put strong stations past full scale. No post-detection
         // audio filter: the sideband filter *is* the band limit.
         self.demod.process(iq, &mut out.audio_pcm);
-        if let Some(agc) = self.agc.as_mut() {
-            agc.process(&mut out.audio_pcm);
-        }
         clamp_full_scale(&mut out.audio_pcm);
         if !out.audio_pcm.is_empty() {
             out.audio_rate = AUDIO_RATE;
@@ -317,7 +300,6 @@ mod tests {
         settings(ChannelParams::Ssb(SsbParams {
             sideband,
             bandwidth_hz: 2_700.0,
-            agc: false,
         }))
     }
 
@@ -403,7 +385,6 @@ mod tests {
         chan.apply(settings(ChannelParams::Ssb(SsbParams {
             sideband: Sideband::Usb,
             bandwidth_hz: 2_000.0,
-            agc: false,
         })))
         .unwrap();
         let audio = run_ragged(&mut chan, &complex_tone(1_000.0 / RATE, 48_000));
@@ -522,7 +503,6 @@ mod tests {
             settings(ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 50.0,
-                agc: false,
             })),
         );
         assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));

@@ -31,6 +31,7 @@ fn settings(params: IdentParams) -> ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
         params: sdrmm_wire::ChannelParams::Ident(params),
+        audio: Default::default(),
     }
 }
 

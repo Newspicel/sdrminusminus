@@ -9,8 +9,8 @@ use std::{
 };
 
 use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent, DmrParams, DmrSlots,
-    DmrTrunkProtocol, DvFrame, DvFrameKind, DvTrunkProtocol, StateScope, TrunkFollower,
+    AudioProcessing, ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent, DmrParams,
+    DmrSlots, DmrTrunkProtocol, DvFrame, DvFrameKind, DvTrunkProtocol, StateScope, TrunkFollower,
     TrunkProblem, TrunkSystemStatus,
 };
 
@@ -347,17 +347,19 @@ impl Follower {
             );
             return;
         }
+        let params = ChannelParams::Dmr(DmrParams {
+            slots: if grant.slot == 1 {
+                DmrSlots::One
+            } else {
+                DmrSlots::Two
+            },
+            ignore_crc: carrier.ignore_crc,
+        });
         let settings = ChannelSettings {
             offset_hz: grant.freq_hz as f64 - carrier.center_hz,
             squelch_db: None,
-            params: ChannelParams::Dmr(DmrParams {
-                slots: if grant.slot == 1 {
-                    DmrSlots::One
-                } else {
-                    DmrSlots::Two
-                },
-                ignore_crc: carrier.ignore_crc,
-            }),
+            audio: AudioProcessing::default_for(params.type_id()),
+            params,
         };
         // Both emit their own `DeviceSet` scope; nothing here announces it a second time.
         let result = match self.followers.get(&key) {
@@ -619,6 +621,7 @@ mod tests {
                     offset_hz: 0.0,
                     squelch_db: None,
                     params: ChannelParams::Dmr(DmrParams::default()),
+                    audio: Default::default(),
                 },
             )
             .expect("control channel");

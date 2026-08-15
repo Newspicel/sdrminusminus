@@ -45,6 +45,7 @@ fn nfm(offset_hz: f64, squelch_db: Option<f32>) -> ChannelSettings {
         offset_hz,
         squelch_db,
         params: ChannelParams::Nfm(NfmParams::default()),
+        audio: Default::default(),
     }
 }
 
@@ -687,6 +688,7 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
             baud: PocsagBaud::Auto,
             ..PocsagParams::default()
         }),
+        audio: Default::default(),
     };
     let on_lane_0 = engine.add_channel(ds, 0, pocsag.clone()).unwrap();
     let on_lane_1 = engine.add_channel(ds, 1, pocsag).unwrap();

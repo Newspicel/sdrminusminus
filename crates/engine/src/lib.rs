@@ -194,6 +194,16 @@ fn validate_channel(
             ChannelError::InvalidSettings(format!("squelch_db must be finite, got {db}")).into(),
         );
     }
+    if let Err(reason) = settings.audio.validate() {
+        return Err(ChannelError::InvalidSettings(reason).into());
+    }
+    if settings.audio.is_active() && !descriptor.has_audio {
+        return Err(ChannelError::InvalidSettings(format!(
+            "{} produces no audio, so it has nothing for the audio chain to process",
+            descriptor.type_id
+        ))
+        .into());
+    }
     if device_rate < descriptor.input_rate_hz {
         return Err(ChannelError::InvalidSettings(format!(
             "{} needs a device rate of at least {} Hz, device runs at {device_rate} Hz",
@@ -1985,7 +1995,10 @@ impl Engine {
                             },
                         );
                     }
-                    if prev.params != settings.params || prev.squelch_db != settings.squelch_db {
+                    if prev.params != settings.params
+                        || prev.squelch_db != settings.squelch_db
+                        || prev.audio != settings.audio
+                    {
                         state.send_dsp(
                             stream,
                             DspCommand::ApplySettings {

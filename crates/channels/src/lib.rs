@@ -4,6 +4,7 @@ mod ais;
 mod am;
 mod aprs;
 mod atv;
+pub mod audio_chain;
 mod dab;
 mod datv;
 mod drm;
@@ -38,6 +39,7 @@ pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
+pub use audio_chain::AudioChain;
 pub use dab::DabChannel;
 pub use datv::DatvChannel;
 pub use drm::DrmChannel;
@@ -55,7 +57,7 @@ pub use pocsag::PocsagChannel;
 pub use psk::{Psk31Channel, Psk63Channel};
 pub use radio_clock::RadioClockChannel;
 pub use rtty::RttyChannel;
-use sdrmm_dsp::{Agc, Decimator, FirC};
+use sdrmm_dsp::{Decimator, FirC};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PositionFix, Sideband,
 };
@@ -623,12 +625,6 @@ pub(crate) fn check_input_rate(
     }
 }
 
-/// Shared audio AGC: fast attack so voice peaks never blast, slow release so syllable gaps
-/// don't pump.
-pub(crate) fn audio_agc() -> Agc {
-    Agc::new(f64::from(AUDIO_RATE), 0.25, 0.005, 0.2, 100.0)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -941,7 +937,6 @@ mod tests {
         assert_eq!(
             occupied_band(&ChannelParams::Am(AmParams {
                 bandwidth_hz: 8_000.0,
-                agc: false
             })),
             (-4_000.0, 4_000.0)
         );
@@ -949,7 +944,6 @@ mod tests {
             occupied_band(&ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 10_000.0,
-                agc: false
             })),
             (100.0, 10_000.0)
         );
@@ -957,7 +951,6 @@ mod tests {
             occupied_band(&ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Lsb,
                 bandwidth_hz: 10_000.0,
-                agc: false
             })),
             (-10_000.0, -100.0)
         );
@@ -1011,14 +1004,10 @@ mod tests {
                 bandwidth_hz: f64::NAN,
                 ..NfmParams::default()
             }),
-            ChannelParams::Am(AmParams {
-                bandwidth_hz: 0.0,
-                agc: false,
-            }),
+            ChannelParams::Am(AmParams { bandwidth_hz: 0.0 }),
             ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 50.0,
-                agc: false,
             }),
         ] {
             assert!(

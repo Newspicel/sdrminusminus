@@ -70,6 +70,29 @@ off passes audio continuously. NFM additionally supports:
 - **CTCSS**, which opens only for a selected standard tone;
 - **DCS**, which opens only for a selected standard code.
 
+## Audio processing
+
+Every channel that produces audio carries the same processing chain, in its **Audio** block. All of
+it is off by default except the AGC on AM and SSB, which have no levelling of their own.
+
+- **AGC** levels the audio to a fixed target at one of three speeds. *Slow* suits SSB speech, *fast*
+  suits tuning across a band, *medium* is a reasonable default.
+- **Blanker** cuts impulse noise — ignition, switching supplies — out of the channel's IQ before the
+  channel filter, where a pulse is still a pulse rather than the ringing a narrow filter makes of
+  it. The threshold is a multiple of the channel's own average level: lower blanks more, and low
+  enough eventually blanks the signal too.
+- **Denoise** is spectral noise reduction. It tracks what each part of the spectrum does at its
+  quietest and subtracts that, so hiss drops and speech does not. Anything genuinely unchanging is
+  noise by this definition, an unbroken carrier included.
+- **Auto notch** removes steady carriers without being told where they are, which is what an
+  adjacent heterodyne is. Several at once cost no more than one.
+- **Passband** is a low and high cut on the audio itself — narrow it until only the voice is left.
+- **Notches** are up to four operator-placed nulls, each with its own frequency and width. A narrow
+  one removes a whistle and leaves the voice around it.
+
+The chain runs in that order: blanker on the IQ, then passband, notches, auto notch, denoise and
+AGC on the audio.
+
 ## Following a DMR trunk system
 
 The **DMR trunk system** node turns a control channel into the traffic channels it grants. Wire

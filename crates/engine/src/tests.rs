@@ -7,8 +7,8 @@ use std::{
 use num_complex::Complex;
 use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
 use sdrmm_wire::{
-    AdsbParams, ChannelSettings, DecoderEvent, Duplex, NfmParams, ScanState, Sideband, SsbParams,
-    StreamScope,
+    AdsbParams, AudioProcessing, ChannelSettings, DecoderEvent, Duplex, NfmParams, ScanState,
+    Sideband, SsbParams, StreamScope,
 };
 
 use super::*;
@@ -1079,6 +1079,7 @@ fn nfm_settings(offset_hz: f64) -> ChannelSettings {
         offset_hz,
         squelch_db: None,
         params: ChannelParams::Nfm(NfmParams::default()),
+        audio: Default::default(),
     }
 }
 
@@ -1108,6 +1109,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
                 offset_hz: 0.0,
                 squelch_db: None,
                 params: ChannelParams::Adsb(AdsbParams::default()),
+                audio: Default::default(),
             },
         )
         .unwrap();
@@ -1136,6 +1138,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
                     ref_lat: Some(0.0),
                     ref_lon: Some(0.0),
                 }),
+                audio: Default::default(),
             },
         )
         .unwrap();
@@ -1187,6 +1190,93 @@ async fn add_channel_rejects_out_of_passband_offset() {
         .unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(engine.snapshot().device_sets[0].channels.is_empty());
+    engine.remove_device_set(ds).unwrap();
+}
+
+/// Settings the DSP thread cannot refuse must be refused here: a filter corner outside the
+/// audio band or a notch nobody bounded is a pole outside the unit circle by the time it
+/// reaches a biquad.
+#[tokio::test]
+async fn add_channel_rejects_audio_settings_outside_their_controls() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let bad: [AudioProcessing; 3] = [
+        AudioProcessing {
+            blanker: sdrmm_wire::NoiseBlankerSettings {
+                enabled: true,
+                threshold: 0.2,
+            },
+            ..AudioProcessing::default()
+        },
+        AudioProcessing {
+            filter: sdrmm_wire::AudioFilterSettings {
+                enabled: true,
+                low_hz: 3_000.0,
+                high_hz: 300.0,
+            },
+            ..AudioProcessing::default()
+        },
+        AudioProcessing {
+            notches: vec![sdrmm_wire::NotchSettings {
+                freq_hz: 1_000.0,
+                width_hz: f64::NAN,
+            }],
+            ..AudioProcessing::default()
+        },
+    ];
+    for audio in bad {
+        let settings = ChannelSettings {
+            audio: audio.clone(),
+            ..nfm_settings(0.0)
+        };
+        let err = engine.add_channel(ds, 0, settings).unwrap_err();
+        assert!(
+            err.is_bad_request(),
+            "{audio:?}: expected bad request, {err}"
+        );
+    }
+    assert!(engine.snapshot().device_sets[0].channels.is_empty());
+    engine.remove_device_set(ds).unwrap();
+}
+
+/// A data decoder has no audio for the chain to work on, so asking for one there is a mistake
+/// worth naming rather than a set of controls that quietly do nothing.
+#[tokio::test]
+async fn a_channel_with_no_audio_refuses_an_audio_chain() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = ChannelSettings {
+        offset_hz: 0.0,
+        squelch_db: None,
+        params: ChannelParams::Pocsag(sdrmm_wire::PocsagParams::default()),
+        audio: AudioProcessing {
+            agc: sdrmm_wire::AudioAgcMode::Fast,
+            ..AudioProcessing::default()
+        },
+    };
+    let err = engine.add_channel(ds, 0, settings).unwrap_err();
+    assert!(err.is_bad_request(), "expected bad request, got {err}");
+    engine.remove_device_set(ds).unwrap();
+}
+
+/// The chain has to reach the DSP thread on a settings patch too — same-type edits go through
+/// `apply`, not through a pipeline rebuild.
+#[tokio::test]
+async fn patching_the_audio_chain_reaches_the_running_channel() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    let patched = ChannelSettings {
+        audio: AudioProcessing {
+            auto_notch: true,
+            agc: sdrmm_wire::AudioAgcMode::Slow,
+            ..AudioProcessing::default()
+        },
+        ..nfm_settings(0.0)
+    };
+    engine.patch_channel(ds, ch, patched.clone()).unwrap();
+    let live = &engine.snapshot().device_sets[0].channels[0].settings;
+    assert_eq!(live.audio, patched.audio);
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -1785,8 +1875,8 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
         params: ChannelParams::Ssb(SsbParams {
             sideband: Sideband::Usb,
             bandwidth_hz: 10_000.0,
-            agc: true,
         }),
+        audio: Default::default(),
     };
     let wide_nfm = |offset_hz: f64| ChannelSettings {
         offset_hz,
@@ -1795,6 +1885,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
             bandwidth_hz: 25_000.0,
             ..NfmParams::default()
         }),
+        audio: Default::default(),
     };
 
     let err = engine.add_channel(ds, 0, usb(120_000.0)).unwrap_err();
@@ -1857,6 +1948,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
                 offset_hz: 25_000.0,
                 squelch_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
+                audio: Default::default(),
             },
         )
         .unwrap();
@@ -2093,6 +2185,7 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
                 offset_hz: 0.0,
                 squelch_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
+                audio: Default::default(),
             },
         )
         .unwrap();
@@ -2253,6 +2346,7 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
                 offset_hz: 0.0,
                 squelch_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
+                audio: Default::default(),
             },
         )
         .expect("channel");

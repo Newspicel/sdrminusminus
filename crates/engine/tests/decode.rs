@@ -47,6 +47,7 @@ fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
                 mode: AprsMode::Afsk1200,
                 ..AprsParams::default()
             }),
+            audio: Default::default(),
         },
     )
     .unwrap();
@@ -164,6 +165,7 @@ async fn pocsag_page_survives_the_ddc_and_reaches_the_decoded_stream() {
                 baud: PocsagBaud::Auto,
                 ..PocsagParams::default()
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Pocsag(_)),
     )
@@ -208,6 +210,7 @@ async fn aprs_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
                 mode: AprsMode::Afsk1200,
                 ..AprsParams::default()
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Aprs(_)),
     )
@@ -252,6 +255,7 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
             params: ChannelParams::Ais(AisParams {
                 ais_channel: AisChannel::B,
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Ais(_)),
     )
@@ -311,6 +315,7 @@ async fn a_mic_e_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Aprs(AprsParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Aprs(p) if p.mic_e_message.is_some()),
     )
@@ -358,6 +363,7 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
                 ctcss_hz: Some(88.5),
                 ..NfmParams::default()
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Tone(t) if t.ctcss_hz.is_some()),
     )
@@ -389,6 +395,7 @@ async fn selcall_survives_the_ddc_and_reaches_the_decoded_stream() {
             params: ChannelParams::Selcall(SelcallParams {
                 system: SelcallSystem::Ccir1,
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Selcall(_)),
     )
@@ -424,6 +431,7 @@ async fn freedv_recording_survives_the_virtual_device_and_acquires_sync() {
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::Freedv(FreeDvParams::default()),
+            audio: Default::default(),
         },
         |event| {
             matches!(
@@ -469,6 +477,7 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Adsb(AdsbParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Adsb(a) if a.lat.is_some()),
     )
@@ -505,6 +514,7 @@ async fn gps_ca_acquisition_survives_virtual_device_playback() {
                 doppler_hz: 2_000,
                 threshold: 2.5,
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Gnss(frame) if frame.prn == 7),
     )
@@ -543,6 +553,7 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::Adsb(AdsbParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Adsb(a) if a.df == 5),
     )
@@ -580,6 +591,7 @@ async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Rtty(params),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Rtty(t) if t.text.contains("DL1ABC")),
     )
@@ -621,6 +633,7 @@ async fn psk31_and_psk63_text_survive_the_ddc_and_reach_the_decoded_stream() {
                 offset_hz,
                 squelch_db: None,
                 params,
+                audio: Default::default(),
             },
             |event| match event {
                 DecoderEvent::Psk31(text) | DecoderEvent::Psk63(text) => text.text.contains(want),
@@ -652,6 +665,7 @@ async fn ft8_message_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Ft8(WsjtParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Ft8(message) if message.text.contains("W1AW")),
     )
@@ -679,6 +693,7 @@ async fn ft4_message_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Ft4(WsjtParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Ft4(message) if message.text.contains("JA1ABC")),
     )
@@ -704,6 +719,7 @@ async fn wspr_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::Wspr(WsprParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Wspr(spot) if spot.callsign == "K1ABC"),
     )
@@ -732,6 +748,7 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Morse(MorseParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Morse(m) if m.text.contains("DL1ABC")),
     )
@@ -767,6 +784,7 @@ async fn navtex_broadcast_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Navtex(NavtexParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Navtex(m) if m.complete),
     )
@@ -812,6 +830,7 @@ async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Acars(AcarsParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Acars(_)),
     )
@@ -856,6 +875,7 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Subghz(SubghzParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Subghz(f) if f.bits == 24),
     )
@@ -899,6 +919,7 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
                 interval_ms: 500,
                 ..IdentParams::default()
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Ident(r) if r.best().is_some_and(|m| m.confirmed)),
     )
@@ -960,6 +981,7 @@ async fn dab_mode_i_lock_survives_a_recorded_virtual_device_and_ddc() {
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::Dab(DabParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::Dab && status.locked),
     )
@@ -999,6 +1021,7 @@ async fn datv_qpsk_lock_reaches_the_decoded_stream() {
                 standard: DatvStandard::DvbS2,
                 symbol_rate: 250_000.0,
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::DvbS2 && status.locked),
     )
@@ -1077,6 +1100,7 @@ async fn drm30_lock_reaches_the_decoded_stream() {
                 mode: DrmMode::Drm30,
                 bandwidth_hz: 10_000.0,
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::Drm30 && status.locked),
     )
@@ -1115,6 +1139,7 @@ async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::Adsb(AdsbParams::default()),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Adsb(a) if a.lat.is_some()),
     )
@@ -1151,6 +1176,7 @@ async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
                 offset_hz: 0.0,
                 squelch_db: None,
                 params: ChannelParams::Adsb(AdsbParams::default()),
+                audio: Default::default(),
             },
         )
         .expect_err("a rate past the slicer's range must be refused, not silently expensive");
@@ -1196,6 +1222,7 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
                 deemphasis_us: 50.0,
                 stereo: false,
             }),
+            audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Rds(u) if u.ps.is_some()),
     )
@@ -1256,6 +1283,7 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
             deemphasis_us: 50.0,
             stereo: false,
         }),
+        audio: Default::default(),
     };
 
     let mut rx = engine.subscribe_decoded();

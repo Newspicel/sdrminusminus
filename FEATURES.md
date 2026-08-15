@@ -57,7 +57,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 7. Voice & analog channels
 
-- **[planned]** Notch and audio filters per channel
+- **[shipped]** Notch and audio filters per channel — up to four operator-placed notches and an
+  adjustable audio passband, in every channel that produces audio
 
 ## 8. Digital voice
 
@@ -115,8 +116,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 16. Audio processing
 
-- **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
-- **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, per-mode click and noise removal
+- **[shipped]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
+- **[planned]** Adaptive/auto DSP — auto-squelch and per-mode click removal; the auto-notch and the audio AGC have shipped
 
 ## 17. Station services & hardware integration
 

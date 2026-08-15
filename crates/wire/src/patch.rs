@@ -2329,13 +2329,10 @@ mod tests {
         let params = ChannelParams::default_for("ssb").expect("ssb is a channel type");
         assert_eq!(params.type_id(), "ssb");
         assert_eq!(
-            ChannelSettings {
-                offset_hz: 0.0,
-                squelch_db: None,
-                params,
-            },
+            ChannelSettings::default_for("ssb").expect("ssb is a channel type"),
             serde_json::from_str(r#"{"params":{"type":"ssb","settings":{}}}"#).unwrap()
         );
         assert_eq!(ChannelParams::default_for("wefax"), None);
+        assert_eq!(ChannelSettings::default_for("wefax"), None);
     }
 }

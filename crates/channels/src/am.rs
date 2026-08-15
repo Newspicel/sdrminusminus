@@ -1,14 +1,15 @@
-//! AM envelope detector: 48 kHz IQ → magnitude → DC block → lowpass → optional AGC.
+//! AM envelope detector: 48 kHz IQ → magnitude → DC block → lowpass. Levelling is the
+//! channel's shared audio chain, which every voice mode carries (see `sdrmm_wire::AudioProcessing`).
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Agc, Decimator, RealDecimator, design_lowpass};
+use sdrmm_dsp::{Decimator, RealDecimator, design_lowpass};
 use sdrmm_modem::analog::{AmDemod, AmDetector, AmMode, AmParams as AmWaveform, AmRx};
 use sdrmm_wire::{AmParams, ChannelDescriptor, ChannelParams, ChannelSettings};
 
 use crate::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, ChannelTx,
-    TxPayload, audio_agc, check_input_rate, clamp_full_scale,
+    TxPayload, check_input_rate, clamp_full_scale,
     tx::{Burst, TxQueue},
 };
 
@@ -27,7 +28,6 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct AmChannel {
     demod: AmDemod,
-    agc: Option<Agc>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&AmParams, ChannelError> {
@@ -95,18 +95,6 @@ fn demodulator(p: &AmParams) -> Result<AmDemod, ChannelError> {
     ))
 }
 
-impl AmChannel {
-    fn set_agc(&mut self, enabled: bool) {
-        if enabled {
-            if self.agc.is_none() {
-                self.agc = Some(audio_agc());
-            }
-        } else {
-            self.agc = None;
-        }
-    }
-}
-
 impl ChannelRx for AmChannel {
     fn descriptor() -> &'static ChannelDescriptor {
         &DESCRIPTOR
@@ -115,24 +103,19 @@ impl ChannelRx for AmChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
-        let demod = demodulator(p)?;
-        let mut chan = Self { demod, agc: None };
-        chan.set_agc(p.agc);
-        Ok(chan)
+        Ok(Self {
+            demod: demodulator(p)?,
+        })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         self.demod = demodulator(p)?;
-        self.set_agc(p.agc);
         Ok(())
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.demod.process(iq, &mut out.audio_pcm);
-        if let Some(agc) = self.agc.as_mut() {
-            agc.process(&mut out.audio_pcm);
-        }
         clamp_full_scale(&mut out.audio_pcm);
         if !out.audio_pcm.is_empty() {
             out.audio_rate = AUDIO_RATE;
@@ -237,7 +220,6 @@ mod tests {
     fn demodulates_1_khz_tone_over_ragged_blocks() {
         let mut chan = channel(AmParams {
             bandwidth_hz: 10_000.0,
-            agc: false,
         });
         let audio = run_ragged(&mut chan, &am_iq(RATE, 1_000.0, 0.5, 48_000));
         let window = &audio[4_000..16_000];
@@ -250,25 +232,12 @@ mod tests {
     }
 
     #[test]
-    fn agc_levels_audio_to_the_shared_target() {
+    fn apply_reconfigures_bandwidth() {
         let mut chan = channel(AmParams {
             bandwidth_hz: 10_000.0,
-            agc: true,
-        });
-        let audio = run_ragged(&mut chan, &am_iq(RATE, 1_000.0, 0.5, 48_000));
-        let amplitude = rms(&audio[40_000..47_000]);
-        assert!((0.18..0.36).contains(&amplitude), "rms {amplitude}");
-    }
-
-    #[test]
-    fn apply_reconfigures_bandwidth_and_agc() {
-        let mut chan = channel(AmParams {
-            bandwidth_hz: 10_000.0,
-            agc: true,
         });
         chan.apply(settings(ChannelParams::Am(AmParams {
             bandwidth_hz: 6_000.0,
-            agc: false,
         })))
         .unwrap();
         let audio = run_ragged(&mut chan, &am_iq(RATE, 1_000.0, 0.5, 48_000));
@@ -294,7 +263,6 @@ mod tests {
     fn tx_params() -> ChannelSettings {
         settings(ChannelParams::Am(AmParams {
             bandwidth_hz: 10_000.0,
-            agc: false,
         }))
     }
 

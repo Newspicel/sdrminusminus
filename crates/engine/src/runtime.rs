@@ -12,7 +12,7 @@ use arc_swap::ArcSwap;
 use num_complex::Complex;
 use rtrb::RingBuffer;
 use sdrmm_channels::{
-    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
@@ -131,12 +131,12 @@ pub(crate) struct ChannelSinks {
     pub(crate) peak_db: Arc<AtomicU32>,
 }
 
-/// One hosted channel on the DSP thread: DDC → channel filter → squelch gate → demod → PCM and
-/// picture broadcasts. The filter confines both the squelch measurement and the demod input to
-/// the mode's occupied bandwidth, so the gate cannot open on adjacent-channel energy and the
-/// detector never sees it. Built control-side (construction may allocate and fail), then
-/// moved to the DSP thread, where `process` runs lock-free with only the documented bounded
-/// hand-offs (see the send sites).
+/// One hosted channel on the DSP thread: DDC → noise blanker → channel filter → squelch gate →
+/// demod → audio chain → PCM and picture broadcasts. The filter confines both the squelch
+/// measurement and the demod input to the mode's occupied bandwidth, so the gate cannot open on
+/// adjacent-channel energy and the detector never sees it. Built control-side (construction may
+/// allocate and fail), then moved to the DSP thread, where `process` runs lock-free with only
+/// the documented bounded hand-offs (see the send sites).
 pub(crate) struct ChannelHost {
     ddc: Ddc,
     filter: ChannelFilter,
@@ -147,6 +147,12 @@ pub(crate) struct ChannelHost {
     /// `None` bypasses the gate (always open); mirrors [`ChannelSettings::squelch_db`].
     threshold_db: Option<f32>,
     rx: Box<dyn ChannelRx>,
+    /// Blanker, filters, noise reduction and AGC, hosted here rather than inside each mode so
+    /// every channel that produces audio has the same one. Silent — and skipped — until the
+    /// channel's settings switch a stage on.
+    audio: AudioChain,
+    /// Whether this type produces audio at all, which is what decides if the chain runs.
+    has_audio: bool,
     outputs: ChannelOutputs,
     scratch: Vec<Complex<f32>>,
     filtered: Vec<Complex<f32>>,
@@ -213,6 +219,7 @@ impl ChannelHost {
             .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         let filter = sdrmm_channels::channel_filter(&settings.params)?;
         let rx = sdrmm_channels::create(ChannelCtx { input_rate }, settings)?;
+        let audio_channels = sdrmm_channels::audio_channels(&settings.params);
         let decodes = descriptor.decoder_kind.is_some();
         let emits_events = decodes && rx.needs_gated_input();
         Ok(Box::new(Self {
@@ -227,12 +234,14 @@ impl ChannelHost {
             ),
             threshold_db: settings.squelch_db,
             rx,
+            audio: AudioChain::new(input_rate, audio_channels, &settings.audio),
+            has_audio: descriptor.has_audio,
             outputs: ChannelOutputs::default(),
             scratch: Vec::new(),
             filtered: Vec::new(),
             pcm_per_input: f64::from(AUDIO_RATE) / input_rate,
             zero_carry: 0.0,
-            audio_channels: sdrmm_channels::audio_channels(&settings.params),
+            audio_channels,
             sinks,
             produces_video: descriptor.has_video,
             video_seq: 0,
@@ -251,6 +260,11 @@ impl ChannelHost {
         self.ddc.process(input, &mut self.scratch);
         if self.scratch.is_empty() {
             return;
+        }
+        // Ahead of the channel filter, which is the only place a blanker works: past it an
+        // impulse has already been stretched into the ringing it was meant to remove.
+        if self.has_audio {
+            self.audio.process_iq(&mut self.scratch);
         }
         self.filter.process(&self.scratch, &mut self.filtered);
         self.meter.process(&self.filtered);
@@ -280,6 +294,9 @@ impl ChannelHost {
             self.outputs.reset();
             self.rx.process(&self.filtered, &mut self.outputs);
             self.publish_frames(center_hz, video_pos);
+            if self.has_audio {
+                self.audio.process_audio(&mut self.outputs.audio_pcm);
+            }
             if !self.outputs.audio_pcm.is_empty() {
                 // Deliberate bounded deviation from the "no allocation/locks" letter:
                 // handing PCM to the encoder costs one Arc copy plus a tokio broadcast send
@@ -389,6 +406,7 @@ impl ChannelHost {
             }
         }
         let channels = sdrmm_channels::audio_channels(&settings.params);
+        self.audio.configure(channels, &settings.audio);
         if let Err(e) = self.rx.apply(settings) {
             tracing::error!(error = %e, "validated channel settings rejected on dsp thread");
         } else {
@@ -403,6 +421,12 @@ impl ChannelHost {
 
     pub(crate) fn position_changed(&mut self, fix: Option<&PositionFix>) {
         self.rx.position_changed(fix);
+    }
+
+    /// What the audio chain has measured belongs to the station the channel just left: a
+    /// blanker's level, a notch's converged weights, a noise floor.
+    pub(crate) fn retuned(&mut self) {
+        self.audio.reset();
     }
 }
 
@@ -772,6 +796,7 @@ fn drain_commands(
                     host.ddc.set_offset(offset_hz);
                     host.offset_hz = offset_hz;
                     host.rx.retuned();
+                    host.retuned();
                 } else {
                     // Benign: the patch raced a removal; the removal already won.
                     tracing::debug!(id, "retune for a channel no longer hosted");
@@ -803,7 +828,9 @@ fn drain_commands(
 mod tests {
     use std::f64::consts::TAU;
 
-    use sdrmm_wire::{NfmParams, Sideband, SsbParams};
+    use sdrmm_wire::{
+        AudioAgcMode, AudioProcessing, NfmParams, NoiseBlankerSettings, Sideband, SsbParams,
+    };
 
     use super::*;
 
@@ -817,6 +844,7 @@ mod tests {
             offset_hz: 0.0,
             squelch_db,
             params: ChannelParams::Nfm(NfmParams::default()),
+            audio: Default::default(),
         }
     }
 
@@ -936,8 +964,8 @@ mod tests {
             params: ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 2_700.0,
-                agc: false,
             }),
+            audio: Default::default(),
         };
         let (mut host, mut rx) = host(&settings);
         let blocks = run(&mut host, &mut rx, &tone(10_000.0, 1.0, 48_000));
@@ -1041,6 +1069,7 @@ mod tests {
             offset_hz: 250_000.0,
             squelch_db: None,
             params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
+            audio: Default::default(),
         };
         let (pcm_tx, mut pcm_rx) = broadcast::channel::<PcmBlock>(4096);
         let mut host = ChannelHost::build(
@@ -1138,5 +1167,142 @@ mod tests {
         }
         assert_eq!(host.sinks.iq_tx.receiver_count(), 0);
         assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
+    }
+
+    fn nfm_audio_settings(audio: AudioProcessing) -> ChannelSettings {
+        ChannelSettings {
+            audio,
+            ..nfm_settings(None)
+        }
+    }
+
+    /// Phase-accumulated FM of an `f_mod` tone, which the NFM demod returns as audio at an
+    /// amplitude set by the deviation.
+    fn fm_tone(f_mod: f64, deviation_hz: f64, len: usize) -> Vec<Complex<f32>> {
+        let mut phase = 0.0f64;
+        (0..len)
+            .map(|k| {
+                phase += TAU * deviation_hz * (TAU * f_mod * k as f64 / RATE).cos() / RATE;
+                Complex::from_polar(1.0, phase as f32)
+            })
+            .collect()
+    }
+
+    fn samples(blocks: &[PcmBlock]) -> Vec<f32> {
+        blocks
+            .iter()
+            .flat_map(|block| match &block.payload {
+                PcmPayload::Samples(pcm) => pcm.to_vec(),
+                PcmPayload::Silence(n) => vec![0.0; *n],
+            })
+            .collect()
+    }
+
+    fn rms(x: &[f32]) -> f32 {
+        (x.iter().map(|&v| f64::from(v) * f64::from(v)).sum::<f64>() / x.len() as f64).sqrt() as f32
+    }
+
+    /// The chain is hosted here rather than inside each mode, so this is where it is proved to
+    /// actually reach the audio a listener gets: NFM has no AGC of its own, and with one asked
+    /// for its quiet signal must arrive at the chain's target.
+    #[test]
+    fn the_audio_chain_runs_on_a_channel_that_never_had_one() {
+        let quiet = fm_tone(1_000.0, 250.0, 192_000);
+        let (mut plain, mut rx) = host(&nfm_settings(None));
+        let untouched = samples(&run(&mut plain, &mut rx, &quiet));
+        assert!(rms(&untouched[96_000..]) < 0.15, "signal was not quiet");
+
+        let (mut levelled, mut rx) = host(&nfm_audio_settings(AudioProcessing {
+            agc: AudioAgcMode::Fast,
+            ..AudioProcessing::default()
+        }));
+        let lifted = samples(&run(&mut levelled, &mut rx, &quiet));
+        let level = rms(&lifted[144_000..]);
+        assert!((0.18..0.32).contains(&level), "levelled to {level}");
+    }
+
+    /// Switched off, the chain must be exactly nothing — not a filter at its defaults.
+    #[test]
+    fn a_default_chain_leaves_the_audio_alone() {
+        let input = fm_tone(1_000.0, 2_500.0, 48_000);
+        let (mut plain, mut rx) = host(&nfm_settings(None));
+        let plain_audio = samples(&run(&mut plain, &mut rx, &input));
+        let (mut chained, mut rx) = host(&nfm_audio_settings(AudioProcessing::default()));
+        assert_eq!(samples(&run(&mut chained, &mut rx, &input)), plain_audio);
+    }
+
+    /// The blanker's whole reason for sitting on the IQ side: it runs before the channel
+    /// filter, so the impulse never becomes the ringing the filter would make of it.
+    /// The blanker sits on the IQ, ahead of the channel filter — which is where a pulse is
+    /// still a pulse. What the demodulator is handed is what the baseband tap shows, so this is
+    /// where the claim is checked.
+    #[test]
+    fn the_blanker_cleans_impulses_before_the_channel_filter() {
+        let mut input = fm_tone(1_000.0, 2_500.0, 96_000);
+        for n in (1_000..input.len()).step_by(1_000) {
+            input[n] = Complex::new(6.0, 0.0);
+        }
+
+        let peak = |settings: &ChannelSettings| {
+            let (mut host, mut rx) = tapped_host(settings);
+            let mut worst = 0.0f32;
+            for chunk in input.chunks(BLOCK) {
+                host.process(chunk, 0.0);
+                while let Ok(block) = rx.try_recv() {
+                    if block.timestamp < 8_192 {
+                        continue;
+                    }
+                    worst = block.samples.iter().fold(worst, |m, s| m.max(s.norm()));
+                }
+            }
+            worst
+        };
+
+        let dirty = peak(&nfm_settings(None));
+        assert!(dirty > 1.5, "the impulses never reached the demod: {dirty}");
+        let clean = peak(&nfm_audio_settings(AudioProcessing {
+            blanker: NoiseBlankerSettings {
+                enabled: true,
+                threshold: 4.0,
+            },
+            ..AudioProcessing::default()
+        }));
+        // What is left is the filter ringing on the blanking hole itself, a little over the
+        // carrier the channel was already carrying — not the pulse.
+        assert!(
+            clean < 1.3 && clean < 0.6 * dirty,
+            "impulses survived into the demod: {dirty} -> {clean}"
+        );
+    }
+
+    /// Settings the chain rebuilds on must reach the DSP thread through `apply`, not only
+    /// through a rebuild of the whole host.
+    #[test]
+    fn apply_switches_a_stage_on_in_place() {
+        let (mut host, mut rx) = host(&nfm_settings(None));
+        let quiet = fm_tone(1_000.0, 250.0, 96_000);
+        run(&mut host, &mut rx, &quiet);
+        host.apply(nfm_audio_settings(AudioProcessing {
+            agc: AudioAgcMode::Fast,
+            ..AudioProcessing::default()
+        }));
+        let lifted = samples(&run(&mut host, &mut rx, &quiet));
+        let level = rms(&lifted[48_000..]);
+        assert!((0.18..0.32).contains(&level), "levelled to {level}");
+    }
+
+    /// A retune leaves the station the chain had measured, so what it learnt there goes with it.
+    #[test]
+    fn retuning_forgets_what_the_chain_learnt() {
+        let (mut host, mut rx) = host(&nfm_audio_settings(AudioProcessing {
+            agc: AudioAgcMode::Slow,
+            ..AudioProcessing::default()
+        }));
+        run(&mut host, &mut rx, &fm_tone(1_000.0, 250.0, 96_000));
+        host.retuned();
+        let after = samples(&run(&mut host, &mut rx, &fm_tone(1_000.0, 2_500.0, 4_800)));
+        // A gain still wound up for the quiet station would push the loud one far past full
+        // scale; restarted, it starts at unity and the AGC walks down from there.
+        assert!(rms(&after[..2_400]) < 1.0, "the old gain followed the tune");
     }
 }

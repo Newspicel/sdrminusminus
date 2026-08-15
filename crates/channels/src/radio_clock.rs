@@ -968,6 +968,7 @@ mod tests {
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::RadioClock(RadioClockParams::default()),
+            audio: Default::default(),
         };
         let mut channel = RadioClockChannel::new(ChannelCtx { input_rate: RATE }, settings)
             .expect("valid fixture channel");

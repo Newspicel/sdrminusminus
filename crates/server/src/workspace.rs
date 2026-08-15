@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
-    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
+    ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope, StateSnapshot,
+    WorkspaceChannel, WorkspaceDevice, WorkspaceState,
 };
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
@@ -408,11 +408,7 @@ pub(crate) fn channel_settings(
     if let Some(channel) = stored {
         return Some(channel.settings.clone());
     }
-    Some(ChannelSettings {
-        offset_hz: 0.0,
-        squelch_db: None,
-        params: ChannelParams::default_for(channel_type)?,
-    })
+    ChannelSettings::default_for(channel_type)
 }
 
 #[cfg(test)]

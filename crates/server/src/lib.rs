@@ -962,6 +962,7 @@ mod tests {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Nfm(NfmParams::default()),
+            audio: Default::default(),
         }
     }
 

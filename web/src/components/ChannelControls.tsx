@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
+import { AudioControls } from "./AudioControls";
 import { Checkbox } from "./Checkbox";
-import { type ChannelParamsOf, offsetLimitHz } from "./channelSettings";
+import { type ChannelParamsOf, channelHasAudio, offsetLimitHz } from "./channelSettings";
 import type { Options } from "./controls";
 import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
@@ -214,6 +215,12 @@ export function ChannelControls({
       </SettingRow>
 
       <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
+
+      {/* Only where there is audio to process: a data decoder's chain would be a set of
+          controls the server refuses. */}
+      {channelHasAudio(descriptor) && (
+        <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
+      )}
     </Settings>
   );
 }
@@ -303,11 +310,6 @@ function ModeControls({
               }
             />
           </SettingRow>
-          <Toggle
-            label="AGC"
-            checked={params.settings.agc ?? true}
-            onChange={(agc) => onParams({ type: "am", settings: { ...params.settings, agc } })}
-          />
         </>
       );
     case "ssb":
@@ -337,11 +339,6 @@ function ModeControls({
             />
             <span className="legend">Hz</span>
           </SettingRow>
-          <Toggle
-            label="AGC"
-            checked={params.settings.agc ?? true}
-            onChange={(agc) => onParams({ type: "ssb", settings: { ...params.settings, agc } })}
-          />
         </>
       );
     case "wfm":

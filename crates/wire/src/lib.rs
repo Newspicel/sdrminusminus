@@ -1,4 +1,5 @@
 pub mod about;
+pub mod audio;
 pub mod bandplan;
 pub mod channel;
 pub mod decode;
@@ -17,6 +18,11 @@ pub mod workspace_state;
 pub mod ws;
 
 pub use about::{AboutResponse, Attribution, ComponentSource, LicenseTextResponse};
+pub use audio::{
+    AudioAgcMode, AudioFilterSettings, AudioProcessing, DenoiseSettings, MAX_AUDIO_NOTCHES,
+    MAX_AUDIO_TONE_HZ, MAX_BLANKER_THRESHOLD, MAX_NOTCH_WIDTH_HZ, MIN_AUDIO_TONE_HZ,
+    MIN_BLANKER_THRESHOLD, MIN_NOTCH_WIDTH_HZ, NoiseBlankerSettings, NotchSettings,
+};
 pub use bandplan::{
     BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
     BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
@@ -206,13 +212,11 @@ mod contract_tests {
         let params = ChannelParams::Ssb(SsbParams {
             sideband: Sideband::Lsb,
             bandwidth_hz: 2_400.0,
-            agc: false,
         });
         let json = serde_json::to_value(&params).unwrap();
         assert_eq!(json["type"], "ssb");
         assert_eq!(json["settings"]["sideband"], "lsb");
         assert_eq!(json["settings"]["bandwidth_hz"], 2_400.0);
-        assert_eq!(json["settings"]["agc"], false);
 
         let back: ChannelParams = serde_json::from_value(json).unwrap();
         assert_eq!(back, params);
@@ -269,9 +273,36 @@ mod contract_tests {
             ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 2_700.0,
-                agc: true,
             })
         );
+    }
+
+    /// A workspace written before the audio chain existed says nothing about it, and the modes
+    /// whose levelling used to live in their own params have to come back with it.
+    #[test]
+    fn a_payload_that_names_no_audio_chain_gets_its_mode_default() {
+        for (type_id, agc) in [
+            ("am", AudioAgcMode::Medium),
+            ("ssb", AudioAgcMode::Medium),
+            ("nfm", AudioAgcMode::Off),
+            ("wfm", AudioAgcMode::Off),
+        ] {
+            let json = format!(r#"{{"params":{{"type":"{type_id}","settings":{{}}}}}}"#);
+            let settings: ChannelSettings = serde_json::from_str(&json).unwrap();
+            assert_eq!(settings.audio.agc, agc, "{type_id}");
+        }
+    }
+
+    /// Stated, even as nothing, means nothing: an operator who switched the AGC off must not
+    /// have it switched back on by the round trip through storage.
+    #[test]
+    fn an_audio_chain_that_is_stated_is_taken_as_stated() {
+        let json = r#"{"params":{"type":"am","settings":{}},"audio":{}}"#;
+        let settings: ChannelSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.audio, AudioProcessing::default());
+        let round_tripped: ChannelSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(round_tripped, settings);
     }
 
     #[test]

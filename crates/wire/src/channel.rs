@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::audio::AudioProcessing;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelDescriptor {
     /// Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`.
@@ -89,10 +91,6 @@ fn default_ssb_bandwidth_hz() -> f64 {
     2_700.0
 }
 
-fn default_agc() -> bool {
-    true
-}
-
 fn default_deemphasis_us() -> f32 {
     50.0
 }
@@ -171,15 +169,12 @@ impl Default for NfmParams {
 pub struct AmParams {
     #[serde(default = "default_am_bandwidth_hz")]
     pub bandwidth_hz: f64,
-    #[serde(default = "default_agc")]
-    pub agc: bool,
 }
 
 impl Default for AmParams {
     fn default() -> Self {
         Self {
             bandwidth_hz: default_am_bandwidth_hz(),
-            agc: default_agc(),
         }
     }
 }
@@ -198,8 +193,6 @@ pub struct SsbParams {
     pub sideband: Sideband,
     #[serde(default = "default_ssb_bandwidth_hz")]
     pub bandwidth_hz: f64,
-    #[serde(default = "default_agc")]
-    pub agc: bool,
 }
 
 impl Default for SsbParams {
@@ -207,7 +200,6 @@ impl Default for SsbParams {
         Self {
             sideband: Sideband::default(),
             bandwidth_hz: default_ssb_bandwidth_hz(),
-            agc: default_agc(),
         }
     }
 }
@@ -1088,7 +1080,7 @@ impl ChannelParams {
 }
 
 /// Per-channel settings: where the channel sits and how it demodulates.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
 pub struct ChannelSettings {
     /// Offset from the device center frequency, in Hz.
     #[serde(default)]
@@ -1098,6 +1090,55 @@ pub struct ChannelSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub squelch_db: Option<f32>,
     pub params: ChannelParams,
+    /// Blanker, filters, noise reduction and AGC. Shared by every voice mode rather than
+    /// written into each one's params, so what an operator learns on one channel is the same
+    /// control on the next.
+    #[serde(default)]
+    pub audio: AudioProcessing,
+}
+
+impl ChannelSettings {
+    /// The settings a newly created channel of `type_id` starts with, or `None` if this build
+    /// has no such type. The one place a channel's opening state is described.
+    #[must_use]
+    pub fn default_for(type_id: &str) -> Option<Self> {
+        Some(Self {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::default_for(type_id)?,
+            audio: AudioProcessing::default_for(type_id),
+        })
+    }
+}
+
+/// Hand-written so that a payload naming *no* chain gets the mode's own default rather than a
+/// blank one. A stored workspace written before the chain existed says nothing about it, and an
+/// AM or SSB channel restored from one has to come back with the levelling it had — an empty
+/// chain would be a silently different receiver after an upgrade. A payload that names the
+/// chain, even as `{}`, means exactly what it says.
+impl<'de> Deserialize<'de> for ChannelSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Stated {
+            #[serde(default)]
+            offset_hz: f64,
+            #[serde(default)]
+            squelch_db: Option<f32>,
+            params: ChannelParams,
+            #[serde(default)]
+            audio: Option<AudioProcessing>,
+        }
+        let stated = Stated::deserialize(deserializer)?;
+        let audio = stated
+            .audio
+            .unwrap_or_else(|| AudioProcessing::default_for(stated.params.type_id()));
+        Ok(Self {
+            offset_hz: stated.offset_hz,
+            squelch_db: stated.squelch_db,
+            params: stated.params,
+            audio,
+        })
+    }
 }
 
 /// A live channel instance inside a device set.

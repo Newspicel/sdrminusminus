@@ -14,6 +14,7 @@ pub(crate) fn settings(params: ChannelParams) -> ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
         params,
+        audio: sdrmm_wire::AudioProcessing::default(),
     }
 }
 
@@ -106,6 +107,18 @@ pub(crate) fn complex_noise(seed: u32, amp: f32, len: usize) -> Vec<Complex<f32>
         (state as f32 / u32::MAX as f32 * 2.0 - 1.0) * amp
     };
     (0..len).map(|_| Complex::new(next(), next())).collect()
+}
+
+/// Amplitude of the `freq_hz` component of a real signal, by direct correlation — no window and
+/// no bin to land on, so a test names the frequency it cares about at any length.
+pub(crate) fn tone_amplitude(audio: &[f32], freq_hz: f64, rate: f64) -> f32 {
+    let step = TAU * freq_hz / rate;
+    let (mut re, mut im) = (0.0f64, 0.0f64);
+    for (n, &s) in audio.iter().enumerate() {
+        re += f64::from(s) * (step * n as f64).cos();
+        im += f64::from(s) * (step * n as f64).sin();
+    }
+    (2.0 * re.hypot(im) / audio.len() as f64) as f32
 }
 
 pub(crate) fn rms(x: &[f32]) -> f32 {

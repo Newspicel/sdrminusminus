@@ -878,7 +878,6 @@ export interface components {
             ais_channel?: components["schemas"]["AisChannel"];
         };
         AmParams: {
-            agc?: boolean;
             /** Format: double */
             bandwidth_hz?: number;
         };
@@ -1178,6 +1177,50 @@ export interface components {
          * @enum {string}
          */
         AtvStandard: "ccir625" | "eia525" | "system_a405";
+        /**
+         * @description How hard the audio AGC rides the level. The speeds are the ones a radio's own switch offers,
+         *     because they are the ones that suit the modes: slow for SSB speech, fast for a band being
+         *     tuned across, medium for everything else.
+         * @enum {string}
+         */
+        AudioAgcMode: "off" | "slow" | "medium" | "fast";
+        /**
+         * @description Adjustable audio passband — the "narrow the filter until only the voice is left" control,
+         *     after demodulation rather than in the RF channel.
+         */
+        AudioFilterSettings: {
+            enabled?: boolean;
+            /**
+             * Format: double
+             * @description High cut. Hiss and splatter live above it.
+             */
+            high_hz?: number;
+            /**
+             * Format: double
+             * @description Low cut. Rumble, hum and the subaudible band live below this.
+             */
+            low_hz?: number;
+        };
+        /**
+         * @description Everything a voice channel does to its audio after the demodulator, plus the one stage that
+         *     has to run before it.
+         *
+         *     Stages run in the order they are declared: the blanker on IQ, then passband, notches,
+         *     adaptive notch, noise reduction and AGC on the demodulated audio. Filtering first keeps the
+         *     junk outside the passband out of everything downstream, and the AGC runs last so what it
+         *     levels is what the listener actually hears.
+         *
+         *     Every stage is off by default, which is what a channel had before this existed.
+         */
+        AudioProcessing: {
+            agc?: components["schemas"]["AudioAgcMode"];
+            /** @description Remove steady carriers without being told where they are. */
+            auto_notch?: boolean;
+            blanker?: components["schemas"]["NoiseBlankerSettings"];
+            denoise?: components["schemas"]["DenoiseSettings"];
+            filter?: components["schemas"]["AudioFilterSettings"];
+            notches?: components["schemas"]["NotchSettings"][];
+        };
         /**
          * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
          *     its first real request (: optional single shared token).
@@ -1684,6 +1727,12 @@ export interface components {
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
             /**
+             * @description Blanker, filters, noise reduction and AGC. Shared by every voice mode rather than
+             *     written into each one's params, so what an operator learns on one channel is the same
+             *     control on the next.
+             */
+            audio?: components["schemas"]["AudioProcessing"];
+            /**
              * Format: double
              * @description Offset from the device center frequency, in Hz.
              */
@@ -2056,6 +2105,16 @@ export interface components {
         DeletedCount: {
             /** Format: int64 */
             deleted: number;
+        };
+        /** @description Spectral noise reduction. */
+        DenoiseSettings: {
+            enabled?: boolean;
+            /**
+             * Format: float
+             * @description How much of the tracked noise floor is subtracted, `0.0..=1.0`. Past the middle of the
+             *     range the residue starts to sound processed, which is a taste, not a fault.
+             */
+            strength?: number;
         };
         DeviceInfo: {
             /** @description Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, … */
@@ -2885,6 +2944,27 @@ export interface components {
              */
             needs_channel_type?: boolean;
             ports: components["schemas"]["PortSpec"][];
+        };
+        /** @description Impulse blanker, applied to the channel's IQ ahead of its selectivity filter. */
+        NoiseBlankerSettings: {
+            enabled?: boolean;
+            /**
+             * Format: float
+             * @description How far above the channel's average magnitude a sample has to sit to be cut out, as a
+             *     multiple of it. Lower blanks more, and eventually blanks the signal.
+             */
+            threshold?: number;
+        };
+        /** @description One operator-placed notch in the audio. */
+        NotchSettings: {
+            /** Format: double */
+            freq_hz?: number;
+            /**
+             * Format: double
+             * @description −3 dB width of the null. Narrow removes a heterodyne and leaves the voice; wide takes a
+             *     bite out of both.
+             */
+            width_hz?: number;
         };
         /**
          * @description The two NXDN channel widths. They are different radios as far as the receiver is
@@ -3780,7 +3860,6 @@ export interface components {
             w: number;
         };
         SsbParams: {
-            agc?: boolean;
             /** Format: double */
             bandwidth_hz?: number;
             sideband?: components["schemas"]["Sideband"];

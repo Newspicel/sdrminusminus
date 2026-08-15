@@ -2668,9 +2668,6 @@
       "AmParams": {
         "type": "object",
         "properties": {
-          "agc": {
-            "type": "boolean"
-          },
           "bandwidth_hz": {
             "type": "number",
             "format": "double"
@@ -3372,6 +3369,63 @@
           "eia525",
           "system_a405"
         ]
+      },
+      "AudioAgcMode": {
+        "type": "string",
+        "description": "How hard the audio AGC rides the level. The speeds are the ones a radio's own switch offers,\nbecause they are the ones that suit the modes: slow for SSB speech, fast for a band being\ntuned across, medium for everything else.",
+        "enum": [
+          "off",
+          "slow",
+          "medium",
+          "fast"
+        ]
+      },
+      "AudioFilterSettings": {
+        "type": "object",
+        "description": "Adjustable audio passband — the \"narrow the filter until only the voice is left\" control,\nafter demodulation rather than in the RF channel.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "high_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "High cut. Hiss and splatter live above it."
+          },
+          "low_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Low cut. Rumble, hum and the subaudible band live below this."
+          }
+        }
+      },
+      "AudioProcessing": {
+        "type": "object",
+        "description": "Everything a voice channel does to its audio after the demodulator, plus the one stage that\nhas to run before it.\n\nStages run in the order they are declared: the blanker on IQ, then passband, notches,\nadaptive notch, noise reduction and AGC on the demodulated audio. Filtering first keeps the\njunk outside the passband out of everything downstream, and the AGC runs last so what it\nlevels is what the listener actually hears.\n\nEvery stage is off by default, which is what a channel had before this existed.",
+        "properties": {
+          "agc": {
+            "$ref": "#/components/schemas/AudioAgcMode"
+          },
+          "auto_notch": {
+            "type": "boolean",
+            "description": "Remove steady carriers without being told where they are."
+          },
+          "blanker": {
+            "$ref": "#/components/schemas/NoiseBlankerSettings"
+          },
+          "denoise": {
+            "$ref": "#/components/schemas/DenoiseSettings"
+          },
+          "filter": {
+            "$ref": "#/components/schemas/AudioFilterSettings"
+          },
+          "notches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotchSettings"
+            }
+          }
+        }
       },
       "AuthInfo": {
         "type": "object",
@@ -4771,6 +4825,10 @@
           "params"
         ],
         "properties": {
+          "audio": {
+            "$ref": "#/components/schemas/AudioProcessing",
+            "description": "Blanker, filters, noise reduction and AGC. Shared by every voice mode rather than\nwritten into each one's params, so what an operator learns on one channel is the same\ncontrol on the next."
+          },
           "offset_hz": {
             "type": "number",
             "format": "double",
@@ -5878,6 +5936,20 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "DenoiseSettings": {
+        "type": "object",
+        "description": "Spectral noise reduction.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "strength": {
+            "type": "number",
+            "format": "float",
+            "description": "How much of the tracked noise floor is subtracted, `0.0..=1.0`. Past the middle of the\nrange the residue starts to sound processed, which is a taste, not a fault."
           }
         }
       },
@@ -7930,6 +8002,35 @@
           }
         }
       },
+      "NoiseBlankerSettings": {
+        "type": "object",
+        "description": "Impulse blanker, applied to the channel's IQ ahead of its selectivity filter.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "threshold": {
+            "type": "number",
+            "format": "float",
+            "description": "How far above the channel's average magnitude a sample has to sit to be cut out, as a\nmultiple of it. Lower blanks more, and eventually blanks the signal."
+          }
+        }
+      },
+      "NotchSettings": {
+        "type": "object",
+        "description": "One operator-placed notch in the audio.",
+        "properties": {
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "width_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "−3 dB width of the null. Narrow removes a heterodyne and leaves the voice; wide takes a\nbite out of both."
+          }
+        }
+      },
       "NxdnBandwidth": {
         "type": "string",
         "description": "The two NXDN channel widths. They are different radios as far as the receiver is\nconcerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.",
@@ -9896,9 +9997,6 @@
       "SsbParams": {
         "type": "object",
         "properties": {
-          "agc": {
-            "type": "boolean"
-          },
           "bandwidth_hz": {
             "type": "number",
             "format": "double"

@@ -7,6 +7,13 @@ export const BTN =
   `${INTERACTIVE} h-7 border border-line-strong bg-panel-2 px-2.5 text-xs text-ink ` +
   "hover:border-accent hover:text-accent";
 
+/** [`BTN`] for a settings group's header, which is shorter than a control row. Its own constant
+ * rather than an override at the call site, for the reason `ICON_BTN_SM` is: two `h-*` utilities
+ * set the same property, and the one Tailwind emits last wins whatever order they are written. */
+export const BTN_SM =
+  `${INTERACTIVE} h-5 border border-line-strong bg-panel-2 px-1.5 font-mono text-[10px] ` +
+  "tracking-[0.09em] uppercase text-ink-dim hover:border-accent hover:text-accent";
+
 export const BTN_PRIMARY =
   `${INTERACTIVE} h-7 border border-accent bg-accent px-3 text-xs font-medium text-bg ` +
   "hover:brightness-110";

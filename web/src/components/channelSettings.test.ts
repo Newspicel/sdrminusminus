@@ -3,18 +3,24 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, ChannelSettings } from "../lib/types";
 import {
+  AUDIO_LIMITS,
+  audioChainActive,
   channelDecoderKind,
   channelHasAudio,
   clampOffsetHz,
+  mergeAudio,
   mergeChannelSettings,
   offsetLimitHz,
   rateMismatch,
+  withNotchAdded,
+  withNotchAt,
+  withNotchRemoved,
 } from "./channelSettings";
 
 const base: ChannelSettings = {
   offset_hz: 25_000,
   squelch_db: -70,
-  params: { type: "ssb", settings: { sideband: "lsb", bandwidth_hz: 2_400, agc: false } },
+  params: { type: "ssb", settings: { sideband: "lsb", bandwidth_hz: 2_400 } },
 };
 
 function descriptor(over: Partial<ChannelDescriptor>): ChannelDescriptor {
@@ -31,7 +37,16 @@ describe("mergeChannelSettings", () => {
   it("widens an offset edit and keeps squelch + params", () => {
     expect(mergeChannelSettings(base, { offset_hz: -12_500 })).toEqual({
       ...base,
+      audio: {},
       offset_hz: -12_500,
+    });
+  });
+
+  it("carries the audio chain through an unrelated edit", () => {
+    const withChain: ChannelSettings = { ...base, audio: { agc: "slow", auto_notch: true } };
+    expect(mergeChannelSettings(withChain, { offset_hz: 0 }).audio).toEqual({
+      agc: "slow",
+      auto_notch: true,
     });
   });
 
@@ -70,6 +85,7 @@ describe("mergeChannelSettings", () => {
     expect(next).toEqual({
       offset_hz: 1_000,
       squelch_db: null,
+      audio: {},
       params: {
         type: "rtty",
         settings: { baud: 45.45, shift_hz: 850, stop_bits: "two", invert: true },
@@ -173,5 +189,59 @@ describe("rateMismatch", () => {
     expect(rateMismatch(descriptor({ input_rate_hz: 48_000 }), 2_400_000)).toBeNull();
     expect(rateMismatch(adsb, null)).toBeNull();
     expect(rateMismatch(undefined, 2_400_000)).toBeNull();
+  });
+});
+
+describe("mergeAudio", () => {
+  it("widens one stage's edit over the stages beside it", () => {
+    const current: ChannelSettings = {
+      ...base,
+      audio: { agc: "medium", denoise: { enabled: true, strength: 0.4 } },
+    };
+    expect(mergeAudio(current, { auto_notch: true })).toEqual({
+      agc: "medium",
+      denoise: { enabled: true, strength: 0.4 },
+      auto_notch: true,
+    });
+  });
+
+  it("starts from an empty chain when the channel has none", () => {
+    expect(mergeAudio(base, { agc: "fast" })).toEqual({ agc: "fast" });
+  });
+});
+
+describe("notch editing", () => {
+  const one = { freq_hz: 1_000, width_hz: 100 };
+
+  it("appends at the defaults until the channel is full", () => {
+    const full = Array.from({ length: AUDIO_LIMITS.maxNotches }, () => one);
+    expect(withNotchAdded([])).toEqual([one]);
+    expect(withNotchAdded(full)).toBeNull();
+  });
+
+  it("edits and removes by position, leaving the others alone", () => {
+    const notches = [one, { freq_hz: 2_000, width_hz: 50 }];
+    expect(withNotchAt(notches, 1, { freq_hz: 2_500 })).toEqual([
+      one,
+      { freq_hz: 2_500, width_hz: 50 },
+    ]);
+    expect(withNotchRemoved(notches, 0)).toEqual([{ freq_hz: 2_000, width_hz: 50 }]);
+  });
+});
+
+describe("audioChainActive", () => {
+  it("is false for an absent or all-off chain", () => {
+    expect(audioChainActive(undefined)).toBe(false);
+    expect(audioChainActive({})).toBe(false);
+    expect(audioChainActive({ agc: "off", notches: [], blanker: { enabled: false } })).toBe(false);
+  });
+
+  it("is true as soon as any one stage is doing something", () => {
+    expect(audioChainActive({ agc: "slow" })).toBe(true);
+    expect(audioChainActive({ auto_notch: true })).toBe(true);
+    expect(audioChainActive({ blanker: { enabled: true } })).toBe(true);
+    expect(audioChainActive({ denoise: { enabled: true } })).toBe(true);
+    expect(audioChainActive({ filter: { enabled: true } })).toBe(true);
+    expect(audioChainActive({ notches: [{ freq_hz: 1_000, width_hz: 100 }] })).toBe(true);
   });
 });

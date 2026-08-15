@@ -1297,6 +1297,7 @@ fn aprs_burst() -> Vec<Complex<f32>> {
             mode: AprsMode::Afsk1200,
             ..AprsParams::default()
         }),
+        audio: Default::default(),
     };
     let mut tx = AprsTx::new(
         ChannelCtx {

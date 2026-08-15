@@ -77,6 +77,7 @@ pub(crate) fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelErr
         offset_hz: 0.0,
         squelch_db: None,
         params: ChannelParams::Datv(*p),
+        audio: sdrmm_wire::AudioProcessing::default(),
     })?;
     let (_, half) = occupied_band(&p);
     let pass = half.min(flat_bandwidth_hz(INPUT_RATE_HZ) / 2.0);
@@ -213,6 +214,7 @@ mod tests {
                 standard,
                 symbol_rate,
             }),
+            audio: Default::default(),
         }
     }
 
