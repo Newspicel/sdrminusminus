@@ -155,25 +155,6 @@ export function WorkspaceBar({
       </Popover>
 
       <span className="ml-auto flex items-center gap-1">
-        <Popover
-          label="Library"
-          triggerClass={BTN_QUIET}
-          align="end"
-          width="w-[46rem]"
-          padded={false}
-        >
-          {/* A tool opens over whatever view is up and leaves the graph exactly as it was, so the
-              drawer that launched it gets out of the way first. */}
-          {(close) => (
-            <Library
-              onOpenTool={(id) => {
-                close();
-                onOpenTool(id);
-              }}
-            />
-          )}
-        </Popover>
-        <Rule />
         {/* Disabled from the server's own answer: the history is the workspace's, so a step
             another client took is what these buttons offer next. */}
         <span className="flex items-center" role="group" aria-label="History">
@@ -196,6 +177,25 @@ export function WorkspaceBar({
             ↷
           </Button>
         </span>
+        <Rule />
+        <Popover
+          label="Library"
+          triggerClass={BTN_QUIET}
+          align="end"
+          width="w-[46rem]"
+          padded={false}
+        >
+          {/* A tool opens over whatever view is up and leaves the graph exactly as it was, so the
+              drawer that launched it gets out of the way first. */}
+          {(close) => (
+            <Library
+              onOpenTool={(id) => {
+                close();
+                onOpenTool(id);
+              }}
+            />
+          )}
+        </Popover>
         <Rule />
         <ThemeControl />
         <Button
