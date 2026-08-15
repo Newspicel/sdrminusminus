@@ -56,8 +56,10 @@ describe("antennaRequest", () => {
       feedline_velocity_factor: 0.66,
       design: defaultDesign("dipole"),
     });
-    expect(request.tool).toBe("antenna");
-    expect(request.request.frequency_hz).toBe(145_500_000);
+    expect(request).toMatchObject({
+      tool: "antenna",
+      request: { frequency_hz: 145_500_000 },
+    });
   });
 
   it("has nothing to show before an answer arrives", () => {

@@ -2685,6 +2685,63 @@ export interface components {
              */
             wpm: number;
         };
+        NanoVnaComplex: {
+            /** Format: double */
+            im: number;
+            /** Format: double */
+            re: number;
+        };
+        NanoVnaDevice: {
+            label: string;
+            likely_nanovna: boolean;
+            port: string;
+            serial_number?: string | null;
+            /** Format: int32 */
+            usb_pid?: number | null;
+            /** Format: int32 */
+            usb_vid?: number | null;
+        };
+        NanoVnaPoint: {
+            /** Format: int64 */
+            frequency_hz: number;
+            s11: components["schemas"]["NanoVnaComplex"];
+            s21: components["schemas"]["NanoVnaComplex"];
+        };
+        NanoVnaRequest: {
+            /** @enum {string} */
+            action: "list_devices";
+        } | (components["schemas"]["NanoVnaSweepRequest"] & {
+            /** @enum {string} */
+            action: "sweep";
+        });
+        NanoVnaResult: {
+            devices: components["schemas"]["NanoVnaDevice"][];
+            /** @enum {string} */
+            kind: "devices";
+        } | (components["schemas"]["NanoVnaSweep"] & {
+            /** @enum {string} */
+            kind: "sweep";
+        });
+        NanoVnaSweep: {
+            /** Format: int32 */
+            averages: number;
+            firmware: string;
+            points: components["schemas"]["NanoVnaPoint"][];
+            port: string;
+            /** Format: int32 */
+            requested_points: number;
+        };
+        NanoVnaSweepRequest: {
+            /** Format: int32 */
+            averages?: number;
+            /** Format: int32 */
+            points: number;
+            port: string;
+            /** Format: int64 */
+            start_hz: number;
+            /** Format: int64 */
+            stop_hz: number;
+        };
         /**
          * @description One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
          *     parsed out because that is what a receiver filters on — station, subject and serial are how
@@ -4042,12 +4099,20 @@ export interface components {
             request: components["schemas"]["AntennaRequest"];
             /** @enum {string} */
             tool: "antenna";
+        } | {
+            request: components["schemas"]["NanoVnaRequest"];
+            /** @enum {string} */
+            tool: "nanovna";
         };
         /** @description What a tool answered, tagged with the same id the request carried. */
         ToolResponse: {
             result: components["schemas"]["AntennaReport"];
             /** @enum {string} */
             tool: "antenna";
+        } | {
+            result: components["schemas"]["NanoVnaResult"];
+            /** @enum {string} */
+            tool: "nanovna";
         };
         /** @description `GET /api/tools`. */
         ToolsResponse: {

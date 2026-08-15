@@ -7,6 +7,7 @@
 //! learns a tool's name.
 
 pub mod antenna;
+pub mod nanovna;
 
 pub use antenna::{
     ANTENNA_TOOL_ID, AntennaDesign, AntennaGeometry, AntennaPart, AntennaPoint, AntennaReport,
@@ -15,6 +16,11 @@ pub use antenna::{
     MAX_RADIALS, MAX_VELOCITY_FACTOR, MAX_YAGI_DIRECTORS, MAX_YAGI_SPACING_WL, MIN_ANTENNA_FREQ_HZ,
     MIN_APEX_ANGLE_DEG, MIN_FEEDLINE_VELOCITY_FACTOR, MIN_VELOCITY_FACTOR, MIN_YAGI_SPACING_WL,
     YagiParams,
+};
+pub use nanovna::{
+    MAX_NANOVNA_AVERAGES, MAX_NANOVNA_FREQ_HZ, MAX_NANOVNA_POINTS, MAX_NANOVNA_PORT_LEN,
+    MIN_NANOVNA_FREQ_HZ, MIN_NANOVNA_POINTS, NANOVNA_TOOL_ID, NanoVnaComplex, NanoVnaDevice,
+    NanoVnaPoint, NanoVnaRequest, NanoVnaResult, NanoVnaSweep, NanoVnaSweepRequest,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -58,6 +64,8 @@ pub struct ToolsResponse {
 #[non_exhaustive]
 pub enum ToolRequest {
     Antenna(AntennaRequest),
+    #[serde(rename = "nanovna")]
+    NanoVna(NanoVnaRequest),
 }
 
 impl ToolRequest {
@@ -65,6 +73,7 @@ impl ToolRequest {
     pub fn tool_id(&self) -> &'static str {
         match self {
             Self::Antenna(_) => ANTENNA_TOOL_ID,
+            Self::NanoVna(_) => NANOVNA_TOOL_ID,
         }
     }
 }
@@ -75,6 +84,8 @@ impl ToolRequest {
 #[non_exhaustive]
 pub enum ToolResponse {
     Antenna(AntennaReport),
+    #[serde(rename = "nanovna")]
+    NanoVna(NanoVnaResult),
 }
 
 impl ToolResponse {
@@ -82,6 +93,7 @@ impl ToolResponse {
     pub fn tool_id(&self) -> &'static str {
         match self {
             Self::Antenna(_) => ANTENNA_TOOL_ID,
+            Self::NanoVna(_) => NANOVNA_TOOL_ID,
         }
     }
 }

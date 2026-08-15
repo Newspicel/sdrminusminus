@@ -375,6 +375,44 @@ mod tests {
 
     use super::*;
 
+    struct NanoVnaStub;
+
+    impl sdrmm_tools::Tool for NanoVnaStub {
+        fn descriptor(&self) -> sdrmm_wire::ToolDescriptor {
+            sdrmm_wire::ToolDescriptor {
+                id: sdrmm_wire::NANOVNA_TOOL_ID.to_owned(),
+                name: "NanoVNA".to_owned(),
+                summary: "Sweep S11 and S21 from a NanoVNA over USB serial".to_owned(),
+                category: sdrmm_wire::ToolCategory::Instrument,
+                needs_hardware: true,
+            }
+        }
+
+        fn run(
+            &self,
+            request: sdrmm_wire::ToolRequest,
+        ) -> Result<sdrmm_wire::ToolResponse, sdrmm_tools::ToolError> {
+            match request {
+                sdrmm_wire::ToolRequest::NanoVna(sdrmm_wire::NanoVnaRequest::ListDevices) => Ok(
+                    sdrmm_wire::ToolResponse::NanoVna(sdrmm_wire::NanoVnaResult::Devices {
+                        devices: vec![sdrmm_wire::NanoVnaDevice {
+                            port: "fixture-port".to_owned(),
+                            label: "Fixture NanoVNA".to_owned(),
+                            likely_nanovna: true,
+                            serial_number: Some("fixture-serial".to_owned()),
+                            usb_vid: Some(0x0483),
+                            usb_pid: Some(0x5740),
+                        }],
+                    }),
+                ),
+                request => Err(sdrmm_tools::ToolError::WrongTool {
+                    tool: sdrmm_wire::NANOVNA_TOOL_ID,
+                    got: request.tool_id().to_owned(),
+                }),
+            }
+        }
+    }
+
     fn test_router() -> Router {
         test_router_with_store().0
     }
@@ -399,7 +437,16 @@ mod tests {
     fn state_over(store: Arc<Store>) -> AppState {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-        AppState::new(Engine::with_registry(registry, None), store)
+        let mut state = AppState::new(Engine::with_registry(registry, None), store);
+        let mut tools = sdrmm_tools::ToolRegistry::default();
+        tools
+            .register(Box::new(sdrmm_tools::AntennaTool))
+            .expect("register antenna fixture");
+        tools
+            .register(Box::new(NanoVnaStub))
+            .expect("register NanoVNA fixture");
+        state.tools = Arc::new(tools);
+        state
     }
 
     /// Hermetic recording setup: the virtual driver and the engine share one scoped temp
@@ -549,6 +596,8 @@ mod tests {
             "ToolResponse",
             "AntennaDesign",
             "AntennaReport",
+            "NanoVnaRequest",
+            "NanoVnaSweep",
         ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
@@ -3125,6 +3174,33 @@ mod tests {
             .expect("the antenna calculator is a builtin");
         assert!(!antenna.needs_hardware);
         assert!(!antenna.summary.is_empty());
+        let nanovna = tools
+            .tools
+            .iter()
+            .find(|tool| tool.id == sdrmm_wire::NANOVNA_TOOL_ID)
+            .expect("the NanoVNA instrument is a builtin");
+        assert!(nanovna.needs_hardware);
+        assert_eq!(nanovna.category, sdrmm_wire::ToolCategory::Instrument);
+    }
+
+    #[tokio::test]
+    async fn nanovna_device_discovery_uses_the_tool_handler() {
+        let (status, body) = request(
+            test_router(),
+            "POST",
+            "/api/tools/run",
+            Some(r#"{"tool":"nanovna","request":{"action":"list_devices"}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let response: sdrmm_wire::ToolResponse = serde_json::from_slice(&body).expect("json");
+        let sdrmm_wire::ToolResponse::NanoVna(sdrmm_wire::NanoVnaResult::Devices { devices }) =
+            response
+        else {
+            panic!("NanoVNA discovery must return the device result");
+        };
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].port, "fixture-port");
     }
 
     #[tokio::test]

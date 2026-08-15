@@ -17,12 +17,10 @@ describe("launchableTools", () => {
     expect(tools[0]?.panel).toBe(TOOL_PANELS.find((entry) => entry.id === "antenna")?.panel);
   });
 
-  /** A tool this client cannot draw is still a tool the server has: hiding it would make the
-   * gap invisible. */
-  it("keeps a served tool that has no panel here", () => {
+  it("opens the NanoVNA instrument panel", () => {
     const tools = launchableTools([descriptor("nanovna", "NanoVNA", "instrument")]);
     expect(tools).toHaveLength(1);
-    expect(tools[0]?.panel).toBeNull();
+    expect(tools[0]?.panel).toBe(TOOL_PANELS.find((entry) => entry.id === "nanovna")?.panel);
   });
 
   it("lists nothing when the server offers nothing", () => {

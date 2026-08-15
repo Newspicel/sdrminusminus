@@ -51,7 +51,7 @@ export function antennaRequest(request: AntennaRequest): ToolRequest {
 }
 
 export function antennaReport(response: ToolResponse | undefined): AntennaReport | null {
-  return response === undefined ? null : response.result;
+  return response?.tool === "antenna" ? response.result : null;
 }
 
 export type LengthUnit = "m" | "ft";

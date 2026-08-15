@@ -13,8 +13,10 @@ use std::collections::BTreeMap;
 use sdrmm_wire::{ToolDescriptor, ToolRequest, ToolResponse};
 
 pub mod antenna;
+pub mod nanovna;
 
 pub use antenna::AntennaTool;
+pub use nanovna::NanoVnaTool;
 
 /// Why a tool call did not produce an answer.
 #[derive(Debug, thiserror::Error)]
@@ -65,7 +67,7 @@ pub trait Tool: Send + Sync {
 
 /// Every tool this build has. Feature-gated ones are absent rather than reported as broken.
 fn builtins() -> Vec<Box<dyn Tool>> {
-    vec![Box::new(AntennaTool)]
+    vec![Box::new(AntennaTool), Box::new(NanoVnaTool::default())]
 }
 
 /// The tools a server offers, keyed by the id their requests are tagged with.
@@ -139,11 +141,34 @@ impl ToolRegistry {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{AntennaDesign, AntennaRequest, ToolCategory};
+    use std::sync::Arc;
+
+    use sdrmm_wire::{
+        AntennaDesign, AntennaRequest, NanoVnaDevice, NanoVnaRequest, NanoVnaResult, ToolCategory,
+    };
 
     use super::*;
 
     struct Stub;
+
+    struct NanoVnaBackendStub;
+
+    impl nanovna::Backend for NanoVnaBackendStub {
+        fn devices(&self) -> Result<Vec<NanoVnaDevice>, String> {
+            Ok(vec![NanoVnaDevice {
+                port: "fixture-port".to_owned(),
+                label: "Fixture NanoVNA".to_owned(),
+                likely_nanovna: true,
+                serial_number: Some("fixture-serial".to_owned()),
+                usb_vid: Some(0x0483),
+                usb_pid: Some(0x5740),
+            }])
+        }
+
+        fn connect(&self, _port: &str) -> Result<Box<dyn nanovna::Connection>, String> {
+            Err("the discovery test must not connect".to_owned())
+        }
+    }
 
     impl Tool for Stub {
         fn descriptor(&self) -> ToolDescriptor {
@@ -171,6 +196,7 @@ mod tests {
         let descriptors = registry.descriptors();
         assert_eq!(descriptors.len(), builtins().len());
         assert!(descriptors.iter().any(|tool| tool.id == "antenna"));
+        assert!(descriptors.iter().any(|tool| tool.id == "nanovna"));
     }
 
     #[test]
@@ -211,5 +237,23 @@ mod tests {
             }))
             .expect("the antenna tool answers");
         assert_eq!(response.tool_id(), "antenna");
+    }
+
+    #[test]
+    fn the_registry_dispatches_nanovna_discovery() {
+        let mut registry = ToolRegistry::default();
+        registry
+            .register(Box::new(NanoVnaTool::with_backend(Arc::new(
+                NanoVnaBackendStub,
+            ))))
+            .expect("register fixture NanoVNA");
+        let response = registry
+            .run(ToolRequest::NanoVna(NanoVnaRequest::ListDevices))
+            .expect("fixture discovery answers");
+        let ToolResponse::NanoVna(NanoVnaResult::Devices { devices }) = response else {
+            panic!("the NanoVNA tool must return device discovery");
+        };
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].port, "fixture-port");
     }
 }

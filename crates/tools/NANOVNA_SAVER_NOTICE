@@ -1,0 +1,10 @@
+NanoVNA serial protocol handling and RF measurement formulas were informed by and translated from NanoVNA-Saver.
+
+NanoVNA-Saver
+https://github.com/NanoVNA-Saver/nanovna-saver
+Source revision: 3445a0ab86161f9c886c9d6f215eb57cab9b6f45
+Copyright 2019, 2020 Rune B. Broberg
+Copyright 2020-2026 NanoVNA-Saver Authors
+License: GNU General Public License, version 3 or later
+
+The full license text is available in the repository root LICENSE file.
