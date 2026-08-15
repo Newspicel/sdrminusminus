@@ -417,7 +417,10 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = Windows ]; then
             echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
-            powershell -NoProfile -File packaging/soapy/stage-windows.ps1 \
+            # pwsh here and below, never `powershell`: Windows PowerShell 5.1 reads a UTF-8
+            # script as the machine's ANSI codepage, and one non-ASCII byte in a message then
+            # decodes into a quote that ends the string and breaks the parse.
+            pwsh -NoProfile -File packaging/soapy/stage-windows.ps1 \
               -Prefix "$PREFIX" -Destination apps/desktop/resources/soapy
           else
             # SoapySDR alone on the link line, and not DYLD_LIBRARY_PATH — both for the reasons
@@ -447,11 +450,11 @@ jobs:
           modules=apps/desktop/resources/soapy/lib/SoapySDR/modules0.8
           if [ "$RUNNER_OS" = Windows ]; then
             choco install innoextract --no-progress --yes
-            powershell -NoProfile -File packaging/sdrplay/fetch-api.ps1 -Destination "$sdk"
-            powershell -NoProfile -File packaging/sdrplay/build-module.ps1 \
+            pwsh -NoProfile -File packaging/sdrplay/fetch-api.ps1 -Destination "$sdk"
+            pwsh -NoProfile -File packaging/sdrplay/build-module.ps1 \
               -Prefix "$PREFIX" -Sdk "$sdk" -Destination "$modules"
             # Through PowerShell, because the path is a Windows one and this shell is not.
-            powershell -NoProfile -Command "Remove-Item -Recurse -Force '$sdk'"
+            pwsh -NoProfile -Command "Remove-Item -Recurse -Force '$sdk'"
           else
             packaging/sdrplay/fetch-api.sh "$sdk"
             # The Intel slice is cross-built on the arm64 runner, and CMake names that
@@ -561,7 +564,17 @@ jobs:
           releases=https://github.com/tauri-apps/binary-releases/releases/download
           plugins=https://raw.githubusercontent.com/tauri-apps
           fetch "$releases/apprun-old/AppRun-$arch" "AppRun-$arch"
-          fetch "$releases/linuxdeploy/linuxdeploy-$arch.AppImage" "linuxdeploy-$arch.AppImage"
+          # Upstream rather than the mirror the bundler would use: linuxdeploy walks every ELF
+          # file in the AppDir and a NEEDED entry it cannot resolve is fatal, which the staged
+          # SDRplay module's vendor library is by design. Only builds that honour
+          # LINUXDEPLOY_EXCLUDED_LIBRARIES can be told that, and the pinned mirror predates it.
+          fetch "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$arch.AppImage" \
+            "linuxdeploy-$arch.AppImage"
+          (cd "$RUNNER_TEMP" && rm -rf squashfs-root \
+            && "$tools/linuxdeploy-$arch.AppImage" --appimage-extract > /dev/null)
+          grep -qr LINUXDEPLOY_EXCLUDED_LIBRARIES "$RUNNER_TEMP/squashfs-root" \
+            || { echo "this linuxdeploy cannot be told to skip an excluded library" >&2; exit 1; }
+          rm -rf "$RUNNER_TEMP/squashfs-root"
           fetch "$plugins/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" linuxdeploy-plugin-gtk.sh
           fetch "$plugins/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" linuxdeploy-plugin-gstreamer.sh
           # The one optional tool — linuxdeploy carries its own older copy — so a miss here is
@@ -576,6 +589,10 @@ jobs:
       # first, and that is the action's job.
       - uses: tauri-apps/tauri-action@v1
         env:
+          # The vendor SDRplay library the staged module names is deliberately not bundled and
+          # is answered by the operator's own install, so linuxdeploy is told to leave it alone
+          # rather than fail the AppImage over a dependency nothing here is allowed to ship.
+          LINUXDEPLOY_EXCLUDED_LIBRARIES: libsdrplay_api.so*
           # macOS bundles are signed and notarized, which is what these six carry: the first
           # three are the Developer ID Application certificate, the last three are the notary
           # credentials. Tauri creates and unlocks its own temporary keychain from the .p12, so
