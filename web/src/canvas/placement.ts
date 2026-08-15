@@ -40,14 +40,25 @@ export function useNodePlacement(): (graph: PatchGraph, kind: NodeKind) => Posit
       if (width <= 0 || height <= 0 || zoom <= 0) {
         return dropPosition({ x: 0, y: 0, w: 1200, h: 800 }, size, occupied, SCREEN_GAP);
       }
-      return dropPosition(viewport, size, occupied, gap);
+      const position = dropPosition(viewport, size, occupied, gap);
+      if (!insideViewport(position, size, viewport)) {
+        const right = Math.max(viewport.x + viewport.w, position.x + size.w);
+        const bottom = Math.max(viewport.y + viewport.h, position.y + size.h);
+        const bounds = {
+          x: Math.min(viewport.x, position.x),
+          y: Math.min(viewport.y, position.y),
+          width: right - Math.min(viewport.x, position.x),
+          height: bottom - Math.min(viewport.y, position.y),
+        };
+        void flow.fitBounds(bounds, { padding: 0.12 });
+      }
+      return position;
     },
     [flow, store],
   );
 }
 
-/** Find the clear visible position nearest the centre. When a crowded viewport has no clear
- * footprint, keep the node visible and choose the candidate with the least overlap. */
+/** Find the clear position nearest the centre, expanding beyond the viewport only when needed. */
 export function dropPosition(
   viewport: PlacementRect,
   size: { w: number; h: number },
@@ -75,14 +86,13 @@ export function dropPosition(
   if (clear !== undefined) {
     return clear;
   }
+  const expanded = freeAxisCandidates(viewport, size, occupied, gap).toSorted(
+    (a, b) => distance(a, size, centre) - distance(b, size, centre) || a.y - b.y || a.x - b.x,
+  );
   return (
-    candidates.toSorted(
-      (a, b) =>
-        overlap(a, size, nearby) - overlap(b, size, nearby) ||
-        distance(a, size, centre) - distance(b, size, centre) ||
-        a.y - b.y ||
-        a.x - b.x,
-    )[0] ?? { x: viewport.x, y: viewport.y }
+    expanded.find((candidate) =>
+      occupied.every((rect) => !intersects(candidate, size, rect, gap)),
+    ) ?? { x: viewport.x, y: viewport.y }
   );
 }
 
@@ -139,22 +149,32 @@ function intersects(
   );
 }
 
-function overlap(
+function insideViewport(
   position: Position,
   size: { w: number; h: number },
+  viewport: PlacementRect,
+): boolean {
+  return (
+    position.x >= viewport.x &&
+    position.y >= viewport.y &&
+    position.x + size.w <= viewport.x + viewport.w &&
+    position.y + size.h <= viewport.y + viewport.h
+  );
+}
+
+function freeAxisCandidates(
+  viewport: PlacementRect,
+  size: { w: number; h: number },
   occupied: readonly PlacementRect[],
-): number {
-  return occupied.reduce((area, rect) => {
-    const w = Math.max(
-      0,
-      Math.min(position.x + size.w, rect.x + rect.w) - Math.max(position.x, rect.x),
-    );
-    const h = Math.max(
-      0,
-      Math.min(position.y + size.h, rect.y + rect.h) - Math.max(position.y, rect.y),
-    );
-    return area + w * h;
-  }, 0);
+  gap: number,
+): Position[] {
+  const xs = [viewport.x + (viewport.w - size.w) / 2];
+  const ys = [viewport.y + (viewport.h - size.h) / 2];
+  for (const rect of occupied) {
+    xs.push(rect.x - size.w - gap, rect.x, rect.x + rect.w + gap);
+    ys.push(rect.y - size.h - gap, rect.y, rect.y + rect.h + gap);
+  }
+  return [...new Set(xs)].flatMap((x) => [...new Set(ys)].map((y) => ({ x, y })));
 }
 
 function distance(position: Position, size: { w: number; h: number }, centre: Position): number {
