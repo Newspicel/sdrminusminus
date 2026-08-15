@@ -156,6 +156,15 @@ const DETAIL: {
     body: s.text || null,
   }),
 
+  selcall: (s) => ({
+    fields: fields([
+      ["Tone plan", s.system === "ccir1" ? "CCIR-1" : "ZVEI-1"],
+      ["Code", s.code],
+      ["Tone duration", `${s.tone_ms} ms`],
+    ]),
+    body: null,
+  }),
+
   navtex: (n) => ({
     fields: fields([
       ["Header", header(n.station, n.subject, n.serial)],
@@ -265,7 +274,69 @@ const DETAIL: {
     ]),
     body: f.text ?? f.data ?? null,
   }),
+
+  broadcast: (status) => ({
+    fields: fields([
+      ["System", broadcastSystem(status.system)],
+      ["Lock", status.locked ? "locked" : "searching"],
+      ["SNR", status.locked ? `${status.snr_db.toFixed(1)} dB` : undefined],
+      [
+        "Frequency error",
+        status.locked
+          ? `${status.frequency_error_hz >= 0 ? "+" : ""}${status.frequency_error_hz.toFixed(0)} Hz`
+          : undefined,
+      ],
+      ["Symbol rate", status.symbol_rate == null ? undefined : `${status.symbol_rate} Bd`],
+      ["Ensemble ID", status.ensemble_id == null ? undefined : hex(status.ensemble_id, 4)],
+      ["Service ID", status.service_id == null ? undefined : hex(status.service_id, 4)],
+      ["Label", status.label],
+    ]),
+    body: null,
+  }),
+  radio_clock: (r) => ({
+    fields: fields([
+      ["Service", r.standard.toUpperCase()],
+      ["Civil time", r.datetime],
+      ["UTC offset", utcOffset(r.utc_offset_minutes)],
+      ["Daylight saving", r.dst ? "active" : "inactive"],
+      ["Leap warning", r.leap_warning ? "yes" : undefined],
+      ["DUT1", r.dut1_seconds == null ? undefined : `${r.dut1_seconds.toFixed(1)} s`],
+    ]),
+    body: r.symbols || null,
+  }),
+
+  gnss: (g) => ({
+    fields: fields([
+      ["Signal", `GPS L1 C/A PRN ${g.prn}`],
+      ["Doppler", `${g.doppler_hz.toFixed(0)} Hz`],
+      ["Code phase", `${g.code_phase_chips.toFixed(2)} chips`],
+      ["C/N₀", `${g.cn0_db_hz.toFixed(1)} dB-Hz`],
+      ["NAV subframe", g.subframe == null ? "acquiring telemetry" : String(g.subframe)],
+      ["Time of week", g.tow_seconds == null ? undefined : `${g.tow_seconds} s`],
+      ["GPS week (10 bit)", g.week == null ? undefined : String(g.week)],
+    ]),
+    body: (g.words ?? []).join(" ") || null,
+  }),
 };
+
+function utcOffset(minutes: number | null | undefined): string | undefined {
+  if (minutes == null) return undefined;
+  const sign = minutes < 0 ? "−" : "+";
+  const absolute = Math.abs(minutes);
+  return `UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+}
+
+function broadcastSystem(system: string): string {
+  const labels: Record<string, string> = {
+    dab: "DAB",
+    dab_plus: "DAB+",
+    dvb_s: "DVB-S",
+    dvb_s2: "DVB-S2",
+    drm30: "DRM30",
+    drm_plus: "DRM+",
+  };
+  return labels[system] ?? system;
+}
 
 function dvVendor(frame: DvFrame): string | undefined {
   if (frame.vendor == null) return undefined;

@@ -23,6 +23,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   rds: "RDS",
   rtty: "RTTY",
   morse: "Morse",
+  selcall: "Selcall",
   navtex: "NAVTEX",
   acars: "ACARS",
   subghz: "Sub-GHz",
@@ -34,6 +35,9 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   psk31: "PSK31",
   psk63: "PSK63",
   wspr: "WSPR",
+  broadcast: "Digital broadcast",
+  radio_clock: "Radio clock",
+  gnss: "GNSS lab",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -291,6 +295,8 @@ export function eventSummary(event: DecoderEvent): string {
         `${spot.audio_hz.toFixed(0)} Hz`,
       ]);
     }
+    case "selcall":
+      return `${event.data.system === "ccir1" ? "CCIR-1" : "ZVEI-1"} · ${event.data.code}`;
     case "navtex": {
       const n = event.data;
       const header =
@@ -344,10 +350,36 @@ export function eventSummary(event: DecoderEvent): string {
         best == null ? null : `${best.name} (${candidateScore(best)})`,
       ]);
     }
+    case "broadcast": {
+      const status = event.data;
+      return join([
+        broadcastSystem(status.system),
+        status.locked ? "locked" : "searching",
+        status.locked ? `${status.snr_db.toFixed(1)} dB SNR` : null,
+        status.locked
+          ? `${status.frequency_error_hz >= 0 ? "+" : ""}${status.frequency_error_hz.toFixed(0)} Hz`
+          : null,
+        status.label ?? null,
+      ]);
+    }
+    case "radio_clock": {
+      const r = event.data;
+      return join([r.standard.toUpperCase(), r.datetime, r.leap_warning ? "leap warning" : null]);
+    }
+    case "gnss": {
+      const g = event.data;
+      return join([
+        `GPS PRN ${g.prn}`,
+        `${g.doppler_hz >= 0 ? "+" : ""}${g.doppler_hz.toFixed(0)} Hz`,
+        `${g.cn0_db_hz.toFixed(1)} dB-Hz`,
+        g.subframe == null ? "acquired" : `subframe ${g.subframe}`,
+        g.tow_seconds == null ? null : `TOW ${g.tow_seconds} s`,
+      ]);
+    }
   }
 }
 
-/** `null` for the decoders whose output is a character stream: RTTY and Morse name no emitter. */
+/** `null` when the event does not identify the transmitter that sent it. */
 export function eventStation(event: DecoderEvent): string | null {
   switch (event.kind) {
     case "adsb":
@@ -380,16 +412,39 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.text.split(/\s+/)[1] ?? null;
     case "wspr":
       return event.data.callsign;
+    case "radio_clock":
+      return event.data.standard.toUpperCase();
+    case "gnss":
+      return `GPS-${event.data.prn}`;
     case "rtty":
     case "morse":
     case "psk31":
     case "psk63":
+    // A Selcall sequence names the recipient, not necessarily the transmitter sending it.
+    case "selcall":
     // Subaudible signalling names the channel's state, not whoever is keying up.
     case "tone":
     // The whole point of an identification is that whoever is transmitting is not known yet.
     case "ident":
       return null;
+    case "broadcast": {
+      const status = event.data;
+      const id = status.service_id ?? status.ensemble_id;
+      return id == null ? null : id.toString(16).toUpperCase();
+    }
   }
+}
+
+function broadcastSystem(system: string): string {
+  const labels: Record<string, string> = {
+    dab: "DAB",
+    dab_plus: "DAB+",
+    dvb_s: "DVB-S",
+    dvb_s2: "DVB-S2",
+    drm30: "DRM30",
+    drm_plus: "DRM+",
+  };
+  return labels[system] ?? system;
 }
 
 /** A 20-bit EV1527 address, the five hex digits every remote is quoted by. */

@@ -1350,6 +1350,31 @@ fn decoder_fixtures() -> Vec<Fixture> {
     }];
 
     out.push(Fixture {
+        stem: "selcall_ccir1_48k".to_string(),
+        iq: at(
+            testgen::selcall::transmission(sdrmm_wire::SelcallSystem::Ccir1, "12234", AUDIO)
+                .expect("CCIR-1 fixture code is valid"),
+            5_000.0,
+            AUDIO,
+        ),
+        rate: AUDIO,
+        note: "selcall CCIR-1 channel at +5 kHz -> 12234 (repeat marker expanded)".to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "selcall_zvei1_48k".to_string(),
+        iq: at(
+            testgen::selcall::transmission(sdrmm_wire::SelcallSystem::Zvei1, "A11D0", AUDIO)
+                .expect("ZVEI-1 fixture code is valid"),
+            -5_000.0,
+            AUDIO,
+        ),
+        rate: AUDIO,
+        note: "selcall ZVEI-1 channel at -5 kHz -> A11D0 (group symbols and repeat marker)"
+            .to_string(),
+    });
+
+    out.push(Fixture {
         stem: "ais_position_240k".to_string(),
         iq: at(
             testgen::ais::burst(
@@ -1429,6 +1454,21 @@ fn decoder_fixtures() -> Vec<Fixture> {
         ),
         rate: ADSB_RATE,
         note: "adsb channel at 0 Hz, device at 2 Msps -> 3C6444/DLH123 at FL380".to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "dcf77_2026_2k".to_string(),
+        iq: testgen::radio_clock::dcf77_example(),
+        rate: testgen::radio_clock::RATE,
+        note: "radio_clock (DCF77) -> 2026-08-15 12:34 CET with valid parity".to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "gps_l1_ca_prn7_2m048".to_string(),
+        iq: testgen::gnss::acquisition(7, 1_000.0, 317, 2),
+        rate: testgen::gnss::RATE,
+        note: "gnss channel -> GPS L1 C/A PRN 7, +1000 Hz Doppler, code phase 158.3 chips"
+            .to_string(),
     });
 
     const RDS_RATE: f64 = 960_000.0;

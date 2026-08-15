@@ -1,4 +1,4 @@
-import { type Node, useReactFlow, useStoreApi } from "@xyflow/react";
+import { type Node, type Rect, useReactFlow, useStoreApi } from "@xyflow/react";
 import { useCallback } from "react";
 import type { NodeKind, PatchGraph, Position } from "../lib/types";
 import { NODE_SIZE } from "./graph";
@@ -40,50 +40,104 @@ export function useNodePlacement(): (graph: PatchGraph, kind: NodeKind) => Posit
       if (width <= 0 || height <= 0 || zoom <= 0) {
         return dropPosition({ x: 0, y: 0, w: 1200, h: 800 }, size, occupied, SCREEN_GAP);
       }
-      return dropPosition(viewport, size, occupied, gap);
+      const position = dropPosition(viewport, size, occupied, gap);
+      const face = {
+        x: position.x - gap,
+        y: position.y - gap,
+        width: size.w + 2 * gap,
+        height: size.h + 2 * gap,
+      };
+      // A full view has no clear footprint left in it, so the face lands beside what is drawn.
+      // Widening the camera to take it in keeps every face that was on screen on it — panning
+      // there would push the ports the new face has to be wired to off the top.
+      if (!encloses(viewport, face)) {
+        void flow.fitBounds(union(viewport, face), { padding: 0 });
+      }
+      return position;
     },
     [flow, store],
   );
 }
 
-/** Find the clear visible position nearest the centre. When a crowded viewport has no clear
- * footprint, keep the node visible and choose the candidate with the least overlap. */
+/** Find the clear position nearest the middle of the view. A full viewport widens the search
+ * past its own edges rather than laying one face over another: the camera can be moved to what
+ * was placed, and a face nobody can read cannot be. */
 export function dropPosition(
   viewport: PlacementRect,
   size: { w: number; h: number },
   occupied: readonly PlacementRect[],
   gap = SCREEN_GAP,
 ): Position {
+  const centre = { x: viewport.x + viewport.w / 2, y: viewport.y + viewport.h / 2 };
+  return (
+    clearPosition(viewport, size, occupied, gap, centre) ??
+    clearPosition(widened(viewport, size, occupied, gap), size, occupied, gap, centre) ?? {
+      x: viewport.x,
+      y: viewport.y,
+    }
+  );
+}
+
+function clearPosition(
+  area: PlacementRect,
+  size: { w: number; h: number },
+  occupied: readonly PlacementRect[],
+  gap: number,
+  centre: Position,
+): Position | undefined {
   const nearby = occupied.filter(
     (rect) =>
-      rect.x < viewport.x + viewport.w + gap &&
-      rect.x + rect.w + gap > viewport.x &&
-      rect.y < viewport.y + viewport.h + gap &&
-      rect.y + rect.h + gap > viewport.y,
+      rect.x < area.x + area.w + gap &&
+      rect.x + rect.w + gap > area.x &&
+      rect.y < area.y + area.h + gap &&
+      rect.y + rect.h + gap > area.y,
   );
-  const xs = axisCandidates(viewport.x, viewport.w, size.w, nearby, "x", "w", gap);
-  const ys = axisCandidates(viewport.y, viewport.h, size.h, nearby, "y", "h", gap);
-  const centre = { x: viewport.x + viewport.w / 2, y: viewport.y + viewport.h / 2 };
-  const candidates = xs
+  const xs = axisCandidates(area.x, area.w, size.w, nearby, "x", "w", gap);
+  const ys = axisCandidates(area.y, area.h, size.h, nearby, "y", "h", gap);
+  return xs
     .flatMap((x) => ys.map((y) => ({ x, y })))
+    .filter((candidate) => nearby.every((rect) => !intersects(candidate, size, rect, gap)))
     .toSorted(
       (a, b) => distance(a, size, centre) - distance(b, size, centre) || a.y - b.y || a.x - b.x,
-    );
-  const clear = candidates.find((candidate) =>
-    nearby.every((rect) => !intersects(candidate, size, rect, gap)),
-  );
-  if (clear !== undefined) {
-    return clear;
-  }
+    )[0];
+}
+
+/** Everything drawn and everything in view, with a clear face's width all round: the far corners
+ * of this area are past every node, so a position clear of them all exists inside it. */
+function widened(
+  viewport: PlacementRect,
+  size: { w: number; h: number },
+  occupied: readonly PlacementRect[],
+  gap: number,
+): PlacementRect {
+  const margin = { x: size.w + 2 * gap, y: size.h + 2 * gap };
+  const left = Math.min(viewport.x, ...occupied.map((rect) => rect.x)) - margin.x;
+  const top = Math.min(viewport.y, ...occupied.map((rect) => rect.y)) - margin.y;
+  const right =
+    Math.max(viewport.x + viewport.w, ...occupied.map((rect) => rect.x + rect.w)) + margin.x;
+  const bottom =
+    Math.max(viewport.y + viewport.h, ...occupied.map((rect) => rect.y + rect.h)) + margin.y;
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+function encloses(viewport: PlacementRect, face: Rect): boolean {
   return (
-    candidates.toSorted(
-      (a, b) =>
-        overlap(a, size, nearby) - overlap(b, size, nearby) ||
-        distance(a, size, centre) - distance(b, size, centre) ||
-        a.y - b.y ||
-        a.x - b.x,
-    )[0] ?? { x: viewport.x, y: viewport.y }
+    face.x >= viewport.x &&
+    face.y >= viewport.y &&
+    face.x + face.width <= viewport.x + viewport.w &&
+    face.y + face.height <= viewport.y + viewport.h
   );
+}
+
+function union(viewport: PlacementRect, face: Rect): Rect {
+  const x = Math.min(viewport.x, face.x);
+  const y = Math.min(viewport.y, face.y);
+  return {
+    x,
+    y,
+    width: Math.max(viewport.x + viewport.w, face.x + face.width) - x,
+    height: Math.max(viewport.y + viewport.h, face.y + face.height) - y,
+  };
 }
 
 function nodeRect(node: PatchGraph["nodes"][number], rendered: Node | undefined): PlacementRect {
@@ -137,24 +191,6 @@ function intersects(
     position.y < rect.y + rect.h + gap &&
     position.y + size.h + gap > rect.y
   );
-}
-
-function overlap(
-  position: Position,
-  size: { w: number; h: number },
-  occupied: readonly PlacementRect[],
-): number {
-  return occupied.reduce((area, rect) => {
-    const w = Math.max(
-      0,
-      Math.min(position.x + size.w, rect.x + rect.w) - Math.max(position.x, rect.x),
-    );
-    const h = Math.max(
-      0,
-      Math.min(position.y + size.h, rect.y + rect.h) - Math.max(position.y, rect.y),
-    );
-    return area + w * h;
-  }, 0);
 }
 
 function distance(position: Position, size: { w: number; h: number }, centre: Position): number {

@@ -324,6 +324,22 @@ export interface paths {
         patch: operations["patch_device"];
         trace?: never;
     };
+    "/api/devicesets/{ds}/network-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["network_export_device_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets/{ds}/playback": {
         parameters: {
             query?: never;
@@ -580,6 +596,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_tools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tools/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["run_tool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces": {
         parameters: {
             query?: never;
@@ -802,6 +850,144 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
         };
+        /**
+         * @description The antenna to cut. Adjacently tagged like [`crate::ChannelParams`]: the designs that take
+         *     no choices are bare tags, the rest carry their settings.
+         */
+        AntennaDesign: {
+            /** @enum {string} */
+            type: "dipole";
+        } | {
+            /** @description A dipole with its legs sloped down from a single support. */
+            settings: components["schemas"]["InvertedVParams"];
+            /** @enum {string} */
+            type: "inverted_v";
+        } | {
+            /** @description Quarter-wave vertical over radials. */
+            settings: components["schemas"]["GroundPlaneParams"];
+            /** @enum {string} */
+            type: "ground_plane";
+        } | {
+            /** @enum {string} */
+            type: "five_eighths_vertical";
+        } | {
+            /** @enum {string} */
+            type: "folded_dipole";
+        } | {
+            /** @enum {string} */
+            type: "j_pole";
+        } | {
+            /** @description Reflector, driven element and directors on a boom. */
+            settings: components["schemas"]["YagiParams"];
+            /** @enum {string} */
+            type: "yagi";
+        } | {
+            /** @enum {string} */
+            type: "quad_loop";
+        } | {
+            /** @enum {string} */
+            type: "end_fed_half_wave";
+        };
+        /** @description The antenna as a shape: enough to draw it to scale from any angle. */
+        AntennaGeometry: {
+            /** @description Where the feedline attaches. */
+            feed: components["schemas"]["AntennaPoint"];
+            segments: components["schemas"]["AntennaSegment"][];
+        };
+        /** @description One thing to cut, bend or buy. */
+        AntennaPart: {
+            /**
+             * Format: int32
+             * @description How many of this part the design needs.
+             */
+            count: number;
+            detail?: string | null;
+            /** Format: double */
+            length_m: number;
+            name: string;
+            /**
+             * Format: double
+             * @description Where it sits along the boom, measured from the reflector. Only the designs that have
+             *     a boom set it.
+             */
+            position_m?: number | null;
+        };
+        /**
+         * @description A point on the antenna, in metres from the origin. `x` runs along the elements, `y` is up,
+         *     `z` is the boom's depth. The origin is the feedpoint, or the base of anything that stands on
+         *     one.
+         */
+        AntennaPoint: {
+            /** Format: double */
+            x_m: number;
+            /** Format: double */
+            y_m: number;
+            /** Format: double */
+            z_m: number;
+        };
+        /** @description What the calculator worked out. */
+        AntennaReport: {
+            /** @description Whether the feedpoint is balanced, and so wants a balun ahead of coax. */
+            balanced: boolean;
+            /** @description The design that produced this, echoed so a cached report can name itself. */
+            design: components["schemas"]["AntennaDesign"];
+            /**
+             * Format: double
+             * @description Estimated feedpoint impedance in free space. `None` where the design's own matching
+             *     network sets it and a raw figure would mislead.
+             */
+            feedpoint_ohms?: number | null;
+            /** Format: double */
+            frequency_hz: number;
+            /** @description The same design as a shape, to scale, for a drawing of it. */
+            geometry: components["schemas"]["AntennaGeometry"];
+            /**
+             * @description Everything the numbers alone do not say: what to trim, what to match with, what the
+             *     estimate assumes.
+             */
+            notes: string[];
+            parts: components["schemas"]["AntennaPart"][];
+            /** Format: double */
+            velocity_factor: number;
+            /**
+             * Format: double
+             * @description Free-space wavelength, before any correction factor.
+             */
+            wavelength_m: number;
+        };
+        /** @description `POST /api/tools/run` with `"tool": "antenna"`. */
+        AntennaRequest: {
+            design: components["schemas"]["AntennaDesign"];
+            /**
+             * Format: double
+             * @description Velocity factor of the coax, used only by designs that include a matching section.
+             *     Solid polyethylene is 0.66, foam 0.80, PTFE 0.70.
+             */
+            feedline_velocity_factor?: number;
+            /** Format: double */
+            frequency_hz: number;
+            /**
+             * Format: double
+             * @description End-effect factor applied to every resonant element.
+             */
+            velocity_factor?: number;
+        };
+        /** @description One straight piece of the antenna, as drawn. */
+        AntennaSegment: {
+            from: components["schemas"]["AntennaPoint"];
+            /**
+             * @description The part this piece is. Where the report lists a part under the same name, the segment is
+             *     exactly that long.
+             */
+            label: string;
+            role: components["schemas"]["AntennaSegmentRole"];
+            to: components["schemas"]["AntennaPoint"];
+        };
+        /**
+         * @description What a drawn piece does, so a view can colour it without reading its name.
+         * @enum {string}
+         */
+        AntennaSegmentRole: "driven" | "parasitic" | "radial" | "matching" | "feedline" | "structure";
         /** @description Uniform error body for REST failures. */
         ApiError: {
             detail?: string | null;
@@ -908,6 +1094,12 @@ export interface components {
             version?: string | null;
         };
         /**
+         * @description Colour encoding carried on the composite-video subcarrier. Monochrome leaves the
+         *     subcarrier untouched and works at the lower sample rates used by narrow-band ATV.
+         * @enum {string}
+         */
+        AtvColor: "monochrome" | "pal" | "ntsc";
+        /**
          * @description How an analog television transmission carries its video, and with it the polarity the
          *     demodulated signal arrives in (: ATV).
          * @enum {string}
@@ -922,6 +1114,11 @@ export interface components {
              */
             bandwidth_hz?: number;
             /**
+             * @description Composite colour system. PAL and NTSC need a device rate wide enough to contain their
+             *     4.43 MHz or 3.58 MHz subcarrier respectively.
+             */
+            color?: components["schemas"]["AtvColor"];
+            /**
              * @description Weave the two fields into one frame at their real line positions. Off decodes each
              *     vertical sync as a whole progressive frame, which is what non-interlaced amateur and
              *     camera sources send.
@@ -934,6 +1131,12 @@ export interface components {
              */
             invert?: boolean;
             modulation?: components["schemas"]["AtvModulation"];
+            /**
+             * Format: double
+             * @description FM sound carrier above the picture carrier, in Hz. Common values are 4.5, 5.5, 6.0 and
+             *     6.5 MHz. `None` keeps ATV usable on receivers that only cover the luma channel.
+             */
+            sound_subcarrier_hz?: number | null;
             standard?: components["schemas"]["AtvStandard"];
         };
         /**
@@ -1114,6 +1317,30 @@ export interface components {
             /** @description Suggested channel type id (e.g. `"nfm"`), if any. */
             mode?: string | null;
         };
+        /**
+         * @description Periodic acquisition report from a wideband digital-broadcast channel. These values describe
+         *     the RF lock itself; absent service fields mean the multiplex has not been decoded.
+         */
+        BroadcastStatus: {
+            /** Format: int32 */
+            ensemble_id?: number | null;
+            /** Format: float */
+            frequency_error_hz: number;
+            label?: string | null;
+            locked: boolean;
+            /** Format: int32 */
+            service_id?: number | null;
+            /** Format: float */
+            snr_db: number;
+            /** Format: double */
+            symbol_rate?: number | null;
+            system: components["schemas"]["BroadcastSystem"];
+        };
+        /**
+         * @description Broadcast waveform identified by a standards-specific synchronizer.
+         * @enum {string}
+         */
+        BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
@@ -1229,9 +1456,8 @@ export interface components {
              *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
              *     highest, so a receiver is set anywhere in that range rather than to one exact number.
              *
-             *     ADS-B is the one such type: a 0.5 µs pulse is a single sample at
-             *     2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
-             *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+             *     ADS-B preserves pulse timing, ATV retains wide chroma and sound subcarriers, and GNSS
+             *     retains chip timing. Mutually exclusive with `exact_rate_only`.
              */
             native_rate_max_hz?: number | null;
             /** @description Whether this channel accepts a live station position input. */
@@ -1291,6 +1517,10 @@ export interface components {
             /** @enum {string} */
             type: "nfm";
         } | {
+            settings: components["schemas"]["SelcallParams"];
+            /** @enum {string} */
+            type: "selcall";
+        } | {
             settings: components["schemas"]["AmParams"];
             /** @enum {string} */
             type: "am";
@@ -1343,6 +1573,18 @@ export interface components {
             /** @enum {string} */
             type: "atv";
         } | {
+            settings: components["schemas"]["DabParams"];
+            /** @enum {string} */
+            type: "dab";
+        } | {
+            settings: components["schemas"]["DatvParams"];
+            /** @enum {string} */
+            type: "datv";
+        } | {
+            settings: components["schemas"]["DrmParams"];
+            /** @enum {string} */
+            type: "drm";
+        } | {
             settings: components["schemas"]["DmrParams"];
             /** @enum {string} */
             type: "dmr";
@@ -1391,9 +1633,21 @@ export interface components {
             /** @enum {string} */
             type: "wspr";
         } | {
+            settings: components["schemas"]["FreeDvParams"];
+            /** @enum {string} */
+            type: "freedv";
+        } | {
             settings: components["schemas"]["IdentParams"];
             /** @enum {string} */
             type: "ident";
+        } | {
+            settings: components["schemas"]["RadioClockParams"];
+            /** @enum {string} */
+            type: "radio_clock";
+        } | {
+            settings: components["schemas"]["GnssParams"];
+            /** @enum {string} */
+            type: "gnss";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -1604,6 +1858,26 @@ export interface components {
             name: string;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
+        /**
+         * @description DAB generations share the same EN 300 401 Mode I RF waveform. `Auto` reports the ensemble
+         *     without assuming which audio component type its FIC will eventually announce.
+         * @enum {string}
+         */
+        DabMode: "auto" | "dab" | "dab_plus";
+        DabParams: {
+            mode?: components["schemas"]["DabMode"];
+        };
+        DatvParams: {
+            standard?: components["schemas"]["DatvStandard"];
+            /**
+             * Format: double
+             * @description Symbol rate in baud. The channel rate supports narrow-band amateur television carriers
+             *     through 1 MBd; wider transponders need a receiver stream wider than this channel type.
+             */
+            symbol_rate?: number;
+        };
+        /** @enum {string} */
+        DatvStandard: "dvb_s" | "dvb_s2";
         DecodedRecord: {
             /** @description RFC3339 UTC. */
             at: string;
@@ -1646,6 +1920,10 @@ export interface components {
             data: components["schemas"]["MorseText"];
             /** @enum {string} */
             kind: "morse";
+        } | {
+            data: components["schemas"]["SelcallSequence"];
+            /** @enum {string} */
+            kind: "selcall";
         } | {
             data: components["schemas"]["NavtexMessage"];
             /** @enum {string} */
@@ -1690,6 +1968,18 @@ export interface components {
             data: components["schemas"]["IdentReport"];
             /** @enum {string} */
             kind: "ident";
+        } | {
+            data: components["schemas"]["BroadcastStatus"];
+            /** @enum {string} */
+            kind: "broadcast";
+        } | {
+            data: components["schemas"]["RadioClockFrame"];
+            /** @enum {string} */
+            kind: "radio_clock";
+        } | {
+            data: components["schemas"]["GnssFrame"];
+            /** @enum {string} */
+            kind: "gnss";
         };
         /**
          * @description One stored decoder frame (: decoder logs are queryable and exportable, not
@@ -1789,6 +2079,7 @@ export interface components {
             error?: string | null;
             /** Format: int32 */
             id: number;
+            network_export?: null | components["schemas"]["NetworkExportStatus"];
             /**
              * Format: int64
              * @description Cumulative device samples dropped at the capture ring since the set opened. Growth
@@ -1897,6 +2188,17 @@ export interface components {
         };
         /** @description dPMR (C4FM, 2400 symbols/s, 6.25 kHz). */
         DpmrParams: Record<string, never>;
+        /** @enum {string} */
+        DrmMode: "auto" | "drm30" | "drm_plus";
+        DrmParams: {
+            /**
+             * Format: double
+             * @description Occupied bandwidth in Hz. DRM30 accepts the standardized 4.5–20 kHz occupancies;
+             *     DRM+ and `Auto` use a 100 kHz slice so automatic mode can search both waveform families.
+             */
+            bandwidth_hz?: number;
+            mode?: components["schemas"]["DrmMode"];
+        };
         /** @description D-Star (GMSK, 4800 bit/s). */
         DstarParams: Record<string, never>;
         /**
@@ -2030,7 +2332,7 @@ export interface components {
          *     whom, on which network — and only the names for it differ.
          * @enum {string}
          */
-        DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17";
+        DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17" | "freedv";
         /** @description Activity advertised for one DMR timeslot by a Short LC activity update. */
         DvSlotActivity: {
             activity: string;
@@ -2092,6 +2394,17 @@ export interface components {
             name: string;
             value: unknown;
         };
+        /**
+         * @description FreeDV air-interface generation. The initial implementation supports the interoperable
+         *     1600 mode; making the generation explicit prevents a future default change from silently
+         *     selecting an incompatible waveform on a saved channel.
+         * @enum {string}
+         */
+        FreeDvMode: "mode1600";
+        FreeDvParams: {
+            mode?: components["schemas"]["FreeDvMode"];
+            sideband?: components["schemas"]["Sideband"];
+        };
         /** @description A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA). */
         GainStage: {
             name: string;
@@ -2103,8 +2416,55 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        /** @description GPS L1 C/A acquisition state or one parity-checked NAV subframe. */
+        GnssFrame: {
+            /** Format: float */
+            cn0_db_hz: number;
+            /** Format: float */
+            code_phase_chips: number;
+            /** Format: float */
+            doppler_hz: number;
+            /** Format: int32 */
+            prn: number;
+            /** Format: int32 */
+            subframe?: number | null;
+            /** Format: int32 */
+            tow_seconds?: number | null;
+            /** Format: int32 */
+            week?: number | null;
+            words?: string[];
+        };
+        /** @description Educational GPS L1 C/A acquisition and NAV-message settings. */
+        GnssParams: {
+            /**
+             * Format: int32
+             * @description Symmetric acquisition search span around the tuned L1 carrier.
+             */
+            doppler_hz?: number;
+            /**
+             * Format: int32
+             * @description Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result
+             *     inspectable and bounds the work done on the DSP thread.
+             */
+            prn?: number;
+            /**
+             * Format: float
+             * @description Acquisition peak divided by the mean correlation floor.
+             */
+            threshold?: number;
+        };
         GpsNode: {
             source?: components["schemas"]["PositionSource"];
+        };
+        GroundPlaneParams: {
+            /**
+             * Format: double
+             * @description How far the radials droop below horizontal. Sloping them raises the feedpoint
+             *     impedance from about 36 Ω towards 50 Ω.
+             */
+            radial_slope_deg?: number;
+            /** Format: int32 */
+            radials?: number;
         };
         /**
          * @description The measurements a classification was made from, carried so the decision can be checked
@@ -2240,6 +2600,13 @@ export interface components {
              */
             symbol_rate_hz?: number | null;
         };
+        InvertedVParams: {
+            /**
+             * Format: double
+             * @description Angle between the two legs. 180° is a flat dipole; the legs shorten as it closes.
+             */
+            apex_angle_deg?: number;
+        };
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
         /**
@@ -2323,6 +2690,59 @@ export interface components {
             /** @description Swap mark and space (equivalent to reversing the sideband). */
             invert?: boolean;
         };
+        /** @enum {string} */
+        NetworkExportAction: "start" | "stop";
+        NetworkExportNode: components["schemas"]["NetworkExportSettings"];
+        /** @description `POST /api/devicesets/{ds}/network-export`. */
+        NetworkExportRequest: {
+            action: components["schemas"]["NetworkExportAction"];
+            /** @description Patch-node identity. A set permits one active exporter and only its owner may stop it. */
+            node: string;
+            settings?: components["schemas"]["NetworkExportSettings"];
+            /** Format: int32 */
+            stream?: number;
+        };
+        /**
+         * @description An unframed, interleaved IQ stream sent to a network analysis tool.
+         *
+         *     UDP preserves datagram boundaries but carries no sequence header. TCP is one continuous byte
+         *     stream. In both cases the receiver must be configured with the radio's sample rate and center
+         *     frequency separately.
+         */
+        NetworkExportSettings: {
+            /** @default 127.0.0.1:7355 */
+            address: string;
+            /** @default cf32_le */
+            format: components["schemas"]["NetworkSampleFormat"];
+            /** @default udp */
+            transport: components["schemas"]["NetworkTransport"];
+        };
+        NetworkExportStatus: {
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            center_hz: number;
+            error?: string | null;
+            node: string;
+            /**
+             * Format: int64
+             * @description Capture-ring samples lost while this export was active.
+             */
+            overruns: number;
+            /** Format: int64 */
+            packets: number;
+            /** Format: int64 */
+            sample_rate: number;
+            /** Format: int64 */
+            samples: number;
+            settings: components["schemas"]["NetworkExportSettings"];
+            /** Format: int32 */
+            stream: number;
+        };
+        /** @enum {string} */
+        NetworkSampleFormat: "cf32_le" | "ci16_le" | "cu8";
+        /** @enum {string} */
+        NetworkTransport: "udp" | "tcp";
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
@@ -2404,6 +2824,11 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "recorder";
+        } | {
+            /** @description Unframed raw IQ sent over UDP datagrams or a TCP byte stream. */
+            data: components["schemas"]["NetworkExportNode"];
+            /** @enum {string} */
+            kind: "network_export";
         } | {
             /** @enum {string} */
             kind: "export";
@@ -2805,6 +3230,33 @@ export interface components {
         RackSlot: components["schemas"]["RackCell"] & {
             node: string;
         };
+        /** @description One complete civil-time minute recovered from a long-wave radio-clock service. */
+        RadioClockFrame: {
+            /**
+             * @description ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;
+             *     WWVB is UTC.
+             */
+            datetime: string;
+            dst?: boolean;
+            /** Format: float */
+            dut1_seconds?: number | null;
+            leap_warning?: boolean;
+            standard: components["schemas"]["RadioClockStandard"];
+            /** @description The 60 received symbols (`0`, `1`, `M` marker, `?` invalid). */
+            symbols: string;
+            /** Format: int32 */
+            utc_offset_minutes?: number | null;
+        };
+        RadioClockParams: {
+            /** @description Reverse the received AM envelope for an inverting receiver or recording. */
+            invert?: boolean;
+            standard?: components["schemas"]["RadioClockStandard"];
+        };
+        /**
+         * @description Long-wave civil time service carried by the radio-clock channel.
+         * @enum {string}
+         */
+        RadioClockStandard: "dcf77" | "wwvb" | "msf" | "jjy";
         /** @description An inclusive numeric range with an optional step, in the setting's native unit. */
         Range: {
             /** Format: double */
@@ -3067,6 +3519,28 @@ export interface components {
          * @enum {string}
          */
         ScanState: "scanning" | "holding";
+        SelcallParams: {
+            system?: components["schemas"]["SelcallSystem"];
+        };
+        /** @description One complete five-tone selective call after the repeat marker has been expanded. */
+        SelcallSequence: {
+            /**
+             * @description Five decoded digits/group symbols. Consecutive equal digits are represented literally,
+             *     not by the on-air repeat marker.
+             */
+            code: string;
+            system: components["schemas"]["SelcallSystem"];
+            /**
+             * Format: int32
+             * @description Median detected tone duration, rounded to milliseconds.
+             */
+            tone_ms: number;
+        };
+        /**
+         * @description Five-tone sequential selective-calling plan.
+         * @enum {string}
+         */
+        SelcallSystem: "ccir1" | "zvei1";
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
             data: {
@@ -3509,6 +3983,44 @@ export interface components {
              */
             open: boolean;
         };
+        /**
+         * @description What kind of thing a tool is, so the launcher can group them.
+         * @enum {string}
+         */
+        ToolCategory: "calculator" | "instrument" | "reference";
+        /** @description One tool the server can run, as advertised by `GET /api/tools`. */
+        ToolDescriptor: {
+            category: components["schemas"]["ToolCategory"];
+            /** @description Stable id, and the tag of this tool's [`ToolRequest`] variant. */
+            id: string;
+            name: string;
+            /**
+             * @description Whether running it needs hardware attached. Feature-gated tools are absent from the
+             *     list entirely; this marks the ones that are compiled in but may still find nothing.
+             */
+            needs_hardware: boolean;
+            /** @description One line, shown under the name in the launcher. */
+            summary: string;
+        };
+        /**
+         * @description `POST /api/tools/run` — one call to one tool. The tag is the tool id, so the body names its
+         *     own destination and no path parameter can disagree with it.
+         */
+        ToolRequest: {
+            request: components["schemas"]["AntennaRequest"];
+            /** @enum {string} */
+            tool: "antenna";
+        };
+        /** @description What a tool answered, tagged with the same id the request carried. */
+        ToolResponse: {
+            result: components["schemas"]["AntennaReport"];
+            /** @enum {string} */
+            tool: "antenna";
+        };
+        /** @description `GET /api/tools`. */
+        ToolsResponse: {
+            tools: components["schemas"]["ToolDescriptor"][];
+        };
         TrunkFollower: {
             /**
              * Format: int32
@@ -3713,6 +4225,18 @@ export interface components {
             text: string;
             /** Format: float */
             time_offset_s: number;
+        };
+        YagiParams: {
+            /**
+             * Format: int32
+             * @description Directors in front of the driven element. Zero is a two-element reflector Yagi.
+             */
+            directors?: number;
+            /**
+             * Format: double
+             * @description Boom spacing between neighbouring elements, in wavelengths.
+             */
+            spacing_wavelengths?: number;
         };
         /** @description System Fusion (C4FM, 4800 symbols/s). */
         YsfParams: Record<string, never>;
@@ -4514,6 +5038,60 @@ export interface operations {
             };
         };
     };
+    network_export_device_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NetworkExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Live status after start or final counters after stop */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkExportStatus"];
+                };
+            };
+            /** @description Invalid destination, inactive export, or conflicting owner */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     control_playback: {
         parameters: {
             query?: never;
@@ -5085,6 +5663,77 @@ export interface operations {
             };
             /** @description Malformed request body */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_tools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every tool this build offers. Tools stand beside the receiver: they own no device set and no channel, and a build without a tool's hardware support simply does not list it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolsResponse"];
+                };
+            };
+        };
+    };
+    run_tool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolRequest"];
+            };
+        };
+        responses: {
+            /** @description The tool's answer, tagged with the same tool id the request carried */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolResponse"];
+                };
+            };
+            /** @description The tool refused the request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such tool in this build */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The tool's hardware is not attached */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

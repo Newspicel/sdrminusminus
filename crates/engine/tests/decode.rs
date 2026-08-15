@@ -9,10 +9,12 @@ use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
-    ChannelSettings, DecodedRecord, DecoderEvent, IdentParams, Modulation, MorseParams,
-    NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, PskParams, RdsUpdate,
-    RttyParams, SubghzEncoding, SubghzParams, WfmParams, WsjtParams, WsprParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, BroadcastSystem,
+    ChannelParams, ChannelSettings, DabParams, DatvParams, DatvStandard, DecodedRecord,
+    DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, FreeDvParams, GnssParams, IdentParams,
+    Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams,
+    PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SubghzEncoding, SubghzParams,
+    WfmParams, WsjtParams, WsprParams,
 };
 use tempfile::TempDir;
 
@@ -25,10 +27,10 @@ const DECODE_TIMEOUT: Duration = Duration::from_secs(30);
 const NARROW_DEVICE_RATE: f64 = 240_000.0;
 /// Device rate for the audio-rate decoders (RTTY, Morse run at 8 kHz).
 const AUDIO_DEVICE_RATE: f64 = 48_000.0;
-/// ADS-B fills its whole 2 Msps channel, so it is the one mode that cannot be resampled into
-/// place: the device has to run at exactly the channel rate (see the wideband check in
-/// `validate_channel`). Everything else here deliberately runs at a different device rate.
+/// ADS-B fills its whole 2 Msps channel, so it cannot be resampled into place. GNSS below has
+/// the same native-rate constraint at 2.048 Msps; the narrow modes deliberately exercise DDC.
 const ADSB_DEVICE_RATE: f64 = 2_000_000.0;
+const GNSS_DEVICE_RATE: f64 = 2_048_000.0;
 const CENTER_HZ: f64 = 145_000_000.0;
 /// The AX.25 burst a station would key for `frame`, straight out of the modulator that pairs
 /// with the decoder under test. A modulator produces its own channel rate and nothing else, so
@@ -369,6 +371,75 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!(status.open, "the tone the channel was set to must open it");
 }
 
+#[tokio::test]
+async fn selcall_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 5_000.0;
+    let mut iq =
+        testgen::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO_DEVICE_RATE).unwrap();
+    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "selcall_ccir1", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Selcall(SelcallParams {
+                system: SelcallSystem::Ccir1,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Selcall(_)),
+    )
+    .await;
+    let DecoderEvent::Selcall(call) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(call.code, "12234");
+    assert_eq!(call.system, SelcallSystem::Ccir1);
+}
+
+#[tokio::test]
+async fn freedv_recording_survives_the_virtual_device_and_acquires_sync() {
+    const FIXTURE: &[u8] = include_bytes!("../../../fixtures/freedv_1600_8k.sigmf-data");
+    let iq = FIXTURE
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|sample| {
+            Complex::new(
+                f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                f32::from_le_bytes([sample[4], sample[5], sample[6], sample[7]]),
+            )
+        })
+        .collect();
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(dir.path(), "freedv_1600", iq, 8_000.0);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Freedv(FreeDvParams::default()),
+        },
+        |event| {
+            matches!(
+                event,
+                DecoderEvent::Dv(frame)
+                    if frame.mode == DvMode::FreeDv && frame.kind == DvFrameKind::Header
+            )
+        },
+    )
+    .await;
+    let DecoderEvent::Dv(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.opcode.as_deref(), Some("1600"));
+}
+
 /// ADS-B end to end at 2 Msps, the lowest rate that carries it — one sample per half-chip.
 #[tokio::test]
 async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
@@ -412,6 +483,35 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
     let (lat, lon) = (message.lat.unwrap(), message.lon.unwrap());
     assert!((lat - 52.2657).abs() < 0.02, "lat {lat}");
     assert!((lon - 3.9184).abs() < 0.02, "lon {lon}");
+}
+
+#[tokio::test]
+async fn gps_ca_acquisition_survives_virtual_device_playback() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let iq = testgen::gnss::acquisition(7, 1_000.0, 317, 2);
+    let device = plant(dir.path(), "gps-l1-ca", iq, GNSS_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Gnss(GnssParams {
+                prn: 7,
+                doppler_hz: 2_000,
+                threshold: 2.5,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Gnss(frame) if frame.prn == 7),
+    )
+    .await;
+    let DecoderEvent::Gnss(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.doppler_hz, 1_000.0);
+    assert!((frame.code_phase_chips - 158.34).abs() < 0.6);
+    assert!(frame.cn0_db_hz > 40.0);
 }
 
 /// A roll-call reply carries its address only on the parity, so it is decodable only in the
@@ -819,6 +919,169 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
         "off tune by {} Hz",
         report.center_offset_hz
     );
+}
+
+fn dab_mode_i_acquisition_frame() -> Vec<Complex<f32>> {
+    const USEFUL: usize = 2_048;
+    const GUARD: usize = 504;
+    let mut state = 0x5a17_91e3u32;
+    let useful: Vec<_> = (0..USEFUL)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            Complex::from_polar(
+                0.8,
+                state as f32 * (std::f32::consts::TAU / u32::MAX as f32),
+            )
+        })
+        .collect();
+    let mut iq = vec![Complex::new(0.8, 0.0); 20_000];
+    iq.extend(vec![Complex::new(0.0001, 0.0); 2_656]);
+    iq.extend_from_slice(&useful[USEFUL - GUARD..]);
+    iq.extend_from_slice(&useful);
+    iq
+}
+
+#[tokio::test]
+async fn dab_mode_i_lock_survives_a_recorded_virtual_device_and_ddc() {
+    const DEVICE_RATE: f64 = 2_400_000.0;
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let iq = testgen::resample(&dab_mode_i_acquisition_frame(), 2_048_000.0, DEVICE_RATE);
+    let device = plant(dir.path(), "dab-mode-i", iq, DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Dab(DabParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::Dab && status.locked),
+    )
+    .await;
+    let DecoderEvent::Broadcast(status) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(status.snr_db > 10.0, "{status:?}");
+}
+
+fn datv_qpsk_fixture() -> Vec<Complex<f32>> {
+    let points = [
+        Complex::new(0.7, 0.7),
+        Complex::new(-0.7, 0.7),
+        Complex::new(-0.7, -0.7),
+        Complex::new(0.7, -0.7),
+    ];
+    let mut iq = Vec::with_capacity(2_000_000);
+    for i in 0..250_000 {
+        iq.extend(std::iter::repeat_n(points[(i * 13 + i / 7) % 4], 8));
+    }
+    iq
+}
+
+#[tokio::test]
+async fn datv_qpsk_lock_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(dir.path(), "datv-qpsk", datv_qpsk_fixture(), 2_000_000.0);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Datv(DatvParams {
+                standard: DatvStandard::DvbS2,
+                symbol_rate: 250_000.0,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::DvbS2 && status.locked),
+    )
+    .await;
+    let DecoderEvent::Broadcast(status) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(status.symbol_rate, Some(250_000.0));
+}
+
+fn drm30_mode_b_fixture() -> Vec<Complex<f32>> {
+    let mut baseband = Vec::new();
+    let mut frame = 0usize;
+    while baseband.len() < 48_000 {
+        let mut state = 0x6d2b_79f5u32 ^ frame as u32;
+        let carriers: Vec<_> = (-96i32..=96)
+            .step_by(6)
+            .filter(|&bin| bin != 0)
+            .map(|bin| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                let symbol = match state & 3 {
+                    0 => Complex::new(1.0, 1.0),
+                    1 => Complex::new(-1.0, 1.0),
+                    2 => Complex::new(-1.0, -1.0),
+                    _ => Complex::new(1.0, -1.0),
+                };
+                (bin, symbol)
+            })
+            .collect();
+        let scale = (carriers.len() as f32).sqrt();
+        let useful: Vec<_> = (0..1_024)
+            .map(|i| {
+                carriers
+                    .iter()
+                    .map(|&(bin, symbol)| {
+                        symbol
+                            * Complex::from_polar(
+                                1.0,
+                                std::f32::consts::TAU * bin as f32 * i as f32 / 1_024.0,
+                            )
+                    })
+                    .sum::<Complex<f32>>()
+                    * (0.8 / scale)
+            })
+            .collect();
+        baseband.extend_from_slice(&useful[768..]);
+        baseband.extend_from_slice(&useful);
+        frame += 1;
+    }
+    baseband.truncate(48_000);
+    baseband
+        .into_iter()
+        .flat_map(|sample| std::iter::repeat_n(sample, 4))
+        .collect()
+}
+
+#[tokio::test]
+async fn drm30_lock_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(
+        dir.path(),
+        "drm30-mode-b",
+        drm30_mode_b_fixture(),
+        192_000.0,
+    );
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Drm(DrmParams {
+                mode: DrmMode::Drm30,
+                bandwidth_hz: 10_000.0,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::Drm30 && status.locked),
+    )
+    .await;
+    let DecoderEvent::Broadcast(status) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(status.frequency_error_hz.abs() < 30.0, "{status:?}");
 }
 
 #[tokio::test]

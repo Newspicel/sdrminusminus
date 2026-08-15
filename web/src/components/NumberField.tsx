@@ -116,8 +116,9 @@ function Field({
       min={min}
       max={max}
       step={step}
-      // `onValueCommitted` is the contract: it fires on blur, on Enter and on a released
-      // stepper, never per keystroke.
+      // `onValueCommitted` is the contract: it fires on blur and on a released stepper, never
+      // per keystroke. Enter is ours — the primitive treats it as a navigation key outside a
+      // form, so a typed number would sit there uncommitted until focus left the field.
       onValueChange={onDraft}
       onValueCommitted={onCommit}
       format={{ useGrouping: false, maximumFractionDigits: fractionDigits(step) }}
@@ -130,6 +131,9 @@ function Field({
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             onRevert();
+          }
+          if (event.key === "Enter") {
+            onCommit(value);
           }
         }}
       />

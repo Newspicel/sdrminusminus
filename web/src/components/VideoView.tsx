@@ -54,12 +54,19 @@ export function VideoView({ scope }: { scope: VideoScope }) {
         setGeometry({ width: frame.width, height: frame.height });
       }
       const rgba = image.data;
-      for (let i = 0; i < frame.luma.length; i += 1) {
-        const luma = frame.luma[i] ?? 0;
+      const count = frame.width * frame.height;
+      for (let i = 0; i < count; i += 1) {
         const at = i * 4;
-        rgba[at] = luma;
-        rgba[at + 1] = luma;
-        rgba[at + 2] = luma;
+        if (frame.format === "rgb") {
+          rgba[at] = frame.pixels[i * 3] ?? 0;
+          rgba[at + 1] = frame.pixels[i * 3 + 1] ?? 0;
+          rgba[at + 2] = frame.pixels[i * 3 + 2] ?? 0;
+        } else {
+          const luma = frame.pixels[i] ?? 0;
+          rgba[at] = luma;
+          rgba[at + 1] = luma;
+          rgba[at + 2] = luma;
+        }
         rgba[at + 3] = 255;
       }
       ctx.putImageData(image, 0, 0);

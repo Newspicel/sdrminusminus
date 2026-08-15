@@ -33,6 +33,10 @@ const SIDEBANDS: Options<NonNullable<ChannelParamsOf<"ssb">["sideband"]>> = [
   { value: "usb", label: "USB" },
   { value: "lsb", label: "LSB" },
 ];
+const SELCALL_SYSTEMS: Options<NonNullable<ChannelParamsOf<"selcall">["system"]>> = [
+  { value: "ccir1", label: "CCIR-1" },
+  { value: "zvei1", label: "ZVEI-1" },
+];
 const POCSAG_BAUDS: Options<NonNullable<ChannelParamsOf<"pocsag">["baud"]>> = [
   { value: "auto", label: "Auto" },
   { value: "b512", label: "512" },
@@ -93,6 +97,25 @@ const ATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"atv">["standard"]>> = 
   { value: "eia525", label: "525 / 30" },
   { value: "system_a405", label: "405 / 25" },
 ];
+const DAB_MODES: Options<NonNullable<ChannelParamsOf<"dab">["mode"]>> = [
+  { value: "auto", label: "Auto" },
+  { value: "dab", label: "DAB" },
+  { value: "dab_plus", label: "DAB+" },
+];
+const DATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"datv">["standard"]>> = [
+  { value: "dvb_s", label: "DVB-S" },
+  { value: "dvb_s2", label: "DVB-S2" },
+];
+const DRM_MODES: Options<NonNullable<ChannelParamsOf<"drm">["mode"]>> = [
+  { value: "auto", label: "Auto" },
+  { value: "drm30", label: "DRM30" },
+  { value: "drm_plus", label: "DRM+" },
+];
+const ATV_COLORS: Options<NonNullable<ChannelParamsOf<"atv">["color"]>> = [
+  { value: "monochrome", label: "Mono" },
+  { value: "pal", label: "PAL" },
+  { value: "ntsc", label: "NTSC" },
+];
 const DEEMPHASIS_US: Options<number> = [
   { value: 50, label: "50 µs" },
   { value: 75, label: "75 µs" },
@@ -110,6 +133,12 @@ const RTTY_SHIFTS_HZ: Options<number> = [
 const SUBGHZ_MODULATIONS: Options<NonNullable<ChannelParamsOf<"subghz">["modulation"]>> = [
   { value: "ook", label: "OOK/ASK" },
   { value: "fsk", label: "FSK" },
+];
+const RADIO_CLOCK_STANDARDS: Options<NonNullable<ChannelParamsOf<"radio_clock">["standard"]>> = [
+  { value: "dcf77", label: "DCF77" },
+  { value: "wwvb", label: "WWVB" },
+  { value: "msf", label: "MSF" },
+  { value: "jjy", label: "JJY" },
 ];
 
 /**
@@ -249,6 +278,19 @@ function ModeControls({
         </>
       );
     }
+    case "selcall":
+      return (
+        <SettingRow label="Tone plan">
+          <Segmented
+            label="Selective calling tone plan"
+            value={params.settings.system ?? "ccir1"}
+            options={SELCALL_SYSTEMS}
+            onChange={(system) =>
+              onParams({ type: "selcall", settings: { ...params.settings, system } })
+            }
+          />
+        </SettingRow>
+      );
     case "am":
       return (
         <>
@@ -543,6 +585,75 @@ function ModeControls({
           }
         />
       );
+    case "radio_clock":
+      return (
+        <>
+          <SettingRow label="Service">
+            <Select
+              label="Radio clock service"
+              value={params.settings.standard ?? "dcf77"}
+              options={RADIO_CLOCK_STANDARDS}
+              onChange={(standard) =>
+                onParams({
+                  type: "radio_clock",
+                  settings: { ...params.settings, standard },
+                })
+              }
+            />
+          </SettingRow>
+          <Toggle
+            label="Invert"
+            checked={params.settings.invert ?? false}
+            onChange={(invert) =>
+              onParams({ type: "radio_clock", settings: { ...params.settings, invert } })
+            }
+          />
+        </>
+      );
+    case "gnss":
+      return (
+        <>
+          <SettingRow label="GPS PRN">
+            <NumberField
+              label="GPS L1 C/A satellite PRN"
+              value={params.settings.prn ?? 1}
+              min={1}
+              max={32}
+              step={1}
+              onCommit={(prn) => onParams({ type: "gnss", settings: { ...params.settings, prn } })}
+              className="w-16"
+            />
+          </SettingRow>
+          <SettingRow label="Doppler">
+            <NumberField
+              label="Symmetric Doppler search span (Hz)"
+              value={params.settings.doppler_hz ?? 10_000}
+              min={500}
+              max={20_000}
+              step={500}
+              onCommit={(doppler_hz) =>
+                onParams({ type: "gnss", settings: { ...params.settings, doppler_hz } })
+              }
+              className="w-20"
+            />
+            <span className="legend">Hz</span>
+          </SettingRow>
+          <SettingRow label="Acquire above">
+            <NumberField
+              label="Correlation peak-to-floor acquisition threshold"
+              value={params.settings.threshold ?? 2.5}
+              min={1.5}
+              max={20}
+              step={0.1}
+              onCommit={(threshold) =>
+                onParams({ type: "gnss", settings: { ...params.settings, threshold } })
+              }
+              className="w-16"
+            />
+            <span className="legend">× floor</span>
+          </SettingRow>
+        </>
+      );
     case "acars":
       return (
         <SettingRow label="Bandwidth">
@@ -639,6 +750,40 @@ function ModeControls({
               }
             />
           </SettingRow>
+          <SettingRow label="Colour">
+            <Select
+              label="Composite colour system"
+              value={params.settings.color ?? "monochrome"}
+              options={ATV_COLORS}
+              onChange={(color) =>
+                onParams({ type: "atv", settings: { ...params.settings, color } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Sound">
+            <OptionalNumberField
+              label="FM sound subcarrier (MHz), empty for none"
+              placeholder="off"
+              value={
+                params.settings.sound_subcarrier_hz == null
+                  ? null
+                  : params.settings.sound_subcarrier_hz / 1_000_000
+              }
+              min={0.5}
+              max={9}
+              step={0.5}
+              onCommit={(mhz) =>
+                onParams({
+                  type: "atv",
+                  settings: {
+                    ...params.settings,
+                    sound_subcarrier_hz: mhz === null ? null : mhz * 1_000_000,
+                  },
+                })
+              }
+            />
+            <span className="legend">MHz</span>
+          </SettingRow>
           <Toggle
             label="Interlace"
             checked={params.settings.interlace ?? true}
@@ -655,6 +800,86 @@ function ModeControls({
           />
         </>
       );
+    case "dab":
+      return (
+        <SettingRow label="Generation">
+          <Segmented
+            label="DAB generation"
+            value={params.settings.mode ?? "auto"}
+            options={DAB_MODES}
+            onChange={(mode) => onParams({ type: "dab", settings: { ...params.settings, mode } })}
+          />
+        </SettingRow>
+      );
+    case "datv":
+      return (
+        <>
+          <SettingRow label="Standard">
+            <Segmented
+              label="DATV standard"
+              value={params.settings.standard ?? "dvb_s"}
+              options={DATV_STANDARDS}
+              onChange={(standard) =>
+                onParams({ type: "datv", settings: { ...params.settings, standard } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Symbol rate">
+            <NumberField
+              label="DATV symbol rate (baud)"
+              value={params.settings.symbol_rate ?? 333_000}
+              min={100_000}
+              max={1_000_000}
+              step={1_000}
+              onCommit={(symbol_rate) =>
+                onParams({ type: "datv", settings: { ...params.settings, symbol_rate } })
+              }
+              className="w-28"
+            />
+            <span className="legend">Bd</span>
+          </SettingRow>
+        </>
+      );
+    case "drm": {
+      const mode = params.settings.mode ?? "auto";
+      return (
+        <>
+          <SettingRow label="Mode">
+            <Segmented
+              label="DRM mode"
+              value={mode}
+              options={DRM_MODES}
+              onChange={(nextMode) =>
+                onParams({
+                  type: "drm",
+                  settings: {
+                    ...params.settings,
+                    mode: nextMode,
+                    bandwidth_hz:
+                      nextMode === "drm30"
+                        ? mode === "drm30"
+                          ? params.settings.bandwidth_hz
+                          : 10_000
+                        : 100_000,
+                  },
+                })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Bandwidth">
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 100_000}
+              optionsHz={
+                mode === "drm30" ? [4_500, 5_000, 9_000, 10_000, 18_000, 20_000] : [100_000]
+              }
+              onCommit={(bandwidth_hz) =>
+                onParams({ type: "drm", settings: { ...params.settings, bandwidth_hz } })
+              }
+            />
+          </SettingRow>
+        </>
+      );
+    }
     case "dmr":
       return (
         <>
@@ -686,6 +911,19 @@ function ModeControls({
             options={NXDN_WIDTHS}
             onChange={(bandwidth) =>
               onParams({ type: "nxdn", settings: { ...params.settings, bandwidth } })
+            }
+          />
+        </SettingRow>
+      );
+    case "freedv":
+      return (
+        <SettingRow label="Sideband">
+          <Segmented
+            label="FreeDV sideband"
+            value={params.settings.sideband ?? "usb"}
+            options={SIDEBANDS}
+            onChange={(sideband) =>
+              onParams({ type: "freedv", settings: { ...params.settings, sideband } })
             }
           />
         </SettingRow>

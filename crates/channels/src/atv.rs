@@ -1,44 +1,48 @@
-//! ATV — analog television. Envelope or discriminator → level clamp → sync
-//! separator → per-line resampler → one 8-bit luma picture per field.
+//! ATV — analog television. Envelope or discriminator → level clamp → sync separator →
+//! per-line composite-video decoder, with PAL/NTSC colour and an optional FM sound carrier.
 //!
 //! The whole mode is a clock-recovery problem wearing a picture: a raster is a stream whose
 //! only framing is the shape of its own blanking, so everything here hangs off classifying
 //! low pulses by width. A short one is a line, a long one is a field, and a half-width one is
 //! an equalizing pulse that must be ignored or every line comes out twice as fast.
 //!
-//! Luma only. The colour subcarrier (PAL/NTSC/SECAM alike) rides inside the video band this
-//! samples and is left where it is — at the bandwidths an SDR channel gives an amateur
-//! transmission, chroma would be noise on the luma rather than a second picture.
-
-use std::sync::LazyLock;
+use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
+use sdrmm_dsp::{Ddc, Decimator, Deemphasis, RealDecimator, design_lowpass, flat_bandwidth_hz};
 use sdrmm_modem::analog::{
     AmDemod, AmDetector, AmMode, AmParams as AmWaveform, AmRx, AngleDemod, AngleDetector,
     AngleKind, AngleParams, AngleRx,
 };
 use sdrmm_wire::{
-    AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelParams, ChannelSettings,
+    AtvColor, AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelParams,
+    ChannelSettings,
 };
 
 use crate::{
-    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, VideoPicture,
-    check_input_rate,
+    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, VideoPicture,
+    check_input_rate, clamp_full_scale,
 };
 
-/// The channel's IQ rate. 2 Msps is the lowest rate that resolves a 625-line raster at all —
-/// 128 samples to a line — and the highest that every receiver on the shelf can feed: an
-/// RTL-SDR runs 2.048 or 2.4 Msps, both of which the DDC decimates onto this exactly. It is
-/// also the ceiling on horizontal detail, which is why `bandwidth_hz` is the resolution knob
-/// and the picture is as wide as the active line is long in samples.
+/// The minimum channel IQ rate. 2 Msps resolves a 625-line monochrome raster at 128 samples per
+/// line; colour and sound retain the device's higher native rate and filter the composite video
+/// internally.
 const INPUT_RATE_HZ: f64 = 2_000_000.0;
+const MAX_INPUT_RATE_HZ: f64 = 20_000_000.0;
 
 /// Selectivity ahead of the detector. Short by this crate's standards on purpose: at 2 Msps a
 /// 129-tap filter costs more than everything else in the channel put together, and 63 taps
 /// still land the Blackman stopband (5.5/N ≈ 0.087 of the rate) inside Nyquist for the widest
 /// band this mode admits.
 const CHANNEL_TAPS: usize = 63;
+const COLOR_BANDWIDTH_HZ: f64 = 600_000.0;
+const PAL_SUBCARRIER_HZ: f64 = 4_433_618.75;
+const NTSC_SUBCARRIER_HZ: f64 = 3_579_545.0;
+const SOUND_IF_RATE_HZ: f64 = 240_000.0;
+const SOUND_DEVIATION_HZ: f64 = 50_000.0;
+const SOUND_AUDIO_HZ: f64 = 15_000.0;
+const SOUND_DECIM: usize = 5;
+const SOUND_TAPS: usize = 199;
 
 /// Narrowest channel that still carries a raster: a 4.7 µs sync pulse needs roughly 200 kHz to
 /// keep an edge, and below 100 kHz the separator has nothing to slice.
@@ -87,8 +91,9 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "ATV".to_owned(),
     bandwidth_hz: 1_500_000.0,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     has_video: true,
+    native_rate_max_hz: Some(MAX_INPUT_RATE_HZ),
     ..ChannelDescriptor::default()
 });
 
@@ -196,8 +201,8 @@ enum Detector {
 }
 
 impl Detector {
-    fn new(p: &AtvParams) -> Self {
-        let bandwidth = p.bandwidth_hz / 2.0 / INPUT_RATE_HZ;
+    fn new(p: &AtvParams, rate: f64) -> Self {
+        let bandwidth = video_high_hz(p) / rate;
         match p.modulation {
             AtvModulation::Fm => Self::Discriminator(AngleDemod::new(
                 &AngleParams::new(
@@ -223,19 +228,119 @@ impl Detector {
     }
 }
 
+enum VideoFront {
+    Luma(Ddc),
+    Composite(Decimator),
+}
+
+impl VideoFront {
+    fn new(input_rate: f64, p: &AtvParams) -> Result<(Self, f64), ChannelError> {
+        let full_rate = p.color != AtvColor::Monochrome
+            || (p.modulation == AtvModulation::Fm && p.sound_subcarrier_hz.is_some());
+        if full_rate {
+            let cutoff = video_high_hz(p) / input_rate;
+            Ok((
+                Self::Composite(Decimator::new(&design_lowpass(CHANNEL_TAPS, cutoff), 1)),
+                input_rate,
+            ))
+        } else {
+            let ddc = Ddc::new(input_rate, INPUT_RATE_HZ, 0.0)
+                .map_err(|error| ChannelError::InvalidSettings(error.to_string()))?;
+            Ok((Self::Luma(ddc), INPUT_RATE_HZ))
+        }
+    }
+
+    fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        match self {
+            Self::Luma(ddc) => ddc.process(iq, out),
+            Self::Composite(filter) => filter.process(iq, out),
+        }
+    }
+}
+
+struct SoundDecoder {
+    ddc: Ddc,
+    discriminator: AngleDemod,
+    decimator: RealDecimator,
+    deemphasis: Deemphasis,
+    baseband: Vec<Complex<f32>>,
+    demodulated: Vec<f32>,
+    real_iq: Vec<Complex<f32>>,
+}
+
+impl SoundDecoder {
+    fn new(rate: f64, carrier_hz: f64, deemphasis_us: f32) -> Result<Self, ChannelError> {
+        let ddc = Ddc::new(rate, SOUND_IF_RATE_HZ, carrier_hz)
+            .map_err(|error| ChannelError::InvalidSettings(error.to_string()))?;
+        let discriminator = AngleDemod::new(
+            &AngleParams::new(
+                AngleKind::Fm {
+                    deviation: SOUND_DEVIATION_HZ / SOUND_IF_RATE_HZ,
+                },
+                SOUND_AUDIO_HZ / SOUND_IF_RATE_HZ,
+            ),
+            &AngleRx::detector_only(AngleDetector::Discriminator),
+        );
+        Ok(Self {
+            ddc,
+            discriminator,
+            decimator: RealDecimator::new(
+                &design_lowpass(SOUND_TAPS, SOUND_AUDIO_HZ / SOUND_IF_RATE_HZ),
+                SOUND_DECIM,
+            ),
+            deemphasis: Deemphasis::new(f64::from(AUDIO_RATE), deemphasis_us),
+            baseband: Vec::new(),
+            demodulated: Vec::new(),
+            real_iq: Vec::new(),
+        })
+    }
+
+    fn process_iq(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+        self.ddc.process(iq, &mut self.baseband);
+        self.finish(out);
+    }
+
+    fn process_composite(&mut self, video: &[f32], out: &mut ChannelOutputs) {
+        self.real_iq.clear();
+        self.real_iq
+            .extend(video.iter().map(|&sample| Complex::new(sample, 0.0)));
+        self.ddc.process(&self.real_iq, &mut self.baseband);
+        self.finish(out);
+    }
+
+    fn finish(&mut self, out: &mut ChannelOutputs) {
+        self.discriminator
+            .process(&self.baseband, &mut self.demodulated);
+        self.decimator
+            .process(&self.demodulated, &mut out.audio_pcm);
+        self.deemphasis.process(&mut out.audio_pcm);
+        clamp_full_scale(&mut out.audio_pcm);
+        if !out.audio_pcm.is_empty() {
+            out.audio_rate = AUDIO_RATE;
+        }
+    }
+}
+
 pub struct AtvChannel {
     params: AtvParams,
+    input_rate: f64,
+    video_rate: f64,
     timing: Timing,
     /// Samples per line the standard asks for, and what the tracker currently believes.
     nominal_line: f64,
     line_len: f64,
     /// Demodulated video, one sample per input sample; reused across blocks.
     video: Vec<f32>,
+    filtered: Vec<Complex<f32>>,
+    front: VideoFront,
     detector: Detector,
+    sound: Option<SoundDecoder>,
     /// −1.0 when the transmission keys sync at the *top* of the demodulated signal
     /// (negative-modulation AM), so everything below sees a video whose minimum is the sync tip.
     polarity: f32,
     levels: Levels,
+    sync_level: f32,
+    sync_coeff: f32,
     /// The current line, index 0 at its accepted sync leading edge.
     line: Vec<f32>,
     in_sync: bool,
@@ -254,6 +359,7 @@ pub struct AtvChannel {
     /// Rows written since the field started. A field that wrote none scans out nothing.
     written: u32,
     frame: Vec<u8>,
+    rgb: Vec<u8>,
     width: u16,
     height: u16,
 }
@@ -271,6 +377,13 @@ fn params(settings: &ChannelSettings) -> Result<&AtvParams, ChannelError> {
 fn check_bandwidth(p: &AtvParams) -> Result<(), ChannelError> {
     let widest = flat_bandwidth_hz(INPUT_RATE_HZ);
     if p.bandwidth_hz.is_finite() && (MIN_BANDWIDTH_HZ..=widest).contains(&p.bandwidth_hz) {
+        if let Some(sound_hz) = p.sound_subcarrier_hz
+            && !(sound_hz.is_finite() && (500_000.0..=9_000_000.0).contains(&sound_hz))
+        {
+            return Err(ChannelError::InvalidSettings(format!(
+                "atv sound subcarrier must be in [500000, 9000000] Hz, got {sound_hz}"
+            )));
+        }
         Ok(())
     } else {
         Err(ChannelError::InvalidSettings(format!(
@@ -282,36 +395,62 @@ fn check_bandwidth(p: &AtvParams) -> Result<(), ChannelError> {
 
 pub(crate) fn channel_filter(p: &AtvParams) -> Result<ChannelFilter, ChannelError> {
     check_bandwidth(p)?;
-    let cutoff = p.bandwidth_hz / 2.0 / INPUT_RATE_HZ;
-    Ok(ChannelFilter::Symmetric(Decimator::new(
-        &design_lowpass(CHANNEL_TAPS, cutoff),
-        1,
-    )))
+    Ok(ChannelFilter::Passthrough)
 }
 
-/// The band an ATV channel occupies, symmetric about its carrier. A broadcast transmission is
-/// vestigial-sideband and therefore not symmetric, but a symmetric selection about the carrier
-/// is what an envelope detector wants either way; what it costs is a lift below the vestige's
-/// corner, which reads as a soft low-frequency contrast boost and not as a lost picture.
+/// The video band is selected symmetrically about the picture carrier for envelope detection;
+/// an optional sound carrier extends the upper edge independently.
 pub(crate) fn occupied_band(p: &AtvParams) -> (f64, f64) {
-    (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0)
+    let video = video_high_hz(p);
+    let sound = p
+        .sound_subcarrier_hz
+        .map_or(0.0, |carrier| carrier + SOUND_DEVIATION_HZ + SOUND_AUDIO_HZ);
+    (-video, video.max(sound))
+}
+
+fn color_carrier_hz(color: AtvColor) -> Option<f64> {
+    match color {
+        AtvColor::Monochrome => None,
+        AtvColor::Pal => Some(PAL_SUBCARRIER_HZ),
+        AtvColor::Ntsc => Some(NTSC_SUBCARRIER_HZ),
+    }
+}
+
+fn video_high_hz(p: &AtvParams) -> f64 {
+    let chroma = color_carrier_hz(p.color).map_or(0.0, |carrier| carrier + COLOR_BANDWIDTH_HZ);
+    let embedded_sound = if p.modulation == AtvModulation::Fm {
+        p.sound_subcarrier_hz
+            .map_or(0.0, |carrier| carrier + SOUND_DEVIATION_HZ + SOUND_AUDIO_HZ)
+    } else {
+        0.0
+    };
+    (p.bandwidth_hz / 2.0).max(chroma).max(embedded_sound)
 }
 
 impl AtvChannel {
     fn configure(&mut self, p: &AtvParams) -> Result<(), ChannelError> {
         check_bandwidth(p)?;
+        let (_, high) = occupied_band(p);
+        if high >= self.input_rate / 2.0 {
+            return Err(ChannelError::InvalidSettings(format!(
+                "atv color/sound needs more than {high:.0} Hz above the picture carrier, but the device Nyquist limit is {:.0} Hz",
+                self.input_rate / 2.0
+            )));
+        }
+        let (front, video_rate) = VideoFront::new(self.input_rate, p)?;
         let timing = timing(p.standard);
-        let nominal_line = INPUT_RATE_HZ / p.standard.line_rate_hz();
+        let nominal_line = video_rate / p.standard.line_rate_hz();
         let width = ((timing.active.1 - timing.active.0) * nominal_line).round();
         let width = if width >= f64::from(MIN_WIDTH) {
             width as u16
         } else {
             return Err(ChannelError::InvalidSettings(format!(
-                "{} lines leave only {width} samples of active video at {INPUT_RATE_HZ} Hz",
+                "{} lines leave only {width} samples of active video at {video_rate} Hz",
                 p.standard.lines()
             )));
         };
         self.timing = timing;
+        self.video_rate = video_rate;
         self.nominal_line = nominal_line;
         self.line_len = nominal_line;
         self.width = width;
@@ -319,9 +458,32 @@ impl AtvChannel {
         self.frame.clear();
         self.frame
             .resize(usize::from(width) * usize::from(timing.active_lines), 0);
+        self.rgb.clear();
+        if p.color != AtvColor::Monochrome {
+            self.rgb.resize(self.frame.len() * 3, 0);
+        }
         // A discriminator's scale cancels in the level tracker, so the deviation only has to
         // keep the output near unity rather than match the transmitter's.
-        self.detector = Detector::new(p);
+        self.front = front;
+        self.detector = Detector::new(p, video_rate);
+        self.levels = Levels::new(video_rate);
+        self.sync_coeff = (1.0 - (-TAU * 700_000.0 / video_rate).exp()) as f32;
+        self.sound = p
+            .sound_subcarrier_hz
+            .map(|carrier| {
+                let rate = if p.modulation == AtvModulation::Am {
+                    self.input_rate
+                } else {
+                    video_rate
+                };
+                let deemphasis = if p.color == AtvColor::Ntsc {
+                    75.0
+                } else {
+                    50.0
+                };
+                SoundDecoder::new(rate, carrier, deemphasis)
+            })
+            .transpose()?;
         // AM television is negative-modulated — peak carrier is the sync tip — so its envelope
         // arrives upside down; FM ATV keys the other way. `invert` flips whichever applies.
         let flipped = matches!(p.modulation, AtvModulation::Am) != p.invert;
@@ -345,6 +507,8 @@ impl AtvChannel {
         self.parity = 0;
         self.written = 0;
         self.frame.fill(0);
+        self.rgb.fill(0);
+        self.sync_level = 0.0;
     }
 
     /// Rows between one field's lines in the frame: interlaced fields land on alternate rows.
@@ -354,7 +518,8 @@ impl AtvChannel {
 
     fn push_sample(&mut self, v: f32, out: &mut ChannelOutputs) {
         let n = self.levels.normalize(v);
-        if n < SYNC_SLICE {
+        self.sync_level += self.sync_coeff * (n - self.sync_level);
+        if self.sync_level < SYNC_SLICE {
             if self.in_sync {
                 self.low_run += 1;
             } else {
@@ -463,16 +628,35 @@ impl AtvChannel {
         let start = self.timing.active.0 * span;
         let active = (self.timing.active.1 - self.timing.active.0) * span;
         let base = usize::from(self.width) * dest as usize;
+        let carrier = color_carrier_hz(self.params.color);
+        let color_phase =
+            carrier.map(|hz| burst_phase(&self.line[..len], black, hz, self.video_rate));
         for k in 0..usize::from(self.width) {
             let x = start + (k as f64 + 0.5) * active / f64::from(self.width);
-            let i = x as usize;
-            let v = if i + 1 < len {
-                let f = (x - i as f64) as f32;
-                self.line[i] + (self.line[i + 1] - self.line[i]) * f
+            let v = interpolate(&self.line[..len], x);
+            let luma = if let (Some(hz), Some(_)) = (carrier, color_phase) {
+                local_luma(&self.line[..len], x, black, range, hz, self.video_rate)
             } else {
-                self.line[len - 1]
+                ((v - black) / range).clamp(0.0, 1.0)
             };
-            self.frame[base + k] = (((v - black) / range).clamp(0.0, 1.0) * 255.0) as u8;
+            self.frame[base + k] = (luma * 255.0) as u8;
+            if let (Some(hz), Some(phase)) = (carrier, color_phase) {
+                let (u, mut v) = local_chroma(
+                    &self.line[..len],
+                    x,
+                    (black, range),
+                    hz,
+                    self.video_rate,
+                    phase,
+                    luma,
+                );
+                if self.params.color == AtvColor::Pal && self.field_row % 2 == 1 {
+                    v = -v;
+                }
+                let rgb = yuv_to_rgb(luma, u, v);
+                let rgb_base = (base + k) * 3;
+                self.rgb[rgb_base..rgb_base + 3].copy_from_slice(&rgb);
+            }
         }
         self.written += 1;
     }
@@ -505,6 +689,7 @@ impl AtvChannel {
             width: self.width,
             height: self.height,
             luma: self.frame.clone(),
+            rgb: self.rgb.clone(),
         });
     }
 }
@@ -516,6 +701,89 @@ fn mean(samples: &[f32]) -> f32 {
     samples.iter().sum::<f32>() / samples.len() as f32
 }
 
+fn interpolate(samples: &[f32], x: f64) -> f32 {
+    let i = x as usize;
+    if i + 1 < samples.len() {
+        let fraction = (x - i as f64) as f32;
+        samples[i] + (samples[i + 1] - samples[i]) * fraction
+    } else {
+        samples[samples.len() - 1]
+    }
+}
+
+fn color_window(rate: f64, carrier_hz: f64) -> usize {
+    (6.0 * rate / carrier_hz).round().max(8.0) as usize
+}
+
+fn sample_window(samples: &[f32], x: f64, width: usize) -> (usize, usize) {
+    let center = x.round() as usize;
+    let start = center.saturating_sub(width / 2);
+    let end = (start + width).min(samples.len());
+    (start, end)
+}
+
+fn local_luma(samples: &[f32], x: f64, black: f32, range: f32, carrier_hz: f64, rate: f64) -> f32 {
+    let (start, end) = sample_window(samples, x, color_window(rate, carrier_hz));
+    ((mean(&samples[start..end]) - black) / range).clamp(0.0, 1.0)
+}
+
+fn burst_phase(samples: &[f32], black: f32, carrier_hz: f64, rate: f64) -> f64 {
+    let start = (5.5e-6 * rate).round() as usize;
+    let end = ((8.0e-6 * rate).round() as usize).min(samples.len());
+    let (mut cosine, mut sine) = (0.0, 0.0);
+    let step = TAU * carrier_hz / rate;
+    let (step_sin, step_cos) = step.sin_cos();
+    let (mut phase_sin, mut phase_cos) = (step * start as f64).sin_cos();
+    for &sample in &samples[start.min(end)..end] {
+        let sample = f64::from(sample - black);
+        cosine += sample * phase_cos;
+        sine += sample * phase_sin;
+        let next_cos = phase_cos * step_cos - phase_sin * step_sin;
+        phase_sin = phase_sin * step_cos + phase_cos * step_sin;
+        phase_cos = next_cos;
+    }
+    (-sine).atan2(cosine)
+}
+
+fn local_chroma(
+    samples: &[f32],
+    x: f64,
+    levels: (f32, f32),
+    carrier_hz: f64,
+    rate: f64,
+    offset: f64,
+    luma: f32,
+) -> (f32, f32) {
+    let (black, range) = levels;
+    let (start, end) = sample_window(samples, x, color_window(rate, carrier_hz));
+    let (mut u, mut v, mut uc, mut vc) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    let step = TAU * carrier_hz / rate;
+    let (step_sin, step_cos) = step.sin_cos();
+    let (mut sin, mut cos) = (step * start as f64 + offset).sin_cos();
+    for &sample in &samples[start..end] {
+        let centered = f64::from((sample - black) / range - luma);
+        u += centered * cos;
+        v += centered * sin;
+        uc += cos * cos;
+        vc += sin * sin;
+        let next_cos = cos * step_cos - sin * step_sin;
+        sin = sin * step_cos + cos * step_sin;
+        cos = next_cos;
+    }
+    let u = if uc > 0.0 { 2.0 * u / uc } else { 0.0 } as f32;
+    let v = if vc > 0.0 { 2.0 * v / vc } else { 0.0 } as f32;
+    (u, v)
+}
+
+fn yuv_to_rgb(y: f32, u: f32, v: f32) -> [u8; 3] {
+    let byte = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    [
+        byte(y + 1.140 * v),
+        byte(y - 0.395 * u - 0.581 * v),
+        byte(y + 2.033 * u),
+    ]
+}
+
 impl ChannelRx for AtvChannel {
     fn descriptor() -> &'static ChannelDescriptor {
         &DESCRIPTOR
@@ -524,15 +792,23 @@ impl ChannelRx for AtvChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
+        let (front, video_rate) = VideoFront::new(ctx.input_rate, p)?;
         let mut chan = Self {
             params: p.clone(),
+            input_rate: ctx.input_rate,
+            video_rate,
             timing: timing(p.standard),
             nominal_line: 0.0,
             line_len: 0.0,
             video: Vec::new(),
-            detector: Detector::new(p),
+            filtered: Vec::new(),
+            front,
+            detector: Detector::new(p, video_rate),
+            sound: None,
             polarity: 1.0,
             levels: Levels::new(INPUT_RATE_HZ),
+            sync_level: 0.0,
+            sync_coeff: 1.0,
             line: Vec::new(),
             in_sync: false,
             low_run: 0,
@@ -544,6 +820,7 @@ impl ChannelRx for AtvChannel {
             parity: 0,
             written: 0,
             frame: Vec::new(),
+            rgb: Vec::new(),
             width: 0,
             height: 0,
         };
@@ -559,10 +836,21 @@ impl ChannelRx for AtvChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+        if self.params.modulation == AtvModulation::Am
+            && let Some(sound) = &mut self.sound
+        {
+            sound.process_iq(iq, out);
+        }
+        self.front.process(iq, &mut self.filtered);
         // Taken out so the per-sample loop can call back into `self`; put back below, so the
         // buffer's capacity survives the block and nothing here allocates in steady state.
         let mut video = std::mem::take(&mut self.video);
-        self.detector.process(iq, &mut video);
+        self.detector.process(&self.filtered, &mut video);
+        if self.params.modulation == AtvModulation::Fm
+            && let Some(sound) = &mut self.sound
+        {
+            sound.process_composite(&video, out);
+        }
         let polarity = self.polarity;
         for &v in &video {
             self.push_sample(v * polarity, out);
@@ -577,25 +865,28 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::atv::{AtvSource, BAR_LEVELS, bars},
-        testutil::settings,
+        testgen::atv::{AtvSource, BAR_LEVELS, COLOR_BARS, bars, color_bars_with_tone},
+        testutil::{dominant_tone, settings},
     };
 
     fn channel(p: AtvParams) -> AtvChannel {
-        AtvChannel::new(
-            ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
-            },
-            settings(ChannelParams::Atv(p)),
-        )
-        .unwrap()
+        channel_at_rate(p, INPUT_RATE_HZ)
+    }
+
+    fn channel_at_rate(p: AtvParams, input_rate: f64) -> AtvChannel {
+        AtvChannel::new(ChannelCtx { input_rate }, settings(ChannelParams::Atv(p))).unwrap()
     }
 
     /// Run `iq` through in ragged blocks (the sizes a device really hands over) and collect
     /// every picture that came out.
     fn run(chan: &mut AtvChannel, iq: &[Complex<f32>]) -> Vec<VideoPicture> {
+        run_media(chan, iq).0
+    }
+
+    fn run_media(chan: &mut AtvChannel, iq: &[Complex<f32>]) -> (Vec<VideoPicture>, Vec<f32>) {
         let mut out = ChannelOutputs::default();
         let mut pictures = Vec::new();
+        let mut audio = Vec::new();
         let mut at = 0;
         for (k, size) in [4_096usize, 1_000, 65_536, 777]
             .iter()
@@ -611,9 +902,10 @@ mod tests {
             out.reset();
             chan.process(&iq[at..end], &mut out);
             pictures.append(&mut out.video);
+            audio.extend_from_slice(&out.audio_pcm);
             at = end;
         }
-        pictures
+        (pictures, audio)
     }
 
     /// Mean luma of the middle of the `bar`-th vertical bar on `row`.
@@ -634,6 +926,22 @@ mod tests {
             standard,
             ..AtvParams::default()
         }
+    }
+
+    fn bar_rgb(picture: &VideoPicture, row: usize, bar: usize) -> [f64; 3] {
+        let width = usize::from(picture.width);
+        let lo = width * bar / COLOR_BARS.len();
+        let hi = width * (bar + 1) / COLOR_BARS.len();
+        let inset = (hi - lo) / 4;
+        let mut sum = [0.0; 3];
+        let count = hi - lo - 2 * inset;
+        for x in lo + inset..hi - inset {
+            let at = (row * width + x) * 3;
+            for (channel, total) in sum.iter_mut().enumerate() {
+                *total += f64::from(picture.rgb[at + channel]);
+            }
+        }
+        sum.map(|value| value / count as f64)
     }
 
     /// The mode's whole claim: a standards-timed bar pattern comes back as a picture of the
@@ -666,6 +974,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn decodes_pal_colour_and_the_am_sound_carrier() {
+        const RATE: f64 = 12_000_000.0;
+        let p = AtvParams {
+            color: AtvColor::Pal,
+            sound_subcarrier_hz: Some(5_500_000.0),
+            ..params_for(AtvStandard::Ccir625, AtvModulation::Am)
+        };
+        let iq = color_bars_with_tone(&AtvSource::new(&p, RATE), 4);
+        let (pictures, audio) = run_media(&mut channel_at_rate(p, RATE), &iq);
+        let picture = pictures.last().expect("a PAL picture");
+        assert_eq!(
+            picture.rgb.len(),
+            usize::from(picture.width) * usize::from(picture.height) * 3
+        );
+        let row = usize::from(picture.height) / 2;
+        for (bar, expected) in COLOR_BARS.iter().enumerate() {
+            let got = bar_rgb(picture, row, bar);
+            for channel in 0..3 {
+                let want = f64::from(expected[channel]) * 255.0;
+                assert!(
+                    (got[channel] - want).abs() < 75.0,
+                    "bar {bar} channel {channel}: got {got:?}, expected {expected:?}"
+                );
+            }
+        }
+        let settled = &audio[audio.len() / 2..];
+        let (tone, ratio) = dominant_tone(settled, f64::from(AUDIO_RATE));
+        assert!((tone - 1_000.0).abs() < 20.0, "sound tone {tone} Hz");
+        assert!(ratio > 20.0, "sound tone ratio {ratio}");
+    }
+
+    #[test]
+    fn decodes_ntsc_colour() {
+        const RATE: f64 = 12_000_000.0;
+        let p = AtvParams {
+            color: AtvColor::Ntsc,
+            ..params_for(AtvStandard::Eia525, AtvModulation::Am)
+        };
+        let iq = color_bars_with_tone(&AtvSource::new(&p, RATE), 4);
+        let pictures = run(&mut channel_at_rate(p, RATE), &iq);
+        let picture = pictures.last().expect("an NTSC picture");
+        assert!(!picture.rgb.is_empty());
+        let row = usize::from(picture.height) / 2;
+        let red = bar_rgb(picture, row, 5);
+        let blue = bar_rgb(picture, row, 6);
+        assert!(
+            red[0] > red[1] + 60.0 && red[0] > red[2] + 60.0,
+            "red {red:?}"
+        );
+        assert!(
+            blue[2] > blue[0] + 60.0 && blue[2] > blue[1] + 60.0,
+            "blue {blue:?}"
+        );
     }
 
     /// The bars must be monotonically brighter left to right in every standard and either
@@ -843,6 +1207,32 @@ mod tests {
         assert!(
             elapsed < seconds,
             "{seconds:.2} s of video took {elapsed:.2} s"
+        );
+    }
+
+    /// Native-rate colour runs a wider FIR, chroma matrix and sound DDC together. The debug-build
+    /// budget catches an order-of-magnitude regression; release builds optimize the sample loop.
+    #[test]
+    fn colour_and_sound_path_has_bounded_cost() {
+        const RATE: f64 = 12_000_000.0;
+        let p = AtvParams {
+            color: AtvColor::Pal,
+            sound_subcarrier_hz: Some(5_500_000.0),
+            ..params_for(AtvStandard::Ccir625, AtvModulation::Am)
+        };
+        let iq = color_bars_with_tone(&AtvSource::new(&p, RATE), 4);
+        let seconds = iq.len() as f64 / RATE;
+        let mut chan = channel_at_rate(p, RATE);
+        let mut out = ChannelOutputs::default();
+        let started = std::time::Instant::now();
+        for block in iq.chunks(16_384) {
+            out.reset();
+            chan.process(block, &mut out);
+        }
+        let elapsed = started.elapsed().as_secs_f64();
+        assert!(
+            elapsed < seconds * 10.0,
+            "{seconds:.2} s of colour video took {elapsed:.2} s"
         );
     }
 }

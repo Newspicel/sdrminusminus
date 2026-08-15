@@ -1,0 +1,17 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 48000.0,
+    "core:recorder": "sdr--",
+    "core:hw": "sdr-- reference modulator"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 100000000.0,
+      "core:datetime": "2026-08-15T04:51:32.844424306Z"
+    }
+  ],
+  "annotations": []
+}

@@ -7,7 +7,7 @@
    - Server: handler tests + OpenAPI snapshot + codegen-drift check.
    - Performance gates tests for DSP paths to avoid regressions.
    - Client: unit and smoke tests
-3. Keep comments only for non-obvious constraints, invariants, or rationale. Never reference PLAN/FEATURE/DESIGN.
+3. Remove all comments!!! Its only for non-obvious constraints allowed in extremly rare cases. And never reference any PLAN/FEATURE/DESIGN.
 4. Fix problems directly if you find them, without asking
 5. Match the established pattern unless correctness, security, maintainability, or explicit project constraints require a deviation.
 6. Prefer self-written pure Rust. Use compatible open-source code or translate C/C++ only when necessary. Record required attribution and license notices.
@@ -30,4 +30,3 @@
 ## Product
 - Beginner-friendly, expert-deep
 - Desktop-only
-- Keep comments concise and limited to non-obvious constraints, invariants, and rationale.

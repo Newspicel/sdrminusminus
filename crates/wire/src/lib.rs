@@ -5,11 +5,13 @@ pub mod decode;
 pub mod device;
 pub mod doctor;
 pub mod frame;
+pub mod network;
 pub mod patch;
 pub mod position;
 pub mod rest;
 pub mod scan;
 pub mod state;
+pub mod tools;
 pub mod workspace;
 pub mod workspace_state;
 pub mod ws;
@@ -20,20 +22,23 @@ pub use bandplan::{
     BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
 };
 pub use channel::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
-    AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
-    DmrParams, DmrSlots, DpmrParams, DstarParams, IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
-    MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
-    MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth,
-    NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams, RttyParams, RttyStopBits, Sideband,
-    SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
+    AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
+    ChannelSettings, DabMode, DabParams, DatvParams, DatvStandard, DmrParams, DmrSlots, DpmrParams,
+    DrmMode, DrmParams, DstarParams, FreeDvMode, FreeDvParams, GnssParams, IdentParams, M17Params,
+    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ,
+    MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams,
+    RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem,
+    Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
-    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol,
-    IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage, PocsagMessage, PocsagPayload,
-    ProtocolMatch, PskText, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
-    Vendor, WsjtMessage, WsprSpot,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,
+    DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity,
+    DvTrunkProtocol, GnssFrame, IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage,
+    PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
+    SelcallSequence, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -42,7 +47,12 @@ pub use device::{
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{
-    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoFrame,
+    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoData,
+    VideoFrame,
+};
+pub use network::{
+    MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode, NetworkExportRequest,
+    NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat, NetworkTransport,
 };
 pub use patch::{
     ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
@@ -73,6 +83,14 @@ pub use scan::{
 pub use state::{
     ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot,
     TrunkFollower, TrunkProblem, TrunkSystemStatus,
+};
+pub use tools::{
+    ANTENNA_TOOL_ID, AntennaDesign, AntennaGeometry, AntennaPart, AntennaPoint, AntennaReport,
+    AntennaRequest, AntennaSegment, AntennaSegmentRole, GroundPlaneParams, InvertedVParams,
+    MAX_ANTENNA_FREQ_HZ, MAX_APEX_ANGLE_DEG, MAX_FEEDLINE_VELOCITY_FACTOR, MAX_RADIAL_SLOPE_DEG,
+    MAX_RADIALS, MAX_VELOCITY_FACTOR, MAX_YAGI_DIRECTORS, MAX_YAGI_SPACING_WL, MIN_ANTENNA_FREQ_HZ,
+    MIN_APEX_ANGLE_DEG, MIN_FEEDLINE_VELOCITY_FACTOR, MIN_VELOCITY_FACTOR, MIN_YAGI_SPACING_WL,
+    ToolCategory, ToolDescriptor, ToolRequest, ToolResponse, ToolsResponse, YagiParams,
 };
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
@@ -209,6 +227,10 @@ mod contract_tests {
                 ChannelParams::Nfm(NfmParams::default()),
             ),
             (
+                r#"{"type":"selcall","settings":{}}"#,
+                ChannelParams::Selcall(SelcallParams::default()),
+            ),
+            (
                 r#"{"type":"am","settings":{}}"#,
                 ChannelParams::Am(AmParams::default()),
             ),
@@ -219,6 +241,10 @@ mod contract_tests {
             (
                 r#"{"type":"wfm","settings":{}}"#,
                 ChannelParams::Wfm(WfmParams::default()),
+            ),
+            (
+                r#"{"type":"freedv","settings":{}}"#,
+                ChannelParams::Freedv(FreeDvParams::default()),
             ),
         ] {
             let parsed: ChannelParams = serde_json::from_str(json).unwrap();
@@ -267,8 +293,9 @@ mod contract_tests {
     #[test]
     fn decoder_params_default_from_empty_settings() {
         use channel::{
-            AcarsParams, AdsbParams, AisParams, AprsParams, MorseParams, NavtexParams,
-            PocsagParams, PskParams, RttyParams, SubghzParams, WsjtParams, WsprParams,
+            AcarsParams, AdsbParams, AisParams, AprsParams, DabParams, DatvParams, DrmParams,
+            GnssParams, MorseParams, NavtexParams, PocsagParams, PskParams, RadioClockParams,
+            RttyParams, SubghzParams, WsjtParams, WsprParams,
         };
         for (json, expected) in [
             (
@@ -326,6 +353,26 @@ mod contract_tests {
             (
                 r#"{"type":"wspr","settings":{}}"#,
                 ChannelParams::Wspr(WsprParams::default()),
+            ),
+            (
+                r#"{"type":"dab","settings":{}}"#,
+                ChannelParams::Dab(DabParams::default()),
+            ),
+            (
+                r#"{"type":"datv","settings":{}}"#,
+                ChannelParams::Datv(DatvParams::default()),
+            ),
+            (
+                r#"{"type":"drm","settings":{}}"#,
+                ChannelParams::Drm(DrmParams::default()),
+            ),
+            (
+                r#"{"type":"radio_clock","settings":{}}"#,
+                ChannelParams::RadioClock(RadioClockParams::default()),
+            ),
+            (
+                r#"{"type":"gnss","settings":{}}"#,
+                ChannelParams::Gnss(GnssParams::default()),
             ),
         ] {
             let parsed: ChannelParams = serde_json::from_str(json).unwrap();
@@ -433,6 +480,7 @@ mod contract_tests {
             overruns: 0,
             error: None,
             recording: None,
+            network_export: None,
             scanner: None,
             playback: None,
         }
@@ -530,6 +578,47 @@ mod contract_tests {
         json.as_object_mut().unwrap().remove("recording");
         let back: DeviceSet = serde_json::from_value(json).unwrap();
         assert_eq!(back.recording, None);
+    }
+
+    /// An idle set omits its export for older peers and the canvas's presence check; a live
+    /// status carries the exact interpretation needed for an otherwise unframed stream.
+    #[test]
+    fn device_set_network_export_default_and_roundtrip() {
+        let mut set = sample_device_set();
+        assert!(
+            serde_json::to_value(&set)
+                .unwrap()
+                .get("network_export")
+                .is_none()
+        );
+
+        set.network_export = Some(NetworkExportStatus {
+            node: "net".to_owned(),
+            stream: 0,
+            settings: NetworkExportSettings::default(),
+            sample_rate: 2_048_000,
+            center_hz: 100_000_000,
+            samples: 4_096,
+            bytes: 32_768,
+            packets: 24,
+            overruns: 0,
+            error: None,
+        });
+        let mut json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["network_export"]["settings"]["format"], "cf32_le");
+        assert!(json["network_export"].get("error").is_none());
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json.clone()).unwrap(),
+            set
+        );
+
+        json.as_object_mut().unwrap().remove("network_export");
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json)
+                .unwrap()
+                .network_export,
+            None
+        );
     }
 
     /// `RecordRequest.action` is a bare snake_case string the generated TS union
@@ -718,6 +807,78 @@ mod contract_tests {
         assert_eq!(json["data"]["stream_id"], 4);
         assert_eq!(json["data"]["device_set"], 1);
         assert_eq!(json["data"]["channel"], 2);
+    }
+
+    /// A tool call names its tool in the body, and the reply names it back; the client
+    /// switches on both tags.
+    #[test]
+    fn tool_envelopes_are_adjacently_tagged() {
+        let request = ToolRequest::Antenna(AntennaRequest {
+            frequency_hz: 145_500_000.0,
+            design: AntennaDesign::Yagi(YagiParams {
+                directors: 3,
+                spacing_wavelengths: 0.2,
+            }),
+            ..AntennaRequest::default()
+        });
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["tool"], "antenna");
+        assert_eq!(json["request"]["design"]["type"], "yagi");
+        assert_eq!(json["request"]["design"]["settings"]["directors"], 3);
+        assert_eq!(request.tool_id(), "antenna");
+        assert_eq!(
+            serde_json::from_value::<ToolRequest>(json).unwrap(),
+            request
+        );
+
+        let response = ToolResponse::Antenna(AntennaReport {
+            design: AntennaDesign::Dipole,
+            frequency_hz: 145_500_000.0,
+            wavelength_m: 2.06,
+            velocity_factor: 0.95,
+            parts: Vec::new(),
+            geometry: AntennaGeometry {
+                segments: vec![AntennaSegment {
+                    label: "Leg".to_owned(),
+                    role: AntennaSegmentRole::Driven,
+                    from: AntennaPoint::ORIGIN,
+                    to: AntennaPoint::new(0.49, 0.0, 0.0),
+                }],
+                feed: AntennaPoint::ORIGIN,
+            },
+            feedpoint_ohms: Some(73.0),
+            balanced: true,
+            notes: Vec::new(),
+        });
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json["tool"], "antenna");
+        assert_eq!(json["result"]["design"]["type"], "dipole");
+        assert_eq!(json["result"]["geometry"]["segments"][0]["role"], "driven");
+        assert_eq!(json["result"]["geometry"]["feed"]["x_m"], 0.0);
+        assert_eq!(response.tool_id(), "antenna");
+        assert_eq!(
+            serde_json::from_value::<ToolResponse>(json).unwrap(),
+            response
+        );
+    }
+
+    /// A design's settings must fill in from an empty object, and the request's factors from
+    /// an absent one — the panel sends exactly that when it switches design.
+    #[test]
+    fn antenna_request_defaults_from_a_minimal_body() {
+        let request: AntennaRequest = serde_json::from_str(
+            r#"{"frequency_hz":14200000.0,"design":{"type":"yagi","settings":{}}}"#,
+        )
+        .unwrap();
+        assert_eq!(request.velocity_factor, 0.95);
+        assert_eq!(request.feedline_velocity_factor, 0.66);
+        assert_eq!(request.design, AntennaDesign::Yagi(YagiParams::default()));
+        assert_eq!(request.design.type_id(), "yagi");
+
+        let bare: AntennaRequest =
+            serde_json::from_str(r#"{"frequency_hz":14200000.0,"design":{"type":"dipole"}}"#)
+                .unwrap();
+        assert_eq!(bare.design, AntennaDesign::Dipole);
     }
 
     /// Spectrum and audio stream ids come from different spaces, so a `StreamStopped`

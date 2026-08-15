@@ -63,6 +63,7 @@ describe("eventDetail", () => {
           drift_hz: 0,
         },
       },
+      selcall: { kind: "selcall", data: { system: "ccir1", code: "12345", tone_ms: 100 } },
       navtex: { kind: "navtex", data: { text: "", errors_corrected: 0, complete: true } },
       acars: {
         kind: "acars",
@@ -111,6 +112,34 @@ describe("eventDetail", () => {
           },
         },
       },
+      broadcast: {
+        kind: "broadcast",
+        data: {
+          system: "dab",
+          locked: false,
+          snr_db: 0,
+          frequency_error_hz: 0,
+        },
+      },
+      radio_clock: {
+        kind: "radio_clock",
+        data: {
+          standard: "dcf77",
+          datetime: "2026-08-15T12:34:00+02:00",
+          dst: true,
+          leap_warning: false,
+          symbols: "M000",
+        },
+      },
+      gnss: {
+        kind: "gnss",
+        data: {
+          prn: 7,
+          doppler_hz: 1000,
+          code_phase_chips: 158.34,
+          cn0_db_hz: 44.5,
+        },
+      },
     };
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();
@@ -141,6 +170,15 @@ describe("eventDetail", () => {
       Drift: "-0.2 Hz",
     });
     expect(detail.body).toBe("K1ABC FN42 37");
+  });
+
+  it("shows the Selcall plan, expanded code, and measured duration", () => {
+    expect(
+      fieldsOf({
+        kind: "selcall",
+        data: { system: "zvei1", code: "A11D0", tone_ms: 70 },
+      }),
+    ).toEqual({ "Tone plan": "ZVEI-1", Code: "A11D0", "Tone duration": "70 ms" });
   });
 
   it("omits the fields a frame did not carry rather than dashing them", () => {
@@ -356,6 +394,27 @@ describe("eventDetail", () => {
       "Block errors": "2",
     });
     expect(detail.body).toBe("Now playing something");
+  });
+
+  it("shows a broadcast acquisition without inventing multiplex metadata", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dvb_s2",
+        locked: true,
+        snr_db: 18.25,
+        frequency_error_hz: -32.4,
+        symbol_rate: 333_000,
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toEqual({
+      System: "DVB-S2",
+      Lock: "locked",
+      SNR: "18.3 dB",
+      "Frequency error": "-32 Hz",
+      "Symbol rate": "333000 Bd",
+    });
+    expect(detail.body).toBeNull();
   });
 
   it("carries the APRS fields the packet's monitor line packs away", () => {

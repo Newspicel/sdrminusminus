@@ -3,6 +3,7 @@
 pub(crate) mod dmr;
 pub(crate) mod dpmr;
 pub(crate) mod dstar;
+pub(crate) mod freedv;
 pub(crate) mod m17;
 pub(crate) mod nxdn;
 pub(crate) mod p25;
@@ -14,6 +15,7 @@ use std::{collections::VecDeque, sync::LazyLock};
 pub use dmr::DmrChannel;
 pub use dpmr::DpmrChannel;
 pub use dstar::DstarChannel;
+pub use freedv::FreeDvChannel;
 pub use m17::M17Channel;
 pub use nxdn::NxdnChannel;
 pub use p25::P25Channel;

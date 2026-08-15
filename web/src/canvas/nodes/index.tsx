@@ -6,6 +6,7 @@ import { ChannelFace } from "./ChannelFace";
 import { DeviceFace } from "./DeviceFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
 import { GpsFace } from "./GpsFace";
+import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
 import { ScopeFace } from "./ScopeFace";
 import { SignalMapFace } from "./SignalMapFace";
@@ -45,6 +46,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   dmr_trunk: mount(DmrTrunkFace),
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
+  network_export: mount(NetworkExportFace),
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
 };
@@ -64,6 +66,7 @@ export const FACES: Record<NodeKind, Face> = {
   dmr_trunk: DmrTrunkFace,
   video: VideoFace,
   recorder: RecorderFace,
+  network_export: NetworkExportFace,
   export: ExportFace,
   scanner: ScannerFace,
 };

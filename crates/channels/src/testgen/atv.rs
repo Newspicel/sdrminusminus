@@ -3,7 +3,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use sdrmm_wire::{AtvModulation, AtvParams, AtvStandard};
+use sdrmm_wire::{AtvColor, AtvModulation, AtvParams, AtvStandard};
 
 /// Video levels, sync tip to peak white, as the standards define them: blanking sits 30 % of
 /// the way up and the picture occupies everything above it.
@@ -17,9 +17,24 @@ const AM_DEPTH: f64 = 0.875;
 /// Peak deviation of the FM form, in Hz. Small next to real FM ATV on purpose: Carson's rule
 /// has to keep the transmission inside the channel the test then filters it through.
 const FM_DEVIATION_HZ: f64 = 150_000.0;
+const SOUND_DEVIATION_HZ: f64 = 50_000.0;
+const SOUND_LEVEL: f64 = 0.12;
+const EMBEDDED_SOUND_LEVEL: f64 = 0.01;
+const PAL_SUBCARRIER_HZ: f64 = 4_433_618.75;
+const NTSC_SUBCARRIER_HZ: f64 = 3_579_545.0;
 
 /// Luma of the vertical bars [`bars`] transmits, black to white.
 pub const BAR_LEVELS: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
+pub const COLOR_BARS: [[f32; 3]; 8] = [
+    [1.0, 1.0, 1.0],
+    [1.0, 1.0, 0.0],
+    [0.0, 1.0, 1.0],
+    [0.0, 1.0, 0.0],
+    [1.0, 0.0, 1.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0],
+    [0.0, 0.0, 0.0],
+];
 
 /// One standard's line, in seconds, and the vertical structure of one of its fields.
 #[derive(Clone, Copy, Debug)]
@@ -89,6 +104,8 @@ pub struct AtvSource {
     modulation: AtvModulation,
     invert: bool,
     interlace: bool,
+    color: AtvColor,
+    sound_subcarrier_hz: Option<f64>,
 }
 
 impl AtvSource {
@@ -100,6 +117,8 @@ impl AtvSource {
             modulation: params.modulation,
             invert: params.invert,
             interlace: params.interlace,
+            color: params.color,
+            sound_subcarrier_hz: params.sound_subcarrier_hz,
         }
     }
 
@@ -132,7 +151,7 @@ impl AtvSource {
     }
 
     /// Level of one segment at `u` seconds into it, `luma` sampled across the active window.
-    fn level(&self, seg: Seg, u: f64, luma: &dyn Fn(f64) -> f32) -> f32 {
+    fn level(&self, seg: Seg, u: f64, line: u64, pixel: &dyn Fn(f64) -> [f32; 3]) -> f32 {
         let l = self.layout;
         let half = l.line_s / 2.0;
         match seg {
@@ -157,13 +176,33 @@ impl AtvSource {
                 if u < l.front_porch_s || u >= active_start {
                     if u >= active_start && picture {
                         let x = (u - active_start) / l.active_s;
-                        return BLANKING + (1.0 - BLANKING) * luma(x.clamp(0.0, 1.0));
+                        let [r, g, b] = pixel(x.clamp(0.0, 1.0));
+                        let y = 0.299 * r + 0.587 * g + 0.114 * b;
+                        let mut composite = BLANKING + (1.0 - BLANKING) * y;
+                        if let Some(carrier) = color_carrier(self.color) {
+                            let chroma_u = 0.492 * (b - y);
+                            let mut chroma_v = 0.877 * (r - y);
+                            if self.color == AtvColor::Pal && line % 2 == 1 {
+                                chroma_v = -chroma_v;
+                            }
+                            let phase = TAU * carrier * (u - l.front_porch_s);
+                            composite += 0.35
+                                * (chroma_u * phase.cos() as f32 + chroma_v * phase.sin() as f32);
+                        }
+                        return composite;
                     }
                     BLANKING
                 } else if u < sync_end {
                     SYNC
                 } else {
-                    BLANKING
+                    let since_sync = u - l.front_porch_s;
+                    if let Some(carrier) = color_carrier(self.color)
+                        && (5.5e-6..8.0e-6).contains(&since_sync)
+                    {
+                        BLANKING + 0.12 * (TAU * carrier * since_sync).cos() as f32
+                    } else {
+                        BLANKING
+                    }
                 }
             }
         }
@@ -178,6 +217,22 @@ impl AtvSource {
 
     /// Render `frames` frames of `luma` as the video waveform, sync tip 0.0 to peak white 1.0.
     fn video(&self, frames: u32, luma: &dyn Fn(f64) -> f32) -> Vec<f32> {
+        self.composite(
+            frames,
+            &|x| {
+                let y = luma(x);
+                [y, y, y]
+            },
+            None,
+        )
+    }
+
+    fn composite(
+        &self,
+        frames: u32,
+        pixel: &dyn Fn(f64) -> [f32; 3],
+        sound_hz: Option<f64>,
+    ) -> Vec<f32> {
         let mut segs = Vec::new();
         for _ in 0..frames {
             segs.extend(self.field(false));
@@ -189,6 +244,7 @@ impl AtvSource {
         // Boundaries are tracked in fractional samples and rounded once, so a half-line offset
         // survives a rate that does not divide the line period.
         let mut start = 0.0f64;
+        let mut line = 0u64;
         for seg in segs {
             let seconds = self.seg_seconds(seg);
             let end = start + seconds * self.rate;
@@ -196,22 +252,38 @@ impl AtvSource {
             let count = end.round() as usize - first;
             for k in 0..count {
                 let u = (first + k) as f64 - start;
-                out.push(self.level(seg, u / self.rate, luma));
+                out.push(self.level(seg, u / self.rate, line, pixel));
+            }
+            if matches!(seg, Seg::Line { .. }) {
+                line += 1;
             }
             start = end;
+        }
+        if self.modulation == AtvModulation::Fm {
+            add_sound_subcarrier(&mut out, self.rate, self.sound_subcarrier_hz.zip(sound_hz));
         }
         out
     }
 
     /// Modulate a video waveform onto complex baseband.
-    fn modulate(&self, video: &[f32]) -> Vec<Complex<f32>> {
+    fn modulate(&self, video: &[f32], sound_hz: Option<f64>) -> Vec<Complex<f32>> {
         let mut phase = 0.0f64;
+        let mut sound_phase = 0.0f64;
         video
             .iter()
-            .map(|&v| {
+            .enumerate()
+            .map(|(i, &v)| {
                 let m = f64::from(if self.invert { 1.0 - v } else { v });
                 match self.modulation {
-                    AtvModulation::Am => Complex::new((1.0 - AM_DEPTH * m) as f32, 0.0),
+                    AtvModulation::Am => {
+                        let mut sample = Complex::new((1.0 - AM_DEPTH * m) as f32, 0.0);
+                        if let Some((carrier, tone)) = self.sound_subcarrier_hz.zip(sound_hz) {
+                            let audio = (TAU * tone * i as f64 / self.rate).sin();
+                            sound_phase += TAU * (carrier + SOUND_DEVIATION_HZ * audio) / self.rate;
+                            sample += Complex::from_polar(SOUND_LEVEL as f32, sound_phase as f32);
+                        }
+                        sample
+                    }
                     AtvModulation::Fm => {
                         phase += TAU * FM_DEVIATION_HZ * (2.0 * m - 1.0) / self.rate;
                         Complex::from_polar(1.0, phase as f32)
@@ -229,7 +301,41 @@ pub fn bars(source: &AtvSource, frames: u32) -> Vec<Complex<f32>> {
         let bar = ((x * BAR_LEVELS.len() as f64) as usize).min(BAR_LEVELS.len() - 1);
         BAR_LEVELS[bar]
     });
-    source.modulate(&video)
+    source.modulate(&video, None)
+}
+
+/// Eight standard RGB bars and a 1 kHz tone on the configured sound carrier.
+#[must_use]
+pub fn color_bars_with_tone(source: &AtvSource, frames: u32) -> Vec<Complex<f32>> {
+    let video = source.composite(
+        frames,
+        &|x| {
+            let bar = ((x * COLOR_BARS.len() as f64) as usize).min(COLOR_BARS.len() - 1);
+            COLOR_BARS[bar]
+        },
+        Some(1_000.0),
+    );
+    source.modulate(&video, Some(1_000.0))
+}
+
+fn color_carrier(color: AtvColor) -> Option<f64> {
+    match color {
+        AtvColor::Monochrome => None,
+        AtvColor::Pal => Some(PAL_SUBCARRIER_HZ),
+        AtvColor::Ntsc => Some(NTSC_SUBCARRIER_HZ),
+    }
+}
+
+fn add_sound_subcarrier(video: &mut [f32], rate: f64, sound: Option<(f64, f64)>) {
+    let Some((carrier, tone)) = sound else {
+        return;
+    };
+    let mut phase = 0.0;
+    for (i, sample) in video.iter_mut().enumerate() {
+        let audio = (TAU * tone * i as f64 / rate).sin();
+        phase += TAU * (carrier + SOUND_DEVIATION_HZ * audio) / rate;
+        *sample += EMBEDDED_SOUND_LEVEL as f32 * phase.cos() as f32;
+    }
 }
 
 #[cfg(test)]

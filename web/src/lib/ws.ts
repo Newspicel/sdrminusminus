@@ -9,6 +9,7 @@ import {
   FRAME_KIND_IQ_F32,
   FRAME_KIND_SPECTRUM,
   FRAME_KIND_VIDEO_GRAY,
+  FRAME_KIND_VIDEO_RGB,
   frameKind,
   type IqFrame,
   type SpectrumFrame,
@@ -194,7 +195,8 @@ export class SdrSocket {
         }
         break;
       }
-      case FRAME_KIND_VIDEO_GRAY: {
+      case FRAME_KIND_VIDEO_GRAY:
+      case FRAME_KIND_VIDEO_RGB: {
         const frame = decodeVideo(buffer);
         if (frame) {
           for (const listener of this.videoListeners) {
