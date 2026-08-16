@@ -146,7 +146,7 @@ export function WorkspaceBar({
 
       <Rule />
 
-      <Popover label="+ Node" triggerClass={BTN_QUIET} width="w-96">
+      <Popover label="+ Node" triggerClass={BTN_QUIET} width="w-[48rem]">
         {(close) => (
           <NodePalette
             onAdd={(kind, channelType, source) => {
