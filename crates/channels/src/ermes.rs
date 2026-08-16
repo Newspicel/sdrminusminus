@@ -60,6 +60,7 @@ pub struct ErmesChannel {
     state: State,
     message: Vec<u32>,
     message_errors: u32,
+    message_dropped: bool,
 }
 
 fn mapping() -> Mapping {
@@ -107,8 +108,19 @@ pub(crate) fn channel_filter(params: &ErmesParams) -> Result<ChannelFilter, Chan
 impl ErmesChannel {
     fn reset(&mut self) {
         self.state = State::Search;
+        self.start_message();
+    }
+
+    fn start_message(&mut self) {
         self.message.clear();
         self.message_errors = 0;
+        self.message_dropped = false;
+    }
+
+    fn drop_message(&mut self) {
+        self.message.clear();
+        self.message_errors = 0;
+        self.message_dropped = true;
     }
 
     fn bit(&mut self, bit: bool, out: &mut ChannelOutputs) {
@@ -119,8 +131,7 @@ impl ErmesChannel {
                 word: 0,
                 words: 0,
             };
-            self.message.clear();
-            self.message_errors = 0;
+            self.start_message();
             return;
         }
         match &mut self.state {
@@ -197,13 +208,11 @@ impl ErmesChannel {
                 continue;
             }
             let Some((word, errors)) = ermes_bch_decode(word) else {
-                self.message.clear();
-                self.message_errors = 0;
+                self.drop_message();
                 continue;
             };
             if self.message.len() == MAX_MESSAGE_WORDS {
-                self.message.clear();
-                self.message_errors = 0;
+                self.drop_message();
                 continue;
             }
             self.message.push(word >> 12);
@@ -212,9 +221,8 @@ impl ErmesChannel {
     }
 
     fn flush(&mut self, out: &mut ChannelOutputs) {
-        if self.message.len() < 2 {
-            self.message.clear();
-            self.message_errors = 0;
+        if self.message_dropped || self.message.len() < 2 {
+            self.start_message();
             return;
         }
         let header = u64::from(self.message[0]) << 18 | u64::from(self.message[1]);
@@ -223,8 +231,7 @@ impl ErmesChannel {
         let additional = header >> 7 & 1 == 1;
         let vif = (header & 0x7F) as u8;
         if additional {
-            self.message.clear();
-            self.message_errors = 0;
+            self.start_message();
             return;
         }
         let payload = match vif >> 4 & 3 {
@@ -248,8 +255,7 @@ impl ErmesChannel {
             alert: vif & 7,
             errors_corrected: self.message_errors,
         }));
-        self.message.clear();
-        self.message_errors = 0;
+        self.start_message();
     }
 }
 
@@ -330,6 +336,7 @@ impl ChannelRx for ErmesChannel {
             state: State::Search,
             message: Vec::new(),
             message_errors: 0,
+            message_dropped: false,
         })
     }
 
@@ -411,5 +418,38 @@ mod tests {
         assert_eq!(messages[0].text, "ERMES ALPHA PAGE");
         assert!(messages[0].urgent);
         assert_eq!(messages[0].alert, 5);
+    }
+
+    #[test]
+    fn a_broken_header_word_emits_no_page() {
+        let page = testgen::ermes::Page {
+            local_address: 234_567,
+            message_number: 3,
+            text: "ERMES ALPHA PAGE".to_owned(),
+            urgent: true,
+            alert: 5,
+        };
+        let mut bits = testgen::ermes::bits(&page);
+        let block = 30 * (8 + 1 + 3 + 5);
+        for bit in 0..6 {
+            let at = block + bit * 9 + 1;
+            bits[at] = !bits[at];
+        }
+        let mut channel = ErmesChannel::new(
+            ChannelCtx { input_rate: RATE },
+            settings(ChannelParams::Ermes(ErmesParams::default())),
+        )
+        .unwrap();
+        let mut out = ChannelOutputs::default();
+        for bit in bits {
+            channel.bit(bit, &mut out);
+        }
+        assert!(
+            !out.events
+                .iter()
+                .any(|event| matches!(event, DecoderEvent::Ermes(_))),
+            "{:?}",
+            out.events
+        );
     }
 }

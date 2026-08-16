@@ -596,7 +596,7 @@ function ModeControls({
               label="CW skimmer passband (Hz)"
               value={params.settings.bandwidth_hz ?? 24_000}
               min={1_000}
-              max={40_000}
+              max={24_000}
               step={500}
               onCommit={(bandwidth_hz) =>
                 onParams({

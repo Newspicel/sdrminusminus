@@ -46,7 +46,7 @@ struct Track {
 }
 
 impl Track {
-    fn new(frequency_hz: f32, snr_db: f32, wpm: Option<f32>) -> Result<Self, ChannelError> {
+    fn prototype(wpm: Option<f32>) -> Result<Self, ChannelError> {
         let morse_settings = ChannelSettings {
             offset_hz: 0.0,
             squelch_db: None,
@@ -58,10 +58,10 @@ impl Track {
             audio: Default::default(),
         };
         Ok(Self {
-            frequency_hz,
-            snr_db,
+            frequency_hz: 0.0,
+            snr_db: 0.0,
             misses: 0,
-            ddc: Ddc::new(RATE, MORSE_RATE, f64::from(frequency_hz))
+            ddc: Ddc::new(RATE, MORSE_RATE, 0.0)
                 .map_err(|error| ChannelError::InvalidSettings(error.to_string()))?,
             filter: Decimator::new(&design_lowpass(TRACK_TAPS, 250.0 / MORSE_RATE), 1),
             morse: MorseChannel::new(
@@ -74,6 +74,22 @@ impl Track {
             narrow: Vec::new(),
             output: ChannelOutputs::default(),
         })
+    }
+
+    fn spawn(&self, frequency_hz: f32, snr_db: f32) -> Self {
+        let mut ddc = self.ddc.clone();
+        ddc.set_offset(f64::from(frequency_hz));
+        Self {
+            frequency_hz,
+            snr_db,
+            misses: 0,
+            ddc,
+            filter: self.filter.clone(),
+            morse: self.morse.clone(),
+            mixed: Vec::new(),
+            narrow: Vec::new(),
+            output: ChannelOutputs::default(),
+        }
     }
 
     fn tune(&mut self, frequency_hz: f32, snr_db: f32) {
@@ -106,7 +122,7 @@ pub struct CwSkimmerChannel {
     bandwidth_hz: f64,
     threshold_db: f32,
     max_signals: u16,
-    wpm: Option<f32>,
+    prototype: Track,
     analyzer: SpectrumAnalyzer,
     samples: Vec<Complex<f32>>,
     power: Vec<f32>,
@@ -126,9 +142,10 @@ fn params(settings: &ChannelSettings) -> Result<&CwSkimmerParams, ChannelError> 
 }
 
 fn check_params(params: &CwSkimmerParams) -> Result<(), ChannelError> {
-    if !(params.bandwidth_hz.is_finite() && (1_000.0..=40_000.0).contains(&params.bandwidth_hz)) {
+    let widest = DESCRIPTOR.bandwidth_hz;
+    if !(params.bandwidth_hz.is_finite() && (1_000.0..=widest).contains(&params.bandwidth_hz)) {
         return Err(ChannelError::InvalidSettings(format!(
-            "cw skimmer bandwidth must be in [1000, 40000] Hz, got {}",
+            "cw skimmer bandwidth must be in [1000, {widest}] Hz, got {}",
             params.bandwidth_hz
         )));
     }
@@ -168,12 +185,13 @@ pub(crate) fn channel_filter(params: &CwSkimmerParams) -> Result<ChannelFilter, 
 }
 
 impl CwSkimmerChannel {
-    fn configure(&mut self, params: &CwSkimmerParams) {
+    fn configure(&mut self, params: &CwSkimmerParams) -> Result<(), ChannelError> {
         self.bandwidth_hz = params.bandwidth_hz;
         self.threshold_db = params.threshold_db;
         self.max_signals = params.max_signals;
-        self.wpm = params.wpm;
+        self.prototype = Track::prototype(params.wpm)?;
         self.tracks.truncate(usize::from(self.max_signals));
+        Ok(())
     }
 
     fn analyze(&mut self) {
@@ -231,9 +249,7 @@ impl CwSkimmerChannel {
             {
                 continue;
             }
-            if let Ok(track) = Track::new(frequency, snr, self.wpm) {
-                self.tracks.push(track);
-            }
+            self.tracks.push(self.prototype.spawn(frequency, snr));
         }
         self.tracks.retain(|track| track.misses < TRACK_MISSES);
     }
@@ -252,7 +268,7 @@ impl ChannelRx for CwSkimmerChannel {
             bandwidth_hz: params.bandwidth_hz,
             threshold_db: params.threshold_db,
             max_signals: params.max_signals,
-            wpm: params.wpm,
+            prototype: Track::prototype(params.wpm)?,
             analyzer: SpectrumAnalyzer::new(FFT_SIZE),
             samples: Vec::with_capacity(FFT_SIZE + FFT_HOP),
             power: vec![0.0; FFT_SIZE],
@@ -265,8 +281,7 @@ impl ChannelRx for CwSkimmerChannel {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let params = params(&settings)?;
         check_params(params)?;
-        self.configure(params);
-        Ok(())
+        self.configure(params)
     }
 
     fn retuned(&mut self) {
@@ -290,6 +305,31 @@ impl ChannelRx for CwSkimmerChannel {
 mod tests {
     use super::*;
     use crate::{testgen, testutil::settings};
+
+    fn channel(params: CwSkimmerParams) -> Result<CwSkimmerChannel, ChannelError> {
+        CwSkimmerChannel::new(
+            ChannelCtx { input_rate: RATE },
+            settings(ChannelParams::CwSkimmer(params)),
+        )
+    }
+
+    #[test]
+    fn the_passband_never_reaches_past_what_the_descriptor_advertises() {
+        let widest = CwSkimmerParams {
+            bandwidth_hz: DESCRIPTOR.bandwidth_hz,
+            ..CwSkimmerParams::default()
+        };
+        let (low, high) = occupied_band(&widest);
+        assert!(high - low <= DESCRIPTOR.bandwidth_hz);
+        assert!(channel(widest).is_ok());
+        assert!(
+            channel(CwSkimmerParams {
+                bandwidth_hz: DESCRIPTOR.bandwidth_hz + 1.0,
+                ..CwSkimmerParams::default()
+            })
+            .is_err()
+        );
+    }
 
     #[test]
     fn decodes_two_cw_signals_in_the_same_passband() {

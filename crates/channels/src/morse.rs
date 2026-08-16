@@ -113,6 +113,7 @@ struct Run {
     clean: bool,
 }
 
+#[derive(Clone)]
 pub struct MorseChannel {
     rate: f64,
     fixed_wpm: Option<f32>,

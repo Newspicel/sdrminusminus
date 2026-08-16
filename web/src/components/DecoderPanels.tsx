@@ -18,6 +18,7 @@ import {
   aircraftRow,
   buildTranscript,
   candidateScore,
+  cwSignalRows,
   type DecoderScope,
   formatAge,
   formatAltFreqs,
@@ -332,24 +333,7 @@ function TextView({
 }
 
 function CwSkimmerView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("cw_skimmer"), scope);
-  const signals = new Map<
-    number,
-    { frequencyHz: number; offsetHz: number; wpm: number; snrDb: number; text: string }
-  >();
-  for (const record of records.toReversed()) {
-    const spot = record.event.data;
-    const key = Math.round(spot.offset_hz / 50);
-    const current = signals.get(key);
-    signals.set(key, {
-      frequencyHz: record.freq_hz + spot.offset_hz,
-      offsetHz: spot.offset_hz,
-      wpm: spot.wpm,
-      snrDb: spot.snr_db,
-      text: `${current?.text ?? ""}${spot.text}`.slice(-2_000),
-    });
-  }
-  const rows = [...signals.values()].toSorted((left, right) => left.offsetHz - right.offsetHz);
+  const rows = cwSignalRows(recordsInScope(useDecodedKind("cw_skimmer"), scope));
   return (
     <div className={PANE}>
       <div className="flex items-baseline gap-2">
