@@ -56,6 +56,14 @@ Download the desktop installer or portable server for your platform from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases). Nightly builds are
 available from the rolling [nightly release](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly).
 
+### Homebrew
+
+```sh
+brew tap newspicel/tap
+brew install --cask sdrminusminus
+brew install sdrmm
+```
+
 ### Docker
 
 To try the server with Docker:

@@ -773,3 +773,76 @@ jobs:
             --prerelease \
             --notes "$notes" \
             $(find artifacts -type f | sort)
+
+  # The tap points Homebrew at files the release job just published, so it can only be written
+  # once they exist. Tags only: `brew upgrade` must never move a stable install onto the rolling
+  # nightly. The tap lives in a second repository, which is why this needs a token of its own —
+  # without one the job stops at the guard rather than failing a release that already shipped.
+  homebrew:
+    name: Homebrew tap
+    if: github.ref_type == 'tag'
+    needs: [version, release]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Guard
+        id: guard
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN is unset: skipping the tap update." >&2
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.guard.outputs.ready == 'true'
+      - if: steps.guard.outputs.ready == 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - if: steps.guard.outputs.ready == 'true'
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        if: steps.guard.outputs.ready == 'true'
+        with:
+          shared-key: ubuntu
+          save-if: false
+      # The published manifest rather than a rebuilt one: a tap that disagrees with the release it
+      # names hands every `brew install` a checksum mismatch.
+      - name: Fetch the published checksums
+        if: steps.guard.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
+      - name: Check out the tap
+        if: steps.guard.outputs.ready == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Write the formula and the cask
+        if: steps.guard.outputs.ready == 'true'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cargo xtask homebrew-tap \
+            --version "$VERSION" \
+            --sums SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --out tap
+      - name: Publish the tap
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/sdrmm.rb Casks/sdrminusminus.rb
+          if git diff --cached --quiet; then
+            echo "the tap already describes $VERSION"
+            exit 0
+          fi
+          git commit -m "sdrmm $VERSION"
+          git push
