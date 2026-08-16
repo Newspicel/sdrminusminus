@@ -58,6 +58,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `check` is ordered cheapest-first internally (fmt and the web lints before clippy), so
       # a formatting break answers in seconds rather than after a cold workspace build.
       - name: cargo xtask check
@@ -106,6 +107,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: desktop-ubuntu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Its own job because `apps/desktop` is outside the workspace's `default-members` — the
       # gate above never compiles it. Without this, a break in the Tauri shell stayed invisible
       # until a tag was cut and the release job was the first thing to build it.
@@ -261,6 +263,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask test
 
   desktop-windows:
@@ -278,6 +281,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: desktop-windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # device-soapy links SoapySDR. The same pinned conda lock the release jobs build against,
       # so the gate and the artifact see one runtime; nothing is loaded, only linked.
       - id: soapy
