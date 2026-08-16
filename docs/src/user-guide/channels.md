@@ -16,7 +16,7 @@ Connect each output you want to use:
 | `events` | Decoder log | Stored, filterable message history |
 | `events` | Map | Positions from ADS-B, AIS, or APRS |
 | `events` | Export | CSV or JSON download of stored rows |
-| `video` | Video | Completed ATV frames |
+| `video` | Video | ATV frames, and an SSTV picture as it scans out |
 
 A channel face warns when its audio or video output goes nowhere. The NFM event output is an
 exception because it is commonly unused unless CTCSS or DCS detection is enabled.
@@ -32,7 +32,7 @@ The server reports the exact catalog for the running build. Current channel fami
 | Amateur and text | APRS/AX.25, RTTY, Morse/CW, CCIR-1 and ZVEI-1 Selcall |
 | Paging and telemetry | POCSAG, generic sub-GHz OOK/PWM frames |
 | Digital voice | DMR, D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17, FreeDV 1600 |
-| Video | Analog television luma |
+| Video | Analog television luma, SSTV in twelve scanning modes |
 | Digital broadcast acquisition | DAB/DAB+ Mode I, DVB-S/S2 DATV at 100 kBd–1 MBd, DRM30/DRM+ |
 
 Decoder coverage varies by protocol. A listed mode means the signal path and documented frame
@@ -44,6 +44,31 @@ The digital-broadcast channels currently report RF acquisition only: waveform lo
 frequency error, and configured symbol rate where applicable. They do not yet decode DAB FIC/MSC,
 DVB transport streams, DRM FAC/SDC/MSC, programme audio, or DATV pictures. A missing service label
 therefore means the multiplex layer has not been decoded; it is not an empty station name.
+
+## Slow-scan television
+
+SSTV scans a picture out over between 36 seconds and four and a half minutes, so it is handled
+differently from a mode whose output is a log line. Tune the channel the way you would tune any
+audio-band mode: put the dial on the SSB carrier and the channel takes the 1000–2600 Hz above it,
+where the video subcarrier lives.
+
+The transmission names its own mode in the VIS header that precedes it, and **Follow VIS** —
+the default — reads it. Robot 36 and 72, Martin M1 and M2, Scottie S1, S2 and DX, PD50, PD90,
+PD120 and PD180, and Wraase SC2-180 are recognized. Pick a mode by hand when the header was
+missed or corrupted: the decoder then starts on any header it sees and scans it as the mode you
+chose.
+
+**Slant correction** tracks each line's sync pulse instead of free-running from the header, which
+is what keeps a picture upright when your sample clock and the transmitter's disagree. Leave it
+on unless you are diagnosing the sync itself.
+
+**Keep unfinished pictures** decides what happens when a transmission fades out or is cut short.
+On, the lines that did arrive are kept; off, only a picture that scanned to its last line is.
+
+Wire the channel's `video` output into a Video node to watch the picture build up line by line.
+Every finished picture — and every kept partial — is also stored on the server as a PNG and listed
+in the channel's own panel, so a picture that arrived while no browser was connected is still
+there. The store holds a day of pictures, capped at 512 of them.
 
 ## Passband and sample-rate rules
 
@@ -141,3 +166,6 @@ Choose the view that matches the job:
 - **Export** downloads the stored rows wired into it.
 
 Decoder log history is bounded so a busy unattended receiver cannot grow the database forever.
+
+Pictures are not decoder-log rows. A completed SSTV picture writes one line to the log recording
+what arrived, while the pixels go to the picture store and are served from `GET /api/images`.

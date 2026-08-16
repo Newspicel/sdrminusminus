@@ -41,7 +41,8 @@ pub use channel::{
     MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth,
     NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams, RadioClockParams,
     RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem, Sideband,
-    SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    SsbParams, SstvMode, SstvParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams,
+    WsprParams, YsfParams,
 };
 pub use chat::{
     ChatOutputNode, ChatOutputTarget, MAX_CHAT_TOKEN_LEN, MAX_CHAT_URL_LEN, MAX_MATRIX_ROOM_ID_LEN,
@@ -51,13 +52,13 @@ pub use decode::{
     CwSkimmerSpot, DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode,
     DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame, IdentFeatures,
     IdentReport, Modulation, MorseText, NavtexMessage, PagerPayload, PocsagMessage, PocsagPayload,
-    ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText, SelcallSequence, SubghzEncoding,
-    SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
+    ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText, SelcallSequence, SstvPicture,
+    SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
     DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue,
-    GainStage, GainValue, Range, StreamScope, StreamSettings,
+    GainStage, GainValue, Range, StreamScope, StreamSettings, any_range_holds,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{
@@ -84,14 +85,14 @@ pub use position::{
 };
 pub use rest::{
     ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse, AuthInfo,
-    Bookmark, ChannelRecordRequest, ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
-    EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat,
-    RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall,
-    VoiceCallsResponse,
+    Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest, ChannelTypesResponse,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage, ExportFormat,
+    LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
+    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
@@ -562,10 +563,11 @@ mod contract_tests {
             capabilities: Capabilities {
                 freq_ranges: Vec::new(),
                 sample_rates: Vec::new(),
-                sample_rate_range: None,
+                sample_rate_ranges: Vec::new(),
                 gains: Vec::new(),
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
+                bandwidth_ranges: Vec::new(),
                 extra: Vec::new(),
                 ppm: false,
                 duplex: Duplex::RxOnly,

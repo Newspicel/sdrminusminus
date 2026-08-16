@@ -551,7 +551,7 @@ impl RdsOffset {
 }
 
 #[must_use]
-pub fn rds_syndrome(block: u32) -> u16 {
+pub const fn rds_syndrome(block: u32) -> u16 {
     let mut rem = block & ((1 << RDS_BLOCK_BITS) - 1);
     let mut shift = RDS_BLOCK_BITS;
     while shift > RDS_CHECK_BITS {
@@ -563,9 +563,50 @@ pub fn rds_syndrome(block: u32) -> u16 {
     rem as u16
 }
 
+const RDS_MAX_BURST: u32 = 2;
+const RDS_SYNDROMES: usize = 1 << RDS_CHECK_BITS;
+const RDS_AMBIGUOUS: u32 = u32::MAX;
+
+const RDS_BURST_TABLE: [u32; RDS_SYNDROMES] = {
+    let mut table = [0u32; RDS_SYNDROMES];
+    let mut shift = 0;
+    while shift < RDS_BLOCK_BITS {
+        let mut pattern = 1u32;
+        while pattern < 1 << RDS_MAX_BURST {
+            let vector = pattern << shift;
+            if vector >> RDS_BLOCK_BITS == 0 {
+                let at = rds_syndrome(vector) as usize;
+                if table[at] == 0 {
+                    table[at] = vector;
+                } else if table[at] != vector {
+                    table[at] = RDS_AMBIGUOUS;
+                }
+            }
+            pattern += 1;
+        }
+        shift += 1;
+    }
+    table
+};
+
 #[must_use]
 pub fn rds_check_block(block: u32, offset: RdsOffset) -> Option<u16> {
     (rds_syndrome(block) == offset.word()).then_some((block >> RDS_CHECK_BITS) as u16)
+}
+
+#[must_use]
+pub fn rds_correct_block(block: u32, offset: RdsOffset) -> Option<(u16, u32)> {
+    let syndrome = rds_syndrome(block) ^ offset.word();
+    if syndrome == 0 {
+        return Some(((block >> RDS_CHECK_BITS) as u16, 0));
+    }
+    match RDS_BURST_TABLE.get(usize::from(syndrome)).copied() {
+        Some(0) | Some(RDS_AMBIGUOUS) | None => None,
+        Some(vector) => Some((
+            ((block ^ vector) >> RDS_CHECK_BITS) as u16,
+            vector.count_ones(),
+        )),
+    }
 }
 
 #[must_use]
@@ -925,6 +966,43 @@ mod tests {
                 "bit {bit} slipped past the block check"
             );
         }
+    }
+
+    #[test]
+    fn rds_repairs_a_single_flip_or_an_adjacent_pair_anywhere_in_the_block() {
+        for offset in RDS_OFFSETS {
+            for data in [0x0000, 0xFFFF, 0x3A5C, 0xACDC] {
+                let block = rds_encode_block(data, offset);
+                assert_eq!(rds_correct_block(block, offset), Some((data, 0)));
+                for bit in 0..26 {
+                    let single = block ^ (1 << bit);
+                    assert_eq!(
+                        rds_correct_block(single, offset),
+                        Some((data, 1)),
+                        "{offset:?} bit {bit}"
+                    );
+                    if bit + 1 < 26 {
+                        let pair = block ^ (0b11 << bit);
+                        assert_eq!(
+                            rds_correct_block(pair, offset),
+                            Some((data, 2)),
+                            "{offset:?} bits {bit}..{}",
+                            bit + 1
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rds_correction_leaves_no_syndrome_pointing_at_two_error_patterns() {
+        assert!(
+            !RDS_BURST_TABLE.contains(&RDS_AMBIGUOUS),
+            "the burst table cannot resolve every pattern it holds"
+        );
+        let reachable = RDS_BURST_TABLE.iter().filter(|&&v| v != 0).count();
+        assert_eq!(reachable, 26 + 25, "one syndrome per correctable pattern");
     }
 
     #[test]

@@ -29,7 +29,10 @@ fn configure_soapy_runtime() -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     #[cfg(feature = "soapy")]
-    configure_soapy_runtime()?;
+    {
+        configure_soapy_runtime()?;
+        sdrmm_device_soapy::enable_isolated_probes();
+    }
 
     tracing_subscriber::fmt()
         .with_env_filter("info,sdrmm=debug")

@@ -3,10 +3,8 @@ import { type CSSProperties, memo, useCallback, useRef, useState } from "react";
 import type { PatchNode, RackLayout } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import {
-  type GraphContext,
-  isResizable,
   moveSlot,
-  naturalSize,
+  NODE_SIZE,
   placeSlot,
   RACK_COLS,
   RACK_ROWS,
@@ -124,10 +122,7 @@ export function Rack() {
               gridRow: `${slot.y + 1} / span ${slot.h}`,
             }}
           >
-            <div
-              className="relative max-h-full max-w-full"
-              style={faceSize(node, workspace.context)}
-            >
+            <div className="relative max-h-full max-w-full" style={faceSize(node)}>
               <RackFace node={node} />
               <Grips node={slot.node} onBegin={begin} />
             </div>
@@ -138,12 +133,9 @@ export function Rack() {
   );
 }
 
-function faceSize(node: PatchNode, context: GraphContext): CSSProperties {
-  if (isResizable(node.kind)) {
-    return { width: "100%", height: "100%" };
-  }
-  const size = naturalSize(node, context);
-  return { width: size.w, height: size.h };
+function faceSize(node: PatchNode): CSSProperties {
+  const size = NODE_SIZE[node.kind];
+  return { width: size.h === undefined ? size.w : "100%", height: "100%" };
 }
 
 const RackFace = memo(function RackFace({ node }: { node: PatchNode }) {

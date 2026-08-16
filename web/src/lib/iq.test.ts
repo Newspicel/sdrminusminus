@@ -1,49 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IqFrame } from "./frame";
 import { IqHub, type IqSocket } from "./iq";
-import type { ClientCommand, ServerEvent } from "./types";
+import { ListenerRegistry } from "./listeners";
+import type { ClientCommand } from "./types";
 
 function fakeSocket() {
   const sent: ClientCommand[] = [];
-  let frames: ((frame: IqFrame) => void) | null = null;
-  let status: ((connected: boolean) => void) | null = null;
-  let events: ((event: ServerEvent) => void) | null = null;
+  const registry = new ListenerRegistry();
   const socket: IqSocket = {
     send: (command) => sent.push(command),
-    addIqListener: (listener) => {
-      frames = listener;
-    },
-    removeIqListener: () => {
-      frames = null;
-    },
-    addStatusListener: (listener) => {
-      status = listener;
-    },
-    removeStatusListener: () => {
-      status = null;
-    },
-    addEventListener: (listener) => {
-      events = listener;
-    },
-    removeEventListener: () => {
-      events = null;
-    },
+    on: (kind, listener) => registry.on(kind, listener),
   };
   return {
     socket,
     sent,
     started: (streamId: number, deviceSet: number, channel: number) =>
-      events?.({
+      registry.emit("event", {
         type: "IqStreamStarted",
         data: { stream_id: streamId, device_set: deviceSet, channel },
       }),
     stopped: (streamId: number) =>
-      events?.({
+      registry.emit("event", {
         type: "StreamStopped",
         data: { stream_id: streamId, kind: "iq" },
       }),
     push: (streamId: number, samples: readonly number[] = [1, 0]) =>
-      frames?.({
+      registry.emit("iq", {
         streamId,
         seq: 0,
         timestamp: 0n,
@@ -51,8 +33,8 @@ function fakeSocket() {
         centerHz: 145.8e6,
         samples: Float32Array.from(samples),
       }),
-    reconnect: () => status?.(true),
-    attached: () => frames !== null,
+    reconnect: () => registry.emit("status", true),
+    attached: () => registry.count("iq") > 0,
   };
 }
 

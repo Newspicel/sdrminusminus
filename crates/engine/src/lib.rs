@@ -7,7 +7,7 @@ use std::{
         mpsc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
@@ -26,6 +26,8 @@ use tokio::sync::broadcast;
 pub mod audio;
 pub mod audio_recording;
 mod history;
+mod hotplug;
+pub mod image;
 pub mod iq;
 mod network_export;
 pub mod occupancy;
@@ -39,18 +41,21 @@ mod time_machine;
 pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use trunking::TrunkSystem;
-pub use video::VideoPacket;
+pub use video::{VideoPacket, VideoPicture};
 
 use crate::{
     audio_recording::AudioRecordingShared,
     history::TimeMachineState,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
+    runtime::{
+        CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded, RawImage,
+    },
     scanner::{ScanPlan, ScannerState},
     sinks::{BasebandSinks, ChannelBasebandRecording},
 };
@@ -58,6 +63,14 @@ use crate::{
 const VIRTUAL_PRIORITY: u8 = 10;
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
+// Above Soapy so a host-installed SoapySDRPlay3 loses the dedup for a receiver this driver
+// already speaks to directly.
+#[cfg(feature = "sdrplay")]
+const SDRPLAY_PRIORITY: u8 = 25;
+// The USB backends speak to their radios directly and are hidden from Soapy's enumeration, so
+// this rank only settles a tie against a driver that reports the same serial by another route.
+#[cfg(any(feature = "rtlsdr", feature = "hackrf"))]
+const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
@@ -68,15 +81,53 @@ const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 const TIME_MACHINE_STOP_POLL: Duration = Duration::from_millis(10);
 const TIME_MACHINE_STOP_POLLS: u32 = 200;
 
+/// The SoapySDR driver names this build speaks to over its own USB stack, and therefore hides
+/// from Soapy's enumeration so one radio is never listed twice.
+#[must_use]
+pub fn soapy_handled_natively() -> Vec<&'static str> {
+    [
+        #[cfg(feature = "rtlsdr")]
+        "rtlsdr",
+        #[cfg(feature = "hackrf")]
+        "hackrf",
+    ]
+    .to_vec()
+}
+
 #[must_use]
 pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
+    builtin_registry_accelerated(recordings_dir, 1.0)
+}
+
+#[must_use]
+pub fn builtin_registry_accelerated(
+    recordings_dir: Option<PathBuf>,
+    playback_speed: f64,
+) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
-    let virtual_driver = VirtualDriver::for_build(recordings_dir);
+    let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
     #[cfg(feature = "soapy")]
     registry.register(
         SOAPY_PRIORITY,
-        Box::new(sdrmm_device_soapy::SoapyDriver::new()),
+        Box::new(sdrmm_device_soapy::SoapyDriver::excluding(
+            soapy_handled_natively(),
+        )),
+    );
+    #[cfg(feature = "sdrplay")]
+    registry.register(
+        SDRPLAY_PRIORITY,
+        Box::new(sdrmm_device_sdrplay::SdrplayDriver::new()),
+    );
+    #[cfg(feature = "rtlsdr")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
+    );
+    #[cfg(feature = "hackrf")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {
@@ -140,7 +191,14 @@ impl EngineError {
                 | Self::NetworkExport(_)
                 | Self::Scan(_)
                 | Self::StreamOutOfRange { .. }
-                | Self::DeviceAlreadyOpen(..)
+        )
+    }
+
+    #[must_use]
+    pub fn is_conflict(&self) -> bool {
+        matches!(
+            self,
+            Self::DeviceAlreadyOpen(..) | Self::Device(DeviceError::InUse(_))
         )
     }
 }
@@ -627,8 +685,10 @@ pub struct Engine {
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     decoded_tx: mpsc::SyncSender<RawDecoded>,
+    image_queue_tx: mpsc::SyncSender<RawImage>,
     decoded_dropped: Arc<AtomicU64>,
     decoded_tx_out: broadcast::Sender<DecodedRecord>,
+    image_tx: broadcast::Sender<ImageCapture>,
     trunk_tx: mpsc::Sender<trunking::TrunkInput>,
     trunk_active: AtomicBool,
     trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
@@ -649,7 +709,9 @@ impl Engine {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
+        let (image_queue_tx, image_queue_rx) = mpsc::sync_channel(image::IMAGE_QUEUE_CAP);
         let (decoded_tx_out, _) = broadcast::channel(DECODED_CHANNEL_CAP);
+        let (image_tx, _) = broadcast::channel(image::IMAGE_CHANNEL_CAP);
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
@@ -658,8 +720,10 @@ impl Engine {
             event_tx,
             fault_tx,
             decoded_tx,
+            image_queue_tx,
             decoded_dropped: Arc::new(AtomicU64::new(0)),
             decoded_tx_out,
+            image_tx,
             trunk_tx,
             trunk_active: AtomicBool::new(false),
             trunk_status: trunk_status.clone(),
@@ -669,6 +733,7 @@ impl Engine {
         });
         engine.spawn_fault_drainer(fault_rx);
         engine.spawn_decoded_pump(decoded_rx);
+        engine.spawn_image_pump(image_queue_rx);
         trunking::spawn(&engine, trunk_rx, trunk_status);
         engine
     }
@@ -721,9 +786,39 @@ impl Engine {
         }
     }
 
+    fn spawn_image_pump(self: &Arc<Self>, image_rx: mpsc::Receiver<RawImage>) {
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-images".to_string())
+            .spawn(move || {
+                while let Ok(raw) = image_rx.recv() {
+                    let Some(engine) = weak.upgrade() else { return };
+                    let _ = engine.image_tx.send(ImageCapture {
+                        device_set: raw.device_set,
+                        channel: raw.channel,
+                        at: format!("{:.9}", jiff::Timestamp::now()),
+                        freq_hz: raw.freq_hz,
+                        source: raw.image.source,
+                        mode: raw.image.mode,
+                        complete: raw.image.complete,
+                        lines: raw.image.lines,
+                        picture: Arc::new(raw.image.picture),
+                    });
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::error!("failed to spawn image pump: {e}");
+        }
+    }
+
     #[must_use]
     pub fn subscribe_decoded(&self) -> broadcast::Receiver<DecodedRecord> {
         self.decoded_tx_out.subscribe()
+    }
+
+    #[must_use]
+    pub fn subscribe_images(&self) -> broadcast::Receiver<ImageCapture> {
+        self.image_tx.subscribe()
     }
 
     #[must_use]
@@ -734,6 +829,7 @@ impl Engine {
     fn decoded_sink(&self, ds: u32, channel: u32) -> DecodedSink {
         DecodedSink::new(
             self.decoded_tx.clone(),
+            self.image_queue_tx.clone(),
             self.decoded_dropped.clone(),
             ds,
             channel,
@@ -841,9 +937,10 @@ impl Engine {
             .spawn(move || {
                 let mut known = None;
                 let mut missing_once = HashSet::new();
+                let mut gate = hotplug::ProbeGate::default();
                 loop {
                     let Some(engine) = weak.upgrade() else { return };
-                    engine.hotplug_tick(&mut known, &mut missing_once);
+                    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
                     drop(engine);
                     std::thread::sleep(interval);
                 }
@@ -974,13 +1071,14 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        self.hotplug_tick(known, missing_once)
+        self.hotplug_tick(known, missing_once, &mut hotplug::ProbeGate::default())
     }
 
     fn hotplug_tick(
         &self,
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
+        gate: &mut hotplug::ProbeGate,
     ) -> bool {
         let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
             let mut inner = self.lock();
@@ -1126,6 +1224,10 @@ impl Engine {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
+        }
+
+        if !gate.should_probe(Instant::now(), sdrmm_device::usb::fingerprint()) {
+            return false;
         }
 
         let ids: Vec<String> = self

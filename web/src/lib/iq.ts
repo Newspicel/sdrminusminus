@@ -1,14 +1,10 @@
 import type { IqFrame } from "./frame";
+import type { Listener, Unsubscribe } from "./listeners";
 import type { ClientCommand, ServerEvent } from "./types";
 
 export interface IqSocket {
   send(command: ClientCommand): void;
-  addIqListener(listener: (frame: IqFrame) => void): void;
-  removeIqListener(listener: (frame: IqFrame) => void): void;
-  addStatusListener(listener: (connected: boolean) => void): void;
-  removeStatusListener(listener: (connected: boolean) => void): void;
-  addEventListener(listener: (event: ServerEvent) => void): void;
-  removeEventListener(listener: (event: ServerEvent) => void): void;
+  on<K extends "iq" | "status" | "event">(kind: K, listener: Listener<K>): Unsubscribe;
 }
 
 const RELEASE_GRACE_MS = 5_000;
@@ -30,6 +26,7 @@ interface Watched {
 
 export class IqHub {
   private socket: IqSocket | null = null;
+  private unsubscribes: Unsubscribe[] = [];
   private readonly taps = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
 
@@ -70,9 +67,11 @@ export class IqHub {
     }
     this.detach();
     this.socket = socket;
-    socket.addIqListener(this.onFrame);
-    socket.addStatusListener(this.onStatus);
-    socket.addEventListener(this.onEvent);
+    this.unsubscribes = [
+      socket.on("iq", this.onFrame),
+      socket.on("status", this.onStatus),
+      socket.on("event", this.onEvent),
+    ];
     this.ids.clear();
     for (const tap of this.watched()) {
       this.send(tap, true);
@@ -80,14 +79,11 @@ export class IqHub {
   }
 
   detach(): void {
-    const socket = this.socket;
     this.socket = null;
-    if (socket === null) {
-      return;
+    for (const unsubscribe of this.unsubscribes) {
+      unsubscribe();
     }
-    socket.removeIqListener(this.onFrame);
-    socket.removeStatusListener(this.onStatus);
-    socket.removeEventListener(this.onEvent);
+    this.unsubscribes = [];
   }
 
   subscribe(deviceSet: number, channel: number, listener: (frame: IqFrame) => void): () => void {

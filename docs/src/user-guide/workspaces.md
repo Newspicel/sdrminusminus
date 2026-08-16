@@ -49,8 +49,11 @@ Open **Library → Templates** after selecting a Device node. A template retunes
 appropriate sample rate, adds its channels, and merges the necessary displays or outputs into the
 workspace.
 
-Built-in templates cover FM broadcast, civil airband, ADS-B, AIS, APRS, POCSAG, 2 m amateur radio,
-and marine VHF. The server disables templates that the selected radio cannot tune or sample
+Built-in templates cover FM broadcast, civil airband, ADS-B, ACARS, AIS, APRS, POCSAG, NAVTEX,
+radio clocks, GNSS, 2 m amateur radio, marine VHF, PMR446, 70 cm digital voice, the 433 MHz ISM
+band, DAB blocks, and the 20 m HF digital, keyboard and SSTV segments. A template wires each of
+its channels only to the sinks that channel can feed, so a decoder that has no audio never lands
+on a speaker. The server disables templates that the selected radio cannot tune or sample
 correctly.
 
 Applying a template changes live device and channel configuration immediately. The button names

@@ -606,6 +606,117 @@ impl Default for AtvParams {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SstvMode {
+    Robot36,
+    Robot72,
+    MartinM1,
+    MartinM2,
+    ScottieS1,
+    ScottieS2,
+    ScottieDx,
+    Pd50,
+    Pd90,
+    Pd120,
+    Pd180,
+    Sc2180,
+}
+
+impl SstvMode {
+    pub const ALL: [Self; 12] = [
+        Self::Robot36,
+        Self::Robot72,
+        Self::MartinM1,
+        Self::MartinM2,
+        Self::ScottieS1,
+        Self::ScottieS2,
+        Self::ScottieDx,
+        Self::Pd50,
+        Self::Pd90,
+        Self::Pd120,
+        Self::Pd180,
+        Self::Sc2180,
+    ];
+
+    #[must_use]
+    pub fn vis(self) -> u8 {
+        match self {
+            Self::Robot36 => 8,
+            Self::Robot72 => 12,
+            Self::MartinM2 => 40,
+            Self::MartinM1 => 44,
+            Self::Sc2180 => 55,
+            Self::ScottieS2 => 56,
+            Self::ScottieS1 => 60,
+            Self::ScottieDx => 76,
+            Self::Pd50 => 93,
+            Self::Pd120 => 95,
+            Self::Pd180 => 96,
+            Self::Pd90 => 99,
+        }
+    }
+
+    #[must_use]
+    pub fn from_vis(vis: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.vis() == vis)
+    }
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Robot36 => "Robot 36",
+            Self::Robot72 => "Robot 72",
+            Self::MartinM1 => "Martin M1",
+            Self::MartinM2 => "Martin M2",
+            Self::ScottieS1 => "Scottie S1",
+            Self::ScottieS2 => "Scottie S2",
+            Self::ScottieDx => "Scottie DX",
+            Self::Pd50 => "PD50",
+            Self::Pd90 => "PD90",
+            Self::Pd120 => "PD120",
+            Self::Pd180 => "PD180",
+            Self::Sc2180 => "Wraase SC2-180",
+        }
+    }
+
+    #[must_use]
+    pub fn size(self) -> (u16, u16) {
+        match self {
+            Self::Robot36 | Self::Robot72 => (320, 240),
+            Self::MartinM1
+            | Self::MartinM2
+            | Self::ScottieS1
+            | Self::ScottieS2
+            | Self::ScottieDx
+            | Self::Pd50
+            | Self::Pd90
+            | Self::Sc2180 => (320, 256),
+            Self::Pd120 | Self::Pd180 => (640, 496),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SstvParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<SstvMode>,
+    #[serde(default = "default_true")]
+    pub slant_correction: bool,
+    #[serde(default = "default_true")]
+    pub keep_partial: bool,
+}
+
+impl Default for SstvParams {
+    fn default() -> Self {
+        Self {
+            mode: None,
+            slant_correction: true,
+            keep_partial: true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DabMode {
@@ -933,6 +1044,7 @@ pub enum ChannelParams {
     Acars(AcarsParams),
     Subghz(SubghzParams),
     Atv(AtvParams),
+    Sstv(SstvParams),
     Dab(DabParams),
     Datv(DatvParams),
     Drm(DrmParams),
@@ -976,6 +1088,7 @@ impl ChannelParams {
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
             Self::Atv(_) => "atv",
+            Self::Sstv(_) => "sstv",
             Self::Dab(_) => "dab",
             Self::Datv(_) => "datv",
             Self::Drm(_) => "drm",

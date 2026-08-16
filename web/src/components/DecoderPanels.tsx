@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Fragment,
   type ReactNode,
@@ -7,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { capturedImageUrl, imagesQuery } from "../lib/api";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
 import { Button } from "./BaseControls";
@@ -21,6 +23,7 @@ import {
   formatAltFreqs,
   formatClock,
   identMeasurements,
+  inScope,
   isAtBottom,
   latestWpm,
   modulationLabel,
@@ -494,6 +497,81 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
+  const result = useQuery(imagesQuery());
+  const images = (result.data?.images ?? []).filter((image) =>
+    inScope(image.device_set, image.channel, scope),
+  );
+  const [selected, setSelected] = useState<number | null>(null);
+  const open = images.find((image) => image.id === selected) ?? images[0];
+
+  if (images.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>
+          No picture received yet — a scanning transmission takes between 36 s and four minutes.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={PANE}>
+      {open !== undefined && (
+        <figure className="flex flex-col gap-1">
+          {open.image == null ? (
+            <span className={ALERT}>{open.image_error ?? "the pixels were not kept"}</span>
+          ) : (
+            <img
+              src={capturedImageUrl(open.image.url)}
+              alt={`${open.mode} picture received at ${formatClock(open.at)}`}
+              className="w-full self-start rounded border border-line bg-black object-contain"
+              style={{ maxHeight: "50vh" }}
+            />
+          )}
+          <figcaption className="flex flex-wrap items-baseline gap-2">
+            <span className="font-mono text-xs tabular-nums text-accent">{open.mode}</span>
+            <span className="legend">
+              {open.width}&#215;{open.height}
+            </span>
+            <span className="legend">
+              {open.complete ? "complete" : `${open.lines} of ${open.height} lines`}
+            </span>
+            <span className="ml-auto font-mono text-xs tabular-nums text-ink-dim">
+              {formatClock(open.at)}
+            </span>
+          </figcaption>
+        </figure>
+      )}
+      {images.length > 1 && (
+        <ul className="flex flex-wrap gap-2">
+          {images.map((image) => (
+            <li key={image.id}>
+              <Button
+                type="button"
+                className={`${BTN} p-0.5`}
+                aria-current={image.id === open?.id}
+                aria-label={`${image.mode} at ${formatClock(image.at)}`}
+                onClick={() => setSelected(image.id)}
+              >
+                {image.image == null ? (
+                  <span className="legend px-2">no pixels</span>
+                ) : (
+                  <img
+                    src={capturedImageUrl(image.image.url)}
+                    alt=""
+                    className="h-12 w-16 rounded-xs bg-black object-contain"
+                  />
+                )}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
   rds: (scope) => <RdsView scope={scope} />,
   adsb: (scope) => <TargetsView kind="adsb" scope={scope} />,
@@ -520,6 +598,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   broadcast: null,
   radio_clock: null,
   gnss: null,
+  sstv: (scope) => <PicturesView scope={scope} />,
 };
 
 function isDecoderKind(kind: string): kind is DecoderKind {

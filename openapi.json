@@ -805,7 +805,7 @@
             }
           },
           "400": {
-            "description": "Unusable device, or one a device set already holds",
+            "description": "Unusable device",
             "content": {
               "application/json": {
                 "schema": {
@@ -816,6 +816,16 @@
           },
           "404": {
             "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Device already in use, here or by another program",
             "content": {
               "application/json": {
                 "schema": {
@@ -1732,6 +1742,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DoctorReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images": {
+      "get": {
+        "operationId": "list_images",
+        "responses": {
+          "200": {
+            "description": "Pictures captured from scanning modes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturedImagesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{id}/png": {
+      "get": {
+        "operationId": "captured_image",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Captured picture id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The captured picture",
+            "content": {
+              "image/png": {}
+            }
+          },
+          "404": {
+            "description": "Picture not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -4234,6 +4297,13 @@
               "type": "string"
             }
           },
+          "bandwidth_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "description": "Continuous analog filter widths, for hardware whose IF filter is not a discrete menu."
+          },
           "bandwidths": {
             "type": "array",
             "items": {
@@ -4283,15 +4353,12 @@
             "format": "int32",
             "minimum": 0
           },
-          "sample_rate_range": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Range"
-              }
-            ]
+          "sample_rate_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "description": "Continuous windows the radio resamples across. A radio with holes in its rate coverage —\nthe RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this\nis a list and not the single range it replaced."
           },
           "sample_rates": {
             "type": "array",
@@ -4304,6 +4371,100 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CapturedImage": {
+        "type": "object",
+        "required": [
+          "id",
+          "device_set",
+          "channel",
+          "at",
+          "freq_hz",
+          "source",
+          "mode",
+          "width",
+          "height",
+          "lines",
+          "complete"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "image": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventImage"
+              }
+            ]
+          },
+          "image_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "CapturedImagesResponse": {
+        "type": "object",
+        "required": [
+          "images"
+        ],
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapturedImage"
+            }
           }
         }
       },
@@ -4905,6 +5066,24 @@
                 "type": "string",
                 "enum": [
                   "atv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/SstvParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "sstv"
                 ]
               }
             }
@@ -6419,6 +6598,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SstvPicture"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sstv"
+                ]
+              }
+            }
           }
         ]
       },
@@ -6607,15 +6804,11 @@
             "format": "int32",
             "minimum": 0
           },
-          "sample_rate_range": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Range"
-              }
-            ]
+          "sample_rate_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            }
           },
           "sample_rates": {
             "type": "array",
@@ -7449,6 +7642,21 @@
           }
         }
       },
+      "EventImage": {
+        "type": "object",
+        "required": [
+          "url",
+          "media_type"
+        ],
+        "properties": {
+          "media_type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "ExportFormat": {
         "type": "string",
         "enum": [
@@ -7668,6 +7876,14 @@
           },
           "range": {
             "$ref": "#/components/schemas/Range"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "The settings this stage can actually hold, for hardware whose gain is a table rather than\nan even step — the R82xx's 29 irregular entries, say. Empty means every value `range`\nadmits is reachable. A client renders a control that can only land on real settings, and a\ndriver still snaps whatever it is asked for."
           }
         }
       },
@@ -11054,6 +11270,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/CapturedImage"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ImageCaptured"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
                 "type": "object",
                 "required": [
                   "device_set",
@@ -11235,6 +11469,89 @@
           }
         }
       },
+      "SstvMode": {
+        "type": "string",
+        "enum": [
+          "robot36",
+          "robot72",
+          "martin_m1",
+          "martin_m2",
+          "scottie_s1",
+          "scottie_s2",
+          "scottie_dx",
+          "pd50",
+          "pd90",
+          "pd120",
+          "pd180",
+          "sc2180"
+        ]
+      },
+      "SstvParams": {
+        "type": "object",
+        "properties": {
+          "keep_partial": {
+            "type": "boolean"
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SstvMode"
+              }
+            ]
+          },
+          "slant_correction": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SstvPicture": {
+        "type": "object",
+        "required": [
+          "seq",
+          "mode",
+          "width",
+          "height",
+          "lines",
+          "complete",
+          "duration_ms"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SstvMode"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "StateScope": {
         "oneOf": [
           {
@@ -11365,6 +11682,20 @@
                 "type": "string",
                 "enum": [
                   "calls"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "images"
                 ]
               }
             }

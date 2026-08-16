@@ -52,9 +52,9 @@ Try these next:
 - Use the Device dial to retune the whole receiver.
 - Press `[` or `]` to change the tuning step, then use the arrow keys to tune.
 - Select a node and press `p` to pin its face to the Rack view.
-- Open **Library → Templates** to inspect ready-made FM, airband, ADS-B, AIS, APRS, pager,
-  amateur, and marine setups. Templates that require real off-air traffic still configure the
-  signal generator, but their decoders will remain quiet.
+- Open **Library → Templates** to inspect ready-made FM, airband, ADS-B, ACARS, AIS, APRS, pager,
+  PMR446, digital voice, ISM, and HF setups. Templates that require real off-air traffic still
+  configure the signal generator, but their decoders will remain quiet.
 - Add a Recorder and wire the Device IQ output into it to create a short SigMF recording.
 
 The `?` button in the top-right corner opens the complete keyboard reference.

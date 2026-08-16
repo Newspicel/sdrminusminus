@@ -35,10 +35,11 @@ fn empty_capabilities() -> Capabilities {
     Capabilities {
         freq_ranges: Vec::new(),
         sample_rates: Vec::new(),
-        sample_rate_range: None,
+        sample_rate_ranges: Vec::new(),
         gains: Vec::new(),
         antennas: Vec::new(),
         bandwidths: Vec::new(),
+        bandwidth_ranges: Vec::new(),
         extra: Vec::new(),
         ppm: false,
         duplex: Duplex::RxOnly,
@@ -168,6 +169,28 @@ impl DeviceDriver for VanishingDriver {
         } else {
             Vec::new()
         }
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(SilentDevice {
+            capabilities: empty_capabilities(),
+            settings: mock_settings(),
+        }))
+    }
+}
+
+struct CountingDriver {
+    probes: Arc<AtomicUsize>,
+}
+
+impl DeviceDriver for CountingDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        self.probes.fetch_add(1, Ordering::SeqCst);
+        vec![mock_info("counted", None)]
     }
 
     fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
@@ -761,6 +784,24 @@ impl DeviceDriver for UnopenableDriver {
     }
 }
 
+struct BusyDriver;
+
+impl DeviceDriver for BusyDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("busy", None)]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Err(DeviceError::InUse(
+            "usb_claim_interface error -6".to_string(),
+        ))
+    }
+}
+
 struct FlappingDriver {
     probes: AtomicUsize,
 }
@@ -889,7 +930,7 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
 
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert_eq!(
         engine.snapshot().device_sets[0].status,
         DeviceSetStatus::Running,
@@ -897,14 +938,14 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
     );
 
     present.store(false, Ordering::SeqCst);
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert_eq!(
         engine.snapshot().device_sets[0].status,
         DeviceSetStatus::Running,
         "one missed probe may be a transient enumerate hiccup"
     );
 
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     let snap = engine.snapshot();
     assert_eq!(snap.device_sets[0].status, DeviceSetStatus::Error);
     assert!(
@@ -918,6 +959,50 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
     );
     wait_for_deviceset_event(&mut events, ds).await;
     engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_radio_another_program_holds_is_refused_by_name() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(BusyDriver));
+    let engine = Engine::with_registry(registry, None);
+
+    let refused = engine.create_device_set("mock:busy").unwrap_err();
+    assert!(refused.is_conflict(), "{refused}");
+    assert!(
+        refused.to_string().contains("already in use"),
+        "the reason must say the radio is taken, not just fail: {refused}"
+    );
+    assert!(
+        engine.snapshot().device_sets.is_empty(),
+        "a refused open must leave no half-built set behind"
+    );
+}
+
+#[tokio::test]
+async fn a_quiet_bus_is_enumerated_once_not_on_every_tick() {
+    let probes = Arc::new(AtomicUsize::new(0));
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        50,
+        Box::new(CountingDriver {
+            probes: probes.clone(),
+        }),
+    );
+    let engine = Engine::with_registry(registry, None);
+
+    let mut known = None;
+    let mut missing_once = HashSet::new();
+    let mut gate = crate::hotplug::ProbeGate::default();
+    for _ in 0..5 {
+        engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
+    }
+
+    assert_eq!(
+        probes.load(Ordering::SeqCst),
+        1,
+        "vendor drivers must not be woken while the USB bus is unchanged"
+    );
 }
 
 #[tokio::test]
@@ -935,11 +1020,11 @@ async fn hotplug_tick_emits_only_on_probe_change() {
     let mut known = None;
     let mut missing_once = HashSet::new();
     assert!(
-        !engine.hotplug_tick(&mut known, &mut missing_once),
+        !engine.hotplug_tick_for_test(&mut known, &mut missing_once),
         "first probe is baseline"
     );
     assert!(
-        engine.hotplug_tick(&mut known, &mut missing_once),
+        engine.hotplug_tick_for_test(&mut known, &mut missing_once),
         "attach must be detected"
     );
 
@@ -955,7 +1040,7 @@ async fn hotplug_tick_emits_only_on_probe_change() {
     ));
 
     assert!(
-        !engine.hotplug_tick(&mut known, &mut missing_once),
+        !engine.hotplug_tick_for_test(&mut known, &mut missing_once),
         "steady state stays quiet"
     );
 }
@@ -987,7 +1072,8 @@ async fn one_radio_opens_into_one_device_set() {
             if device == "virtual:siggen" && *held == ds),
         "expected a reopen refusal, got {refused}"
     );
-    assert!(refused.is_bad_request());
+    assert!(refused.is_conflict());
+    assert!(!refused.is_bad_request());
     assert_eq!(engine.snapshot().device_sets.len(), 1);
 
     engine.remove_device_set(ds).unwrap();
@@ -1327,11 +1413,11 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
 
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
     let mut quiet = engine.subscribe_events();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert!(
         matches!(quiet.try_recv(), Err(broadcast::error::TryRecvError::Empty)),
         "tick without overrun growth must not emit"
@@ -1620,7 +1706,7 @@ async fn recording_growth_rides_the_hotplug_tick() {
     let mut events = engine.subscribe_events();
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
     engine.stop_recording(ds).unwrap();
@@ -1756,7 +1842,7 @@ async fn writer_fault_surfaces_in_state_via_the_hotplug_tick() {
     let mut events = engine.subscribe_events();
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
     let rec = engine.snapshot().device_sets[0].recording.clone().unwrap();
@@ -1903,7 +1989,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
     die.store(false, Ordering::SeqCst);
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
 
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(set.status, DeviceSetStatus::Running);
@@ -2045,7 +2131,7 @@ async fn a_faulted_set_releases_its_device_so_the_replug_can_reopen_it() {
     die.store(false, Ordering::SeqCst);
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(set.status, DeviceSetStatus::Running, "{:?}", set.error);
     assert!(claimed.load(Ordering::SeqCst));
@@ -2068,7 +2154,7 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
 
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(set.status, DeviceSetStatus::Error);
     let reported = set.error.clone().expect("reason");
@@ -2082,7 +2168,7 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
     );
 
     while events.try_recv().is_ok() {}
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert!(
         events.try_recv().is_err(),
         "an unchanged reason must not re-invalidate every client"
@@ -2631,3 +2717,33 @@ async fn a_time_machine_action_names_the_node_that_owns_the_history() {
     assert!(idle_stop.to_string().contains("not laying down a capture"));
     engine.remove_device_set(ds).unwrap();
 }
+
+#[test]
+fn the_builtin_registry_carries_every_backend_this_build_compiled_in() {
+    let ids: Vec<&str> = builtin_registry(None)
+        .driver_ids()
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    assert!(ids.contains(&"virtual"), "{ids:?}");
+    #[cfg(feature = "rtlsdr")]
+    assert!(ids.contains(&"rtlsdr"), "{ids:?}");
+    #[cfg(feature = "hackrf")]
+    assert!(ids.contains(&"hackrf"), "{ids:?}");
+    #[cfg(feature = "soapy")]
+    assert!(ids.contains(&"soapy"), "{ids:?}");
+}
+
+#[test]
+fn soapy_hides_exactly_the_radios_this_build_drives_over_usb() {
+    let handled = soapy_handled_natively();
+    assert_eq!(handled.contains(&"rtlsdr"), cfg!(feature = "rtlsdr"));
+    assert_eq!(handled.contains(&"hackrf"), cfg!(feature = "hackrf"));
+    assert!(
+        !handled.contains(&"sdrplay"),
+        "the SDRplay driver reports unique serials and settles its duplicate by priority instead"
+    );
+}
+
+#[cfg(all(feature = "rtlsdr", feature = "hackrf", feature = "soapy"))]
+mod hardware;

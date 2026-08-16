@@ -24,8 +24,6 @@ https://conda.anaconda.org/conda-forge/win-64/libusb-1.0.29-h1839187_0.conda#a65
 https://conda.anaconda.org/conda-forge/win-64/libxml2-16-2.15.3-h692994f_0.conda#f7d6fcda29570e20851b78d92ea2154e
 https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.7-h534d264_7.conda#e4ac308c39d6d0e131154976da67cf3b
 https://conda.anaconda.org/conda-forge/win-64/libbladerf2-2024.05-h2466b09_2.conda#55941d4dab886557f9e9ca469ec65109
-https://conda.anaconda.org/conda-forge/win-64/libhackrf0-2026.01.3-hfd05255_0.conda#d83f0a51f86b076189b0ccd66e7f91e5
-https://conda.anaconda.org/conda-forge/win-64/rtl-sdr-2.0.2-h2466b09_3.conda#cc48f8774cb5639ae10766ecd8961f4e
 https://conda.anaconda.org/conda-forge/win-64/libairspyhf-1.6.8-h2466b09_1.conda#9a684507879ae6ab8c0d7d812db02398
 https://conda.anaconda.org/conda-forge/win-64/libairspy-1.0.10-h2466b09_1.conda#67624c2e6b59453ccdd8db2aaeb659b7
 https://conda.anaconda.org/conda-forge/win-64/liblimesuite-23.11.0-hac47afa_4.conda#0b1c9f9afe0ef977069c01e98fe26de3
@@ -34,10 +32,8 @@ https://conda.anaconda.org/conda-forge/win-64/python-3.14.6-h53f6dd8_102_cp314.c
 https://conda.anaconda.org/conda-forge/win-64/libiio-c-0.26-h68157d4_2.conda#0d5715edfdb3b5dd01ef964a908afe19
 https://conda.anaconda.org/conda-forge/win-64/soapysdr-0.8.1-py314h2789de5_6.conda#9ce3ad823afde5af5d8f86fa13f33521
 https://conda.anaconda.org/conda-forge/win-64/libad9361-iio-c-0.3-h4e9078e_1.conda#29173bfe625041cbb712edc343b3648a
-https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-rtlsdr-0.3.3-h0644a59_3.conda#faf93e6162e11dec4989fd5f10b49357
 https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-lms7-23.11.0-h5dde855_4.conda#ec8ff4537591029c67cd008547b71920
 https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-remote-0.5.2-h23704b7_2.tar.bz2#d591decb33cd0c3ad25aa0e3b207df89
-https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-hackrf-0.3.4-h23704b7_0.tar.bz2#b522ddc5d54a9eb3a04d8799b866d5f9
 https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-bladerf-0.4.2-h0644a59_0.conda#0b74358247ac0f1e7bfd769ecdc84f2d
 https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-airspyhf-0.2.0-h23704b7_0.tar.bz2#a6681b932193fa3964d97d7b6fbe3a30
 https://conda.anaconda.org/conda-forge/win-64/soapysdr-module-airspy-0.2.0-h23704b7_0.tar.bz2#438df427a47086858b8e020ae4cb5500

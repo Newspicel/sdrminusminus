@@ -42,13 +42,13 @@ Resolved from platform packages at packaging time, so the exact versions and lic
 
 **hackrf (libhackrf)** — GPL-2.0-or-later
 
-Loaded at runtime as a SoapySDR module, on the same terms as librtlsdr. The public API declarations in `hackrf.h` are BSD-3-Clause.
+As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary.
 
 **rtl-sdr (librtlsdr)** — GPL-2.0-or-later
 
-Shipped in installers and container images as a SoapySDR module, loaded at runtime through SoapySDR's own plugin API. sdr-- neither links it nor derives from it, so the GPL applies to that library and not to this product.
+sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
-## Rust crates (658)
+## Rust crates (661)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -269,6 +269,7 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 | [indexmap](https://github.com/indexmap-rs/indexmap) | 2.14.0 | Apache-2.0 OR MIT |
 | [infer](https://github.com/bojand/infer) | 0.19.0 | MIT |
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.4.1 | MIT / Apache-2.0 |
+| [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.5.0 | MIT OR Apache-2.0 |
 | [ipnet](https://github.com/krisprice/ipnet) | 2.12.1 | MIT OR Apache-2.0 |
 | [is_terminal_polyfill](https://github.com/polyfill-rs/is_terminal_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
 | [itoa](https://github.com/dtolnay/itoa) | 1.0.18 | MIT OR Apache-2.0 |
@@ -309,6 +310,7 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 | [log](https://github.com/rust-lang/log) | 0.4.33 | MIT OR Apache-2.0 |
 | [lru-slab](https://github.com/Ralith/lru-slab) | 0.1.2 | MIT OR Apache-2.0 OR Zlib |
 | [mach2](https://github.com/JohnTitor/mach2) | 0.4.3 | BSD-2-Clause OR MIT OR Apache-2.0 |
+| [mach2](https://github.com/JohnTitor/mach2) | 0.5.0 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | [markup5ever](https://github.com/servo/html5ever) | 0.38.0 | MIT OR Apache-2.0 |
 | [matchers](https://github.com/hawkw/matchers) | 0.2.0 | MIT |
 | [matchit](https://github.com/ibraheemdev/matchit) | 0.8.4 | MIT AND BSD-3-Clause |
@@ -336,6 +338,7 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 | [num-traits](https://github.com/rust-num/num-traits) | 0.2.19 | MIT OR Apache-2.0 |
 | [num_enum](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | [num_enum_derive](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
+| [nusb](https://github.com/kevinmehall/nusb) | 0.2.7 | Apache-2.0 OR MIT |
 | [objc2](https://github.com/madsmtm/objc2) | 0.6.4 | MIT |
 | [objc2-app-kit](https://github.com/madsmtm/objc2) | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | [objc2-cloud-kit](https://github.com/madsmtm/objc2) | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
@@ -781,14 +784,12 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
 
-## Bundled native libraries (6)
+## Hardware libraries (4)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
-| [SoapyHackRF](https://github.com/pothosware/SoapyHackRF) | — | MIT |
-| [SoapyRTLSDR](https://github.com/pothosware/SoapyRTLSDR) | — | BSL-1.0 |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |
 

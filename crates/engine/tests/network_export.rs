@@ -3,7 +3,7 @@
 use std::{
     io::Read,
     net::{TcpListener, UdpSocket},
-    sync::Arc,
+    sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
 
@@ -89,6 +89,7 @@ fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
     listener
         .set_nonblocking(true)
         .expect("nonblocking listener");
+    let (first_tx, first_rx) = mpsc::channel::<[u8; 16]>();
     let reader = std::thread::spawn(move || {
         let deadline = Instant::now() + WAIT;
         let mut stream = loop {
@@ -103,9 +104,11 @@ fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
         };
         stream.set_nonblocking(false).expect("blocking stream");
         stream.set_read_timeout(Some(WAIT)).expect("timeout");
-        let mut bytes = [0u8; 16];
-        stream.read_exact(&mut bytes).expect("two complex samples");
-        bytes
+        let mut first = [0u8; 16];
+        stream.read_exact(&mut first).expect("two complex samples");
+        first_tx.send(first).expect("publish first samples");
+        let mut drain = [0u8; 64 * 1_024];
+        while matches!(stream.read(&mut drain), Ok(read) if read > 0) {}
     });
     let engine = engine();
     let ds = engine
@@ -124,7 +127,7 @@ fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
         )
         .expect("start TCP export");
 
-    let bytes = reader.join().expect("reader thread");
+    let bytes = first_rx.recv_timeout(WAIT).expect("two complex samples");
     let components: Vec<f32> = bytes
         .as_chunks::<4>()
         .0
@@ -134,7 +137,10 @@ fn virtual_device_exports_an_unframed_cf32_tcp_stream() {
     assert!(components.iter().all(|value| value.is_finite()));
     assert!(components.iter().any(|value| *value != 0.0));
     let status = engine.stop_network_export(ds, "tcp").expect("stop export");
+    reader.join().expect("reader thread");
+    assert_eq!(status.error, None);
     assert!(status.bytes >= 16);
     assert_eq!(status.bytes % 8, 0);
+    assert_eq!(status.samples, status.bytes / 8);
     engine.remove_device_set(ds).expect("remove set");
 }

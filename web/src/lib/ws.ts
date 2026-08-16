@@ -1,6 +1,5 @@
 import { withToken } from "./auth";
 import {
-  type AudioFrame,
   decodeAudio,
   decodeIq,
   decodeSpectrum,
@@ -11,30 +10,28 @@ import {
   FRAME_KIND_VIDEO_GRAY,
   FRAME_KIND_VIDEO_RGB,
   frameKind,
-  type IqFrame,
-  type SpectrumFrame,
-  type VideoFrame,
 } from "./frame";
+import {
+  type Listener,
+  ListenerRegistry,
+  type SocketEventKind,
+  type SocketEvents,
+  type Unsubscribe,
+} from "./listeners";
 import type { ClientCommand, ServerEvent } from "./types";
 
 const RECONNECT_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
+const STABLE_MS = 10_000;
 
 export class SdrSocket {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   private closed = false;
   private backoffMs = RECONNECT_MS;
+  private openedAt = 0;
   private readonly path: string;
-  private readonly eventListeners = new Set<(event: ServerEvent) => void>();
-  private readonly statusListeners = new Set<(connected: boolean) => void>();
-  private readonly spectrumListeners = new Set<(frame: SpectrumFrame) => void>();
-  private readonly videoListeners = new Set<(frame: VideoFrame) => void>();
-  private readonly iqListeners = new Set<(frame: IqFrame) => void>();
-
-  onEvent: (event: ServerEvent) => void = () => {};
-  onStatus: (connected: boolean) => void = () => {};
-  onAudio: (frame: AudioFrame) => void = () => {};
+  private readonly listeners = new ListenerRegistry();
 
   constructor(path = "/api/ws") {
     this.path = path;
@@ -47,8 +44,13 @@ export class SdrSocket {
 
   connect(): void {
     this.closed = false;
+    window.addEventListener("online", this.handleOnline);
     this.open();
   }
+
+  private readonly handleOnline = (): void => {
+    this.retryNow();
+  };
 
   send(command: ClientCommand): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -60,48 +62,13 @@ export class SdrSocket {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  addEventListener(listener: (event: ServerEvent) => void): void {
-    this.eventListeners.add(listener);
-  }
-
-  removeEventListener(listener: (event: ServerEvent) => void): void {
-    this.eventListeners.delete(listener);
-  }
-
-  addSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
-    this.spectrumListeners.add(listener);
-  }
-
-  removeSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
-    this.spectrumListeners.delete(listener);
-  }
-
-  addVideoListener(listener: (frame: VideoFrame) => void): void {
-    this.videoListeners.add(listener);
-  }
-
-  removeVideoListener(listener: (frame: VideoFrame) => void): void {
-    this.videoListeners.delete(listener);
-  }
-
-  addIqListener(listener: (frame: IqFrame) => void): void {
-    this.iqListeners.add(listener);
-  }
-
-  removeIqListener(listener: (frame: IqFrame) => void): void {
-    this.iqListeners.delete(listener);
-  }
-
-  addStatusListener(listener: (connected: boolean) => void): void {
-    this.statusListeners.add(listener);
-  }
-
-  removeStatusListener(listener: (connected: boolean) => void): void {
-    this.statusListeners.delete(listener);
+  on<K extends SocketEventKind>(kind: K, listener: Listener<K>): Unsubscribe {
+    return this.listeners.on(kind, listener);
   }
 
   close(): void {
     this.closed = true;
+    window.removeEventListener("online", this.handleOnline);
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -127,12 +94,16 @@ export class SdrSocket {
     const ws = new WebSocket(this.url());
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
-      this.backoffMs = RECONNECT_MS;
-      this.emitStatus(true);
+      this.openedAt = Date.now();
+      this.listeners.emit("status", true);
     };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
-      this.emitStatus(false);
+      if (this.openedAt !== 0 && Date.now() - this.openedAt >= STABLE_MS) {
+        this.backoffMs = RECONNECT_MS;
+      }
+      this.openedAt = 0;
+      this.listeners.emit("status", false);
       this.scheduleReconnect();
     };
     ws.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
@@ -152,58 +123,32 @@ export class SdrSocket {
     } catch {
       return;
     }
-    this.onEvent(event);
-    for (const listener of this.eventListeners) {
-      listener(event);
-    }
+    this.listeners.emit("event", event);
   }
 
   private dispatchBinary(buffer: ArrayBuffer): void {
     switch (frameKind(buffer)) {
-      case FRAME_KIND_SPECTRUM: {
-        const frame = decodeSpectrum(buffer);
-        if (frame) {
-          for (const listener of this.spectrumListeners) {
-            listener(frame);
-          }
-        }
+      case FRAME_KIND_SPECTRUM:
+        this.emitFrame("spectrum", decodeSpectrum(buffer));
         break;
-      }
-      case FRAME_KIND_AUDIO_OPUS: {
-        const frame = decodeAudio(buffer);
-        if (frame) {
-          this.onAudio(frame);
-        }
+      case FRAME_KIND_AUDIO_OPUS:
+        this.emitFrame("audio", decodeAudio(buffer));
         break;
-      }
-      case FRAME_KIND_IQ_F32: {
-        const frame = decodeIq(buffer);
-        if (frame) {
-          for (const listener of this.iqListeners) {
-            listener(frame);
-          }
-        }
+      case FRAME_KIND_IQ_F32:
+        this.emitFrame("iq", decodeIq(buffer));
         break;
-      }
       case FRAME_KIND_VIDEO_GRAY:
-      case FRAME_KIND_VIDEO_RGB: {
-        const frame = decodeVideo(buffer);
-        if (frame) {
-          for (const listener of this.videoListeners) {
-            listener(frame);
-          }
-        }
+      case FRAME_KIND_VIDEO_RGB:
+        this.emitFrame("video", decodeVideo(buffer));
         break;
-      }
       default:
         break;
     }
   }
 
-  private emitStatus(connected: boolean): void {
-    this.onStatus(connected);
-    for (const listener of this.statusListeners) {
-      listener(connected);
+  private emitFrame<K extends SocketEventKind>(kind: K, frame: SocketEvents[K] | null): void {
+    if (frame !== null) {
+      this.listeners.emit(kind, frame);
     }
   }
 
@@ -211,7 +156,7 @@ export class SdrSocket {
     if (this.closed || this.reconnectTimer !== null) {
       return;
     }
-    const delay = this.backoffMs;
+    const delay = this.backoffMs * (0.5 + Math.random() * 0.5);
     this.backoffMs = Math.min(this.backoffMs * 2, RECONNECT_MAX_MS);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;

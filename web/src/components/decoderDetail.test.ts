@@ -169,6 +169,18 @@ describe("eventDetail", () => {
           cn0_db_hz: 44.5,
         },
       },
+      sstv: {
+        kind: "sstv",
+        data: {
+          seq: 1,
+          mode: "martin_m1",
+          width: 320,
+          height: 256,
+          lines: 256,
+          complete: true,
+          duration_ms: 114_300,
+        },
+      },
     };
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();

@@ -12,6 +12,9 @@ use crate::{
     lock,
 };
 
+#[cfg(feature = "usb")]
+mod usb;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamFailure {
     pub reason: String,

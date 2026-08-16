@@ -21,6 +21,8 @@ pub fn report(
         let info = sdrmm_device_soapy::runtime_info();
         checks.push(soapy_check(&info));
     }
+    #[cfg(all(feature = "sdrplay", not(test)))]
+    checks.push(sdrplay_check(&sdrmm_device_sdrplay::runtime_info()));
     checks.push(devices);
     checks.extend(usb_checks());
     checks.push(path_check(
@@ -96,22 +98,13 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
                 .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned())
         })
         .collect();
-    let expected = ["rtlsdr", "hackrf"];
-    let missing: Vec<&str> = expected
-        .into_iter()
-        .filter(|name| {
-            !module_names
-                .iter()
-                .any(|module| module.to_ascii_lowercase().contains(name))
-        })
-        .collect();
     DoctorCheck {
         id: "soapy.runtime".to_string(),
         name: "SoapySDR runtime".to_string(),
-        status: if missing.is_empty() {
-            CheckStatus::Ok
-        } else {
+        status: if module_names.is_empty() {
             CheckStatus::Warn
+        } else {
+            CheckStatus::Ok
         },
         detail: format!(
             "core: {}\nmodule search path: {}\nloaded modules: {}",
@@ -127,11 +120,41 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
                 module_names.join(", ")
             }
         ),
-        hint: (!missing.is_empty()).then(|| {
-            format!(
-                "missing bundled module(s): {}; reinstall the complete package",
-                missing.join(", ")
-            )
+        hint: module_names.is_empty().then(|| {
+            "SoapySDR loaded no driver modules, so it can reach no hardware of its own. \
+             RTL-SDR, HackRF and SDRplay receivers do not need it and are unaffected."
+                .to_string()
+        }),
+    }
+}
+
+#[cfg(feature = "sdrplay")]
+fn sdrplay_check(info: &sdrmm_device_sdrplay::RuntimeInfo) -> DoctorCheck {
+    let loaded = info
+        .library
+        .as_ref()
+        .zip(info.version)
+        .map(|(library, version)| format!("version {version}\nlibrary: {library}"));
+    let installed = loaded.is_some();
+    DoctorCheck {
+        id: "sdrplay.api".to_string(),
+        name: "SDRplay API".to_string(),
+        status: if installed {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Warn
+        },
+        detail: loaded.unwrap_or_else(|| {
+            info.error
+                .clone()
+                .unwrap_or_else(|| "not installed".to_string())
+        }),
+        hint: (!installed).then(|| {
+            "SDRplay receivers need the vendor API, which is licensed for genuine SDRplay \
+             hardware and is not part of this package. Install it from \
+             https://www.sdrplay.com/downloads/ and make sure its service is running. Without \
+             it nothing else is affected — only RSP receivers stay invisible."
+                .to_string()
         }),
     }
 }
@@ -177,6 +200,7 @@ pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
         .map(|info| match registry.open(&info.id()) {
             Ok((_, mut device)) => {
                 let rates = device.capabilities().sample_rates.clone();
+                let ranges = device.capabilities().sample_rate_ranges.clone();
                 let restore = device.settings().sample_rate;
                 let held: Vec<(f64, Option<f64>)> = rates
                     .iter()
@@ -185,7 +209,7 @@ pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
                 if let Some(rate) = restore {
                     let _ = hold_rate(device.as_mut(), rate);
                 }
-                rate_check(&info.id(), &info.label, &held)
+                rate_check(&info.id(), &info.label, &held, &ranges)
             }
             Err(error) => DoctorCheck {
                 id: format!("rates.{}", info.id()),
@@ -214,13 +238,35 @@ fn hold_rate(device: &mut dyn sdrmm_device::SdrDevice, rate: f64) -> Option<f64>
 
 const RATE_TOLERANCE: f64 = 1e-6;
 
-fn rate_check(id: &str, label: &str, held: &[(f64, Option<f64>)]) -> DoctorCheck {
+fn rate_check(
+    id: &str,
+    label: &str,
+    held: &[(f64, Option<f64>)],
+    ranges: &[sdrmm_wire::Range],
+) -> DoctorCheck {
     if held.is_empty() {
+        // A radio that resamples across a window has no fixed rate to hold, so there is nothing
+        // to fail here. Only a radio that declares neither is unverifiable.
+        let (status, detail) = if ranges.is_empty() {
+            (
+                CheckStatus::Warn,
+                "the driver advertises neither discrete rates nor a range to check".to_string(),
+            )
+        } else {
+            let windows: Vec<String> = ranges
+                .iter()
+                .map(|range| format!("{:.0}-{:.0} Hz", range.min, range.max))
+                .collect();
+            (
+                CheckStatus::Ok,
+                format!("continuous across {}", windows.join(", ")),
+            )
+        };
         return DoctorCheck {
             id: format!("rates.{id}"),
             name: format!("Sample rates: {label}"),
-            status: CheckStatus::Warn,
-            detail: "the driver advertises no discrete rates to check".to_string(),
+            status,
+            detail,
             hint: None,
         };
     }
@@ -398,7 +444,7 @@ mod tests {
             (2_400_000.0, Some(2_286_826.0)),
             (3_200_000.0, None),
         ];
-        let check = rate_check("soapy:00000001", "Generic RTL2832U", &held);
+        let check = rate_check("soapy:00000001", "Generic RTL2832U", &held, &[]);
         assert_eq!(check.status, CheckStatus::Fail);
         assert!(check.detail.contains("2048000 Hz  ok"), "{}", check.detail);
         assert!(
@@ -418,12 +464,33 @@ mod tests {
     fn a_radio_that_holds_every_advertised_rate_passes() {
         let held = [(2_048_000.0, Some(2_048_000.0)), (1_024_000.0, None)];
         assert_eq!(
-            rate_check("x", "X", &held[..1]).status,
+            rate_check("x", "X", &held[..1], &[]).status,
             CheckStatus::Ok,
             "an exact read-back is not a mismatch"
         );
-        assert_eq!(rate_check("x", "X", &held).status, CheckStatus::Fail);
-        assert_eq!(rate_check("x", "X", &[]).status, CheckStatus::Warn);
+        assert_eq!(rate_check("x", "X", &held, &[]).status, CheckStatus::Fail);
+        assert_eq!(rate_check("x", "X", &[], &[]).status, CheckStatus::Warn);
+    }
+
+    #[test]
+    fn a_radio_that_resamples_across_a_window_has_nothing_to_fail() {
+        let window = sdrmm_wire::Range {
+            min: 2e6,
+            max: 20e6,
+            step: None,
+        };
+        let check = rate_check("hackrf:1", "HackRF One", &[], &[window]);
+        assert_eq!(
+            check.status,
+            CheckStatus::Ok,
+            "a continuous radio is not a broken one"
+        );
+        assert!(
+            check.detail.contains("2000000-20000000 Hz"),
+            "{}",
+            check.detail
+        );
+        assert!(check.hint.is_none());
     }
 
     #[test]
@@ -518,15 +585,69 @@ mod tests {
 
     #[cfg(feature = "soapy")]
     #[test]
-    fn soapy_check_reports_core_paths_modules_and_missing_baseline() {
+    fn soapy_check_reports_the_core_its_paths_and_the_modules_it_loaded() {
         let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
             core_version: "0.8.1".to_string(),
             search_paths: vec!["/app/soapy/modules0.8".to_string()],
-            modules: vec!["librtlsdrSupport.so".to_string()],
+            modules: vec!["libairspySupport.so".to_string()],
+        });
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.detail.contains("core: 0.8.1"));
+        assert!(check.detail.contains("/app/soapy/modules0.8"));
+        assert!(check.detail.contains("libairspySupport.so"));
+        assert!(check.hint.is_none());
+    }
+
+    #[cfg(feature = "soapy")]
+    #[test]
+    fn a_soapy_runtime_with_no_modules_warns_without_blaming_the_native_backends() {
+        let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
+            core_version: "0.8.1".to_string(),
+            search_paths: Vec::new(),
+            modules: Vec::new(),
         });
         assert_eq!(check.status, CheckStatus::Warn);
-        assert!(check.detail.contains("core: 0.8.1"));
-        assert!(check.detail.contains("librtlsdrSupport.so"));
-        assert!(check.hint.is_some_and(|hint| hint.contains("hackrf")));
+        assert!(check.detail.contains("(none)"));
+        assert!(check.hint.is_some_and(|hint| hint.contains("RTL-SDR")));
+    }
+
+    #[cfg(feature = "sdrplay")]
+    #[test]
+    fn sdrplay_check_names_the_library_it_found() {
+        let check = sdrplay_check(&sdrmm_device_sdrplay::RuntimeInfo {
+            version: Some(3.15),
+            library: Some("/usr/local/lib/libsdrplay_api.so.3".to_string()),
+            error: None,
+        });
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.detail.contains("3.15"));
+        assert!(check.detail.contains("libsdrplay_api.so.3"));
+        assert!(check.hint.is_none());
+    }
+
+    #[cfg(feature = "sdrplay")]
+    #[test]
+    fn a_library_that_reported_no_version_is_not_called_installed() {
+        let check = sdrplay_check(&sdrmm_device_sdrplay::RuntimeInfo {
+            version: None,
+            library: Some("/usr/local/lib/libsdrplay_api.so.3".to_string()),
+            error: Some("sdrplay_api_ApiVersion failed".to_string()),
+        });
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("ApiVersion failed"));
+        assert!(check.hint.is_some());
+    }
+
+    #[cfg(feature = "sdrplay")]
+    #[test]
+    fn a_missing_sdrplay_api_warns_and_says_where_to_get_it() {
+        let check = sdrplay_check(&sdrmm_device_sdrplay::RuntimeInfo {
+            version: None,
+            library: None,
+            error: Some("the SDRplay API is not installed".to_string()),
+        });
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("not installed"));
+        assert!(check.hint.is_some_and(|hint| hint.contains("sdrplay.com")));
     }
 }

@@ -111,6 +111,22 @@ const DRM_MODES: Options<NonNullable<ChannelParamsOf<"drm">["mode"]>> = [
   { value: "drm30", label: "DRM30" },
   { value: "drm_plus", label: "DRM+" },
 ];
+const SSTV_AUTO = "auto";
+const SSTV_MODES: Options<NonNullable<ChannelParamsOf<"sstv">["mode"]> | typeof SSTV_AUTO> = [
+  { value: SSTV_AUTO, label: "Follow VIS" },
+  { value: "robot36", label: "Robot 36" },
+  { value: "robot72", label: "Robot 72" },
+  { value: "martin_m1", label: "Martin M1" },
+  { value: "martin_m2", label: "Martin M2" },
+  { value: "scottie_s1", label: "Scottie S1" },
+  { value: "scottie_s2", label: "Scottie S2" },
+  { value: "scottie_dx", label: "Scottie DX" },
+  { value: "pd50", label: "PD50" },
+  { value: "pd90", label: "PD90" },
+  { value: "pd120", label: "PD120" },
+  { value: "pd180", label: "PD180" },
+  { value: "sc2180", label: "Wraase SC2-180" },
+];
 const ATV_COLORS: Options<NonNullable<ChannelParamsOf<"atv">["color"]>> = [
   { value: "monochrome", label: "Mono" },
   { value: "pal", label: "PAL" },
@@ -905,6 +921,41 @@ function ModeControls({
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "atv", settings: { ...params.settings, invert } })
+            }
+          />
+        </>
+      );
+    case "sstv":
+      return (
+        <>
+          <SettingRow label="Mode">
+            <Select
+              label="Scanning mode"
+              value={params.settings.mode ?? SSTV_AUTO}
+              options={SSTV_MODES}
+              onChange={(mode) =>
+                onParams({
+                  type: "sstv",
+                  settings: {
+                    ...params.settings,
+                    mode: mode === SSTV_AUTO ? null : mode,
+                  },
+                })
+              }
+            />
+          </SettingRow>
+          <Toggle
+            label="Slant correction"
+            checked={params.settings.slant_correction ?? true}
+            onChange={(slant_correction) =>
+              onParams({ type: "sstv", settings: { ...params.settings, slant_correction } })
+            }
+          />
+          <Toggle
+            label="Keep unfinished pictures"
+            checked={params.settings.keep_partial ?? true}
+            onChange={(keep_partial) =>
+              onParams({ type: "sstv", settings: { ...params.settings, keep_partial } })
             }
           />
         </>

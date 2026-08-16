@@ -16,8 +16,11 @@ path = "src/main.rs"
 workspace = true
 
 [features]
-default = ["soapy", "net-client", "gpu-fft"]
+default = ["soapy", "sdrplay", "rtlsdr", "hackrf", "net-client", "gpu-fft"]
 soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
+sdrplay = ["sdrmm-server/sdrplay", "sdrmm-engine/sdrplay"]
+rtlsdr = ["sdrmm-server/rtlsdr", "sdrmm-engine/rtlsdr"]
+hackrf = ["sdrmm-server/hackrf", "sdrmm-engine/hackrf"]
 net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
 
