@@ -205,6 +205,8 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
         ppm: None,
         antenna: Some(ANTENNA.to_string()),
         bandwidth: Some(f64::from(config.filter_width_hz)),
+        dc_block: None,
+        lo_offset_hz: None,
         gains: vec![
             GainValue {
                 stage: LNA_STAGE.to_string(),

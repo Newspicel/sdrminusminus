@@ -61,3 +61,17 @@ export function snapToRanges(ranges: Range[] | undefined, value: number): number
   }
   return best;
 }
+
+/** Mirrors `MAX_LO_OFFSET_FRACTION` in `crates/wire`; the server has the final say. */
+export const MAX_LO_OFFSET_FRACTION = 0.4;
+
+export function loOffsetLimitHz(sampleRate: number | undefined): number {
+  if (sampleRate == null || !Number.isFinite(sampleRate) || sampleRate <= 0) return 0;
+  return sampleRate * MAX_LO_OFFSET_FRACTION;
+}
+
+export function clampLoOffsetHz(hz: number, sampleRate: number | undefined): number {
+  const limit = loOffsetLimitHz(sampleRate);
+  if (!Number.isFinite(hz)) return 0;
+  return Math.min(Math.max(hz, -limit), limit);
+}

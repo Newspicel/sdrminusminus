@@ -19,7 +19,7 @@ use sdrmm_wire::{
     ChannelParams, ChannelSettings, DecodedRecord, DeviceFault, DeviceInfo, DeviceSet,
     DeviceSetStatus, DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest,
     PlaybackStatus, PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, TrunkSystemStatus,
+    StateScope, StateSnapshot, StreamSettings, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
@@ -367,6 +367,108 @@ fn tuner_reaches(capabilities: &Capabilities, hz: f64) -> bool {
             .any(|r| hz >= r.min && hz <= r.max)
 }
 
+/// Where the front end's DC term is parked, relative to the offset that was asked for.
+///
+/// The first placement that clears every channel wins, so an operator who asks for 250 kHz keeps
+/// 250 kHz unless a decoder is sitting there.
+const LO_PLACEMENTS: [f64; 8] = [1.0, -1.0, 0.75, -0.75, 1.25, -1.25, 0.5, -0.5];
+
+/// Room left between the artifact and the edge of a channel it must not sit in.
+const LO_ARTIFACT_MARGIN_HZ: f64 = 2_000.0;
+
+fn channel_half_width_hz(params: &ChannelParams) -> f64 {
+    descriptor_for(params).map_or(0.0, |d| d.bandwidth_hz / 2.0) + LO_ARTIFACT_MARGIN_HZ
+}
+
+/// Whether parking the LO here would drop the DC term inside a channel being demodulated.
+fn artifact_clears_channels(
+    offset_hz: f64,
+    settings: &DeviceSettings,
+    capabilities: &Capabilities,
+    channels: &[ChannelInfo],
+) -> bool {
+    channels.iter().all(|channel| {
+        let center_hz = settings
+            .for_stream(channel.stream, &capabilities.per_stream)
+            .center_hz
+            .unwrap_or(DEFAULT_CENTER_HZ);
+        let artifact = center_hz - offset_hz;
+        let tuned = center_hz + channel.settings.offset_hz;
+        (artifact - tuned).abs() > channel_half_width_hz(&channel.settings.params)
+    })
+}
+
+/// Settles on an LO offset that the tuner can reach and that no decoder is sitting on.
+///
+/// Moving the LO is invisible downstream because the front end mixes the displacement back out,
+/// so the placement is free to shift as channels come and go.
+fn resolve_lo_offset(
+    capabilities: &Capabilities,
+    settings: &DeviceSettings,
+    channels: &[ChannelInfo],
+) -> f64 {
+    let rate = sample_rate_of(settings);
+    let asked = settings.effective_lo_offset_hz(capabilities, rate);
+    if asked == 0.0 || settings.center_hz.is_none() {
+        return 0.0;
+    }
+    let limit = sdrmm_wire::lo_offset_limit_hz(rate);
+    for scale in LO_PLACEMENTS {
+        let candidate = (asked * scale).clamp(-limit, limit);
+        let placed = DeviceSettings {
+            lo_offset_hz: Some(candidate),
+            ..settings.clone()
+        };
+        if placed.effective_lo_offset_hz(capabilities, rate) != candidate {
+            continue;
+        }
+        if artifact_clears_channels(candidate, settings, capabilities, channels) {
+            return candidate;
+        }
+    }
+    asked
+}
+
+/// Turns an operator-frame patch into the one the driver receives.
+///
+/// Changing the offset retunes the hardware even when the patch says nothing about frequency, so
+/// a centre the patch left alone has to be restated before it is displaced.
+fn hardware_delta(
+    delta: &DeviceSettings,
+    wanted: &DeviceSettings,
+    offset_hz: f64,
+    previous_hz: f64,
+) -> DeviceSettings {
+    let mut restated = delta.clone();
+    if offset_hz != previous_hz {
+        if restated.center_hz.is_none() {
+            restated.center_hz = wanted.center_hz;
+        }
+        for stream in &wanted.streams {
+            let Some(center_hz) = stream.center_hz else {
+                continue;
+            };
+            match restated
+                .streams
+                .iter_mut()
+                .find(|s| s.stream == stream.stream)
+            {
+                Some(existing) if existing.center_hz.is_none() => {
+                    existing.center_hz = Some(center_hz);
+                }
+                Some(_) => {}
+                None => restated.streams.push(StreamSettings {
+                    stream: stream.stream,
+                    center_hz: Some(center_hz),
+                    gains: Vec::new(),
+                    antenna: None,
+                }),
+            }
+        }
+    }
+    restated.to_hardware(offset_hz)
+}
+
 fn validate_streams(
     capabilities: &Capabilities,
     delta: &DeviceSettings,
@@ -542,6 +644,8 @@ struct DeviceSetState {
     info: DeviceInfo,
     capabilities: Capabilities,
     settings: DeviceSettings,
+    /// The LO displacement the hardware is actually holding, which the front end mixes back out.
+    lo_offset_hz: f64,
     status: DeviceSetStatus,
     channels: Vec<ChannelInfo>,
     media: HashMap<u32, ChannelMedia>,
@@ -573,6 +677,7 @@ impl DeviceSetState {
             capabilities: self.capabilities.clone(),
             settings: self.settings.clone(),
             status: self.status,
+            lo_offset_in_force_hz: self.lo_offset_hz,
             channels: self
                 .channels
                 .iter()
@@ -1027,7 +1132,13 @@ impl Engine {
                         .occupancy
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .observe(&snapshot.db, snapshot.center_hz, snapshot.span_hz, now_ms);
+                        .observe(
+                            &snapshot.db,
+                            snapshot.center_hz,
+                            snapshot.span_hz,
+                            snapshot.lo_guard(),
+                            now_ms,
+                        );
                 }
                 if let Some(engine) = weak.upgrade() {
                     engine.stop_collecting(ds, stream);
@@ -1349,18 +1460,24 @@ impl Engine {
             if state.status != DeviceSetStatus::Error {
                 return;
             }
-            (state.info.id(), state.settings.clone())
+            (
+                state.info.id(),
+                state.settings.clone(),
+                state.channels.clone(),
+            )
         };
-        let (device_id, stored_settings) = stored;
+        let (device_id, stored_settings, stored_channels) = stored;
 
         let opened = self
             .registry
             .open(&device_id)
             .and_then(|(info, mut device)| {
-                device.apply(&stored_settings)?;
-                Ok((info, device))
+                let lo_offset_hz =
+                    resolve_lo_offset(device.capabilities(), &stored_settings, &stored_channels);
+                device.apply(&stored_settings.to_hardware(lo_offset_hz))?;
+                Ok((info, device, lo_offset_hz))
             });
-        let (info, device) = match opened {
+        let (info, device, lo_offset_hz) = match opened {
             Ok(opened) => opened,
             Err(e) => {
                 self.note_reconnect_failure(ds, &e.to_string());
@@ -1370,12 +1487,12 @@ impl Engine {
         let capabilities = device.capabilities().clone();
         let playback = device.playback();
         let mut settings = stored_settings.clone();
-        settings.merge_from(&device.settings().clone());
+        settings.merge_from(&device.settings().to_operator(lo_offset_hz));
         let rate = sample_rate_of(&settings);
         let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
         let fault_tx = self.fault_tx.clone();
         let handler_gate = gate.clone();
-        let runtime = match CaptureRuntime::start(device, &settings, move |err| {
+        let runtime = match CaptureRuntime::start(device, &settings, lo_offset_hz, move |err| {
             let mut gate = handler_gate
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1426,6 +1543,7 @@ impl Engine {
             state.info = info;
             state.capabilities = capabilities;
             state.settings = settings;
+            state.lo_offset_hz = lo_offset_hz;
             state.status = DeviceSetStatus::Running;
             state.error = None;
             state.playback = playback;
@@ -1596,7 +1714,7 @@ impl Engine {
             id
         };
         let fault_tx = self.fault_tx.clone();
-        let started = CaptureRuntime::start(device, &settings, move |err| {
+        let started = CaptureRuntime::start(device, &settings, 0.0, move |err| {
             let _ = fault_tx.send((id, err));
         });
         let runtime = match started {
@@ -1622,6 +1740,7 @@ impl Engine {
                     info,
                     capabilities,
                     settings,
+                    lo_offset_hz: 0.0,
                     status: if pending.is_some() {
                         DeviceSetStatus::Error
                     } else {
@@ -1725,13 +1844,57 @@ impl Engine {
         self.patch_device_from(ds, delta, PatchOrigin::Client)
     }
 
+    /// Moves the LO out from under a channel that has just been added, retuned, or reshaped.
+    ///
+    /// The displacement is mixed back out downstream, so nothing the operator sees moves; only the
+    /// front end's own DC term does.
+    fn replace_lo(&self, ds: u32) {
+        let (runtime, settings, lo_offset_hz, hardware) = {
+            let mut inner = self.lock();
+            let Some(state) = inner.device_sets.get_mut(&ds) else {
+                return;
+            };
+            let resolved = resolve_lo_offset(&state.capabilities, &state.settings, &state.channels);
+            if resolved == state.lo_offset_hz {
+                return;
+            }
+            let restated = DeviceSettings {
+                center_hz: state.settings.center_hz,
+                streams: state
+                    .settings
+                    .streams
+                    .iter()
+                    .filter(|s| s.center_hz.is_some())
+                    .map(|s| StreamSettings {
+                        stream: s.stream,
+                        center_hz: s.center_hz,
+                        ..StreamSettings::default()
+                    })
+                    .collect(),
+                ..DeviceSettings::default()
+            };
+            state.lo_offset_hz = resolved;
+            (
+                state.runtime.clone(),
+                state.settings.clone(),
+                resolved,
+                restated.to_hardware(resolved),
+            )
+        };
+        if let Err(e) = lock_runtime(&runtime).apply(&hardware) {
+            tracing::warn!(ds, error = %e, "could not move the LO clear of a channel");
+            return;
+        }
+        lock_runtime(&runtime).set_meta(&settings, lo_offset_hz);
+    }
+
     fn patch_device_from(
         &self,
         ds: u32,
         delta: DeviceSettings,
         origin: PatchOrigin,
     ) -> Result<(), EngineError> {
-        let (runtime, _rate_guard) = {
+        let (runtime, hardware, lo_offset_hz, _rate_guard) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -1742,7 +1905,11 @@ impl Engine {
                     "the device is being tuned by a running scan; stop the scan first".to_string(),
                 ));
             }
-            validate_streams(&state.capabilities, &delta)?;
+            let mut wanted = state.settings.clone();
+            wanted.merge_from(&delta);
+            let lo_offset_hz = resolve_lo_offset(&state.capabilities, &wanted, &state.channels);
+            let hardware = hardware_delta(&delta, &wanted, lo_offset_hz, state.lo_offset_hz);
+            validate_streams(&state.capabilities, &hardware)?;
             let mut rate_change = false;
             if let Some(new_rate) = delta.sample_rate
                 && new_rate != sample_rate_of(&state.settings)
@@ -1776,12 +1943,12 @@ impl Engine {
                 state.rate_patches += 1;
                 RatePatchGuard { engine: self, ds }
             });
-            (runtime, guard)
+            (runtime, hardware, lo_offset_hz, guard)
         };
         let actual = {
             let mut runtime = lock_runtime(&runtime);
-            runtime.apply(&delta)?;
-            runtime.device_settings()
+            runtime.apply(&hardware)?;
+            runtime.device_settings(lo_offset_hz)
         };
         let (settings, rate, rebuilds) = {
             let mut inner = self.lock();
@@ -1871,11 +2038,12 @@ impl Engine {
                     })
                     .collect()
             };
+            state.lo_offset_hz = lo_offset_hz;
             let settings = state.settings.clone();
             inner.revision += 1;
             (settings, rate, rebuilds)
         };
-        lock_runtime(&runtime).set_meta(&settings);
+        lock_runtime(&runtime).set_meta(&settings, lo_offset_hz);
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);
@@ -2065,6 +2233,7 @@ impl Engine {
                 return Err(e);
             }
         };
+        self.replace_lo(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
@@ -2205,6 +2374,7 @@ impl Engine {
         }
         self.close_baseband_sinks(ds, ch, orphaned_baseband, "the channel was rebuilt");
         staged?;
+        self.replace_lo(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
@@ -2239,6 +2409,7 @@ impl Engine {
         if let Some(handle) = handle {
             handle.shutdown();
         }
+        self.replace_lo(ds);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });

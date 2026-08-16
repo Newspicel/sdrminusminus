@@ -2628,7 +2628,7 @@ mod tests {
             for round in 0..40 {
                 db[64] = -40.0;
                 db[96] = if round < 4 { -40.0 } else { -100.0 };
-                occupancy.observe(&db, 100e6, 1.6e6, 0);
+                occupancy.observe(&db, 100e6, 1.6e6, None, 0);
             }
         }
 

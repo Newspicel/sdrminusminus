@@ -437,12 +437,30 @@ pub struct DeviceSettings {
     pub antenna: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bandwidth: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dc_block: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lo_offset_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gains: Vec<GainValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<ExtraValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub streams: Vec<StreamSettings>,
+}
+
+/// How far off centre the hardware LO may be parked, as a fraction of the sample rate.
+///
+/// Beyond this the wanted signal falls into the tuner's analog filter roll-off.
+pub const MAX_LO_OFFSET_FRACTION: f64 = 0.4;
+
+#[must_use]
+pub fn lo_offset_limit_hz(sample_rate: f64) -> f64 {
+    if sample_rate.is_finite() && sample_rate > 0.0 {
+        sample_rate * MAX_LO_OFFSET_FRACTION
+    } else {
+        0.0
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -494,6 +512,12 @@ impl DeviceSettings {
         if delta.bandwidth.is_some() {
             self.bandwidth = delta.bandwidth;
         }
+        if delta.dc_block.is_some() {
+            self.dc_block = delta.dc_block;
+        }
+        if delta.lo_offset_hz.is_some() {
+            self.lo_offset_hz = delta.lo_offset_hz;
+        }
         merge_gains(&mut self.gains, &delta.gains);
         for extra in &delta.extra {
             match self.extra.iter_mut().find(|e| e.name == extra.name) {
@@ -507,6 +531,64 @@ impl DeviceSettings {
                 None => self.streams.push(stream.clone()),
             }
         }
+    }
+
+    /// The LO offset that is actually in force, which is not always the one that was asked for.
+    ///
+    /// A request survives only if it stays inside the tuner's analog passband and every centre it
+    /// displaces is still reachable; otherwise the front end falls back to tuning dead centre.
+    /// The request itself is left untouched so it can take effect again elsewhere in the band.
+    #[must_use]
+    pub fn effective_lo_offset_hz(&self, capabilities: &Capabilities, sample_rate: f64) -> f64 {
+        let wanted = self.lo_offset_hz.unwrap_or(0.0);
+        if !wanted.is_finite() || wanted == 0.0 {
+            return 0.0;
+        }
+        let limit = lo_offset_limit_hz(sample_rate);
+        let offset = wanted.clamp(-limit, limit);
+        if offset == 0.0 {
+            return 0.0;
+        }
+        let reachable = |hz: Option<f64>| {
+            hz.is_none_or(|hz| {
+                capabilities.freq_ranges.is_empty()
+                    || any_range_holds(&capabilities.freq_ranges, hz - offset)
+            })
+        };
+        if reachable(self.center_hz) && self.streams.iter().all(|s| reachable(s.center_hz)) {
+            offset
+        } else {
+            0.0
+        }
+    }
+
+    /// Rewrites the operator's tuning into the tuning the hardware is given.
+    ///
+    /// The offset is subtracted here and added back by the front end's mixer, so every frequency
+    /// outside this function stays the one the operator asked for.
+    #[must_use]
+    pub fn to_hardware(&self, lo_offset_hz: f64) -> DeviceSettings {
+        let mut hardware = self.shifted(-lo_offset_hz);
+        hardware.dc_block = None;
+        hardware.lo_offset_hz = None;
+        hardware
+    }
+
+    /// Reads hardware tuning back in the operator's frame, undoing [`Self::to_hardware`].
+    #[must_use]
+    pub fn to_operator(&self, lo_offset_hz: f64) -> DeviceSettings {
+        self.shifted(lo_offset_hz)
+    }
+
+    fn shifted(&self, by_hz: f64) -> DeviceSettings {
+        let mut shifted = self.clone();
+        if by_hz != 0.0 {
+            shifted.center_hz = shifted.center_hz.map(|hz| hz + by_hz);
+            for stream in &mut shifted.streams {
+                stream.center_hz = stream.center_hz.map(|hz| hz + by_hz);
+            }
+        }
+        shifted
     }
 
     #[must_use]
@@ -816,6 +898,105 @@ mod tests {
                 },
             ]
         );
+    }
+
+    const RATE: f64 = 2_400_000.0;
+
+    fn tuner(min: f64, max: f64) -> Capabilities {
+        caps(vec![range(min, max)], vec![RATE], Duplex::RxOnly)
+    }
+
+    fn tuned(center_hz: f64, lo_offset_hz: Option<f64>) -> DeviceSettings {
+        DeviceSettings {
+            center_hz: Some(center_hz),
+            sample_rate: Some(RATE),
+            lo_offset_hz,
+            ..DeviceSettings::default()
+        }
+    }
+
+    #[test]
+    fn an_lo_offset_is_capped_at_a_fraction_of_the_sample_rate() {
+        let caps = tuner(24e6, 1_766e6);
+        let limit = lo_offset_limit_hz(RATE);
+        assert_eq!(limit, RATE * MAX_LO_OFFSET_FRACTION);
+
+        let asked = tuned(100e6, Some(limit * 4.0));
+        assert_eq!(asked.effective_lo_offset_hz(&caps, RATE), limit);
+
+        let negative = tuned(100e6, Some(-limit * 4.0));
+        assert_eq!(negative.effective_lo_offset_hz(&caps, RATE), -limit);
+    }
+
+    #[test]
+    fn an_lo_offset_that_would_leave_the_tuning_range_is_dropped() {
+        let caps = tuner(24e6, 1_766e6);
+        let at_the_edge = tuned(24_100_000.0, Some(300_000.0));
+        assert_eq!(
+            at_the_edge.effective_lo_offset_hz(&caps, RATE),
+            0.0,
+            "the front end kept an offset the tuner cannot reach"
+        );
+        let inside = tuned(100e6, Some(300_000.0));
+        assert_eq!(inside.effective_lo_offset_hz(&caps, RATE), 300_000.0);
+    }
+
+    #[test]
+    fn an_unset_or_impossible_lo_offset_is_no_offset() {
+        let caps = tuner(24e6, 1_766e6);
+        assert_eq!(tuned(100e6, None).effective_lo_offset_hz(&caps, RATE), 0.0);
+        assert_eq!(
+            tuned(100e6, Some(f64::NAN)).effective_lo_offset_hz(&caps, RATE),
+            0.0
+        );
+        assert_eq!(
+            tuned(100e6, Some(200e3)).effective_lo_offset_hz(&caps, 0.0),
+            0.0,
+            "no sample rate leaves no room to move the LO"
+        );
+    }
+
+    #[test]
+    fn a_stream_that_cannot_follow_the_offset_holds_the_whole_radio_back() {
+        let caps = tuner(24e6, 1_766e6);
+        let mut settings = tuned(100e6, Some(300_000.0));
+        settings.streams = vec![StreamSettings {
+            stream: 1,
+            center_hz: Some(24_100_000.0),
+            ..StreamSettings::default()
+        }];
+        assert_eq!(settings.effective_lo_offset_hz(&caps, RATE), 0.0);
+    }
+
+    #[test]
+    fn hardware_tuning_displaces_every_centre_and_comes_back_unchanged() {
+        let mut settings = tuned(100e6, Some(300_000.0));
+        settings.dc_block = Some(true);
+        settings.streams = vec![StreamSettings {
+            stream: 1,
+            center_hz: Some(433_920_000.0),
+            ..StreamSettings::default()
+        }];
+
+        let hardware = settings.to_hardware(300_000.0);
+        assert_eq!(hardware.center_hz, Some(99_700_000.0));
+        assert_eq!(hardware.streams[0].center_hz, Some(433_620_000.0));
+        assert_eq!(
+            (hardware.dc_block, hardware.lo_offset_hz),
+            (None, None),
+            "the front end's own settings were handed to the driver"
+        );
+
+        let back = hardware.to_operator(300_000.0);
+        assert_eq!(back.center_hz, settings.center_hz);
+        assert_eq!(back.streams[0].center_hz, settings.streams[0].center_hz);
+    }
+
+    #[test]
+    fn no_offset_leaves_the_tuning_exactly_as_it_was() {
+        let settings = tuned(100e6, None);
+        assert_eq!(settings.to_hardware(0.0).center_hz, Some(100e6));
+        assert_eq!(settings.to_operator(0.0).center_hz, Some(100e6));
     }
 
     #[test]

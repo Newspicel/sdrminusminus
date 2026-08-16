@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GainStage } from "../lib/types";
 import {
+  clampLoOffsetHz,
   isSwitch,
+  loOffsetLimitHz,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -136,5 +138,27 @@ describe("snapToRanges", () => {
   it("has nothing to say without windows", () => {
     expect(snapToRanges([], 500)).toBe(500);
     expect(snapToRanges(undefined, 500)).toBe(500);
+  });
+});
+
+describe("loOffsetLimitHz", () => {
+  it("keeps the LO inside the tuner's flat passband", () => {
+    expect(loOffsetLimitHz(2_400_000)).toBe(960_000);
+    expect(loOffsetLimitHz(0)).toBe(0);
+    expect(loOffsetLimitHz(undefined)).toBe(0);
+    expect(loOffsetLimitHz(Number.NaN)).toBe(0);
+  });
+});
+
+describe("clampLoOffsetHz", () => {
+  it("holds a request to the limit in both directions", () => {
+    expect(clampLoOffsetHz(250_000, 2_400_000)).toBe(250_000);
+    expect(clampLoOffsetHz(5_000_000, 2_400_000)).toBe(960_000);
+    expect(clampLoOffsetHz(-5_000_000, 2_400_000)).toBe(-960_000);
+  });
+
+  it("falls back to tuning dead centre when there is no room or no number", () => {
+    expect(clampLoOffsetHz(250_000, undefined)).toBe(0);
+    expect(clampLoOffsetHz(Number.NaN, 2_400_000)).toBe(0);
   });
 });

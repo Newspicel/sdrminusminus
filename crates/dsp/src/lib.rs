@@ -42,7 +42,9 @@ pub use fec::{
 pub use fir::{design_bandpass, design_gaussian, design_lowpass, design_rrc};
 pub use firc::FirC;
 pub use fm::FmDemod;
-pub use iir::{Biquad, ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
+pub use iir::{
+    Biquad, ComplexOnePole, DcBlocker, Deemphasis, Highpass, IqDcBlocker, one_pole_coeff,
+};
 pub use level::{LEVEL_FLOOR_DB, LevelMeter};
 pub use nco::Nco;
 pub use noise::{AutoNotch, ClickRemover, NoiseBlanker, SpectralDenoiser};

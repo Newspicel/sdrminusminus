@@ -304,6 +304,12 @@ pub trait ChannelRx: Send {
 
     fn position_changed(&mut self, _fix: Option<&PositionFix>) {}
 
+    /// Where the receiver's own LO artifact falls in this channel's baseband, if it falls in it.
+    ///
+    /// A zero-IF front end's DC term is a carrier like any other and cannot be told apart from a
+    /// real one by its shape, so anything measuring the passband has to be told to disregard it.
+    fn lo_artifact_at(&mut self, _offset_hz: Option<f64>) {}
+
     fn needs_gated_input(&self) -> bool {
         true
     }

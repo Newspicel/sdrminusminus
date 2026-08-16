@@ -16,7 +16,7 @@ use sdrmm_channels::{
     ClickProfile, DecodedImage,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
-use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
+use sdrmm_dsp::{Ddc, IqDcBlocker, LevelMeter, Nco, Squelch};
 use sdrmm_wire::{
     ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, PositionFix,
     StreamScope,
@@ -58,13 +58,49 @@ pub struct SpectrumSnapshot {
     pub timestamp: u64,
     pub center_hz: f64,
     pub span_hz: f32,
+    pub lo_hz: f64,
     pub db: Arc<[f32]>,
 }
 
-#[derive(Clone, Copy)]
+/// How far either side of the LO a measurement is worthless.
+///
+/// The front end's own DC term is a carrier at the LO, so a Hann window spreads it over a main
+/// lobe; blocking it leaves a notch in the same bins. Neither is a reading of what is on the air.
+const LO_GUARD_BINS: usize = 2;
+
+impl SpectrumSnapshot {
+    #[must_use]
+    pub fn lo_guard(&self) -> Option<std::ops::RangeInclusive<usize>> {
+        let n = self.db.len();
+        if n == 0 || !self.span_hz.is_finite() || self.span_hz <= 0.0 || !self.lo_hz.is_finite() {
+            return None;
+        }
+        let offset = (self.lo_hz - self.center_hz) / f64::from(self.span_hz);
+        let bin = (offset + 0.5) * n as f64;
+        if !bin.is_finite() {
+            return None;
+        }
+        let lo = (bin - LO_GUARD_BINS as f64).ceil();
+        let hi = (bin + LO_GUARD_BINS as f64).floor();
+        if hi < 0.0 || lo > (n - 1) as f64 {
+            return None;
+        }
+        Some((lo.max(0.0) as usize)..=(hi.max(0.0) as usize).min(n - 1))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
 pub struct DspMeta {
     pub center_hz: f64,
     pub sample_rate: f64,
+    pub lo_offset_hz: f64,
+    pub dc_block: bool,
+}
+
+impl DspMeta {
+    fn lo_hz(&self) -> f64 {
+        self.center_hz - self.lo_offset_hz
+    }
 }
 
 pub(crate) struct RawDecoded {
@@ -183,6 +219,7 @@ pub(crate) struct ChannelHost {
     baseband_pos: u64,
     input_rate: f64,
     meter: LevelMeter,
+    lo_artifact_hz: Option<f64>,
 }
 
 impl ChannelHost {
@@ -250,10 +287,12 @@ impl ChannelHost {
             baseband_pos: 0,
             input_rate,
             meter: LevelMeter::new(input_rate),
+            lo_artifact_hz: None,
         }))
     }
 
-    fn process(&mut self, input: &[Complex<f32>], center_hz: f64) {
+    fn process(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+        self.follow_lo_artifact(lo_offset_hz);
         self.ddc.process(input, &mut self.scratch);
         if self.scratch.is_empty() {
             return;
@@ -435,6 +474,17 @@ impl ChannelHost {
         self.emits_events = self.decodes && self.rx.needs_gated_input();
     }
 
+    /// Tells the decoder where the front end's DC term sits once it lands inside this passband.
+    fn follow_lo_artifact(&mut self, lo_offset_hz: f64) {
+        let at = -(lo_offset_hz + self.offset_hz);
+        let inside = at.abs() < self.input_rate / 2.0;
+        let artifact = inside.then_some(at);
+        if artifact != self.lo_artifact_hz {
+            self.lo_artifact_hz = artifact;
+            self.rx.lo_artifact_at(artifact);
+        }
+    }
+
     pub(crate) fn position_changed(&mut self, fix: Option<&PositionFix>) {
         self.rx.position_changed(fix);
     }
@@ -478,6 +528,64 @@ pub(crate) enum DspCommand {
 }
 
 type FatalReport = Box<dyn FnOnce(DeviceError) + Send>;
+
+/// Keeps the DC notch to a fraction of an analysis bin, so it cannot dent the displayed spectrum.
+fn dc_block_corner_hz(sample_rate: f64) -> f64 {
+    (sample_rate / FFT_SIZE as f64 * 0.25).clamp(1.0, 500.0)
+}
+
+/// Cleans the capture stream before anything downstream sees it.
+///
+/// Order matters: the DC term sits at the hardware LO, so it has to be taken out before the shift
+/// that moves the LO off the frequency the operator asked for.
+struct Frontend {
+    blocker: IqDcBlocker,
+    nco: Nco,
+    scratch: Vec<Complex<f32>>,
+    meta: DspMeta,
+}
+
+impl Frontend {
+    fn new(meta: DspMeta) -> Self {
+        Self {
+            blocker: IqDcBlocker::new(meta.sample_rate, dc_block_corner_hz(meta.sample_rate)),
+            nco: Nco::new(-meta.lo_offset_hz as f32, meta.sample_rate as f32),
+            scratch: Vec::new(),
+            meta,
+        }
+    }
+
+    fn follow(&mut self, meta: DspMeta) {
+        if meta == self.meta {
+            return;
+        }
+        if meta.sample_rate != self.meta.sample_rate {
+            self.blocker = IqDcBlocker::new(meta.sample_rate, dc_block_corner_hz(meta.sample_rate));
+        }
+        if meta.lo_offset_hz != self.meta.lo_offset_hz || meta.sample_rate != self.meta.sample_rate
+        {
+            self.nco
+                .set_freq(-meta.lo_offset_hz as f32, meta.sample_rate as f32);
+        }
+        self.meta = meta;
+    }
+
+    fn apply<'a>(&'a mut self, input: &'a [Complex<f32>]) -> &'a [Complex<f32>] {
+        let shift = self.meta.lo_offset_hz != 0.0;
+        if !self.meta.dc_block && !shift {
+            return input;
+        }
+        self.scratch.clear();
+        self.scratch.extend_from_slice(input);
+        if self.meta.dc_block {
+            self.blocker.process(&mut self.scratch);
+        }
+        if shift {
+            self.nco.mix(&mut self.scratch);
+        }
+        &self.scratch
+    }
+}
 
 /// Wakes the lane's DSP thread the moment the capture callback has samples for it.
 ///
@@ -530,6 +638,7 @@ impl CaptureRuntime {
     pub fn start(
         mut device: Box<dyn SdrDevice>,
         settings: &DeviceSettings,
+        lo_offset_hz: f64,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
@@ -593,6 +702,8 @@ impl CaptureRuntime {
                 meta: Arc::new(ArcSwap::from_pointee(DspMeta {
                     center_hz,
                     sample_rate,
+                    lo_offset_hz,
+                    dc_block: settings.dc_block.unwrap_or(false),
                 })),
                 spectrum_tx,
                 cmd_tx,
@@ -665,7 +776,7 @@ impl CaptureRuntime {
             .collect()
     }
 
-    pub fn set_meta(&self, settings: &DeviceSettings) {
+    pub fn set_meta(&self, settings: &DeviceSettings, lo_offset_hz: f64) {
         let sample_rate = crate::sample_rate_of(settings);
         for (stream, lane) in self.lanes.iter().enumerate() {
             let center_hz = settings
@@ -675,12 +786,17 @@ impl CaptureRuntime {
             lane.meta.store(Arc::new(DspMeta {
                 center_hz,
                 sample_rate,
+                lo_offset_hz,
+                dc_block: settings.dc_block.unwrap_or(false),
             }));
         }
     }
 
-    pub fn device_settings(&self) -> Option<DeviceSettings> {
-        self.device.as_ref().map(|d| d.settings().clone())
+    /// What the hardware reports, translated back into the frequencies the operator asked for.
+    pub fn device_settings(&self, lo_offset_hz: f64) -> Option<DeviceSettings> {
+        self.device
+            .as_ref()
+            .map(|d| d.settings().to_operator(lo_offset_hz))
     }
 
     pub fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
@@ -739,6 +855,7 @@ fn dsp_loop(
     let mut dropped_seen: u64 = 0;
     let mut seq: u32 = 0;
     let mut served = Instant::now();
+    let mut frontend = Frontend::new(*meta.load_full());
 
     while !stop.load(Ordering::Acquire) {
         drain_commands(
@@ -764,7 +881,9 @@ fn dsp_loop(
             continue;
         };
         let (a, b) = chunk.as_slices();
-        for slice in [a, b] {
+        frontend.follow(snapshot);
+        for raw in [a, b] {
+            let slice = frontend.apply(raw);
             if tap
                 .as_ref()
                 .is_some_and(|t| !t.push(slice, total, snapshot.center_hz))
@@ -784,7 +903,7 @@ fn dsp_loop(
                 history = None;
             }
             for (_, host) in &mut channels {
-                host.process(slice, snapshot.center_hz);
+                host.process(slice, snapshot.center_hz, snapshot.lo_offset_hz);
             }
             for &s in slice {
                 hist[write_pos] = s;
@@ -803,6 +922,7 @@ fn dsp_loop(
                         timestamp: total,
                         center_hz: snapshot.center_hz,
                         span_hz: snapshot.sample_rate as f32,
+                        lo_hz: snapshot.lo_hz(),
                     };
                     if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
                         seq = seq.wrapping_add(1);
@@ -811,6 +931,7 @@ fn dsp_loop(
                             timestamp: completed.timestamp,
                             center_hz: completed.center_hz,
                             span_hz: completed.span_hz,
+                            lo_hz: completed.lo_hz,
                             db: Arc::from(db.as_slice()),
                         });
                     }
@@ -989,7 +1110,7 @@ mod tests {
     ) -> Vec<PcmBlock> {
         let mut blocks = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0);
+            host.process(chunk, 0.0, 0.0);
             while let Ok(block) = rx.try_recv() {
                 blocks.push(block);
             }
@@ -1107,7 +1228,7 @@ mod tests {
 
         let mut audio: Vec<f32> = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0);
+            host.process(chunk, 0.0, 0.0);
             while let Ok(block) = rx.try_recv() {
                 if let PcmPayload::Samples(samples) = block.payload {
                     audio.extend_from_slice(&samples);
@@ -1138,12 +1259,12 @@ mod tests {
         .expect("host");
         let input = tone(1_000.0, 0.5, 24_000);
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0);
+            host.process(chunk, 0.0, 0.0);
         }
         let mut host = ChannelHost::build(RATE, &settings, sinks(pcm_tx, pos), DecodedSink::null())
             .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0);
+            host.process(chunk, 0.0, 0.0);
         }
 
         let mut expected = 0u64;
@@ -1195,7 +1316,7 @@ mod tests {
         let blocks = (DEVICE_RATE * SECONDS / MTU as f64) as usize;
         let start = std::time::Instant::now();
         for _ in 0..blocks {
-            host.process(&block, 100_000_000.0);
+            host.process(&block, 100_000_000.0, 0.0);
             while pcm_rx.try_recv().is_ok() {}
         }
         let factor = SECONDS / start.elapsed().as_secs_f64();
@@ -1213,7 +1334,7 @@ mod tests {
 
         let input = tone(3_000.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process(block, 100_000_000.0);
+            host.process(block, 100_000_000.0, 0.0);
         }
 
         let burst = rx.try_recv().expect("a subscribed tap sends bursts");
@@ -1240,7 +1361,7 @@ mod tests {
 
         let input = tone(0.0, 1e-6, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process(block, 100_000_000.0);
+            host.process(block, 100_000_000.0, 0.0);
         }
 
         assert!(
@@ -1259,7 +1380,7 @@ mod tests {
 
         let input = tone(0.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process(block, 100_000_000.0);
+            host.process(block, 100_000_000.0, 0.0);
         }
         assert_eq!(host.sinks.iq_tx.receiver_count(), 0);
         assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
@@ -1332,7 +1453,7 @@ mod tests {
             let (mut host, mut rx) = tapped_host(settings);
             let mut worst = 0.0f32;
             for chunk in input.chunks(BLOCK) {
-                host.process(chunk, 0.0);
+                host.process(chunk, 0.0, 0.0);
                 while let Ok(block) = rx.try_recv() {
                     if block.timestamp < 8_192 {
                         continue;
@@ -1456,5 +1577,146 @@ mod tests {
             worst,
             "a short gap must not erase the worst one"
         );
+    }
+
+    const FRONTEND_RATE: f64 = 2_400_000.0;
+
+    fn frontend_meta(lo_offset_hz: f64, dc_block: bool) -> DspMeta {
+        DspMeta {
+            center_hz: 100_000_000.0,
+            sample_rate: FRONTEND_RATE,
+            lo_offset_hz,
+            dc_block,
+        }
+    }
+
+    fn wideband_tone(freq_hz: f64, len: usize) -> Vec<Complex<f32>> {
+        (0..len)
+            .map(|k| {
+                let p = TAU * freq_hz * k as f64 / FRONTEND_RATE;
+                Complex::new(p.cos() as f32, p.sin() as f32)
+            })
+            .collect()
+    }
+
+    fn dominant_hz(samples: &[Complex<f32>]) -> f64 {
+        const BINS: usize = 4_096;
+        let mut db = vec![0.0f32; BINS];
+        sdrmm_dsp::SpectrumAnalyzer::new(BINS).power_db(&samples[..BINS], &mut db);
+        let peak = db
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        (peak as f64 - BINS as f64 / 2.0) * FRONTEND_RATE / BINS as f64
+    }
+
+    #[test]
+    fn a_quiet_frontend_hands_the_capture_through_untouched() {
+        let mut frontend = Frontend::new(frontend_meta(0.0, false));
+        let input = wideband_tone(120_000.0, 4_096);
+        let out = frontend.apply(&input);
+        assert_eq!(out.as_ptr(), input.as_ptr(), "the samples were copied");
+    }
+
+    #[test]
+    fn the_frontend_takes_the_dc_term_out_and_leaves_the_signal() {
+        let mut frontend = Frontend::new(frontend_meta(0.0, true));
+        let offset = Complex::new(0.08, -0.05);
+        let mut input = wideband_tone(120_000.0, 1 << 18);
+        for s in &mut input {
+            *s += offset;
+        }
+
+        let out = frontend.apply(&input).to_vec();
+        let tail = &out[out.len() / 2..];
+        let mean: Complex<f32> = tail.iter().sum::<Complex<f32>>() / tail.len() as f32;
+        assert!(mean.norm() < 1e-3, "dc survived at {}", mean.norm());
+        assert!(
+            (dominant_hz(tail) - 120_000.0).abs() < 600.0,
+            "the tone moved to {} Hz",
+            dominant_hz(tail)
+        );
+    }
+
+    #[test]
+    fn an_lo_offset_slides_the_capture_back_under_the_frequency_that_was_asked_for() {
+        let mut frontend = Frontend::new(frontend_meta(200_000.0, false));
+        let input = wideband_tone(320_000.0, 1 << 16);
+        let out = frontend.apply(&input).to_vec();
+        assert!(
+            (dominant_hz(&out) - 120_000.0).abs() < 600.0,
+            "a signal 320 kHz above a displaced LO landed at {} Hz, not 120 kHz",
+            dominant_hz(&out)
+        );
+    }
+
+    #[test]
+    fn the_dc_term_is_removed_before_the_offset_carries_it_away_from_centre() {
+        let mut frontend = Frontend::new(frontend_meta(200_000.0, true));
+        let mut input = wideband_tone(320_000.0, 1 << 18);
+        for s in &mut input {
+            *s += Complex::new(0.5, 0.5);
+        }
+        let out = frontend.apply(&input).to_vec();
+        let tail = &out[out.len() / 2..];
+        assert!(
+            (dominant_hz(tail) - 120_000.0).abs() < 600.0,
+            "the dc term outshouted the signal at {} Hz",
+            dominant_hz(tail)
+        );
+    }
+
+    #[test]
+    fn a_rate_change_rebuilds_the_estimator_and_a_retune_does_not_disturb_it() {
+        let mut frontend = Frontend::new(frontend_meta(0.0, true));
+        let settled = vec![Complex::new(1.0, 0.0); 1 << 18];
+        frontend.apply(&settled);
+
+        let mut retuned = frontend_meta(0.0, true);
+        retuned.center_hz += 1_000_000.0;
+        frontend.follow(retuned);
+        let held = frontend.apply(&[Complex::new(1.0, 0.0); 8])[0];
+        assert!(
+            held.norm() < 0.05,
+            "a retune threw away a still-valid dc estimate"
+        );
+
+        let mut faster = retuned;
+        faster.sample_rate = 3_200_000.0;
+        frontend.follow(faster);
+        let fresh = frontend.apply(&[Complex::new(1.0, 0.0); 8])[0];
+        assert!(
+            fresh.norm() > 0.9,
+            "a new sample rate kept an estimator built for the old one"
+        );
+    }
+
+    fn snapshot_at(center_hz: f64, lo_hz: f64, bins: usize) -> SpectrumSnapshot {
+        SpectrumSnapshot {
+            seq: 0,
+            timestamp: 0,
+            center_hz,
+            span_hz: 1_024_000.0,
+            lo_hz,
+            db: Arc::from(vec![-100.0f32; bins].as_slice()),
+        }
+    }
+
+    #[test]
+    fn the_lo_guard_covers_the_artifact_wherever_the_lo_was_parked() {
+        let centred = snapshot_at(100e6, 100e6, 1_024);
+        assert_eq!(centred.lo_guard(), Some(510..=514));
+
+        let displaced = snapshot_at(100e6, 100e6 - 256_000.0, 1_024);
+        assert_eq!(displaced.lo_guard(), Some(254..=258));
+    }
+
+    #[test]
+    fn an_lo_outside_the_span_guards_nothing() {
+        assert_eq!(snapshot_at(100e6, 90e6, 1_024).lo_guard(), None);
+        assert_eq!(snapshot_at(100e6, f64::NAN, 1_024).lo_guard(), None);
+        assert_eq!(snapshot_at(100e6, 100e6, 0).lo_guard(), None);
     }
 }

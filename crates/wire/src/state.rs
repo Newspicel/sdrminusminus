@@ -67,6 +67,10 @@ pub struct DeviceSet {
     pub capabilities: Capabilities,
     pub settings: DeviceSettings,
     pub status: DeviceSetStatus,
+    /// Where the LO actually sits relative to the tuned centre, which is not always what was
+    /// asked for: the front end steps it aside when a decoder is parked on the DC artifact.
+    #[serde(default)]
+    pub lo_offset_in_force_hz: f64,
     pub channels: Vec<ChannelInfo>,
     #[serde(default)]
     pub overruns: u64,

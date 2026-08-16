@@ -39,6 +39,12 @@ impl Nco {
             *o = *i * self.next_sample();
         }
     }
+
+    pub fn mix(&mut self, samples: &mut [Complex<f32>]) {
+        for s in samples {
+            *s *= self.next_sample();
+        }
+    }
 }
 
 fn wrap_pi(x: f32) -> f32 {
@@ -66,6 +72,25 @@ mod tests {
             "mean norm {}",
             mean.norm()
         );
+    }
+
+    #[test]
+    fn mixing_in_place_matches_mixing_into_a_buffer() {
+        let fs = 48_000.0;
+        let mut src = Nco::new(3_000.0, fs);
+        let tone: Vec<Complex<f32>> = (0..4_096).map(|_| src.next_sample()).collect();
+
+        let mut copied = vec![Complex::new(0.0, 0.0); tone.len()];
+        Nco::new(-1_000.0, fs).mix_into(&tone, &mut copied);
+        let mut in_place = tone.clone();
+        Nco::new(-1_000.0, fs).mix(&mut in_place);
+
+        let worst = copied
+            .iter()
+            .zip(&in_place)
+            .map(|(a, b)| (a - b).norm())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 1e-6, "in-place mix diverged: {worst}");
     }
 
     #[test]

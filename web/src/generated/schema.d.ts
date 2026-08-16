@@ -2004,6 +2004,12 @@ export interface components {
             fault?: null | components["schemas"]["DeviceFault"];
             /** Format: int32 */
             id: number;
+            /**
+             * Format: double
+             * @description Where the LO actually sits relative to the tuned centre, which is not always what was
+             *     asked for: the front end steps it aside when a decoder is parked on the DC artifact.
+             */
+            lo_offset_in_force_hz?: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
             /** Format: int64 */
             overruns?: number;
@@ -2022,8 +2028,11 @@ export interface components {
             bandwidth?: number | null;
             /** Format: double */
             center_hz?: number | null;
+            dc_block?: boolean | null;
             extra?: components["schemas"]["ExtraValue"][];
             gains?: components["schemas"]["GainValue"][];
+            /** Format: double */
+            lo_offset_hz?: number | null;
             /** Format: double */
             ppm?: number | null;
             /** Format: double */

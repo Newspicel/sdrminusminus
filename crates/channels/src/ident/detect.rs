@@ -13,8 +13,28 @@ const SMOOTH_BINS: usize = 3;
 
 const FLOOR_QUANTILE: f32 = 0.1;
 
+/// How far either side of the LO artifact its main lobe reaches, in bins.
+const ARTIFACT_BINS: usize = 2;
+
 fn from_db(db: f32) -> f32 {
     (db * 0.332_192_8).exp2()
+}
+
+fn artifact_bins(
+    artifact_hz: Option<f64>,
+    bin_hz: f64,
+    center: usize,
+) -> Option<std::ops::RangeInclusive<usize>> {
+    let at = artifact_hz.filter(|hz| hz.is_finite())? / bin_hz + center as f64;
+    if !at.is_finite() {
+        return None;
+    }
+    let lo = (at - ARTIFACT_BINS as f64).ceil();
+    let hi = (at + ARTIFACT_BINS as f64).floor();
+    if hi < 0.0 || lo > (DETECT_FFT - 1) as f64 {
+        return None;
+    }
+    Some((lo.max(0.0) as usize)..=(hi.max(0.0) as usize).min(DETECT_FFT - 1))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -67,6 +87,7 @@ impl Detector {
         half_span_hz: f64,
         threshold_db: f32,
         dominated: bool,
+        artifact_hz: Option<f64>,
     ) -> Measurement {
         let quiet = Measurement {
             floor_db: -200.0,
@@ -83,10 +104,13 @@ impl Detector {
         let half_bins = ((half_span_hz / bin_hz).floor() as usize).clamp(1, center);
         let lo = center - half_bins;
         let hi = (center + half_bins).min(DETECT_FFT - 1);
+        let artifact = artifact_bins(artifact_hz, bin_hz, center);
 
         let floor = self.quantile_of(Series::Smoothed, lo, hi, FLOOR_QUANTILE);
         let floor_db = 10.0 * (floor.max(f32::MIN_POSITIVE)).log10();
-        let Some(peak) = (lo..=hi).max_by(|&a, &b| self.smoothed[a].total_cmp(&self.smoothed[b]))
+        let Some(peak) = (lo..=hi)
+            .filter(|i| !artifact.as_ref().is_some_and(|a| a.contains(i)))
+            .max_by(|&a, &b| self.smoothed[a].total_cmp(&self.smoothed[b]))
         else {
             return quiet;
         };
@@ -269,7 +293,7 @@ mod tests {
     fn empty_air_reports_no_band() {
         let mut detector = Detector::new();
         let noise = complex_noise(0x51d3, 0.01, 32_768);
-        let measured = detector.measure(&noise, RATE, 100_000.0, 8.0, false);
+        let measured = detector.measure(&noise, RATE, 100_000.0, 8.0, false, None);
         assert!(measured.band.is_none());
     }
 
@@ -281,7 +305,7 @@ mod tests {
             *s += n;
         }
         let band = detector
-            .measure(&iq, RATE, 100_000.0, 8.0, false)
+            .measure(&iq, RATE, 100_000.0, 8.0, false, None)
             .band
             .expect("a carrier 40 dB out of the noise is a signal");
         assert!(
@@ -300,6 +324,49 @@ mod tests {
     }
 
     #[test]
+    fn the_front_ends_dc_term_does_not_become_the_band() {
+        let mut detector = Detector::new();
+        let mut iq = tone(20_000.0, RATE, 32_768, 0.2);
+        for (s, n) in iq.iter_mut().zip(complex_noise(0x2b91, 0.002, 32_768)) {
+            *s += n + Complex::new(0.9, 0.6);
+        }
+
+        let fooled = detector
+            .measure(&iq, RATE, 100_000.0, 8.0, false, None)
+            .band
+            .expect("the dc term alone reads as a band");
+        assert!(
+            fooled.center_hz.abs() < 2_000.0,
+            "the unguarded detector was expected to sit on dc, got {} Hz",
+            fooled.center_hz
+        );
+
+        let guarded = detector
+            .measure(&iq, RATE, 100_000.0, 8.0, false, Some(0.0))
+            .band
+            .expect("the real carrier is still there");
+        assert!(
+            (guarded.center_hz - 20_000.0).abs() < 500.0,
+            "the guarded detector reported {} Hz, not the carrier at 20 kHz",
+            guarded.center_hz
+        );
+    }
+
+    #[test]
+    fn a_guard_away_from_dc_leaves_a_carrier_on_dc_alone() {
+        let mut detector = Detector::new();
+        let mut iq = tone(0.0, RATE, 32_768, 0.5);
+        for (s, n) in iq.iter_mut().zip(complex_noise(0x6c02, 0.002, 32_768)) {
+            *s += n;
+        }
+        let band = detector
+            .measure(&iq, RATE, 100_000.0, 8.0, false, Some(-60_000.0))
+            .band
+            .expect("a carrier on dc is a signal when the LO is elsewhere");
+        assert!(band.center_hz.abs() < 500.0, "centre {} Hz", band.center_hz);
+    }
+
+    #[test]
     fn the_search_stays_inside_the_requested_slice() {
         let mut detector = Detector::new();
         let mut iq = tone(10_000.0, RATE, 32_768, 0.2);
@@ -311,7 +378,7 @@ mod tests {
             *s += loud + n;
         }
         let band = detector
-            .measure(&iq, RATE, 20_000.0, 8.0, false)
+            .measure(&iq, RATE, 20_000.0, 8.0, false, None)
             .band
             .expect("the quiet carrier is inside the slice");
         assert!(

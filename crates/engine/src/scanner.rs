@@ -407,11 +407,12 @@ fn measure(snapshot: &SpectrumSnapshot, target: f64, bw_hz: f64) -> Option<f32> 
     }
     let lo = (lo.max(0.0) as usize).min(n - 1);
     let hi = (hi.max(0.0) as usize).min(n - 1);
-    snapshot.db[lo..=hi]
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max)
-        .into()
+    let guard = snapshot.lo_guard();
+    let peak = (lo..=hi)
+        .filter(|i| !guard.as_ref().is_some_and(|g| g.contains(i)))
+        .map(|i| snapshot.db[i])
+        .fold(f32::NEG_INFINITY, f32::max);
+    peak.is_finite().then_some(peak)
 }
 
 #[cfg(test)]
@@ -547,6 +548,7 @@ mod tests {
             timestamp: 0,
             center_hz,
             span_hz,
+            lo_hz: center_hz,
             db: Arc::from(db.as_slice()),
         }
     }
@@ -563,6 +565,33 @@ mod tests {
         assert_eq!(measure(&snap, 99_000_000.0, 10_000.0), None);
 
         assert_eq!(measure(&snap, 100_100_000.0, 60_000.0), Some(-20.0));
+    }
+
+    #[test]
+    fn a_spike_at_the_lo_is_not_mistaken_for_a_target() {
+        let mut db = vec![-90.0f32; 1024];
+        db[512] = -20.0;
+        let snap = snapshot(100_000_000.0, 1_000_000.0, db);
+
+        assert_eq!(
+            measure(&snap, 100_000_000.0, 10_000.0),
+            Some(-90.0),
+            "the front end's own spike read as a signal on the tuned frequency"
+        );
+    }
+
+    #[test]
+    fn moving_the_lo_off_centre_frees_the_frequency_under_it() {
+        let mut db = vec![-90.0f32; 1024];
+        db[512] = -20.0;
+        let mut snap = snapshot(100_000_000.0, 1_000_000.0, db);
+        snap.lo_hz = 100_000_000.0 - 250_000.0;
+
+        assert_eq!(
+            measure(&snap, 100_000_000.0, 10_000.0),
+            Some(-20.0),
+            "a real carrier was thrown away with the LO guard"
+        );
     }
 
     fn listener() -> Scan {

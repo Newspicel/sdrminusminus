@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::RangeInclusive};
 
 use sdrmm_wire::{OccupancyBucket, OccupancyReport};
 
@@ -35,7 +35,14 @@ impl Occupancy {
         Self::default()
     }
 
-    pub fn observe(&mut self, db: &[f32], center_hz: f64, span_hz: f32, now_ms: i64) {
+    pub fn observe(
+        &mut self,
+        db: &[f32],
+        center_hz: f64,
+        span_hz: f32,
+        lo_guard: Option<RangeInclusive<usize>>,
+        now_ms: i64,
+    ) {
         let n = db.len();
         if n == 0 || !span_hz.is_finite() || span_hz <= 0.0 || !center_hz.is_finite() {
             return;
@@ -51,7 +58,7 @@ impl Occupancy {
 
         let mut current: Option<(u64, bool)> = None;
         for (i, &level) in db.iter().enumerate() {
-            if !level.is_finite() {
+            if !level.is_finite() || lo_guard.as_ref().is_some_and(|g| g.contains(&i)) {
                 continue;
             }
             let hz = first_hz + (i as f64 + 0.5) * bin_hz;
@@ -193,7 +200,7 @@ mod tests {
     #[test]
     fn a_carrier_reads_as_occupied_and_the_noise_around_it_does_not() {
         let mut occupancy = Occupancy::new();
-        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
+        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, None, 0);
 
         let report = occupancy.report(1);
         let busy: Vec<&OccupancyBucket> = report.buckets.iter().filter(|b| b.duty > 0.0).collect();
@@ -207,10 +214,27 @@ mod tests {
     }
 
     #[test]
+    fn the_front_ends_own_spike_is_not_filed_as_a_busy_frequency() {
+        let mut occupancy = Occupancy::new();
+        for _ in 0..10 {
+            occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, Some(62..=66), 0);
+        }
+        let report = occupancy.report(1);
+        assert!(
+            report.buckets.iter().all(|b| b.duty == 0.0),
+            "a guarded spike was recorded as occupancy"
+        );
+        assert!(
+            !report.buckets.is_empty(),
+            "guarding the LO silenced the whole sweep"
+        );
+    }
+
+    #[test]
     fn duty_is_the_fraction_of_observations_that_were_busy() {
         let mut occupancy = Occupancy::new();
         for i in 0..10 {
-            occupancy.observe(&frame(128, (i < 3).then_some(64)), 100e6, 1.6e6, 0);
+            occupancy.observe(&frame(128, (i < 3).then_some(64)), 100e6, 1.6e6, None, 0);
         }
         let report = occupancy.report(1);
         let carrier = report
@@ -226,10 +250,10 @@ mod tests {
     fn the_hour_histogram_separates_a_busy_hour_from_a_quiet_one() {
         let mut occupancy = Occupancy::new();
         for _ in 0..10 {
-            occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 7 * HOUR_MS);
+            occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, None, 7 * HOUR_MS);
         }
         for _ in 0..10 {
-            occupancy.observe(&frame(128, None), 100e6, 1.6e6, 3 * HOUR_MS);
+            occupancy.observe(&frame(128, None), 100e6, 1.6e6, None, 3 * HOUR_MS);
         }
 
         let report = occupancy.report(1);
@@ -248,8 +272,8 @@ mod tests {
     #[test]
     fn retuning_files_observations_under_absolute_frequency() {
         let mut occupancy = Occupancy::new();
-        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
-        occupancy.observe(&frame(128, Some(32)), 100.4e6, 1.6e6, 0);
+        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, None, 0);
+        occupancy.observe(&frame(128, Some(32)), 100.4e6, 1.6e6, None, 0);
 
         let report = occupancy.report(1);
         let busy: Vec<&OccupancyBucket> = report.buckets.iter().filter(|b| b.duty > 0.0).collect();
@@ -260,7 +284,7 @@ mod tests {
     #[test]
     fn a_thinly_observed_bucket_is_left_out_of_the_report() {
         let mut occupancy = Occupancy::new();
-        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
+        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, None, 0);
         assert!(occupancy.report(2).buckets.is_empty());
         assert!(!occupancy.report(1).buckets.is_empty());
     }
@@ -269,8 +293,8 @@ mod tests {
     fn the_report_leads_with_the_busiest() {
         let mut occupancy = Occupancy::new();
         for i in 0..10 {
-            occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
-            occupancy.observe(&frame(128, (i < 3).then_some(96)), 100e6, 1.6e6, 0);
+            occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, None, 0);
+            occupancy.observe(&frame(128, (i < 3).then_some(96)), 100e6, 1.6e6, None, 0);
         }
         let report = occupancy.report(1);
         assert!(report.buckets.len() >= 2);
@@ -280,17 +304,17 @@ mod tests {
     #[test]
     fn an_empty_or_impossible_frame_is_ignored_rather_than_recorded() {
         let mut occupancy = Occupancy::new();
-        occupancy.observe(&[], 100e6, 1.6e6, 0);
-        occupancy.observe(&frame(128, None), 100e6, 0.0, 0);
-        occupancy.observe(&frame(128, None), f64::NAN, 1.6e6, 0);
-        occupancy.observe(&vec![f32::NEG_INFINITY; 128], 100e6, 1.6e6, 0);
+        occupancy.observe(&[], 100e6, 1.6e6, None, 0);
+        occupancy.observe(&frame(128, None), 100e6, 0.0, None, 0);
+        occupancy.observe(&frame(128, None), f64::NAN, 1.6e6, None, 0);
+        occupancy.observe(&vec![f32::NEG_INFINITY; 128], 100e6, 1.6e6, None, 0);
         assert!(occupancy.is_empty());
     }
 
     #[test]
     fn clearing_forgets_everything_including_when_it_started() {
         let mut occupancy = Occupancy::new();
-        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, 0);
+        occupancy.observe(&frame(128, Some(64)), 100e6, 1.6e6, None, 0);
         assert!(!occupancy.report(1).since.is_empty());
         occupancy.clear();
         assert!(occupancy.is_empty());
@@ -302,7 +326,7 @@ mod tests {
         let mut occupancy = Occupancy::new();
         for step in 0..(MAX_BUCKETS / 64 + 40) {
             let center = 100e6 + step as f64 * 800e3;
-            occupancy.observe(&frame(64, None), center, 800e3, step as i64 * 1000);
+            occupancy.observe(&frame(64, None), center, 800e3, None, step as i64 * 1000);
         }
         assert!(
             occupancy.len() <= MAX_BUCKETS,

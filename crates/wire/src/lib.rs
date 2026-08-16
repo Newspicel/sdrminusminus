@@ -63,7 +63,8 @@ pub use decode::{
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
     DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue,
-    GainStage, GainValue, Range, StreamScope, StreamSettings, any_range_holds,
+    GainStage, GainValue, MAX_LO_OFFSET_FRACTION, Range, StreamScope, StreamSettings,
+    any_range_holds, lo_offset_limit_hz,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use filter::{
@@ -596,6 +597,7 @@ mod contract_tests {
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
+            lo_offset_in_force_hz: 0.0,
             channels: Vec::new(),
             overruns: 0,
             error: None,

@@ -7285,6 +7285,11 @@
             "format": "int32",
             "minimum": 0
           },
+          "lo_offset_in_force_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Where the LO actually sits relative to the tuned centre, which is not always what was\nasked for: the front end steps it aside when a decoder is parked on the DC artifact."
+          },
           "network_export": {
             "oneOf": [
               {
@@ -7379,6 +7384,12 @@
             ],
             "format": "double"
           },
+          "dc_block": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "extra": {
             "type": "array",
             "items": {
@@ -7390,6 +7401,13 @@
             "items": {
               "$ref": "#/components/schemas/GainValue"
             }
+          },
+          "lo_offset_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
           },
           "ppm": {
             "type": [

@@ -44,6 +44,7 @@ pub struct IdentChannel {
     detector: detect::Detector,
     meter: features::Meter,
     agreement: agreement::Agreement,
+    artifact_hz: Option<f64>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&IdentParams, ChannelError> {
@@ -115,6 +116,7 @@ impl IdentChannel {
             self.params.bandwidth_hz / 2.0,
             self.params.threshold_db,
             dominated(&self.window),
+            self.artifact_hz,
         );
         let Some(band) = measured.band else {
             self.agreement.forget();
@@ -207,6 +209,7 @@ impl ChannelRx for IdentChannel {
             detector: detect::Detector::new(),
             meter: features::Meter::new(),
             agreement: agreement::Agreement::new(),
+            artifact_hz: None,
         })
     }
 
@@ -222,6 +225,13 @@ impl ChannelRx for IdentChannel {
 
     fn retuned(&mut self) {
         self.restart();
+    }
+
+    fn lo_artifact_at(&mut self, offset_hz: Option<f64>) {
+        if offset_hz != self.artifact_hz {
+            self.artifact_hz = offset_hz;
+            self.restart();
+        }
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {

@@ -74,6 +74,7 @@ pub(crate) struct SpectrumFrame {
     pub(crate) timestamp: u64,
     pub(crate) center_hz: f64,
     pub(crate) span_hz: f32,
+    pub(crate) lo_hz: f64,
 }
 
 impl SpectrumAnalyzer {
@@ -610,6 +611,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                         timestamp: 0,
                         center_hz: 0.0,
                         span_hz: 0.0,
+                        lo_hz: 0.0,
                     },
                 }),
                 worker_thread,
@@ -841,6 +843,7 @@ mod tests {
             timestamp: 1,
             center_hz: 100_000_000.0,
             span_hz: 2_400_000.0,
+            lo_hz: 100_000_000.0,
         };
         assert_eq!(analyzer.power_db(&input, &mut actual, frame).unwrap(), None);
         let deadline = std::time::Instant::now() + gpu::GPU_FRAME_BUDGET.saturating_mul(3);
