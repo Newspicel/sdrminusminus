@@ -30,12 +30,44 @@ pub fn enable_isolated_probes() {
     if args.next().is_none_or(|flag| flag != PROBE_FLAG) {
         return;
     }
+    let scope = Scope::from_arg(args.next().unwrap_or_default().to_string_lossy().as_ref());
     let filter = args
         .next()
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
+    if scope == Scope::Deep {
+        // SAFETY: this runs before the argument parsing that starts the rest of the program, so
+        // no other thread exists yet and no SoapySDR call has loaded a module.
+        unsafe { crate::runtime::load_network_modules() };
+    }
     std::process::exit(run_child(&filter));
+}
+
+/// How far a search may reach.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Scope {
+    /// Only what is attached to this machine: milliseconds, and safe to run on a hotplug tick.
+    Fast,
+    /// Network discovery as well, which vendor modules answer in seconds.
+    Deep,
+}
+
+impl Scope {
+    const fn as_arg(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Deep => "deep",
+        }
+    }
+
+    fn from_arg(arg: &str) -> Self {
+        if arg == Self::Deep.as_arg() {
+            Self::Deep
+        } else {
+            Self::Fast
+        }
+    }
 }
 
 fn run_child(filter: &str) -> i32 {
@@ -89,9 +121,12 @@ impl Found {
 }
 
 /// Searches for devices matching `filter`, out of process where the running executable supports it.
-pub(crate) fn devices(filter: &str) -> Result<Vec<Found>, DeviceError> {
+///
+/// A process that enumerates in-process cannot choose which modules are loaded — the first search
+/// loads them all — so there `scope` has nothing left to decide.
+pub(crate) fn devices(filter: &str, scope: Scope) -> Result<Vec<Found>, DeviceError> {
     if isolated() {
-        return spawn(filter);
+        return spawn(filter, scope);
     }
     Ok(crate::enumerate_serialized(filter)
         .map_err(|error| DeviceError::Io(format!("soapy enumerate: {error}")))?
@@ -100,18 +135,24 @@ pub(crate) fn devices(filter: &str) -> Result<Vec<Found>, DeviceError> {
         .collect())
 }
 
-fn spawn(filter: &str) -> Result<Vec<Found>, DeviceError> {
+fn spawn(filter: &str, scope: Scope) -> Result<Vec<Found>, DeviceError> {
     let exe = std::env::current_exe().map_err(|error| {
         DeviceError::Io(format!(
             "soapy probe: cannot locate this executable: {error}"
         ))
     })?;
-    run(&exe, filter, TIMEOUT)
+    run(&exe, filter, scope, TIMEOUT)
 }
 
-fn run(exe: &std::path::Path, filter: &str, timeout: Duration) -> Result<Vec<Found>, DeviceError> {
+fn run(
+    exe: &std::path::Path,
+    filter: &str,
+    scope: Scope,
+    timeout: Duration,
+) -> Result<Vec<Found>, DeviceError> {
     let mut child = Command::new(exe)
         .arg(PROBE_FLAG)
+        .arg(scope.as_arg())
         .arg(filter)
         .env(CHILD_MARKER, "1")
         .stdin(Stdio::null())
@@ -196,6 +237,29 @@ mod tests {
     }
 
     #[test]
+    fn a_scope_survives_the_trip_to_the_helper_and_back() {
+        for scope in [Scope::Fast, Scope::Deep] {
+            assert_eq!(Scope::from_arg(scope.as_arg()), scope);
+        }
+    }
+
+    #[test]
+    fn a_helper_asked_for_nothing_in_particular_searches_only_this_machine() {
+        assert_eq!(Scope::from_arg(""), Scope::Fast);
+        assert_eq!(Scope::from_arg("everything"), Scope::Fast);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_helper_is_told_which_scope_to_search() {
+        let (_dir, path) = helper("echo \"$2 $3\" >&2\nexit 1");
+        let error = run(&path, "driver=remote", Scope::Deep, Duration::from_secs(5))
+            .expect_err("this helper answers with its arguments and fails");
+        let message = error.to_string();
+        assert!(message.contains("deep driver=remote"), "{message}");
+    }
+
+    #[test]
     fn short_helper_errors_are_reported_whole() {
         assert_eq!(tail("  rtlsdr open failed\n"), "rtlsdr open failed");
     }
@@ -235,7 +299,7 @@ mod tests {
         }])
         .expect("encode");
         let (_dir, path) = helper(&format!("echo '{reply}'"));
-        let found = run(&path, "", Duration::from_secs(5)).expect("probe");
+        let found = run(&path, "", Scope::Fast, Duration::from_secs(5)).expect("probe");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].info.key, "00000001");
         assert_eq!(found[0].args, "driver=rtlsdr, serial=00000001");
@@ -258,7 +322,8 @@ mod tests {
     #[test]
     fn a_helper_killed_by_a_vendor_driver_reports_instead_of_taking_us_with_it() {
         let (_dir, path) = helper("echo 'rtlsdr open failed' >&2\nkill -SEGV $$");
-        let error = run(&path, "", Duration::from_secs(5)).expect_err("probe must fail");
+        let error =
+            run(&path, "", Scope::Fast, Duration::from_secs(5)).expect_err("probe must fail");
         let message = error.to_string();
         assert!(message.contains("probe helper failed"), "{message}");
         assert!(message.contains("rtlsdr open failed"), "{message}");
@@ -269,7 +334,8 @@ mod tests {
     fn a_wedged_helper_is_killed_and_reported() {
         let (_dir, path) = helper("sleep 30");
         let start = Instant::now();
-        let error = run(&path, "", Duration::from_millis(200)).expect_err("probe must fail");
+        let error =
+            run(&path, "", Scope::Fast, Duration::from_millis(200)).expect_err("probe must fail");
         assert!(error.to_string().contains("timed out"), "{error}");
         assert!(
             start.elapsed() < Duration::from_secs(5),
@@ -281,7 +347,8 @@ mod tests {
     #[test]
     fn a_helper_that_answers_with_noise_is_an_error_not_a_panic() {
         let (_dir, path) = helper("echo not-json");
-        let error = run(&path, "", Duration::from_secs(5)).expect_err("probe must fail");
+        let error =
+            run(&path, "", Scope::Fast, Duration::from_secs(5)).expect_err("probe must fail");
         assert!(error.to_string().contains("unreadable reply"), "{error}");
     }
 

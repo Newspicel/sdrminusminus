@@ -1003,13 +1003,20 @@ async fn a_quiet_bus_is_enumerated_once_not_on_every_tick() {
     let mut missing_once = HashSet::new();
     let mut gate = crate::hotplug::ProbeGate::default();
     for _ in 0..5 {
-        engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
+        engine.hotplug_tick(&mut known, &mut missing_once, &mut gate, false);
     }
 
     assert_eq!(
         probes.load(Ordering::SeqCst),
         1,
         "vendor drivers must not be woken while the USB bus is unchanged"
+    );
+
+    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate, true);
+    assert_eq!(
+        probes.load(Ordering::SeqCst),
+        2,
+        "a plugged or unplugged radio must be enumerated at once"
     );
 }
 

@@ -116,7 +116,7 @@ impl ProbeIdentity {
     }
 
     fn is_present(&self) -> Result<bool, DeviceError> {
-        Ok(probe::devices(&self.filter)?
+        Ok(probe::devices(&self.filter, probe::Scope::Deep)?
             .iter()
             .any(|found| found.info.key == self.key))
     }
@@ -148,11 +148,21 @@ impl SoapyDriver {
         self.excluded.iter().any(|driver| found.is_driver(driver))
     }
 
-    fn visible(&self) -> Result<Vec<probe::Found>, DeviceError> {
-        Ok(probe::devices("")?
+    fn visible(&self, scope: probe::Scope) -> Result<Vec<probe::Found>, DeviceError> {
+        Ok(probe::devices("", scope)?
             .into_iter()
             .filter(|found| !self.hides(found))
             .collect())
+    }
+
+    fn listed(&self, scope: probe::Scope) -> Vec<DeviceInfo> {
+        match self.visible(scope) {
+            Ok(found) => found.into_iter().map(|found| found.info).collect(),
+            Err(error) => {
+                tracing::warn!("soapy enumerate failed: {error}");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -162,18 +172,16 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match self.visible() {
-            Ok(found) => found.into_iter().map(|found| found.info).collect(),
-            Err(error) => {
-                tracing::warn!("soapy enumerate failed: {error}");
-                Vec::new()
-            }
-        }
+        self.listed(probe::Scope::Fast)
+    }
+
+    fn probe_deep(&self) -> Vec<DeviceInfo> {
+        self.listed(probe::Scope::Deep)
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
         let found = self
-            .visible()?
+            .visible(probe::Scope::Deep)?
             .into_iter()
             .find(|found| found.info.key == info.key)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?;

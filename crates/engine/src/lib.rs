@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 
 pub mod audio;
 pub mod audio_recording;
+mod discovery;
 mod history;
 mod hotplug;
 pub mod image;
@@ -212,6 +213,10 @@ struct RebuildEntry {
 
 fn sample_rate_of(settings: &DeviceSettings) -> f64 {
     settings.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE)
+}
+
+fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
+    devices.iter().map(DeviceInfo::id).collect()
 }
 
 pub(crate) fn channel_input_rate(descriptor: &ChannelDescriptor, device_rate: f64) -> f64 {
@@ -706,6 +711,7 @@ pub struct Engine {
     trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
     occupancy: Mutex<occupancy::Occupancy>,
     occupancy_sets: Mutex<HashSet<(u32, u32)>>,
+    discovery: Mutex<discovery::Discovery>,
     recordings_dir: Option<PathBuf>,
 }
 
@@ -741,6 +747,7 @@ impl Engine {
             trunk_status: trunk_status.clone(),
             occupancy: Mutex::new(occupancy::Occupancy::new()),
             occupancy_sets: Mutex::new(HashSet::new()),
+            discovery: Mutex::new(discovery::Discovery::default()),
             recordings_dir,
         });
         engine.spawn_fault_drainer(fault_rx);
@@ -950,11 +957,13 @@ impl Engine {
                 let mut known = None;
                 let mut missing_once = HashSet::new();
                 let mut gate = hotplug::ProbeGate::default();
+                let pace = hotplug::Pace::start();
+                let mut woken = false;
                 loop {
                     let Some(engine) = weak.upgrade() else { return };
-                    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
+                    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate, woken);
                     drop(engine);
-                    std::thread::sleep(interval);
+                    woken = pace.wait(interval);
                 }
             })?;
         Ok(())
@@ -1083,7 +1092,12 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        self.hotplug_tick(known, missing_once, &mut hotplug::ProbeGate::default())
+        self.hotplug_tick(
+            known,
+            missing_once,
+            &mut hotplug::ProbeGate::default(),
+            false,
+        )
     }
 
     fn hotplug_tick(
@@ -1091,6 +1105,7 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
         gate: &mut hotplug::ProbeGate,
+        woken: bool,
     ) -> bool {
         let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
             let mut inner = self.lock();
@@ -1243,16 +1258,17 @@ impl Engine {
             });
         }
 
-        if !gate.should_probe(Instant::now(), sdrmm_device::usb::fingerprint()) {
+        let Some(reason) = gate.should_probe(sdrmm_device::usb::fingerprint(), woken) else {
             return false;
+        };
+        if reason == hotplug::Probe::BusChanged {
+            self.lock_discovery().expire();
         }
 
-        let ids: Vec<String> = self
-            .registry
-            .probe_all()
-            .iter()
-            .map(DeviceInfo::id)
-            .collect();
+        let mut ids = ids_of(&self.registry.probe_all());
+        if self.wants_a_deeper_look(&ids) {
+            ids = ids_of(&self.registry.probe_all_deep());
+        }
 
         let (absent, returned): (HashSet<u32>, Vec<u32>) = {
             let inner = self.lock();
@@ -1285,12 +1301,27 @@ impl Engine {
 
         let changed = known.as_ref().is_some_and(|prev| *prev != ids);
         *known = Some(ids);
-        if changed {
+        // A radio the quick search cannot name — one that answers over the network, or one whose
+        // vendor module only the deep search loads — still moved on the bus, and whoever has the
+        // device list open is the one who should find out.
+        if changed || reason == hotplug::Probe::BusChanged {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::Devices,
             });
         }
         changed
+    }
+
+    /// Whether the cheap search left a question only a full one can answer: a radio that is
+    /// streaming but nothing found, or a faulted one that may have come back. Both are worth
+    /// seconds; a healthy machine never gets here.
+    fn wants_a_deeper_look(&self, ids: &[String]) -> bool {
+        let inner = self.lock();
+        inner.device_sets.values().any(|s| match s.status {
+            DeviceSetStatus::Running => !ids.contains(&s.info.id()),
+            DeviceSetStatus::Error => true,
+            DeviceSetStatus::Idle => false,
+        })
     }
 
     fn reconnect(&self, ds: u32) {
@@ -1454,9 +1485,48 @@ impl Engine {
         self.registry.resolve(device_id)
     }
 
+    /// The radios to choose from: what is attached to this machine right now, plus what the last
+    /// network search found. A fresh network search runs behind the answer and announces itself
+    /// when it changes the list, so nobody waits seconds for a list that is mostly already known.
     #[must_use]
-    pub fn probe_devices(&self) -> Vec<DeviceInfo> {
-        self.registry.probe_all()
+    pub fn probe_devices(self: &Arc<Self>) -> Vec<DeviceInfo> {
+        let attached = self.registry.probe_all();
+        self.search_the_network();
+        self.lock_discovery().merge(attached)
+    }
+
+    fn lock_discovery(&self) -> std::sync::MutexGuard<'_, discovery::Discovery> {
+        self.discovery
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn search_the_network(self: &Arc<Self>) {
+        if !self.lock_discovery().claim(Instant::now()) {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-discovery".to_string())
+            .spawn(move || {
+                let Some(engine) = weak.upgrade() else { return };
+                let found = engine.registry.probe_all_deep();
+                let attached = ids_of(&engine.registry.probe_all());
+                let extras = found
+                    .into_iter()
+                    .filter(|device| !attached.contains(&device.id()))
+                    .collect();
+                let changed = engine.lock_discovery().searched(extras, Instant::now());
+                if changed {
+                    engine.emit(ServerEvent::StateChanged {
+                        scope: StateScope::Devices,
+                    });
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!("cannot search for network radios: {error}");
+            self.lock_discovery().searched(Vec::new(), Instant::now());
+        }
     }
 
     #[must_use]

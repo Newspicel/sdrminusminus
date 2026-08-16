@@ -160,8 +160,9 @@ fn sdrplay_check(info: &sdrmm_device_sdrplay::RuntimeInfo) -> DoctorCheck {
 }
 
 fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
-    let devices = registry.probe_all();
-    let hardware: Vec<String> = devices
+    let timings = registry.probe_timings();
+    let devices = registry.probe_all_deep();
+    let mut hardware: Vec<String> = devices
         .iter()
         .filter(|d| d.driver != "virtual")
         .map(|d| match &d.serial {
@@ -169,12 +170,20 @@ fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
             None => format!("{} [{}]", d.id(), d.label),
         })
         .collect();
+    let searches: Vec<String> = timings
+        .iter()
+        .map(|(driver, found, took)| format!("{driver}: {found} found in {} ms", took.as_millis()))
+        .collect();
     if hardware.is_empty() {
         return DoctorCheck {
             id: "devices".to_string(),
             name: "Devices found".to_string(),
             status: CheckStatus::Warn,
-            detail: format!("no hardware; {} virtual device(s)", devices.len()),
+            detail: format!(
+                "no hardware; {} virtual device(s)\n{}",
+                devices.len(),
+                searches.join("\n")
+            ),
             hint: Some(
                 "check the USB connection, then the USB permission line below; \
                  `lsusb`/`system_profiler SPUSBDataType` shows whether the OS sees it at all"
@@ -182,6 +191,7 @@ fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
             ),
         };
     }
+    hardware.extend(searches);
     DoctorCheck {
         id: "devices".to_string(),
         name: "Devices found".to_string(),
@@ -194,7 +204,7 @@ fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
 #[must_use]
 pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
     let checks = registry
-        .probe_all()
+        .probe_all_deep()
         .into_iter()
         .filter(|d| d.driver != "virtual")
         .map(|info| match registry.open(&info.id()) {

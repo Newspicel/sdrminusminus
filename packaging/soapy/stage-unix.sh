@@ -22,7 +22,8 @@ case "$working_directory/" in
 esac
 
 rm -rf -- "$destination"
-install -d "$destination/bin" "$destination/lib/SoapySDR/modules0.8" "$destination/licenses"
+install -d "$destination/bin" "$destination/lib/SoapySDR/modules0.8" \
+  "$destination/lib/SoapySDR/modules0.8-network" "$destination/licenses"
 
 cores="$(find "$prefix/lib" -maxdepth 1 \( -type f -o -type l \) \
   \( -name 'libSoapySDR.so*' -o -name 'libSoapySDR*.dylib' \) | sort)"
@@ -31,12 +32,21 @@ while IFS= read -r core; do cp -L "$core" "$destination/lib/$(basename "$core")"
 
 module_dir="$(find "$prefix/lib" -type d -path '*/SoapySDR/modules0.8' | head -1)"
 test -n "$module_dir" || { echo "SoapySDR modules0.8 not found under $prefix/lib" >&2; exit 1; }
-find "$module_dir" -maxdepth 1 -type f \
-  | grep -Ei '/(lib)?(airspyhf|airspy|bladerf|lms7|plutosdr|remote).*\.(so|dylib)' \
-  | while IFS= read -r module; do cp -L "$module" "$destination/lib/SoapySDR/modules0.8/"; done
+# LimeSuite, Pluto and SoapyRemote search the network while they look for a radio, which costs
+# seconds per enumeration. They are staged apart so that finding what is attached to this machine
+# does not wait for them, and are loaded only when a search is meant to reach that far.
+stage_modules() {
+  find "$module_dir" -maxdepth 1 -type f \
+    | grep -Ei "/(lib)?($1).*\.(so|dylib)" \
+    | while IFS= read -r module; do cp -L "$module" "$destination/lib/SoapySDR/$2/"; done
+}
+stage_modules 'airspyhf|airspy|bladerf' modules0.8
+stage_modules 'lms7|plutosdr|remote' modules0.8-network
 
 test -n "$(find "$destination/lib/SoapySDR/modules0.8" -iname '*airspy*')" \
   || { echo "SoapyAirspy was not staged" >&2; exit 1; }
+test -n "$(find "$destination/lib/SoapySDR/modules0.8-network" -iname '*remote*')" \
+  || { echo "SoapyRemote was not staged" >&2; exit 1; }
 
 copy_dependencies_linux() {
   local changed=1
@@ -87,7 +97,7 @@ copy_dependencies_macos() {
       esac
     done < <(otool -L "$binary" | awk 'NR > 1 { print $1 }')
     case "$binary" in
-      "$destination/lib/SoapySDR/modules0.8/"*) relative_rpath="@loader_path/../.." ;;
+      "$destination/lib/SoapySDR/"*) relative_rpath="@loader_path/../.." ;;
       *) relative_rpath="@loader_path" ;;
     esac
     install_name_tool -add_rpath "$relative_rpath" "$binary" 2>/dev/null || true

@@ -122,7 +122,17 @@ impl std::fmt::Debug for RxSink {
 
 pub trait DeviceDriver: Send + Sync {
     fn id(&self) -> &'static str;
+
+    /// Reports the radios this driver can see without searching beyond the machine, which is what
+    /// a hotplug tick and a device list are allowed to cost.
     fn probe(&self) -> Vec<DeviceInfo>;
+
+    /// Searches as far as the driver can reach, network discovery included. Seconds are allowed
+    /// here, so it belongs behind a request someone is waiting on, never on a timer.
+    fn probe_deep(&self) -> Vec<DeviceInfo> {
+        self.probe()
+    }
+
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError>;
 
     fn resolve(&self, _key: &str) -> Option<DeviceInfo> {

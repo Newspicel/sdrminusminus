@@ -18,6 +18,7 @@ usb = ["dep:sdrmm-usb-stream"]
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-usb-stream = { workspace = true, optional = true }
+futures.workspace = true
 num-complex.workspace = true
 nusb.workspace = true
 thiserror.workspace = true

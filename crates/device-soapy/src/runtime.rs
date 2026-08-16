@@ -1,11 +1,18 @@
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use sdrmm_device::DeviceError;
 
 const EXTRA_MODULE_PATH: &str = "SDRMM_SOAPY_MODULE_PATH";
+
+/// Vendor modules whose device search reaches onto the network are staged beside the others, so
+/// that finding a radio on this machine does not wait out a DNS-SD sweep meant for another one.
+const NETWORK_SUFFIX: &str = "-network";
+
+static NETWORK_MODULES: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeInfo {
@@ -42,9 +49,42 @@ pub unsafe fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(
         .collect();
     let search = search_path(modules, &extra, |path| path.is_dir())
         .map_err(|error| DeviceError::Io(error.to_string()))?;
+    let _ = NETWORK_MODULES.set(network_modules(modules).filter(|path| path.is_dir()));
     unsafe { std::env::set_var("SOAPY_SDR_ROOT", root) };
     unsafe { std::env::set_var("SOAPY_SDR_PLUGIN_PATH", &search) };
     Ok(())
+}
+
+fn network_modules(modules: &Path) -> Option<PathBuf> {
+    let name = modules.file_name()?.to_str()?;
+    Some(modules.with_file_name(format!("{name}{NETWORK_SUFFIX}")))
+}
+
+/// Adds the network-searching modules to the ones this process will load.
+///
+/// # Safety
+/// The caller must invoke this during single-threaded process startup, before any other thread
+/// can read or write the process environment and before the first SoapySDR call, which is what
+/// loads the modules.
+pub(crate) unsafe fn load_network_modules() {
+    let Some(Some(network)) = NETWORK_MODULES.get() else {
+        return;
+    };
+    let mut paths: Vec<PathBuf> = std::env::var_os("SOAPY_SDR_PLUGIN_PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    if paths.contains(network) {
+        return;
+    }
+    paths.push(network.clone());
+    let Ok(joined) = std::env::join_paths(&paths) else {
+        tracing::warn!(
+            "cannot extend the soapy module path with {}",
+            network.display()
+        );
+        return;
+    };
+    unsafe { std::env::set_var("SOAPY_SDR_PLUGIN_PATH", joined) };
 }
 
 fn search_path(
@@ -88,6 +128,15 @@ mod tests {
         let joined =
             search_path(&bundled, &extra, |path| path != Path::new("/gone")).expect("join");
         assert_eq!(parts(&joined), vec![bundled]);
+    }
+
+    #[test]
+    fn the_network_modules_sit_beside_the_ones_every_search_loads() {
+        assert_eq!(
+            network_modules(Path::new("/app/soapy/lib/SoapySDR/modules0.8")),
+            Some(PathBuf::from("/app/soapy/lib/SoapySDR/modules0.8-network"))
+        );
+        assert_eq!(network_modules(Path::new("/")), None);
     }
 
     #[test]

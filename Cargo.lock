@@ -4530,6 +4530,7 @@ dependencies = [
 name = "sdrmm-device"
 version = "0.0.0"
 dependencies = [
+ "futures",
  "libc",
  "num-complex",
  "nusb",
