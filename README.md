@@ -49,6 +49,8 @@ Download the desktop installer or portable server for your platform from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases). Nightly builds are
 available from the rolling [nightly release](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly).
 
+### Docker
+
 To try the server with Docker:
 
 ```sh
@@ -65,22 +67,6 @@ bundle SoapySDR support for RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR, 
 SoapyRemote. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
 troubleshooting.
-
-### Nix
-
-On NixOS or another Linux system with flakes enabled, install the Tauri desktop application
-directly from GitHub:
-
-```sh
-nix --extra-experimental-features 'nix-command flakes' \
-  profile install github:Newspicel/sdrminusminus
-sdrmm-desktop
-```
-
-The flake supports x86_64 and aarch64 Linux. It does not bundle SoapySDR hardware modules; NixOS
-users select those in their system configuration and enable the corresponding device permissions.
-See the [installation guide](https://newspicel.github.io/sdrminusminus/getting-started/install.html#nix)
-for an RTL-SDR and HackRF example.
 
 ## Build from source
 

@@ -1464,6 +1464,20 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "atv channel at +200 kHz -> 625/25 AM, five vertical bars black to white".to_string(),
     });
 
+    const SSTV_RATE: f64 = 48_000.0;
+    const SSTV_MODE: sdrmm_wire::SstvMode = sdrmm_wire::SstvMode::Robot36;
+    let sstv = testgen::sstv::transmission(SSTV_MODE, &testgen::sstv::bars(SSTV_MODE), 16_000.0);
+    out.push(Fixture {
+        stem: "sstv_robot36_48k".to_string(),
+        iq: at(
+            testgen::resample(&sstv, 16_000.0, SSTV_RATE),
+            4_000.0,
+            SSTV_RATE,
+        ),
+        rate: SSTV_RATE,
+        note: "sstv channel at +4 kHz -> Robot 36, eight colour bars white to black".to_string(),
+    });
+
     out
 }
 
