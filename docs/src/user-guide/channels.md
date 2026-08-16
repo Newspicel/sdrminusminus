@@ -29,15 +29,17 @@ list.
 
 | Group | Channels | Maturity |
 |---|---|---|
-| Analog voice | AM, NFM, SSB, WFM (broadcast, with stereo and RDS) | fixture-only |
+| Analog voice | AM, NFM, SSB, WFM (broadcast, with stereo and RDS) | tested on air |
 | Digital voice | DMR | tested on air |
 | Digital voice | FreeDV 1600 | tested on air |
 | Digital voice | D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17 | fixture-only |
-| Aviation | ADS-B (1090ES), ACARS, VDL Mode 2, HFDL, Inmarsat Classic Aero | fixture-only |
+| Aviation | ADS-B (1090ES) | tested on air |
+| Aviation | ACARS, VDL Mode 2, HFDL, Inmarsat Classic Aero | fixture-only |
 | Aviation | VOR, ILS localizer / glideslope | experimental |
 | Marine | AIS, NAVTEX, Digital Selective Calling, Inmarsat STD-C / EGC | fixture-only |
 | Amateur data and HF | APRS / AX.25, RTTY, PSK (31, 63, 125, 250 baud), Morse (CW), CW skimmer, FT8, FT4, WSPR | fixture-only |
-| Paging and telemetry | POCSAG, FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
+| Paging and telemetry | POCSAG | tested on air |
+| Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
 | Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
 | Utility | Signal identifier, Iridium bursts | fixture-only |
@@ -52,7 +54,7 @@ records known gaps.
 
 | Label | What it means |
 |---|---|
-| **tested on air** | Decoded from a real transmitter, with a capture of that signal committed as a regression test. |
+| **tested on air** | Decoded live from a real transmitter, through the whole stack from the receiver to the decoder log. |
 | **fixture-only** | Decodes a golden IQ fixture rendered by sdr--'s own modulator, plus the worked examples the standard publishes. The frame layers are proven; the receiver has not been held against a real transmitter. |
 | **experimental** | Acquisition, lock, or measurement only — no payload decoded — or a lab implementation rather than an operational one. |
 
@@ -61,10 +63,15 @@ did, which catches real bugs but says nothing about transmitter drift, keying tr
 adjacent-channel splatter, or multipath. Treat a fixture-only mode as a decoder that should work
 rather than one that is known to.
 
-Two modes carry an off-air proof. DMR reads `dmr_call_48k`, a direct-mode call on PMR446 captured
-with an RTL-SDR, which is the only signal in the tree that keys off between bursts the way a real
-TDMA transmitter does. FreeDV 1600 reads the FreeDV project's own receive test recording. Where a
-standard publishes worked examples — ADS-B position and identification frames, the APRS
+Two of the on-air modes also carry a committed capture, so the proof survives as a regression
+test. DMR reads `dmr_call_48k`, a direct-mode call on PMR446 captured with an RTL-SDR, which is
+the only signal in the tree that keys off between bursts the way a real TDMA transmitter does.
+FreeDV 1600 reads the FreeDV project's own receive test recording. The rest were confirmed against
+live traffic — broadcast FM with its RDS station identity, ADS-B aircraft with solved positions,
+and commercial POCSAG paging — but a capture of that traffic is not redistributable, so it is not
+committed.
+
+Where a standard publishes worked examples — ADS-B position and identification frames, the APRS
 compressed-position examples, the CCIR 476 alphabet, the radio-clock golden minutes — the decoders
 are checked against those too, but a published vector is still not a transmitter.
 
