@@ -17,17 +17,27 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 ## What it can do
 
 - Build a receiver visually from device, channel, display, scanner, recorder, and output nodes.
-- Listen to AM, narrowband FM, broadcast FM, and SSB.
-- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, Morse, DCF77/WWVB/MSF/JJY radio
-  clocks, educational GPS L1 C/A acquisition and NAV telemetry, sub-GHz frames, and several
-  digital voice modes.
+- Listen to AM, narrowband FM, broadcast FM with RDS, and SSB.
+- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, PSK31/PSK63, Morse, CCIR/ZVEI/EEA
+  selective calling, DCF77/WWVB/MSF/JJY radio clocks, educational GPS L1 C/A acquisition and NAV
+  telemetry, sub-GHz frames, and several digital voice modes.
+- Pull weak amateur traffic out of the noise with FT8, FT4, and WSPR.
+- Follow DMR trunked systems — Capacity Plus, Hytera XPT, and Tier III — and keep every call as
+  replayable audio.
+- Identify an unknown signal from its bandwidth, symbol rate, and deviation, with ranked protocol
+  candidates and the reason behind each one.
 - Acquire DAB/DAB+, narrow-band DVB-S/S2 DATV, and DRM30/DRM+ carriers with lock, SNR, and
   frequency-error diagnostics.
 - Receive SSTV in twelve scanning modes, watch each picture build up line by line, and keep every
   one that arrives in the server's picture store.
-- Display live spectrum and waterfall views, decoded readouts, position maps, logs, and ATV video.
-- Scan frequency ranges, save workspaces and presets, search regional band plans, and record IQ as
-  SigMF for later playback.
+- Display live spectrum and waterfall views, decoded readouts, position maps, band occupancy,
+  logs, and ATV video.
+- Scan frequency ranges, save workspaces, presets, and bookmarks, search regional band plans, and
+  record IQ as SigMF, channel baseband, or audio for later playback.
+- Rewind the last seconds of live reception, stream IQ or baseband to other software over UDP or
+  TCP, and forward decoded traffic to Discord or Matrix.
+- Sweep an antenna with a NanoVNA, size a new one with the antenna calculator, and take station
+  position from a GPS or NMEA source.
 - Automate the receiver through a typed REST API, WebSocket events, OpenAPI, or MCP.
 
 The built-in signal generator means you can explore the complete receive path without owning an
@@ -39,9 +49,6 @@ SDR.
 | Spectrum and waterfall, pinned to the rack | ADS-B aircraft on the map, with the decoder log |
 | ![An SSTV picture](assets/screenshots/sstv.png) | ![POCSAG pager traffic](assets/screenshots/pocsag.png) |
 | A Robot 36 SSTV picture, scanned out line by line | POCSAG pager messages as they arrive |
-
-Every one of these is a fixture from `fixtures/` played back through the receiver — `cargo xtask
-screenshots` regenerates them all without hardware.
 
 ## Get started
 
