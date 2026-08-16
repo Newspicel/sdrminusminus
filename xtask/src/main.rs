@@ -905,6 +905,11 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
     run("cargo", &args, &root.join("apps/desktop"))
 }
 
+/// Both module directories: the one every search loads, and the network-searching ones beside it.
+fn in_modules(part: std::path::Component<'_>) -> bool {
+    part.as_os_str().to_string_lossy().starts_with("modules0.8")
+}
+
 fn soapy_bundle_check(dir: &Path) -> Result<()> {
     ensure!(
         dir.is_dir(),
@@ -926,10 +931,7 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
     let staged_modules: Vec<&String> = files
         .iter()
         .zip(&names)
-        .filter(|(path, _)| {
-            path.components()
-                .any(|part| part.as_os_str() == "modules0.8")
-        })
+        .filter(|(path, _)| path.components().any(in_modules))
         .map(|(_, name)| name)
         .collect();
     for native in ["rtlsdr", "hackrf"] {
@@ -959,9 +961,8 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         .iter()
         .zip(&names)
         .filter(|(path, name)| {
-            let inside = |part: &str| path.components().any(|c| c.as_os_str() == part);
-            !inside("modules0.8")
-                && !inside("licenses")
+            !path.components().any(in_modules)
+                && !path.components().any(|c| c.as_os_str() == "licenses")
                 && [".dylib", ".so", ".dll"]
                     .iter()
                     .any(|ext| name.contains(ext))
