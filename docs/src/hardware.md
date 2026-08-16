@@ -25,11 +25,23 @@ baseline is SoapySDR 0.8.1, SoapyRTLSDR 0.3.3, and SoapyHackRF 0.3.4; the comple
 listed in
 [`packaging/soapy/environment.yml`](https://github.com/Newspicel/sdrminusminus/blob/main/packaging/soapy/environment.yml).
 
-Modules installed on the host are searched too, after the bundled ones: a distribution package or
-a self-built module in `/usr/local/lib/SoapySDR/modules0.8` (or the Homebrew, MacPorts or
-`/usr/lib` equivalent) is loaded without copying anything into the application. Set
-`SDRMM_SOAPY_MODULE_PATH` to search your own directories first. A module built against a different
-SoapySDR generation is refused by the core and logged rather than loaded.
+A bundled installation loads only its own modules, so a radio can never be served by two copies of
+the same driver. To add a module the bundle does not carry — a vendor module, or one you compiled
+yourself — point `SDRMM_SOAPY_MODULE_PATH` at the directory holding it; those directories are
+searched before the bundled ones. A module built against a different SoapySDR generation is
+refused by the core and logged rather than loaded.
+
+## How radios are detected
+
+Vendor SoapySDR modules open USB devices while searching for radios, and a faulty one can take
+down the process it runs in: some abort, some crash, and at least one leaks a USB context on every
+search. sdr-- therefore searches for radios in a short-lived child process. A driver that crashes
+or hangs costs one search, logged as a warning, instead of the application, and whatever a driver
+leaks is returned to the system when that child exits.
+
+The search itself runs when the set of attached USB devices changes, and once a minute so that
+network radios are still found. Set `SDRMM_SOAPY_PROBE=in-process` to search in the application
+process instead, which is only useful when debugging a driver.
 
 ## Check your installation
 

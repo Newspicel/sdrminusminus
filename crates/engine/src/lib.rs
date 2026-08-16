@@ -7,7 +7,7 @@ use std::{
         mpsc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
@@ -26,6 +26,7 @@ use tokio::sync::broadcast;
 pub mod audio;
 pub mod audio_recording;
 mod history;
+mod hotplug;
 pub mod image;
 pub mod iq;
 mod network_export;
@@ -898,9 +899,10 @@ impl Engine {
             .spawn(move || {
                 let mut known = None;
                 let mut missing_once = HashSet::new();
+                let mut gate = hotplug::ProbeGate::default();
                 loop {
                     let Some(engine) = weak.upgrade() else { return };
-                    engine.hotplug_tick(&mut known, &mut missing_once);
+                    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
                     drop(engine);
                     std::thread::sleep(interval);
                 }
@@ -1031,13 +1033,14 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        self.hotplug_tick(known, missing_once)
+        self.hotplug_tick(known, missing_once, &mut hotplug::ProbeGate::default())
     }
 
     fn hotplug_tick(
         &self,
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
+        gate: &mut hotplug::ProbeGate,
     ) -> bool {
         let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
             let mut inner = self.lock();
@@ -1183,6 +1186,10 @@ impl Engine {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
+        }
+
+        if !gate.should_probe(Instant::now(), sdrmm_device::usb::fingerprint()) {
+            return false;
         }
 
         let ids: Vec<String> = self

@@ -17,9 +17,11 @@ use sdrmm_wire::{
 use soapysdr::{Direction, ErrorCode};
 
 mod caps;
+mod probe;
 mod runtime;
 mod watchdog;
 
+pub use probe::enable_isolated_probes;
 pub use runtime::{RuntimeInfo, configure_bundled_runtime, runtime_info};
 use watchdog::{Watch, Watchdog};
 
@@ -113,10 +115,10 @@ impl ProbeIdentity {
         }
     }
 
-    fn is_present(&self) -> Result<bool, soapysdr::Error> {
-        Ok(enumerate_serialized(&self.filter)?
+    fn is_present(&self) -> Result<bool, DeviceError> {
+        Ok(probe::devices(&self.filter)?
             .iter()
-            .any(|args| args_key(args) == self.key))
+            .any(|found| found.info.key == self.key))
     }
 }
 
@@ -136,8 +138,8 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match enumerate_serialized("") {
-            Ok(found) => found.iter().map(device_info).collect(),
+        match probe::devices("") {
+            Ok(found) => found.into_iter().map(|found| found.info).collect(),
             Err(error) => {
                 tracing::warn!("soapy enumerate failed: {error}");
                 Vec::new()
@@ -146,12 +148,11 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let found = enumerate_serialized("")
-            .map_err(|error| DeviceError::Io(format!("soapy enumerate: {error}")))?;
-        let args = found
+        let found = probe::devices("")?
             .into_iter()
-            .find(|args| args_key(args) == info.key)
+            .find(|found| found.info.key == info.key)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?;
+        let args = soapysdr::Args::from(found.args.as_str());
         let identity = ProbeIdentity::from_args(&args);
         let device = soapysdr::Device::new(args).map_err(map_err)?;
         Ok(Box::new(SoapyDevice::from_device(device, identity)?))

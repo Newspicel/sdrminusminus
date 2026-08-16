@@ -60,6 +60,9 @@ fn resolve_recordings_dir(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "soapy")]
+    sdrmm_device_soapy::enable_isolated_probes();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

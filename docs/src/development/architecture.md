@@ -34,7 +34,10 @@ React client.
 | `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, and embedded assets |
 
 `apps/sdrmm` handles CLI configuration and process lifetime. `apps/desktop` binds the server to an
-ephemeral loopback port and points a Tauri WebView at it.
+ephemeral loopback port and points a Tauri WebView at it. Both call
+`sdrmm_device_soapy::enable_isolated_probes` before anything else, which re-executes them as a
+short-lived probe helper whenever the engine looks for radios: vendor SoapySDR modules open USB
+devices while searching, and a faulty one must cost a probe rather than the application.
 
 ## One source of truth for wire types
 

@@ -182,6 +182,7 @@ pub mod duplex;
 pub mod playback;
 pub mod registry;
 pub mod restart;
+pub mod usb;
 pub mod worker;
 pub use capture::{
     Capture, CaptureConfig, CaptureRadio, CaptureStream, Next, StopHandle, StreamFailure,

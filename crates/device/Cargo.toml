@@ -13,5 +13,6 @@ workspace = true
 [dependencies]
 sdrmm-wire.workspace = true
 num-complex.workspace = true
+nusb.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

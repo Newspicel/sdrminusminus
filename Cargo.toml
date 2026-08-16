@@ -86,6 +86,9 @@ utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 mime_guess = "2"
 
 # Device backends
+# Reads the USB bus without opening devices, so a hotplug check cannot disturb a running stream
+# or wake the vendor SoapySDR modules.
+nusb = "0.2.7"
 # Upstream 0.5.1 exposes the stream API but not getSettingInfo. This pinned fork adds only safe
 # wrappers for setting metadata and runtime/module diagnostics over the existing soapysdr-sys API.
 soapysdr = { git = "https://github.com/Newspicel/rust-soapysdr", rev = "5f05fb65366d75e4706285df5bc3864abbd51284" }

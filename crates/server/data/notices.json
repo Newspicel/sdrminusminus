@@ -2301,6 +2301,17 @@
       ]
     },
     {
+      "name": "io-kit-sys",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/jtakakura/io-kit-rs",
+      "texts": [
+        "a96635761ff1c2bc",
+        "edcf2edc326110f3"
+      ]
+    },
+    {
       "name": "ipnet",
       "version": "2.12.1",
       "license": "MIT OR Apache-2.0",
@@ -2724,6 +2735,18 @@
       ]
     },
     {
+      "name": "mach2",
+      "version": "0.5.0",
+      "license": "BSD-2-Clause OR MIT OR Apache-2.0",
+      "source": "rust",
+      "url": "https://github.com/JohnTitor/mach2",
+      "texts": [
+        "917d5dc3470e527b",
+        "95bd3988beee069f",
+        "d5652808cd243d91"
+      ]
+    },
+    {
       "name": "markup5ever",
       "version": "0.38.0",
       "license": "MIT OR Apache-2.0",
@@ -3005,6 +3028,17 @@
         "30fefc3a7d6a0041",
         "882b129495bcec1c",
         "95bd3988beee069f"
+      ]
+    },
+    {
+      "name": "nusb",
+      "version": "0.2.7",
+      "license": "Apache-2.0 OR MIT",
+      "source": "rust",
+      "url": "https://github.com/kevinmehall/nusb",
+      "texts": [
+        "30fefc3a7d6a0041",
+        "769f80b5bcb42ed0"
       ]
     },
     {
