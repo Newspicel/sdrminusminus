@@ -1,3 +1,4 @@
+import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_QUIET } from "../../components/controls";
@@ -16,7 +17,14 @@ import { claimedDevices, deviceRefOf, refMatches, unboundChannels } from "../bin
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
-import { deviceDialId, refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
+import {
+  deviceDialId,
+  faultSaid,
+  refLabel,
+  scannerOwnsTuning,
+  tuneDelta,
+  tunerDials,
+} from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning: boolean }) {
@@ -43,6 +51,24 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
         <p className="text-xs text-ink-dim">
           The scanner is driving this radio; tuning from here is refused until it stops.
         </p>
+      )}
+    </div>
+  );
+}
+
+function Fault({ set }: { set: DeviceSet }) {
+  const said = faultSaid(set);
+  return (
+    <div role="alert" className="border-t border-line p-2 text-xs text-danger">
+      {said == null ? (
+        <p className="font-mono">Device fault · {set.error}</p>
+      ) : (
+        <Collapsible.Root>
+          <Collapsible.Trigger className="cursor-pointer text-left">{said}</Collapsible.Trigger>
+          <Collapsible.Panel>
+            <p className="mt-1 font-mono text-ink-dim">{set.error}</p>
+          </Collapsible.Panel>
+        </Collapsible.Root>
       )}
     </div>
   );
@@ -180,11 +206,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           </Readout>
         )}
 
-        {set.error != null && (
-          <p role="alert" className="border-t border-line p-2 font-mono text-xs text-danger">
-            Device fault · {set.error}
-          </p>
-        )}
+        {set.error != null && <Fault set={set} />}
       </FaceBody>
       <FaceFooter>
         <Button

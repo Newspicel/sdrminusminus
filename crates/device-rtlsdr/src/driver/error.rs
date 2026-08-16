@@ -34,3 +34,17 @@ pub(crate) enum Error {
     #[error("streaming: {0}")]
     Stream(#[from] StreamError),
 }
+
+impl Error {
+    /// Whether the radio answered nothing because it is no longer on the bus.
+    pub(crate) fn is_disconnected(&self) -> bool {
+        match self {
+            Self::Stream(error) => error.is_disconnected(),
+            Self::ControlTransfer(error) => *error == nusb::transfer::TransferError::Disconnected,
+            Self::OpenFailed(error) | Self::ClaimFailed(error) => {
+                error.kind() == nusb::ErrorKind::Disconnected
+            }
+            _ => false,
+        }
+    }
+}

@@ -830,7 +830,7 @@ fn capture_loop(
                 match identity.is_present() {
                     Ok(true) => watchdog.present(),
                     Ok(false) => {
-                        fail_all(&mut sinks, "device lost: no longer enumerates");
+                        fail_all_gone(&mut sinks, "it no longer enumerates");
                         break;
                     }
                     Err(probe) => {
@@ -901,7 +901,7 @@ fn capture_split_loop(
                     match identity.is_present() {
                         Ok(true) => watchdogs[channel].present(),
                         Ok(false) => {
-                            fail_all(&mut sinks, "device lost: no longer enumerates");
+                            fail_all_gone(&mut sinks, "it no longer enumerates");
                             break 'capture;
                         }
                         Err(probe) => {
@@ -954,6 +954,12 @@ fn silent_stream(silence: Duration) -> String {
 fn fail_all(sinks: &mut [RxSink], message: &str) {
     for sink in sinks {
         sink.fail(DeviceError::Io(message.to_string()));
+    }
+}
+
+fn fail_all_gone(sinks: &mut [RxSink], reason: &str) {
+    for sink in sinks {
+        sink.fail(DeviceError::Disconnected(reason.to_string()));
     }
 }
 

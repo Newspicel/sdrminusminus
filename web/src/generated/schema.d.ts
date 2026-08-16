@@ -1870,6 +1870,11 @@ export interface components {
             /** Format: float */
             strength?: number;
         };
+        /**
+         * @description Why a device set stopped, for the times a reader can act on it rather than only read it.
+         * @enum {string}
+         */
+        DeviceFault: "unplugged" | "in_use" | "other";
         DeviceInfo: {
             driver: string;
             key: string;
@@ -1901,6 +1906,7 @@ export interface components {
             channels: components["schemas"]["ChannelInfo"][];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
+            fault?: null | components["schemas"]["DeviceFault"];
             /** Format: int32 */
             id: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];

@@ -16,10 +16,10 @@ use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     AudioRecordingStatus, Capabilities, ChannelDescriptor, ChannelInfo, ChannelLevel,
-    ChannelParams, ChannelSettings, DecodedRecord, DeviceInfo, DeviceSet, DeviceSetStatus,
-    DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest, PlaybackStatus,
-    PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TrunkSystemStatus,
+    ChannelParams, ChannelSettings, DecodedRecord, DeviceFault, DeviceInfo, DeviceSet,
+    DeviceSetStatus, DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest,
+    PlaybackStatus, PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
@@ -217,6 +217,15 @@ fn sample_rate_of(settings: &DeviceSettings) -> f64 {
 
 fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
     devices.iter().map(DeviceInfo::id).collect()
+}
+
+/// Sorts a fault into what a reader can do about it, leaving the message itself for the details.
+fn fault_kind(error: &DeviceError) -> DeviceFault {
+    match error {
+        DeviceError::Disconnected(_) => DeviceFault::Unplugged,
+        DeviceError::InUse(_) => DeviceFault::InUse,
+        _ => DeviceFault::Other,
+    }
 }
 
 pub(crate) fn channel_input_rate(descriptor: &ChannelDescriptor, device_rate: f64) -> f64 {
@@ -538,6 +547,7 @@ struct DeviceSetState {
     media: HashMap<u32, ChannelMedia>,
     next_channel_id: u32,
     error: Option<String>,
+    fault: Option<DeviceFault>,
     recording: Option<RecordingState>,
     audio_recordings: HashMap<u32, ChannelAudioRecording>,
     baseband_recordings: HashMap<u32, ChannelBasebandRecording>,
@@ -584,6 +594,7 @@ impl DeviceSetState {
                 .collect(),
             overruns,
             error: self.error.clone(),
+            fault: self.fault,
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
             network_export: self
                 .network_export
@@ -880,6 +891,7 @@ impl Engine {
         if let Some(state) = inner.device_sets.get_mut(&ds) {
             state.status = DeviceSetStatus::Error;
             state.error = Some(err.to_string());
+            state.fault = Some(fault_kind(&err));
             let recording = state.recording.take();
             if let Some(recording) = &recording {
                 state.send_dsp(recording.stream, DspCommand::StopRecording);
@@ -1615,6 +1627,7 @@ impl Engine {
                     media: HashMap::new(),
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
+                    fault: pending.as_ref().map(fault_kind),
                     recording: None,
                     audio_recordings: HashMap::new(),
                     baseband_recordings: HashMap::new(),

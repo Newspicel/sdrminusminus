@@ -98,7 +98,7 @@ pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{
-    AudioRecordingStatus, ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus,
+    AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
     RecordingStatus, StateSnapshot, TrunkFollower, TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{
@@ -581,6 +581,7 @@ mod contract_tests {
             channels: Vec::new(),
             overruns: 0,
             error: None,
+            fault: None,
             recording: None,
             network_export: None,
             time_machine: None,

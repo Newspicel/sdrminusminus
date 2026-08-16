@@ -6727,6 +6727,15 @@
           }
         }
       },
+      "DeviceFault": {
+        "type": "string",
+        "description": "Why a device set stopped, for the times a reader can act on it rather than only read it.",
+        "enum": [
+          "unplugged",
+          "in_use",
+          "other"
+        ]
+      },
       "DeviceInfo": {
         "type": "object",
         "required": [
@@ -6874,6 +6883,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "fault": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceFault"
+              }
             ]
           },
           "id": {

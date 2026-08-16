@@ -84,7 +84,7 @@ impl Connection {
         if failure.is_none() {
             *failure = Some(StreamFailure {
                 reason,
-                fatal: false,
+                gone: false,
             });
         }
         Read::Ended
@@ -93,7 +93,7 @@ impl Connection {
     pub(crate) fn failure(&self) -> StreamFailure {
         lock(&self.failure).clone().unwrap_or(StreamFailure {
             reason: "the connection ended".to_string(),
-            fatal: false,
+            gone: false,
         })
     }
 }
@@ -191,10 +191,7 @@ mod tests {
         drop(server);
         assert_eq!(conn.read(&mut buf, Duration::from_millis(500)), Read::Ended);
         assert!(conn.failure().reason.contains("closed"));
-        assert!(
-            !conn.failure().fatal,
-            "a remote can always be dialled again"
-        );
+        assert!(!conn.failure().gone, "a remote can always be dialled again");
     }
 
     #[test]

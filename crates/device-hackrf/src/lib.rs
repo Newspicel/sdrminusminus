@@ -22,6 +22,9 @@ const NOSERIAL_KEY_PREFIX: &str = "noserial-";
 
 fn map_err(err: driver::Error) -> DeviceError {
     let text = err.to_string();
+    if err.is_disconnected() {
+        return DeviceError::Disconnected(text);
+    }
     match err {
         driver::Error::DeviceNotFound => DeviceError::NotFound(text),
         driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),
@@ -569,6 +572,12 @@ mod tests {
         assert!(matches!(
             map_err(driver::Error::ControlTransfer(
                 nusb::transfer::TransferError::Disconnected
+            )),
+            DeviceError::Disconnected(_),
+        ));
+        assert!(matches!(
+            map_err(driver::Error::ControlTransfer(
+                nusb::transfer::TransferError::Stall
             )),
             DeviceError::Io(_)
         ));

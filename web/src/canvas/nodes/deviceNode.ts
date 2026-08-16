@@ -41,3 +41,14 @@ export function refLabel(reference: DeviceRef): string {
 export function scannerOwnsTuning(set: DeviceSet): boolean {
   return set.scanner != null && set.scanner.error == null;
 }
+
+const FAULTS: Record<string, string> = {
+  unplugged: "is no longer attached. Plug it back in and it picks up where it left off.",
+  in_use: "is open in another program. Close that one, and this radio comes back.",
+};
+
+/** What a fault means for the operator, or null when only the raw message can say. */
+export function faultSaid(set: DeviceSet): string | null {
+  const said = set.fault == null ? undefined : FAULTS[set.fault];
+  return said == null ? null : `${set.device.label} ${said}`;
+}

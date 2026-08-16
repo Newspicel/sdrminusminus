@@ -18,6 +18,17 @@ pub enum DeviceSetStatus {
     Error,
 }
 
+/// Why a device set stopped, for the times a reader can act on it rather than only read it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceFault {
+    /// The radio is no longer attached. Plugging it back in resumes the device set.
+    Unplugged,
+    /// Another program holds the radio open.
+    InUse,
+    Other,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingStatus {
     pub file: String,
@@ -61,6 +72,8 @@ pub struct DeviceSet {
     pub overruns: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fault: Option<DeviceFault>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<RecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

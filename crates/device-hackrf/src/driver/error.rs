@@ -45,4 +45,14 @@ impl Error {
     pub(crate) const fn usb(operation: &'static str, source: nusb::Error) -> Self {
         Self::Usb { operation, source }
     }
+
+    /// Whether the radio answered nothing because it is no longer on the bus.
+    pub(crate) fn is_disconnected(&self) -> bool {
+        match self {
+            Self::Stream(error) => error.is_disconnected(),
+            Self::ControlTransfer(error) => *error == nusb::transfer::TransferError::Disconnected,
+            Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::Disconnected,
+            Self::InvalidConfig { .. } | Self::DeviceNotFound | Self::Protocol { .. } => false,
+        }
+    }
 }

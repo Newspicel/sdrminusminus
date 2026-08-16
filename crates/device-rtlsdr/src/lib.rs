@@ -20,6 +20,9 @@ pub(crate) const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
 fn map_err(err: driver::Error) -> DeviceError {
     let text = err.to_string();
+    if err.is_disconnected() {
+        return DeviceError::Disconnected(text);
+    }
     match err {
         driver::Error::DeviceNotFound => DeviceError::NotFound(text),
         driver::Error::InvalidSampleRate { .. } | driver::Error::InvalidParam(_) => {
@@ -244,5 +247,21 @@ mod tests {
     #[test]
     fn driver_id_is_the_wire_id() {
         assert_eq!(RtlSdrDriver::new().id(), "rtlsdr");
+    }
+
+    #[test]
+    fn an_unplugged_dongle_reads_as_gone_rather_than_as_a_transfer_that_failed() {
+        assert!(matches!(
+            map_err(driver::Error::ControlTransfer(
+                nusb::transfer::TransferError::Disconnected
+            )),
+            DeviceError::Disconnected(_)
+        ));
+        assert!(matches!(
+            map_err(driver::Error::ControlTransfer(
+                nusb::transfer::TransferError::Stall
+            )),
+            DeviceError::Io(_)
+        ));
     }
 }

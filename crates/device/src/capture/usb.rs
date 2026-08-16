@@ -34,11 +34,11 @@ impl CaptureStream for RxStream {
         self.error().map_or_else(
             || StreamFailure {
                 reason: "usb stream ended".to_string(),
-                fatal: false,
+                gone: false,
             },
             |error| StreamFailure {
                 reason: error.to_string(),
-                fatal: error.is_disconnected(),
+                gone: error.is_disconnected(),
             },
         )
     }
