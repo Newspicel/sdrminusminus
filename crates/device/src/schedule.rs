@@ -85,6 +85,13 @@ impl Drop for Awake {
     }
 }
 
+/// Keeps the token an RAII guard on platforms that have nothing to release, so callers and tests
+/// can rely on the same drop semantics everywhere.
+#[cfg(not(target_os = "macos"))]
+impl Drop for Awake {
+    fn drop(&mut self) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
