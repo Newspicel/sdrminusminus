@@ -4548,6 +4548,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-sdrplay"
+version = "0.0.0"
+dependencies = [
+ "libloading 0.8.9",
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-soapy"
 version = "0.0.0"
 dependencies = [
@@ -4598,6 +4610,7 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-device",
  "sdrmm-device-net",
+ "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",
  "sdrmm-dsp",
@@ -4653,6 +4666,7 @@ dependencies = [
  "rust-embed",
  "schemars 1.2.2",
  "sdrmm-device",
+ "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",
  "sdrmm-dsp",

@@ -11,8 +11,11 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-default = ["soapy", "net-client", "gpu-fft"]
+default = ["soapy", "sdrplay", "net-client", "gpu-fft"]
 soapy = ["dep:sdrmm-device-soapy"]
+# SDRplay RSP receivers through the vendor API, which is resolved at runtime and never linked,
+# so this costs a release artifact nothing and simply finds no hardware without it installed.
+sdrplay = ["dep:sdrmm-device-sdrplay"]
 # rtl_tcp and SpyServer clients. Pure `std::net`, so it costs a release artifact nothing and is
 # part of the minimal build.
 net-client = ["dep:sdrmm-device-net"]
@@ -26,6 +29,7 @@ sdrmm-dsp.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
+sdrmm-device-sdrplay = { workspace = true, optional = true }
 sdrmm-device-net = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
 sdrmm-recorder.workspace = true

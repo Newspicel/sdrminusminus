@@ -27,6 +27,7 @@ React client.
 | `sdrmm-device` | Hardware-independent device traits, capabilities, settings, and registry |
 | `sdrmm-device-virtual` | Signal generators and SigMF playback |
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
+| `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-net` | Direct `rtl_tcp` and SpyServer clients |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
 | `sdrmm-recorder` | SigMF writing, reading, scanning, and export |

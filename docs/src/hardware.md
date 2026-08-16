@@ -1,7 +1,8 @@
 # Radios and hardware
 
-sdr-- uses SoapySDR 0.8 for local radios and native clients for `rtl_tcp` and SpyServer receivers.
-It also includes virtual sources for the signal generator, multi-stream tests, and SigMF playback.
+sdr-- uses SoapySDR 0.8 for local radios, a built-in driver for SDRplay RSP receivers, and native
+clients for `rtl_tcp` and SpyServer receivers. It also includes virtual sources for the signal
+generator, multi-stream tests, and SigMF playback.
 
 ## Supported local hardware
 
@@ -19,6 +20,9 @@ Desktop installers and containers bundle a private SoapySDR 0.8.1 runtime with t
 
 UHD is not included in the base package because of its size. Other modules may work if they match
 the SoapySDR 0.8 module ABI, but are not part of the release test matrix.
+
+SDRplay RSP receivers do not go through SoapySDR at all — they have their own driver, described in
+[SDRplay](#sdrplay) below.
 
 Portable headless archives and source builds use the host SoapySDR installation. The release
 baseline is SoapySDR 0.8.1, SoapyRTLSDR 0.3.3, and SoapyHackRF 0.3.4; the complete curated set is
@@ -96,6 +100,67 @@ validating the rest. For example, RTL-SDR direct sampling changes the available 
 Current SoapyRTLSDR builds commonly expose `direct_samp`, `iq_swap`, `offset_tune`, `digital_agc`,
 and, when supported, `biastee`, `testmode`, or `dithering`. `iq_swap` reverses spectral orientation
 by exchanging I and Q; it is independent of direct sampling.
+
+## SDRplay
+
+RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx and RSPdx-R2 receivers work through a driver built into
+sdr--, with no SoapySDR module involved. The driver needs the SDRplay vendor API installed:
+
+1. **The driver** — part of sdr--. Nothing to install.
+2. **The vendor API** — the library, service and hardware driver, licensed for use with genuine
+   SDRplay hardware and not licensed for redistribution. Install it yourself from
+   [SDRplay](https://www.sdrplay.com/downloads/). Version 3.15 or newer is required.
+
+Install the API, plug in the RSP, and the receiver appears. sdr-- resolves the vendor library at
+runtime from wherever the installer put it — `/usr/local/lib` on Linux and macOS,
+`C:\Program Files\SDRplay\API` on Windows — so it is never linked, never bundled, and its absence
+costs nothing: a machine without it simply lists no RSP. `sdrmm --doctor` reports what it found
+under **SDRplay API**.
+
+The API also runs a background service (`sdrplay_apiService`). If it is stopped, the doctor check
+says the service is not responding even though everything is installed — start the service and
+retry.
+
+If a host-installed SoapySDRPlay3 module is also present, sdr-- prefers its own driver for that
+receiver, so an RSP is never listed twice.
+
+### Gain
+
+SDRplay hardware is specified in gain *reduction*; sdr-- presents both stages as gain, so higher
+is always more signal:
+
+- **RF** — the LNA state, in dB of gain relative to that band's weakest state. The available
+  steps change with frequency, the selected port, and HDR mode, so the range is re-read whenever
+  tuning moves to another band.
+- **IF** — 0 to 39 dB, the inverse of the 20–59 dB IF gain reduction the API takes.
+
+AGC controls the IF stage: with it enabled the IF slider sets the starting point and the setpoint
+extra sets the target level in dBFS.
+
+### Sample rates
+
+Single-tuner modes sample the ADC between 2 and 10.66 MHz, and rates below 2 MHz are reached by
+decimating a legal ADC rate, so anything from 62.5 kHz to 10.66 MHz works.
+
+### RSPduo
+
+The RSPduo appears once per operating mode it can currently offer — Tuner 1, Tuner 2, Dual Tuner,
+Master and Slave — and the chosen mode is part of the stored device identity, so a saved node
+comes back in the same mode. Dual Tuner gives one device with two independently tuned streams.
+
+Dual Tuner, Master and Slave run the ADC at a fixed 6 MHz with a 1.62 MHz IF, which puts their
+sample rates at 2 MHz and each halving below it down to 62.5 kHz, with the analog bandwidth capped
+at 1.536 MHz. A Slave waits for its master application to start; if no master appears, starting
+the stream reports that it is still waiting. The master owns the clock, so a slave cannot change
+the sample rate beyond its own decimation, and cannot apply a ppm correction.
+
+### Where the driver comes from
+
+The interface to the vendor library is written in Rust from the public
+[SDRplay API specification](https://www.sdrplay.com/api/), whose legal notice grants a royalty-free
+licence to use the information in it to design software that uses SDRplay receivers. No SDRplay
+source, header or binary is copied into this project or shipped with it, and the gain tables above
+come from the same document.
 
 ## Network receivers
 

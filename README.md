@@ -71,7 +71,9 @@ wire the Device's IQ output to it, wire its audio output to the Speaker, and tun
 
 For a real receiver, choose it instead of the signal generator. Desktop installers and containers
 bundle SoapySDR support for RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and
-SoapyRemote. See the
+SoapyRemote, plus a built-in driver for SDRplay RSP receivers — that one needs SDRplay's own API
+installed, because its licence covers use with genuine SDRplay hardware rather than
+redistribution. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
 troubleshooting.
 

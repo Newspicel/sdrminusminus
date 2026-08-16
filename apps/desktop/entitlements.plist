@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
 	<!-- The hardened runtime otherwise refuses to load any library not signed by this team, which
-	     would make every host-installed SoapySDR module unloadable no matter how the user
-	     installs it. -->
+	     would make every host-installed SoapySDR module unloadable and the SDRplay API — signed
+	     by SDRplay — unreachable, no matter how the user installs them. -->
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
 </dict>

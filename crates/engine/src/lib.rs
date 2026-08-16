@@ -63,6 +63,10 @@ use crate::{
 const VIRTUAL_PRIORITY: u8 = 10;
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
+// Above Soapy so a host-installed SoapySDRPlay3 loses the dedup for a receiver this driver
+// already speaks to directly.
+#[cfg(feature = "sdrplay")]
+const SDRPLAY_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
@@ -90,6 +94,11 @@ pub fn builtin_registry_accelerated(
     registry.register(
         SOAPY_PRIORITY,
         Box::new(sdrmm_device_soapy::SoapyDriver::new()),
+    );
+    #[cfg(feature = "sdrplay")]
+    registry.register(
+        SDRPLAY_PRIORITY,
+        Box::new(sdrmm_device_sdrplay::SdrplayDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {

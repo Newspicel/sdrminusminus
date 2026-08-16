@@ -16,7 +16,10 @@ the installer for your platform from [GitHub Releases](https://github.com/Newspi
 
 The app starts its receiver server on a private loopback port and opens the interface in a native
 window. Desktop installers include a private SoapySDR runtime and the supported hardware modules,
-so installing a second system-wide copy of SoapySDR is unnecessary.
+so installing a second system-wide copy of SoapySDR is unnecessary. SDRplay receivers need one
+extra step: their vendor API is licensed for genuine SDRplay hardware and is installed from
+[the SDRplay downloads page](https://www.sdrplay.com/downloads/), not by this installer — see
+[SDRplay receivers](../hardware.md#sdrplay).
 
 ## Portable server
 

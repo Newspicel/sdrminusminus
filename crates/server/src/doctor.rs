@@ -21,6 +21,8 @@ pub fn report(
         let info = sdrmm_device_soapy::runtime_info();
         checks.push(soapy_check(&info));
     }
+    #[cfg(all(feature = "sdrplay", not(test)))]
+    checks.push(sdrplay_check(&sdrmm_device_sdrplay::runtime_info()));
     checks.push(devices);
     checks.extend(usb_checks());
     checks.push(path_check(
@@ -132,6 +134,37 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
                 "missing bundled module(s): {}; reinstall the complete package",
                 missing.join(", ")
             )
+        }),
+    }
+}
+
+#[cfg(feature = "sdrplay")]
+fn sdrplay_check(info: &sdrmm_device_sdrplay::RuntimeInfo) -> DoctorCheck {
+    let loaded = info
+        .library
+        .as_ref()
+        .zip(info.version)
+        .map(|(library, version)| format!("version {version}\nlibrary: {library}"));
+    let installed = loaded.is_some();
+    DoctorCheck {
+        id: "sdrplay.api".to_string(),
+        name: "SDRplay API".to_string(),
+        status: if installed {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Warn
+        },
+        detail: loaded.unwrap_or_else(|| {
+            info.error
+                .clone()
+                .unwrap_or_else(|| "not installed".to_string())
+        }),
+        hint: (!installed).then(|| {
+            "SDRplay receivers need the vendor API, which is licensed for genuine SDRplay \
+             hardware and is not part of this package. Install it from \
+             https://www.sdrplay.com/downloads/ and make sure its service is running. Without \
+             it nothing else is affected — only RSP receivers stay invisible."
+                .to_string()
         }),
     }
 }
@@ -528,5 +561,45 @@ mod tests {
         assert!(check.detail.contains("core: 0.8.1"));
         assert!(check.detail.contains("librtlsdrSupport.so"));
         assert!(check.hint.is_some_and(|hint| hint.contains("hackrf")));
+    }
+
+    #[cfg(feature = "sdrplay")]
+    #[test]
+    fn sdrplay_check_names_the_library_it_found() {
+        let check = sdrplay_check(&sdrmm_device_sdrplay::RuntimeInfo {
+            version: Some(3.15),
+            library: Some("/usr/local/lib/libsdrplay_api.so.3".to_string()),
+            error: None,
+        });
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.detail.contains("3.15"));
+        assert!(check.detail.contains("libsdrplay_api.so.3"));
+        assert!(check.hint.is_none());
+    }
+
+    #[cfg(feature = "sdrplay")]
+    #[test]
+    fn a_library_that_reported_no_version_is_not_called_installed() {
+        let check = sdrplay_check(&sdrmm_device_sdrplay::RuntimeInfo {
+            version: None,
+            library: Some("/usr/local/lib/libsdrplay_api.so.3".to_string()),
+            error: Some("sdrplay_api_ApiVersion failed".to_string()),
+        });
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("ApiVersion failed"));
+        assert!(check.hint.is_some());
+    }
+
+    #[cfg(feature = "sdrplay")]
+    #[test]
+    fn a_missing_sdrplay_api_warns_and_says_where_to_get_it() {
+        let check = sdrplay_check(&sdrmm_device_sdrplay::RuntimeInfo {
+            version: None,
+            library: None,
+            error: Some("the SDRplay API is not installed".to_string()),
+        });
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("not installed"));
+        assert!(check.hint.is_some_and(|hint| hint.contains("sdrplay.com")));
     }
 }

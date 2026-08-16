@@ -653,7 +653,7 @@ fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "soapy,net-client,gpu-fft".to_string(),
+        "soapy,sdrplay,net-client,gpu-fft".to_string(),
     ]
 }
 
