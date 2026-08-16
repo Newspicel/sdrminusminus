@@ -117,6 +117,8 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         step: None,
     });
 
+    // The 29-entry R82xx table is not evenly spaced, so it travels as the table it is rather
+    // than as a step a client would have to round against and get wrong.
     let gain_stages = match (gains.iter().copied().min(), gains.iter().copied().max()) {
         (Some(min), Some(max)) => vec![GainStage {
             name: TUNER_STAGE.to_string(),
@@ -125,6 +127,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
                 max: tenths_to_db(max),
                 step: None,
             },
+            values: gains.iter().copied().map(tenths_to_db).collect(),
         }],
         _ => Vec::new(),
     };
@@ -132,10 +135,24 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     Capabilities {
         freq_ranges,
         sample_rates: RATE_MENU.to_vec(),
-        sample_rate_range: None,
+        sample_rate_ranges: RATE_WINDOWS
+            .iter()
+            .map(|(min, max)| Range {
+                min: *min,
+                max: *max,
+                step: None,
+            })
+            .collect(),
         gains: gain_stages,
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
+        // The R82xx filter is continuous from the caller's side; only the envelope is fixed, and
+        // 0 selects the automatic width that tracks the sample rate.
+        bandwidth_ranges: vec![Range {
+            min: 0.0,
+            max: BANDWIDTH_MAX_HZ,
+            step: None,
+        }],
         extra: extra_settings(board),
         ppm: true,
         duplex: Duplex::RxOnly,
@@ -598,9 +615,17 @@ mod tests {
             ]
         );
         assert_eq!(caps.sample_rates, RATE_MENU.to_vec());
-        assert_eq!(caps.sample_rate_range, None);
+        assert_eq!(caps.sample_rate_ranges.len(), 2);
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
-        assert!(caps.bandwidths.is_empty());
+        assert!(caps.bandwidths.is_empty(), "the IF filter is not a menu");
+        assert_eq!(
+            caps.bandwidth_ranges,
+            vec![Range {
+                min: 0.0,
+                max: BANDWIDTH_MAX_HZ,
+                step: None
+            }]
+        );
         assert_eq!(caps.duplex, Duplex::RxOnly);
         assert!(caps.ppm);
         assert_eq!(caps.rx_streams, 1);
@@ -662,6 +687,44 @@ mod tests {
         assert_eq!(nearest_gain(&table, 170), Some(200));
         assert_eq!(nearest_gain(&table, 150), Some(100));
         assert_eq!(nearest_gain(&[], 100), None);
+    }
+
+    #[test]
+    fn the_advertised_table_snaps_the_same_way_the_driver_does() {
+        let caps = caps();
+        let stage = caps.gains.first().expect("a tuner stage");
+        assert_eq!(stage.values.len(), GAIN_VALUES.len());
+        assert!(!stage.is_switch(), "29 settings is not a switch");
+        for tenths in (-100..=600).step_by(7) {
+            let driver = nearest_gain(GAIN_VALUES, tenths).expect("a non-empty table");
+            let advertised = stage.snap(f64::from(tenths) / 10.0);
+            assert!(
+                (advertised - tenths_to_db(driver)).abs() < f64::EPSILON,
+                "{tenths} tenths: the client would show {advertised} dB where the driver \
+                 programs {} dB",
+                tenths_to_db(driver)
+            );
+        }
+    }
+
+    #[test]
+    fn every_offered_rate_sits_inside_a_window_the_resampler_holds() {
+        let caps = caps();
+        assert_eq!(
+            caps.sample_rate_ranges.len(),
+            2,
+            "the RTL2832U has two windows"
+        );
+        for rate in &caps.sample_rates {
+            assert!(
+                sdrmm_wire::any_range_holds(&caps.sample_rate_ranges, *rate),
+                "{rate} is offered but falls in the aliasing gap"
+            );
+        }
+        assert!(
+            !sdrmm_wire::any_range_holds(&caps.sample_rate_ranges, 500_000.0),
+            "500 kHz aliases and must not be advertised as reachable"
+        );
     }
 
     fn caps() -> Capabilities {

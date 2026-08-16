@@ -464,19 +464,19 @@ pub fn extras(model: Model, mode: Option<DuoMode>) -> Vec<ExtraSetting> {
 pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabilities {
     let streams = mode.map_or(1, DuoMode::streams);
     let rates = sample_rates(mode);
-    let sample_rate_range = if mode.is_some_and(DuoMode::is_low_if) {
-        None
+    let sample_rate_ranges = if mode.is_some_and(DuoMode::is_low_if) {
+        Vec::new()
     } else {
-        Some(Range {
+        vec![Range {
             min: MIN_ADC_RATE_HZ / f64::from(MAX_DECIMATION),
             max: MAX_ADC_RATE_HZ,
             step: None,
-        })
+        }]
     };
     Capabilities {
         freq_ranges: vec![frequency_range(model)],
         sample_rates: rates,
-        sample_rate_range,
+        sample_rate_ranges,
         gains: vec![
             GainStage {
                 name: RF_GAIN_STAGE.to_string(),
@@ -485,6 +485,7 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
                     max: max_lna_reduction(band),
                     step: None,
                 },
+                values: Vec::new(),
             },
             GainStage {
                 name: IF_GAIN_STAGE.to_string(),
@@ -493,10 +494,12 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
                     max: IF_GAIN_SPAN_DB,
                     step: Some(1.0),
                 },
+                values: Vec::new(),
             },
         ],
         antennas: antennas(model, mode),
         bandwidths: bandwidths(mode),
+        bandwidth_ranges: Vec::new(),
         extra: extras(model, mode),
         ppm: true,
         duplex: sdrmm_wire::Duplex::RxOnly,

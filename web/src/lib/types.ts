@@ -11,6 +11,7 @@ export type StreamScope = components["schemas"]["StreamScope"];
 export type StreamSettings = components["schemas"]["StreamSettings"];
 export type Duplex = components["schemas"]["Duplex"];
 export type GainStage = components["schemas"]["GainStage"];
+export type Range = components["schemas"]["Range"];
 export type ExtraSetting = components["schemas"]["ExtraSetting"];
 export type DevicesResponse = components["schemas"]["DevicesResponse"];
 export type ChannelInfo = components["schemas"]["ChannelInfo"];

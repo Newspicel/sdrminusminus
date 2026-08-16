@@ -200,6 +200,7 @@ pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
         .map(|info| match registry.open(&info.id()) {
             Ok((_, mut device)) => {
                 let rates = device.capabilities().sample_rates.clone();
+                let ranges = device.capabilities().sample_rate_ranges.clone();
                 let restore = device.settings().sample_rate;
                 let held: Vec<(f64, Option<f64>)> = rates
                     .iter()
@@ -208,7 +209,7 @@ pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
                 if let Some(rate) = restore {
                     let _ = hold_rate(device.as_mut(), rate);
                 }
-                rate_check(&info.id(), &info.label, &held)
+                rate_check(&info.id(), &info.label, &held, &ranges)
             }
             Err(error) => DoctorCheck {
                 id: format!("rates.{}", info.id()),
@@ -237,13 +238,35 @@ fn hold_rate(device: &mut dyn sdrmm_device::SdrDevice, rate: f64) -> Option<f64>
 
 const RATE_TOLERANCE: f64 = 1e-6;
 
-fn rate_check(id: &str, label: &str, held: &[(f64, Option<f64>)]) -> DoctorCheck {
+fn rate_check(
+    id: &str,
+    label: &str,
+    held: &[(f64, Option<f64>)],
+    ranges: &[sdrmm_wire::Range],
+) -> DoctorCheck {
     if held.is_empty() {
+        // A radio that resamples across a window has no fixed rate to hold, so there is nothing
+        // to fail here. Only a radio that declares neither is unverifiable.
+        let (status, detail) = if ranges.is_empty() {
+            (
+                CheckStatus::Warn,
+                "the driver advertises neither discrete rates nor a range to check".to_string(),
+            )
+        } else {
+            let windows: Vec<String> = ranges
+                .iter()
+                .map(|range| format!("{:.0}-{:.0} Hz", range.min, range.max))
+                .collect();
+            (
+                CheckStatus::Ok,
+                format!("continuous across {}", windows.join(", ")),
+            )
+        };
         return DoctorCheck {
             id: format!("rates.{id}"),
             name: format!("Sample rates: {label}"),
-            status: CheckStatus::Warn,
-            detail: "the driver advertises no discrete rates to check".to_string(),
+            status,
+            detail,
             hint: None,
         };
     }
@@ -421,7 +444,7 @@ mod tests {
             (2_400_000.0, Some(2_286_826.0)),
             (3_200_000.0, None),
         ];
-        let check = rate_check("soapy:00000001", "Generic RTL2832U", &held);
+        let check = rate_check("soapy:00000001", "Generic RTL2832U", &held, &[]);
         assert_eq!(check.status, CheckStatus::Fail);
         assert!(check.detail.contains("2048000 Hz  ok"), "{}", check.detail);
         assert!(
@@ -441,12 +464,33 @@ mod tests {
     fn a_radio_that_holds_every_advertised_rate_passes() {
         let held = [(2_048_000.0, Some(2_048_000.0)), (1_024_000.0, None)];
         assert_eq!(
-            rate_check("x", "X", &held[..1]).status,
+            rate_check("x", "X", &held[..1], &[]).status,
             CheckStatus::Ok,
             "an exact read-back is not a mismatch"
         );
-        assert_eq!(rate_check("x", "X", &held).status, CheckStatus::Fail);
-        assert_eq!(rate_check("x", "X", &[]).status, CheckStatus::Warn);
+        assert_eq!(rate_check("x", "X", &held, &[]).status, CheckStatus::Fail);
+        assert_eq!(rate_check("x", "X", &[], &[]).status, CheckStatus::Warn);
+    }
+
+    #[test]
+    fn a_radio_that_resamples_across_a_window_has_nothing_to_fail() {
+        let window = sdrmm_wire::Range {
+            min: 2e6,
+            max: 20e6,
+            step: None,
+        };
+        let check = rate_check("hackrf:1", "HackRF One", &[], &[window]);
+        assert_eq!(
+            check.status,
+            CheckStatus::Ok,
+            "a continuous radio is not a broken one"
+        );
+        assert!(
+            check.detail.contains("2000000-20000000 Hz"),
+            "{}",
+            check.detail
+        );
+        assert!(check.hint.is_none());
     }
 
     #[test]

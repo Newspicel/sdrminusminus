@@ -1267,6 +1267,8 @@ export interface components {
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
         Capabilities: {
             antennas: string[];
+            /** @description Continuous analog filter widths, for hardware whose IF filter is not a discrete menu. */
+            bandwidth_ranges?: components["schemas"]["Range"][];
             bandwidths: number[];
             directional?: null | components["schemas"]["DirectionalCapabilities"];
             duplex?: components["schemas"]["Duplex"];
@@ -1277,7 +1279,12 @@ export interface components {
             ppm?: boolean;
             /** Format: int32 */
             rx_streams?: number;
-            sample_rate_range?: null | components["schemas"]["Range"];
+            /**
+             * @description Continuous windows the radio resamples across. A radio with holes in its rate coverage —
+             *     the RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this
+             *     is a list and not the single range it replaced.
+             */
+            sample_rate_ranges?: components["schemas"]["Range"][];
             sample_rates: number[];
             /** Format: int32 */
             tx_streams?: number;
@@ -1836,7 +1843,7 @@ export interface components {
             per_stream?: components["schemas"]["StreamScope"];
             /** Format: int32 */
             rx_streams: number;
-            sample_rate_range?: null | components["schemas"]["Range"];
+            sample_rate_ranges?: components["schemas"]["Range"][];
             sample_rates: number[];
             /** Format: int32 */
             tx_streams: number;
@@ -2059,6 +2066,13 @@ export interface components {
         GainStage: {
             name: string;
             range: components["schemas"]["Range"];
+            /**
+             * @description The settings this stage can actually hold, for hardware whose gain is a table rather than
+             *     an even step — the R82xx's 29 irregular entries, say. Empty means every value `range`
+             *     admits is reachable. A client renders a control that can only land on real settings, and a
+             *     driver still snaps whatever it is asked for.
+             */
+            values?: number[];
         };
         GainValue: {
             stage: string;

@@ -98,7 +98,8 @@ radio may expose:
 
 - separate RX and TX streams;
 - device-wide or per-stream tuning;
-- sample rates and analog bandwidths;
+- sample rates, as a menu, as continuous windows, or as both;
+- analog bandwidths, likewise;
 - antennas, gain stages, AGC, clock and time sources;
 - driver-specific booleans, enums, ranges, and text settings.
 
@@ -113,9 +114,25 @@ phantom power on the antenna port, `agc` for the R82xx tuner AGC, and `direct_sa
 the tuner rather than a tuner bypass — on that board HF is reached by tuning below 28.8 MHz with
 no setting changed.
 
-A gain request is snapped to the tuner's own table, which is not evenly spaced, and the snapped
-value is what the driver reports back. Asking for 20 dB on an R820T therefore reads back as
-19.7 dB: that is the gain the hardware was actually programmed with, not a rounding error.
+The tuner's gain table is not evenly spaced, so it is published as the table it is rather than as
+a step: the gain slider walks the 29 real settings and cannot land between them. A request that
+does come from elsewhere — the API, a stored workspace — is snapped to the nearest entry, and the
+snapped value is what the driver reports back. Asking for 20 dB on an R820T therefore reads back
+as 19.7 dB: that is the gain the hardware was programmed with, not a rounding error.
+
+The RTL2832U resamples across two windows, 225–300 kHz and 900 kHz–3.2 MHz, and aliases between
+them. Both are published, so a rate in the gap is refused rather than quietly accepted. The
+familiar rate menu is published alongside them and is what the picker offers.
+
+The R82xx IF filter is continuous rather than a menu, so it is published as a 0–8 MHz window;
+0 selects the automatic width that tracks the sample rate.
+
+### HackRF settings
+
+Three gain stages — `LNA` in 8 dB steps, `VGA` in 2 dB steps, and `AMP`, the switched +14 dB RF
+amplifier. A switched amplifier is still gain, so it is a gain stage with two settings rather
+than a boolean hidden somewhere else; the client renders it as a switch, and it shows up in the
+gain budget where it belongs. `bias_tee` supplies phantom power on the antenna port.
 
 ## SDRplay
 

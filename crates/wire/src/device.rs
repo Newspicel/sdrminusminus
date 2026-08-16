@@ -18,8 +18,8 @@ pub struct DeviceInfo {
 pub struct DeviceProfile {
     pub freq_ranges: Vec<Range>,
     pub sample_rates: Vec<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sample_rate_range: Option<Range>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sample_rate_ranges: Vec<Range>,
     pub duplex: Duplex,
     pub rx_streams: u32,
     pub tx_streams: u32,
@@ -39,20 +39,19 @@ impl DeviceProfile {
 
     #[must_use]
     pub fn runs_at(&self, rate: f64, tolerance: f64) -> bool {
-        if let Some(range) = &self.sample_rate_range
-            && rate >= range.min
-            && rate <= range.max
-        {
-            return true;
-        }
-        if self.sample_rates.is_empty() {
-            return self.sample_rate_range.is_none();
+        // Declared windows are the whole answer, and a veto: no tolerance reaches a rate the
+        // resampler cannot produce, and any rate in the menu is inside a window by construction.
+        if !self.sample_rate_ranges.is_empty() {
+            return any_range_holds(&self.sample_rate_ranges, rate);
         }
         if self
             .sample_rates
             .iter()
             .any(|have| (have - rate).abs() <= rate * tolerance)
         {
+            return true;
+        }
+        if self.sample_rates.is_empty() {
             return true;
         }
         if tolerance == 0.0 {
@@ -148,10 +147,71 @@ pub struct Range {
     pub step: Option<f64>,
 }
 
+impl Range {
+    #[must_use]
+    pub fn holds(&self, value: f64) -> bool {
+        self.min <= value && value <= self.max
+    }
+}
+
+/// Whether a value lies in any of `ranges`. An empty list holds nothing, so callers that mean
+/// "unconstrained" have to say so themselves.
+#[must_use]
+pub fn any_range_holds(ranges: &[Range], value: f64) -> bool {
+    ranges.iter().any(|range| range.holds(value))
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GainStage {
     pub name: String,
     pub range: Range,
+    /// The settings this stage can actually hold, for hardware whose gain is a table rather than
+    /// an even step — the R82xx's 29 irregular entries, say. Empty means every value `range`
+    /// admits is reachable. A client renders a control that can only land on real settings, and a
+    /// driver still snaps whatever it is asked for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<f64>,
+}
+
+impl GainStage {
+    /// A switched amplifier — an RF amp that is on or off — rather than a continuous control.
+    /// The convention for those is a stage with exactly two settings, so they join the gain
+    /// budget the client shows instead of hiding in an unrelated boolean.
+    #[must_use]
+    pub fn is_switch(&self) -> bool {
+        match self.values.len() {
+            0 => self
+                .range
+                .step
+                .is_some_and(|step| step > 0.0 && (self.range.max - self.range.min) == step),
+            count => count == 2,
+        }
+    }
+
+    /// The nearest setting the hardware can hold. Ties take the lower one, so snapping never
+    /// raises gain past what was asked for.
+    #[must_use]
+    pub fn snap(&self, value_db: f64) -> f64 {
+        let clamped = value_db.clamp(self.range.min, self.range.max);
+        if !self.values.is_empty() {
+            return self
+                .values
+                .iter()
+                .copied()
+                .min_by(|a, b| {
+                    (a - clamped)
+                        .abs()
+                        .total_cmp(&(b - clamped).abs())
+                        .then(a.total_cmp(b))
+                })
+                .unwrap_or(clamped);
+        }
+        match self.range.step.filter(|step| *step > 0.0) {
+            Some(step) => (self.range.min + ((clamped - self.range.min) / step).round() * step)
+                .clamp(self.range.min, self.range.max),
+            None => clamped,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -307,11 +367,17 @@ pub struct StreamScope {
 pub struct Capabilities {
     pub freq_ranges: Vec<Range>,
     pub sample_rates: Vec<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sample_rate_range: Option<Range>,
+    /// Continuous windows the radio resamples across. A radio with holes in its rate coverage —
+    /// the RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this
+    /// is a list and not the single range it replaced.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sample_rate_ranges: Vec<Range>,
     pub gains: Vec<GainStage>,
     pub antennas: Vec<String>,
     pub bandwidths: Vec<f64>,
+    /// Continuous analog filter widths, for hardware whose IF filter is not a discrete menu.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bandwidth_ranges: Vec<Range>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<ExtraSetting>,
     #[serde(default)]
@@ -338,7 +404,7 @@ impl Capabilities {
         DeviceProfile {
             freq_ranges: self.freq_ranges.clone(),
             sample_rates: self.sample_rates.clone(),
-            sample_rate_range: self.sample_rate_range,
+            sample_rate_ranges: self.sample_rate_ranges.clone(),
             duplex: self.duplex,
             rx_streams: self.rx_streams,
             tx_streams: self.tx_streams,
@@ -473,7 +539,7 @@ mod tests {
         Capabilities {
             freq_ranges,
             sample_rates,
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: vec![GainStage {
                 name: "TUNER".to_string(),
                 range: Range {
@@ -481,9 +547,11 @@ mod tests {
                     max: 49.6,
                     step: None,
                 },
+                values: Vec::new(),
             }],
             antennas: vec!["RX".to_string()],
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: Vec::new(),
             ppm: false,
             duplex,
@@ -537,6 +605,55 @@ mod tests {
         assert!(DeviceProfile::default().reaches(1.09e9));
     }
 
+    fn stage(range: Range, values: Vec<f64>) -> GainStage {
+        GainStage {
+            name: "TEST".to_string(),
+            range,
+            values,
+        }
+    }
+
+    #[test]
+    fn a_stage_without_a_step_or_a_table_only_clamps() {
+        let plain = stage(range(0.0, 10.0), Vec::new());
+        assert_eq!(plain.snap(3.7), 3.7);
+        assert_eq!(plain.snap(11.0), 10.0);
+        assert_eq!(plain.snap(-1.0), 0.0);
+        assert!(!plain.is_switch());
+    }
+
+    #[test]
+    fn a_stepped_stage_lands_on_the_grid() {
+        let mut stepped = range(0.0, 40.0);
+        stepped.step = Some(8.0);
+        let stage = stage(stepped, Vec::new());
+        assert_eq!(stage.snap(13.0), 16.0);
+        assert_eq!(stage.snap(12.0), 16.0);
+        assert_eq!(stage.snap(-5.0), 0.0);
+        assert_eq!(stage.snap(1_000.0), 40.0);
+        assert!(!stage.is_switch(), "five settings is not a switch");
+    }
+
+    #[test]
+    fn a_tabled_stage_lands_only_on_a_real_setting() {
+        let table = stage(range(0.0, 49.6), vec![0.0, 9.0, 14.0, 19.7, 20.7, 49.6]);
+        assert_eq!(table.snap(20.0), 19.7, "nearest, and ties take the lower");
+        assert_eq!(table.snap(19.7), 19.7);
+        assert_eq!(table.snap(-3.0), 0.0);
+        assert_eq!(table.snap(1_000.0), 49.6);
+        assert_eq!(table.snap(11.5), 9.0, "exactly between 9.0 and 14.0");
+        assert!(!table.is_switch());
+    }
+
+    #[test]
+    fn a_two_setting_stage_is_a_switch_however_it_was_declared() {
+        let mut stepped = range(0.0, 14.0);
+        stepped.step = Some(14.0);
+        assert!(stage(stepped, Vec::new()).is_switch());
+        assert!(stage(range(0.0, 14.0), vec![0.0, 14.0]).is_switch());
+        assert!(!stage(range(0.0, 14.0), vec![0.0, 7.0, 14.0]).is_switch());
+    }
+
     #[test]
     fn a_rate_menu_is_exact_and_a_range_is_a_bound() {
         let menu = caps(Vec::new(), vec![1.024e6, 2.0e6, 2.4e6], Duplex::RxOnly).profile();
@@ -545,11 +662,35 @@ mod tests {
         assert!(menu.runs_at(2.2e6, 0.1), "within tolerance");
 
         let mut continuous = caps(Vec::new(), Vec::new(), Duplex::RxOnly).profile();
-        continuous.sample_rate_range = Some(range(2e6, 20e6));
+        continuous.sample_rate_ranges = vec![range(2e6, 20e6)];
         assert!(continuous.runs_at(8e6, 0.0));
         assert!(!continuous.runs_at(1e6, 0.0));
 
         assert!(DeviceProfile::default().runs_at(2.4e6, 0.0));
+    }
+
+    #[test]
+    fn a_gap_between_two_windows_is_not_a_rate_the_radio_runs_at() {
+        let mut windows = caps(
+            Vec::new(),
+            vec![250_000.0, 1_024_000.0, 2_048_000.0, 3_200_000.0],
+            Duplex::RxOnly,
+        )
+        .profile();
+        windows.sample_rate_ranges = vec![range(225_001.0, 300_000.0), range(900_001.0, 3.2e6)];
+        assert!(windows.runs_at(250_000.0, 0.0));
+        assert!(windows.runs_at(1.8e6, 0.0), "inside the upper window");
+        assert!(
+            !windows.runs_at(500_000.0, 0.5),
+            "the RTL2832U aliases between the two windows, and no tolerance makes that reachable"
+        );
+        assert!(!windows.runs_at(4e6, 0.5), "past the top of every window");
+        for rate in &windows.sample_rates {
+            assert!(
+                any_range_holds(&windows.sample_rate_ranges, *rate),
+                "{rate} is offered in the menu but sits in no window"
+            );
+        }
     }
 
     #[test]

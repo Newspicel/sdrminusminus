@@ -113,9 +113,7 @@ fn every_stage(driver: &dyn DeviceDriver, info: &DeviceInfo, gain_db: f64) -> Ve
 }
 
 fn accepts(capabilities: &sdrmm_wire::Capabilities, rate: f64) -> bool {
-    capabilities
-        .sample_rate_range
-        .is_some_and(|range| range.min <= rate && rate <= range.max)
+    sdrmm_wire::any_range_holds(&capabilities.sample_rate_ranges, rate)
         || capabilities
             .sample_rates
             .iter()

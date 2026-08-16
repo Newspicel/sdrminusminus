@@ -57,7 +57,7 @@ pub use decode::{
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
     DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue,
-    GainStage, GainValue, Range, StreamScope, StreamSettings,
+    GainStage, GainValue, Range, StreamScope, StreamSettings, any_range_holds,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{
@@ -562,10 +562,11 @@ mod contract_tests {
             capabilities: Capabilities {
                 freq_ranges: Vec::new(),
                 sample_rates: Vec::new(),
-                sample_rate_range: None,
+                sample_rate_ranges: Vec::new(),
                 gains: Vec::new(),
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
+                bandwidth_ranges: Vec::new(),
                 extra: Vec::new(),
                 ppm: false,
                 duplex: Duplex::RxOnly,

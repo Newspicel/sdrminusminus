@@ -93,13 +93,15 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
     Capabilities {
         freq_ranges: freq_ranges(tuner),
         sample_rates: RATE_MENU.to_vec(),
-        sample_rate_range: None,
+        sample_rate_ranges: Vec::new(),
         gains: vec![GainStage {
             name: TUNER_STAGE.to_string(),
             range,
+            values: Vec::new(),
         }],
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
+        bandwidth_ranges: Vec::new(),
         extra: extra_settings(),
         ppm: true,
         duplex: Duplex::RxOnly,

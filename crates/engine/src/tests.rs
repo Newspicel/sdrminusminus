@@ -35,10 +35,11 @@ fn empty_capabilities() -> Capabilities {
     Capabilities {
         freq_ranges: Vec::new(),
         sample_rates: Vec::new(),
-        sample_rate_range: None,
+        sample_rate_ranges: Vec::new(),
         gains: Vec::new(),
         antennas: Vec::new(),
         bandwidths: Vec::new(),
+        bandwidth_ranges: Vec::new(),
         extra: Vec::new(),
         ppm: false,
         duplex: Duplex::RxOnly,

@@ -520,10 +520,11 @@ mod tests {
         Capabilities {
             freq_ranges: freq,
             sample_rates: rates,
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: Vec::new(),
             antennas: Vec::new(),
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: Vec::new(),
             ppm: false,
             duplex,

@@ -227,6 +227,7 @@ fn query_channel(
         gains.push(GainStage {
             name,
             range: caps::ranges(&[range])[0],
+            values: Vec::new(),
         });
     }
     let frequency_components = optional(

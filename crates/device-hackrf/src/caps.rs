@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
-    StreamScope,
+    StreamScope, any_range_holds,
 };
 
 use crate::driver::{Config, FILTER_WIDTHS_HZ, snap_filter_width};
@@ -9,7 +9,7 @@ use crate::driver::{Config, FILTER_WIDTHS_HZ, snap_filter_width};
 pub(crate) const ANTENNA: &str = "RX";
 pub(crate) const LNA_STAGE: &str = "LNA";
 pub(crate) const VGA_STAGE: &str = "VGA";
-pub(crate) const AMP_SETTING: &str = "amp";
+pub(crate) const AMP_STAGE: &str = "AMP";
 pub(crate) const BIAS_TEE_SETTING: &str = "bias_tee";
 
 const FREQ_MIN_HZ: f64 = 1e6;
@@ -20,6 +20,9 @@ const LNA_MAX_DB: f64 = 40.0;
 const LNA_STEP_DB: f64 = 8.0;
 const VGA_MAX_DB: f64 = 62.0;
 const VGA_STEP_DB: f64 = 2.0;
+/// The RF amplifier is a switch, not a control, so it travels as the two-setting gain stage the
+/// wire model reserves for that — the same shape SoapyHackRF gives the same radio.
+const AMP_DB: f64 = 14.0;
 
 pub(crate) fn capabilities() -> Capabilities {
     Capabilities {
@@ -29,11 +32,11 @@ pub(crate) fn capabilities() -> Capabilities {
             step: None,
         }],
         sample_rates: Vec::new(),
-        sample_rate_range: Some(Range {
+        sample_rate_ranges: vec![Range {
             min: RATE_MIN_HZ,
             max: RATE_MAX_HZ,
             step: None,
-        }),
+        }],
         gains: vec![
             GainStage {
                 name: LNA_STAGE.to_string(),
@@ -42,6 +45,16 @@ pub(crate) fn capabilities() -> Capabilities {
                     max: LNA_MAX_DB,
                     step: Some(LNA_STEP_DB),
                 },
+                values: Vec::new(),
+            },
+            GainStage {
+                name: AMP_STAGE.to_string(),
+                range: Range {
+                    min: 0.0,
+                    max: AMP_DB,
+                    step: Some(AMP_DB),
+                },
+                values: Vec::new(),
             },
             GainStage {
                 name: VGA_STAGE.to_string(),
@@ -50,20 +63,16 @@ pub(crate) fn capabilities() -> Capabilities {
                     max: VGA_MAX_DB,
                     step: Some(VGA_STEP_DB),
                 },
+                values: Vec::new(),
             },
         ],
         antennas: vec![ANTENNA.to_string()],
         bandwidths: FILTER_WIDTHS_HZ.iter().copied().map(f64::from).collect(),
-        extra: vec![
-            ExtraSetting::Bool {
-                name: AMP_SETTING.to_string(),
-                default: false,
-            },
-            ExtraSetting::Bool {
-                name: BIAS_TEE_SETTING.to_string(),
-                default: false,
-            },
-        ],
+        bandwidth_ranges: Vec::new(),
+        extra: vec![ExtraSetting::Bool {
+            name: BIAS_TEE_SETTING.to_string(),
+            default: false,
+        }],
         ppm: false,
         duplex: Duplex::Half,
         rx_streams: 1,
@@ -92,16 +101,6 @@ pub(crate) enum FilterWidth {
     Hz(u32),
 }
 
-pub(crate) fn snap_gain(range: Range, value_db: f64) -> f64 {
-    let clamped = value_db.clamp(range.min, range.max);
-    match range.step.filter(|step| *step > 0.0) {
-        Some(step) => {
-            (range.min + ((clamped - range.min) / step).round() * step).clamp(range.min, range.max)
-        }
-        None => clamped,
-    }
-}
-
 pub(crate) fn validate(
     delta: &DeviceSettings,
     caps: &Capabilities,
@@ -120,10 +119,7 @@ pub(crate) fn validate(
 
     if let Some(rate) = delta.sample_rate {
         let in_list = caps.sample_rates.contains(&rate);
-        let in_span = caps
-            .sample_rate_range
-            .is_some_and(|r| r.min <= rate && rate <= r.max);
-        if !in_list && !in_span {
+        if !in_list && !any_range_holds(&caps.sample_rate_ranges, rate) {
             return Err(DeviceError::Unsupported(format!("sample_rate {rate}")));
         }
         applied.sample_rate_hz = Some(rate.round() as u32);
@@ -166,10 +162,11 @@ pub(crate) fn validate(
                 gain.stage, gain.value_db, stage.range.min, stage.range.max
             )));
         }
-        let value_db = snap_gain(stage.range, gain.value_db).round() as u8;
+        let snapped = stage.snap(gain.value_db);
         match stage.name.as_str() {
-            LNA_STAGE => applied.lna_gain_db = Some(value_db),
-            VGA_STAGE => applied.vga_gain_db = Some(value_db),
+            LNA_STAGE => applied.lna_gain_db = Some(snapped.round() as u8),
+            VGA_STAGE => applied.vga_gain_db = Some(snapped.round() as u8),
+            AMP_STAGE => applied.amp = Some(snapped > 0.0),
             other => return Err(DeviceError::Unsupported(format!("gain stage {other}"))),
         }
     }
@@ -193,7 +190,6 @@ pub(crate) fn validate(
             ))
         })?;
         match setting.name() {
-            AMP_SETTING => applied.amp = Some(enabled),
             BIAS_TEE_SETTING => applied.bias_tee = Some(enabled),
             other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
         }
@@ -215,20 +211,18 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
                 value_db: f64::from(config.lna_gain_db),
             },
             GainValue {
+                stage: AMP_STAGE.to_string(),
+                value_db: if config.amp_enabled { AMP_DB } else { 0.0 },
+            },
+            GainValue {
                 stage: VGA_STAGE.to_string(),
                 value_db: f64::from(config.vga_gain_db),
             },
         ],
-        extra: vec![
-            ExtraValue {
-                name: AMP_SETTING.to_string(),
-                value: config.amp_enabled.into(),
-            },
-            ExtraValue {
-                name: BIAS_TEE_SETTING.to_string(),
-                value: config.bias_tee_enabled.into(),
-            },
-        ],
+        extra: vec![ExtraValue {
+            name: BIAS_TEE_SETTING.to_string(),
+            value: config.bias_tee_enabled.into(),
+        }],
         streams: Vec::new(),
     }
 }
@@ -258,22 +252,6 @@ mod tests {
         }
     }
 
-    fn lna_range() -> Range {
-        Range {
-            min: 0.0,
-            max: LNA_MAX_DB,
-            step: Some(LNA_STEP_DB),
-        }
-    }
-
-    fn vga_range() -> Range {
-        Range {
-            min: 0.0,
-            max: VGA_MAX_DB,
-            step: Some(VGA_STEP_DB),
-        }
-    }
-
     #[test]
     fn capabilities_describe_the_hackrf_one() {
         let caps = capabilities();
@@ -287,18 +265,19 @@ mod tests {
         );
         assert!(caps.sample_rates.is_empty());
         assert_eq!(
-            caps.sample_rate_range,
-            Some(Range {
+            caps.sample_rate_ranges,
+            vec![Range {
                 min: 2e6,
                 max: 20e6,
                 step: None
-            })
+            }]
         );
-        assert_eq!(caps.gains.len(), 2);
+        assert_eq!(caps.gains.len(), 3);
         assert_eq!(caps.gains[0].name, "LNA");
         assert_eq!(caps.gains[0].range.step, Some(8.0));
-        assert_eq!(caps.gains[1].name, "VGA");
-        assert_eq!(caps.gains[1].range.step, Some(2.0));
+        assert_eq!(caps.gains[1].name, "AMP");
+        assert_eq!(caps.gains[2].name, "VGA");
+        assert_eq!(caps.gains[2].range.step, Some(2.0));
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
         assert_eq!(caps.bandwidths.len(), 16);
         assert_eq!(caps.bandwidths.first(), Some(&1.75e6));
@@ -309,44 +288,59 @@ mod tests {
                 .iter()
                 .map(ExtraSetting::name)
                 .collect::<Vec<_>>(),
-            vec!["amp", "bias_tee"]
+            vec!["bias_tee"]
         );
         assert_eq!(caps.duplex, Duplex::Half);
     }
 
     #[test]
-    fn snap_gain_quantises_the_lna_grid() {
-        let range = lna_range();
-        assert_eq!(snap_gain(range, -12.0), 0.0);
-        assert_eq!(snap_gain(range, 0.0), 0.0);
-        assert_eq!(snap_gain(range, 13.0), 16.0);
-        assert_eq!(snap_gain(range, 16.0), 16.0);
-        assert_eq!(snap_gain(range, 12.0), 16.0);
-        assert_eq!(snap_gain(range, 40.0), 40.0);
-        assert_eq!(snap_gain(range, 1_000.0), 40.0);
+    fn a_stage_quantises_to_its_own_grid() {
+        let caps = capabilities();
+        let lna = stage(&caps, LNA_STAGE);
+        assert_eq!(lna.snap(-12.0), 0.0);
+        assert_eq!(lna.snap(0.0), 0.0);
+        assert_eq!(lna.snap(13.0), 16.0);
+        assert_eq!(lna.snap(16.0), 16.0);
+        assert_eq!(lna.snap(12.0), 16.0);
+        assert_eq!(lna.snap(40.0), 40.0);
+        assert_eq!(lna.snap(1_000.0), 40.0);
+    }
+
+    fn stage<'a>(caps: &'a Capabilities, name: &str) -> &'a GainStage {
+        caps.gains
+            .iter()
+            .find(|stage| stage.name == name)
+            .expect("the stage is advertised")
     }
 
     #[test]
-    fn snap_gain_quantises_the_vga_grid() {
-        let range = vga_range();
-        assert_eq!(snap_gain(range, -0.5), 0.0);
-        assert_eq!(snap_gain(range, 0.0), 0.0);
-        assert_eq!(snap_gain(range, 1.0), 2.0);
-        assert_eq!(snap_gain(range, 20.0), 20.0);
-        assert_eq!(snap_gain(range, 20.9), 20.0);
-        assert_eq!(snap_gain(range, 62.0), 62.0);
-        assert_eq!(snap_gain(range, 99.0), 62.0);
+    fn the_rf_amp_is_a_switched_gain_stage_not_a_boolean() {
+        let caps = capabilities();
+        let amp = stage(&caps, AMP_STAGE);
+        assert!(amp.is_switch(), "an amp that is on or off is a switch");
+        assert_eq!(amp.snap(0.0), 0.0);
+        assert_eq!(amp.snap(6.0), 0.0, "below halfway stays off");
+        assert_eq!(amp.snap(8.0), AMP_DB);
+        assert_eq!(amp.snap(100.0), AMP_DB);
+        assert!(
+            !caps.extra.iter().any(|setting| setting.name() == "amp"),
+            "the amp must not also be an extra"
+        );
+        assert!(!stage(&caps, LNA_STAGE).is_switch());
+        assert!(!stage(&caps, VGA_STAGE).is_switch());
     }
 
     #[test]
-    fn snap_gain_without_a_step_only_clamps() {
-        let range = Range {
-            min: 0.0,
-            max: 10.0,
-            step: None,
-        };
-        assert_eq!(snap_gain(range, 3.7), 3.7);
-        assert_eq!(snap_gain(range, 11.0), 10.0);
+    fn a_stage_quantises_to_the_vga_grid() {
+        let caps = capabilities();
+        let vga = stage(&caps, VGA_STAGE);
+        assert_eq!(vga.snap(-0.5), 0.0);
+        assert_eq!(vga.snap(0.0), 0.0);
+        assert_eq!(vga.snap(1.0), 2.0);
+        assert_eq!(vga.snap(20.0), 20.0);
+        assert_eq!(vga.snap(20.9), 20.0);
+        assert_eq!(vga.snap(62.0), 62.0);
+        assert_eq!(vga.snap(99.0), 62.0);
     }
 
     #[test]
@@ -356,8 +350,8 @@ mod tests {
             sample_rate: Some(8_000_000.0),
             antenna: Some("RX".to_string()),
             bandwidth: Some(5_000_000.0),
-            gains: vec![gain("LNA", 24.0), gain("VGA", 20.0)],
-            extra: vec![extra_bool("amp", true), extra_bool("bias_tee", false)],
+            gains: vec![gain("LNA", 24.0), gain("AMP", 14.0), gain("VGA", 20.0)],
+            extra: vec![extra_bool("bias_tee", false)],
             ..DeviceSettings::default()
         };
         assert_eq!(
@@ -475,7 +469,7 @@ mod tests {
     #[test]
     fn validate_rejects_unknown_gain_stage() {
         let delta = DeviceSettings {
-            gains: vec![gain("AMP", 14.0)],
+            gains: vec![gain("MIXER", 14.0)],
             ..DeviceSettings::default()
         };
         assert!(matches!(
@@ -513,7 +507,7 @@ mod tests {
         ));
 
         let mistyped = DeviceSettings {
-            extra: vec![extra_text("amp", "yes")],
+            extra: vec![extra_text("bias_tee", "yes")],
             ..DeviceSettings::default()
         };
         assert!(matches!(
@@ -646,11 +640,12 @@ mod tests {
         assert_eq!(settings.antenna.as_deref(), Some("RX"));
         assert_eq!(settings.ppm, None);
         assert_eq!(settings.bandwidth, Some(1.75e6));
-        assert_eq!(settings.gains, vec![gain("LNA", 16.0), gain("VGA", 30.0)]);
         assert_eq!(
-            settings.extra,
-            vec![extra_bool("amp", true), extra_bool("bias_tee", false)]
+            settings.gains,
+            vec![gain("LNA", 16.0), gain("AMP", 14.0), gain("VGA", 30.0)],
+            "the amp reports as the stage it is, at the gain it contributes"
         );
+        assert_eq!(settings.extra, vec![extra_bool("bias_tee", false)]);
         let round_trip = validate(&settings, &capabilities()).expect("reported settings re-apply");
         assert_eq!(round_trip.sample_rate_hz, Some(2_000_000));
         assert_eq!(round_trip.filter, Some(FilterWidth::Hz(1_750_000)));
