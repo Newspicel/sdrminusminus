@@ -36,6 +36,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     lockFile = ../../Cargo.lock;
     outputHashes = {
       "soapysdr-0.5.1" = "sha256-Elx3hBXeQAzeJjMOZ5QJ3d5gjOoSLhR2NoL40rwu3U8=";
+      "xng-acars-0.21.0" = "sha256-Gaws7KiS6VDkJdctJV9vzvFfWEInDGf7GledbLmouUk=";
     };
   };
 
