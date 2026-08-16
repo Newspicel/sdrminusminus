@@ -1,6 +1,7 @@
 # CI mirrors the local gate 1:1 (CLAUDE.md): every job here is an `xtask` subcommand a developer
 # can run unchanged — `check`, `test`, `smoke`, `desktop`, `audit`. No hardware — everything runs
-# on `device-virtual`.
+# on `device-virtual`. One subcommand per job rather than four in sequence: they share no state,
+# and running them serially made the pull-request wall clock their sum.
 #
 # Pull requests pay for Linux only. macOS bills at 10x the Linux minute rate and Windows at 2x,
 # so both run on `main` and on release tags, where a platform-specific break still gets caught
@@ -33,14 +34,75 @@ env:
   NODE_VERSION: 26
 
 jobs:
-  gate:
-    name: Full gate (ubuntu)
+  check:
+    name: Static gate (ubuntu)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns
       # empty). --no-install-recommends is required: libsoapysdr0.8 recommends
       # soapysdr-modules-all, and loading real modules headless is fatal (SoapyUHD aborts).
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsoapysdr-dev
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      # Installs the pinned nightly + rustfmt/clippy from rust-toolchain.toml.
+      - run: rustup show
+      # Its own key: clippy is a `cargo check`, so this target dir holds dependency metadata
+      # where `ubuntu` below holds the linkable rlibs. Sharing one key would leave whichever
+      # job saved last unable to serve the other.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-check
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `check` is ordered cheapest-first internally (fmt and the web lints before clippy), so
+      # a formatting break answers in seconds rather than after a cold workspace build.
+      - name: cargo xtask check
+        run: cargo xtask check
+
+  test:
+    name: Rust + web tests (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsoapysdr-dev
+      # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: rustup show
+      # Keeps the `ubuntu` key: this is the job that compiles dependencies all the way to
+      # rlibs, which is what the `smoke` and `advisories` jobs here and the xtask-only jobs in
+      # release.yml restore.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo xtask test
+        run: cargo xtask test
+
+  smoke:
+    name: Browser smoke + GPU FFT (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # mesa-vulkan-drivers supplies Lavapipe for the GPU FFT step below.
       - run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsoapysdr-dev mesa-vulkan-drivers
@@ -53,18 +115,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
-      # Installs the pinned nightly + rustfmt/clippy from rust-toolchain.toml.
       - run: rustup show
+      # Restore-only on the test job's cache: it compiles the same dependency graph in the same
+      # profile and has nothing of its own worth storing.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # `check` is ordered cheapest-first internally (fmt and the web lints before clippy), so
-      # a formatting break answers in seconds rather than after a cold workspace build.
-      - name: cargo xtask check
-        run: cargo xtask check
-      - name: cargo xtask test
-        run: cargo xtask test
+          save-if: false
       # Exercise WGSL compilation and the complete compute/readback path even on a headless
       # runner. Lavapipe is deliberately accepted by the test but rejected by production
       # selection, where a software adapter would only move CPU work around.
@@ -75,8 +132,8 @@ jobs:
           cargo test -p sdrmm-engine --all-features
           --lib spectrum::tests::gpu_matches_cpu_when_a_hardware_adapter_is_available
           -- --ignored --exact
-      # The browser flow is its own step because it needs a browser binary the other gates do
-      # not; it drives the real server on `device-virtual`, so still no hardware.
+      # The browser flow needs a browser binary the other gates do not; it drives the real
+      # server on `device-virtual`, so still no hardware.
       - name: install the smoke browser
         run: pnpm --dir web exec playwright install --with-deps chromium
       - name: cargo xtask smoke
@@ -225,8 +282,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
-      # Restore-only on the gate's cache: this job builds the same xtask binary and has nothing
-      # of its own worth storing.
+      # Restore-only on the test job's cache: this job builds the same xtask binary and has
+      # nothing of its own worth storing.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
