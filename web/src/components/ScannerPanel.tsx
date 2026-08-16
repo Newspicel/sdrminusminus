@@ -26,7 +26,7 @@ import {
 
 const DEFAULT_THRESHOLD_DB = -55;
 
-export function ScannerPanel({ active }: { active: DeviceSet | null }) {
+export function ScannerPanel({ active, empty }: { active: DeviceSet | null; empty: string }) {
   const queryClient = useQueryClient();
   const pushed = useScannerStore((s) => (active ? s.byDeviceSet[active.id] : undefined));
   const clearLive = useScannerStore((s) => s.clear);
@@ -76,9 +76,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   if (active === null) {
     return (
       <FaceBody>
-        <FaceEmpty>
-          Wire this out to a device; the scanner then drives that radio's tuning.
-        </FaceEmpty>
+        <FaceEmpty>{empty}</FaceEmpty>
       </FaceBody>
     );
   }

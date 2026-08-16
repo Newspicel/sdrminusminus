@@ -6,6 +6,7 @@ import {
   channelNodesOf,
   deviceNodeOf,
   deviceRefOf,
+  hasWire,
   inputsOf,
   iqSourceOf,
   refFromDeviceId,
@@ -177,6 +178,14 @@ describe("binding", () => {
       { node: "nfm", deviceSet: 1, channel: channel(9, "nfm") },
     ]);
     expect(inputsOf(g, "spk", "audio", devices, new Map())).toEqual([]);
+  });
+
+  it("sees a wire on a port whose source carries nothing", () => {
+    const g = graph();
+    expect(hasWire(g, "spk", "audio")).toBe(true);
+    expect(hasWire(g, "spk", "events")).toBe(false);
+    expect(hasWire(g, "nfm", "iq")).toBe(true);
+    expect(inputsOf(g, "spk", "audio", new Map(), new Map())).toEqual([]);
   });
 
   it("expands a trunk system into the traffic channels it is following", () => {

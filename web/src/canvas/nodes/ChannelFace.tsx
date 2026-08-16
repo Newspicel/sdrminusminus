@@ -1,21 +1,33 @@
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls } from "../../components/ChannelControls";
 import { channelHasVideo, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
+import { devicesQuery } from "../../lib/api";
 import { useLevelStore } from "../../lib/levels";
 import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf, targetsOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { deviceSetOf } from "../workspaceDevice";
+import {
+  type ChannelBinding,
+  channelBinding,
+  channelBindingAction,
+  channelBindingLabel,
+  channelBindingSaid,
+  radioIsAttached,
+  radioRefOf,
+} from "./channelNode";
 import { FaceBody, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const levels = useLevelStore((state) => (set === null ? undefined : state.byDeviceSet[set.id]));
+  const attached = useQuery(devicesQuery());
   if (node.kind !== "channel") {
     return null;
   }
@@ -26,6 +38,13 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const channel = workspace.channels.get(node.id) ?? null;
   const source = iqSourceOf(workspace.graph, node.id);
   const wired = source !== null;
+  const reference = radioRefOf(workspace.graph, node.id);
+  const binding = channelBinding({
+    wired,
+    open: set !== null,
+    named: reference !== null,
+    attached: radioIsAttached(reference, attached.data?.devices ?? []),
+  });
   const centerHz =
     set === null
       ? null
@@ -43,7 +62,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       category="channel"
       subtitle={
         channel === null ? (
-          bindingLabel(wired, set !== null)
+          channelBindingLabel(binding)
         ) : (
           <span className="font-mono tabular-nums">{readout}</span>
         )
@@ -55,7 +74,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
           <RateMismatch name={name} set={set} wanted={wantedRate} />
         )}
         {channel === null || set === null ? (
-          <Unbound wired={wired} open={set !== null} onApply={workspace.apply} />
+          <Unbound binding={binding} onApply={workspace.apply} />
         ) : (
           <>
             <div className="px-2 pt-2">
@@ -143,26 +162,14 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
-function bindingLabel(wired: boolean, open: boolean): string {
-  if (!wired) {
-    return "no device";
-  }
-  return open ? "not created" : "radio absent";
-}
-
-function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onApply: () => void }) {
+function Unbound({ binding, onApply }: { binding: ChannelBinding; onApply: () => void }) {
+  const action = channelBindingAction(binding);
   return (
     <div className="flex flex-col items-start gap-2 p-3">
-      <p className="text-sm text-ink-dim">
-        {!wired
-          ? "Nothing feeds this channel — wire a device's IQ output into it."
-          : open
-            ? "The radio is open, but this channel has not been created on it yet."
-            : "Its radio is not open. Applying opens an attached radio; while none is, the wire is kept and the settings wait."}
-      </p>
-      {wired && (
+      <p className="text-sm text-ink-dim">{channelBindingSaid(binding)}</p>
+      {action !== null && (
         <Button type="button" className={BTN_PRIMARY} onClick={onApply}>
-          Apply patch
+          {action}
         </Button>
       )}
     </div>

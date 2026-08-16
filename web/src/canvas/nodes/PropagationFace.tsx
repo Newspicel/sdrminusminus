@@ -30,9 +30,10 @@ import {
   usePropagationStore,
 } from "../../lib/propagation";
 import type { DecodedRecord, PatchNode, PatchNodeOf, ServerEvent } from "../../lib/types";
-import { type Input, inputsOf } from "../binding";
+import { hasWire, type Input, inputsOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { CHANNEL_IDLE } from "./faceCopy";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 const REDRAW_MS = 2_000;
@@ -104,8 +105,11 @@ export function PropagationFace({ node }: { node: PatchNode }) {
       <FaceBody scroll={false}>
         {wired.length === 0 ? (
           <FaceEmpty>
-            Wire an FT8, FT4 or WSPR decoder's events in. Those carry the transmitting station's
-            grid square, which is what a path is drawn from.
+            {inputs.length > 0
+              ? "Nothing wired in carries a grid square. FT8, FT4 and WSPR do; the rest give no far end to draw a path to."
+              : hasWire(workspace.graph, node.id, "events")
+                ? CHANNEL_IDLE
+                : "Wire an FT8, FT4 or WSPR decoder's events in. Those carry the transmitting station's grid square, which is what a path is drawn from."}
           </FaceEmpty>
         ) : positionNode === undefined || receiver === null ? (
           <FaceEmpty>

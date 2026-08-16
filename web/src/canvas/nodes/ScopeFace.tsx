@@ -57,7 +57,7 @@ import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from 
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
-import { basebandSourceOf, channelNodesOf, hasBasebandWire, iqSourceOf } from "../binding";
+import { basebandSourceOf, channelNodesOf, hasWire, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { addEdge, addNode, newNodeId, patchNode, streamPort } from "../graph";
 import { useNodePlacement } from "../placement";
@@ -173,9 +173,9 @@ export function ScopeFace({ node }: { node: PatchNode }) {
         {set === null ? (
           <FaceEmpty>
             {source !== null
-              ? "The radio this scope watches is not attached. The wire is kept."
-              : hasBasebandWire(workspace.graph, node.id)
-                ? "The channel this scope taps is not running. The wire is kept."
+              ? "No spectrum: the radio this scope watches is not connected. Plug it in and the trace comes back."
+              : hasWire(workspace.graph, node.id, "baseband")
+                ? "No baseband: the channel this scope taps is not running. Start it from its node."
                 : "Wire a device's IQ out to watch its spectrum, or a channel's baseband out to watch one channel."}
           </FaceEmpty>
         ) : (

@@ -36,10 +36,11 @@ import type {
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
-import { type Input, inputsOf, iqSourceOf } from "../binding";
+import { type Input, inputsOf, iqSourceOf, targetsOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
+import { RADIO_IDLE, useFaceEmptyText } from "./faceCopy";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 function useInputs(node: string, port: string): Input[] {
@@ -76,6 +77,7 @@ function wireScope(inputs: readonly Input[]): WireScope {
 
 export function SpeakerFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
+  const empty = useFaceEmptyText(node.id, "audio", "Wire a channel's audio out to this speaker.");
   return (
     <NodeShell
       node={node}
@@ -86,7 +88,7 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>Wire a channel's audio out to this speaker.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         ) : (
           inputs.map((input) => <AudioInput key={input.node} input={input} />)
         )}
@@ -188,6 +190,11 @@ export function MapFace({ node }: { node: PatchNode }) {
   const wired = useWiredKinds(inputs);
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
+  const empty = useFaceEmptyText(
+    node.id,
+    "events",
+    "Wire decoder events or a GPS position in to plot them.",
+  );
   return (
     <NodeShell
       node={node}
@@ -198,7 +205,7 @@ export function MapFace({ node }: { node: PatchNode }) {
     >
       <FaceBody scroll={false}>
         {inputs.length === 0 && positions.length === 0 ? (
-          <FaceEmpty>Wire decoder events or a GPS position in to plot them.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         ) : kinds.length === 0 ? (
           positions.length === 0 ? (
             <FaceEmpty>
@@ -237,6 +244,11 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
   const readable = useWiredDecoders(inputs).filter((wired) => hasDecoderView(wired.kind));
+  const empty = useFaceEmptyText(
+    node.id,
+    "events",
+    "Wire a decoder's events output in. Decoders that build up a picture, like SSTV or VOR, show it here.",
+  );
   return (
     <NodeShell
       node={node}
@@ -247,11 +259,11 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>Wire a decoder's events out to watch what it is holding.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         ) : readable.length === 0 ? (
           <FaceEmpty>
-            Nothing wired in holds a picture between frames — every one of these decodes to
-            messages, which a decoder-log node is where you read.
+            None of the wired decoders builds up a picture — they all decode to messages. Read those
+            in a decoder-log node.
           </FaceEmpty>
         ) : (
           readable.map(({ input, kind }) => (
@@ -276,6 +288,11 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
 
 export function VideoFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "video");
+  const empty = useFaceEmptyText(
+    node.id,
+    "video",
+    "Wire a video channel's picture out to watch it.",
+  );
   return (
     <NodeShell
       node={node}
@@ -286,7 +303,7 @@ export function VideoFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>Wire a video channel's picture out to watch it.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         ) : (
           inputs.map((input) => (
             <VideoView
@@ -302,6 +319,11 @@ export function VideoFace({ node }: { node: PatchNode }) {
 
 export function DecoderLogFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
+  const empty = useFaceEmptyText(
+    node.id,
+    "events",
+    "Wire decoders in; their frames are what this log holds.",
+  );
   return (
     <NodeShell
       node={node}
@@ -312,7 +334,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
     >
       {inputs.length === 0 ? (
         <FaceBody scroll={false}>
-          <FaceEmpty>Wire decoders in; their frames are what this log holds.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         </FaceBody>
       ) : (
         <DecoderLogPanel wires={wireScope(inputs)} />
@@ -366,6 +388,11 @@ export function ExportFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const kinds = useWiredKinds(inputs);
   const wires = wireScope(inputs);
+  const empty = useFaceEmptyText(
+    node.id,
+    "events",
+    "Wire decoders in; their stored rows are what gets exported.",
+  );
   return (
     <NodeShell
       node={node}
@@ -376,9 +403,7 @@ export function ExportFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         <FaceEmpty>
-          {inputs.length === 0
-            ? "Wire decoders in; their stored rows are what gets exported."
-            : "Every row these decoders have logged, as one file."}
+          {inputs.length === 0 ? empty : "Every row these decoders have logged, as one file."}
         </FaceEmpty>
       </FaceBody>
       <FaceFooter>
@@ -401,6 +426,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
+  const empty = useFaceEmptyText(node.id, "iq", "Wire a device's IQ out to record it.");
   return (
     <NodeShell
       node={node}
@@ -411,7 +437,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
     >
       {set === null ? (
         <FaceBody>
-          <FaceEmpty>Wire a device's IQ out to record it.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         </FaceBody>
       ) : (
         <RecordControl set={set} stream={stream} />
@@ -506,6 +532,11 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
 export function AudioRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
   const recording = inputs.filter((input) => input.channel.audio_recording != null).length;
+  const empty = useFaceEmptyText(
+    node.id,
+    "audio",
+    "Wire a channel's audio out to record what it sounds like.",
+  );
   return (
     <NodeShell
       node={node}
@@ -522,7 +553,7 @@ export function AudioRecorderFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>Wire a channel's audio out to record what it sounds like.</FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         ) : (
           inputs.map((input) => <AudioRecordInput key={input.node} input={input} />)
         )}
@@ -592,6 +623,11 @@ function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
 export function BasebandRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "baseband");
   const recording = inputs.filter((input) => input.channel.baseband_recording != null).length;
+  const empty = useFaceEmptyText(
+    node.id,
+    "baseband",
+    "Wire a channel's baseband out to write its own IQ — down-converted, filtered and at the channel's rate — as a SigMF pair.",
+  );
   return (
     <NodeShell
       node={node}
@@ -608,10 +644,7 @@ export function BasebandRecorderFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>
-            Wire a channel's baseband out to write its own IQ — down-converted, filtered and at the
-            channel's rate — as a SigMF pair.
-          </FaceEmpty>
+          <FaceEmpty>{empty}</FaceEmpty>
         ) : (
           inputs.map((input) => <BasebandRecordInput key={input.node} input={input} />)
         )}
@@ -691,7 +724,14 @@ export function ScannerFace({ node }: { node: PatchNode }) {
       subtitle={scanning ? "owns this radio" : undefined}
       live={set !== null}
     >
-      <ScannerPanel active={set} />
+      <ScannerPanel
+        active={set}
+        empty={
+          targetsOf(workspace.graph, node.id, "control").length > 0
+            ? RADIO_IDLE
+            : "Wire this node's control out to a device; the scanner then drives that radio's tuning."
+        }
+      />
     </NodeShell>
   );
 }

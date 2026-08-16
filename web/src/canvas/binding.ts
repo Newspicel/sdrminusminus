@@ -144,8 +144,8 @@ export function basebandSourceOf(
   return null;
 }
 
-export function hasBasebandWire(graph: PatchGraph, node: string): boolean {
-  return sourcesOf(graph, node, "baseband").length > 0;
+export function hasWire(graph: PatchGraph, node: string, port: string): boolean {
+  return sourcesOf(graph, node, port).length > 0;
 }
 
 export function channelNodesOf(

@@ -1,7 +1,7 @@
 import { Collapsible } from "@base-ui/react/collapsible";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
-import { BTN, BTN_QUIET } from "../../components/controls";
+import { BTN_PRIMARY, BTN_QUIET } from "../../components/controls";
 import { deviceId } from "../../components/devices";
 import { isTunable, tuningRange } from "../../components/dial";
 import { FrequencyDial } from "../../components/FrequencyDial";
@@ -9,7 +9,7 @@ import { DeviceChoices } from "../../components/OpenRadio";
 import { PlaybackTransport } from "../../components/PlaybackTransport";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
-import { createDeviceSet, STATE_KEY, stateQuery } from "../../lib/api";
+import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
@@ -77,8 +77,12 @@ function Fault({ set }: { set: DeviceSet }) {
 export function DeviceFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
+  const attached = useQuery(devicesQuery());
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
   const set = workspace.devices.get(node.id) ?? null;
+  const onBus =
+    reference !== null &&
+    (attached.data?.devices ?? []).some((device) => refMatches(reference, device));
 
   const open = useMutation({
     mutationFn: createDeviceSet,
@@ -147,23 +151,43 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   if (set === null) {
     return (
-      <NodeShell node={node} title="Device" category="source" subtitle="not attached" live={false}>
+      <NodeShell
+        node={node}
+        title="Device"
+        category="source"
+        subtitle={onBus ? "not open" : "disconnected"}
+        live={false}
+      >
         <FaceBody>
           <p className="p-3 text-sm text-ink-dim">
-            Waiting for <span className="font-mono text-ink">{refLabel(reference)}</span>. Its wires
-            stay drawn and nothing else will be bound here — plug it back in and this node picks it
-            up.
+            <span className="font-mono text-ink">{refLabel(reference)}</span>{" "}
+            {onBus
+              ? "is plugged in but not open. Open it to start the channels wired to this node."
+              : "is not connected. Plug it back in and open it here — the wires and settings on this node are kept until then."}
           </p>
         </FaceBody>
         <FaceFooter>
           <Button
             type="button"
-            className={BTN}
-            title="Unbind this node so it can name another radio"
+            className={BTN_QUIET}
+            title="Free this node so you can pick a different radio"
             onClick={() => forget.mutate()}
             disabled={forget.isPending}
           >
             Forget radio
+          </Button>
+          <Button
+            type="button"
+            className={BTN_PRIMARY}
+            title={
+              onBus
+                ? "Open this radio and start the channels wired to it"
+                : "Nothing to open until the radio is plugged back in"
+            }
+            onClick={() => workspace.apply()}
+            disabled={!onBus}
+          >
+            Open radio
           </Button>
         </FaceFooter>
       </NodeShell>
@@ -212,7 +236,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         <Button
           type="button"
           className={BTN_QUIET}
-          title="Close this radio and unbind the node — the USB device is released and the wires stay drawn"
+          title="Close this radio and free the node — the device is released and the wires stay drawn"
           onClick={() => forget.mutate()}
           disabled={forget.isPending}
         >

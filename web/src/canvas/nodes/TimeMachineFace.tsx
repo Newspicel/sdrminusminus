@@ -16,10 +16,11 @@ import {
   timeMachinePhase,
 } from "../../components/timeMachine";
 import type { PatchNode, PatchNodeOf, TimeMachineStatus } from "../../lib/types";
-import { iqSourceOf } from "../binding";
+import { hasWire, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
+import { RADIO_IDLE } from "./faceCopy";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell } from "./NodeShell";
 
 export function TimeMachineFace({ node }: { node: PatchNode }) {
@@ -83,9 +84,11 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
         </Settings>
         {status === null ? (
           <FaceEmpty>
-            {phase.kind === "unavailable"
-              ? "Wire a running device's IQ in; the buffer holds what it has already heard."
-              : `Arm it and the last ${seconds} s stay in memory, ready to be written after the fact.`}
+            {phase.kind !== "unavailable"
+              ? `Arm it and the last ${seconds} s stay in memory, ready to be written after the fact.`
+              : hasWire(workspace.graph, node.id, "iq")
+                ? RADIO_IDLE
+                : "Wire a device's IQ in; the buffer holds what it has already heard."}
           </FaceEmpty>
         ) : (
           <HistoryReadout status={status} />

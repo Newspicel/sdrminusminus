@@ -18,6 +18,7 @@ import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
+import { RADIO_IDLE } from "./faceCopy";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 const LEVEL_REFRESH_MS = 200;
@@ -47,9 +48,11 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
       <FaceBody scroll={false}>
         {set === null || iq === null || positionNode === undefined ? (
           <FaceEmpty>
-            {set === null || iq === null
-              ? "Wire a device's IQ and a GPS position in to survey signal strength."
-              : "Wire a GPS position in to place signal readings on the map."}
+            {iq !== null && set === null
+              ? RADIO_IDLE
+              : set === null || iq === null
+                ? "Wire a device's IQ and a GPS position in to survey signal strength."
+                : "Wire a GPS position in to place signal readings on the map."}
           </FaceEmpty>
         ) : (
           <SignalSurvey
