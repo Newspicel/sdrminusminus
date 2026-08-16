@@ -67,6 +67,10 @@ const SOAPY_PRIORITY: u8 = 20;
 // already speaks to directly.
 #[cfg(feature = "sdrplay")]
 const SDRPLAY_PRIORITY: u8 = 25;
+// The USB backends speak to their radios directly and are hidden from Soapy's enumeration, so
+// this rank only settles a tie against a driver that reports the same serial by another route.
+#[cfg(any(feature = "rtlsdr", feature = "hackrf"))]
+const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
@@ -76,6 +80,19 @@ const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 const TIME_MACHINE_STOP_POLL: Duration = Duration::from_millis(10);
 const TIME_MACHINE_STOP_POLLS: u32 = 200;
+
+/// The SoapySDR driver names this build speaks to over its own USB stack, and therefore hides
+/// from Soapy's enumeration so one radio is never listed twice.
+#[must_use]
+pub fn soapy_handled_natively() -> Vec<&'static str> {
+    [
+        #[cfg(feature = "rtlsdr")]
+        "rtlsdr",
+        #[cfg(feature = "hackrf")]
+        "hackrf",
+    ]
+    .to_vec()
+}
 
 #[must_use]
 pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
@@ -93,12 +110,24 @@ pub fn builtin_registry_accelerated(
     #[cfg(feature = "soapy")]
     registry.register(
         SOAPY_PRIORITY,
-        Box::new(sdrmm_device_soapy::SoapyDriver::new()),
+        Box::new(sdrmm_device_soapy::SoapyDriver::excluding(
+            soapy_handled_natively(),
+        )),
     );
     #[cfg(feature = "sdrplay")]
     registry.register(
         SDRPLAY_PRIORITY,
         Box::new(sdrmm_device_sdrplay::SdrplayDriver::new()),
+    );
+    #[cfg(feature = "rtlsdr")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
+    );
+    #[cfg(feature = "hackrf")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {

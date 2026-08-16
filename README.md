@@ -69,11 +69,11 @@ the Device node. The existing Scope will immediately show synthetic signals. Add
 wire the Device's IQ output to it, wire its audio output to the Speaker, and tune the channel to
 `+300 kHz` for a 1 kHz test tone.
 
-For a real receiver, choose it instead of the signal generator. Desktop installers and containers
-bundle SoapySDR support for RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and
-SoapyRemote, plus a built-in driver for SDRplay RSP receivers — that one needs SDRplay's own API
-installed, because its licence covers use with genuine SDRplay hardware rather than
-redistribution. See the
+For a real receiver, choose it instead of the signal generator. RTL-SDR, HackRF and SDRplay RSP
+receivers have built-in drivers and need no SoapySDR module — SDRplay is the one exception that
+needs SDRplay's own API installed, because its licence covers use with genuine SDRplay hardware
+rather than redistribution. Desktop installers and containers additionally bundle SoapySDR support
+for Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and SoapyRemote. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
 troubleshooting.
 

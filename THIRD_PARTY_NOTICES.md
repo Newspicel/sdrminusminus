@@ -42,11 +42,11 @@ Resolved from platform packages at packaging time, so the exact versions and lic
 
 **hackrf (libhackrf)** — GPL-2.0-or-later
 
-Loaded at runtime as a SoapySDR module, on the same terms as librtlsdr. The public API declarations in `hackrf.h` are BSD-3-Clause.
+As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary.
 
 **rtl-sdr (librtlsdr)** — GPL-2.0-or-later
 
-Shipped in installers and container images as a SoapySDR module, loaded at runtime through SoapySDR's own plugin API. sdr-- neither links it nor derives from it, so the GPL applies to that library and not to this product.
+sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
 ## Rust crates (661)
 
@@ -784,14 +784,12 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
 
-## Bundled native libraries (6)
+## Hardware libraries (4)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
-| [SoapyHackRF](https://github.com/pothosware/SoapyHackRF) | — | MIT |
-| [SoapyRTLSDR](https://github.com/pothosware/SoapyRTLSDR) | — | BSL-1.0 |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |
 

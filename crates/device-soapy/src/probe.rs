@@ -80,6 +80,12 @@ impl Found {
             args: args.to_string(),
         }
     }
+
+    pub(crate) fn is_driver(&self, driver: &str) -> bool {
+        soapysdr::Args::from(self.args.as_str())
+            .get("driver")
+            .is_some_and(|found| found.eq_ignore_ascii_case(driver))
+    }
 }
 
 /// Searches for devices matching `filter`, out of process where the running executable supports it.

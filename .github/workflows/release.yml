@@ -567,7 +567,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,net-client,gpu-fft
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft
       - name: Verify packaged Soapy payload
         shell: bash
         env:
@@ -583,7 +583,7 @@ jobs:
           # a listing tool that cannot name what it holds — look identical from a bare exit code.
           carries() {
             local listing="$1" artifact="$2" module
-            for module in soapysdr rtlsdr hackrf; do
+            for module in soapysdr airspy bladerf; do
               if ! grep -qi "$module" <<< "$listing"; then
                 echo "$artifact carries no $module. It holds:" >&2
                 echo "$listing" >&2

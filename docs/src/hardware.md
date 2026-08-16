@@ -1,17 +1,28 @@
 # Radios and hardware
 
-sdr-- uses SoapySDR 0.8 for local radios, a built-in driver for SDRplay RSP receivers, and native
-clients for `rtl_tcp` and SpyServer receivers. It also includes virtual sources for the signal
+sdr-- drives RTL-SDR, HackRF and SDRplay RSP receivers with its own built-in drivers, reaches
+everything else through SoapySDR 0.8, and speaks to `rtl_tcp` and SpyServer receivers over the
+network. It also includes virtual sources for the signal
 generator, multi-stream tests, and SigMF playback.
 
 ## Supported local hardware
 
-Desktop installers and containers bundle a private SoapySDR 0.8.1 runtime with these modules:
+RTL-SDR, HackRF and SDRplay receivers need no SoapySDR module. Their drivers are part of sdr--
+itself, so they work in every build — including the minimal one — and are hidden from SoapySDR's
+search so one radio is never listed twice. RTL-SDR and HackRF need no C library at all; SDRplay
+needs the vendor API installed, see [SDRplay](#sdrplay).
+
+| Hardware or transport | Driver |
+|---|---|
+| RTL-SDR | built in |
+| HackRF | built in |
+| SDRplay RSP | built in, see [SDRplay](#sdrplay) |
+
+Everything else goes through a private SoapySDR 0.8.1 runtime that desktop installers and
+containers bundle:
 
 | Hardware or transport | Bundled module |
 |---|---|
-| RTL-SDR | SoapyRTLSDR |
-| HackRF | SoapyHackRF |
 | Airspy and Airspy HF+ | SoapyAirspy / SoapyAirspyHF |
 | bladeRF | SoapyBladeRF |
 | LimeSDR | SoapyLMS7 |
@@ -21,16 +32,15 @@ Desktop installers and containers bundle a private SoapySDR 0.8.1 runtime with t
 UHD is not included in the base package because of its size. Other modules may work if they match
 the SoapySDR 0.8 module ABI, but are not part of the release test matrix.
 
-SDRplay RSP receivers do not go through SoapySDR at all — they have their own driver, described in
-[SDRplay](#sdrplay) below.
-
-Portable headless archives and source builds use the host SoapySDR installation. The release
-baseline is SoapySDR 0.8.1, SoapyRTLSDR 0.3.3, and SoapyHackRF 0.3.4; the complete curated set is
-listed in
+Portable headless archives and source builds use the host SoapySDR installation for the modules
+above; the built-in drivers are unaffected either way. The release baseline is SoapySDR 0.8.1, and
+the complete curated set is listed in
 [`packaging/soapy/environment.yml`](https://github.com/Newspicel/sdrminusminus/blob/main/packaging/soapy/environment.yml).
 
-A bundled installation loads only its own modules, so a radio can never be served by two copies of
-the same driver. To add a module the bundle does not carry — a vendor module, or one you compiled
+A host-installed SoapyRTLSDR or SoapyHackRF is ignored rather than competing with the built-in
+driver, so a dongle is listed once whatever else is on the machine. A bundled installation
+otherwise loads only its own modules, so a radio can never be served by two copies of the same
+driver. To add a module the bundle does not carry — a vendor module, or one you compiled
 yourself — point `SDRMM_SOAPY_MODULE_PATH` at the directory holding it; those directories are
 searched before the bundled ones. A module built against a different SoapySDR generation is
 refused by the core and logged rather than loaded.
@@ -97,9 +107,15 @@ validating the rest. For example, RTL-SDR direct sampling changes the available 
 
 ### RTL-SDR settings
 
-Current SoapyRTLSDR builds commonly expose `direct_samp`, `iq_swap`, `offset_tune`, `digital_agc`,
-and, when supported, `biastee`, `testmode`, or `dithering`. `iq_swap` reverses spectral orientation
-by exchanging I and Q; it is independent of direct sampling.
+The built-in driver exposes one `TUNER` gain stage, a `ppm` crystal correction, `bias_tee` for
+phantom power on the antenna port, `agc` for the R82xx tuner AGC, and `direct_sampling` (`off`,
+`i`, `q`) on every board except the RTL-SDR Blog V4, whose HF path is an upconverter in front of
+the tuner rather than a tuner bypass — on that board HF is reached by tuning below 28.8 MHz with
+no setting changed.
+
+A gain request is snapped to the tuner's own table, which is not evenly spaced, and the snapped
+value is what the driver reports back. Asking for 20 dB on an R820T therefore reads back as
+19.7 dB: that is the gain the hardware was actually programmed with, not a rounding error.
 
 ## SDRplay
 

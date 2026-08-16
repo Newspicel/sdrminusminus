@@ -2716,3 +2716,33 @@ async fn a_time_machine_action_names_the_node_that_owns_the_history() {
     assert!(idle_stop.to_string().contains("not laying down a capture"));
     engine.remove_device_set(ds).unwrap();
 }
+
+#[test]
+fn the_builtin_registry_carries_every_backend_this_build_compiled_in() {
+    let ids: Vec<&str> = builtin_registry(None)
+        .driver_ids()
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    assert!(ids.contains(&"virtual"), "{ids:?}");
+    #[cfg(feature = "rtlsdr")]
+    assert!(ids.contains(&"rtlsdr"), "{ids:?}");
+    #[cfg(feature = "hackrf")]
+    assert!(ids.contains(&"hackrf"), "{ids:?}");
+    #[cfg(feature = "soapy")]
+    assert!(ids.contains(&"soapy"), "{ids:?}");
+}
+
+#[test]
+fn soapy_hides_exactly_the_radios_this_build_drives_over_usb() {
+    let handled = soapy_handled_natively();
+    assert_eq!(handled.contains(&"rtlsdr"), cfg!(feature = "rtlsdr"));
+    assert_eq!(handled.contains(&"hackrf"), cfg!(feature = "hackrf"));
+    assert!(
+        !handled.contains(&"sdrplay"),
+        "the SDRplay driver reports unique serials and settles its duplicate by priority instead"
+    );
+}
+
+#[cfg(all(feature = "rtlsdr", feature = "hackrf", feature = "soapy"))]
+mod hardware;

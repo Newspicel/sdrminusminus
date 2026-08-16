@@ -15,7 +15,7 @@ impl ComponentSource {
         match self {
             Self::Rust => "Rust crates",
             Self::Web => "Web packages",
-            Self::Native => "Bundled native libraries",
+            Self::Native => "Hardware libraries",
         }
     }
 }

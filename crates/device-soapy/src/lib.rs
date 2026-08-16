@@ -123,12 +123,36 @@ impl ProbeIdentity {
 }
 
 #[derive(Default)]
-pub struct SoapyDriver;
+pub struct SoapyDriver {
+    excluded: Vec<String>,
+}
 
 impl SoapyDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Hides the named SoapySDR drivers, for hardware this build speaks to natively. Excluding a
+    /// driver here rather than deduplicating afterwards is what keeps a dongle off the list
+    /// exactly once: the factory serial most RTL-SDRs ship with is not unique, so the registry's
+    /// serial merge cannot tell two of them apart.
+    #[must_use]
+    pub fn excluding<S: Into<String>>(drivers: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            excluded: drivers.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    fn hides(&self, found: &probe::Found) -> bool {
+        self.excluded.iter().any(|driver| found.is_driver(driver))
+    }
+
+    fn visible(&self) -> Result<Vec<probe::Found>, DeviceError> {
+        Ok(probe::devices("")?
+            .into_iter()
+            .filter(|found| !self.hides(found))
+            .collect())
     }
 }
 
@@ -138,7 +162,7 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match probe::devices("") {
+        match self.visible() {
             Ok(found) => found.into_iter().map(|found| found.info).collect(),
             Err(error) => {
                 tracing::warn!("soapy enumerate failed: {error}");
@@ -148,7 +172,8 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let found = probe::devices("")?
+        let found = self
+            .visible()?
             .into_iter()
             .find(|found| found.info.key == info.key)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?;
@@ -1175,6 +1200,53 @@ mod tests {
         assert!(rate_was_coerced(2_400_000.0, 2_048_000.0));
         assert!(!rate_was_coerced(0.0, 2_048_000.0));
         assert!(!rate_was_coerced(2_048_000.0, f64::NAN));
+    }
+
+    fn found(args: &str) -> probe::Found {
+        let args = soapysdr::Args::from(args);
+        probe::Found {
+            info: device_info(&args),
+            args: args.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_driver_this_build_speaks_to_natively_is_hidden_from_soapy() {
+        let driver = SoapyDriver::excluding(["rtlsdr", "hackrf"]);
+        assert!(driver.hides(&found("driver=rtlsdr, serial=00000001")));
+        assert!(driver.hides(&found("driver=hackrf, serial=675c62dc3b2d4b8b")));
+    }
+
+    #[test]
+    fn every_other_driver_stays_visible() {
+        let driver = SoapyDriver::excluding(["rtlsdr", "hackrf"]);
+        for args in [
+            "driver=airspy, serial=644064dc2e19a5b",
+            "driver=lime, serial=1D3AC4",
+            "driver=uhd, serial=31C9245",
+            "driver=sdrplay, serial=1809131409",
+        ] {
+            assert!(!driver.hides(&found(args)), "{args}");
+        }
+    }
+
+    #[test]
+    fn a_driver_that_excludes_nothing_hides_nothing() {
+        assert!(!SoapyDriver::new().hides(&found("driver=rtlsdr, serial=00000001")));
+    }
+
+    #[test]
+    fn a_label_that_merely_names_a_driver_is_not_matched() {
+        let driver = SoapyDriver::excluding(["rtlsdr"]);
+        assert!(
+            !driver.hides(&found("driver=airspy, serial=1, label=not an rtlsdr")),
+            "the driver key decides, not a substring of the label"
+        );
+    }
+
+    #[test]
+    fn the_driver_key_is_matched_regardless_of_case() {
+        assert!(SoapyDriver::excluding(["rtlsdr"]).hides(&found("driver=RTLSDR, serial=1")));
     }
 
     #[test]

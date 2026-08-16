@@ -142,8 +142,8 @@ jobs:
           echo "$doctor"
           grep -q 'compiled backends:.*soapy' <<< "$doctor"
           grep -q 'core: 0.8.' <<< "$doctor"
-          grep -qi 'rtlsdr' <<< "$doctor"
-          grep -qi 'hackrf' <<< "$doctor"
+          grep -q 'compiled backends:.*rtlsdr' <<< "$doctor"
+          grep -q 'compiled backends:.*hackrf' <<< "$doctor"
           grep -qi 'airspy' <<< "$doctor"
           grep -qi 'bladerf' <<< "$doctor"
           grep -qi 'lms7' <<< "$doctor"
@@ -193,8 +193,8 @@ jobs:
             in
             (builtins.getAttr system flake.packages).default.override {
               soapyPlugins = with pkgs; [
-                soapyrtlsdr
-                soapyhackrf
+                soapyairspy
+                soapybladerf
               ];
             }
           '
@@ -205,8 +205,8 @@ jobs:
           ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libwebkit2gtk-4.1'
           ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'
           grep -q 'SOAPY_SDR_PLUGIN_PATH' result/bin/sdrmm-desktop
-          grep -q 'soapyrtlsdr' result/bin/sdrmm-desktop
-          grep -q 'soapyhackrf' result/bin/sdrmm-desktop
+          grep -q 'soapyairspy' result/bin/sdrmm-desktop
+          grep -q 'soapybladerf' result/bin/sdrmm-desktop
           test -z "$(find -L result -path '*/SoapySDR/modules*' -print -quit)"
           set +e
           timeout 15s xvfb-run --auto-servernum result/bin/sdrmm-desktop >desktop.log 2>&1

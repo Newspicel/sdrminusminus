@@ -653,7 +653,7 @@ fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "soapy,sdrplay,net-client,gpu-fft".to_string(),
+        "soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft".to_string(),
     ]
 }
 
@@ -883,16 +883,23 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no SoapySDR core library",
         dir.display()
     );
-    ensure!(
-        has("rtlsdr"),
-        "{} contains no SoapyRTLSDR module",
-        dir.display()
-    );
-    ensure!(
-        has("hackrf"),
-        "{} contains no SoapyHackRF module",
-        dir.display()
-    );
+    let staged_modules: Vec<&String> = files
+        .iter()
+        .zip(&names)
+        .filter(|(path, _)| {
+            path.components()
+                .any(|part| part.as_os_str() == "modules0.8")
+        })
+        .map(|(_, name)| name)
+        .collect();
+    for native in ["rtlsdr", "hackrf"] {
+        ensure!(
+            !staged_modules.iter().any(|name| name.contains(native)),
+            "{} carries a Soapy {native} module. This build drives {native} over its own USB \
+             stack and hides it from Soapy, so the bundled module could never be reached.",
+            dir.display()
+        );
+    }
     let curated = ["airspyhf", "bladerf", "lms7", "pluto", "remote"];
     for module in curated {
         ensure!(
@@ -922,8 +929,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         .map(|(_, name)| name)
         .collect();
     for driver in [
-        "rtlsdr",
-        "hackrf",
         "airspyhf",
         "airspy",
         "bladerf",
@@ -951,17 +956,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no dependency notices/licenses",
         dir.display()
     );
-    for license in [
-        "soapyhackrf-mit",
-        "hackrf-gpl-2.0-or-later",
-        "hackrf-bsd-3-clause",
-    ] {
-        ensure!(
-            has(license),
-            "{} contains no {license} license text",
-            dir.display()
-        );
-    }
     println!("soapy bundle: {} files in {}", files.len(), dir.display());
     Ok(())
 }

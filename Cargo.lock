@@ -4532,6 +4532,20 @@ version = "0.0.0"
 dependencies = [
  "num-complex",
  "nusb",
+ "sdrmm-usb-stream",
+ "sdrmm-wire",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
+name = "sdrmm-device-hackrf"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "nusb",
+ "sdrmm-device",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
  "thiserror 2.0.20",
  "tracing",
@@ -4544,6 +4558,19 @@ dependencies = [
  "num-complex",
  "sdrmm-device",
  "sdrmm-wire",
+ "tracing",
+]
+
+[[package]]
+name = "sdrmm-device-rtlsdr"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "nusb",
+ "sdrmm-device",
+ "sdrmm-usb-stream",
+ "sdrmm-wire",
+ "thiserror 2.0.20",
  "tracing",
 ]
 
@@ -4609,7 +4636,9 @@ dependencies = [
  "rtrb",
  "sdrmm-channels",
  "sdrmm-device",
+ "sdrmm-device-hackrf",
  "sdrmm-device-net",
+ "sdrmm-device-rtlsdr",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",
@@ -4696,6 +4725,15 @@ dependencies = [
  "sdrmm-wire",
  "serialport",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sdrmm-usb-stream"
+version = "0.0.0"
+dependencies = [
+ "nusb",
+ "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

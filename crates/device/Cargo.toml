@@ -10,8 +10,14 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The shared bulk USB transport seen as a `CaptureStream`. Off by default so a build with no
+# native backend never compiles a transport it cannot use.
+usb = ["dep:sdrmm-usb-stream"]
+
 [dependencies]
 sdrmm-wire.workspace = true
+sdrmm-usb-stream = { workspace = true, optional = true }
 num-complex.workspace = true
 nusb.workspace = true
 thiserror.workspace = true

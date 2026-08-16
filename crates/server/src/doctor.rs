@@ -98,22 +98,13 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
                 .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned())
         })
         .collect();
-    let expected = ["rtlsdr", "hackrf"];
-    let missing: Vec<&str> = expected
-        .into_iter()
-        .filter(|name| {
-            !module_names
-                .iter()
-                .any(|module| module.to_ascii_lowercase().contains(name))
-        })
-        .collect();
     DoctorCheck {
         id: "soapy.runtime".to_string(),
         name: "SoapySDR runtime".to_string(),
-        status: if missing.is_empty() {
-            CheckStatus::Ok
-        } else {
+        status: if module_names.is_empty() {
             CheckStatus::Warn
+        } else {
+            CheckStatus::Ok
         },
         detail: format!(
             "core: {}\nmodule search path: {}\nloaded modules: {}",
@@ -129,11 +120,10 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
                 module_names.join(", ")
             }
         ),
-        hint: (!missing.is_empty()).then(|| {
-            format!(
-                "missing bundled module(s): {}; reinstall the complete package",
-                missing.join(", ")
-            )
+        hint: module_names.is_empty().then(|| {
+            "SoapySDR loaded no driver modules, so it can reach no hardware of its own. \
+             RTL-SDR, HackRF and SDRplay receivers do not need it and are unaffected."
+                .to_string()
         }),
     }
 }
@@ -551,16 +541,30 @@ mod tests {
 
     #[cfg(feature = "soapy")]
     #[test]
-    fn soapy_check_reports_core_paths_modules_and_missing_baseline() {
+    fn soapy_check_reports_the_core_its_paths_and_the_modules_it_loaded() {
         let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
             core_version: "0.8.1".to_string(),
             search_paths: vec!["/app/soapy/modules0.8".to_string()],
-            modules: vec!["librtlsdrSupport.so".to_string()],
+            modules: vec!["libairspySupport.so".to_string()],
+        });
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.detail.contains("core: 0.8.1"));
+        assert!(check.detail.contains("/app/soapy/modules0.8"));
+        assert!(check.detail.contains("libairspySupport.so"));
+        assert!(check.hint.is_none());
+    }
+
+    #[cfg(feature = "soapy")]
+    #[test]
+    fn a_soapy_runtime_with_no_modules_warns_without_blaming_the_native_backends() {
+        let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
+            core_version: "0.8.1".to_string(),
+            search_paths: Vec::new(),
+            modules: Vec::new(),
         });
         assert_eq!(check.status, CheckStatus::Warn);
-        assert!(check.detail.contains("core: 0.8.1"));
-        assert!(check.detail.contains("librtlsdrSupport.so"));
-        assert!(check.hint.is_some_and(|hint| hint.contains("hackrf")));
+        assert!(check.detail.contains("(none)"));
+        assert!(check.hint.is_some_and(|hint| hint.contains("RTL-SDR")));
     }
 
     #[cfg(feature = "sdrplay")]
