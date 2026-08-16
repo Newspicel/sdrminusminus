@@ -30,6 +30,7 @@ mod chat_output;
 mod decoderlog;
 pub mod doctor;
 mod gps;
+mod images;
 mod mcp;
 pub mod notices;
 mod rest;
@@ -60,6 +61,7 @@ pub(crate) struct AppState {
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     pub(crate) tracks: Arc<tracks::Tracks>,
     pub(crate) calls: Arc<calls::Calls>,
+    pub(crate) images: Arc<images::Images>,
     pub clients: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) tools: Arc<sdrmm_tools::ToolRegistry>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
@@ -80,6 +82,7 @@ impl AppState {
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
+            images: Arc::new(images::Images::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             tools: Arc::new(sdrmm_tools::ToolRegistry::with_builtins()),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -215,6 +218,11 @@ fn start_background(state: &AppState) -> Background {
             calls::run(engine, calls, retentions_rx)
         })
     };
+    let images = {
+        let engine = Arc::downgrade(&state.engine);
+        let images = state.images.clone();
+        spawn_task("sdrmm-images", move || images::run(engine, images))
+    };
     let chat_output = {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
@@ -224,7 +232,7 @@ fn start_background(state: &AppState) -> Background {
         })
     };
     Background {
-        tasks: vec![log, patch, calls, chat_output],
+        tasks: vec![log, patch, calls, images, chat_output],
         detached: false,
     }
 }
@@ -313,11 +321,11 @@ mod tests {
     };
     use http_body_util::BodyExt;
     use sdrmm_wire::{
-        AdsbMessage, ApiError, AprsPacket, Bookmark, ChannelParams, ChannelSettings,
-        ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
-        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NetworkExportStatus,
-        NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus,
-        RecordingsResponse, StateSnapshot, TimeMachineStatus, VoiceCallsResponse,
+        AdsbMessage, ApiError, AprsPacket, Bookmark, CapturedImagesResponse, ChannelParams,
+        ChannelSettings, ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord,
+        DecoderEvent, DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings,
+        NetworkExportStatus, NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot,
+        RecordingStatus, RecordingsResponse, StateSnapshot, TimeMachineStatus, VoiceCallsResponse,
     };
     use tower::ServiceExt;
 
@@ -515,6 +523,8 @@ mod tests {
             "/api/patch/catalog",
             "/api/tools",
             "/api/tools/run",
+            "/api/images",
+            "/api/images/{id}/png",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -539,7 +549,14 @@ mod tests {
             "DecoderLogResponse",
             "VoiceCall",
             "VoiceCallsResponse",
+            "CapturedImage",
+            "CapturedImagesResponse",
+            "SstvParams",
+            "SstvPicture",
             "DecoderEvent",
+            "FlexMessage",
+            "ErmesMessage",
+            "CwSkimmerSpot",
             "SelcallSequence",
             "FreeDvParams",
             "DeletedCount",
@@ -610,6 +627,19 @@ mod tests {
         assert!(listed.calls.is_empty());
 
         let (status, body) = request(app, "GET", "/api/calls/99/audio", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+    }
+
+    #[tokio::test]
+    async fn image_endpoints_list_captures_and_reject_a_missing_picture() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/images", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: CapturedImagesResponse = serde_json::from_slice(&body).expect("json");
+        assert!(listed.images.is_empty());
+
+        let (status, body) = request(app, "GET", "/api/images/99/png", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
     }
@@ -907,6 +937,26 @@ mod tests {
         let (_, body) = request(app, "GET", "/api/presets", None).await;
         let listed: Vec<PresetInfo> = serde_json::from_slice(&body).expect("json");
         assert!(listed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn opening_a_radio_that_is_already_open_conflicts() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/devicesets",
+            Some(r#"{"device_id":"virtual:siggen"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
+        assert!(err.error.contains("already open"), "{err:?}");
+
+        let (status, _) = request(app, "DELETE", &format!("/api/devicesets/{ds}"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
@@ -2633,6 +2683,39 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn every_template_runs_on_the_signal_generator() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let (_, body) = request(app.clone(), "GET", "/api/templates", None).await;
+        let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+
+        for template in &listed.templates {
+            let (status, body) = request(
+                app.clone(),
+                "POST",
+                &format!("/api/templates/{}/apply", template.id),
+                Some(&format!(r#"{{"device_set":{ds}}}"#)),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "{}: {}",
+                template.id,
+                String::from_utf8_lossy(&body)
+            );
+            let set = &get_state(&app).await.device_sets[0];
+            assert_eq!(set.settings.center_hz, Some(template.center_hz));
+            assert_eq!(
+                set.channels.len(),
+                template.channels.len(),
+                "{}",
+                template.id
+            );
+        }
     }
 
     #[tokio::test]

@@ -15,6 +15,7 @@ pub enum StateScope {
     Clients,
     DecoderLog,
     Calls,
+    Images,
     Workspaces,
 }
 
@@ -69,6 +70,7 @@ pub enum ServerEvent {
         count: u64,
     },
     CallCompleted(Box<crate::rest::VoiceCall>),
+    ImageCaptured(Box<crate::rest::CapturedImage>),
     ChannelLevels {
         device_set: u32,
         levels: Vec<crate::state::ChannelLevel>,

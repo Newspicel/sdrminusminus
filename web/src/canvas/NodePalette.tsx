@@ -37,7 +37,7 @@ export function NodePalette({
       {groups.map((group) => (
         <div key={group.id} className="flex flex-col gap-1">
           <span className={`${LABEL} px-1`}>{group.title}</span>
-          <div className="grid grid-cols-2 gap-1">
+          <div className="grid grid-cols-4 gap-1">
             {group.items.map((item) => (
               <PaletteEntry
                 key={item.id}

@@ -17,7 +17,6 @@ FROM mambaorg/micromamba:2.9.0 AS soapy
 ARG TARGETARCH
 COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-64.lock /tmp/conda-linux-64.lock
 COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-aarch64.lock /tmp/conda-linux-aarch64.lock
-COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/licenses /opt/conda/share/licenses/sdrmm-soapy
 # The explicit per-platform locks pin every transitive package URL and checksum.
 RUN case "$TARGETARCH" in \
       amd64) lock=/tmp/conda-linux-64.lock ;; \
@@ -27,9 +26,6 @@ RUN case "$TARGETARCH" in \
     && micromamba install --yes --name base --file "$lock" \
     && micromamba clean --all --yes \
     && test -f /opt/conda/lib/libSoapySDR.so \
-    && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*rtlsdr*' -print -quit)" \
-    && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*hackrf*' -print -quit)" \
-    && test -f /opt/conda/share/licenses/sdrmm-soapy/HackRF-GPL-2.0-or-later.txt \
     && for module in airspy blade lms7 pluto remote; do \
          test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname "*$module*" -print -quit)"; \
        done
@@ -90,7 +86,7 @@ WORKDIR /src
 COPY --from=planner /plan/ ./
 RUN rustup show
 
-ARG FEATURES=soapy,net-client,gpu-fft
+ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
 # cargo still builds every external dependency it declares.

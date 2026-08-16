@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AudioFrame } from "../frame";
+import {
+  type Listener,
+  ListenerRegistry,
+  type SocketEventKind,
+  type Unsubscribe,
+} from "../listeners";
 import type { ClientCommand, ServerEvent, StreamKind } from "../types";
 import { AudioEngine, type AudioSink, type AudioSocket, type SinkFactory } from "./engine";
 
 class FakeSocket implements AudioSocket {
   sent: ClientCommand[] = [];
-  onAudio: (frame: AudioFrame) => void = () => {};
   private connected = true;
-  private readonly eventListeners = new Set<(event: ServerEvent) => void>();
-  private readonly statusListeners = new Set<(connected: boolean) => void>();
+  private readonly registry = new ListenerRegistry();
 
   send(command: ClientCommand): void {
     this.sent.push(command);
@@ -16,29 +20,19 @@ class FakeSocket implements AudioSocket {
   isConnected(): boolean {
     return this.connected;
   }
-  addEventListener(listener: (event: ServerEvent) => void): void {
-    this.eventListeners.add(listener);
-  }
-  removeEventListener(listener: (event: ServerEvent) => void): void {
-    this.eventListeners.delete(listener);
-  }
-  addStatusListener(listener: (connected: boolean) => void): void {
-    this.statusListeners.add(listener);
-  }
-  removeStatusListener(listener: (connected: boolean) => void): void {
-    this.statusListeners.delete(listener);
+  on<K extends SocketEventKind>(kind: K, listener: Listener<K>): Unsubscribe {
+    return this.registry.on(kind, listener);
   }
 
+  onAudio(frame: AudioFrame): void {
+    this.registry.emit("audio", frame);
+  }
   emit(event: ServerEvent): void {
-    for (const listener of this.eventListeners) {
-      listener(event);
-    }
+    this.registry.emit("event", event);
   }
   setConnected(connected: boolean): void {
     this.connected = connected;
-    for (const listener of this.statusListeners) {
-      listener(connected);
-    }
+    this.registry.emit("status", connected);
   }
 }
 

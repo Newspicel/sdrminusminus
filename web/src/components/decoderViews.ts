@@ -307,6 +307,38 @@ export function buildTranscript(
   return records.reduceRight((text, r) => appendTranscript(text, r.event.data.text, limit), "");
 }
 
+export const CW_SPOT_GROUP_HZ = 50;
+
+export const CW_SPOT_TEXT_LIMIT = 2_000;
+
+export interface CwSignalRow {
+  frequencyHz: number;
+  offsetHz: number;
+  wpm: number;
+  snrDb: number;
+  text: string;
+}
+
+export function cwSignalRows(
+  records: readonly DecodedRecordOf<"cw_skimmer">[],
+  limit = CW_SPOT_TEXT_LIMIT,
+): CwSignalRow[] {
+  const signals = new Map<number, CwSignalRow>();
+  for (const record of records.toReversed()) {
+    const spot = record.event.data;
+    const key = Math.round(spot.offset_hz / CW_SPOT_GROUP_HZ);
+    const current = signals.get(key);
+    signals.set(key, {
+      frequencyHz: record.freq_hz + spot.offset_hz,
+      offsetHz: spot.offset_hz,
+      wpm: spot.wpm,
+      snrDb: spot.snr_db,
+      text: `${current?.text ?? ""}${spot.text}`.slice(-limit),
+    });
+  }
+  return [...signals.values()].toSorted((left, right) => left.offsetHz - right.offsetHz);
+}
+
 export function latestWpm(records: readonly DecodedRecordOf<"morse">[]): number | null {
   const newest = records[0];
   return newest === undefined ? null : newest.event.data.wpm;

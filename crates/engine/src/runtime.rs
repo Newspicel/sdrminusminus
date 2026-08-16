@@ -1,11 +1,11 @@
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use arc_swap::ArcSwap;
@@ -13,7 +13,7 @@ use num_complex::Complex;
 use rtrb::RingBuffer;
 use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    ClickProfile,
+    ClickProfile, DecodedImage,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
@@ -36,9 +36,21 @@ use crate::{
 
 const FFT_SIZE: usize = 4096;
 const TARGET_FPS: f64 = 30.0;
-pub(crate) const RING_CAPACITY: usize = 1 << 20;
+const RING_SECONDS: f64 = 0.25;
+pub(crate) const RING_MIN: usize = 1 << 20;
+pub(crate) const RING_MAX: usize = 1 << 23;
+/// Backstop only: the capture callback unparks the thread as soon as it has samples.
+const IDLE_PARK: Duration = Duration::from_millis(20);
 const SQUELCH_HYSTERESIS_DB: f32 = 6.0;
 const SQUELCH_HOLD_S: f32 = 0.1;
+
+/// How much of a head start the capture callback keeps over its dsp thread.
+///
+/// The slack a stalled dsp thread can use up is a duration, not a sample count: a ring fixed in
+/// samples gives a 2.4 MS/s dongle almost half a second and a 20 MS/s radio fifty milliseconds.
+pub(crate) fn ring_capacity(sample_rate: f64) -> usize {
+    ((sample_rate * RING_SECONDS) as usize).clamp(RING_MIN, RING_MAX)
+}
 
 #[derive(Clone, Debug)]
 pub struct SpectrumSnapshot {
@@ -62,9 +74,17 @@ pub(crate) struct RawDecoded {
     pub(crate) event: DecoderEvent,
 }
 
+pub(crate) struct RawImage {
+    pub(crate) device_set: u32,
+    pub(crate) channel: u32,
+    pub(crate) freq_hz: f64,
+    pub(crate) image: DecodedImage,
+}
+
 #[derive(Clone)]
 pub(crate) struct DecodedSink {
     tx: mpsc::SyncSender<RawDecoded>,
+    image_tx: mpsc::SyncSender<RawImage>,
     dropped: Arc<AtomicU64>,
     device_set: u32,
     channel: u32,
@@ -73,12 +93,14 @@ pub(crate) struct DecodedSink {
 impl DecodedSink {
     pub(crate) fn new(
         tx: mpsc::SyncSender<RawDecoded>,
+        image_tx: mpsc::SyncSender<RawImage>,
         dropped: Arc<AtomicU64>,
         device_set: u32,
         channel: u32,
     ) -> Self {
         Self {
             tx,
+            image_tx,
             dropped,
             device_set,
             channel,
@@ -89,7 +111,9 @@ impl DecodedSink {
     pub(crate) fn null() -> Self {
         let (tx, rx) = mpsc::sync_channel(1);
         drop(rx);
-        Self::new(tx, Arc::new(AtomicU64::new(0)), 0, 0)
+        let (image_tx, image_rx) = mpsc::sync_channel(1);
+        drop(image_rx);
+        Self::new(tx, image_tx, Arc::new(AtomicU64::new(0)), 0, 0)
     }
 
     fn publish(&self, freq_hz: f64, event: DecoderEvent) {
@@ -100,6 +124,18 @@ impl DecodedSink {
             event,
         };
         if self.tx.try_send(record).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn publish_image(&self, freq_hz: f64, image: DecodedImage) {
+        let raw = RawImage {
+            device_set: self.device_set,
+            channel: self.channel,
+            freq_hz,
+            image,
+        };
+        if self.image_tx.try_send(raw).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -348,10 +384,13 @@ impl ChannelHost {
     }
 
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
-        if !self.outputs.events.is_empty() {
+        if !self.outputs.events.is_empty() || !self.outputs.images.is_empty() {
             let freq_hz = center_hz + self.offset_hz;
             for event in self.outputs.events.drain(..) {
                 self.decoded.publish(freq_hz, event);
+            }
+            for image in self.outputs.images.drain(..) {
+                self.decoded.publish_image(freq_hz, image);
             }
         }
         for picture in self.outputs.video.drain(..) {
@@ -440,11 +479,42 @@ pub(crate) enum DspCommand {
 
 type FatalReport = Box<dyn FnOnce(DeviceError) + Send>;
 
+/// Wakes the lane's DSP thread the moment the capture callback has samples for it.
+///
+/// The capture callback runs before the thread it feeds exists, so the handle is published once
+/// the thread starts; until then `park_timeout` alone carries the loop.
+#[derive(Default)]
+struct Waker(OnceLock<std::thread::Thread>);
+
+impl Waker {
+    fn adopt_current(&self) {
+        let _ = self.0.set(std::thread::current());
+    }
+
+    fn wake(&self) {
+        if let Some(thread) = self.0.get() {
+            thread.unpark();
+        }
+    }
+}
+
+/// Everything a lane's DSP thread shares with the capture callback and the control plane.
+struct LaneShared {
+    meta: Arc<ArcSwap<DspMeta>>,
+    spectrum_tx: broadcast::Sender<SpectrumSnapshot>,
+    stop: Arc<AtomicBool>,
+    overruns: Arc<AtomicU64>,
+    stalled_us: Arc<AtomicU64>,
+    waker: Arc<Waker>,
+}
+
 struct Lane {
     meta: Arc<ArcSwap<DspMeta>>,
     spectrum_tx: broadcast::Sender<SpectrumSnapshot>,
     cmd_tx: mpsc::Sender<DspCommand>,
     overruns: Arc<AtomicU64>,
+    stalled_us: Arc<AtomicU64>,
+    waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     dsp: Option<JoinHandle<()>>,
 }
@@ -453,6 +523,7 @@ pub struct CaptureRuntime {
     device: Option<Box<dyn SdrDevice>>,
     lanes: Vec<Lane>,
     per_stream: StreamScope,
+    _awake: sdrmm_device::schedule::Awake,
 }
 
 impl CaptureRuntime {
@@ -479,10 +550,14 @@ impl CaptureRuntime {
             mpsc::Receiver<DspCommand>,
             SpectrumAnalyzer,
         )> = Vec::with_capacity(lane_count);
+        let ring = ring_capacity(sample_rate);
         for stream in 0..lane_count {
-            let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(RING_CAPACITY);
+            let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(ring);
             let overruns = Arc::new(AtomicU64::new(0));
+            let stalled_us = Arc::new(AtomicU64::new(0));
+            let waker = Arc::new(Waker::default());
             let ov = overruns.clone();
+            let wake = waker.clone();
             let fatal = fatal.clone();
             sinks.push(RxSink::with_fatal_handler(
                 move |samples: &[Complex<f32>]| {
@@ -496,6 +571,7 @@ impl CaptureRuntime {
                     if take < samples.len() {
                         ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
                     }
+                    wake.wake();
                 },
                 move |err| {
                     if let Some(report) = fatal
@@ -521,6 +597,8 @@ impl CaptureRuntime {
                 spectrum_tx,
                 cmd_tx,
                 overruns,
+                stalled_us,
+                waker,
                 stop: Arc::new(AtomicBool::new(false)),
                 dsp: None,
             });
@@ -532,26 +610,25 @@ impl CaptureRuntime {
             device: Some(device),
             lanes,
             per_stream,
+            _awake: sdrmm_device::schedule::stay_awake("a radio is streaming"),
         };
 
         for (index, (mut consumer, cmd_rx, analyzer)) in tails.into_iter().enumerate() {
             let lane = &runtime.lanes[index];
-            let meta = lane.meta.clone();
-            let tx = lane.spectrum_tx.clone();
-            let stop = lane.stop.clone();
-            let overruns = lane.overruns.clone();
+            let shared = LaneShared {
+                meta: lane.meta.clone(),
+                spectrum_tx: lane.spectrum_tx.clone(),
+                stop: lane.stop.clone(),
+                overruns: lane.overruns.clone(),
+                stalled_us: lane.stalled_us.clone(),
+                waker: lane.waker.clone(),
+            };
             let spawned = std::thread::Builder::new()
                 .name(format!("sdrmm-dsp-{index}"))
                 .spawn(move || {
-                    dsp_loop(
-                        &mut consumer,
-                        &cmd_rx,
-                        &meta,
-                        &tx,
-                        &stop,
-                        &overruns,
-                        analyzer,
-                    )
+                    sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
+                    shared.waker.adopt_current();
+                    dsp_loop(&mut consumer, &cmd_rx, &shared, analyzer);
                 });
             match spawned {
                 Ok(handle) => runtime.lanes[index].dsp = Some(handle),
@@ -578,6 +655,13 @@ impl CaptureRuntime {
         self.lanes
             .iter()
             .map(|lane| lane.overruns.clone())
+            .collect()
+    }
+
+    pub(crate) fn stall_counters(&self) -> Vec<Arc<AtomicU64>> {
+        self.lanes
+            .iter()
+            .map(|lane| lane.stalled_us.clone())
             .collect()
     }
 
@@ -614,6 +698,7 @@ impl CaptureRuntime {
             device.rx_stop();
         }
         for lane in &mut self.lanes {
+            lane.waker.wake();
             if let Some(handle) = lane.dsp.take() {
                 let _ = handle.join();
             }
@@ -630,12 +715,17 @@ impl Drop for CaptureRuntime {
 fn dsp_loop(
     consumer: &mut rtrb::Consumer<Complex<f32>>,
     commands: &mpsc::Receiver<DspCommand>,
-    meta: &ArcSwap<DspMeta>,
-    tx: &broadcast::Sender<SpectrumSnapshot>,
-    stop: &AtomicBool,
-    overruns: &AtomicU64,
+    lane: &LaneShared,
     mut analyzer: SpectrumAnalyzer,
 ) {
+    let LaneShared {
+        meta,
+        spectrum_tx: tx,
+        stop,
+        overruns,
+        stalled_us,
+        ..
+    } = lane;
     let mut hist = vec![Complex::new(0.0, 0.0); FFT_SIZE];
     let mut window = vec![Complex::new(0.0, 0.0); FFT_SIZE];
     let mut db = vec![0.0f32; FFT_SIZE];
@@ -648,6 +738,7 @@ fn dsp_loop(
     let mut total: u64 = 0;
     let mut dropped_seen: u64 = 0;
     let mut seq: u32 = 0;
+    let mut served = Instant::now();
 
     while !stop.load(Ordering::Acquire) {
         drain_commands(
@@ -662,9 +753,10 @@ fn dsp_loop(
         dropped_seen = dropped;
         let avail = consumer.slots();
         if avail == 0 {
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::park_timeout(IDLE_PARK);
             continue;
         }
+        record_stall(stalled_us, &mut served);
         let snapshot = *meta.load_full();
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
 
@@ -727,6 +819,15 @@ fn dsp_loop(
         }
         chunk.commit_all();
     }
+}
+
+/// Keeps the longest gap between two servings of the capture ring, so a dropped sample can be
+/// blamed on a stalled consumer rather than guessed at.
+fn record_stall(stalled_us: &AtomicU64, served: &mut Instant) {
+    let now = Instant::now();
+    let gap = u64::try_from(now.duration_since(*served).as_micros()).unwrap_or(u64::MAX);
+    *served = now;
+    stalled_us.fetch_max(gap, Ordering::Relaxed);
 }
 
 fn drain_commands(
@@ -1281,5 +1382,79 @@ mod tests {
         host.retuned();
         let after = samples(&run(&mut host, &mut rx, &fm_tone(1_000.0, 2_500.0, 4_800)));
         assert!(rms(&after[..2_400]) < 1.0, "the old gain followed the tune");
+    }
+
+    #[test]
+    fn a_waker_with_no_thread_yet_is_a_no_op() {
+        Waker::default().wake();
+    }
+
+    #[test]
+    fn waking_releases_a_parked_thread_far_sooner_than_the_backstop() {
+        let waker = Arc::new(Waker::default());
+        let ready = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let parked = {
+            let (waker, ready) = (waker.clone(), ready.clone());
+            std::thread::spawn(move || {
+                waker.adopt_current();
+                ready.store(true, Ordering::Release);
+                let start = Instant::now();
+                std::thread::park_timeout(Duration::from_secs(30));
+                let _ = tx.send(start.elapsed());
+            })
+        };
+        while !ready.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        waker.wake();
+        let waited = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the parked thread was never released");
+        parked.join().expect("thread panicked");
+        assert!(
+            waited < Duration::from_secs(5),
+            "wake did not beat the backstop: {waited:?}"
+        );
+    }
+
+    #[test]
+    fn every_rate_keeps_the_same_slack_in_seconds() {
+        for rate in [2_048_000.0, 2_400_000.0, 8_000_000.0, 20_000_000.0] {
+            let seconds = ring_capacity(rate) as f64 / rate;
+            assert!(
+                seconds >= RING_SECONDS,
+                "{rate} S/s left only {seconds} s of slack"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fast_radio_is_capped_and_a_slow_one_floored() {
+        assert_eq!(ring_capacity(1_000_000_000.0), RING_MAX);
+        assert_eq!(ring_capacity(48_000.0), RING_MIN);
+    }
+
+    #[test]
+    fn a_rate_that_is_not_a_number_still_sizes_a_ring() {
+        assert_eq!(ring_capacity(f64::NAN), RING_MIN);
+        assert_eq!(ring_capacity(-1.0), RING_MIN);
+        assert_eq!(ring_capacity(f64::INFINITY), RING_MAX);
+    }
+
+    #[test]
+    fn the_stall_counter_keeps_the_worst_gap_not_the_last() {
+        let stalled = AtomicU64::new(0);
+        let mut served = Instant::now() - Duration::from_millis(400);
+        record_stall(&stalled, &mut served);
+        let worst = stalled.load(Ordering::Relaxed);
+        assert!(worst >= 400_000, "expected the 400 ms gap, got {worst} us");
+
+        record_stall(&stalled, &mut served);
+        assert_eq!(
+            stalled.load(Ordering::Relaxed),
+            worst,
+            "a short gap must not erase the worst one"
+        );
     }
 }

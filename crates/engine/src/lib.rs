@@ -7,7 +7,7 @@ use std::{
         mpsc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
@@ -16,16 +16,19 @@ use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     AudioRecordingStatus, Capabilities, ChannelDescriptor, ChannelInfo, ChannelLevel,
-    ChannelParams, ChannelSettings, DecodedRecord, DeviceInfo, DeviceSet, DeviceSetStatus,
-    DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest, PlaybackStatus,
-    PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TrunkSystemStatus,
+    ChannelParams, ChannelSettings, DecodedRecord, DeviceFault, DeviceInfo, DeviceSet,
+    DeviceSetStatus, DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest,
+    PlaybackStatus, PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
 pub mod audio;
 pub mod audio_recording;
+mod discovery;
 mod history;
+mod hotplug;
+pub mod image;
 pub mod iq;
 mod network_export;
 pub mod occupancy;
@@ -39,18 +42,21 @@ mod time_machine;
 pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use trunking::TrunkSystem;
-pub use video::VideoPacket;
+pub use video::{VideoPacket, VideoPicture};
 
 use crate::{
     audio_recording::AudioRecordingShared,
     history::TimeMachineState,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
+    runtime::{
+        CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded, RawImage,
+    },
     scanner::{ScanPlan, ScannerState},
     sinks::{BasebandSinks, ChannelBasebandRecording},
 };
@@ -58,6 +64,14 @@ use crate::{
 const VIRTUAL_PRIORITY: u8 = 10;
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
+// Above Soapy so a host-installed SoapySDRPlay3 loses the dedup for a receiver this driver
+// already speaks to directly.
+#[cfg(feature = "sdrplay")]
+const SDRPLAY_PRIORITY: u8 = 25;
+// The USB backends speak to their radios directly and are hidden from Soapy's enumeration, so
+// this rank only settles a tie against a driver that reports the same serial by another route.
+#[cfg(any(feature = "rtlsdr", feature = "hackrf"))]
+const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
@@ -68,15 +82,53 @@ const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 const TIME_MACHINE_STOP_POLL: Duration = Duration::from_millis(10);
 const TIME_MACHINE_STOP_POLLS: u32 = 200;
 
+/// The SoapySDR driver names this build speaks to over its own USB stack, and therefore hides
+/// from Soapy's enumeration so one radio is never listed twice.
+#[must_use]
+pub fn soapy_handled_natively() -> Vec<&'static str> {
+    [
+        #[cfg(feature = "rtlsdr")]
+        "rtlsdr",
+        #[cfg(feature = "hackrf")]
+        "hackrf",
+    ]
+    .to_vec()
+}
+
 #[must_use]
 pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
+    builtin_registry_accelerated(recordings_dir, 1.0)
+}
+
+#[must_use]
+pub fn builtin_registry_accelerated(
+    recordings_dir: Option<PathBuf>,
+    playback_speed: f64,
+) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
-    let virtual_driver = VirtualDriver::for_build(recordings_dir);
+    let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
     #[cfg(feature = "soapy")]
     registry.register(
         SOAPY_PRIORITY,
-        Box::new(sdrmm_device_soapy::SoapyDriver::new()),
+        Box::new(sdrmm_device_soapy::SoapyDriver::excluding(
+            soapy_handled_natively(),
+        )),
+    );
+    #[cfg(feature = "sdrplay")]
+    registry.register(
+        SDRPLAY_PRIORITY,
+        Box::new(sdrmm_device_sdrplay::SdrplayDriver::new()),
+    );
+    #[cfg(feature = "rtlsdr")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
+    );
+    #[cfg(feature = "hackrf")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {
@@ -140,7 +192,14 @@ impl EngineError {
                 | Self::NetworkExport(_)
                 | Self::Scan(_)
                 | Self::StreamOutOfRange { .. }
-                | Self::DeviceAlreadyOpen(..)
+        )
+    }
+
+    #[must_use]
+    pub fn is_conflict(&self) -> bool {
+        matches!(
+            self,
+            Self::DeviceAlreadyOpen(..) | Self::Device(DeviceError::InUse(_))
         )
     }
 }
@@ -154,6 +213,19 @@ struct RebuildEntry {
 
 fn sample_rate_of(settings: &DeviceSettings) -> f64 {
     settings.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE)
+}
+
+fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
+    devices.iter().map(DeviceInfo::id).collect()
+}
+
+/// Sorts a fault into what a reader can do about it, leaving the message itself for the details.
+fn fault_kind(error: &DeviceError) -> DeviceFault {
+    match error {
+        DeviceError::Disconnected(_) => DeviceFault::Unplugged,
+        DeviceError::InUse(_) => DeviceFault::InUse,
+        _ => DeviceFault::Other,
+    }
 }
 
 pub(crate) fn channel_input_rate(descriptor: &ChannelDescriptor, device_rate: f64) -> f64 {
@@ -475,6 +547,7 @@ struct DeviceSetState {
     media: HashMap<u32, ChannelMedia>,
     next_channel_id: u32,
     error: Option<String>,
+    fault: Option<DeviceFault>,
     recording: Option<RecordingState>,
     audio_recordings: HashMap<u32, ChannelAudioRecording>,
     baseband_recordings: HashMap<u32, ChannelBasebandRecording>,
@@ -486,6 +559,7 @@ struct DeviceSetState {
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     overruns: Vec<Arc<AtomicU64>>,
     overruns_seen: u64,
+    stalls: Vec<Arc<AtomicU64>>,
     playback: Option<Arc<PlaybackShared>>,
     runtime: Arc<Mutex<CaptureRuntime>>,
 }
@@ -520,6 +594,7 @@ impl DeviceSetState {
                 .collect(),
             overruns,
             error: self.error.clone(),
+            fault: self.fault,
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
             network_export: self
                 .network_export
@@ -554,6 +629,17 @@ impl DeviceSetState {
             .iter()
             .map(|counter| counter.load(Ordering::Relaxed))
             .sum()
+    }
+
+    /// Longest gap any lane went without touching its capture ring since the last read, and
+    /// clears it so the next report covers the next window.
+    fn take_worst_stall_ms(&self) -> u64 {
+        self.stalls
+            .iter()
+            .map(|counter| counter.swap(0, Ordering::Relaxed))
+            .max()
+            .unwrap_or(0)
+            / 1_000
     }
 
     fn send_dsp(&self, stream: u32, cmd: DspCommand) {
@@ -627,13 +713,16 @@ pub struct Engine {
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     decoded_tx: mpsc::SyncSender<RawDecoded>,
+    image_queue_tx: mpsc::SyncSender<RawImage>,
     decoded_dropped: Arc<AtomicU64>,
     decoded_tx_out: broadcast::Sender<DecodedRecord>,
+    image_tx: broadcast::Sender<ImageCapture>,
     trunk_tx: mpsc::Sender<trunking::TrunkInput>,
     trunk_active: AtomicBool,
     trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
     occupancy: Mutex<occupancy::Occupancy>,
     occupancy_sets: Mutex<HashSet<(u32, u32)>>,
+    discovery: Mutex<discovery::Discovery>,
     recordings_dir: Option<PathBuf>,
 }
 
@@ -649,7 +738,9 @@ impl Engine {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
+        let (image_queue_tx, image_queue_rx) = mpsc::sync_channel(image::IMAGE_QUEUE_CAP);
         let (decoded_tx_out, _) = broadcast::channel(DECODED_CHANNEL_CAP);
+        let (image_tx, _) = broadcast::channel(image::IMAGE_CHANNEL_CAP);
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
@@ -658,17 +749,21 @@ impl Engine {
             event_tx,
             fault_tx,
             decoded_tx,
+            image_queue_tx,
             decoded_dropped: Arc::new(AtomicU64::new(0)),
             decoded_tx_out,
+            image_tx,
             trunk_tx,
             trunk_active: AtomicBool::new(false),
             trunk_status: trunk_status.clone(),
             occupancy: Mutex::new(occupancy::Occupancy::new()),
             occupancy_sets: Mutex::new(HashSet::new()),
+            discovery: Mutex::new(discovery::Discovery::default()),
             recordings_dir,
         });
         engine.spawn_fault_drainer(fault_rx);
         engine.spawn_decoded_pump(decoded_rx);
+        engine.spawn_image_pump(image_queue_rx);
         trunking::spawn(&engine, trunk_rx, trunk_status);
         engine
     }
@@ -721,9 +816,39 @@ impl Engine {
         }
     }
 
+    fn spawn_image_pump(self: &Arc<Self>, image_rx: mpsc::Receiver<RawImage>) {
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-images".to_string())
+            .spawn(move || {
+                while let Ok(raw) = image_rx.recv() {
+                    let Some(engine) = weak.upgrade() else { return };
+                    let _ = engine.image_tx.send(ImageCapture {
+                        device_set: raw.device_set,
+                        channel: raw.channel,
+                        at: format!("{:.9}", jiff::Timestamp::now()),
+                        freq_hz: raw.freq_hz,
+                        source: raw.image.source,
+                        mode: raw.image.mode,
+                        complete: raw.image.complete,
+                        lines: raw.image.lines,
+                        picture: Arc::new(raw.image.picture),
+                    });
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::error!("failed to spawn image pump: {e}");
+        }
+    }
+
     #[must_use]
     pub fn subscribe_decoded(&self) -> broadcast::Receiver<DecodedRecord> {
         self.decoded_tx_out.subscribe()
+    }
+
+    #[must_use]
+    pub fn subscribe_images(&self) -> broadcast::Receiver<ImageCapture> {
+        self.image_tx.subscribe()
     }
 
     #[must_use]
@@ -734,6 +859,7 @@ impl Engine {
     fn decoded_sink(&self, ds: u32, channel: u32) -> DecodedSink {
         DecodedSink::new(
             self.decoded_tx.clone(),
+            self.image_queue_tx.clone(),
             self.decoded_dropped.clone(),
             ds,
             channel,
@@ -765,6 +891,7 @@ impl Engine {
         if let Some(state) = inner.device_sets.get_mut(&ds) {
             state.status = DeviceSetStatus::Error;
             state.error = Some(err.to_string());
+            state.fault = Some(fault_kind(&err));
             let recording = state.recording.take();
             if let Some(recording) = &recording {
                 state.send_dsp(recording.stream, DspCommand::StopRecording);
@@ -841,11 +968,14 @@ impl Engine {
             .spawn(move || {
                 let mut known = None;
                 let mut missing_once = HashSet::new();
+                let mut gate = hotplug::ProbeGate::default();
+                let pace = hotplug::Pace::start();
+                let mut woken = false;
                 loop {
                     let Some(engine) = weak.upgrade() else { return };
-                    engine.hotplug_tick(&mut known, &mut missing_once);
+                    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate, woken);
                     drop(engine);
-                    std::thread::sleep(interval);
+                    woken = pace.wait(interval);
                 }
             })?;
         Ok(())
@@ -974,17 +1104,24 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        self.hotplug_tick(known, missing_once)
+        self.hotplug_tick(
+            known,
+            missing_once,
+            &mut hotplug::ProbeGate::default(),
+            false,
+        )
     }
 
     fn hotplug_tick(
         &self,
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
+        gate: &mut hotplug::ProbeGate,
+        woken: bool,
     ) -> bool {
         let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
             let mut inner = self.lock();
-            let mut grown: Vec<(u32, u64)> = Vec::new();
+            let mut grown: Vec<(u32, u64, u64)> = Vec::new();
             let mut rec_faults: Vec<(u32, String)> = Vec::new();
             let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
             let mut export_faults: Vec<(u32, String)> = Vec::new();
@@ -997,7 +1134,7 @@ impl Engine {
                 s.overruns_seen = now;
                 let mut dirty = delta > 0;
                 if delta > 0 {
-                    grown.push((*id, delta));
+                    grown.push((*id, delta, s.take_worst_stall_ms()));
                 }
                 if let Some(rec) = &mut s.recording {
                     let samples = rec.shared.samples();
@@ -1103,8 +1240,13 @@ impl Engine {
                 changed,
             )
         };
-        for (ds, dropped) in grown {
-            tracing::warn!(ds, dropped, "capture ring overrun: device samples dropped");
+        for (ds, dropped, stalled_ms) in grown {
+            tracing::warn!(
+                ds,
+                dropped,
+                stalled_ms,
+                "capture ring overrun: device samples dropped while the dsp thread was held off"
+            );
         }
         for (ds, error) in rec_faults {
             tracing::warn!(ds, error = %error, "recording fault");
@@ -1128,12 +1270,17 @@ impl Engine {
             });
         }
 
-        let ids: Vec<String> = self
-            .registry
-            .probe_all()
-            .iter()
-            .map(DeviceInfo::id)
-            .collect();
+        let Some(reason) = gate.should_probe(sdrmm_device::usb::fingerprint(), woken) else {
+            return false;
+        };
+        if reason == hotplug::Probe::BusChanged {
+            self.lock_discovery().expire();
+        }
+
+        let mut ids = ids_of(&self.registry.probe_all());
+        if self.wants_a_deeper_look(&ids) {
+            ids = ids_of(&self.registry.probe_all_deep());
+        }
 
         let (absent, returned): (HashSet<u32>, Vec<u32>) = {
             let inner = self.lock();
@@ -1166,12 +1313,27 @@ impl Engine {
 
         let changed = known.as_ref().is_some_and(|prev| *prev != ids);
         *known = Some(ids);
-        if changed {
+        // A radio the quick search cannot name — one that answers over the network, or one whose
+        // vendor module only the deep search loads — still moved on the bus, and whoever has the
+        // device list open is the one who should find out.
+        if changed || reason == hotplug::Probe::BusChanged {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::Devices,
             });
         }
         changed
+    }
+
+    /// Whether the cheap search left a question only a full one can answer: a radio that is
+    /// streaming but nothing found, or a faulted one that may have come back. Both are worth
+    /// seconds; a healthy machine never gets here.
+    fn wants_a_deeper_look(&self, ids: &[String]) -> bool {
+        let inner = self.lock();
+        inner.device_sets.values().any(|s| match s.status {
+            DeviceSetStatus::Running => !ids.contains(&s.info.id()),
+            DeviceSetStatus::Error => true,
+            DeviceSetStatus::Idle => false,
+        })
     }
 
     fn reconnect(&self, ds: u32) {
@@ -1228,6 +1390,7 @@ impl Engine {
         };
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
+        let stalls = runtime.stall_counters();
         let runtime = Arc::new(Mutex::new(runtime));
 
         let (old_runtime, rebuilds, early_fault) = {
@@ -1255,6 +1418,7 @@ impl Engine {
             state.cmd_txs = cmd_txs;
             state.overruns = overruns;
             state.overruns_seen = 0;
+            state.stalls = stalls;
             state.info = info;
             state.capabilities = capabilities;
             state.settings = settings;
@@ -1333,9 +1497,48 @@ impl Engine {
         self.registry.resolve(device_id)
     }
 
+    /// The radios to choose from: what is attached to this machine right now, plus what the last
+    /// network search found. A fresh network search runs behind the answer and announces itself
+    /// when it changes the list, so nobody waits seconds for a list that is mostly already known.
     #[must_use]
-    pub fn probe_devices(&self) -> Vec<DeviceInfo> {
-        self.registry.probe_all()
+    pub fn probe_devices(self: &Arc<Self>) -> Vec<DeviceInfo> {
+        let attached = self.registry.probe_all();
+        self.search_the_network();
+        self.lock_discovery().merge(attached)
+    }
+
+    fn lock_discovery(&self) -> std::sync::MutexGuard<'_, discovery::Discovery> {
+        self.discovery
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn search_the_network(self: &Arc<Self>) {
+        if !self.lock_discovery().claim(Instant::now()) {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-discovery".to_string())
+            .spawn(move || {
+                let Some(engine) = weak.upgrade() else { return };
+                let found = engine.registry.probe_all_deep();
+                let attached = ids_of(&engine.registry.probe_all());
+                let extras = found
+                    .into_iter()
+                    .filter(|device| !attached.contains(&device.id()))
+                    .collect();
+                let changed = engine.lock_discovery().searched(extras, Instant::now());
+                if changed {
+                    engine.emit(ServerEvent::StateChanged {
+                        scope: StateScope::Devices,
+                    });
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!("cannot search for network radios: {error}");
+            self.lock_discovery().searched(Vec::new(), Instant::now());
+        }
     }
 
     #[must_use]
@@ -1404,6 +1607,7 @@ impl Engine {
 
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
+        let stalls = runtime.stall_counters();
         let faulted = {
             let mut inner = self.lock();
             inner.creating.remove(&id);
@@ -1423,6 +1627,7 @@ impl Engine {
                     media: HashMap::new(),
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
+                    fault: pending.as_ref().map(fault_kind),
                     recording: None,
                     audio_recordings: HashMap::new(),
                     baseband_recordings: HashMap::new(),
@@ -1434,6 +1639,7 @@ impl Engine {
                     cmd_txs,
                     overruns,
                     overruns_seen: 0,
+                    stalls,
                     playback,
                     runtime: Arc::new(Mutex::new(runtime)),
                 },

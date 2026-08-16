@@ -13,6 +13,10 @@ pub enum DeviceError {
     Unsupported(String),
     #[error("device I/O error: {0}")]
     Io(String),
+    #[error("the radio is no longer attached ({0})")]
+    Disconnected(String),
+    #[error("this radio is already in use — another program has it open ({0})")]
+    InUse(String),
     #[error("device is already streaming")]
     AlreadyStreaming,
     #[error("device is {active} and cannot start {requested} until that stops")]
@@ -120,7 +124,17 @@ impl std::fmt::Debug for RxSink {
 
 pub trait DeviceDriver: Send + Sync {
     fn id(&self) -> &'static str;
+
+    /// Reports the radios this driver can see without searching beyond the machine, which is what
+    /// a hotplug tick and a device list are allowed to cost.
     fn probe(&self) -> Vec<DeviceInfo>;
+
+    /// Searches as far as the driver can reach, network discovery included. Seconds are allowed
+    /// here, so it belongs behind a request someone is waiting on, never on a timer.
+    fn probe_deep(&self) -> Vec<DeviceInfo> {
+        self.probe()
+    }
+
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError>;
 
     fn resolve(&self, _key: &str) -> Option<DeviceInfo> {
@@ -180,6 +194,8 @@ pub mod duplex;
 pub mod playback;
 pub mod registry;
 pub mod restart;
+pub mod schedule;
+pub mod usb;
 pub mod worker;
 pub use capture::{
     Capture, CaptureConfig, CaptureRadio, CaptureStream, Next, StopHandle, StreamFailure,
@@ -189,6 +205,7 @@ pub use duplex::DuplexState;
 pub use playback::PlaybackShared;
 pub use registry::DeviceRegistry;
 pub use restart::{Recovery, RestartPolicy, SILENT_STREAM_TIMEOUT};
+pub use schedule::Latency;
 pub use sdrmm_wire::{Direction, Duplex};
 pub use worker::Worker;
 
@@ -317,10 +334,11 @@ mod tests {
         Capabilities {
             freq_ranges: Vec::new(),
             sample_rates: Vec::new(),
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: Vec::new(),
             antennas: Vec::new(),
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: Vec::new(),
             ppm: false,
             duplex: Duplex::RxOnly,

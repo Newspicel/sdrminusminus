@@ -110,6 +110,7 @@ export function NodeShell({
   return (
     <div
       ref={portalContainer}
+      style={surface === "canvas" ? { minHeight: minimum.h } : undefined}
       className={`relative flex h-full min-h-0 w-full flex-col border bg-panel ${
         selected ? "border-accent" : "border-line"
       } ${live ? "" : "opacity-60"}`}

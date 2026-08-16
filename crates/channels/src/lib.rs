@@ -5,11 +5,14 @@ mod am;
 mod aprs;
 mod atv;
 pub mod audio_chain;
+mod cw_skimmer;
 mod dab;
 mod datv;
 mod drm;
 mod dsc;
 mod dv;
+mod ermes;
+mod flex;
 mod gnss;
 mod hfdl;
 mod ident;
@@ -27,6 +30,7 @@ mod rds;
 mod rtty;
 mod selcall;
 mod ssb;
+mod sstv;
 mod subghz;
 pub mod tone_squelch;
 mod tx;
@@ -49,6 +53,7 @@ pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
 pub use audio_chain::{AudioChain, ClickProfile};
+pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
 pub use datv::DatvChannel;
 pub use drm::DrmChannel;
@@ -57,6 +62,8 @@ pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
     YsfChannel,
 };
+pub use ermes::ErmesChannel;
+pub use flex::FlexChannel;
 pub use gnss::GnssChannel;
 pub use hfdl::HfdlChannel;
 pub use ident::IdentChannel;
@@ -78,6 +85,7 @@ use sdrmm_wire::{
 };
 pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
+pub use sstv::SstvChannel;
 pub use subghz::SubghzChannel;
 pub use vdl2::Vdl2Channel;
 pub use vor::VorChannel;
@@ -115,15 +123,19 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
             (-half, half)
         }
         ChannelParams::Pocsag(p) => pocsag::occupied_band(p),
+        ChannelParams::Flex(p) => flex::occupied_band(p),
+        ChannelParams::Ermes(p) => ermes::occupied_band(p),
         ChannelParams::Adsb(_) => adsb::occupied_band(),
         ChannelParams::Ais(p) => ais::occupied_band(p),
         ChannelParams::Aprs(p) => aprs::occupied_band(p),
         ChannelParams::Rtty(p) => rtty::occupied_band(p),
         ChannelParams::Morse(p) => morse::occupied_band(p),
+        ChannelParams::CwSkimmer(p) => cw_skimmer::occupied_band(p),
         ChannelParams::Navtex(_) => navtex::occupied_band(),
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
         ChannelParams::Atv(p) => atv::occupied_band(p),
+        ChannelParams::Sstv(p) => sstv::occupied_band(p),
         ChannelParams::Dab(_) => dab::occupied_band(),
         ChannelParams::Datv(p) => datv::occupied_band(p),
         ChannelParams::Drm(p) => drm::occupied_band(p),
@@ -180,15 +192,19 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Ssb(p) => Ok(ChannelFilter::Sideband(ssb::sideband_filter(p)?)),
         ChannelParams::Wfm(_) => Ok(wfm::channel_filter()),
         ChannelParams::Pocsag(p) => pocsag::channel_filter(p),
+        ChannelParams::Flex(p) => flex::channel_filter(p),
+        ChannelParams::Ermes(p) => ermes::channel_filter(p),
         ChannelParams::Adsb(_) => Ok(adsb::channel_filter()),
         ChannelParams::Ais(p) => ais::channel_filter(p),
         ChannelParams::Aprs(p) => aprs::channel_filter(p),
         ChannelParams::Rtty(p) => rtty::channel_filter(p),
         ChannelParams::Morse(p) => morse::channel_filter(p),
+        ChannelParams::CwSkimmer(p) => cw_skimmer::channel_filter(p),
         ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
         ChannelParams::Atv(p) => atv::channel_filter(p),
+        ChannelParams::Sstv(p) => sstv::channel_filter(p),
         ChannelParams::Dab(_) => Ok(dab::channel_filter()),
         ChannelParams::Datv(p) => datv::channel_filter(p),
         ChannelParams::Drm(p) => drm::channel_filter(p),
@@ -243,12 +259,22 @@ pub struct VideoPicture {
     pub rgb: Vec<u8>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedImage {
+    pub source: &'static str,
+    pub mode: String,
+    pub complete: bool,
+    pub lines: u16,
+    pub picture: VideoPicture,
+}
+
 #[derive(Default)]
 pub struct ChannelOutputs {
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
     pub events: Vec<DecoderEvent>,
     pub video: Vec<VideoPicture>,
+    pub images: Vec<DecodedImage>,
     pub iq_tap: Vec<Complex<f32>>,
 }
 
@@ -258,6 +284,7 @@ impl ChannelOutputs {
         self.audio_rate = 0;
         self.events.clear();
         self.video.clear();
+        self.images.clear();
         self.iq_tap.clear();
     }
 }
@@ -360,6 +387,16 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: FlexChannel::descriptor,
+        create: boxed::<FlexChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: ErmesChannel::descriptor,
+        create: boxed::<ErmesChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: AdsbChannel::descriptor,
         create: boxed::<AdsbChannel>,
         create_tx: None,
@@ -385,6 +422,11 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: CwSkimmerChannel::descriptor,
+        create: boxed::<CwSkimmerChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: NavtexChannel::descriptor,
         create: boxed::<NavtexChannel>,
         create_tx: None,
@@ -402,6 +444,11 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: AtvChannel::descriptor,
         create: boxed::<AtvChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: SstvChannel::descriptor,
+        create: boxed::<SstvChannel>,
         create_tx: None,
     },
     Registration {
@@ -620,12 +667,12 @@ mod tests {
 
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
-        ChannelParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams, DscParams,
-        DstarParams, FreeDvParams, GnssParams, HfdlParams, IdentParams, IlsParams,
-        InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params, MorseParams,
-        NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, PskParams, RadioClockParams,
-        RttyParams, SelcallParams, SsbParams, SubghzParams, Vdl2Params, VorParams, WfmParams,
-        WsjtParams, WsprParams, YsfParams,
+        ChannelParams, CwSkimmerParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams,
+        DscParams, DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams, HfdlParams,
+        IdentParams, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params,
+        MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, PskParams,
+        RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams, SubghzParams,
+        Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
     };
 
     use super::*;
@@ -639,15 +686,19 @@ mod tests {
             "ssb" => ChannelParams::Ssb(SsbParams::default()),
             "wfm" => ChannelParams::Wfm(WfmParams::default()),
             "pocsag" => ChannelParams::Pocsag(PocsagParams::default()),
+            "flex" => ChannelParams::Flex(FlexParams::default()),
+            "ermes" => ChannelParams::Ermes(ErmesParams::default()),
             "adsb" => ChannelParams::Adsb(AdsbParams::default()),
             "ais" => ChannelParams::Ais(AisParams::default()),
             "aprs" => ChannelParams::Aprs(AprsParams::default()),
             "rtty" => ChannelParams::Rtty(RttyParams::default()),
             "morse" => ChannelParams::Morse(MorseParams::default()),
+            "cw_skimmer" => ChannelParams::CwSkimmer(CwSkimmerParams::default()),
             "navtex" => ChannelParams::Navtex(NavtexParams::default()),
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
             "atv" => ChannelParams::Atv(AtvParams::default()),
+            "sstv" => ChannelParams::Sstv(SstvParams::default()),
             "dab" => ChannelParams::Dab(DabParams::default()),
             "datv" => ChannelParams::Datv(DatvParams::default()),
             "drm" => ChannelParams::Drm(DrmParams::default()),
@@ -682,7 +733,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 42);
+        assert_eq!(all.len(), 46);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -693,15 +744,19 @@ mod tests {
                 "ssb",
                 "wfm",
                 "pocsag",
+                "flex",
+                "ermes",
                 "adsb",
                 "ais",
                 "aprs",
                 "rtty",
                 "morse",
+                "cw_skimmer",
                 "navtex",
                 "acars",
                 "subghz",
                 "atv",
+                "sstv",
                 "dab",
                 "datv",
                 "drm",
@@ -739,15 +794,18 @@ mod tests {
                 "ssb" => (3_000.0, 48_000.0),
                 "wfm" => (200_000.0, 240_000.0),
                 "pocsag" => (12_500.0, 48_000.0),
+                "flex" | "ermes" => (12_500.0, 48_000.0),
                 "adsb" => (2_000_000.0, 2_000_000.0),
                 "ais" => (25_000.0, 48_000.0),
                 "aprs" => (12_500.0, 48_000.0),
                 "rtty" => (1_000.0, 8_000.0),
                 "morse" => (400.0, 8_000.0),
+                "cw_skimmer" => (24_000.0, 48_000.0),
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
                 "atv" => (1_500_000.0, 2_000_000.0),
+                "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),
                 "datv" => (1_500_000.0, 2_000_000.0),
                 "drm" => (100_000.0, 192_000.0),
@@ -802,7 +860,7 @@ mod tests {
             );
             assert_eq!(
                 d.has_video,
-                d.type_id == "atv",
+                matches!(d.type_id.as_str(), "atv" | "sstv"),
                 "{} video flag does not match its mode class",
                 d.type_id
             );

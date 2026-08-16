@@ -116,6 +116,22 @@ const DRM_MODES: Options<NonNullable<ChannelParamsOf<"drm">["mode"]>> = [
   { value: "drm30", label: "DRM30" },
   { value: "drm_plus", label: "DRM+" },
 ];
+const SSTV_AUTO = "auto";
+const SSTV_MODES: Options<NonNullable<ChannelParamsOf<"sstv">["mode"]> | typeof SSTV_AUTO> = [
+  { value: SSTV_AUTO, label: "Follow VIS" },
+  { value: "robot36", label: "Robot 36" },
+  { value: "robot72", label: "Robot 72" },
+  { value: "martin_m1", label: "Martin M1" },
+  { value: "martin_m2", label: "Martin M2" },
+  { value: "scottie_s1", label: "Scottie S1" },
+  { value: "scottie_s2", label: "Scottie S2" },
+  { value: "scottie_dx", label: "Scottie DX" },
+  { value: "pd50", label: "PD50" },
+  { value: "pd90", label: "PD90" },
+  { value: "pd120", label: "PD120" },
+  { value: "pd180", label: "PD180" },
+  { value: "sc2180", label: "Wraase SC2-180" },
+];
 const ATV_COLORS: Options<NonNullable<ChannelParamsOf<"atv">["color"]>> = [
   { value: "monochrome", label: "Mono" },
   { value: "pal", label: "PAL" },
@@ -422,6 +438,29 @@ function ModeControls({
           />
         </>
       );
+    case "flex":
+    case "ermes": {
+      const type = params.type;
+      const label = type === "flex" ? "FLEX" : "ERMES";
+      return (
+        <>
+          <SettingRow label="Bandwidth">
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 12_500}
+              optionsHz={[12_500, 25_000]}
+              onCommit={(bandwidth_hz) =>
+                onParams({ type, settings: { ...params.settings, bandwidth_hz } })
+              }
+            />
+          </SettingRow>
+          <Toggle
+            label={`Invert ${label}`}
+            checked={params.settings.invert ?? false}
+            onChange={(invert) => onParams({ type, settings: { ...params.settings, invert } })}
+          />
+        </>
+      );
+    }
     case "adsb":
       return (
         <Toggle
@@ -550,6 +589,74 @@ function ModeControls({
               max={60}
               step={1}
               onCommit={(wpm) => onParams({ type: "morse", settings: { ...params.settings, wpm } })}
+            />
+          </SettingRow>
+        </>
+      );
+    case "cw_skimmer":
+      return (
+        <>
+          <SettingRow label="Passband">
+            <NumberField
+              label="CW skimmer passband (Hz)"
+              value={params.settings.bandwidth_hz ?? 24_000}
+              min={1_000}
+              max={24_000}
+              step={500}
+              onCommit={(bandwidth_hz) =>
+                onParams({
+                  type: "cw_skimmer",
+                  settings: { ...params.settings, bandwidth_hz },
+                })
+              }
+              className="w-24"
+            />
+            <span className="legend">Hz</span>
+          </SettingRow>
+          <SettingRow label="Acquire">
+            <NumberField
+              label="Carrier threshold above the noise floor (dB)"
+              value={params.settings.threshold_db ?? 10}
+              min={3}
+              max={40}
+              step={1}
+              onCommit={(threshold_db) =>
+                onParams({
+                  type: "cw_skimmer",
+                  settings: { ...params.settings, threshold_db },
+                })
+              }
+              className="w-16"
+            />
+            <span className="legend">dB SNR</span>
+          </SettingRow>
+          <SettingRow label="Signals">
+            <NumberField
+              label="Maximum simultaneous CW signals"
+              value={params.settings.max_signals ?? 32}
+              min={1}
+              max={128}
+              step={1}
+              onCommit={(max_signals) =>
+                onParams({
+                  type: "cw_skimmer",
+                  settings: { ...params.settings, max_signals },
+                })
+              }
+              className="w-16"
+            />
+          </SettingRow>
+          <SettingRow label="WPM">
+            <OptionalNumberField
+              label="Morse speed (WPM), empty to track each signal"
+              placeholder="auto"
+              value={params.settings.wpm ?? null}
+              min={3}
+              max={80}
+              step={1}
+              onCommit={(wpm) =>
+                onParams({ type: "cw_skimmer", settings: { ...params.settings, wpm } })
+              }
             />
           </SettingRow>
         </>
@@ -912,6 +1019,41 @@ function ModeControls({
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "atv", settings: { ...params.settings, invert } })
+            }
+          />
+        </>
+      );
+    case "sstv":
+      return (
+        <>
+          <SettingRow label="Mode">
+            <Select
+              label="Scanning mode"
+              value={params.settings.mode ?? SSTV_AUTO}
+              options={SSTV_MODES}
+              onChange={(mode) =>
+                onParams({
+                  type: "sstv",
+                  settings: {
+                    ...params.settings,
+                    mode: mode === SSTV_AUTO ? null : mode,
+                  },
+                })
+              }
+            />
+          </SettingRow>
+          <Toggle
+            label="Slant correction"
+            checked={params.settings.slant_correction ?? true}
+            onChange={(slant_correction) =>
+              onParams({ type: "sstv", settings: { ...params.settings, slant_correction } })
+            }
+          />
+          <Toggle
+            label="Keep unfinished pictures"
+            checked={params.settings.keep_partial ?? true}
+            onChange={(keep_partial) =>
+              onParams({ type: "sstv", settings: { ...params.settings, keep_partial } })
             }
           />
         </>

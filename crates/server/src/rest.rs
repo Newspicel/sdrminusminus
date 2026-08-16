@@ -16,20 +16,20 @@ use sdrmm_tools::ToolError;
 use sdrmm_wire::{
     AboutResponse, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingStatus,
     AudioRecordingsResponse, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse, Bookmark,
-    ChannelNetworkExportRequest, ChannelRecordRequest, ChannelSettings, ChannelTypesResponse,
-    ClientCommand, ClientsResponse, CreateBookmarkRequest, CreateChannelRequest,
-    CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings,
-    DevicesResponse, DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery,
-    NetworkExportAction, NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
-    OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
-    PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus,
-    RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest,
-    TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest,
-    VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    CapturedImagesResponse, ChannelNetworkExportRequest, ChannelRecordRequest, ChannelSettings,
+    ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
+    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
+    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
+    DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, LicenseTextResponse,
+    LocateQuery, NetworkExportAction, NetworkExportRequest, NetworkExportStatus,
+    NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport,
+    PatchBinding, PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice,
+    PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
+    RecordingFormat, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus,
+    ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
+    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
+    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -143,6 +143,8 @@ impl From<EngineError> for AppError {
             StatusCode::NOT_FOUND
         } else if err.is_bad_request() {
             StatusCode::BAD_REQUEST
+        } else if err.is_conflict() {
+            StatusCode::CONFLICT
         } else {
             StatusCode::INTERNAL_SERVER_ERROR
         };
@@ -257,8 +259,9 @@ async fn get_nmea_devices() -> Result<Json<NmeaDevicesResponse>, AppError> {
     request_body = CreateDeviceSetRequest,
     responses(
         (status = 200, description = "Device set created", body = CreatedId),
-        (status = 400, description = "Unusable device, or one a device set already holds", body = ApiError),
+        (status = 400, description = "Unusable device", body = ApiError),
         (status = 404, description = "Device not found", body = ApiError),
+        (status = 409, description = "Device already in use, here or by another program", body = ApiError),
         (status = 422, description = "Malformed request body", body = ApiError),
     ),
 )]
@@ -428,6 +431,48 @@ async fn call_audio(
 
 pub(crate) fn call_audio_path(id: u64) -> String {
     format!("/api/calls/{id}/audio")
+}
+
+#[utoipa::path(
+    get, path = "/api/images",
+    responses((status = 200, description = "Pictures captured from scanning modes", body = CapturedImagesResponse)),
+)]
+async fn list_images(State(state): State<AppState>) -> Json<CapturedImagesResponse> {
+    Json(CapturedImagesResponse {
+        images: state.images.list(),
+    })
+}
+
+#[utoipa::path(
+    get, path = "/api/images/{id}/png",
+    params(("id" = u64, Path, description = "Captured picture id")),
+    responses(
+        (status = 200, description = "The captured picture", content_type = "image/png"),
+        (status = 404, description = "Picture not found", body = ApiError),
+    ),
+)]
+async fn captured_image(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+) -> Result<Response, AppError> {
+    let png = state
+        .images
+        .png(id)
+        .ok_or_else(|| AppError::not_found(format!("picture {id} not found")))?;
+    let headers = [
+        (header::CONTENT_TYPE, "image/png".to_owned()),
+        (header::CONTENT_LENGTH, png.len().to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("inline; filename=\"picture-{id}.png\""),
+        ),
+        (header::CACHE_CONTROL, "private, max-age=3600".to_owned()),
+    ];
+    Ok((headers, Body::from(png)).into_response())
+}
+
+pub(crate) fn captured_image_path(id: u64) -> String {
+    format!("/api/images/{id}/png")
 }
 
 #[utoipa::path(
@@ -2375,6 +2420,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_channel_types))
         .routes(routes!(list_calls))
         .routes(routes!(call_audio))
+        .routes(routes!(list_images))
+        .routes(routes!(captured_image))
         .routes(routes!(create_device_set))
         .routes(routes!(delete_device_set))
         .routes(routes!(patch_device))

@@ -1,15 +1,11 @@
 import type { SpectrumFrame } from "./frame";
+import type { Listener, Unsubscribe } from "./listeners";
 import type { ClientCommand, ServerEvent } from "./types";
 
 export interface SpectrumSocket {
   send(command: ClientCommand): void;
   isConnected(): boolean;
-  addSpectrumListener(listener: (frame: SpectrumFrame) => void): void;
-  removeSpectrumListener(listener: (frame: SpectrumFrame) => void): void;
-  addStatusListener(listener: (connected: boolean) => void): void;
-  removeStatusListener(listener: (connected: boolean) => void): void;
-  addEventListener(listener: (event: ServerEvent) => void): void;
-  removeEventListener(listener: (event: ServerEvent) => void): void;
+  on<K extends "spectrum" | "status" | "event">(kind: K, listener: Listener<K>): Unsubscribe;
 }
 
 export const SPECTRUM_FPS = 30;
@@ -100,6 +96,7 @@ interface Watched {
 
 export class SpectrumHub {
   private socket: SpectrumSocket | null = null;
+  private unsubscribes: Unsubscribe[] = [];
   private readonly lanes = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
 
@@ -140,9 +137,11 @@ export class SpectrumHub {
     }
     this.detach();
     this.socket = socket;
-    socket.addSpectrumListener(this.onFrame);
-    socket.addStatusListener(this.onStatus);
-    socket.addEventListener(this.onEvent);
+    this.unsubscribes = [
+      socket.on("spectrum", this.onFrame),
+      socket.on("status", this.onStatus),
+      socket.on("event", this.onEvent),
+    ];
     this.ids.clear();
     for (const lane of this.watched()) {
       this.send(lane, true);
@@ -150,14 +149,11 @@ export class SpectrumHub {
   }
 
   detach(): void {
-    const socket = this.socket;
     this.socket = null;
-    if (socket === null) {
-      return;
+    for (const unsubscribe of this.unsubscribes) {
+      unsubscribe();
     }
-    socket.removeSpectrumListener(this.onFrame);
-    socket.removeStatusListener(this.onStatus);
-    socket.removeEventListener(this.onEvent);
+    this.unsubscribes = [];
   }
 
   subscribe(

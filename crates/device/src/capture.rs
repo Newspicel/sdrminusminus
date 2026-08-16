@@ -12,10 +12,14 @@ use crate::{
     lock,
 };
 
+#[cfg(feature = "usb")]
+mod usb;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamFailure {
     pub reason: String,
-    pub fatal: bool,
+    /// The radio itself is gone, so restarting the stream has nothing to restart onto.
+    pub gone: bool,
 }
 
 #[derive(Debug)]
@@ -185,8 +189,8 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
         if !running.load(Ordering::Acquire) {
             break;
         }
-        if failure.fatal {
-            sink.fail(DeviceError::Io(format!("device lost: {}", failure.reason)));
+        if failure.gone {
+            sink.fail(DeviceError::Disconnected(failure.reason));
             break;
         }
         let Recovery::RetryAfter { attempt, delay } = policy.on_failure(started.elapsed()) else {
@@ -218,6 +222,10 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
                 }
                 tracing::info!(radio = config.radio, attempt, "stream restarted");
                 stream = fresh;
+            }
+            Err(DeviceError::Disconnected(reason)) => {
+                sink.fail(DeviceError::Disconnected(reason));
+                break;
             }
             Err(e) => {
                 sink.fail(DeviceError::Io(format!("stream restart failed: {e}")));
@@ -259,7 +267,7 @@ fn drain<S: CaptureStream, C: SampleConverter>(
                 if last_block.elapsed() >= config.silence_timeout {
                     return Some(StreamFailure {
                         reason: format!("no samples for {:?}", config.silence_timeout),
-                        fatal: false,
+                        gone: false,
                     });
                 }
             }
@@ -286,7 +294,7 @@ mod tests {
     enum Step {
         Block(Vec<u8>),
         Quiet,
-        Fail { reason: &'static str, fatal: bool },
+        Fail { reason: &'static str, gone: bool },
     }
 
     #[derive(Clone, Debug, Default)]
@@ -320,10 +328,10 @@ mod tests {
             match lock(&self.steps).pop_front() {
                 Some(Step::Block(bytes)) => Next::Block(bytes),
                 Some(Step::Quiet) | None => Next::Idle,
-                Some(Step::Fail { reason, fatal }) => {
+                Some(Step::Fail { reason, gone }) => {
                     *lock(&self.failure) = Some(StreamFailure {
                         reason: reason.to_string(),
-                        fatal,
+                        gone,
                     });
                     if let Some(running) = &self.stop_on_failure {
                         running.store(false, Ordering::Release);
@@ -340,7 +348,7 @@ mod tests {
         fn failure(&self) -> StreamFailure {
             lock(&self.failure).take().unwrap_or(StreamFailure {
                 reason: "ended".to_string(),
-                fatal: false,
+                gone: false,
             })
         }
     }
@@ -352,6 +360,7 @@ mod tests {
         disarms: AtomicUsize,
         armed: AtomicBool,
         refuse_arm_from: AtomicUsize,
+        unplugged: AtomicBool,
         stop_on_failure: AtomicBool,
         running: Mutex<Option<Arc<AtomicBool>>>,
     }
@@ -364,6 +373,7 @@ mod tests {
                 disarms: AtomicUsize::new(0),
                 armed: AtomicBool::new(false),
                 refuse_arm_from: AtomicUsize::new(usize::MAX),
+                unplugged: AtomicBool::new(false),
                 stop_on_failure: AtomicBool::new(false),
                 running: Mutex::new(None),
             })
@@ -388,6 +398,11 @@ mod tests {
         fn refuse_arm_from(&self, n: usize) {
             self.refuse_arm_from.store(n, Ordering::SeqCst);
         }
+
+        fn unplugged_from(&self, n: usize) {
+            self.unplugged.store(true, Ordering::SeqCst);
+            self.refuse_arm_from(n);
+        }
     }
 
     impl CaptureRadio for FakeRadio {
@@ -396,7 +411,11 @@ mod tests {
         fn arm(&self) -> Result<FakeStream, DeviceError> {
             let nth = self.arms.fetch_add(1, Ordering::SeqCst);
             if nth >= self.refuse_arm_from.load(Ordering::SeqCst) {
-                return Err(DeviceError::Io("radio refused to arm".to_string()));
+                return Err(if self.unplugged.load(Ordering::SeqCst) {
+                    DeviceError::Disconnected("control transfer failed".to_string())
+                } else {
+                    DeviceError::Io("radio refused to arm".to_string())
+                });
             }
             self.armed.store(true, Ordering::SeqCst);
             Ok(FakeStream {
@@ -487,24 +506,24 @@ mod tests {
     fn stalled() -> Vec<Step> {
         vec![Step::Fail {
             reason: "stalled",
-            fatal: false,
+            gone: false,
         }]
     }
 
     #[test]
-    fn blocks_reach_the_sink_and_a_fatal_failure_ends_the_capture() {
+    fn blocks_reach_the_sink_and_a_device_that_is_gone_ends_the_capture() {
         let radio = FakeRadio::with([vec![
             Step::Block(vec![1, 2]),
             Step::Fail {
                 reason: "unplugged",
-                fatal: true,
+                gone: true,
             },
         ]]);
         let run = supervised(&radio, config());
         assert_eq!(run.blocks, vec![vec![1.0, 2.0]]);
         assert_eq!(
             run.fault.as_deref(),
-            Some("device I/O error: device lost: unplugged")
+            Some("the radio is no longer attached (unplugged)")
         );
         assert_eq!(radio.arms(), 1);
         assert!(!radio.is_armed(), "the supervisor disarms on its way out");
@@ -517,14 +536,14 @@ mod tests {
                 Step::Block(vec![1]),
                 Step::Fail {
                     reason: "stalled",
-                    fatal: false,
+                    gone: false,
                 },
             ],
             vec![
                 Step::Block(vec![2]),
                 Step::Fail {
                     reason: "unplugged",
-                    fatal: true,
+                    gone: true,
                 },
             ],
         ]);
@@ -571,6 +590,19 @@ mod tests {
     }
 
     #[test]
+    fn a_radio_unplugged_mid_stream_reports_that_and_not_the_restart_it_tripped_over() {
+        let radio = FakeRadio::with([stalled()]);
+        radio.unplugged_from(1);
+        let run = supervised(&radio, config());
+        let fault = run.fault.expect("a fault");
+        assert!(fault.contains("no longer attached"), "{fault}");
+        assert!(
+            !fault.contains("restart"),
+            "an unplugged radio is not a restart failure: {fault}"
+        );
+    }
+
+    #[test]
     fn a_silent_stream_is_treated_as_a_failure() {
         let quiet = || vec![Step::Quiet];
         let radio = FakeRadio::with([quiet(), quiet(), quiet(), quiet()]);
@@ -596,7 +628,7 @@ mod tests {
             Step::Block(vec![1, 2, 3, 4, 5]),
             Step::Fail {
                 reason: "done",
-                fatal: true,
+                gone: true,
             },
         ]]);
         let run = supervised(

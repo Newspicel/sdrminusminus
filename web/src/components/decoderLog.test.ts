@@ -234,6 +234,34 @@ describe("eventSummary", () => {
       }),
     ).toBe('DL1ABC-7>S32U6T:`(_fn"Oj/ · Returning');
     expect(eventSummary({ kind: "rtty", data: { text: "CQ CQ" } })).toBe("CQ CQ");
+    expect(
+      eventSummary({
+        kind: "sstv",
+        data: {
+          seq: 1,
+          mode: "martin_m1",
+          width: 320,
+          height: 256,
+          lines: 256,
+          complete: true,
+          duration_ms: 114_300,
+        },
+      }),
+    ).toBe("Martin M1 \u00b7 320\u00d7256 \u00b7 complete in 114 s");
+    expect(
+      eventSummary({
+        kind: "sstv",
+        data: {
+          seq: 2,
+          mode: "robot36",
+          width: 320,
+          height: 240,
+          lines: 96,
+          complete: false,
+          duration_ms: 14_500,
+        },
+      }),
+    ).toBe("Robot 36 \u00b7 320\u00d7240 \u00b7 96 of 240 lines");
     expect(eventSummary({ kind: "tone", data: { ctcss_hz: 88.5, open: true } })).toBe(
       "CTCSS 88.5 Hz · open",
     );
@@ -263,6 +291,48 @@ describe("eventSummary", () => {
     expect(eventSummary({ ...tone, data: { ...tone.data, text: "CALL 42" } })).toBe(
       "1234567: CALL 42",
     );
+  });
+
+  it("renders FLEX and ERMES pages with their pager address", () => {
+    const flex: DecoderEvent = {
+      kind: "flex",
+      data: {
+        address: 123456,
+        payload: "alpha",
+        text: "CALL 42",
+        baud: 3200,
+        levels: 4,
+        cycle: 2,
+        frame: 17,
+        phase: "C",
+        errors_corrected: 1,
+      },
+    };
+    const ermes: DecoderEvent = {
+      kind: "ermes",
+      data: {
+        local_address: 45678,
+        message_number: 3,
+        payload: "numeric",
+        text: "012345",
+        urgent: true,
+        alert: 2,
+        errors_corrected: 0,
+      },
+    };
+    expect(eventSummary(flex)).toBe("123456: CALL 42");
+    expect(eventStation(flex)).toBe("123456");
+    expect(eventSummary(ermes)).toBe("45678: 012345");
+    expect(eventStation(ermes)).toBe("45678");
+  });
+
+  it("renders each CW skimmer signal with its passband offset and speed", () => {
+    const spot: DecoderEvent = {
+      kind: "cw_skimmer",
+      data: { offset_hz: -742.4, text: "CQ W1AW", wpm: 23.6, snr_db: 14.2 },
+    };
+    expect(eventSummary(spot)).toBe("-742 Hz · 24 WPM · CQ W1AW");
+    expect(eventStation(spot)).toBeNull();
   });
 
   it("omits fields a frame does not carry", () => {

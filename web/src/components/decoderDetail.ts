@@ -8,6 +8,7 @@ import {
   identMeasurements,
   modulationLabel,
 } from "./decoderViews";
+import { SSTV_MODE_LABELS } from "./sstvModes";
 
 export type DetailField = readonly [label: string, value: string];
 
@@ -45,6 +46,31 @@ const DETAIL: {
       ["Function", `${"ABCD"[p.function] ?? p.function} (${p.function})`],
       ["Baud", String(p.baud)],
       ["Payload", p.payload],
+      ["Repaired", p.errors_corrected > 0 ? String(p.errors_corrected) : undefined],
+    ]),
+    body: p.text || null,
+  }),
+
+  flex: (p) => ({
+    fields: fields([
+      ["Address", String(p.address)],
+      ["Payload", p.payload],
+      ["Mode", `${p.baud}/${p.levels}`],
+      ["Cycle", String(p.cycle)],
+      ["Frame", String(p.frame)],
+      ["Phase", p.phase],
+      ["Repaired", p.errors_corrected > 0 ? String(p.errors_corrected) : undefined],
+    ]),
+    body: p.text || null,
+  }),
+
+  ermes: (p) => ({
+    fields: fields([
+      ["Local address", String(p.local_address)],
+      ["Message number", String(p.message_number)],
+      ["Payload", p.payload],
+      ["Urgent", flag(p.urgent)],
+      ["Alert", String(p.alert)],
       ["Repaired", p.errors_corrected > 0 ? String(p.errors_corrected) : undefined],
     ]),
     body: p.text || null,
@@ -103,6 +129,15 @@ const DETAIL: {
   rtty: (t) => ({ fields: [], body: t.text || null }),
 
   morse: (m) => ({ fields: fields([["Speed", `${m.wpm.toFixed(0)} WPM`]]), body: m.text || null }),
+
+  cw_skimmer: (m) => ({
+    fields: fields([
+      ["Offset", `${signed(m.offset_hz, 0)} Hz`],
+      ["Speed", `${m.wpm.toFixed(0)} WPM`],
+      ["SNR", `${signed(m.snr_db, 1)} dB`],
+    ]),
+    body: m.text || null,
+  }),
 
   ft8: (m) => ({
     fields: fields([
@@ -292,6 +327,16 @@ const DETAIL: {
       ["GPS week (10 bit)", g.week == null ? undefined : String(g.week)],
     ]),
     body: (g.words ?? []).join(" ") || null,
+  }),
+  sstv: (p) => ({
+    fields: fields([
+      ["Mode", SSTV_MODE_LABELS[p.mode]],
+      ["Size", `${p.width} \u00d7 ${p.height}`],
+      ["Lines received", `${p.lines} of ${p.height}`],
+      ["State", p.complete ? "complete" : "cut short"],
+      ["Took", `${(p.duration_ms / 1000).toFixed(1)} s`],
+    ]),
+    body: null,
   }),
   vor: (v) => ({
     fields: fields([

@@ -516,6 +516,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_images"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/images/{id}/png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["captured_image"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/occupancy": {
         parameters: {
             query?: never;
@@ -1235,6 +1267,8 @@ export interface components {
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
         Capabilities: {
             antennas: string[];
+            /** @description Continuous analog filter widths, for hardware whose IF filter is not a discrete menu. */
+            bandwidth_ranges?: components["schemas"]["Range"][];
             bandwidths: number[];
             directional?: null | components["schemas"]["DirectionalCapabilities"];
             duplex?: components["schemas"]["Duplex"];
@@ -1245,10 +1279,40 @@ export interface components {
             ppm?: boolean;
             /** Format: int32 */
             rx_streams?: number;
-            sample_rate_range?: null | components["schemas"]["Range"];
+            /**
+             * @description Continuous windows the radio resamples across. A radio with holes in its rate coverage —
+             *     the RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this
+             *     is a list and not the single range it replaced.
+             */
+            sample_rate_ranges?: components["schemas"]["Range"][];
             sample_rates: number[];
             /** Format: int32 */
             tx_streams?: number;
+        };
+        CapturedImage: {
+            at: string;
+            /** Format: int32 */
+            channel: number;
+            complete: boolean;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: double */
+            freq_hz: number;
+            /** Format: int32 */
+            height: number;
+            /** Format: int64 */
+            id: number;
+            image?: null | components["schemas"]["EventImage"];
+            image_error?: string | null;
+            /** Format: int32 */
+            lines: number;
+            mode: string;
+            source: string;
+            /** Format: int32 */
+            width: number;
+        };
+        CapturedImagesResponse: {
+            images: components["schemas"]["CapturedImage"][];
         };
         ChannelCapabilities: {
             antennas: string[];
@@ -1342,6 +1406,14 @@ export interface components {
             /** @enum {string} */
             type: "pocsag";
         } | {
+            settings: components["schemas"]["FlexParams"];
+            /** @enum {string} */
+            type: "flex";
+        } | {
+            settings: components["schemas"]["ErmesParams"];
+            /** @enum {string} */
+            type: "ermes";
+        } | {
             settings: components["schemas"]["AdsbParams"];
             /** @enum {string} */
             type: "adsb";
@@ -1362,6 +1434,10 @@ export interface components {
             /** @enum {string} */
             type: "morse";
         } | {
+            settings: components["schemas"]["CwSkimmerParams"];
+            /** @enum {string} */
+            type: "cw_skimmer";
+        } | {
             settings: components["schemas"]["NavtexParams"];
             /** @enum {string} */
             type: "navtex";
@@ -1377,6 +1453,10 @@ export interface components {
             settings: components["schemas"]["AtvParams"];
             /** @enum {string} */
             type: "atv";
+        } | {
+            settings: components["schemas"]["SstvParams"];
+            /** @enum {string} */
+            type: "sstv";
         } | {
             settings: components["schemas"]["DabParams"];
             /** @enum {string} */
@@ -1644,6 +1724,25 @@ export interface components {
             name: string;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
+        CwSkimmerParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            /** Format: int32 */
+            max_signals?: number;
+            /** Format: float */
+            threshold_db?: number;
+            /** Format: float */
+            wpm?: number | null;
+        };
+        CwSkimmerSpot: {
+            /** Format: float */
+            offset_hz: number;
+            /** Format: float */
+            snr_db: number;
+            text: string;
+            /** Format: float */
+            wpm: number;
+        };
         /** @enum {string} */
         DabMode: "auto" | "dab" | "dab_plus";
         DabParams: {
@@ -1693,6 +1792,14 @@ export interface components {
             /** @enum {string} */
             kind: "pocsag";
         } | {
+            data: components["schemas"]["FlexMessage"];
+            /** @enum {string} */
+            kind: "flex";
+        } | {
+            data: components["schemas"]["ErmesMessage"];
+            /** @enum {string} */
+            kind: "ermes";
+        } | {
             data: components["schemas"]["AdsbMessage"];
             /** @enum {string} */
             kind: "adsb";
@@ -1712,6 +1819,10 @@ export interface components {
             data: components["schemas"]["MorseText"];
             /** @enum {string} */
             kind: "morse";
+        } | {
+            data: components["schemas"]["CwSkimmerSpot"];
+            /** @enum {string} */
+            kind: "cw_skimmer";
         } | {
             data: components["schemas"]["SelcallSequence"];
             /** @enum {string} */
@@ -1772,6 +1883,10 @@ export interface components {
             data: components["schemas"]["GnssFrame"];
             /** @enum {string} */
             kind: "gnss";
+        } | {
+            data: components["schemas"]["SstvPicture"];
+            /** @enum {string} */
+            kind: "sstv";
         } | {
             data: components["schemas"]["VorReading"];
             /** @enum {string} */
@@ -1837,6 +1952,11 @@ export interface components {
             /** Format: float */
             strength?: number;
         };
+        /**
+         * @description Why a device set stopped, for the times a reader can act on it rather than only read it.
+         * @enum {string}
+         */
+        DeviceFault: "unplugged" | "in_use" | "other";
         DeviceInfo: {
             driver: string;
             key: string;
@@ -1853,7 +1973,7 @@ export interface components {
             per_stream?: components["schemas"]["StreamScope"];
             /** Format: int32 */
             rx_streams: number;
-            sample_rate_range?: null | components["schemas"]["Range"];
+            sample_rate_ranges?: components["schemas"]["Range"][];
             sample_rates: number[];
             /** Format: int32 */
             tx_streams: number;
@@ -1868,6 +1988,7 @@ export interface components {
             channels: components["schemas"]["ChannelInfo"][];
             device: components["schemas"]["DeviceInfo"];
             error?: string | null;
+            fault?: null | components["schemas"]["DeviceFault"];
             /** Format: int32 */
             id: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
@@ -2031,7 +2152,29 @@ export interface components {
         };
         /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
+        ErmesMessage: {
+            /** Format: int32 */
+            alert: number;
+            /** Format: int32 */
+            errors_corrected: number;
+            /** Format: int32 */
+            local_address: number;
+            /** Format: int32 */
+            message_number: number;
+            payload: components["schemas"]["PagerPayload"];
+            text: string;
+            urgent: boolean;
+        };
+        ErmesParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            invert?: boolean;
+        };
         EventAudio: {
+            media_type: string;
+            url: string;
+        };
+        EventImage: {
             media_type: string;
             url: string;
         };
@@ -2064,6 +2207,28 @@ export interface components {
             name: string;
             value: unknown;
         };
+        FlexMessage: {
+            /** Format: int64 */
+            address: number;
+            /** Format: int32 */
+            baud: number;
+            /** Format: int32 */
+            cycle: number;
+            /** Format: int32 */
+            errors_corrected: number;
+            /** Format: int32 */
+            frame: number;
+            /** Format: int32 */
+            levels: number;
+            payload: components["schemas"]["PagerPayload"];
+            phase: string;
+            text: string;
+        };
+        FlexParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            invert?: boolean;
+        };
         /** @enum {string} */
         FreeDvMode: "mode1600";
         FreeDvParams: {
@@ -2073,6 +2238,13 @@ export interface components {
         GainStage: {
             name: string;
             range: components["schemas"]["Range"];
+            /**
+             * @description The settings this stage can actually hold, for hardware whose gain is a table rather than
+             *     an even step — the R82xx's 29 irregular entries, say. Empty means every value `range`
+             *     admits is reachable. A client renders a control that can only land on real settings, and a
+             *     driver still snaps whatever it is asked for.
+             */
+            values?: number[];
         };
         GainValue: {
             stage: string;
@@ -2560,6 +2732,8 @@ export interface components {
             since: string;
         };
         P25Params: Record<string, never>;
+        /** @enum {string} */
+        PagerPayload: "tone" | "numeric" | "alpha" | "binary";
         PatchApplyReport: {
             absent?: string[];
             bound: components["schemas"]["PatchBinding"][];
@@ -2979,6 +3153,10 @@ export interface components {
             /** @enum {string} */
             type: "CallCompleted";
         } | {
+            data: components["schemas"]["CapturedImage"];
+            /** @enum {string} */
+            type: "ImageCaptured";
+        } | {
             data: {
                 /** Format: int32 */
                 device_set: number;
@@ -3034,6 +3212,27 @@ export interface components {
             bandwidth_hz?: number;
             sideband?: components["schemas"]["Sideband"];
         };
+        /** @enum {string} */
+        SstvMode: "robot36" | "robot72" | "martin_m1" | "martin_m2" | "scottie_s1" | "scottie_s2" | "scottie_dx" | "pd50" | "pd90" | "pd120" | "pd180" | "sc2180";
+        SstvParams: {
+            keep_partial?: boolean;
+            mode?: null | components["schemas"]["SstvMode"];
+            slant_correction?: boolean;
+        };
+        SstvPicture: {
+            complete: boolean;
+            /** Format: int32 */
+            duration_ms: number;
+            /** Format: int32 */
+            height: number;
+            /** Format: int32 */
+            lines: number;
+            mode: components["schemas"]["SstvMode"];
+            /** Format: int32 */
+            seq: number;
+            /** Format: int32 */
+            width: number;
+        };
         StateScope: {
             /** @enum {string} */
             scope: "all";
@@ -3063,6 +3262,9 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "calls";
+        } | {
+            /** @enum {string} */
+            scope: "images";
         } | {
             /** @enum {string} */
             scope: "workspaces";
@@ -3996,7 +4198,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedId"];
                 };
             };
-            /** @description Unusable device, or one a device set already holds */
+            /** @description Unusable device */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4007,6 +4209,15 @@ export interface operations {
             };
             /** @description Device not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device already in use, here or by another program */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4710,6 +4921,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DoctorReport"];
+                };
+            };
+        };
+    };
+    list_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pictures captured from scanning modes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapturedImagesResponse"];
+                };
+            };
+        };
+    };
+    captured_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Captured picture id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The captured picture */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Picture not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

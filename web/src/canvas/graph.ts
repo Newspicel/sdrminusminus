@@ -1,4 +1,4 @@
-import { channelHasAudio, rateMismatch } from "../components/channelSettings";
+import { rateMismatch } from "../components/channelSettings";
 import type {
   Capabilities,
   ChannelDescriptor,
@@ -231,74 +231,45 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
-export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
-  device: { w: 380, h: 420 },
-  gps: { w: 360, h: 260 },
-  channel: { w: 440, h: 300 },
-  chat_output: { w: 420, h: 330 },
+export interface NodeSize {
+  w: number;
+  h?: number;
+}
+
+export const NODE_SIZE: Record<NodeKind, NodeSize> = {
+  device: { w: 380 },
+  gps: { w: 360 },
+  channel: { w: 440 },
+  chat_output: { w: 420 },
   scope: { w: 520, h: 360 },
-  speaker: { w: 320, h: 200 },
+  speaker: { w: 320 },
   map: { w: 520, h: 380 },
   signal_map: { w: 600, h: 440 },
   readout: { w: 560, h: 320 },
   decoder_log: { w: 720, h: 380 },
   dmr_trunk: { w: 480, h: 360 },
   video: { w: 380, h: 320 },
-  recorder: { w: 340, h: 260 },
-  audio_recorder: { w: 340, h: 300 },
-  baseband_recorder: { w: 340, h: 320 },
-  time_machine: { w: 360, h: 320 },
-  network_export: { w: 380, h: 310 },
-  export: { w: 320, h: 180 },
-  scanner: { w: 400, h: 400 },
+  recorder: { w: 340 },
+  audio_recorder: { w: 340 },
+  baseband_recorder: { w: 340 },
+  time_machine: { w: 360 },
+  network_export: { w: 380 },
+  export: { w: 320 },
+  scanner: { w: 400 },
 };
 
-const AUDIO_CHANNEL_H = 560;
-
-export function naturalSize(node: PatchNode, context: GraphContext): { w: number; h: number } {
-  return node.kind === "channel"
-    ? channelSize(channelHasAudio(descriptorOf(context, node)))
-    : NODE_SIZE[node.kind];
-}
-
-export function channelSize(hasAudio: boolean): { w: number; h: number } {
-  return { w: NODE_SIZE.channel.w, h: hasAudio ? AUDIO_CHANNEL_H : NODE_SIZE.channel.h };
-}
-
 export function isResizable(kind: NodeKind): boolean {
-  return RESIZABLE.has(kind);
+  return NODE_SIZE[kind].h !== undefined;
 }
 
-const RESIZABLE = new Set<NodeKind>([
-  "scope",
-  "map",
-  "signal_map",
-  "readout",
-  "decoder_log",
-  "dmr_trunk",
-  "video",
-]);
-
-export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
-  device: NODE_SIZE.device,
-  gps: NODE_SIZE.gps,
-  channel: NODE_SIZE.channel,
-  chat_output: NODE_SIZE.chat_output,
+const RESIZE_FLOOR: Partial<Record<NodeKind, { w: number; h: number }>> = {
   scope: { w: 320, h: 200 },
-  speaker: NODE_SIZE.speaker,
   map: { w: 300, h: 220 },
   signal_map: { w: 400, h: 300 },
   readout: { w: 300, h: 160 },
   decoder_log: { w: 360, h: 200 },
   dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
-  recorder: NODE_SIZE.recorder,
-  audio_recorder: NODE_SIZE.audio_recorder,
-  baseband_recorder: NODE_SIZE.baseband_recorder,
-  time_machine: NODE_SIZE.time_machine,
-  network_export: NODE_SIZE.network_export,
-  export: NODE_SIZE.export,
-  scanner: NODE_SIZE.scanner,
 };
 
 export const HEADER_PX = 26;
@@ -306,7 +277,7 @@ export const PORT_STEP_PX = 22;
 export const PORT_TOP_PX = HEADER_PX + PORT_STEP_PX / 2;
 
 export function nodeMinSize(kind: NodeKind, ports: readonly PortSpec[]): { w: number; h: number } {
-  const base = NODE_MIN_SIZE[kind];
+  const base = RESIZE_FLOOR[kind] ?? { w: NODE_SIZE[kind].w, h: 0 };
   const deepest = Math.max(
     ports.filter((port) => port.direction === "in").length,
     ports.filter((port) => port.direction === "out").length,

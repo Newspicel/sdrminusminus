@@ -26,11 +26,34 @@ impl DeviceRegistry {
 
     #[must_use]
     pub fn probe_all(&self) -> Vec<DeviceInfo> {
+        self.collect(|driver| driver.probe())
+    }
+
+    /// Searches every driver as far as it reaches, network radios included. Costs seconds.
+    #[must_use]
+    pub fn probe_all_deep(&self) -> Vec<DeviceInfo> {
+        self.collect(|driver| driver.probe_deep())
+    }
+
+    /// What each driver finds and how long it takes, for reporting where a slow search goes.
+    #[must_use]
+    pub fn probe_timings(&self) -> Vec<(&'static str, usize, std::time::Duration)> {
+        self.drivers
+            .iter()
+            .map(|(_, driver)| {
+                let started = std::time::Instant::now();
+                let found = driver.probe_deep().len();
+                (driver.id(), found, started.elapsed())
+            })
+            .collect()
+    }
+
+    fn collect(&self, probe: impl Fn(&dyn DeviceDriver) -> Vec<DeviceInfo>) -> Vec<DeviceInfo> {
         let mut by_serial: HashMap<String, (u8, &'static str, Vec<DeviceInfo>)> = HashMap::new();
         let mut serialless: Vec<DeviceInfo> = Vec::new();
 
         for (priority, driver) in &self.drivers {
-            for info in driver.probe() {
+            for info in probe(&**driver) {
                 match &info.serial {
                     Some(serial) => {
                         let entry = by_serial.entry(serial.clone());
@@ -96,7 +119,7 @@ impl DeviceRegistry {
         matching()
             .find_map(|driver| {
                 driver
-                    .probe()
+                    .probe_deep()
                     .into_iter()
                     .find(|d| d.key == key)
                     .map(|info| (driver, info))
@@ -182,10 +205,11 @@ mod tests {
             CAPS.get_or_init(|| Capabilities {
                 freq_ranges: Vec::new(),
                 sample_rates: Vec::new(),
-                sample_rate_range: None,
+                sample_rate_ranges: Vec::new(),
                 gains: Vec::new(),
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
+                bandwidth_ranges: Vec::new(),
                 extra: Vec::new(),
                 ppm: false,
                 duplex: Duplex::RxOnly,

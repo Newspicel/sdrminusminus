@@ -69,10 +69,11 @@ impl FilePlayback {
                 step: None,
             }],
             sample_rates: vec![sample_rate],
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: Vec::new(),
             antennas: Vec::new(),
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: vec![ExtraSetting::Bool {
                 name: LOOP_SETTING.to_string(),
                 default: true,
@@ -221,10 +222,10 @@ impl SdrDevice for FilePlayback {
                         }
                     }
                 }
+                transport.set_position(reader.position(), position_generation);
                 if filled > 0 {
                     sink.push(&block[..filled]);
                 }
-                transport.set_position(reader.position(), position_generation);
                 if filled < block.len() {
                     while running.load(Ordering::Acquire) {
                         std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));

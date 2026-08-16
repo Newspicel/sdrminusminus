@@ -92,6 +92,33 @@ ghcr.io/newspicel/sdrminusminus:latest
 Nightlies update only the `nightly` tag. Image smoke tests run the binary, inspect Soapy modules,
 start the server, and verify that the embedded UI—not the build placeholder—is served.
 
+## Homebrew tap
+
+`Newspicel/homebrew-tap` carries a `sdrmm` formula for the portable server and a `sdrminusminus`
+cask for the desktop application. Both describe published downloads rather than a source build, so
+the release workflow writes them after the release exists:
+
+```sh
+cargo xtask homebrew-tap \
+  --version 0.4.0 \
+  --sums SHA256SUMS \
+  --repo Newspicel/sdrminusminus \
+  --out ../homebrew-tap
+```
+
+The digests come from the release's own `SHA256SUMS`; an artifact the release does not carry is an
+error rather than a formula pointing at a missing download. Publishing needs a `HOMEBREW_TAP_TOKEN`
+secret with write access to the tap. Without it the job skips and the release still ships.
+
+Nightlies never reach the tap. Before pushing a change to what the generator writes, check it with
+Homebrew itself:
+
+```sh
+brew style newspicel/tap
+brew audit --strict --online newspicel/tap/sdrmm
+brew audit --strict --online --cask newspicel/tap/sdrminusminus
+```
+
 ## Release checklist
 
 Before tagging:

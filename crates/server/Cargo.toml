@@ -12,8 +12,11 @@ workspace = true
 
 # Passthrough to the engine's deliberate minimal-build gates.
 [features]
-default = ["soapy", "net-client", "gpu-fft"]
+default = ["soapy", "sdrplay", "rtlsdr", "hackrf", "net-client", "gpu-fft"]
 soapy = ["sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
+sdrplay = ["sdrmm-engine/sdrplay", "dep:sdrmm-device-sdrplay"]
+rtlsdr = ["sdrmm-engine/rtlsdr"]
+hackrf = ["sdrmm-engine/hackrf"]
 net-client = ["sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-engine/gpu-fft"]
 
@@ -23,6 +26,7 @@ sdrmm-engine.workspace = true
 sdrmm-dsp.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
+sdrmm-device-sdrplay = { workspace = true, optional = true }
 sdrmm-recorder.workspace = true
 sdrmm-tools.workspace = true
 
@@ -51,6 +55,7 @@ thiserror.workspace = true
 
 rust-embed.workspace = true
 mime_guess.workspace = true
+png.workspace = true
 tracing.workspace = true
 
 # `--doctor`'s USB-permission check asks for the effective uid, which only the Linux arm needs.

@@ -69,39 +69,34 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
-        name: "SoapyRTLSDR",
-        license: "BSL-1.0",
-        url: "https://github.com/pothosware/SoapyRTLSDR",
-        note: None,
-        files: &[],
-    },
-    Native {
         name: "rtl-sdr (librtlsdr)",
         license: "GPL-2.0-or-later",
         url: "https://gitea.osmocom.org/sdr/rtl-sdr",
         note: Some(
-            "Shipped in installers and container images as a SoapySDR module, loaded at runtime \
-             through SoapySDR's own plugin API. sdr-- neither links it nor derives from it, so \
-             the GPL applies to that library and not to this product.",
+            "sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB \
+             stack. No part of librtlsdr is linked or shipped, but the register and I2C \
+             encodings, the PLL and filter programming and the tuner gain table in \
+             `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only \
+             specification these parts have. That makes them a derived work under \
+             GPL-2.0-or-later. sdr-- exercises the \"or later\" option and distributes them \
+             under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced \
+             at the top of this file, so no separate GPL-2.0 text accompanies them.",
         ),
         files: &[],
-    },
-    Native {
-        name: "SoapyHackRF",
-        license: "MIT",
-        url: "https://github.com/pothosware/SoapyHackRF",
-        note: None,
-        files: &["SoapyHackRF-MIT.txt"],
     },
     Native {
         name: "hackrf (libhackrf)",
         license: "GPL-2.0-or-later",
         url: "https://github.com/greatscottgadgets/hackrf",
         note: Some(
-            "Loaded at runtime as a SoapySDR module, on the same terms as librtlsdr. The public \
-             API declarations in `hackrf.h` are BSD-3-Clause.",
+            "As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, \
+             but the vendor request numbers, the register maps and the sweep framing in \
+             `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the \
+             same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr \
+             above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is \
+             below because that licence asks to accompany the binary.",
         ),
-        files: &["HackRF-GPL-2.0-or-later.txt", "HackRF-BSD-3-Clause.txt"],
+        files: &["HackRF-BSD-3-Clause.txt"],
     },
     Native {
         name: "Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote",

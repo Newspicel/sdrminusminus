@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Capabilities, DeviceSet, ScannerStatus } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
-import { refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
+import { faultSaid, refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
 
 function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
   return {
@@ -133,5 +133,28 @@ describe("scannerOwnsTuning", () => {
     expect(
       scannerOwnsTuning(deviceSet({ scanner: { ...SCANNING, error: "device stopped retuning" } })),
     ).toBe(false);
+  });
+});
+
+describe("faultSaid", () => {
+  it("says what an unplugged radio needs from the operator", () => {
+    const set = deviceSet({
+      status: "error",
+      fault: "unplugged",
+      error: "the radio is no longer attached (control transfer failed: device disconnected)",
+    });
+    expect(faultSaid(set)).toBe(
+      "Signal Generator is no longer attached. Plug it back in and it picks up where it left off.",
+    );
+  });
+
+  it("names the program holding a radio open", () => {
+    const set = deviceSet({ status: "error", fault: "in_use", error: "busy" });
+    expect(faultSaid(set)).toContain("open in another program");
+  });
+
+  it("leaves a fault nobody can act on to its own message", () => {
+    expect(faultSaid(deviceSet({ status: "error", fault: "other", error: "boom" }))).toBeNull();
+    expect(faultSaid(deviceSet({ status: "error", error: "boom" }))).toBeNull();
   });
 });

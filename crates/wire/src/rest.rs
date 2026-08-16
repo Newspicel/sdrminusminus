@@ -48,6 +48,36 @@ pub struct VoiceCallsResponse {
     pub calls: Vec<VoiceCall>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EventImage {
+    pub url: String,
+    pub media_type: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CapturedImage {
+    pub id: u64,
+    pub device_set: u32,
+    pub channel: u32,
+    pub at: String,
+    pub freq_hz: f64,
+    pub source: String,
+    pub mode: String,
+    pub width: u16,
+    pub height: u16,
+    pub lines: u16,
+    pub complete: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<EventImage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CapturedImagesResponse {
+    pub images: Vec<CapturedImage>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DevicesResponse {
     pub devices: Vec<DeviceInfo>,
@@ -490,10 +520,11 @@ mod tests {
         Capabilities {
             freq_ranges: freq,
             sample_rates: rates,
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: Vec::new(),
             antennas: Vec::new(),
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: Vec::new(),
             ppm: false,
             duplex,

@@ -17,15 +17,16 @@ use sdrmm_wire::{
 use soapysdr::{Direction, ErrorCode};
 
 mod caps;
+mod probe;
 mod runtime;
+mod watchdog;
 
+pub use probe::enable_isolated_probes;
 pub use runtime::{RuntimeInfo, configure_bundled_runtime, runtime_info};
+use watchdog::{Watch, Watchdog};
 
 const DRIVER_ID: &str = "soapy";
 const READ_TIMEOUT_US: i64 = 100_000;
-const UNPLUG_TIMEOUT_READS: u32 = 10;
-const UNPLUG_PROBE_FAILURES: u32 = 2;
-const PROBE_MIN_INTERVAL: Duration = Duration::from_secs(1);
 const MIN_BLOCK: usize = 8192;
 const OVERFLOW_LOG_EVERY: u64 = 1000;
 const GAIN_MODE_SETTING: &str = "gain_mode";
@@ -39,10 +40,26 @@ fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::E
     soapysdr::enumerate(filter)
 }
 
+const BUSY_HINTS: [&str; 6] = [
+    "busy",
+    "in use",
+    "claim",
+    "access denied",
+    "libusb_error_access",
+    "unable to open",
+];
+
+fn reads_as_busy(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    BUSY_HINTS.iter().any(|hint| message.contains(hint))
+}
+
 fn map_err(error: soapysdr::Error) -> DeviceError {
+    let message = error.to_string();
     match error.code {
-        ErrorCode::NotSupported => DeviceError::Unsupported(error.to_string()),
-        _ => DeviceError::Io(error.to_string()),
+        ErrorCode::NotSupported => DeviceError::Unsupported(message),
+        _ if reads_as_busy(&message) => DeviceError::InUse(message),
+        _ => DeviceError::Io(message),
     }
 }
 
@@ -98,20 +115,54 @@ impl ProbeIdentity {
         }
     }
 
-    fn is_present(&self) -> Result<bool, soapysdr::Error> {
-        Ok(enumerate_serialized(&self.filter)?
+    fn is_present(&self) -> Result<bool, DeviceError> {
+        Ok(probe::devices(&self.filter, probe::Scope::Deep)?
             .iter()
-            .any(|args| args_key(args) == self.key))
+            .any(|found| found.info.key == self.key))
     }
 }
 
 #[derive(Default)]
-pub struct SoapyDriver;
+pub struct SoapyDriver {
+    excluded: Vec<String>,
+}
 
 impl SoapyDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Hides the named SoapySDR drivers, for hardware this build speaks to natively. Excluding a
+    /// driver here rather than deduplicating afterwards is what keeps a dongle off the list
+    /// exactly once: the factory serial most RTL-SDRs ship with is not unique, so the registry's
+    /// serial merge cannot tell two of them apart.
+    #[must_use]
+    pub fn excluding<S: Into<String>>(drivers: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            excluded: drivers.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    fn hides(&self, found: &probe::Found) -> bool {
+        self.excluded.iter().any(|driver| found.is_driver(driver))
+    }
+
+    fn visible(&self, scope: probe::Scope) -> Result<Vec<probe::Found>, DeviceError> {
+        Ok(probe::devices("", scope)?
+            .into_iter()
+            .filter(|found| !self.hides(found))
+            .collect())
+    }
+
+    fn listed(&self, scope: probe::Scope) -> Vec<DeviceInfo> {
+        match self.visible(scope) {
+            Ok(found) => found.into_iter().map(|found| found.info).collect(),
+            Err(error) => {
+                tracing::warn!("soapy enumerate failed: {error}");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -121,22 +172,20 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match enumerate_serialized("") {
-            Ok(found) => found.iter().map(device_info).collect(),
-            Err(error) => {
-                tracing::warn!("soapy enumerate failed: {error}");
-                Vec::new()
-            }
-        }
+        self.listed(probe::Scope::Fast)
+    }
+
+    fn probe_deep(&self) -> Vec<DeviceInfo> {
+        self.listed(probe::Scope::Deep)
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let found = enumerate_serialized("")
-            .map_err(|error| DeviceError::Io(format!("soapy enumerate: {error}")))?;
-        let args = found
+        let found = self
+            .visible(probe::Scope::Deep)?
             .into_iter()
-            .find(|args| args_key(args) == info.key)
+            .find(|found| found.info.key == info.key)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?;
+        let args = soapysdr::Args::from(found.args.as_str());
         let identity = ProbeIdentity::from_args(&args);
         let device = soapysdr::Device::new(args).map_err(map_err)?;
         Ok(Box::new(SoapyDevice::from_device(device, identity)?))
@@ -186,6 +235,7 @@ fn query_channel(
         gains.push(GainStage {
             name,
             range: caps::ranges(&[range])[0],
+            values: Vec::new(),
         });
     }
     let frequency_components = optional(
@@ -751,9 +801,7 @@ fn capture_loop(
 ) {
     let block = stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK);
     let mut buffers = vec![vec![Sample::new(0.0, 0.0); block]; sinks.len()];
-    let mut timeouts = 0u32;
-    let mut probe_failures = 0u32;
-    let mut last_probe: Option<Instant> = None;
+    let mut watchdog = Watchdog::new(Instant::now());
     let mut overflows = 0u64;
     while running.load(Ordering::Acquire) {
         let result = {
@@ -763,8 +811,7 @@ fn capture_loop(
         };
         match result {
             Ok(count) => {
-                timeouts = 0;
-                probe_failures = 0;
+                watchdog.delivered(Instant::now());
                 if count > 0 {
                     for (sink, buffer) in sinks.iter_mut().zip(&buffers) {
                         sink.push(&buffer[..count]);
@@ -772,25 +819,22 @@ fn capture_loop(
                 }
             }
             Err(error) if error.code == ErrorCode::Timeout => {
-                timeouts += 1;
-                if timeouts < UNPLUG_TIMEOUT_READS
-                    || last_probe.is_some_and(|at| at.elapsed() < PROBE_MIN_INTERVAL)
-                {
-                    continue;
-                }
-                last_probe = Some(Instant::now());
-                match identity.is_present() {
-                    Ok(true) => {
-                        timeouts = 0;
-                        probe_failures = 0;
+                match watchdog.timed_out(Instant::now()) {
+                    Watch::Wait => continue,
+                    Watch::Silent => {
+                        fail_all(&mut sinks, &silent_stream(watchdog.silence()));
+                        break;
                     }
+                    Watch::Probe => {}
+                }
+                match identity.is_present() {
+                    Ok(true) => watchdog.present(),
                     Ok(false) => {
-                        fail_all(&mut sinks, "device lost: no longer enumerates");
+                        fail_all_gone(&mut sinks, "it no longer enumerates");
                         break;
                     }
                     Err(probe) => {
-                        probe_failures += 1;
-                        if probe_failures >= UNPLUG_PROBE_FAILURES {
+                        if watchdog.probe_failed() {
                             fail_all(
                                 &mut sinks,
                                 &format!("device lost: enumerate failed: {probe}"),
@@ -827,41 +871,41 @@ fn capture_split_loop(
         .iter()
         .map(|stream| vec![Sample::new(0.0, 0.0); stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK)])
         .collect();
-    let mut timeouts = vec![0u32; streams.len()];
-    let mut probe_failures = 0u32;
-    let mut last_probe: Option<Instant> = None;
+    let mut watchdogs: Vec<Watchdog> = (0..streams.len())
+        .map(|_| Watchdog::new(Instant::now()))
+        .collect();
     let mut overflows = vec![0u64; streams.len()];
     'capture: while running.load(Ordering::Acquire) {
         for channel in 0..streams.len() {
             let result = streams[channel].read(&mut [&mut buffers[channel]], READ_TIMEOUT_US);
             match result {
                 Ok(count) => {
-                    timeouts[channel] = 0;
-                    probe_failures = 0;
+                    watchdogs[channel].delivered(Instant::now());
                     if count > 0 {
                         sinks[channel].push(&buffers[channel][..count]);
                     }
                 }
                 Err(error) if error.code == ErrorCode::Timeout => {
-                    timeouts[channel] += 1;
-                    if timeouts[channel] < UNPLUG_TIMEOUT_READS
-                        || last_probe.is_some_and(|at| at.elapsed() < PROBE_MIN_INTERVAL)
-                    {
-                        continue;
-                    }
-                    last_probe = Some(Instant::now());
-                    match identity.is_present() {
-                        Ok(true) => {
-                            timeouts[channel] = 0;
-                            probe_failures = 0;
+                    match watchdogs[channel].timed_out(Instant::now()) {
+                        Watch::Wait => continue,
+                        Watch::Silent => {
+                            let silence = watchdogs[channel].silence();
+                            fail_all(
+                                &mut sinks,
+                                &format!("stream {channel}: {}", silent_stream(silence)),
+                            );
+                            break 'capture;
                         }
+                        Watch::Probe => {}
+                    }
+                    match identity.is_present() {
+                        Ok(true) => watchdogs[channel].present(),
                         Ok(false) => {
-                            fail_all(&mut sinks, "device lost: no longer enumerates");
+                            fail_all_gone(&mut sinks, "it no longer enumerates");
                             break 'capture;
                         }
                         Err(probe) => {
-                            probe_failures += 1;
-                            if probe_failures >= UNPLUG_PROBE_FAILURES {
+                            if watchdogs[channel].probe_failed() {
                                 fail_all(
                                     &mut sinks,
                                     &format!("device lost: enumerate failed: {probe}"),
@@ -900,9 +944,22 @@ fn capture_split_loop(
     }
 }
 
+fn silent_stream(silence: Duration) -> String {
+    format!(
+        "the radio stopped sending samples for {silence:?} but is still plugged in — another \
+         program may have taken it over, or it needs to be re-plugged"
+    )
+}
+
 fn fail_all(sinks: &mut [RxSink], message: &str) {
     for sink in sinks {
         sink.fail(DeviceError::Io(message.to_string()));
+    }
+}
+
+fn fail_all_gone(sinks: &mut [RxSink], reason: &str) {
+    for sink in sinks {
+        sink.fail(DeviceError::Disconnected(reason.to_string()));
     }
 }
 
@@ -1113,6 +1170,43 @@ mod tests {
         }
     }
 
+    fn failed(message: &str) -> DeviceError {
+        map_err(soapysdr::Error {
+            code: ErrorCode::Other,
+            message: message.to_string(),
+        })
+    }
+
+    #[test]
+    fn a_driver_that_cannot_claim_the_hardware_reads_as_in_use() {
+        for message in [
+            "SoapySDR::Device::make() failed: Unable to open RTL-SDR device",
+            "usb_claim_interface error -6",
+            "LIBUSB_ERROR_ACCESS",
+            "Device or resource busy",
+            "the device is in use",
+        ] {
+            assert!(
+                matches!(failed(message), DeviceError::InUse(_)),
+                "{message} must name the radio as taken, not as a plain I/O fault"
+            );
+        }
+    }
+
+    #[test]
+    fn any_other_fault_stays_an_io_error() {
+        for message in ["stream setup failed", "no such antenna", "timeout"] {
+            assert!(
+                matches!(failed(message), DeviceError::Io(_)),
+                "{message} must not be blamed on another program"
+            );
+        }
+        assert!(matches!(
+            map_err(error(ErrorCode::NotSupported)),
+            DeviceError::Unsupported(_)
+        ));
+    }
+
     #[test]
     fn only_a_substituted_sample_rate_counts_as_coerced() {
         assert!(!rate_was_coerced(2_048_000.0, 2_048_000.0));
@@ -1121,6 +1215,53 @@ mod tests {
         assert!(rate_was_coerced(2_400_000.0, 2_048_000.0));
         assert!(!rate_was_coerced(0.0, 2_048_000.0));
         assert!(!rate_was_coerced(2_048_000.0, f64::NAN));
+    }
+
+    fn found(args: &str) -> probe::Found {
+        let args = soapysdr::Args::from(args);
+        probe::Found {
+            info: device_info(&args),
+            args: args.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_driver_this_build_speaks_to_natively_is_hidden_from_soapy() {
+        let driver = SoapyDriver::excluding(["rtlsdr", "hackrf"]);
+        assert!(driver.hides(&found("driver=rtlsdr, serial=00000001")));
+        assert!(driver.hides(&found("driver=hackrf, serial=675c62dc3b2d4b8b")));
+    }
+
+    #[test]
+    fn every_other_driver_stays_visible() {
+        let driver = SoapyDriver::excluding(["rtlsdr", "hackrf"]);
+        for args in [
+            "driver=airspy, serial=644064dc2e19a5b",
+            "driver=lime, serial=1D3AC4",
+            "driver=uhd, serial=31C9245",
+            "driver=sdrplay, serial=1809131409",
+        ] {
+            assert!(!driver.hides(&found(args)), "{args}");
+        }
+    }
+
+    #[test]
+    fn a_driver_that_excludes_nothing_hides_nothing() {
+        assert!(!SoapyDriver::new().hides(&found("driver=rtlsdr, serial=00000001")));
+    }
+
+    #[test]
+    fn a_label_that_merely_names_a_driver_is_not_matched() {
+        let driver = SoapyDriver::excluding(["rtlsdr"]);
+        assert!(
+            !driver.hides(&found("driver=airspy, serial=1, label=not an rtlsdr")),
+            "the driver key decides, not a substring of the label"
+        );
+    }
+
+    #[test]
+    fn the_driver_key_is_matched_regardless_of_case() {
+        assert!(SoapyDriver::excluding(["rtlsdr"]).hides(&found("driver=RTLSDR, serial=1")));
     }
 
     #[test]

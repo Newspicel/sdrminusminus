@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Fragment,
   type ReactNode,
@@ -7,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { capturedImageUrl, imagesQuery } from "../lib/api";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
 import { Button } from "./BaseControls";
@@ -16,11 +18,13 @@ import {
   aircraftRow,
   buildTranscript,
   candidateScore,
+  cwSignalRows,
   type DecoderScope,
   formatAge,
   formatAltFreqs,
   formatClock,
   identMeasurements,
+  inScope,
   isAtBottom,
   latestVorReadings,
   latestWpm,
@@ -330,6 +334,55 @@ function TextView({
   );
 }
 
+function CwSkimmerView({ scope = {} }: { scope?: DecoderScope }) {
+  const rows = cwSignalRows(recordsInScope(useDecodedKind("cw_skimmer"), scope));
+  return (
+    <div className={PANE}>
+      <div className="flex items-baseline gap-2">
+        <span className="legend">Signals in passband</span>
+        <span className="font-mono text-xs text-ink-dim">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <span className={EMPTY}>No CW carriers decoded yet.</span>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] border-collapse">
+            <thead>
+              <tr className="border-b border-line">
+                <th className={TABLE_HEAD}>Frequency</th>
+                <th className={TABLE_HEAD}>Offset</th>
+                <th className={TABLE_HEAD}>Speed</th>
+                <th className={TABLE_HEAD}>SNR</th>
+                <th className={TABLE_HEAD}>Text</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={Math.round(row.offsetHz)} className="border-b border-line/50">
+                  <td className={`${TABLE_CELL} tabular-nums`}>
+                    {(row.frequencyHz / 1e6).toFixed(6)} MHz
+                  </td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>
+                    {row.offsetHz >= 0 ? "+" : ""}
+                    {row.offsetHz.toFixed(0)} Hz
+                  </td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>{row.wpm.toFixed(0)} WPM</td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>{row.snrDb.toFixed(0)} dB</td>
+                  <td
+                    className={`${TABLE_CELL} max-w-[24rem] whitespace-pre-wrap break-words font-mono text-ink`}
+                  >
+                    {row.text}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function kindLabel(kind: "rtty" | "morse" | "psk31" | "psk63"): string {
   return { rtty: "RTTY", morse: "Morse", psk31: "PSK31", psk63: "PSK63" }[kind];
 }
@@ -497,12 +550,88 @@ function VorView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
+  const result = useQuery(imagesQuery());
+  const images = (result.data?.images ?? []).filter((image) =>
+    inScope(image.device_set, image.channel, scope),
+  );
+  const [selected, setSelected] = useState<number | null>(null);
+  const open = images.find((image) => image.id === selected) ?? images[0];
+
+  if (images.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>
+          No picture received yet — a scanning transmission takes between 36 s and four minutes.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={PANE}>
+      {open !== undefined && (
+        <figure className="flex flex-col gap-1">
+          {open.image == null ? (
+            <span className={ALERT}>{open.image_error ?? "the pixels were not kept"}</span>
+          ) : (
+            <img
+              src={capturedImageUrl(open.image.url)}
+              alt={`${open.mode} picture received at ${formatClock(open.at)}`}
+              className="w-full self-start rounded border border-line bg-black object-contain"
+              style={{ maxHeight: "50vh" }}
+            />
+          )}
+          <figcaption className="flex flex-wrap items-baseline gap-2">
+            <span className="font-mono text-xs tabular-nums text-accent">{open.mode}</span>
+            <span className="legend">
+              {open.width}&#215;{open.height}
+            </span>
+            <span className="legend">
+              {open.complete ? "complete" : `${open.lines} of ${open.height} lines`}
+            </span>
+            <span className="ml-auto font-mono text-xs tabular-nums text-ink-dim">
+              {formatClock(open.at)}
+            </span>
+          </figcaption>
+        </figure>
+      )}
+      {images.length > 1 && (
+        <ul className="flex flex-wrap gap-2">
+          {images.map((image) => (
+            <li key={image.id}>
+              <Button
+                type="button"
+                className={`${BTN} p-0.5`}
+                aria-current={image.id === open?.id}
+                aria-label={`${image.mode} at ${formatClock(image.at)}`}
+                onClick={() => setSelected(image.id)}
+              >
+                {image.image == null ? (
+                  <span className="legend px-2">no pixels</span>
+                ) : (
+                  <img
+                    src={capturedImageUrl(image.image.url)}
+                    alt=""
+                    className="h-12 w-16 rounded-xs bg-black object-contain"
+                  />
+                )}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
   rds: (scope) => <RdsView scope={scope} />,
   adsb: (scope) => <TargetsView kind="adsb" scope={scope} />,
   ais: (scope) => <TargetsView kind="ais" scope={scope} />,
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
+  cw_skimmer: (scope) => <CwSkimmerView scope={scope} />,
   psk31: (scope) => <TextView kind="psk31" scope={scope} />,
   psk63: (scope) => <TextView kind="psk63" scope={scope} />,
   selcall: null,
@@ -510,6 +639,8 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ident: (scope) => <IdentView scope={scope} />,
   aprs: null,
   pocsag: null,
+  flex: null,
+  ermes: null,
   navtex: null,
   acars: null,
   subghz: null,
@@ -520,6 +651,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   broadcast: null,
   radio_clock: null,
   gnss: null,
+  sstv: (scope) => <PicturesView scope={scope} />,
   vor: (scope) => <VorView scope={scope} />,
   ils: null,
   dsc: null,

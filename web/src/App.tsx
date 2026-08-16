@@ -25,6 +25,7 @@ import {
   channelTypesQuery,
   DECODER_LOG_KEY,
   DEVICES_KEY,
+  IMAGES_KEY,
   PRESETS_KEY,
   patchCatalogQuery,
   RECORDINGS_KEY,
@@ -42,6 +43,8 @@ import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
 import { pushToast } from "./lib/toasts";
 import type {
+  CapturedImage,
+  CapturedImagesResponse,
   PatchGraph,
   ServerEvent,
   StateScope,
@@ -88,6 +91,9 @@ export function App() {
         case "CallCompleted":
           appendCall(queryClient, event.data);
           break;
+        case "ImageCaptured":
+          appendImage(queryClient, event.data);
+          break;
         case "Error":
           if (!audioEngine.claimServerError(event.data.message)) {
             pushToast(event.data.message);
@@ -106,18 +112,18 @@ export function App() {
 
   useEffect(() => {
     const s = new SdrSocket();
-    s.onEvent = (event) => onServerEventRef.current(event);
+    s.on("event", (event) => onServerEventRef.current(event));
     let up = false;
-    s.onStatus = (now) => {
+    s.on("status", (now) => {
       if (up && !now) {
         pushToast("Lost the server — reconnecting");
       }
       up = now;
-    };
-    s.addEventListener(useDecodedStore.getState().observe);
-    s.addEventListener(useScannerStore.getState().observe);
-    s.addEventListener(usePositionStore.getState().observe);
-    s.addEventListener(useLevelStore.getState().observe);
+    });
+    s.on("event", useDecodedStore.getState().observe);
+    s.on("event", useScannerStore.getState().observe);
+    s.on("event", usePositionStore.getState().observe);
+    s.on("event", useLevelStore.getState().observe);
     spectrumHub.attach(s);
     iqHub.attach(s);
     videoHub.attach(s);
@@ -128,6 +134,7 @@ export function App() {
       spectrumHub.detach();
       iqHub.detach();
       videoHub.detach();
+      audioEngine.detach();
       s.close();
     };
   }, []);
@@ -377,6 +384,14 @@ function appendCall(queryClient: QueryClient, call: VoiceCall) {
   }));
 }
 
+const MAX_CACHED_IMAGES = 512;
+
+function appendImage(queryClient: QueryClient, image: CapturedImage) {
+  queryClient.setQueryData(IMAGES_KEY, (previous: CapturedImagesResponse | undefined) => ({
+    images: [image, ...(previous?.images ?? [])].slice(0, MAX_CACHED_IMAGES),
+  }));
+}
+
 function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
   switch (scope.scope) {
     case "all":
@@ -408,6 +423,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "calls":
       void queryClient.invalidateQueries({ queryKey: CALLS_KEY });
+      break;
+    case "images":
+      void queryClient.invalidateQueries({ queryKey: IMAGES_KEY });
       break;
   }
 }

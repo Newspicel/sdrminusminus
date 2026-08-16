@@ -3,6 +3,7 @@ use std::f64::consts::FRAC_1_SQRT_2;
 use num_complex::Complex;
 use sdrmm_dsp::{
     Costas, Decimator, Nco, Pll, RdsOffset, SymbolSync, design_lowpass, rds_check_block,
+    rds_correct_block,
 };
 use sdrmm_modem::{
     constellation::{Constellation, tables},
@@ -28,12 +29,13 @@ const PHASE_RANGE: f64 = 0.005;
 const BLOCK_BITS: usize = 26;
 const BLOCK_MASK: u32 = (1 << BLOCK_BITS) - 1;
 const BLOCKS_PER_GROUP: usize = 4;
+const A_SLOT: usize = 0;
+const B_SLOT: usize = 1;
 const C_SLOT: usize = 2;
 const LAST_SLOT: usize = BLOCKS_PER_GROUP - 1;
 const MAX_BLOCK_MISSES: u32 = 12;
 
 const PS_LEN: usize = 8;
-const PS_COMPLETE: u8 = u8::MAX;
 const RT_LEN: usize = 64;
 const RT_TERMINATOR: u8 = 0x0D;
 
@@ -219,12 +221,18 @@ enum BlockSync {
     },
 }
 
+#[derive(Clone, Copy, Debug)]
+struct Block {
+    data: u16,
+    trusted: bool,
+}
+
 #[derive(Default)]
 struct GroupDecoder {
     window: u32,
     filled: usize,
     sync: BlockSync,
-    blocks: [Option<u16>; BLOCKS_PER_GROUP],
+    blocks: [Option<Block>; BLOCKS_PER_GROUP],
     station: Station,
     groups: u64,
     block_errors: u64,
@@ -262,9 +270,9 @@ impl GroupDecoder {
 
     fn hunt(&mut self) {
         for slot in 0..BLOCKS_PER_GROUP {
-            if let Some(data) = check_slot(self.window, slot) {
+            if let Some(block) = check_slot(self.window, slot, false, None) {
                 self.blocks = [None; BLOCKS_PER_GROUP];
-                self.store(slot, Some(data));
+                self.store(slot, Some(block));
                 self.sync = BlockSync::Track {
                     slot: next_slot(slot),
                     bits: 0,
@@ -283,9 +291,10 @@ impl GroupDecoder {
         confirmed: bool,
         out: &mut Vec<DecoderEvent>,
     ) {
-        let (misses, confirmed) = match check_slot(self.window, slot) {
-            Some(data) => {
-                self.store(slot, Some(data));
+        let version_b = self.blocks[B_SLOT].map(|b| b.data & 0x0800 != 0);
+        let (misses, confirmed) = match check_slot(self.window, slot, confirmed, version_b) {
+            Some(block) => {
+                self.store(slot, Some(block));
                 (0, true)
             }
             None => {
@@ -312,19 +321,19 @@ impl GroupDecoder {
     }
 
     fn close_group(&mut self, out: &mut Vec<DecoderEvent>) {
-        if let [Some(a), Some(b), Some(c), Some(d)] = self.blocks {
+        if self.blocks.iter().all(Option::is_some) {
             self.groups = self.groups.saturating_add(1);
-            if self.station.apply(a, b, c, d) {
-                let update = self.station.update(self.groups, self.block_errors);
-                out.push(DecoderEvent::Rds(update));
-            }
+        }
+        if self.station.apply(&self.blocks) {
+            let update = self.station.update(self.groups, self.block_errors);
+            out.push(DecoderEvent::Rds(update));
         }
         self.blocks = [None; BLOCKS_PER_GROUP];
     }
 
-    fn store(&mut self, slot: usize, data: Option<u16>) {
+    fn store(&mut self, slot: usize, block: Option<Block>) {
         if let Some(cell) = self.blocks.get_mut(slot) {
-            *cell = data;
+            *cell = block;
         }
     }
 }
@@ -333,14 +342,126 @@ const fn next_slot(slot: usize) -> usize {
     (slot + 1) % BLOCKS_PER_GROUP
 }
 
-fn check_slot(window: u32, slot: usize) -> Option<u16> {
+fn slot_offsets(slot: usize, version_b: Option<bool>) -> &'static [RdsOffset] {
     match slot {
-        0 => rds_check_block(window, RdsOffset::A),
-        1 => rds_check_block(window, RdsOffset::B),
-        C_SLOT => rds_check_block(window, RdsOffset::C)
-            .or_else(|| rds_check_block(window, RdsOffset::CPrime)),
-        LAST_SLOT => rds_check_block(window, RdsOffset::D),
-        _ => None,
+        A_SLOT => &[RdsOffset::A],
+        B_SLOT => &[RdsOffset::B],
+        C_SLOT => match version_b {
+            Some(false) => &[RdsOffset::C],
+            Some(true) => &[RdsOffset::CPrime],
+            None => &[RdsOffset::C, RdsOffset::CPrime],
+        },
+        LAST_SLOT => &[RdsOffset::D],
+        _ => &[],
+    }
+}
+
+fn check_slot(window: u32, slot: usize, correct: bool, version_b: Option<bool>) -> Option<Block> {
+    let offsets = slot_offsets(slot, version_b);
+    let strict = offsets
+        .iter()
+        .find_map(|&offset| rds_check_block(window, offset));
+    if let Some(data) = strict {
+        return Some(Block {
+            data,
+            trusted: true,
+        });
+    }
+    if !correct {
+        return None;
+    }
+    offsets
+        .iter()
+        .find_map(|&offset| rds_correct_block(window, offset))
+        .map(|(data, _)| Block {
+            data,
+            trusted: false,
+        })
+}
+
+struct TextField {
+    chars: [u8; RT_LEN],
+    seen: u64,
+    staged: [u8; RT_LEN],
+    staged_seen: u64,
+    len: usize,
+    terminated: bool,
+    text: Option<String>,
+}
+
+impl TextField {
+    fn new(len: usize, terminated: bool) -> Self {
+        Self {
+            chars: [0; RT_LEN],
+            seen: 0,
+            staged: [0; RT_LEN],
+            staged_seen: 0,
+            len,
+            terminated,
+            text: None,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.chars = [0; RT_LEN];
+        self.seen = 0;
+    }
+
+    fn write(&mut self, index: usize, chars: u16, trusted: bool) -> bool {
+        for (offset, byte) in [(chars >> 8) as u8, chars as u8].into_iter().enumerate() {
+            self.write_byte(index + offset, byte, trusted);
+        }
+        let complete = self.complete();
+        publish(&mut self.text, complete)
+    }
+
+    fn write_byte(&mut self, at: usize, byte: u8, trusted: bool) {
+        if at >= self.len {
+            return;
+        }
+        let bit = 1u64 << at;
+        let corroborated =
+            self.staged_seen & bit != 0 && self.staged.get(at).copied() == Some(byte);
+        if let Some(slot) = self.staged.get_mut(at) {
+            *slot = byte;
+        }
+        self.staged_seen |= bit;
+        if !trusted && !corroborated {
+            return;
+        }
+        if self.seen & bit != 0 {
+            if self.chars.get(at).copied() == Some(byte) {
+                return;
+            }
+            self.clear();
+        }
+        if let Some(slot) = self.chars.get_mut(at) {
+            *slot = byte;
+        }
+        self.seen |= bit;
+    }
+
+    fn complete(&self) -> Option<String> {
+        let end = self.end();
+        let needed = low_mask(end);
+        (self.seen & needed == needed).then(|| text(self.chars.get(..end).unwrap_or_default()))
+    }
+
+    fn end(&self) -> usize {
+        if !self.terminated {
+            return self.len;
+        }
+        (0..self.len)
+            .find(|&i| self.seen & (1u64 << i) != 0 && self.chars.get(i) == Some(&RT_TERMINATOR))
+            .unwrap_or(self.len)
+    }
+}
+
+fn low_mask(bits: usize) -> u64 {
+    if bits >= u64::BITS as usize {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
     }
 }
 
@@ -350,13 +471,9 @@ struct Station {
     tp: Option<bool>,
     ta: Option<bool>,
     music: Option<bool>,
-    ps: [u8; PS_LEN],
-    ps_seen: u8,
-    ps_text: Option<String>,
-    rt: [u8; RT_LEN],
-    rt_seen: u64,
+    ps: TextField,
+    rt: TextField,
     rt_flag: Option<bool>,
-    rt_text: Option<String>,
     af: Vec<u8>,
     af_expected: usize,
 }
@@ -369,13 +486,9 @@ impl Default for Station {
             tp: None,
             ta: None,
             music: None,
-            ps: [0; PS_LEN],
-            ps_seen: 0,
-            ps_text: None,
-            rt: [0; RT_LEN],
-            rt_seen: 0,
+            ps: TextField::new(PS_LEN, false),
+            rt: TextField::new(RT_LEN, true),
             rt_flag: None,
-            rt_text: None,
             af: Vec::new(),
             af_expected: 0,
         }
@@ -383,88 +496,59 @@ impl Default for Station {
 }
 
 impl Station {
-    fn apply(&mut self, a: u16, b: u16, c: u16, d: u16) -> bool {
-        let mut changed = set(&mut self.pi, a);
-        changed |= set(&mut self.tp, b & 0x0400 != 0);
-        changed |= set(&mut self.pty, ((b >> 5) & 0x1F) as u8);
-        let version_b = b & 0x0800 != 0;
-        match b >> 12 {
+    fn apply(&mut self, blocks: &[Option<Block>; BLOCKS_PER_GROUP]) -> bool {
+        let Some(b) = blocks[B_SLOT] else {
+            return false;
+        };
+        let header = b.data;
+        let mut changed = blocks[A_SLOT]
+            .filter(|a| a.trusted)
+            .is_some_and(|a| set(&mut self.pi, a.data));
+        if b.trusted {
+            changed |= set(&mut self.tp, header & 0x0400 != 0);
+            changed |= set(&mut self.pty, ((header >> 5) & 0x1F) as u8);
+        }
+        let version_b = header & 0x0800 != 0;
+        let carries = |slot: usize| blocks[slot].map(|x| (x.data, b.trusted && x.trusted));
+        match header >> 12 {
             0 => {
-                changed |= set(&mut self.ta, b & 0x0010 != 0);
-                changed |= set(&mut self.music, b & 0x0008 != 0);
-                changed |= self.set_ps(2 * usize::from(b & 0x0003), d);
-                if !version_b {
+                if b.trusted {
+                    changed |= set(&mut self.ta, header & 0x0010 != 0);
+                    changed |= set(&mut self.music, header & 0x0008 != 0);
+                }
+                if let Some((d, trusted)) = carries(LAST_SLOT) {
+                    changed |= self.ps.write(2 * usize::from(header & 0x0003), d, trusted);
+                }
+                if let Some((c, true)) = carries(C_SLOT).filter(|_| !version_b) {
                     changed |= self.push_af((c >> 8) as u8);
                     changed |= self.push_af(c as u8);
                 }
             }
             2 => {
-                let flag = b & 0x0010 != 0;
-                if self.rt_flag.is_some_and(|previous| previous != flag) {
-                    self.rt = [0; RT_LEN];
-                    self.rt_seen = 0;
+                let flag = header & 0x0010 != 0;
+                if b.trusted {
+                    if self.rt_flag.is_some_and(|previous| previous != flag) {
+                        self.rt.clear();
+                    }
+                    self.rt_flag = Some(flag);
                 }
-                self.rt_flag = Some(flag);
-                let segment = usize::from(b & 0x000F);
-                changed |= if version_b {
-                    self.set_rt(2 * segment, d)
+                let segment = usize::from(header & 0x000F);
+                if version_b {
+                    if let Some((d, trusted)) = carries(LAST_SLOT) {
+                        changed |= self.rt.write(2 * segment, d, trusted);
+                    }
                 } else {
-                    self.set_rt(4 * segment, c) | self.set_rt(4 * segment + 2, d)
-                };
+                    if let Some((c, trusted)) = carries(C_SLOT) {
+                        changed |= self.rt.write(4 * segment, c, trusted);
+                    }
+                    if let Some((d, trusted)) = carries(LAST_SLOT) {
+                        changed |= self.rt.write(4 * segment + 2, d, trusted);
+                    }
+                }
             }
             _ => {}
         }
         changed
-    }
-
-    fn set_ps(&mut self, index: usize, chars: u16) -> bool {
-        let seen = self.ps_seen;
-        let mut moved = false;
-        for (offset, byte) in [(chars >> 8) as u8, chars as u8].into_iter().enumerate() {
-            let at = index + offset;
-            if let Some(slot) = self.ps.get_mut(at) {
-                moved |= *slot != byte;
-                *slot = byte;
-                self.ps_seen |= 1 << at;
-            }
-        }
-        if !moved && seen == self.ps_seen {
-            return false;
-        }
-        publish(
-            &mut self.ps_text,
-            (self.ps_seen == PS_COMPLETE).then(|| text(&self.ps)),
-        )
-    }
-
-    fn set_rt(&mut self, index: usize, chars: u16) -> bool {
-        let seen = self.rt_seen;
-        let mut moved = false;
-        for (offset, byte) in [(chars >> 8) as u8, chars as u8].into_iter().enumerate() {
-            let at = index + offset;
-            if let Some(slot) = self.rt.get_mut(at) {
-                moved |= *slot != byte;
-                *slot = byte;
-                self.rt_seen |= 1u64 << at;
-            }
-        }
-        if !moved && seen == self.rt_seen {
-            return false;
-        }
-        let complete = self.radiotext();
-        publish(&mut self.rt_text, complete)
-    }
-
-    fn radiotext(&self) -> Option<String> {
-        let end = (0..RT_LEN)
-            .find(|&i| self.rt_seen & (1u64 << i) != 0 && self.rt.get(i) == Some(&RT_TERMINATOR))
-            .unwrap_or(RT_LEN);
-        let needed = if end >= RT_LEN {
-            u64::MAX
-        } else {
-            (1u64 << end) - 1
-        };
-        (self.rt_seen & needed == needed).then(|| text(&self.rt[..end]))
     }
 
     fn push_af(&mut self, code: u8) -> bool {
@@ -493,8 +577,8 @@ impl Station {
     fn update(&self, groups: u64, block_errors: u64) -> RdsUpdate {
         RdsUpdate {
             pi: self.pi.map(|pi| format!("{pi:04X}")),
-            ps: self.ps_text.clone(),
-            radiotext: self.rt_text.clone(),
+            ps: self.ps.text.clone(),
+            radiotext: self.rt.text.clone(),
             pty: self.pty,
             pty_name: self
                 .pty
@@ -593,6 +677,43 @@ mod tests {
             Some(DecoderEvent::Rds(update)) => update.clone(),
             other => panic!("expected an rds update, got {other:?}"),
         }
+    }
+
+    fn pair(hi: u8, lo: u8) -> u16 {
+        u16::from(hi) << 8 | u16::from(lo)
+    }
+
+    fn radiotext_groups(pi: u16, message: &str, flag: bool) -> Vec<u32> {
+        let mut bytes: Vec<u8> = message.bytes().take(RT_LEN).collect();
+        if bytes.len() < RT_LEN {
+            bytes.push(RT_TERMINATOR);
+        }
+        while !bytes.len().is_multiple_of(4) {
+            bytes.push(b' ');
+        }
+        bytes
+            .chunks(4)
+            .enumerate()
+            .flat_map(|(segment, chunk)| {
+                let b = (2 << 12) | (u16::from(flag) << 4) | segment as u16;
+                [
+                    rds_encode_block(pi, RdsOffset::A),
+                    rds_encode_block(b, RdsOffset::B),
+                    rds_encode_block(pair(chunk[0], chunk[1]), RdsOffset::C),
+                    rds_encode_block(pair(chunk[2], chunk[3]), RdsOffset::D),
+                ]
+            })
+            .collect()
+    }
+
+    fn radiotexts(events: &[DecoderEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                DecoderEvent::Rds(update) => update.radiotext.clone(),
+                _ => None,
+            })
+            .collect()
     }
 
     fn run(decoder: &mut RdsDecoder, mpx: &[f32]) -> Vec<DecoderEvent> {
@@ -714,6 +835,94 @@ mod tests {
     }
 
     #[test]
+    fn a_station_that_swaps_radiotext_without_the_ab_flag_shows_whole_messages_only() {
+        let traffic = "Verkehr: Staus auf der A1 zwischen Koeln und Bonn";
+        let promo = "Jetzt: Die WDR 2 Musikwelt mit den besten Songs";
+        let mut blocks = Vec::new();
+        for round in 0..6 {
+            let message = if round % 2 == 0 { traffic } else { promo };
+            blocks.extend(radiotext_groups(0xD392, message, false));
+        }
+        let (_, events) = drive(&bits_of(&blocks));
+        let shown = radiotexts(&events);
+        for message in &shown {
+            assert!(
+                message == traffic || message == promo,
+                "two messages blended into {message:?}"
+            );
+        }
+        assert!(shown.iter().any(|message| message == traffic));
+        assert!(shown.iter().any(|message| message == promo));
+    }
+
+    #[test]
+    fn a_group_still_carries_its_text_when_block_a_never_arrives() {
+        let message = "radiotext without a programme identification";
+        let mut blocks = radiotext_groups(0xD392, message, false).repeat(2);
+        for slot in blocks.iter_mut().step_by(BLOCKS_PER_GROUP) {
+            *slot ^= 0x1A5_3C7B & BLOCK_MASK;
+        }
+        let (_, events) = drive(&bits_of(&blocks));
+        let update = last_update(&events);
+        assert_eq!(update.radiotext.as_deref(), Some(message));
+        assert_eq!(update.pi, None, "a wrecked block a was read anyway");
+    }
+
+    #[test]
+    fn adjacent_bit_damage_is_repaired_once_the_group_boundary_is_known() {
+        let message = "two neighbouring bits die in every third block";
+        let clean = radiotext_groups(0xD392, message, false).repeat(3);
+        let damaged: Vec<u32> = clean
+            .iter()
+            .enumerate()
+            .map(|(index, &block)| {
+                if index % 3 == 2 {
+                    block ^ (0b11 << (index % (BLOCK_BITS - 1)))
+                } else {
+                    block
+                }
+            })
+            .collect();
+        let (decoder, events) = drive(&bits_of(&damaged));
+        assert_eq!(last_update(&events).radiotext.as_deref(), Some(message));
+        assert!(
+            decoder.block_errors <= 2,
+            "{} blocks were given up on",
+            decoder.block_errors
+        );
+    }
+
+    #[test]
+    fn an_untrusted_character_waits_for_a_second_sighting() {
+        let mut field = TextField::new(4, false);
+        field.write(0, pair(b'A', b'B'), false);
+        field.write(2, pair(b'C', b'D'), true);
+        assert_eq!(
+            field.text, None,
+            "a lone repaired block completed a message"
+        );
+        field.write(0, pair(b'A', b'B'), false);
+        assert_eq!(field.text.as_deref(), Some("ABCD"));
+    }
+
+    #[test]
+    fn a_character_that_stops_matching_starts_a_new_message() {
+        let mut field = TextField::new(4, false);
+        field.write(0, pair(b'A', b'B'), true);
+        field.write(2, pair(b'C', b'D'), true);
+        assert_eq!(field.text.as_deref(), Some("ABCD"));
+
+        field.write(0, pair(b'W', b'X'), true);
+        assert_eq!(
+            field.text.as_deref(),
+            Some("ABCD"),
+            "half of the old message was published as a message"
+        );
+        field.write(2, pair(b'Y', b'Z'), true);
+        assert_eq!(field.text.as_deref(), Some("WXYZ"));
+    }
+
+    #[test]
     fn a_steady_station_stops_producing_events_once_it_is_known() {
         let (decoder, events) = drive(&bits_of(&tx_groups(&station(), 400)));
         assert_eq!(decoder.groups, 400);
@@ -760,7 +969,7 @@ mod tests {
         assert!(!events.is_empty());
         decoder.reset();
         assert_eq!(decoder.frames.groups, 0);
-        assert_eq!(decoder.frames.station.ps_text, None);
+        assert_eq!(decoder.frames.station.ps.text, None);
     }
 }
 
