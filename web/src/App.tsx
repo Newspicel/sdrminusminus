@@ -169,11 +169,15 @@ export function App() {
     return watchDevicePosition(socket, deviceGpsNodeIds);
   }, [socket, deviceGpsNodeIds, workspace.active?.revision]);
   useEffect(() => {
+    const named = (id: string): string => {
+      const node = graph.nodes.find((candidate) => candidate.id === id);
+      return node?.label ?? (node?.kind === "channel" ? node.data.channel_type.toUpperCase() : id);
+    };
     for (const refusal of workspace.applied?.refused ?? []) {
-      const node = graph.nodes.find((candidate) => candidate.id === refusal.node);
-      const what =
-        node?.label ?? (node?.kind === "channel" ? node.data.channel_type.toUpperCase() : "node");
-      pushToast(`${what}: ${refusal.reason}`);
+      pushToast(`${named(refusal.node)}: ${refusal.reason}`);
+    }
+    for (const node of workspace.applied?.absent ?? []) {
+      pushToast(`${named(node)}: its radio is not connected, so nothing on it was started`);
     }
   }, [workspace.applied, graph.nodes]);
 
