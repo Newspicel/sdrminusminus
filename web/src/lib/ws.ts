@@ -1,6 +1,5 @@
 import { withToken } from "./auth";
 import {
-  type AudioFrame,
   decodeAudio,
   decodeIq,
   decodeSpectrum,
@@ -11,10 +10,14 @@ import {
   FRAME_KIND_VIDEO_GRAY,
   FRAME_KIND_VIDEO_RGB,
   frameKind,
-  type IqFrame,
-  type SpectrumFrame,
-  type VideoFrame,
 } from "./frame";
+import {
+  type Listener,
+  ListenerRegistry,
+  type SocketEventKind,
+  type SocketEvents,
+  type Unsubscribe,
+} from "./listeners";
 import type { ClientCommand, ServerEvent } from "./types";
 
 const RECONNECT_MS = 1000;
@@ -26,15 +29,7 @@ export class SdrSocket {
   private closed = false;
   private backoffMs = RECONNECT_MS;
   private readonly path: string;
-  private readonly eventListeners = new Set<(event: ServerEvent) => void>();
-  private readonly statusListeners = new Set<(connected: boolean) => void>();
-  private readonly spectrumListeners = new Set<(frame: SpectrumFrame) => void>();
-  private readonly videoListeners = new Set<(frame: VideoFrame) => void>();
-  private readonly iqListeners = new Set<(frame: IqFrame) => void>();
-
-  onEvent: (event: ServerEvent) => void = () => {};
-  onStatus: (connected: boolean) => void = () => {};
-  onAudio: (frame: AudioFrame) => void = () => {};
+  private readonly listeners = new ListenerRegistry();
 
   constructor(path = "/api/ws") {
     this.path = path;
@@ -60,44 +55,8 @@ export class SdrSocket {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  addEventListener(listener: (event: ServerEvent) => void): void {
-    this.eventListeners.add(listener);
-  }
-
-  removeEventListener(listener: (event: ServerEvent) => void): void {
-    this.eventListeners.delete(listener);
-  }
-
-  addSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
-    this.spectrumListeners.add(listener);
-  }
-
-  removeSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
-    this.spectrumListeners.delete(listener);
-  }
-
-  addVideoListener(listener: (frame: VideoFrame) => void): void {
-    this.videoListeners.add(listener);
-  }
-
-  removeVideoListener(listener: (frame: VideoFrame) => void): void {
-    this.videoListeners.delete(listener);
-  }
-
-  addIqListener(listener: (frame: IqFrame) => void): void {
-    this.iqListeners.add(listener);
-  }
-
-  removeIqListener(listener: (frame: IqFrame) => void): void {
-    this.iqListeners.delete(listener);
-  }
-
-  addStatusListener(listener: (connected: boolean) => void): void {
-    this.statusListeners.add(listener);
-  }
-
-  removeStatusListener(listener: (connected: boolean) => void): void {
-    this.statusListeners.delete(listener);
+  on<K extends SocketEventKind>(kind: K, listener: Listener<K>): Unsubscribe {
+    return this.listeners.on(kind, listener);
   }
 
   close(): void {
@@ -128,11 +87,11 @@ export class SdrSocket {
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
       this.backoffMs = RECONNECT_MS;
-      this.emitStatus(true);
+      this.listeners.emit("status", true);
     };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
-      this.emitStatus(false);
+      this.listeners.emit("status", false);
       this.scheduleReconnect();
     };
     ws.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
@@ -152,58 +111,32 @@ export class SdrSocket {
     } catch {
       return;
     }
-    this.onEvent(event);
-    for (const listener of this.eventListeners) {
-      listener(event);
-    }
+    this.listeners.emit("event", event);
   }
 
   private dispatchBinary(buffer: ArrayBuffer): void {
     switch (frameKind(buffer)) {
-      case FRAME_KIND_SPECTRUM: {
-        const frame = decodeSpectrum(buffer);
-        if (frame) {
-          for (const listener of this.spectrumListeners) {
-            listener(frame);
-          }
-        }
+      case FRAME_KIND_SPECTRUM:
+        this.emitFrame("spectrum", decodeSpectrum(buffer));
         break;
-      }
-      case FRAME_KIND_AUDIO_OPUS: {
-        const frame = decodeAudio(buffer);
-        if (frame) {
-          this.onAudio(frame);
-        }
+      case FRAME_KIND_AUDIO_OPUS:
+        this.emitFrame("audio", decodeAudio(buffer));
         break;
-      }
-      case FRAME_KIND_IQ_F32: {
-        const frame = decodeIq(buffer);
-        if (frame) {
-          for (const listener of this.iqListeners) {
-            listener(frame);
-          }
-        }
+      case FRAME_KIND_IQ_F32:
+        this.emitFrame("iq", decodeIq(buffer));
         break;
-      }
       case FRAME_KIND_VIDEO_GRAY:
-      case FRAME_KIND_VIDEO_RGB: {
-        const frame = decodeVideo(buffer);
-        if (frame) {
-          for (const listener of this.videoListeners) {
-            listener(frame);
-          }
-        }
+      case FRAME_KIND_VIDEO_RGB:
+        this.emitFrame("video", decodeVideo(buffer));
         break;
-      }
       default:
         break;
     }
   }
 
-  private emitStatus(connected: boolean): void {
-    this.onStatus(connected);
-    for (const listener of this.statusListeners) {
-      listener(connected);
+  private emitFrame<K extends SocketEventKind>(kind: K, frame: SocketEvents[K] | null): void {
+    if (frame !== null) {
+      this.listeners.emit(kind, frame);
     }
   }
 

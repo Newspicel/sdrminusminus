@@ -112,18 +112,18 @@ export function App() {
 
   useEffect(() => {
     const s = new SdrSocket();
-    s.onEvent = (event) => onServerEventRef.current(event);
+    s.on("event", (event) => onServerEventRef.current(event));
     let up = false;
-    s.onStatus = (now) => {
+    s.on("status", (now) => {
       if (up && !now) {
         pushToast("Lost the server — reconnecting");
       }
       up = now;
-    };
-    s.addEventListener(useDecodedStore.getState().observe);
-    s.addEventListener(useScannerStore.getState().observe);
-    s.addEventListener(usePositionStore.getState().observe);
-    s.addEventListener(useLevelStore.getState().observe);
+    });
+    s.on("event", useDecodedStore.getState().observe);
+    s.on("event", useScannerStore.getState().observe);
+    s.on("event", usePositionStore.getState().observe);
+    s.on("event", useLevelStore.getState().observe);
     spectrumHub.attach(s);
     iqHub.attach(s);
     videoHub.attach(s);
@@ -134,6 +134,7 @@ export function App() {
       spectrumHub.detach();
       iqHub.detach();
       videoHub.detach();
+      audioEngine.detach();
       s.close();
     };
   }, []);

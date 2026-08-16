@@ -1,4 +1,5 @@
 import type { AudioFrame } from "../frame";
+import type { Listener, Unsubscribe } from "../listeners";
 import type { ClientCommand, ServerEvent } from "../types";
 import { LossTracker } from "./loss";
 import { MAX_GAP_FRAMES, SAMPLE_RATE, type WorkletReport } from "./worklet";
@@ -21,11 +22,7 @@ export type SinkFactory = (
 export interface AudioSocket {
   send(command: ClientCommand): void;
   isConnected(): boolean;
-  addEventListener(listener: (event: ServerEvent) => void): void;
-  removeEventListener(listener: (event: ServerEvent) => void): void;
-  addStatusListener(listener: (connected: boolean) => void): void;
-  removeStatusListener(listener: (connected: boolean) => void): void;
-  onAudio: (frame: AudioFrame) => void;
+  on<K extends "audio" | "status" | "event">(kind: K, listener: Listener<K>): Unsubscribe;
 }
 
 interface ChannelEntry {
@@ -57,6 +54,7 @@ export class AudioEngine {
   private readonly pendingSubscribes: { key: string; generation: number }[] = [];
   private outputRunning = true;
   private socket: AudioSocket | null = null;
+  private unsubscribes: Unsubscribe[] = [];
 
   constructor(private readonly createSink: SinkFactory) {}
 
@@ -71,19 +69,21 @@ export class AudioEngine {
     }
     this.detach();
     this.socket = socket;
-    socket.addEventListener(this.handleEvent);
-    socket.addStatusListener(this.handleStatus);
-    socket.onAudio = this.handleAudio;
+    this.unsubscribes = [
+      socket.on("event", this.handleEvent),
+      socket.on("status", this.handleStatus),
+      socket.on("audio", this.handleAudio),
+    ];
   }
 
   detach(): void {
-    const socket = this.socket;
-    if (!socket) {
+    if (!this.socket) {
       return;
     }
-    socket.removeEventListener(this.handleEvent);
-    socket.removeStatusListener(this.handleStatus);
-    socket.onAudio = () => {};
+    for (const unsubscribe of this.unsubscribes) {
+      unsubscribe();
+    }
+    this.unsubscribes = [];
     this.socket = null;
     for (const entry of this.entries.values()) {
       entry.requested = false;

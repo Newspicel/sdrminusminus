@@ -1,14 +1,10 @@
 import type { VideoFrame } from "./frame";
+import type { Listener, Unsubscribe } from "./listeners";
 import type { ClientCommand, ServerEvent } from "./types";
 
 export interface VideoSocket {
   send(command: ClientCommand): void;
-  addVideoListener(listener: (frame: VideoFrame) => void): void;
-  removeVideoListener(listener: (frame: VideoFrame) => void): void;
-  addStatusListener(listener: (connected: boolean) => void): void;
-  removeStatusListener(listener: (connected: boolean) => void): void;
-  addEventListener(listener: (event: ServerEvent) => void): void;
-  removeEventListener(listener: (event: ServerEvent) => void): void;
+  on<K extends "video" | "status" | "event">(kind: K, listener: Listener<K>): Unsubscribe;
 }
 
 const RELEASE_GRACE_MS = 5_000;
@@ -30,6 +26,7 @@ interface Watched {
 
 export class VideoHub {
   private socket: VideoSocket | null = null;
+  private unsubscribes: Unsubscribe[] = [];
   private readonly channels = new Map<string, Watched>();
   private readonly ids = new Map<number, string>();
 
@@ -70,9 +67,11 @@ export class VideoHub {
     }
     this.detach();
     this.socket = socket;
-    socket.addVideoListener(this.onFrame);
-    socket.addStatusListener(this.onStatus);
-    socket.addEventListener(this.onEvent);
+    this.unsubscribes = [
+      socket.on("video", this.onFrame),
+      socket.on("status", this.onStatus),
+      socket.on("event", this.onEvent),
+    ];
     this.ids.clear();
     for (const watched of this.watched()) {
       this.send(watched, true);
@@ -80,14 +79,11 @@ export class VideoHub {
   }
 
   detach(): void {
-    const socket = this.socket;
     this.socket = null;
-    if (socket === null) {
-      return;
+    for (const unsubscribe of this.unsubscribes) {
+      unsubscribe();
     }
-    socket.removeVideoListener(this.onFrame);
-    socket.removeStatusListener(this.onStatus);
-    socket.removeEventListener(this.onEvent);
+    this.unsubscribes = [];
   }
 
   subscribe(deviceSet: number, channel: number, listener: (frame: VideoFrame) => void): () => void {

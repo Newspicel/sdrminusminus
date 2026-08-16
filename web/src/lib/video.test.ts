@@ -1,49 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { VideoFrame } from "./frame";
-import type { ClientCommand, ServerEvent } from "./types";
+import { ListenerRegistry } from "./listeners";
+import type { ClientCommand } from "./types";
 import { VideoHub, type VideoSocket } from "./video";
 
 function fakeSocket() {
   const sent: ClientCommand[] = [];
-  let frames: ((frame: VideoFrame) => void) | null = null;
-  let status: ((connected: boolean) => void) | null = null;
-  let events: ((event: ServerEvent) => void) | null = null;
+  const registry = new ListenerRegistry();
   const socket: VideoSocket = {
     send: (command) => sent.push(command),
-    addVideoListener: (listener) => {
-      frames = listener;
-    },
-    removeVideoListener: () => {
-      frames = null;
-    },
-    addStatusListener: (listener) => {
-      status = listener;
-    },
-    removeStatusListener: () => {
-      status = null;
-    },
-    addEventListener: (listener) => {
-      events = listener;
-    },
-    removeEventListener: () => {
-      events = null;
-    },
+    on: (kind, listener) => registry.on(kind, listener),
   };
   return {
     socket,
     sent,
     started: (streamId: number, deviceSet: number, channel: number) =>
-      events?.({
+      registry.emit("event", {
         type: "VideoStreamStarted",
         data: { stream_id: streamId, device_set: deviceSet, channel },
       }),
     stopped: (streamId: number) =>
-      events?.({
+      registry.emit("event", {
         type: "StreamStopped",
         data: { stream_id: streamId, kind: "video" },
       }),
     push: (streamId: number, width = 4, height = 2) =>
-      frames?.({
+      registry.emit("video", {
         streamId,
         seq: 0,
         timestamp: 0n,
@@ -52,8 +33,8 @@ function fakeSocket() {
         format: "gray",
         pixels: new Uint8Array(width * height),
       }),
-    reconnect: () => status?.(true),
-    attached: () => frames !== null,
+    reconnect: () => registry.emit("status", true),
+    attached: () => registry.count("video") > 0,
   };
 }
 
