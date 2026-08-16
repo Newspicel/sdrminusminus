@@ -2683,6 +2683,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_template_runs_on_the_signal_generator() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let (_, body) = request(app.clone(), "GET", "/api/templates", None).await;
+        let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+
+        for template in &listed.templates {
+            let (status, body) = request(
+                app.clone(),
+                "POST",
+                &format!("/api/templates/{}/apply", template.id),
+                Some(&format!(r#"{{"device_set":{ds}}}"#)),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "{}: {}",
+                template.id,
+                String::from_utf8_lossy(&body)
+            );
+            let set = &get_state(&app).await.device_sets[0];
+            assert_eq!(set.settings.center_hz, Some(template.center_hz));
+            assert_eq!(
+                set.channels.len(),
+                template.channels.len(),
+                "{}",
+                template.id
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn applying_a_template_merges_its_patch_into_the_active_workspace() {
         let app = test_router();
         let ds = create_virtual_set(&app).await;
