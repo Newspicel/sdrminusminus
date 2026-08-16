@@ -184,6 +184,9 @@ impl HackRf {
         let endpoint = NusbBulkIn::open(self.control.interface(), RX_ENDPOINT)?;
         let mut config = StreamConfig::new(RX_TRANSFER_SIZE, "sdrmm-hackrf-usb");
         config.channel_depth = RX_CHANNEL_DEPTH;
+        config.on_thread_start = Some(|| {
+            sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
+        });
         let stream = sdrmm_usb_stream::start(endpoint, config)?;
         self.select(TransceiverMode::Receive)?;
         Ok(stream)
@@ -209,6 +212,9 @@ impl HackRf {
         let endpoint = NusbBulkIn::open(self.control.interface(), RX_ENDPOINT)?;
         let mut config = StreamConfig::new(SWEEP_TRANSFER_SIZE, "sdrmm-hackrf-sweep");
         config.channel_depth = RX_CHANNEL_DEPTH;
+        config.on_thread_start = Some(|| {
+            sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
+        });
         let stream = sdrmm_usb_stream::start(endpoint, config)?;
         self.select(TransceiverMode::RxSweep)?;
         Ok(stream)

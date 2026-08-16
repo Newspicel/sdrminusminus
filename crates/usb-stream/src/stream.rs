@@ -24,6 +24,9 @@ pub struct StreamConfig {
     pub channel_depth: usize,
     pub poll_interval: Duration,
     pub thread_name: &'static str,
+    /// Runs on the pump thread before the first transfer completes, for the scheduling class a
+    /// backend wants it to hold. This crate carries no I/O policy of its own, so the caller owns it.
+    pub on_thread_start: Option<fn()>,
 }
 
 impl StreamConfig {
@@ -35,6 +38,7 @@ impl StreamConfig {
             channel_depth: 32,
             poll_interval: Duration::from_millis(100),
             thread_name,
+            on_thread_start: None,
         }
     }
 }
@@ -178,9 +182,15 @@ pub fn start<B: BulkIn>(mut bulk_in: B, config: StreamConfig) -> Result<RxStream
         queue_depth: config.queue_depth,
         poll_interval: config.poll_interval,
     };
+    let on_thread_start = config.on_thread_start;
     let worker = std::thread::Builder::new()
         .name(config.thread_name.to_string())
-        .spawn(move || pump.run(tx))
+        .spawn(move || {
+            if let Some(claim) = on_thread_start {
+                claim();
+            }
+            pump.run(tx);
+        })
         .map_err(StreamError::Spawn)?;
 
     Ok(RxStream {
@@ -398,6 +408,7 @@ mod tests {
             channel_depth: 4,
             poll_interval: Duration::from_millis(1),
             thread_name: "test-pump",
+            on_thread_start: None,
         }
     }
 
@@ -434,6 +445,28 @@ mod tests {
         }
         stream.stop();
         assert_eq!(state.lock().expect("uncontended").cancel_calls, 1);
+    }
+
+    #[test]
+    fn the_pump_thread_runs_the_backend_hook_before_it_reads() {
+        static CLAIMED: AtomicBool = AtomicBool::new(false);
+
+        let fake = FakeBulkIn::default();
+        fake.push_data([1u8, 2, 3, 4]);
+        let config = StreamConfig {
+            on_thread_start: Some(|| CLAIMED.store(true, Ordering::Release)),
+            ..config()
+        };
+        let mut stream = start(fake, config).expect("fake endpoint cannot fail");
+        let block = stream
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the pump delivers the scripted transfer");
+        assert_eq!(&*block, &[1, 2, 3, 4]);
+        assert!(
+            CLAIMED.load(Ordering::Acquire),
+            "the pump thread must claim its scheduling class before the first block"
+        );
+        stream.stop();
     }
 
     #[test]

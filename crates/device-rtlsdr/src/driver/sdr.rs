@@ -502,10 +502,11 @@ impl RtlSdr {
             .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x0000, 2)?;
 
         let endpoint = NusbBulkIn::open(self.dev.interface(), BULK_ENDPOINT)?;
-        let stream = sdrmm_usb_stream::start(
-            endpoint,
-            StreamConfig::new(TRANSFER_BUF_SIZE, "sdrmm-rtlsdr-usb"),
-        )?;
+        let mut config = StreamConfig::new(TRANSFER_BUF_SIZE, "sdrmm-rtlsdr-usb");
+        config.on_thread_start = Some(|| {
+            sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
+        });
+        let stream = sdrmm_usb_stream::start(endpoint, config)?;
         Ok(stream)
     }
 }

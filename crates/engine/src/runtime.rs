@@ -36,11 +36,21 @@ use crate::{
 
 const FFT_SIZE: usize = 4096;
 const TARGET_FPS: f64 = 30.0;
-pub(crate) const RING_CAPACITY: usize = 1 << 20;
+const RING_SECONDS: f64 = 0.25;
+pub(crate) const RING_MIN: usize = 1 << 20;
+pub(crate) const RING_MAX: usize = 1 << 23;
 /// Backstop only: the capture callback unparks the thread as soon as it has samples.
 const IDLE_PARK: Duration = Duration::from_millis(20);
 const SQUELCH_HYSTERESIS_DB: f32 = 6.0;
 const SQUELCH_HOLD_S: f32 = 0.1;
+
+/// How much of a head start the capture callback keeps over its dsp thread.
+///
+/// The slack a stalled dsp thread can use up is a duration, not a sample count: a ring fixed in
+/// samples gives a 2.4 MS/s dongle almost half a second and a 20 MS/s radio fifty milliseconds.
+pub(crate) fn ring_capacity(sample_rate: f64) -> usize {
+    ((sample_rate * RING_SECONDS) as usize).clamp(RING_MIN, RING_MAX)
+}
 
 #[derive(Clone, Debug)]
 pub struct SpectrumSnapshot {
@@ -540,8 +550,9 @@ impl CaptureRuntime {
             mpsc::Receiver<DspCommand>,
             SpectrumAnalyzer,
         )> = Vec::with_capacity(lane_count);
+        let ring = ring_capacity(sample_rate);
         for stream in 0..lane_count {
-            let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(RING_CAPACITY);
+            let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(ring);
             let overruns = Arc::new(AtomicU64::new(0));
             let stalled_us = Arc::new(AtomicU64::new(0));
             let waker = Arc::new(Waker::default());
@@ -1405,6 +1416,30 @@ mod tests {
             waited < Duration::from_secs(5),
             "wake did not beat the backstop: {waited:?}"
         );
+    }
+
+    #[test]
+    fn every_rate_keeps_the_same_slack_in_seconds() {
+        for rate in [2_048_000.0, 2_400_000.0, 8_000_000.0, 20_000_000.0] {
+            let seconds = ring_capacity(rate) as f64 / rate;
+            assert!(
+                seconds >= RING_SECONDS,
+                "{rate} S/s left only {seconds} s of slack"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fast_radio_is_capped_and_a_slow_one_floored() {
+        assert_eq!(ring_capacity(1_000_000_000.0), RING_MAX);
+        assert_eq!(ring_capacity(48_000.0), RING_MIN);
+    }
+
+    #[test]
+    fn a_rate_that_is_not_a_number_still_sizes_a_ring() {
+        assert_eq!(ring_capacity(f64::NAN), RING_MIN);
+        assert_eq!(ring_capacity(-1.0), RING_MIN);
+        assert_eq!(ring_capacity(f64::INFINITY), RING_MAX);
     }
 
     #[test]

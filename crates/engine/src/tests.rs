@@ -31,6 +31,14 @@ fn mock_settings() -> DeviceSettings {
     }
 }
 
+fn ring_samples(sample_rate: f64) -> usize {
+    crate::runtime::ring_capacity(sample_rate)
+}
+
+fn mock_ring() -> usize {
+    ring_samples(mock_settings().sample_rate.unwrap_or_default())
+}
+
 fn empty_capabilities() -> Capabilities {
     Capabilities {
         freq_ranges: Vec::new(),
@@ -284,7 +292,7 @@ impl SdrDevice for FloodingDevice {
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
         let mut sink = single_rx_sink(sinks)?;
-        let block = vec![Complex::new(0.0f32, 0.0); crate::runtime::RING_CAPACITY * 2];
+        let block = vec![Complex::new(0.0f32, 0.0); mock_ring() * 2];
         sink.push(&block);
         Ok(())
     }
@@ -1406,7 +1414,7 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
 
     let snap = engine.snapshot();
     assert!(
-        snap.device_sets[0].overruns >= crate::runtime::RING_CAPACITY as u64,
+        snap.device_sets[0].overruns >= mock_ring() as u64,
         "flooded ring must report drops, got {}",
         snap.device_sets[0].overruns
     );
@@ -1639,7 +1647,7 @@ async fn rate_patch_is_rejected_while_recording_center_retune_is_captured() {
     wait_for_recorded_samples(
         &engine,
         ds,
-        before.samples + crate::runtime::RING_CAPACITY as u64 + 200_000,
+        before.samples + ring_samples(2_048_000.0) as u64 + 200_000,
     )
     .await;
     let finalized = engine.stop_recording(ds).unwrap();
