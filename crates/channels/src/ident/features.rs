@@ -25,6 +25,8 @@ const HIST_BINS: usize = 96;
 const PEAK_FLOOR: f32 = 0.25;
 const PEAK_SEPARATION: usize = HIST_BINS / 12;
 
+const KEYING_GAP_DB: f32 = 6.0;
+
 const LINE_THRESHOLD_DB: f32 = 6.0;
 const MIN_CLOCK_SEGMENTS: usize = 3;
 
@@ -61,6 +63,7 @@ pub(crate) struct Waveform {
     pub(crate) noise_variation: f32,
     pub(crate) duty: f32,
     pub(crate) on_off_db: f32,
+    pub(crate) keying_gap: f32,
     pub(crate) frequency_levels: u8,
     pub(crate) deviation_hz: f64,
     pub(crate) frequency_spread_hz: f64,
@@ -86,6 +89,7 @@ pub(crate) struct Meter {
     scratch: Vec<f32>,
     histogram: Vec<f32>,
     smoothed: Vec<f32>,
+    peak_bins: Vec<usize>,
 }
 
 impl Meter {
@@ -110,12 +114,14 @@ impl Meter {
             scratch: Vec::new(),
             histogram: vec![0.0; HIST_BINS],
             smoothed: vec![0.0; HIST_BINS],
+            peak_bins: Vec::new(),
         }
     }
 
     pub(crate) fn measure(&mut self, zoom: &Zoom, band: &Band) -> Waveform {
         let (duty, on_off_db, gate) = self.envelope(&zoom.iq);
         let envelope_variation = self.envelope_variation(gate);
+        let keying_gap = self.keying_gap();
         self.discriminate(&zoom.iq, zoom.rate, gate);
 
         let levels = self.levels(zoom.rate);
@@ -127,6 +133,7 @@ impl Meter {
             noise_variation: noise_variation(zoom.rate, band),
             duty,
             on_off_db,
+            keying_gap,
             frequency_levels: levels.count,
             deviation_hz: levels.deviation_hz,
             frequency_spread_hz: levels.spread_hz,
@@ -159,6 +166,21 @@ impl Meter {
         let index = ((n - 1) as f32 * fraction) as usize;
         let (_, value, _) = self.scratch.select_nth_unstable_by(index, f32::total_cmp);
         *value
+    }
+
+    fn keying_gap(&mut self) -> f32 {
+        let middle = (self.percentile(0.90) * self.percentile(0.10)).sqrt();
+        if middle <= 0.0 || self.amplitude.is_empty() {
+            return 1.0;
+        }
+        let reach = 10.0f32.powf(KEYING_GAP_DB / 20.0);
+        let (low, high) = (middle / reach, middle * reach);
+        let between = self
+            .amplitude
+            .iter()
+            .filter(|&&a| a >= low && a <= high)
+            .count();
+        between as f32 / self.amplitude.len() as f32
     }
 
     fn envelope_variation(&self, gate: f32) -> f32 {
@@ -255,59 +277,22 @@ impl Meter {
         smooth(&self.smoothed, &mut self.histogram);
         std::mem::swap(&mut self.histogram, &mut self.smoothed);
 
-        let peaks = self.peaks();
+        peaks_of(&self.smoothed, &mut self.peak_bins);
         let to_hz = |bin: usize| (bin as f64 + 0.5) / scale - span + mean;
-        let (deviation, valley) = match peaks.as_slice() {
+        let (deviation, valley) = match self.peak_bins.as_slice() {
             [] => (spread, 1.0),
             [only] => ((to_hz(*only) - mean).abs().max(spread), 1.0),
             [first, .., last] => (
                 (to_hz(*last) - to_hz(*first)) / 2.0,
-                self.valley(*first, *last),
+                valley_of(&self.smoothed, *first, *last),
             ),
         };
         Levels {
             spread_hz: spread,
-            count: peaks.len().min(u8::MAX as usize) as u8,
+            count: self.peak_bins.len().min(u8::MAX as usize) as u8,
             deviation_hz: deviation,
             valley,
         }
-    }
-
-    fn valley(&self, first: usize, last: usize) -> f32 {
-        let rim = self.smoothed[first].min(self.smoothed[last]);
-        if rim <= 0.0 {
-            return 1.0;
-        }
-        let floor = self.smoothed[first..=last]
-            .iter()
-            .copied()
-            .fold(f32::INFINITY, f32::min);
-        (floor / rim).clamp(0.0, 1.0)
-    }
-
-    fn peaks(&self) -> Vec<usize> {
-        let max = self.smoothed.iter().copied().fold(0.0f32, f32::max);
-        if max <= 0.0 {
-            return Vec::new();
-        }
-        let floor = max * PEAK_FLOOR;
-        let mut peaks: Vec<usize> = Vec::new();
-        for i in 1..HIST_BINS - 1 {
-            let v = self.smoothed[i];
-            if v < floor || v < self.smoothed[i - 1] || v < self.smoothed[i + 1] {
-                continue;
-            }
-            match peaks.last() {
-                Some(&previous) if i - previous < PEAK_SEPARATION => {
-                    if v > self.smoothed[previous] {
-                        let last = peaks.len() - 1;
-                        peaks[last] = i;
-                    }
-                }
-                _ => peaks.push(i),
-            }
-        }
-        peaks
     }
 
     fn symbol_rate(&mut self, rate: f64, levels: u8) -> Option<f64> {
@@ -605,6 +590,43 @@ fn keyed_runs(keyed: &[bool], minimum: usize, out: &mut Vec<(usize, usize)>) {
     }
 }
 
+fn peaks_of(histogram: &[f32], out: &mut Vec<usize>) {
+    out.clear();
+    let max = histogram.iter().copied().fold(0.0f32, f32::max);
+    if max <= 0.0 {
+        return;
+    }
+    let floor = max * PEAK_FLOOR;
+    let last = histogram.len() - 1;
+    for i in 0..=last {
+        let v = histogram[i];
+        if v < floor || v < histogram[i.saturating_sub(1)] || v < histogram[(i + 1).min(last)] {
+            continue;
+        }
+        match out.last() {
+            Some(&previous) if i - previous < PEAK_SEPARATION => {
+                if v > histogram[previous] {
+                    let last = out.len() - 1;
+                    out[last] = i;
+                }
+            }
+            _ => out.push(i),
+        }
+    }
+}
+
+fn valley_of(histogram: &[f32], first: usize, last: usize) -> f32 {
+    let rim = histogram[first].min(histogram[last]);
+    if rim <= 0.0 {
+        return 1.0;
+    }
+    let floor = histogram[first..=last]
+        .iter()
+        .copied()
+        .fold(f32::INFINITY, f32::min);
+    (floor / rim).clamp(0.0, 1.0)
+}
+
 fn smooth(input: &[f32], out: &mut [f32]) {
     debug_assert_eq!(input.len(), out.len());
     for i in 0..input.len() {
@@ -779,5 +801,14 @@ mod tests {
         assert!(w.envelope_variation < 0.05, "on-state is flat");
         let baud = w.symbol_rate_hz.expect("keying has a clock");
         assert!((baud - 4_800.0).abs() < 250.0, "baud {baud}");
+        assert!(w.keying_gap < 0.05, "gap {}", w.keying_gap);
+    }
+
+    #[test]
+    fn the_envelope_of_bare_noise_has_no_keyed_state_under_it() {
+        let w = measure(crate::testutil::complex_noise(0x4f21, 0.05, 48_000));
+        assert!(w.on_off_db > 8.0, "depth {} dB", w.on_off_db);
+        assert!(w.duty < 0.9, "duty {}", w.duty);
+        assert!(w.keying_gap > 0.3, "gap {}", w.keying_gap);
     }
 }

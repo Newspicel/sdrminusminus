@@ -11,6 +11,8 @@ const BAND_EDGE_DB: f32 = 20.0;
 
 const SMOOTH_BINS: usize = 3;
 
+const FLOOR_QUANTILE: f32 = 0.1;
+
 fn from_db(db: f32) -> f32 {
     (db * 0.332_192_8).exp2()
 }
@@ -64,6 +66,7 @@ impl Detector {
         rate: f64,
         half_span_hz: f64,
         threshold_db: f32,
+        dominated: bool,
     ) -> Measurement {
         let quiet = Measurement {
             floor_db: -200.0,
@@ -81,14 +84,15 @@ impl Detector {
         let lo = center - half_bins;
         let hi = (center + half_bins).min(DETECT_FFT - 1);
 
-        let floor = self.median_of(Series::Smoothed, lo, hi);
+        let floor = self.quantile_of(Series::Smoothed, lo, hi, FLOOR_QUANTILE);
         let floor_db = 10.0 * (floor.max(f32::MIN_POSITIVE)).log10();
         let Some(peak) = (lo..=hi).max_by(|&a, &b| self.smoothed[a].total_cmp(&self.smoothed[b]))
         else {
             return quiet;
         };
         let peak_db = 10.0 * (self.smoothed[peak].max(f32::MIN_POSITIVE)).log10();
-        if peak_db - floor_db < threshold_db {
+        let quiet_band = peak_db - floor_db < threshold_db;
+        if quiet_band && !dominated {
             return Measurement {
                 floor_db,
                 peak_db,
@@ -98,7 +102,11 @@ impl Detector {
 
         let edge = from_db((floor_db + (threshold_db * 0.5).max(3.0)).max(peak_db - BAND_EDGE_DB));
         let gap = ((GAP_HZ / bin_hz) as usize).max(1);
-        let (start, end) = self.extent(peak, lo, hi, edge, gap);
+        let (start, end) = if quiet_band {
+            (lo, hi)
+        } else {
+            self.extent(peak, lo, hi, edge, gap)
+        };
         let bins = end - start + 1;
 
         let occupied: f32 = self.smoothed[start..=end].iter().sum();
@@ -109,7 +117,7 @@ impl Detector {
         let raw_peak_db = 10.0 * self.power[peak].max(f32::MIN_POSITIVE).log10();
         let median_db = 10.0
             * self
-                .median_of(Series::Raw, start, end)
+                .quantile_of(Series::Raw, start, end, 0.5)
                 .max(f32::MIN_POSITIVE)
                 .log10();
         let bin_index_hz = |i: usize| (i as f64 - center as f64) * bin_hz;
@@ -164,15 +172,15 @@ impl Detector {
         }
     }
 
-    fn median_of(&mut self, series: Series, lo: usize, hi: usize) -> f32 {
+    fn quantile_of(&mut self, series: Series, lo: usize, hi: usize, fraction: f32) -> f32 {
         self.scratch.clear();
         self.scratch.extend_from_slice(match series {
             Series::Raw => &self.power[lo..=hi],
             Series::Smoothed => &self.smoothed[lo..=hi],
         });
-        let mid = self.scratch.len() / 2;
-        let (_, median, _) = self.scratch.select_nth_unstable_by(mid, f32::total_cmp);
-        *median
+        let index = ((self.scratch.len() - 1) as f32 * fraction) as usize;
+        let (_, value, _) = self.scratch.select_nth_unstable_by(index, f32::total_cmp);
+        *value
     }
 
     fn extent(&self, peak: usize, lo: usize, hi: usize, edge: f32, gap: usize) -> (usize, usize) {
@@ -261,7 +269,7 @@ mod tests {
     fn empty_air_reports_no_band() {
         let mut detector = Detector::new();
         let noise = complex_noise(0x51d3, 0.01, 32_768);
-        let measured = detector.measure(&noise, RATE, 100_000.0, 8.0);
+        let measured = detector.measure(&noise, RATE, 100_000.0, 8.0, false);
         assert!(measured.band.is_none());
     }
 
@@ -273,7 +281,7 @@ mod tests {
             *s += n;
         }
         let band = detector
-            .measure(&iq, RATE, 100_000.0, 8.0)
+            .measure(&iq, RATE, 100_000.0, 8.0, false)
             .band
             .expect("a carrier 40 dB out of the noise is a signal");
         assert!(
@@ -303,7 +311,7 @@ mod tests {
             *s += loud + n;
         }
         let band = detector
-            .measure(&iq, RATE, 20_000.0, 8.0)
+            .measure(&iq, RATE, 20_000.0, 8.0, false)
             .band
             .expect("the quiet carrier is inside the slice");
         assert!(

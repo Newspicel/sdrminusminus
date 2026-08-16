@@ -1,3 +1,4 @@
+mod agreement;
 mod catalog;
 mod classify;
 mod detect;
@@ -24,6 +25,8 @@ const MAX_WINDOW: usize = 262_144;
 
 const MIN_WINDOW: usize = 4 * detect::DETECT_FFT;
 
+const STEADY_POWER_VARIATION: f64 = 0.3;
+
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ident".to_owned(),
     name: "Signal identifier".to_owned(),
@@ -40,6 +43,7 @@ pub struct IdentChannel {
     pending: usize,
     detector: detect::Detector,
     meter: features::Meter,
+    agreement: agreement::Agreement,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&IdentParams, ChannelError> {
@@ -101,6 +105,7 @@ impl IdentChannel {
     fn restart(&mut self) {
         self.window.clear();
         self.pending = 0;
+        self.agreement.forget();
     }
 
     fn analyse(&mut self) -> IdentReport {
@@ -109,8 +114,10 @@ impl IdentChannel {
             INPUT_RATE_HZ,
             self.params.bandwidth_hz / 2.0,
             self.params.threshold_db,
+            dominated(&self.window),
         );
         let Some(band) = measured.band else {
+            self.agreement.forget();
             return IdentReport {
                 snr_db: measured.peak_db - measured.floor_db,
                 confidence: 1.0,
@@ -128,7 +135,9 @@ impl IdentChannel {
         };
 
         let waveform = self.meter.measure(&zoom, &band);
-        let verdict = classify::classify(&band, &waveform);
+        let verdict = self
+            .agreement
+            .settle(&band, classify::classify(&band, &waveform));
         let mut candidates = catalog::candidates(verdict.modulation, &band, &waveform);
         framing::confirm(&mut candidates, &self.window, INPUT_RATE_HZ, &band);
 
@@ -158,6 +167,23 @@ impl IdentChannel {
     }
 }
 
+fn dominated(iq: &[Complex<f32>]) -> bool {
+    let mut sum = 0.0f64;
+    let mut sum_sq = 0.0f64;
+    for sample in iq {
+        let power = f64::from(sample.norm_sqr());
+        sum += power;
+        sum_sq += power * power;
+    }
+    let n = iq.len() as f64;
+    if n < 2.0 || sum <= 0.0 {
+        return false;
+    }
+    let mean = sum / n;
+    let variation = (sum_sq / n - mean * mean).max(0.0).sqrt() / mean;
+    variation < STEADY_POWER_VARIATION
+}
+
 const fn shifts(modulation: Modulation) -> bool {
     matches!(
         modulation,
@@ -180,6 +206,7 @@ impl ChannelRx for IdentChannel {
             pending: 0,
             detector: detect::Detector::new(),
             meter: features::Meter::new(),
+            agreement: agreement::Agreement::new(),
         })
     }
 

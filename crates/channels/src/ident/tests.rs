@@ -295,6 +295,88 @@ fn a_broadcast_signal_is_wideband_fm() {
     );
 }
 
+fn broadcast_audio(len: usize, seed: u32, smoothing: f32) -> Vec<f32> {
+    let mut state = seed | 1;
+    let mut smoothed = 0.0f32;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let noise = state as f32 / u32::MAX as f32 - 0.5;
+            smoothed += smoothing * (noise - smoothed);
+            (smoothed * 14.0).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+fn station(smoothing: f32) -> Vec<Complex<f32>> {
+    let len = (INPUT_RATE_HZ * 2.2) as usize;
+    let mut iq = testgen::wfm::transmission(
+        &broadcast_audio(len, 0x4d21, smoothing),
+        &broadcast_audio(len, 0x7712, smoothing),
+        true,
+        INPUT_RATE_HZ,
+    );
+    testgen::add_noise(&mut iq, 0x6f02, 0.004);
+    iq
+}
+
+#[test]
+fn a_loud_stereo_station_is_broadcast_fm_in_every_window() {
+    let reports = run(params(), &station(0.35));
+    assert!(reports.len() >= 4, "{} reports", reports.len());
+    for report in &reports {
+        assert_eq!(report.modulation, Modulation::Fm, "{report:?}");
+        assert_eq!(best(report), Some("FM broadcast"));
+        assert!(report.confidence > 0.6, "confidence {}", report.confidence);
+    }
+}
+
+#[test]
+fn a_processed_station_is_neither_keyed_nor_shifted() {
+    let reports = run(params(), &station(1.0));
+    assert!(reports.len() >= 4, "{} reports", reports.len());
+    for report in &reports {
+        assert_eq!(report.modulation, Modulation::Fm, "{report:?}");
+        assert!(
+            report.bandwidth_hz > 100_000.0,
+            "bandwidth {} Hz",
+            report.bandwidth_hz
+        );
+    }
+}
+
+#[test]
+fn a_keyed_carrier_is_morse_rather_than_a_bare_carrier() {
+    let mut iq = testgen::morse::transmission("CQ CQ DE TEST", 20.0, 800.0, INPUT_RATE_HZ);
+    testgen::add_noise(&mut iq, 0x3311, 0.004);
+    let reports = run(params(), &iq);
+    assert_eq!(consensus(&reports), Modulation::Ook);
+    assert!(
+        reports.iter().any(|r| best(r) == Some("Morse (CW)")),
+        "candidates: {:?}",
+        reports.iter().map(best).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_deeply_modulated_carrier_is_amplitude_modulation_not_keying() {
+    let len = (INPUT_RATE_HZ * 2.2) as usize;
+    let mut iq: Vec<Complex<f32>> = testgen::tone_audio(1_000.0, 1.0, INPUT_RATE_HZ, len)
+        .iter()
+        .map(|&a| Complex::new(0.5 * (1.0 + 0.8 * a), 0.0))
+        .collect();
+    testgen::add_noise(&mut iq, 0x5511, 0.004);
+    let reports = run(params(), &iq);
+    assert_eq!(consensus(&reports), Modulation::Am);
+    assert!(
+        reports.iter().all(|r| r.modulation != Modulation::Ook),
+        "an 80 percent modulated carrier dips without ever being keyed off"
+    );
+    assert_eq!(best(&reports[0]), Some("AM voice"));
+}
+
 #[test]
 fn a_retune_discards_the_half_window_it_was_holding() {
     let ctx = ChannelCtx {

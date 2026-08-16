@@ -4,6 +4,7 @@ use super::{detect::Band, features::Waveform};
 
 const KEYED_DUTY: f32 = 0.9;
 const KEYED_DEPTH_DB: f32 = 15.0;
+const KEYED_GAP: f32 = 0.15;
 const AMPLITUDE_MODULATED: f32 = 0.18;
 const CARRIER_LINE_DB: f32 = 12.0;
 const SIDEBAND_SKEW: f32 = 0.45;
@@ -12,10 +13,11 @@ const CARRIER_SPREAD_HZ: f64 = 100.0;
 const PHASE_LINE_DB: f32 = 10.0;
 const FLAT_SPECTRUM: f32 = 0.55;
 const FM_SPREAD_HZ: f64 = 200.0;
-const MIN_SHIFT_FRACTION: f64 = 0.02;
+const FM_SPREAD_FRACTION: f64 = 0.02;
 const LEVEL_SEPARATION: f64 = 0.7;
-const LEVEL_VALLEY: f32 = 0.5;
+const DWELL_VALLEY: f32 = 0.25;
 const NO_CLOCK_FIRMNESS: f32 = 0.5;
+const STEADY_RIPPLE: f32 = 1e-3;
 const SNR_FLOOR_DB: f32 = 3.0;
 const SNR_TRUSTED_DB: f32 = 18.0;
 
@@ -29,45 +31,92 @@ fn firmness(value: f32, threshold: f32, span: f32) -> f32 {
     ((value - threshold) / span).clamp(0.0, 1.0)
 }
 
+fn steady_snr_db(waveform: &Waveform) -> f32 {
+    let ripple = waveform.envelope_variation.max(STEADY_RIPPLE);
+    -10.0 * (2.0 * ripple * ripple).log10()
+}
+
+fn quality(snr_db: f32) -> f32 {
+    ((snr_db - SNR_FLOOR_DB) / (SNR_TRUSTED_DB - SNR_FLOOR_DB)).clamp(0.15, 1.0)
+}
+
+fn amplitude_modulation(waveform: &Waveform) -> f32 {
+    (waveform.envelope_variation.powi(2) - waveform.noise_variation.powi(2))
+        .max(0.0)
+        .sqrt()
+}
+
+fn shift_levels(band: &Band, waveform: &Waveform, modulated: f32) -> Option<u8> {
+    let levels = match waveform.frequency_levels {
+        levels @ (2 | 4) => levels,
+        _ => return None,
+    };
+    let parted = if levels == 2 {
+        waveform.level_valley <= DWELL_VALLEY
+    } else {
+        waveform.symbol_rate_hz.is_some()
+    };
+    let separated = parted
+        && waveform.deviation_hz >= waveform.frequency_spread_hz * LEVEL_SEPARATION
+        && waveform.frequency_spread_hz > band.bandwidth_hz * FM_SPREAD_FRACTION
+        && modulated <= AMPLITUDE_MODULATED;
+    separated.then_some(levels)
+}
+
+fn keyed(waveform: &Waveform) -> bool {
+    waveform.duty < KEYED_DUTY
+        && waveform.on_off_db > KEYED_DEPTH_DB
+        && waveform.keying_gap <= KEYED_GAP
+}
+
+fn swings(band: &Band, waveform: &Waveform) -> bool {
+    waveform.frequency_spread_hz > FM_SPREAD_HZ.max(band.bandwidth_hz * FM_SPREAD_FRACTION)
+}
+
 pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
-    let quality = ((band.snr_db - SNR_FLOOR_DB) / (SNR_TRUSTED_DB - SNR_FLOOR_DB)).clamp(0.15, 1.0);
+    let snr_db = band.snr_db.max(steady_snr_db(waveform));
+    let quality = quality(snr_db);
     let settle = |modulation, firmness: f32| Verdict {
         modulation,
         confidence: ((0.5 + 0.5 * firmness) * quality).clamp(0.0, 1.0),
         sideband: None,
     };
+    let modulated = amplitude_modulation(waveform);
 
-    let modulated = (waveform.envelope_variation.powi(2) - waveform.noise_variation.powi(2))
-        .max(0.0)
-        .sqrt();
-
-    let separated = waveform.deviation_hz >= waveform.frequency_spread_hz * LEVEL_SEPARATION
-        && waveform.level_valley <= LEVEL_VALLEY
-        && modulated <= AMPLITUDE_MODULATED;
-    let shifted = waveform.frequency_spread_hz > band.bandwidth_hz * MIN_SHIFT_FRACTION
-        && (waveform.symbol_rate_hz.is_some() || separated);
-    if shifted {
-        let firm = firmness(band.snr_db, SNR_FLOOR_DB, 15.0)
+    if let Some(levels) = shift_levels(band, waveform, modulated) {
+        let firm = firmness(snr_db, SNR_FLOOR_DB, 15.0)
             * if waveform.symbol_rate_hz.is_some() {
                 1.0
             } else {
                 NO_CLOCK_FIRMNESS
             };
-        match waveform.frequency_levels {
-            4 => return settle(Modulation::Fsk4, firm),
-            2 => return settle(Modulation::Fsk2, firm),
-            _ => {}
-        }
+        return settle(
+            if levels == 4 {
+                Modulation::Fsk4
+            } else {
+                Modulation::Fsk2
+            },
+            firm,
+        );
     }
 
-    if waveform.duty < KEYED_DUTY && waveform.on_off_db > KEYED_DEPTH_DB {
+    if keyed(waveform) {
         return settle(
             Modulation::Ook,
             firmness(waveform.on_off_db, KEYED_DEPTH_DB, 20.0),
         );
     }
 
-    if modulated > AMPLITUDE_MODULATED {
+    if modulated <= AMPLITUDE_MODULATED {
+        if band.bandwidth_hz < CARRIER_BANDWIDTH_HZ
+            && waveform.frequency_spread_hz < CARRIER_SPREAD_HZ
+        {
+            return settle(Modulation::Carrier, 1.0);
+        }
+        if swings(band, waveform) {
+            return settle(Modulation::Fm, firmness(snr_db, SNR_FLOOR_DB, 20.0));
+        }
+    } else {
         if band.carrier_db > CARRIER_LINE_DB {
             return settle(
                 Modulation::Am,
@@ -83,16 +132,6 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
                 )
             };
         }
-        return settle(Modulation::Am, 0.0);
-    }
-
-    if band.bandwidth_hz < CARRIER_BANDWIDTH_HZ && waveform.frequency_spread_hz < CARRIER_SPREAD_HZ
-    {
-        return settle(Modulation::Carrier, 1.0);
-    }
-
-    if waveform.frequency_spread_hz > FM_SPREAD_HZ {
-        return settle(Modulation::Fm, firmness(band.snr_db, SNR_FLOOR_DB, 20.0));
     }
 
     if waveform.quartic_line_db > PHASE_LINE_DB
@@ -110,6 +149,9 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
         );
     }
 
+    if modulated > AMPLITUDE_MODULATED {
+        return settle(Modulation::Am, 0.0);
+    }
     if band.flatness > FLAT_SPECTRUM {
         return settle(
             Modulation::NoiseLike,
@@ -177,6 +219,20 @@ mod tests {
             ..Waveform::default()
         };
         assert_eq!(classify(&band(20_000.0), &w).modulation, Modulation::Ook);
+    }
+
+    #[test]
+    fn the_envelope_of_bare_noise_is_not_keying() {
+        let w = Waveform {
+            duty: 0.75,
+            on_off_db: 16.0,
+            keying_gap: 1.0,
+            envelope_variation: 0.52,
+            noise_variation: 0.52,
+            frequency_levels: 1,
+            ..Waveform::default()
+        };
+        assert_ne!(classify(&band(20_000.0), &w).modulation, Modulation::Ook);
     }
 
     #[test]
@@ -277,6 +333,18 @@ mod tests {
     }
 
     #[test]
+    fn a_clockless_two_humped_continuum_is_analog_fm() {
+        let w = Waveform {
+            frequency_levels: 2,
+            frequency_spread_hz: 26_000.0,
+            deviation_hz: 28_000.0,
+            level_valley: 0.36,
+            ..steady()
+        };
+        assert_eq!(classify(&band(130_000.0), &w).modulation, Modulation::Fm);
+    }
+
+    #[test]
     fn a_wide_frequency_continuum_is_analog_fm() {
         let w = Waveform {
             frequency_levels: 1,
@@ -288,16 +356,21 @@ mod tests {
 
     #[test]
     fn confidence_follows_the_signal_to_noise_ratio() {
-        let w = Waveform {
+        let shift = |ripple: f32| Waveform {
             frequency_levels: 2,
             frequency_spread_hz: 2_000.0,
+            deviation_hz: 2_000.0,
             symbol_rate_hz: Some(9_600.0),
+            envelope_variation: ripple,
+            noise_variation: ripple,
             ..steady()
         };
         let mut weak = band(12_500.0);
         weak.snr_db = 4.0;
         let strong = band(12_500.0);
-        assert_eq!(classify(&weak, &w).modulation, Modulation::Fsk2);
-        assert!(classify(&weak, &w).confidence < classify(&strong, &w).confidence);
+        assert_eq!(classify(&weak, &shift(0.45)).modulation, Modulation::Fsk2);
+        assert!(
+            classify(&weak, &shift(0.45)).confidence < classify(&strong, &shift(0.04)).confidence
+        );
     }
 }
