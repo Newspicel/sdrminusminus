@@ -258,6 +258,10 @@ function stationId(event: DecoderEvent): string | null {
       return event.data.source;
     case "pocsag":
       return String(event.data.address);
+    case "flex":
+      return String(event.data.address);
+    case "ermes":
+      return String(event.data.local_address);
     case "rds":
       return event.data.pi ?? null;
     case "navtex":
@@ -266,6 +270,7 @@ function stationId(event: DecoderEvent): string | null {
     case "selcall":
     case "rtty":
     case "morse":
+    case "cw_skimmer":
     case "psk31":
     case "psk63":
     case "ft8":

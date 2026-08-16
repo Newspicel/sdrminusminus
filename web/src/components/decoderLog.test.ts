@@ -293,6 +293,48 @@ describe("eventSummary", () => {
     );
   });
 
+  it("renders FLEX and ERMES pages with their pager address", () => {
+    const flex: DecoderEvent = {
+      kind: "flex",
+      data: {
+        address: 123456,
+        payload: "alpha",
+        text: "CALL 42",
+        baud: 3200,
+        levels: 4,
+        cycle: 2,
+        frame: 17,
+        phase: "C",
+        errors_corrected: 1,
+      },
+    };
+    const ermes: DecoderEvent = {
+      kind: "ermes",
+      data: {
+        local_address: 45678,
+        message_number: 3,
+        payload: "numeric",
+        text: "012345",
+        urgent: true,
+        alert: 2,
+        errors_corrected: 0,
+      },
+    };
+    expect(eventSummary(flex)).toBe("123456: CALL 42");
+    expect(eventStation(flex)).toBe("123456");
+    expect(eventSummary(ermes)).toBe("45678: 012345");
+    expect(eventStation(ermes)).toBe("45678");
+  });
+
+  it("renders each CW skimmer signal with its passband offset and speed", () => {
+    const spot: DecoderEvent = {
+      kind: "cw_skimmer",
+      data: { offset_hz: -742.4, text: "CQ W1AW", wpm: 23.6, snr_db: 14.2 },
+    };
+    expect(eventSummary(spot)).toBe("-742 Hz · 24 WPM · CQ W1AW");
+    expect(eventStation(spot)).toBeNull();
+  });
+
   it("omits fields a frame does not carry", () => {
     expect(eventSummary({ kind: "adsb", data: { icao: "3c6444", df: 11, raw: "5d" } })).toBe(
       "3c6444",

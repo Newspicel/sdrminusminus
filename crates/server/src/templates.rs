@@ -2,10 +2,11 @@ use std::sync::LazyLock;
 
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AudioProcessing, ChannelNode,
-    ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, GnssParams,
-    IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody, PatchEdge, PatchGraph,
-    PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams, RttyParams, SsbParams,
-    SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams, WsprParams, YsfParams,
+    ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams,
+    FlexParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody,
+    PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
+    RttyParams, SsbParams, SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams,
+    WsprParams, YsfParams,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -291,19 +292,31 @@ static TEMPLATES: &[Entry] = &[
     },
     Entry {
         id: "pagers",
-        name: "Pagers (POCSAG)",
-        description: "POCSAG pager messages, 512/1200/2400 baud.",
+        name: "Pagers",
+        description: "POCSAG, FLEX and ERMES pager messages.",
         explainer: "Pager traffic still carries hospital, industrial and emergency dispatch \
-                    messages. The decoder locks onto whichever of the three baud rates a \
-                    transmission uses. Frequencies are regional — 466 MHz is common in \
-                    Europe; check your national allocation.",
+                    messages. The three decoders cover POCSAG at every standard baud rate, \
+                    all four FLEX modes and European ERMES. Frequencies are regional; check \
+                    your national allocation before tuning.",
         center_hz: 466_075_000.0,
         sample_rate: 1_024_000.0,
-        channels: &[Channel::at(
-            466_075_000.0,
-            || ChannelParams::Pocsag(PocsagParams::default()),
-            LOG,
-        )],
+        channels: &[
+            Channel::at(
+                466_075_000.0,
+                || ChannelParams::Pocsag(PocsagParams::default()),
+                LOG,
+            ),
+            Channel::at(
+                466_075_000.0,
+                || ChannelParams::Flex(FlexParams::default()),
+                LOG,
+            ),
+            Channel::at(
+                466_075_000.0,
+                || ChannelParams::Ermes(ErmesParams::default()),
+                LOG,
+            ),
+        ],
         exact_rate: false,
     },
     Entry {

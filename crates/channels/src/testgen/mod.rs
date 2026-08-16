@@ -3,6 +3,8 @@ pub mod adsb;
 pub mod ais;
 pub mod atv;
 pub mod dv;
+pub mod ermes;
+pub mod flex;
 pub mod gnss;
 pub mod morse;
 pub mod navtex;

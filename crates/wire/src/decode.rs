@@ -45,6 +45,39 @@ pub struct PocsagMessage {
     pub errors_corrected: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PagerPayload {
+    Tone,
+    Numeric,
+    Alpha,
+    Binary,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FlexMessage {
+    pub address: u64,
+    pub payload: PagerPayload,
+    pub text: String,
+    pub baud: u16,
+    pub levels: u8,
+    pub cycle: u8,
+    pub frame: u8,
+    pub phase: char,
+    pub errors_corrected: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ErmesMessage {
+    pub local_address: u32,
+    pub message_number: u8,
+    pub payload: PagerPayload,
+    pub text: String,
+    pub urgent: bool,
+    pub alert: u8,
+    pub errors_corrected: u32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AdsbMessage {
     pub icao: String,
@@ -133,6 +166,14 @@ pub struct RttyText {
 pub struct MorseText {
     pub text: String,
     pub wpm: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CwSkimmerSpot {
+    pub offset_hz: f32,
+    pub text: String,
+    pub wpm: f32,
+    pub snr_db: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -656,11 +697,14 @@ pub struct SstvPicture {
 pub enum DecoderEvent {
     Rds(RdsUpdate),
     Pocsag(PocsagMessage),
+    Flex(FlexMessage),
+    Ermes(ErmesMessage),
     Adsb(AdsbMessage),
     Ais(AisMessage),
     Aprs(AprsPacket),
     Rtty(RttyText),
     Morse(MorseText),
+    CwSkimmer(CwSkimmerSpot),
     Selcall(SelcallSequence),
     Navtex(NavtexMessage),
     Acars(AcarsMessage),
@@ -685,11 +729,14 @@ impl DecoderEvent {
         match self {
             Self::Rds(_) => "rds",
             Self::Pocsag(_) => "pocsag",
+            Self::Flex(_) => "flex",
+            Self::Ermes(_) => "ermes",
             Self::Adsb(_) => "adsb",
             Self::Ais(_) => "ais",
             Self::Aprs(_) => "aprs",
             Self::Rtty(_) => "rtty",
             Self::Morse(_) => "morse",
+            Self::CwSkimmer(_) => "cw_skimmer",
             Self::Selcall(_) => "selcall",
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
@@ -735,6 +782,20 @@ impl DecoderEvent {
                     format!("{}: {}", p.address, p.text)
                 }
             }
+            Self::Flex(p) => {
+                if p.text.is_empty() {
+                    format!("{} · {:?}", p.address, p.payload)
+                } else {
+                    format!("{}: {}", p.address, p.text)
+                }
+            }
+            Self::Ermes(p) => {
+                if p.text.is_empty() {
+                    format!("{} · {:?}", p.local_address, p.payload)
+                } else {
+                    format!("{}: {}", p.local_address, p.text)
+                }
+            }
             Self::Adsb(a) => {
                 let mut parts = vec![a.icao.clone()];
                 if let Some(cs) = &a.callsign {
@@ -764,6 +825,7 @@ impl DecoderEvent {
             },
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
+            Self::CwSkimmer(s) => format!("{:+.0} Hz · {:.0} WPM · {}", s.offset_hz, s.wpm, s.text),
             Self::Selcall(s) => format!(
                 "{} · {}",
                 match s.system {
@@ -964,6 +1026,8 @@ impl DecoderEvent {
         match self {
             Self::Rds(r) => r.pi.clone(),
             Self::Pocsag(p) => Some(p.address.to_string()),
+            Self::Flex(p) => Some(p.address.to_string()),
+            Self::Ermes(p) => Some(p.local_address.to_string()),
             Self::Adsb(a) => Some(a.icao.clone()),
             Self::Ais(m) => Some(m.mmsi.to_string()),
             Self::Aprs(p) => Some(p.source.clone()),
@@ -981,6 +1045,7 @@ impl DecoderEvent {
             Self::Wspr(s) => Some(s.callsign.clone()),
             Self::Rtty(_)
             | Self::Morse(_)
+            | Self::CwSkimmer(_)
             | Self::Psk31(_)
             | Self::Psk63(_)
             | Self::Tone(_)
@@ -1072,6 +1137,26 @@ mod tests {
                 text: String::new(),
                 errors_corrected: 0,
             }),
+            DecoderEvent::Flex(FlexMessage {
+                address: 1,
+                payload: PagerPayload::Tone,
+                text: String::new(),
+                baud: 1_600,
+                levels: 2,
+                cycle: 0,
+                frame: 0,
+                phase: 'A',
+                errors_corrected: 0,
+            }),
+            DecoderEvent::Ermes(ErmesMessage {
+                local_address: 1,
+                message_number: 0,
+                payload: PagerPayload::Tone,
+                text: String::new(),
+                urgent: false,
+                alert: 0,
+                errors_corrected: 0,
+            }),
             DecoderEvent::Adsb(AdsbMessage::default()),
             DecoderEvent::Ais(AisMessage::default()),
             DecoderEvent::Aprs(AprsPacket::default()),
@@ -1081,6 +1166,12 @@ mod tests {
             DecoderEvent::Morse(MorseText {
                 text: String::new(),
                 wpm: 0.0,
+            }),
+            DecoderEvent::CwSkimmer(CwSkimmerSpot {
+                offset_hz: 0.0,
+                text: String::new(),
+                wpm: 0.0,
+                snr_db: 0.0,
             }),
             DecoderEvent::Selcall(SelcallSequence {
                 system: crate::channel::SelcallSystem::Ccir1,

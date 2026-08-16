@@ -51,6 +51,31 @@ const DETAIL: {
     body: p.text || null,
   }),
 
+  flex: (p) => ({
+    fields: fields([
+      ["Address", String(p.address)],
+      ["Payload", p.payload],
+      ["Mode", `${p.baud}/${p.levels}`],
+      ["Cycle", String(p.cycle)],
+      ["Frame", String(p.frame)],
+      ["Phase", p.phase],
+      ["Repaired", p.errors_corrected > 0 ? String(p.errors_corrected) : undefined],
+    ]),
+    body: p.text || null,
+  }),
+
+  ermes: (p) => ({
+    fields: fields([
+      ["Local address", String(p.local_address)],
+      ["Message number", String(p.message_number)],
+      ["Payload", p.payload],
+      ["Urgent", flag(p.urgent)],
+      ["Alert", String(p.alert)],
+      ["Repaired", p.errors_corrected > 0 ? String(p.errors_corrected) : undefined],
+    ]),
+    body: p.text || null,
+  }),
+
   adsb: (a) => ({
     fields: fields([
       ["ICAO", a.icao.toUpperCase()],
@@ -104,6 +129,15 @@ const DETAIL: {
   rtty: (t) => ({ fields: [], body: t.text || null }),
 
   morse: (m) => ({ fields: fields([["Speed", `${m.wpm.toFixed(0)} WPM`]]), body: m.text || null }),
+
+  cw_skimmer: (m) => ({
+    fields: fields([
+      ["Offset", `${signed(m.offset_hz, 0)} Hz`],
+      ["Speed", `${m.wpm.toFixed(0)} WPM`],
+      ["SNR", `${signed(m.snr_db, 1)} dB`],
+    ]),
+    body: m.text || null,
+  }),
 
   ft8: (m) => ({
     fields: fields([

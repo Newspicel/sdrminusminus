@@ -18,6 +18,7 @@ import {
   aircraftRow,
   buildTranscript,
   candidateScore,
+  cwSignalRows,
   type DecoderScope,
   formatAge,
   formatAltFreqs,
@@ -331,6 +332,55 @@ function TextView({
   );
 }
 
+function CwSkimmerView({ scope = {} }: { scope?: DecoderScope }) {
+  const rows = cwSignalRows(recordsInScope(useDecodedKind("cw_skimmer"), scope));
+  return (
+    <div className={PANE}>
+      <div className="flex items-baseline gap-2">
+        <span className="legend">Signals in passband</span>
+        <span className="font-mono text-xs text-ink-dim">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <span className={EMPTY}>No CW carriers decoded yet.</span>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] border-collapse">
+            <thead>
+              <tr className="border-b border-line">
+                <th className={TABLE_HEAD}>Frequency</th>
+                <th className={TABLE_HEAD}>Offset</th>
+                <th className={TABLE_HEAD}>Speed</th>
+                <th className={TABLE_HEAD}>SNR</th>
+                <th className={TABLE_HEAD}>Text</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={Math.round(row.offsetHz)} className="border-b border-line/50">
+                  <td className={`${TABLE_CELL} tabular-nums`}>
+                    {(row.frequencyHz / 1e6).toFixed(6)} MHz
+                  </td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>
+                    {row.offsetHz >= 0 ? "+" : ""}
+                    {row.offsetHz.toFixed(0)} Hz
+                  </td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>{row.wpm.toFixed(0)} WPM</td>
+                  <td className={`${TABLE_CELL} tabular-nums`}>{row.snrDb.toFixed(0)} dB</td>
+                  <td
+                    className={`${TABLE_CELL} max-w-[24rem] whitespace-pre-wrap break-words font-mono text-ink`}
+                  >
+                    {row.text}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function kindLabel(kind: "rtty" | "morse" | "psk31" | "psk63"): string {
   return { rtty: "RTTY", morse: "Morse", psk31: "PSK31", psk63: "PSK63" }[kind];
 }
@@ -512,6 +562,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ais: (scope) => <TargetsView kind="ais" scope={scope} />,
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
+  cw_skimmer: (scope) => <CwSkimmerView scope={scope} />,
   psk31: (scope) => <TextView kind="psk31" scope={scope} />,
   psk63: (scope) => <TextView kind="psk63" scope={scope} />,
   selcall: null,
@@ -519,6 +570,8 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ident: (scope) => <IdentView scope={scope} />,
   aprs: null,
   pocsag: null,
+  flex: null,
+  ermes: null,
   navtex: null,
   acars: null,
   subghz: null,
