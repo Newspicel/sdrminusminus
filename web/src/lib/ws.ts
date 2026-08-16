@@ -22,12 +22,14 @@ import type { ClientCommand, ServerEvent } from "./types";
 
 const RECONNECT_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
+const STABLE_MS = 10_000;
 
 export class SdrSocket {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   private closed = false;
   private backoffMs = RECONNECT_MS;
+  private openedAt = 0;
   private readonly path: string;
   private readonly listeners = new ListenerRegistry();
 
@@ -42,8 +44,13 @@ export class SdrSocket {
 
   connect(): void {
     this.closed = false;
+    window.addEventListener("online", this.handleOnline);
     this.open();
   }
+
+  private readonly handleOnline = (): void => {
+    this.retryNow();
+  };
 
   send(command: ClientCommand): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -61,6 +68,7 @@ export class SdrSocket {
 
   close(): void {
     this.closed = true;
+    window.removeEventListener("online", this.handleOnline);
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -86,11 +94,15 @@ export class SdrSocket {
     const ws = new WebSocket(this.url());
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
-      this.backoffMs = RECONNECT_MS;
+      this.openedAt = Date.now();
       this.listeners.emit("status", true);
     };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
+      if (this.openedAt !== 0 && Date.now() - this.openedAt >= STABLE_MS) {
+        this.backoffMs = RECONNECT_MS;
+      }
+      this.openedAt = 0;
       this.listeners.emit("status", false);
       this.scheduleReconnect();
     };
@@ -144,7 +156,7 @@ export class SdrSocket {
     if (this.closed || this.reconnectTimer !== null) {
       return;
     }
-    const delay = this.backoffMs;
+    const delay = this.backoffMs * (0.5 + Math.random() * 0.5);
     this.backoffMs = Math.min(this.backoffMs * 2, RECONNECT_MAX_MS);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
