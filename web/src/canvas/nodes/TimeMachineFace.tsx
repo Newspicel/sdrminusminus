@@ -69,19 +69,23 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
       live={phase.kind === "armed" || phase.kind === "capturing"}
     >
       <FaceBody>
-        <Settings className="border-b border-line p-2">
-          <SettingRow label="History">
-            <NumberField
-              label="Seconds of history"
-              value={seconds}
-              min={MIN_HISTORY_SECONDS}
-              max={MAX_HISTORY_SECONDS}
-              step={1}
-              disabled={phase.kind !== "idle" || control.isPending}
-              onCommit={edit}
-            />
-          </SettingRow>
-        </Settings>
+        {set !== null && (
+          <Settings className="border-b border-line p-2">
+            <SettingRow label="History">
+              <NumberField
+                label="Seconds of history"
+                value={seconds}
+                min={MIN_HISTORY_SECONDS}
+                max={MAX_HISTORY_SECONDS}
+                step={1}
+                disabled={phase.kind !== "idle" || control.isPending}
+                onCommit={edit}
+                className="w-24"
+              />
+              <span className="legend">s</span>
+            </SettingRow>
+          </Settings>
+        )}
         {status === null ? (
           <FaceEmpty>
             {phase.kind !== "unavailable"
@@ -99,54 +103,56 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
           </p>
         )}
       </FaceBody>
-      <FaceFooter>
-        {phase.kind === "idle" || phase.kind === "unavailable" ? (
-          <Button
-            type="button"
-            className={BTN}
-            disabled={phase.kind !== "idle" || control.isPending}
-            title="Hold the last seconds of IQ in memory"
-            onClick={() => control.mutate("arm")}
-          >
-            Arm
-          </Button>
-        ) : (
-          <>
-            {phase.kind === "armed" ? (
+      {set !== null && (
+        <FaceFooter>
+          {phase.kind === "idle" || phase.kind === "unavailable" ? (
+            <Button
+              type="button"
+              className={BTN}
+              disabled={phase.kind !== "idle" || control.isPending}
+              title="Hold the last seconds of IQ in memory"
+              onClick={() => control.mutate("arm")}
+            >
+              Arm
+            </Button>
+          ) : (
+            <>
+              {phase.kind === "armed" ? (
+                <Button
+                  type="button"
+                  className={BTN}
+                  disabled={control.isPending}
+                  title="Write the buffered past to a SigMF pair and keep recording"
+                  onClick={() => control.mutate("capture")}
+                >
+                  <span aria-hidden className="text-danger">
+                    ●
+                  </span>
+                  Capture
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className={BTN_DANGER}
+                  disabled={control.isPending}
+                  onClick={() => control.mutate("stop")}
+                >
+                  Stop
+                </Button>
+              )}
               <Button
                 type="button"
                 className={BTN}
                 disabled={control.isPending}
-                title="Write the buffered past to a SigMF pair and keep recording"
-                onClick={() => control.mutate("capture")}
+                title="Release the buffer"
+                onClick={() => control.mutate("disarm")}
               >
-                <span aria-hidden className="text-danger">
-                  ●
-                </span>
-                Capture
+                Disarm
               </Button>
-            ) : (
-              <Button
-                type="button"
-                className={BTN_DANGER}
-                disabled={control.isPending}
-                onClick={() => control.mutate("stop")}
-              >
-                Stop
-              </Button>
-            )}
-            <Button
-              type="button"
-              className={BTN}
-              disabled={control.isPending}
-              title="Release the buffer"
-              onClick={() => control.mutate("disarm")}
-            >
-              Disarm
-            </Button>
-          </>
-        )}
-      </FaceFooter>
+            </>
+          )}
+        </FaceFooter>
+      )}
     </NodeShell>
   );
 }
