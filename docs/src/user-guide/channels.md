@@ -27,27 +27,67 @@ The node palette splits channels into **Modes**, which produce audio, and **Deco
 produce events. The server reports the exact catalog for the running build; this is the current
 list.
 
-| Group | Channels |
-|---|---|
-| Analog voice | AM, NFM, SSB, WFM (broadcast, with stereo and RDS) |
-| Digital voice | DMR, D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17, FreeDV 1600 |
-| Aviation | ADS-B (1090ES), ACARS, VDL Mode 2, HFDL, Inmarsat Classic Aero, VOR, ILS localizer / glideslope |
-| Marine | AIS, NAVTEX, Digital Selective Calling, Inmarsat STD-C / EGC |
-| Amateur data and HF | APRS / AX.25, RTTY, PSK31, PSK63, Morse (CW), CW skimmer, FT8, FT4, WSPR |
-| Paging and telemetry | POCSAG, FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, radio clocks (DCF77, WWVB, MSF, JJY) |
-| Video | ATV, SSTV |
-| Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ |
-| Utility | Signal identifier, GNSS lab (GPS L1 C/A), Iridium bursts |
+| Group | Channels | Maturity |
+|---|---|---|
+| Analog voice | AM, NFM, SSB, WFM (broadcast, with stereo and RDS) | fixture-only |
+| Digital voice | DMR | tested on air |
+| Digital voice | FreeDV 1600 | tested on air |
+| Digital voice | D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17 | fixture-only |
+| Aviation | ADS-B (1090ES), ACARS, VDL Mode 2, HFDL, Inmarsat Classic Aero | fixture-only |
+| Aviation | VOR, ILS localizer / glideslope | experimental |
+| Marine | AIS, NAVTEX, Digital Selective Calling, Inmarsat STD-C / EGC | fixture-only |
+| Amateur data and HF | APRS / AX.25, RTTY, PSK (31, 63, 125, 250 baud), Morse (CW), CW skimmer, FT8, FT4, WSPR | fixture-only |
+| Paging and telemetry | POCSAG, FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
+| Video | ATV, SSTV | fixture-only |
+| Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
+| Utility | Signal identifier, Iridium bursts | fixture-only |
+| Utility | GNSS lab (GPS L1 C/A) | experimental |
 
 Coverage varies by protocol. A listed mode means the signal path and the documented frame layers
 are implemented; it does not mean every optional signalling service, trunking system or vendor
 extension is supported. The [feature roadmap](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md)
 records known gaps.
 
+## What the maturity labels mean
+
+| Label | What it means |
+|---|---|
+| **tested on air** | Decoded from a real transmitter, with a capture of that signal committed as a regression test. |
+| **fixture-only** | Decodes a golden IQ fixture rendered by sdr--'s own modulator, plus the worked examples the standard publishes. The frame layers are proven; the receiver has not been held against a real transmitter. |
+| **experimental** | Acquisition, lock, or measurement only — no payload decoded — or a lab implementation rather than an operational one. |
+
+Most decoders are fixture-only. A fixture proves that the decoder undoes what our own modulator
+did, which catches real bugs but says nothing about transmitter drift, keying transients,
+adjacent-channel splatter, or multipath. Treat a fixture-only mode as a decoder that should work
+rather than one that is known to.
+
+Two modes carry an off-air proof. DMR reads `dmr_call_48k`, a direct-mode call on PMR446 captured
+with an RTL-SDR, which is the only signal in the tree that keys off between bursts the way a real
+TDMA transmitter does. FreeDV 1600 reads the FreeDV project's own receive test recording. Where a
+standard publishes worked examples — ADS-B position and identification frames, the APRS
+compressed-position examples, the CCIR 476 alphabet, the radio-clock golden minutes — the decoders
+are checked against those too, but a published vector is still not a transmitter.
+
+Iridium is a middle case: its test replays a bit sequence taken off the air, re-modulated by the
+project's own transmitter, so the framing is real traffic while the waveform is synthetic. VDL
+Mode 2, HFDL, Inmarsat Classic Aero, Inmarsat STD-C and Digital Selective Calling use decoders
+from the [xng](https://github.com/airframesio/xng) project, which are exercised against real
+traffic upstream; the label describes this integration, not that work.
+
 The wideband digital channels are **acquisition only**. They report waveform lock, SNR, frequency
 error, and the configured symbol rate where one applies. They do not decode DAB FIC/MSC, DVB
 transport streams, DRM FAC/SDC/MSC, programme audio, or DATV pictures. A missing service label
 means the multiplex layer was not decoded, not that the station has no name.
+
+The GNSS lab acquires GPS L1 C/A and reads NAV telemetry for study; it is not a positioning
+receiver. VOR and ILS report a radial and a difference in depth of modulation rather than decoding
+a frame, and both are so far checked only against analytically generated signals.
+
+An off-air capture that promotes a mode to *tested on air* is among the most useful contributions
+the project can receive. Keep it to a few seconds, stripped to the band of interest, and pair it
+with the decoded output it should produce — see
+[Build and test](../development/building.md) and the
+[contribution guide](https://github.com/Newspicel/sdrminusminus/blob/main/CONTRIBUTING.md).
 
 ## Sample rate and passband
 

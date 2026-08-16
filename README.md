@@ -18,7 +18,7 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 
 - Build a receiver visually from device, channel, display, scanner, recorder, and output nodes.
 - Listen to AM, narrowband FM, broadcast FM with RDS, and SSB.
-- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, PSK31/PSK63, Morse, CCIR/ZVEI/EEA
+- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, PSK31–PSK250, Morse, CCIR/ZVEI/EEA
   selective calling, DCF77/WWVB/MSF/JJY radio clocks, educational GPS L1 C/A acquisition and NAV
   telemetry, sub-GHz frames, and several digital voice modes.
 - Pull weak amateur traffic out of the noise with FT8, FT4, and WSPR.
@@ -42,6 +42,57 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 
 The built-in signal generator means you can explore the complete receive path without owning an
 SDR.
+
+## Why not SDR++, SDRangel, or GQRX?
+
+Those are good programs, and if you want a desktop receiver with a fixed layout and a long list of
+demodulators, they will serve you better today — they are mature, and most of this project's
+decoders are not yet (see below). sdr-- exists because four things are structural rather than
+features that could be added to them:
+
+- **The signal path is a graph you build, not a fixed chain.** Devices, channels, scopes, scanners,
+  recorders, maps, logs, and network sinks are nodes you wire together. One device can feed twelve
+  channels; one channel can feed a speaker, a map, a log, and a UDP sink at once. Two decoders can
+  share a device while a third records the raw IQ underneath them. In a fixed layout each of those
+  is a feature someone has to add; here it is a cable you drag.
+- **The receiver and its interface are separate programs.** The Rust server owns the hardware and
+  the DSP; the interface is a browser client. Put a Pi in the attic next to the antenna and operate
+  it from the sofa, a laptop, or a phone — no X forwarding, no VNC, no remote desktop. The same
+  build runs headless on the Pi and as a desktop app on your workstation, and several people can
+  watch one receiver at the same time.
+- **Everything the interface can do, a script can do.** The UI is a client of a typed REST API with
+  a generated OpenAPI document, a WebSocket event stream, and an MCP server. Tuning, channels,
+  scanning, recording, and decoded traffic are all reachable from a shell script, a bot, or an LLM
+  agent, because they are the same endpoints the UI calls. There is no plugin to write and no
+  separate automation surface that lags behind the app.
+- **One binary, no module hunt.** RTL-SDR, HackRF, and SDRplay drivers are compiled in; so are the
+  decoders and the web UI. `docker compose up` or a single downloaded file gets you a working
+  receiver without installing SoapySDR modules, matching plugin ABIs, or tracking down which build
+  of which library your distribution shipped.
+
+The honest trade: sdr-- is younger and has less on-air mileage. If you need a proven receiver
+right now, use SDR++. If you want a receiver you can wire up, put on the network, and drive from
+code, that is what this is for.
+
+## How far each mode has been proven
+
+Everything above is implemented and covered by tests, but "tested" does not mean the same thing
+for every mode. Each entry in the
+[channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
+carries one of three labels:
+
+| Label | What it means |
+|---|---|
+| **tested on air** | Decoded from a real transmitter, with a capture of that signal committed as a regression test. |
+| **fixture-only** | Decodes a golden IQ fixture rendered by sdr--'s own modulator, plus the worked examples the standard publishes. The frame layers are proven; the receiver has not been held against a real transmitter. |
+| **experimental** | Acquisition, lock, or measurement only — no payload decoded — or a lab implementation rather than an operational one. |
+
+Most decoders are fixture-only today. A fixture proves that the decoder undoes what our own
+modulator did, which catches real bugs but says nothing about transmitter drift, keying
+transients, adjacent-channel splatter, or multipath. Treat a fixture-only mode as a decoder that
+should work rather than one that is known to. Off-air captures that promote a mode to *tested on
+air* are among the most useful contributions the project can receive — see the
+[contribution guide](CONTRIBUTING.md).
 
 | | |
 |---|---|

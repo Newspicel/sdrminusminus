@@ -51,7 +51,9 @@ If you want to contribute, begin with [Build and test](development/building.md),
 sdr-- is under active development. Nightly builds track the latest `main` branch and can change
 without migration guarantees. Stable releases are the better choice for saved stations and
 unattended deployments. The repository's [feature roadmap](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md)
-distinguishes shipped work from future ideas.
+distinguishes shipped work from future ideas, and the
+[channel catalog](user-guide/channels.md#channel-catalog) records how far each mode has been
+proven — most decoders are tested against generated fixtures rather than a real transmitter.
 
 Always follow the radio regulations that apply where you operate, especially around restricted
 traffic, recording, and transmission. sdr-- currently focuses on reception.
