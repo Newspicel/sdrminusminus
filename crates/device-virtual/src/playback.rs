@@ -222,10 +222,10 @@ impl SdrDevice for FilePlayback {
                         }
                     }
                 }
+                transport.set_position(reader.position(), position_generation);
                 if filled > 0 {
                     sink.push(&block[..filled]);
                 }
-                transport.set_position(reader.position(), position_generation);
                 if filled < block.len() {
                     while running.load(Ordering::Acquire) {
                         std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));

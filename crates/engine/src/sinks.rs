@@ -40,10 +40,32 @@ impl ChannelBasebandRecording {
         }
     }
 
-    pub(crate) fn join(self) {
-        let Self { tap, writer, .. } = self;
+    pub(crate) fn finish(self, overruns_now: u64) -> RecordingStatus {
+        let Self {
+            file,
+            stream,
+            started_at,
+            tap,
+            shared,
+            writer,
+            overruns_at_start,
+            ..
+        } = self;
         drop(tap);
         join_recording_writer(writer);
+        RecordingStatus {
+            file,
+            stream,
+            started_at,
+            samples: shared.samples(),
+            bytes: shared.bytes(),
+            overruns: overruns_now.saturating_sub(overruns_at_start),
+            error: shared.error(),
+        }
+    }
+
+    pub(crate) fn join(self) {
+        let _ = self.finish(0);
     }
 }
 
@@ -249,8 +271,7 @@ impl Engine {
             inner.revision += 1;
             (recording, overruns)
         };
-        let status = recording.status(overruns);
-        recording.join();
+        let status = recording.finish(overruns);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
