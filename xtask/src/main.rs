@@ -1113,6 +1113,13 @@ fn audit(root: &Path) -> Result<()> {
     run("cargo", &["deny", "check", "advisories"], root)
 }
 
+// Playwright starts the server with `cargo run -p sdrmm` under a fixed webServer timeout, and that
+// binary pulls in the hardware and GPU features nothing else in the gate builds — a cold cache
+// turns the launch into a full rebuild and the timeout fires before the port opens.
+fn build_smoke_server(root: &Path) -> Result<()> {
+    run("cargo", &["build", "-p", "sdrmm"], root)
+}
+
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     run_with_env(
@@ -1121,6 +1128,7 @@ fn smoke(root: &Path) -> Result<()> {
         root,
         &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
     )?;
+    build_smoke_server(root)?;
     let soapy_root = root.join("target/hermetic-soapy");
     let modules = soapy_root.join("lib/SoapySDR/modules0.8");
     std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
@@ -1152,6 +1160,7 @@ fn screenshots(root: &Path) -> Result<()> {
         root,
         &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
     )?;
+    build_smoke_server(root)?;
     let out = root.join("assets/screenshots");
     std::fs::create_dir_all(&out).context("create screenshot directory")?;
     let soapy_root = root.join("target/hermetic-soapy");
