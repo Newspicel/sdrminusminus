@@ -24,6 +24,7 @@ export type PropagationNode = components["schemas"]["PropagationNode"];
 export type ChannelSettings = components["schemas"]["ChannelSettings"];
 export type ChannelParams = components["schemas"]["ChannelParams"];
 export type ChannelDescriptor = components["schemas"]["ChannelDescriptor"];
+export type EventFilterNode = components["schemas"]["EventFilterNode"];
 export type AudioProcessing = components["schemas"]["AudioProcessing"];
 export type AudioAgcMode = components["schemas"]["AudioAgcMode"];
 export type AudioFilterSettings = components["schemas"]["AudioFilterSettings"];

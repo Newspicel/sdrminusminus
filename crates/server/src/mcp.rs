@@ -591,6 +591,7 @@ impl SdrMcp {
         Parameters(req): Parameters<DecoderLogRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let filter = DecoderLogQuery {
+            kinds: None,
             kind: req.kind,
             device_set: req.device_set,
             nodes: None,

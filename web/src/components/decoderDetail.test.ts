@@ -20,6 +20,23 @@ describe("eventDetail", () => {
   it("answers for every decoder the wire union declares", () => {
     const sample: Record<DecoderKind, DecoderEvent> = {
       rds: { kind: "rds", data: { groups: 0, block_errors: 0 } },
+      call: {
+        kind: "call",
+        data: {
+          id: 7,
+          node: "dmr",
+          source_node: "dmr",
+          started_at: "2026-08-16T10:00:00Z",
+          ended_at: "2026-08-16T10:00:02Z",
+          duration_ms: 2_000,
+          device_set: 1,
+          channel: 2,
+          freq_hz: 451_125_000,
+          mode: "dmr",
+          encrypted: false,
+          emergency: false,
+        },
+      },
       pocsag: {
         kind: "pocsag",
         data: {

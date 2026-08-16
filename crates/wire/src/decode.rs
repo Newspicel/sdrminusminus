@@ -761,6 +761,7 @@ pub enum DecoderEvent {
     Subghz(SubghzFrame),
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
+    Call(crate::rest::VoiceCall),
     Ft8(WsjtMessage),
     Ft4(WsjtMessage),
     Psk(PskText),
@@ -817,6 +818,7 @@ impl DecoderEvent {
             Self::Vdl2(_) => "vdl2",
             Self::Hfdl(_) => "hfdl",
             Self::Iridium(_) => "iridium",
+            Self::Call(_) => "call",
         }
     }
 
@@ -951,6 +953,35 @@ impl DecoderEvent {
                 }
                 if f.repeats > 1 {
                     parts.push(format!("×{}", f.repeats));
+                }
+                parts.join(" · ")
+            }
+            Self::Call(c) => {
+                let mut parts = vec![c.mode.label().to_owned()];
+                parts.push(c.destination.map_or_else(
+                    || "to unknown".to_owned(),
+                    |id| match c.group_call {
+                        Some(true) => format!("talkgroup {id}"),
+                        Some(false) => format!("radio {id}"),
+                        None => format!("to {id}"),
+                    },
+                ));
+                parts.push(
+                    c.source
+                        .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
+                );
+                if let Some(slot) = c.slot {
+                    parts.push(format!("TS{slot}"));
+                }
+                if let Some(cc) = c.color_code {
+                    parts.push(format!("CC {cc}"));
+                }
+                parts.push(format!("{:.1} s", c.duration_ms as f64 / 1_000.0));
+                if c.emergency {
+                    parts.push("emergency".to_owned());
+                }
+                if c.encrypted {
+                    parts.push("encrypted".to_owned());
                 }
                 parts.join(" · ")
             }
@@ -1147,6 +1178,7 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
+            Self::Call(c) => c.source.map(|s| s.to_string()),
             Self::Ft8(m) | Self::Ft4(m) => m.text.split_whitespace().nth(1).map(str::to_owned),
             Self::Wspr(s) => Some(s.callsign.clone()),
             Self::Rtty(_)

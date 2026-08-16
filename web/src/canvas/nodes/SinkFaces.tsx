@@ -4,7 +4,7 @@ import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
-import type { WireScope } from "../../components/decoderLog";
+import type { EventGate, WireScope } from "../../components/decoderLog";
 import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import {
@@ -31,12 +31,20 @@ import { pushToast } from "../../lib/toasts";
 import type {
   AudioRecordingStatus,
   DeviceSet,
+  EventFilterNode,
   PatchNode,
   RecordAction,
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
-import { type Input, inputsOf, iqSourceOf, targetsOf } from "../binding";
+import {
+  type EventPath,
+  eventPathsOf,
+  type Input,
+  inputsOf,
+  iqSourceOf,
+  targetsOf,
+} from "../binding";
 import { useWorkspaceContext } from "../context";
 import { deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
@@ -68,11 +76,34 @@ function useWiredKinds(inputs: readonly Input[]): string[] {
   return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
 }
 
-function wireScope(inputs: readonly Input[]): WireScope {
+function wireScope(inputs: readonly Input[], paths: readonly EventPath[] = []): WireScope {
   return {
     nodes: inputs.map((input) => input.node).join(","),
     sources: inputs.map((input) => `${input.deviceSet}:${input.channel.id}`).join(","),
+    gate: eventGate(inputs, paths),
   };
+}
+
+function eventGate(inputs: readonly Input[], paths: readonly EventPath[]): EventGate {
+  const bySource: Record<string, EventFilterNode[][]> = {};
+  for (const input of inputs) {
+    const key = `${input.deviceSet}:${input.channel.id}`;
+    const chains = paths.filter((path) => path.source === input.node).map((path) => path.filters);
+    (bySource[key] ??= []).push(...chains);
+  }
+  const kinds = new Set<string>();
+  for (const chains of Object.values(bySource)) {
+    for (const chain of chains) {
+      const named = chain.flatMap((filter) => filter.kinds ?? []);
+      if (named.length === 0) {
+        return { kinds: [], bySource };
+      }
+      for (const kind of named) {
+        kinds.add(kind);
+      }
+    }
+  }
+  return { kinds: [...kinds].sort(), bySource };
 }
 
 export function SpeakerFace({ node }: { node: PatchNode }) {
@@ -318,7 +349,9 @@ export function VideoFace({ node }: { node: PatchNode }) {
 }
 
 export function DecoderLogFace({ node }: { node: PatchNode }) {
+  const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
+  const paths = eventPathsOf(workspace.graph, node.id);
   const empty = useFaceEmptyText(
     node.id,
     "events",
@@ -337,7 +370,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
           <FaceEmpty>{empty}</FaceEmpty>
         </FaceBody>
       ) : (
-        <DecoderLogPanel wires={wireScope(inputs)} />
+        <DecoderLogPanel wires={wireScope(inputs, paths)} />
       )}
     </NodeShell>
   );

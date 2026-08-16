@@ -23,6 +23,8 @@ const FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 
 const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 
+const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+
 const RETRY_MAX: usize = 4 * BATCH_MAX;
 
 pub(crate) async fn run(engine: Arc<Engine>, store: Arc<Store>, dropped: Arc<AtomicU64>) {
@@ -73,7 +75,10 @@ async fn write(
             _ = flush_tick.tick() => {
                 flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
             }
-            _ = prune_tick.tick() => prune(&store, &engine, MAX_ROWS).await,
+            _ = prune_tick.tick() => {
+                expire(&store, &engine, RETENTION).await;
+                prune(&store, &engine, MAX_ROWS).await;
+            }
         }
     }
 }
@@ -208,6 +213,25 @@ async fn flush(
     }
 }
 
+async fn expire(store: &Arc<Store>, engine: &Weak<Engine>, keep: Duration) {
+    let Ok(keep) = jiff::SignedDuration::try_from(keep) else {
+        return;
+    };
+    let cutoff = (jiff::Timestamp::now() - keep).to_string();
+    let owned = store.clone();
+    match tokio::task::spawn_blocking(move || owned.prune_decoder_log_before(&cutoff)).await {
+        Ok(Ok(0)) => {}
+        Ok(Ok(count)) => {
+            tracing::info!(count, "decoder log rows aged out");
+            if let Some(engine) = engine.upgrade() {
+                engine.emit_scope(StateScope::DecoderLog);
+            }
+        }
+        Ok(Err(err)) => tracing::error!(error = %err, "decoder log expiry failed"),
+        Err(err) => tracing::error!(error = %err, "decoder log expiry task failed"),
+    }
+}
+
 async fn prune(store: &Arc<Store>, engine: &Weak<Engine>, max_rows: u64) {
     let owned = store.clone();
     match tokio::task::spawn_blocking(move || owned.prune_decoder_log(max_rows)).await {
@@ -238,7 +262,7 @@ mod tests {
         DecodedRecord {
             device_set: 0,
             channel: 0,
-            at: "2026-08-09T12:00:00Z".to_string(),
+            at: jiff::Timestamp::now().to_string(),
             freq_hz: 1_090_000_000.0,
             event: DecoderEvent::Adsb(AdsbMessage {
                 icao: icao.to_string(),
@@ -321,6 +345,7 @@ mod tests {
             id: "channel:adsb".to_owned(),
             body: NodeBody::Channel(ChannelNode {
                 channel_type: "adsb".to_owned(),
+                record_calls: false,
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,
@@ -413,6 +438,34 @@ mod tests {
 
         assert_eq!(dropped.load(Ordering::Relaxed), 16);
         assert_eq!(total(&store), 4);
+    }
+
+    #[tokio::test]
+    async fn rows_older_than_the_window_age_out() {
+        let store = Arc::new(Store::open(None).expect("store"));
+        let engine = Engine::with_registry(sdrmm_device::DeviceRegistry::new(), None);
+        let weak = Arc::downgrade(&engine);
+        store
+            .insert_decoder_events(
+                &[
+                    DecodedRecord {
+                        at: "2020-01-01T00:00:00Z".to_owned(),
+                        ..record("3C6444")
+                    },
+                    record("4CA2D4"),
+                ],
+                &crate::store::LogOrigin::unattributed(),
+            )
+            .expect("insert");
+        assert_eq!(total(&store), 2);
+
+        expire(&store, &weak, Duration::from_secs(24 * 60 * 60)).await;
+
+        assert_eq!(total(&store), 1, "only the stale row goes");
+        let (entries, _) = store
+            .query_decoder_log(&DecoderLogQuery::default())
+            .expect("query");
+        assert_eq!(entries[0].station.as_deref(), Some("4CA2D4"));
     }
 
     #[tokio::test]

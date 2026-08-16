@@ -846,6 +846,10 @@ impl Engine {
         self.decoded_tx_out.subscribe()
     }
 
+    pub fn publish_decoded(&self, record: DecodedRecord) {
+        let _ = self.decoded_tx_out.send(record);
+    }
+
     #[must_use]
     pub fn subscribe_images(&self) -> broadcast::Receiver<ImageCapture> {
         self.image_tx.subscribe()

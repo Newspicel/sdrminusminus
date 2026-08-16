@@ -4708,6 +4708,7 @@ dependencies = [
  "rusqlite",
  "rust-embed",
  "schemars 1.2.2",
+ "sdrmm-channels",
  "sdrmm-device",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",

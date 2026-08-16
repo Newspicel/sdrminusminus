@@ -256,6 +256,8 @@ function stationId(event: DecoderEvent): string | null {
       return String(event.data.mmsi);
     case "aprs":
       return event.data.source;
+    case "call":
+      return event.data.source == null ? null : String(event.data.source);
     case "pocsag":
       return String(event.data.address);
     case "flex":

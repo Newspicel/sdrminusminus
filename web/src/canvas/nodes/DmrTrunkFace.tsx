@@ -1,31 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
+import { Checkbox } from "../../components/Checkbox";
 import { CHIP } from "../../components/controls";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
-import { callsQuery } from "../../lib/api";
 import type { PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { DMR_TRUNK_PROTOCOLS, dmrTrunkGuidance } from "./dmrTrunk";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { CallRow } from "./SinkFaces";
-
-const RETENTION_OPTIONS = [
-  { value: 0, label: "Off" },
-  { value: 60, label: "1 minute" },
-  { value: 300, label: "5 minutes" },
-  { value: 900, label: "15 minutes" },
-  { value: 3_600, label: "1 hour" },
-  { value: 21_600, label: "6 hours" },
-] as const;
 
 export function DmrTrunkFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  const result = useQuery(callsQuery());
   if (node.kind !== "dmr_trunk") {
     return null;
   }
-  const calls = (result.data?.calls ?? []).filter((call) => call.node === node.id).slice(0, 20);
   const status = workspace.trunks.find((system) => system.node === node.id);
   const sources = (workspace.graph.edges ?? [])
     .filter((edge) => edge.to.node === node.id && edge.to.port === "events")
@@ -46,7 +33,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
       category="feature"
       subtitle={
         sources.length > 0
-          ? `${sources.length} carrier${sources.length === 1 ? "" : "s"} · ${status?.followers.length ?? 0} following · ${calls.length} calls`
+          ? `${sources.length} carrier${sources.length === 1 ? "" : "s"} · ${status?.followers.length ?? 0} following`
           : undefined
       }
       live={sources.length > 0}
@@ -61,12 +48,11 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               onChange={(next) => edit({ protocol: next })}
             />
           </SettingRow>
-          <SettingRow label="Keep calls">
-            <Select
-              label="Keep calls"
-              value={node.data.retention_seconds ?? 300}
-              options={RETENTION_OPTIONS}
-              onChange={(next) => edit({ retention_seconds: next })}
+          <SettingRow label="Record calls">
+            <Checkbox
+              label="Record calls"
+              checked={node.data.record_calls ?? true}
+              onChange={(next) => edit({ record_calls: next })}
             />
           </SettingRow>
         </Settings>
@@ -98,15 +84,6 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
                 {problem.reason}
               </p>
             ))}
-            {result.isError ? (
-              <p role="alert" className="p-3 text-xs text-danger">
-                {result.error.message}
-              </p>
-            ) : calls.length === 0 ? (
-              <FaceEmpty>Waiting for a completed call.</FaceEmpty>
-            ) : (
-              calls.map((call) => <CallRow key={call.id} call={call} />)
-            )}
           </>
         )}
       </FaceBody>

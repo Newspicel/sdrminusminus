@@ -3,6 +3,7 @@ import type {
   DeviceInfo,
   DeviceRef,
   DeviceSet,
+  EventFilterNode,
   PatchGraph,
   PatchNodeOf,
   TrunkSystemStatus,
@@ -15,6 +16,7 @@ export interface Input {
 }
 
 import { portStream } from "./graph";
+import type { WiredSource } from "./nodes/eventFilter";
 
 export function deviceRefOf(info: DeviceInfo): DeviceRef {
   return {
@@ -188,6 +190,51 @@ export function sourcesOf(graph: PatchGraph, node: string, port: string): string
     .map((edge) => edge.from.node);
 }
 
+const MAX_FILTER_DEPTH = 16;
+
+export interface EventPath {
+  source: string;
+  filters: EventFilterNode[];
+}
+
+export function eventPathsOf(graph: PatchGraph, node: string, depth = 0): EventPath[] {
+  if (depth > MAX_FILTER_DEPTH) {
+    return [];
+  }
+  return sourcesOf(graph, node, "events").flatMap((source) => {
+    const found = (graph.nodes ?? []).find((candidate) => candidate.id === source);
+    if (found?.kind !== "event_filter") {
+      return [{ source, filters: [] }];
+    }
+    const settings = found.data ?? {};
+    return eventPathsOf(graph, source, depth + 1).map((path) => ({
+      source: path.source,
+      filters: [...path.filters, settings],
+    }));
+  });
+}
+
+export function eventSourcesOf(graph: PatchGraph, node: string): string[] {
+  return [...new Set(eventPathsOf(graph, node).map((path) => path.source))];
+}
+
+export function wiredSourcesOf(graph: PatchGraph, node: string): WiredSource[] {
+  return eventSourcesOf(graph, node).map((id) => {
+    const found = graph.nodes.find((candidate) => candidate.id === id);
+    if (found?.kind === "channel") {
+      return {
+        channelType: found.data.channel_type,
+        recordsCalls: found.data.record_calls ?? false,
+        trunk: false,
+      };
+    }
+    if (found?.kind === "dmr_trunk") {
+      return { recordsCalls: found.data.record_calls ?? true, trunk: true };
+    }
+    return { recordsCalls: false, trunk: false };
+  });
+}
+
 export function targetsOf(graph: PatchGraph, node: string, port: string): string[] {
   return (graph.edges ?? [])
     .filter((edge) => edge.from.node === node && edge.from.port === port)
@@ -203,7 +250,8 @@ export function inputsOf(
   trunks: readonly TrunkSystemStatus[] = [],
 ): Input[] {
   const out: Input[] = [];
-  for (const source of sourcesOf(graph, node, port)) {
+  const sources = port === "events" ? eventSourcesOf(graph, node) : sourcesOf(graph, node, port);
+  for (const source of sources) {
     const trunk = trunks.find((system) => system.node === source);
     if (trunk !== undefined) {
       out.push(...followerInputs(trunk, devices));

@@ -277,6 +277,8 @@ pub struct DecoderLogQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kinds: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_set: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nodes: Option<String>,
@@ -293,6 +295,7 @@ pub struct DecoderLogQuery {
 }
 
 pub const MAX_LOG_SOURCES: usize = crate::patch::MAX_EDGES;
+pub const MAX_LOG_KIND_LEN: usize = 32;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogScope {
@@ -308,6 +311,16 @@ impl LogScope {
 }
 
 impl DecoderLogQuery {
+    pub fn kind_list(&self) -> Result<Vec<String>, &str> {
+        parse_list(self.kinds.as_deref(), |kind| {
+            if kind.is_empty() || kind.len() > MAX_LOG_KIND_LEN {
+                Err(kind)
+            } else {
+                Ok(kind.to_owned())
+            }
+        })
+    }
+
     pub fn scope(&self) -> Result<Option<LogScope>, &str> {
         if self.nodes.is_none() && self.sources.is_none() {
             return Ok(None);

@@ -68,6 +68,7 @@ http-body-util = "0.1"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 # Hermetic test engine (virtual driver only): tests must never enumerate live Soapy modules.
 sdrmm-device-virtual.workspace = true
+sdrmm-channels = { workspace = true, features = ["test-signals"] }
 tokio-tungstenite.workspace = true
 num-complex.workspace = true
 tempfile.workspace = true

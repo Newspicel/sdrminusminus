@@ -6,6 +6,8 @@ import {
   channelNodesOf,
   deviceNodeOf,
   deviceRefOf,
+  eventPathsOf,
+  eventSourcesOf,
   hasWire,
   inputsOf,
   iqSourceOf,
@@ -193,7 +195,7 @@ describe("binding", () => {
       nodes: [
         node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
         node("dmr", { kind: "channel", data: { channel_type: "dmr" } }),
-        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto", retention_seconds: 300 } }),
+        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto", record_calls: true } }),
         node("log", { kind: "decoder_log" }),
       ],
       edges: [
@@ -219,6 +221,79 @@ describe("binding", () => {
       { node: "trunk", deviceSet: 1, channel: traffic },
     ]);
     expect(inputsOf(g, "log", "events", devices, channels)).toEqual([]);
+  });
+
+  it("sees the decoder behind an event filter, however many are chained", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("dmr", { kind: "channel", data: { channel_type: "dmr" } }),
+        node("only-calls", { kind: "event_filter", data: { kinds: ["call"] } }),
+        node("loud", { kind: "event_filter", data: { min_duration_ms: 1000 } }),
+        node("log", { kind: "decoder_log" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "dmr", port: "iq" } },
+        { from: { node: "dmr", port: "events" }, to: { node: "only-calls", port: "events" } },
+        { from: { node: "only-calls", port: "events" }, to: { node: "loud", port: "events" } },
+        { from: { node: "loud", port: "events" }, to: { node: "log", port: "events" } },
+      ],
+    };
+    const dmr = channel(9, "dmr");
+    const devices = bindDevices(g, [set(1, rtl, [dmr])]);
+    const channels = bindChannels(g, devices);
+
+    expect(inputsOf(g, "log", "events", devices, channels)).toEqual([
+      { node: "dmr", deviceSet: 1, channel: dmr },
+    ]);
+    expect(eventSourcesOf(g, "log")).toEqual(["dmr"]);
+    expect(eventPathsOf(g, "log")).toEqual([
+      { source: "dmr", filters: [{ kinds: ["call"] }, { min_duration_ms: 1000 }] },
+    ]);
+  });
+
+  it("reports one path per wire when a decoder reaches a sink filtered and direct", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("dmr", { kind: "channel", data: { channel_type: "dmr" } }),
+        node("only-calls", { kind: "event_filter", data: { kinds: ["call"] } }),
+        node("log", { kind: "decoder_log" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "dmr", port: "iq" } },
+        { from: { node: "dmr", port: "events" }, to: { node: "only-calls", port: "events" } },
+        { from: { node: "only-calls", port: "events" }, to: { node: "log", port: "events" } },
+        { from: { node: "dmr", port: "events" }, to: { node: "log", port: "events" } },
+      ],
+    };
+
+    expect(eventPathsOf(g, "log")).toEqual([
+      { source: "dmr", filters: [{ kinds: ["call"] }] },
+      { source: "dmr", filters: [] },
+    ]);
+    expect(eventSourcesOf(g, "log")).toEqual(["dmr"]);
+  });
+
+  it("does not walk audio wires looking for filters", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
+        node("spk", { kind: "speaker" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+        { from: { node: "nfm", port: "audio" }, to: { node: "spk", port: "audio" } },
+      ],
+    };
+    const nfm = channel(3, "nfm");
+    const devices = bindDevices(g, [set(1, rtl, [nfm])]);
+    const channels = bindChannels(g, devices);
+
+    expect(inputsOf(g, "spk", "audio", devices, channels)).toEqual([
+      { node: "nfm", deviceSet: 1, channel: nfm },
+    ]);
   });
 
   describe("multi-stream wires", () => {

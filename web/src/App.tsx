@@ -88,8 +88,10 @@ export function App() {
         case "StateChanged":
           invalidateScope(queryClient, event.data.scope);
           break;
-        case "CallCompleted":
-          appendCall(queryClient, event.data);
+        case "Decoded":
+          if (event.data.event.kind === "call") {
+            appendCall(queryClient, event.data.event.data);
+          }
           break;
         case "ImageCaptured":
           appendImage(queryClient, event.data);

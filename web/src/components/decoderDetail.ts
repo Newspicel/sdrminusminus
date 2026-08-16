@@ -248,6 +248,28 @@ const DETAIL: {
     body: null,
   }),
 
+  call: (c) => ({
+    fields: fields([
+      ["Mode", c.mode.toUpperCase()],
+      [
+        "Destination",
+        c.destination == null
+          ? undefined
+          : c.group_call === false
+            ? `radio ${c.destination}`
+            : `talkgroup ${c.destination}`,
+      ],
+      ["Source", c.source == null ? undefined : String(c.source)],
+      ["Timeslot", c.slot == null ? undefined : String(c.slot)],
+      ["Colour code", c.color_code == null ? undefined : String(c.color_code)],
+      ["Duration", `${(c.duration_ms / 1000).toFixed(1)} s`],
+      ["Started", c.started_at],
+      ["Emergency", c.emergency ? "yes" : undefined],
+      ["Encrypted", c.encrypted ? "yes" : undefined],
+      ["Audio", c.audio_error ?? undefined],
+    ]),
+    body: null,
+  }),
   dv: (f) => ({
     fields: fields([
       ["Mode", dvMode(f)],

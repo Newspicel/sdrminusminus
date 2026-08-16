@@ -620,6 +620,7 @@ function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
 }
 
 const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
+  call: null,
   rds: (scope) => <RdsView scope={scope} />,
   adsb: (scope) => <TargetsView kind="adsb" scope={scope} />,
   ais: (scope) => <TargetsView kind="ais" scope={scope} />,

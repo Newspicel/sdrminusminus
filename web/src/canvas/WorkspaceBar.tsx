@@ -2,12 +2,12 @@ import { Button } from "../components/BaseControls";
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
-import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
 import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import { addNode, newNodeId } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
+import { newNodeBody } from "./newNode";
 import { useNodePlacement } from "./placement";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
@@ -58,48 +58,7 @@ export function WorkspaceBar({
       const node = {
         id,
         position: placeNode(snapshot.graph, kind),
-        ...(kind === "channel"
-          ? { kind: "channel" as const, data: { channel_type: channelType ?? "nfm" } }
-          : kind === "device"
-            ? { kind: "device" as const, data: {} }
-            : kind === "gps"
-              ? { kind: "gps" as const, data: { source: source ?? { type: "device" } } }
-              : kind === "signal_map"
-                ? {
-                    kind: "signal_map" as const,
-                    data: { offset_hz: 0, bandwidth_hz: 12_500 },
-                  }
-                : kind === "propagation"
-                  ? {
-                      kind: "propagation" as const,
-                      data: {
-                        half_life_minutes: 30,
-                        reflection_height_km: 300,
-                        show_paths: false,
-                        compare_forecast: true,
-                      },
-                    }
-                  : kind === "dmr_trunk"
-                    ? {
-                        kind: "dmr_trunk" as const,
-                        data: { protocol: "auto", retention_seconds: 300 },
-                      }
-                    : kind === "network_export"
-                      ? {
-                          kind: "network_export" as const,
-                          data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
-                        }
-                      : kind === "time_machine"
-                        ? {
-                            kind: "time_machine" as const,
-                            data: { history_seconds: DEFAULT_HISTORY_SECONDS },
-                          }
-                        : kind === "chat_output"
-                          ? {
-                              kind: "chat_output" as const,
-                              data: { target: { service: "discord" as const, webhook_url: "" } },
-                            }
-                          : { kind }),
+        ...newNodeBody(kind, { channelType, source }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

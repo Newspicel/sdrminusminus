@@ -1,30 +1,31 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::body::Bytes;
 use reqwest::{Client, Response, Url, multipart};
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    ChatOutputTarget, DecodedRecord, NodeBody, ServerEvent, StateScope, StateSnapshot, VoiceCall,
+    ChatOutputTarget, DecodedRecord, DecoderEvent, NodeBody, ServerEvent, StateScope,
+    StateSnapshot, VoiceCall,
 };
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{broadcast::error::RecvError, mpsc};
 
-use crate::{Store, calls::Calls};
+use crate::{Store, calls::Calls, events::EventPath};
 
 const DELIVERY_QUEUE: usize = 64;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_ERROR_BODY: usize = 1_024;
 const MAX_MESSAGE_CHARS: usize = 1_900;
+const MAX_DELIVERY_ATTEMPTS: u32 = 4;
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(5);
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
+const MATRIX_HTML_FORMAT: &str = "org.matrix.custom.html";
 
 #[derive(Clone)]
 struct Binding {
     node: String,
-    sources: HashSet<String>,
+    paths: Vec<EventPath>,
     target: ChatOutputTarget,
 }
 
@@ -43,8 +44,24 @@ struct Delivery {
 
 struct ChatMessage {
     body: String,
+    html: Option<String>,
     transaction: String,
     audio: Option<ChatAudio>,
+}
+
+#[derive(Debug)]
+enum DeliveryError {
+    RateLimited(Duration),
+    Failed(String),
+}
+
+impl std::fmt::Display for DeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RateLimited(wait) => write!(f, "rate limited for {} ms", wait.as_millis()),
+            Self::Failed(message) => f.write_str(message),
+        }
+    }
 }
 
 struct ChatAudio {
@@ -79,26 +96,6 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
     loop {
         tokio::select! {
             event = events.recv() => match event {
-                Ok(ServerEvent::CallCompleted(call)) => {
-                    for binding in routing.bindings
-                        .iter()
-                        .filter(|binding| binding.sources.contains(&call.node))
-                    {
-                        enqueue(
-                            &delivery_tx,
-                            Delivery {
-                                node: binding.node.clone(),
-                                target: binding.target.clone(),
-                                event: format!("call {}", call.id),
-                                message: call_message(
-                                    &binding.node,
-                                    &call,
-                                    calls.audio(call.id),
-                                ),
-                            },
-                        );
-                    }
-                }
                 Ok(ServerEvent::StateChanged {
                     scope: StateScope::All
                         | StateScope::Devices
@@ -115,7 +112,7 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
             record = decoded.recv(), if decoded_open => match record {
                 Ok(record) => {
                     decoded_sequence = decoded_sequence.wrapping_add(1);
-                    for delivery in decoded_deliveries(&routing, &record, decoded_sequence) {
+                    for delivery in decoded_deliveries(&routing, &record, decoded_sequence, &calls) {
                         enqueue(&delivery_tx, delivery);
                     }
                 }
@@ -150,7 +147,12 @@ fn enqueue(delivery_tx: &mpsc::Sender<Delivery>, delivery: Delivery) {
     }
 }
 
-fn decoded_deliveries(routing: &Routing, record: &DecodedRecord, sequence: u64) -> Vec<Delivery> {
+fn decoded_deliveries(
+    routing: &Routing,
+    record: &DecodedRecord,
+    sequence: u64,
+    calls: &Calls,
+) -> Vec<Delivery> {
     let Some(source) = routing
         .decoded_sources
         .get(&(record.device_set, record.channel))
@@ -160,12 +162,25 @@ fn decoded_deliveries(routing: &Routing, record: &DecodedRecord, sequence: u64) 
     routing
         .bindings
         .iter()
-        .filter(|binding| binding.sources.contains(source))
-        .map(|binding| Delivery {
-            node: binding.node.clone(),
-            target: binding.target.clone(),
-            event: format!("{} decode at {}", record.event.kind(), record.at),
-            message: decoded_message(&binding.node, record, sequence),
+        .filter(|binding| {
+            binding
+                .paths
+                .iter()
+                .any(|path| path.source == *source && path.passes(&record.event))
+        })
+        .map(|binding| match &record.event {
+            DecoderEvent::Call(call) => Delivery {
+                node: binding.node.clone(),
+                target: binding.target.clone(),
+                event: format!("call {}", call.id),
+                message: call_message(&binding.node, call, calls.audio(call.id)),
+            },
+            _ => Delivery {
+                node: binding.node.clone(),
+                target: binding.target.clone(),
+                event: format!("{} decode at {}", record.event.kind(), record.at),
+                message: decoded_message(&binding.node, record, sequence),
+            },
         })
         .collect()
 }
@@ -203,24 +218,13 @@ fn resolve(store: &Store, state: Option<&StateSnapshot>) -> Result<Routing, crat
             };
             settings.target.configured().then(|| Binding {
                 node: node.id.clone(),
-                sources: graph
-                    .sources_of(&node.id, "events")
-                    .map(str::to_owned)
-                    .collect(),
+                paths: crate::events::paths_into(graph, &node.id),
                 target: settings.target.clone(),
             })
         })
         .collect();
     let decoded_sources = state.map_or_else(HashMap::new, |state| {
-        crate::workspace::bind(graph, state)
-            .into_iter()
-            .flat_map(|binding| {
-                binding
-                    .channels
-                    .into_iter()
-                    .map(move |(node, channel)| ((binding.device_set, channel), node))
-            })
-            .collect()
+        crate::events::decoder_nodes(graph, state)
     });
     Ok(Routing {
         bindings,
@@ -230,24 +234,40 @@ fn resolve(store: &Store, state: Option<&StateSnapshot>) -> Result<Routing, crat
 
 async fn deliver_all(client: Client, mut deliveries: mpsc::Receiver<Delivery>) {
     while let Some(delivery) = deliveries.recv().await {
-        if let Err(error) = deliver(&client, &delivery).await {
-            tracing::error!(
-                output = %delivery.node,
-                event = %delivery.event,
-                %error,
-                "chat output delivery failed"
-            );
-        } else {
-            tracing::info!(
-                output = %delivery.node,
-                event = %delivery.event,
-                "chat output delivered"
-            );
+        for attempt in 1..=MAX_DELIVERY_ATTEMPTS {
+            match deliver(&client, &delivery).await {
+                Ok(()) => {
+                    tracing::info!(
+                        output = %delivery.node,
+                        event = %delivery.event,
+                        "chat output delivered"
+                    );
+                    break;
+                }
+                Err(DeliveryError::RateLimited(wait)) if attempt < MAX_DELIVERY_ATTEMPTS => {
+                    tracing::warn!(
+                        output = %delivery.node,
+                        event = %delivery.event,
+                        wait_ms = wait.as_millis(),
+                        "chat output rate limited, waiting before the next attempt"
+                    );
+                    tokio::time::sleep(wait).await;
+                }
+                Err(error) => {
+                    tracing::error!(
+                        output = %delivery.node,
+                        event = %delivery.event,
+                        %error,
+                        "chat output delivery failed"
+                    );
+                    break;
+                }
+            }
         }
     }
 }
 
-async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), String> {
+async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), DeliveryError> {
     match &delivery.target {
         ChatOutputTarget::Discord { webhook_url } => {
             send_discord(client, webhook_url, &delivery.message).await
@@ -275,9 +295,9 @@ async fn send_discord(
     client: &Client,
     webhook_url: &str,
     message: &ChatMessage,
-) -> Result<(), String> {
-    let mut url =
-        Url::parse(webhook_url).map_err(|error| format!("Discord webhook URL: {error}"))?;
+) -> Result<(), DeliveryError> {
+    let mut url = Url::parse(webhook_url)
+        .map_err(|error| DeliveryError::Failed(format!("Discord webhook URL: {error}")))?;
     set_query(&mut url, "wait", "true");
     let payload = json!({
         "content": message.body,
@@ -289,7 +309,9 @@ async fn send_discord(
             let part = multipart::Part::bytes(audio.bytes.to_vec())
                 .file_name(audio.filename.clone())
                 .mime_str("audio/wav")
-                .map_err(|error| format!("Discord audio attachment: {error}"))?;
+                .map_err(|error| {
+                    DeliveryError::Failed(format!("Discord audio attachment: {error}"))
+                })?;
             let form = multipart::Form::new()
                 .text("payload_json", payload.to_string())
                 .part("files[0]", part);
@@ -297,7 +319,7 @@ async fn send_discord(
         }
         None => request.json(&payload).send().await,
     }
-    .map_err(|error| format!("Discord request: {}", error.without_url()))?;
+    .map_err(|error| DeliveryError::Failed(format!("Discord request: {}", error.without_url())))?;
     checked("Discord", response).await
 }
 
@@ -317,13 +339,13 @@ async fn send_matrix(
     client: &Client,
     target: MatrixTarget<'_>,
     message: &ChatMessage,
-) -> Result<(), String> {
+) -> Result<(), DeliveryError> {
     let base = Url::parse(target.homeserver_url)
-        .map_err(|error| format!("Matrix homeserver URL: {error}"))?;
-    let content = match &message.audio {
+        .map_err(|error| DeliveryError::Failed(format!("Matrix homeserver URL: {error}")))?;
+    let mut content = match &message.audio {
         Some(audio) => {
             let mut upload_url = matrix_url(&base, &["_matrix", "media", "v3", "upload"])
-                .map_err(|error| format!("Matrix upload URL: {error}"))?;
+                .map_err(|error| DeliveryError::Failed(format!("Matrix upload URL: {error}")))?;
             upload_url
                 .query_pairs_mut()
                 .append_pair("filename", &audio.filename);
@@ -334,15 +356,17 @@ async fn send_matrix(
                 .body(audio.bytes.clone())
                 .send()
                 .await
-                .map_err(|error| format!("Matrix upload: {}", error.without_url()))?;
+                .map_err(|error| {
+                    DeliveryError::Failed(format!("Matrix upload: {}", error.without_url()))
+                })?;
             let response = checked_response("Matrix upload", response).await?;
-            let uploaded: MatrixUpload = response
-                .json()
-                .await
-                .map_err(|error| format!("Matrix upload response: {}", error.without_url()))?;
+            let uploaded: MatrixUpload = response.json().await.map_err(|error| {
+                DeliveryError::Failed(format!("Matrix upload response: {}", error.without_url()))
+            })?;
             json!({
                 "msgtype": "m.audio",
                 "body": message.body,
+                "filename": audio.filename,
                 "url": uploaded.content_uri,
                 "info": {
                     "duration": audio.duration_ms,
@@ -353,6 +377,10 @@ async fn send_matrix(
         }
         None => json!({ "msgtype": "m.text", "body": message.body }),
     };
+    if let Some(html) = &message.html {
+        content["format"] = json!(MATRIX_HTML_FORMAT);
+        content["formatted_body"] = json!(html);
+    }
     let send_url = matrix_url(
         &base,
         &[
@@ -366,14 +394,16 @@ async fn send_matrix(
             &message.transaction,
         ],
     )
-    .map_err(|error| format!("Matrix message URL: {error}"))?;
+    .map_err(|error| DeliveryError::Failed(format!("Matrix message URL: {error}")))?;
     let response = client
         .put(send_url)
         .bearer_auth(target.access_token)
         .json(&content)
         .send()
         .await
-        .map_err(|error| format!("Matrix message: {}", error.without_url()))?;
+        .map_err(|error| {
+            DeliveryError::Failed(format!("Matrix message: {}", error.without_url()))
+        })?;
     checked("Matrix message", response).await
 }
 
@@ -418,46 +448,72 @@ fn set_query(url: &mut Url, name: &str, value: &str) {
     url.query_pairs_mut().extend_pairs(pairs);
 }
 
-fn format_call(call: &VoiceCall) -> String {
-    let mut lines = vec![format!("{} call", call.mode.label())];
-    lines.push(format!(
-        "Source: {}",
+fn call_parts(call: &VoiceCall) -> Vec<String> {
+    let mut parts = vec![format!("{} call", call.mode.label())];
+    parts.push(call.destination.map_or_else(
+        || "to unknown".to_owned(),
+        |id| match call.group_call {
+            Some(true) => format!("talkgroup {id}"),
+            Some(false) => format!("radio {id}"),
+            None => format!("to {id}"),
+        },
+    ));
+    parts.push(
         call.source
-            .map_or_else(|| "unknown".to_owned(), |id| id.to_string())
-    ));
-    lines.push(format!(
-        "Destination: {}",
-        call.destination.map_or_else(
-            || "unknown".to_owned(),
-            |id| match call.group_call {
-                Some(true) => format!("talkgroup {id}"),
-                Some(false) => format!("radio {id}"),
-                None => id.to_string(),
-            }
-        )
-    ));
+            .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
+    );
     if let Some(slot) = call.slot {
-        lines.push(format!("Timeslot: {slot}"));
+        parts.push(format!("TS{slot}"));
     }
     if let Some(code) = call.color_code {
-        lines.push(format!("Colour code: {code}"));
+        parts.push(format!("CC{code}"));
     }
-    lines.push(format!("Frequency: {:.6} MHz", call.freq_hz / 1_000_000.0));
-    lines.push(format!(
-        "Duration: {:.1} s",
-        call.duration_ms as f64 / 1_000.0
-    ));
-    lines.push(format!("Started: {}", call.started_at));
+    parts.push(format!("{:.1} s", call.duration_ms as f64 / 1_000.0));
+    parts.push(format!("{:.6} MHz", call.freq_hz / 1_000_000.0));
     if call.emergency {
-        lines.push("Emergency: yes".to_owned());
+        parts.push("emergency".to_owned());
     }
     if call.encrypted {
-        lines.push("Encrypted: yes".to_owned());
+        parts.push("encrypted".to_owned());
+    }
+    parts
+}
+
+fn format_call(call: &VoiceCall) -> String {
+    let mut text = call_parts(call).join(" · ");
+    if let Some(error) = &call.audio_error {
+        text.push_str(&format!("\nAudio: {error}"));
+    }
+    text
+}
+
+fn format_call_html(call: &VoiceCall) -> String {
+    let parts = call_parts(call);
+    let (mode, rest) = parts.split_at(1);
+    let mut html = format!("<strong>{}</strong>", escape_html(&mode[0]));
+    for part in rest {
+        html.push_str(" · ");
+        html.push_str(&escape_html(part));
     }
     if let Some(error) = &call.audio_error {
-        lines.push(format!("Audio: {error}"));
+        html.push_str(&format!("<br/><em>{}</em>", escape_html(error)));
     }
-    lines.join("\n")
+    html
+}
+
+fn escape_html(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn format_decoded(record: &DecodedRecord) -> String {
@@ -483,6 +539,7 @@ fn format_decoded(record: &DecodedRecord) -> String {
 fn call_message(output_node: &str, call: &VoiceCall, audio: Option<Bytes>) -> ChatMessage {
     ChatMessage {
         body: bounded_message(format_call(call)),
+        html: Some(bounded_message(format_call_html(call))),
         transaction: call_transaction(output_node, call),
         audio: audio.map(|bytes| ChatAudio {
             bytes,
@@ -495,6 +552,7 @@ fn call_message(output_node: &str, call: &VoiceCall, audio: Option<Bytes>) -> Ch
 fn decoded_message(output_node: &str, record: &DecodedRecord, sequence: u64) -> ChatMessage {
     ChatMessage {
         body: bounded_message(format_decoded(record)),
+        html: None,
         transaction: decoded_transaction(output_node, record, sequence),
         audio: None,
     }
@@ -511,32 +569,72 @@ fn bounded_message(message: String) -> String {
     bounded
 }
 
-async fn checked(service: &str, response: Response) -> Result<(), String> {
+async fn checked(service: &str, response: Response) -> Result<(), DeliveryError> {
     checked_response(service, response).await.map(|_| ())
 }
 
-async fn checked_response(service: &str, mut response: Response) -> Result<Response, String> {
+async fn checked_response(
+    service: &str,
+    mut response: Response,
+) -> Result<Response, DeliveryError> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
     }
+    let header_delay = retry_after_header(&response);
     let mut body = Vec::with_capacity(MAX_ERROR_BODY);
     while body.len() < MAX_ERROR_BODY {
         let chunk = match response.chunk().await {
             Ok(Some(chunk)) => chunk,
             Ok(None) => break,
             Err(error) => {
-                return Err(format!(
+                return Err(DeliveryError::Failed(format!(
                     "{service} returned {status}: unreadable response: {}",
                     error.without_url()
-                ));
+                )));
             }
         };
         let remaining = MAX_ERROR_BODY - body.len();
         body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
     }
     let body = String::from_utf8_lossy(&body);
-    Err(format!("{service} returned {status}: {body}"))
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let delay = header_delay
+            .or_else(|| retry_after_body(&body))
+            .unwrap_or(DEFAULT_RETRY_DELAY)
+            .min(MAX_RETRY_DELAY);
+        return Err(DeliveryError::RateLimited(delay));
+    }
+    Err(DeliveryError::Failed(format!(
+        "{service} returned {status}: {body}"
+    )))
+}
+
+fn retry_after_header(response: &Response) -> Option<Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .and_then(seconds_to_delay)
+}
+
+fn retry_after_body(body: &str) -> Option<Duration> {
+    let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
+    if let Some(ms) = parsed
+        .get("retry_after_ms")
+        .and_then(serde_json::Value::as_f64)
+    {
+        return seconds_to_delay(ms / 1_000.0);
+    }
+    parsed
+        .get("retry_after")
+        .and_then(serde_json::Value::as_f64)
+        .and_then(seconds_to_delay)
+}
+
+fn seconds_to_delay(seconds: f64) -> Option<Duration> {
+    (seconds.is_finite() && seconds >= 0.0).then(|| Duration::from_secs_f64(seconds))
 }
 
 #[cfg(test)]
@@ -553,8 +651,8 @@ mod tests {
     };
     use reqwest::StatusCode;
     use sdrmm_wire::{
-        ChannelNode, ChatOutputNode, DecoderEvent, DvMode, EventAudio, PatchEdge, PatchGraph,
-        PatchNode, PortRef, Position, RackLayout, RttyText, UpdateWorkspaceRequest,
+        ChannelNode, ChatOutputNode, DecoderEvent, DvMode, EventAudio, EventFilterNode, PatchEdge,
+        PatchGraph, PatchNode, PortRef, Position, RackLayout, RttyText, UpdateWorkspaceRequest,
         WorkspaceSnapshot,
     };
 
@@ -676,6 +774,32 @@ mod tests {
             )
                 .into_response();
         }
+        if uri == "/rate-limited-header" {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(reqwest::header::RETRY_AFTER, "1.5")],
+                r#"{"errcode":"M_LIMIT_EXCEEDED","retry_after_ms":9000}"#,
+            )
+                .into_response();
+        }
+        if uri == "/rate-limited-body" {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                r#"{"errcode":"M_LIMIT_EXCEEDED","retry_after_ms":2500}"#,
+            )
+                .into_response();
+        }
+        if uri == "/rate-limited-bare" {
+            return (StatusCode::TOO_MANY_REQUESTS, "slow down").into_response();
+        }
+        if uri == "/rate-limited-forever" {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(reqwest::header::RETRY_AFTER, "86400")],
+                "",
+            )
+                .into_response();
+        }
         if uri.contains("/_matrix/media/v3/upload") {
             return (
                 StatusCode::OK,
@@ -687,14 +811,32 @@ mod tests {
     }
 
     #[test]
-    fn summary_contains_the_complete_call_metadata() {
+    fn summary_is_one_caption_line_holding_the_complete_call_metadata() {
         let text = format_call(&call());
-        assert!(text.contains("Source: 1001"));
-        assert!(text.contains("Destination: talkgroup 91"));
-        assert!(text.contains("Timeslot: 2"));
-        assert!(text.contains("Colour code: 3"));
-        assert!(text.contains("Frequency: 451.125000 MHz"));
-        assert!(text.contains("Duration: 1.2 s"));
+        assert_eq!(
+            text,
+            "DMR call · talkgroup 91 · from 1001 · TS2 · CC3 · 1.2 s · 451.125000 MHz"
+        );
+    }
+
+    #[test]
+    fn an_emergency_encrypted_call_names_both_flags() {
+        let text = format_call(&VoiceCall {
+            emergency: true,
+            encrypted: true,
+            ..call()
+        });
+        assert!(text.ends_with("· emergency · encrypted"));
+    }
+
+    #[test]
+    fn the_html_caption_escapes_the_audio_error() {
+        let html = format_call_html(&VoiceCall {
+            audio_error: Some("lost <2> blocks & counting".to_owned()),
+            ..call()
+        });
+        assert!(html.starts_with("<strong>DMR call</strong> · talkgroup 91"));
+        assert!(html.ends_with("<br/><em>lost &lt;2&gt; blocks &amp; counting</em>"));
     }
 
     #[test]
@@ -722,6 +864,7 @@ mod tests {
                     "decoder",
                     NodeBody::Channel(ChannelNode {
                         channel_type: "rtty".to_owned(),
+                        record_calls: false,
                     }),
                 ),
                 node(
@@ -753,8 +896,29 @@ mod tests {
 
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].node, "configured");
-        assert_eq!(bindings[0].sources, HashSet::from(["decoder".to_owned()]));
+        assert_eq!(bindings[0].paths.len(), 1);
+        assert_eq!(bindings[0].paths[0].source, "decoder");
         assert_eq!(bindings[0].target, configured);
+    }
+
+    fn path(source: &str, filters: Vec<EventFilterNode>) -> EventPath {
+        EventPath {
+            source: source.to_owned(),
+            filters,
+        }
+    }
+
+    fn routing_for(paths: Vec<EventPath>) -> Routing {
+        Routing {
+            bindings: vec![Binding {
+                node: "matched".to_owned(),
+                paths,
+                target: ChatOutputTarget::Discord {
+                    webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+                },
+            }],
+            decoded_sources: HashMap::from([((1, 2), "decoder".to_owned())]),
+        }
     }
 
     #[test]
@@ -766,24 +930,183 @@ mod tests {
             bindings: vec![
                 Binding {
                     node: "matched".to_owned(),
-                    sources: HashSet::from(["decoder".to_owned()]),
+                    paths: vec![path("decoder", Vec::new())],
                     target: target.clone(),
                 },
                 Binding {
                     node: "other".to_owned(),
-                    sources: HashSet::from(["other-decoder".to_owned()]),
+                    paths: vec![path("other-decoder", Vec::new())],
                     target,
                 },
             ],
             decoded_sources: HashMap::from([((1, 2), "decoder".to_owned())]),
         };
 
-        let deliveries = decoded_deliveries(&routing, &decoded(), 9);
+        let deliveries = decoded_deliveries(&routing, &decoded(), 9, &Calls::default());
 
         assert_eq!(deliveries.len(), 1);
         assert_eq!(deliveries[0].node, "matched");
         assert!(deliveries[0].message.body.contains("RTTY decode"));
         assert!(deliveries[0].message.transaction.ends_with("-rtty-9"));
+    }
+
+    #[test]
+    fn a_completed_call_travels_the_events_wire_like_any_other_decode() {
+        let routing = routing_for(vec![path("decoder", Vec::new())]);
+        let record = DecodedRecord {
+            event: DecoderEvent::Call(call()),
+            ..decoded()
+        };
+
+        let deliveries = decoded_deliveries(&routing, &record, 9, &Calls::default());
+
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].event, "call 7");
+        assert!(deliveries[0].message.body.contains("talkgroup 91"));
+    }
+
+    #[test]
+    fn a_filter_on_the_wire_decides_what_the_output_posts() {
+        let only_calls = EventFilterNode {
+            kinds: vec!["call".to_owned()],
+            ..EventFilterNode::default()
+        };
+        let routing = routing_for(vec![path("decoder", vec![only_calls])]);
+
+        assert!(
+            decoded_deliveries(&routing, &decoded(), 9, &Calls::default()).is_empty(),
+            "the filter admits calls only"
+        );
+        let record = DecodedRecord {
+            event: DecoderEvent::Call(call()),
+            ..decoded()
+        };
+        assert_eq!(
+            decoded_deliveries(&routing, &record, 9, &Calls::default()).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_talkgroup_filter_drops_the_calls_it_does_not_name() {
+        let routing = routing_for(vec![path(
+            "decoder",
+            vec![EventFilterNode {
+                talkgroups: vec![91],
+                ..EventFilterNode::default()
+            }],
+        )]);
+        let wanted = DecodedRecord {
+            event: DecoderEvent::Call(call()),
+            ..decoded()
+        };
+        let other = DecodedRecord {
+            event: DecoderEvent::Call(VoiceCall {
+                destination: Some(4_242),
+                ..call()
+            }),
+            ..decoded()
+        };
+
+        assert_eq!(
+            decoded_deliveries(&routing, &wanted, 9, &Calls::default()).len(),
+            1
+        );
+        assert!(decoded_deliveries(&routing, &other, 9, &Calls::default()).is_empty());
+    }
+
+    #[test]
+    fn one_output_can_be_fed_by_a_filtered_and_an_unfiltered_wire() {
+        let only_calls = EventFilterNode {
+            kinds: vec!["call".to_owned()],
+            ..EventFilterNode::default()
+        };
+        let routing = routing_for(vec![
+            path("decoder", vec![only_calls]),
+            path("decoder", Vec::new()),
+        ]);
+
+        assert_eq!(
+            decoded_deliveries(&routing, &decoded(), 9, &Calls::default()).len(),
+            1,
+            "one open wire is enough to post, and it posts once"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rate_limited_response_reports_the_header_delay() {
+        let (base, _captures) = server().await;
+        let response = Client::new()
+            .get(format!("{base}/rate-limited-header"))
+            .send()
+            .await
+            .expect("rate limited response");
+
+        let error = checked_response("Test", response)
+            .await
+            .expect_err("rate limited");
+
+        assert!(matches!(
+            error,
+            DeliveryError::RateLimited(wait) if wait == Duration::from_millis(1_500)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_rate_limited_response_falls_back_to_the_matrix_body_field() {
+        let (base, _captures) = server().await;
+        let response = Client::new()
+            .get(format!("{base}/rate-limited-body"))
+            .send()
+            .await
+            .expect("rate limited response");
+
+        let error = checked_response("Test", response)
+            .await
+            .expect_err("rate limited");
+
+        assert!(matches!(
+            error,
+            DeliveryError::RateLimited(wait) if wait == Duration::from_millis(2_500)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_without_any_hint_uses_the_default_delay() {
+        let (base, _captures) = server().await;
+        let response = Client::new()
+            .get(format!("{base}/rate-limited-bare"))
+            .send()
+            .await
+            .expect("rate limited response");
+
+        let error = checked_response("Test", response)
+            .await
+            .expect_err("rate limited");
+
+        assert!(matches!(
+            error,
+            DeliveryError::RateLimited(wait) if wait == DEFAULT_RETRY_DELAY
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_absurd_retry_after_is_capped() {
+        let (base, _captures) = server().await;
+        let response = Client::new()
+            .get(format!("{base}/rate-limited-forever"))
+            .send()
+            .await
+            .expect("rate limited response");
+
+        let error = checked_response("Test", response)
+            .await
+            .expect_err("rate limited");
+
+        assert!(matches!(
+            error,
+            DeliveryError::RateLimited(wait) if wait == MAX_RETRY_DELAY
+        ));
     }
 
     #[tokio::test]
@@ -863,7 +1186,8 @@ mod tests {
             &message,
         )
         .await
-        .expect_err("connection failure");
+        .expect_err("connection failure")
+        .to_string();
 
         assert!(error.starts_with("Discord request:"));
         assert!(!error.contains(secret));
@@ -906,10 +1230,18 @@ mod tests {
         assert_eq!(event["msgtype"], "m.audio");
         assert_eq!(event["url"], "mxc://matrix.test/audio7");
         assert_eq!(event["info"]["duration"], 1_200);
+        assert_eq!(event["filename"], "dmr-call-7.wav");
+        assert_eq!(event["format"], MATRIX_HTML_FORMAT);
+        assert!(
+            event["formatted_body"]
+                .as_str()
+                .is_some_and(|html| html.starts_with("<strong>DMR call</strong>"))
+        );
         assert!(
             event["body"]
                 .as_str()
-                .is_some_and(|body| body.contains("talkgroup 91"))
+                .is_some_and(|body| body.contains("talkgroup 91") && body != "dmr-call-7.wav"),
+            "body must differ from filename so clients treat it as a caption"
         );
     }
 
@@ -972,7 +1304,8 @@ mod tests {
 
         let error = checked_response("Test", response)
             .await
-            .expect_err("non-success response");
+            .expect_err("non-success response")
+            .to_string();
         let (_, body) = error.split_once(": ").expect("error body");
 
         assert_eq!(body.len(), MAX_ERROR_BODY);

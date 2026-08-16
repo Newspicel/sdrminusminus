@@ -489,6 +489,14 @@ impl Store {
         Ok(deleted as u64)
     }
 
+    pub fn prune_decoder_log_before(&self, cutoff: &str) -> Result<u64, StoreError> {
+        let dropped = self.lock().execute(
+            "DELETE FROM decoder_log WHERE at < ?1",
+            params![normalize_timestamp(cutoff)?],
+        )?;
+        Ok(dropped as u64)
+    }
+
     pub fn prune_decoder_log(&self, max_rows: u64) -> Result<u64, StoreError> {
         let dropped = self.lock().execute(
             "DELETE FROM decoder_log WHERE id <= \
@@ -1005,9 +1013,11 @@ fn migrate_call_buffers(snapshot: &mut serde_json::Value) {
             else {
                 continue;
             };
-            if let Some(value) = settings.get("retention_seconds") {
-                data.insert("retention_seconds".to_owned(), value.clone());
-            }
+            let kept = settings
+                .get("retention_seconds")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|seconds| seconds > 0);
+            data.insert("record_calls".to_owned(), serde_json::Value::Bool(kept));
         }
     }
     if let Some(edges) = graph
@@ -1140,9 +1150,21 @@ impl DecoderLogPredicate {
         let sources_term: String;
         let mut terms: Vec<&str> = Vec::new();
         let mut params = Vec::new();
+        let kinds_term: String;
         if let Some(kind) = &filter.kind {
             terms.push("kind = ?");
             params.push(Value::Text(kind.clone()));
+        }
+        let kinds = filter
+            .kind_list()
+            .map_err(|bad| StoreError::Sources(bad.to_owned()))?;
+        if !kinds.is_empty() {
+            let holes = vec!["?"; kinds.len()].join(", ");
+            kinds_term = format!("kind IN ({holes})");
+            terms.push(&kinds_term);
+            for kind in kinds {
+                params.push(Value::Text(kind));
+            }
         }
         if let Some(device_set) = filter.device_set {
             terms.push("device_set = ?");
@@ -1629,6 +1651,49 @@ mod tests {
         );
         assert_eq!(contradictory.1, 0);
         assert!(contradictory.0.is_empty());
+    }
+
+    #[test]
+    fn a_kind_list_narrows_the_log_to_those_kinds() {
+        let store = Store::open(None).expect("open");
+        seed(&store);
+
+        let none = query(
+            &store,
+            DecoderLogQuery {
+                kinds: Some(String::new()),
+                ..DecoderLogQuery::default()
+            },
+        );
+        assert_eq!(none.1, 3, "an empty list places no restriction");
+
+        let one = query(
+            &store,
+            DecoderLogQuery {
+                kinds: Some("aprs".to_string()),
+                ..DecoderLogQuery::default()
+            },
+        );
+        assert_eq!(one.1, 1);
+        assert_eq!(one.0[0].kind, "aprs");
+
+        let both = query(
+            &store,
+            DecoderLogQuery {
+                kinds: Some("aprs,adsb".to_string()),
+                ..DecoderLogQuery::default()
+            },
+        );
+        assert_eq!(both.1, 3);
+
+        let absent = query(
+            &store,
+            DecoderLogQuery {
+                kinds: Some("call".to_string()),
+                ..DecoderLogQuery::default()
+            },
+        );
+        assert_eq!(absent.1, 0, "nothing stored is a call");
     }
 
     #[test]
@@ -2141,7 +2206,7 @@ mod tests {
         let sdrmm_wire::NodeBody::DmrTrunk(settings) = &system.body else {
             panic!("DMR system");
         };
-        assert_eq!(settings.retention_seconds, 900);
+        assert!(settings.record_calls);
         assert!(migrated.graph.edges.iter().any(|edge| {
             edge.from.node == "carrier"
                 && edge.from.port == "events"

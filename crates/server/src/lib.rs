@@ -29,6 +29,7 @@ mod calls;
 mod chat_output;
 mod decoderlog;
 pub mod doctor;
+mod events;
 mod gps;
 mod images;
 mod ionosonde;
@@ -197,8 +198,7 @@ impl Drop for Background {
 }
 
 fn start_background(state: &AppState) -> Background {
-    let (retentions_tx, retentions_rx) =
-        tokio::sync::watch::channel(trunking::Retentions::default());
+    let (recording_tx, recording_rx) = tokio::sync::watch::channel(trunking::Recording::default());
     let log = {
         let engine = state.engine.clone();
         let store = state.store.clone();
@@ -211,14 +211,14 @@ fn start_background(state: &AppState) -> Background {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
         spawn_task("sdrmm-trunking", move || {
-            trunking::watch_patch(engine, store, retentions_tx)
+            trunking::watch_patch(engine, store, recording_tx)
         })
     };
     let calls = {
         let engine = Arc::downgrade(&state.engine);
         let calls = state.calls.clone();
         spawn_task("sdrmm-calls", move || {
-            calls::run(engine, calls, retentions_rx)
+            calls::run(engine, calls, recording_rx)
         })
     };
     let images = {
@@ -646,6 +646,67 @@ mod tests {
         let (status, body) = request(app, "GET", "/api/calls/99/audio", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+    }
+
+    #[tokio::test]
+    async fn a_plain_dmr_channel_records_every_call_without_any_trunk_system() {
+        const RATE: f64 = 240_000.0;
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let stem = dir.path().join("dmr");
+        let spoken = sdrmm_channels::testgen::dv::dmr::Call::default();
+        let one = sdrmm_channels::testgen::dv::dmr::transmission(&spoken, RATE);
+        let mut iq = Vec::new();
+        for _ in 0..6 {
+            iq.extend_from_slice(&one);
+        }
+        let floor = RATE as usize * 2;
+        if iq.len() < floor {
+            iq.extend(sdrmm_channels::testgen::silence(floor - iq.len()));
+        }
+        let mut writer = sdrmm_recorder::SigmfWriter::create(
+            &stem,
+            RATE,
+            145_000_000.0,
+            "conventional dmr fixture",
+        )
+        .expect("create fixture");
+        writer.write_block(&iq).expect("write fixture");
+        writer.finalize().expect("finalize fixture");
+
+        let app = recording_router(dir.path());
+        let mut snapshot =
+            virtual_snapshot(&format!("file:{}", stem.display()), &[("dmr", "dmr", "iq")]);
+        for node in &mut snapshot.graph.nodes {
+            if let sdrmm_wire::NodeBody::Channel(channel) = &mut node.body {
+                channel.record_calls = true;
+            }
+        }
+        let workspace = put_active_workspace(&app, &snapshot).await;
+        assert_eq!(apply(&app, workspace).await.created, 1);
+
+        let recorded = tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let (status, body) = request(app.clone(), "GET", "/api/calls", None).await;
+                assert_eq!(status, StatusCode::OK);
+                let listed: VoiceCallsResponse = serde_json::from_slice(&body).expect("json");
+                if let Some(call) = listed.calls.into_iter().next() {
+                    return call;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("a conventional DMR call reaches the call store");
+
+        assert_eq!(recorded.node, "dmr", "the channel node owns the call");
+        assert_eq!(recorded.source, Some(spoken.source));
+        assert_eq!(recorded.destination, Some(spoken.destination));
+        assert_eq!(recorded.group_call, Some(true));
+        assert!(!recorded.encrypted);
+        let audio = recorded.audio.expect("the call kept its audio");
+        let (status, wav) = request(app, "GET", &audio.url, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&wav[0..4], b"RIFF");
     }
 
     #[tokio::test]
@@ -2151,13 +2212,17 @@ mod tests {
         }
     }
 
+    fn recent(seconds_ago: i64) -> String {
+        (jiff::Timestamp::now() - jiff::SignedDuration::from_secs(seconds_ago)).to_string()
+    }
+
     fn seed_decoder_log(store: &Store) {
         store
             .insert_decoder_events(
                 &[
-                    adsb_record("2026-08-09T12:00:00Z", 0, "3C6444", "DLH123"),
-                    awkward_record("2026-08-09T12:00:01Z"),
-                    adsb_record("2026-08-09T12:00:02Z", 0, "4CA2D4", "RYR9AB"),
+                    adsb_record(&recent(180), 0, "3C6444", "DLH123"),
+                    awkward_record(&recent(120)),
+                    adsb_record(&recent(60), 0, "4CA2D4", "RYR9AB"),
                 ],
                 &crate::store::LogOrigin::unattributed(),
             )
@@ -3091,6 +3156,7 @@ mod tests {
                 id: (*id).to_string(),
                 body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
                     channel_type: (*channel_type).to_string(),
+                    record_calls: false,
                 }),
                 position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
                 size: None,

@@ -6,6 +6,7 @@ use crate::{
     MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
+    filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
     propagation::PropagationNode,
     timemachine::TimeMachineNode,
@@ -258,11 +259,11 @@ pub struct DeviceNode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelNode {
     pub channel_type: String,
+    #[serde(default)]
+    pub record_calls: bool,
 }
 
-const fn default_call_retention_seconds() -> u32 {
-    300
-}
+pub const DV_DECODER_KIND: &str = "dv";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -278,8 +279,8 @@ pub enum DmrTrunkProtocol {
 pub struct DmrTrunkNode {
     #[serde(default)]
     pub protocol: DmrTrunkProtocol,
-    #[serde(default = "default_call_retention_seconds")]
-    pub retention_seconds: u32,
+    #[serde(default)]
+    pub record_calls: bool,
 }
 
 pub const DEFAULT_SIGNAL_MAP_OFFSET_HZ: i64 = 0;
@@ -307,7 +308,7 @@ impl Default for DmrTrunkNode {
     fn default() -> Self {
         Self {
             protocol: DmrTrunkProtocol::Auto,
-            retention_seconds: default_call_retention_seconds(),
+            record_calls: true,
         }
     }
 }
@@ -327,6 +328,7 @@ pub enum NodeBody {
     DecoderLog,
     DmrTrunk(DmrTrunkNode),
     ChatOutput(ChatOutputNode),
+    EventFilter(EventFilterNode),
     Video,
     Recorder,
     AudioRecorder,
@@ -353,6 +355,7 @@ impl NodeBody {
             Self::DecoderLog => "decoder_log",
             Self::DmrTrunk(_) => "dmr_trunk",
             Self::ChatOutput(_) => "chat_output",
+            Self::EventFilter(_) => "event_filter",
             Self::Video => "video",
             Self::Recorder => "recorder",
             Self::AudioRecorder => "audio_recorder",
@@ -376,7 +379,7 @@ impl NodeBody {
             | Self::Readout
             | Self::DecoderLog
             | Self::Video => NodeCategory::Display,
-            Self::Scanner | Self::DmrTrunk(_) => NodeCategory::Feature,
+            Self::Scanner | Self::DmrTrunk(_) | Self::EventFilter(_) => NodeCategory::Feature,
             Self::Speaker
             | Self::Recorder
             | Self::AudioRecorder
@@ -483,6 +486,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, Out, true, Always),
         ],
         "chat_output" => vec![PortSpec::new(Events, In, true, Always)],
+        "event_filter" => vec![
+            PortSpec::new(Events, In, true, Always),
+            PortSpec::new(Events, Out, true, Always),
+        ],
         _ => Vec::new(),
     }
 }
@@ -519,6 +526,7 @@ impl PatchCatalog {
                 entry(
                     &NodeBody::Channel(ChannelNode {
                         channel_type: String::new(),
+                        record_calls: false,
                     }),
                     "Channel",
                 ),
@@ -538,6 +546,10 @@ impl PatchCatalog {
                 entry(
                     &NodeBody::DmrTrunk(DmrTrunkNode::default()),
                     "DMR trunk system",
+                ),
+                entry(
+                    &NodeBody::EventFilter(EventFilterNode::default()),
+                    "Event filter",
                 ),
                 entry(
                     &NodeBody::ChatOutput(ChatOutputNode::default()),
@@ -646,6 +658,7 @@ pub enum PatchError {
     PortOccupied(PortRef),
     MixedNetworkSource(String),
     SelfEdge(String),
+    Cycle(String),
     RackCell(String),
     DuplicateRackSlot(String),
     RackOverlap(String),
@@ -692,6 +705,7 @@ impl std::fmt::Display for PatchError {
                 "network sink {id} carries a radio's IQ or a channel's baseband, not both"
             ),
             Self::SelfEdge(id) => write!(f, "node {id} cannot wire to itself"),
+            Self::Cycle(id) => write!(f, "node {id} sits on a loop of wires"),
             Self::RackCell(node) => write!(
                 f,
                 "rack slot for {node} is outside the {RACK_COLS}×{RACK_ROWS} grid"
@@ -801,13 +815,20 @@ impl PatchGraph {
                     }
                 }
                 NodeBody::Channel(channel) => {
-                    if let Some(descriptors) = channels
-                        && !descriptors
+                    if let Some(descriptors) = channels {
+                        let descriptor = descriptors
                             .iter()
-                            .any(|d| d.type_id == channel.channel_type)
-                    {
-                        return Err(PatchError::ChannelType(channel.channel_type.clone()));
+                            .find(|d| d.type_id == channel.channel_type)
+                            .ok_or_else(|| PatchError::ChannelType(channel.channel_type.clone()))?;
+                        if channel.record_calls
+                            && descriptor.decoder_kind.as_deref() != Some(DV_DECODER_KIND)
+                        {
+                            return Err(PatchError::NodeSettings(node.id.clone()));
+                        }
                     }
+                }
+                NodeBody::EventFilter(settings) if !settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::Gps(gps) => validate_gps_source(&gps.source)?,
                 NodeBody::SignalMap(settings) => {
@@ -836,12 +857,7 @@ impl PatchGraph {
                 NodeBody::TimeMachine(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
-                NodeBody::DmrTrunk(settings) => {
-                    if settings.retention_seconds != 0
-                        && !(10..=86_400).contains(&settings.retention_seconds)
-                    {
-                        return Err(PatchError::NodeSettings(node.id.clone()));
-                    }
+                NodeBody::DmrTrunk(_) => {
                     let only_dmr = self.sources_of(&node.id, "events").all(|source| {
                         self.node(source).is_some_and(|source| {
                             matches!(
@@ -861,6 +877,37 @@ impl PatchGraph {
             }
         }
         self.check_edges(channels)?;
+        self.check_acyclic()?;
+        Ok(())
+    }
+
+    fn check_acyclic(&self) -> Result<(), PatchError> {
+        let mut settled: Vec<&str> = Vec::with_capacity(self.nodes.len());
+        let mut walking: Vec<&str> = Vec::new();
+        for node in &self.nodes {
+            self.walk(&node.id, &mut settled, &mut walking)?;
+        }
+        Ok(())
+    }
+
+    fn walk<'a>(
+        &'a self,
+        node: &'a str,
+        settled: &mut Vec<&'a str>,
+        walking: &mut Vec<&'a str>,
+    ) -> Result<(), PatchError> {
+        if settled.contains(&node) {
+            return Ok(());
+        }
+        if walking.contains(&node) {
+            return Err(PatchError::Cycle(node.to_owned()));
+        }
+        walking.push(node);
+        for edge in self.edges.iter().filter(|edge| edge.from.node == node) {
+            self.walk(&edge.to.node, settled, walking)?;
+        }
+        walking.pop();
+        settled.push(node);
         Ok(())
     }
 
@@ -1070,6 +1117,7 @@ mod tests {
     use crate::{
         channel::ChannelSettings,
         device::{Duplex, StreamScope},
+        filter::MAX_FILTER_IDS,
     };
 
     fn node(id: &str, body: NodeBody) -> PatchNode {
@@ -1087,6 +1135,7 @@ mod tests {
             id,
             NodeBody::Channel(ChannelNode {
                 channel_type: ty.to_owned(),
+                record_calls: false,
             }),
         )
     }
@@ -1142,7 +1191,116 @@ mod tests {
                 native_rate_max_hz: Some(4_000_000.0),
                 ..ChannelDescriptor::default()
             },
+            ChannelDescriptor {
+                type_id: "dmr".to_owned(),
+                name: "DMR".to_owned(),
+                bandwidth_hz: 12_500.0,
+                input_rate_hz: 48_000.0,
+                decoder_kind: Some(DV_DECODER_KIND.to_owned()),
+                ..ChannelDescriptor::default()
+            },
         ]
+    }
+
+    fn recording_calls(id: &str, ty: &str, on: bool) -> PatchNode {
+        node(
+            id,
+            NodeBody::Channel(ChannelNode {
+                channel_type: ty.to_owned(),
+                record_calls: on,
+            }),
+        )
+    }
+
+    #[test]
+    fn a_voice_channel_may_record_its_calls() {
+        let graph = PatchGraph {
+            nodes: vec![recording_calls("dmr", "dmr", true)],
+            edges: Vec::new(),
+        };
+        assert!(graph.validate_against(&descriptors()).is_ok());
+    }
+
+    #[test]
+    fn a_channel_that_carries_no_voice_cannot_record_calls() {
+        let graph = PatchGraph {
+            nodes: vec![recording_calls("pager", "adsb", true)],
+            edges: Vec::new(),
+        };
+        assert_eq!(
+            graph.validate_against(&descriptors()),
+            Err(PatchError::NodeSettings("pager".to_owned()))
+        );
+    }
+
+    #[test]
+    fn recording_nothing_is_always_allowed() {
+        let graph = PatchGraph {
+            nodes: vec![recording_calls("pager", "adsb", false)],
+            edges: Vec::new(),
+        };
+        assert!(graph.validate_against(&descriptors()).is_ok());
+    }
+
+    #[test]
+    fn an_event_filter_passes_events_through_and_bounds_its_lists() {
+        let ports = ports_for("event_filter");
+        assert_eq!(ports.len(), 2);
+        assert!(
+            ports
+                .iter()
+                .any(|p| p.direction == PortDirection::In && p.port_type == PortType::Events)
+        );
+        assert!(
+            ports
+                .iter()
+                .any(|p| p.direction == PortDirection::Out && p.port_type == PortType::Events)
+        );
+
+        let graph = PatchGraph {
+            nodes: vec![node(
+                "filter",
+                NodeBody::EventFilter(EventFilterNode {
+                    kinds: vec!["call".to_owned()],
+                    ..EventFilterNode::default()
+                }),
+            )],
+            edges: Vec::new(),
+        };
+        assert!(graph.validate().is_ok());
+
+        let mut invalid = graph;
+        let NodeBody::EventFilter(settings) = &mut invalid.nodes[0].body else {
+            panic!("event filter node");
+        };
+        settings.talkgroups = vec![0; MAX_FILTER_IDS + 1];
+        assert_eq!(
+            invalid.validate(),
+            Err(PatchError::NodeSettings("filter".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_channel_can_reach_a_chat_output_through_a_filter() {
+        let graph = PatchGraph {
+            nodes: vec![
+                recording_calls("dmr", "dmr", true),
+                node("filter", NodeBody::EventFilter(EventFilterNode::default())),
+                node(
+                    "chat",
+                    NodeBody::ChatOutput(ChatOutputNode {
+                        target: crate::ChatOutputTarget::Discord {
+                            webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+                        },
+                    }),
+                ),
+            ],
+            edges: vec![
+                edge(("dmr", "events"), ("filter", "events")),
+                edge(("filter", "events"), ("chat", "events")),
+            ],
+        };
+        assert!(graph.validate_against(&descriptors()).is_ok());
     }
 
     fn workspace() -> PatchGraph {
@@ -1181,6 +1339,7 @@ mod tests {
         let mut retyped = graph.clone();
         retyped.nodes[1].body = NodeBody::Channel(ChannelNode {
             channel_type: "am".to_owned(),
+            record_calls: false,
         });
         assert!(!graph.same_topology(&retyped));
 
@@ -1272,28 +1431,19 @@ mod tests {
     }
 
     #[test]
-    fn dmr_trunk_call_retention_can_be_off() {
+    fn a_dmr_trunk_records_calls_by_default_and_can_be_told_not_to() {
+        assert!(DmrTrunkNode::default().record_calls);
         let graph = PatchGraph {
             nodes: vec![node(
                 "system",
                 NodeBody::DmrTrunk(DmrTrunkNode {
-                    retention_seconds: 0,
+                    record_calls: false,
                     ..DmrTrunkNode::default()
                 }),
             )],
             edges: Vec::new(),
         };
-        graph.validate().expect("retention off");
-
-        let mut invalid = graph;
-        let NodeBody::DmrTrunk(settings) = &mut invalid.nodes[0].body else {
-            panic!("DMR trunk node");
-        };
-        settings.retention_seconds = 1;
-        assert_eq!(
-            invalid.validate(),
-            Err(PatchError::NodeSettings("system".to_owned()))
-        );
+        assert!(graph.validate().is_ok());
     }
 
     #[test]
@@ -1536,7 +1686,112 @@ mod tests {
             .filter(|&kind| reachable[kind][kind])
             .map(|kind| catalog.nodes[kind].kind.as_str())
             .collect();
-        assert_eq!(cycle, vec!["dmr_trunk"]);
+        assert_eq!(cycle, vec!["dmr_trunk", "event_filter"]);
+    }
+
+    #[test]
+    fn every_node_the_palette_offers_round_trips_and_validates_on_its_own() {
+        for entry in PatchCatalog::build().nodes {
+            let body = default_body(&entry.kind);
+            let json = serde_json::to_string(&body).expect("serialize the body");
+            let back: NodeBody = serde_json::from_str(&json).unwrap_or_else(|error| {
+                panic!("{} does not survive a round trip: {error}", entry.kind)
+            });
+            assert_eq!(back.kind(), entry.kind);
+
+            let mut node = node("solo", back);
+            if let NodeBody::Channel(channel) = &mut node.body {
+                channel.channel_type = "nfm".to_owned();
+            }
+            let graph = PatchGraph {
+                nodes: vec![node],
+                edges: Vec::new(),
+            };
+            graph
+                .validate()
+                .unwrap_or_else(|error| panic!("a fresh {} is invalid: {error}", entry.kind));
+        }
+    }
+
+    fn default_body(kind: &str) -> NodeBody {
+        match kind {
+            "device" => NodeBody::Device(DeviceNode::default()),
+            "gps" => NodeBody::Gps(GpsNode::default()),
+            "channel" => NodeBody::Channel(ChannelNode {
+                channel_type: "nfm".to_owned(),
+                record_calls: false,
+            }),
+            "scope" => NodeBody::Scope,
+            "speaker" => NodeBody::Speaker,
+            "map" => NodeBody::Map,
+            "signal_map" => NodeBody::SignalMap(SignalMapNode::default()),
+            "propagation" => NodeBody::Propagation(PropagationNode::default()),
+            "readout" => NodeBody::Readout,
+            "decoder_log" => NodeBody::DecoderLog,
+            "dmr_trunk" => NodeBody::DmrTrunk(DmrTrunkNode::default()),
+            "event_filter" => NodeBody::EventFilter(EventFilterNode::default()),
+            "chat_output" => NodeBody::ChatOutput(ChatOutputNode::default()),
+            "video" => NodeBody::Video,
+            "recorder" => NodeBody::Recorder,
+            "audio_recorder" => NodeBody::AudioRecorder,
+            "baseband_recorder" => NodeBody::BasebandRecorder,
+            "time_machine" => NodeBody::TimeMachine(TimeMachineNode::default()),
+            "network_export" => NodeBody::NetworkExport(NetworkExportNode::default()),
+            "export" => NodeBody::Export,
+            "scanner" => NodeBody::Scanner,
+            other => panic!("the palette offers {other}, which this test does not build"),
+        }
+    }
+
+    #[test]
+    fn the_json_the_editor_sends_for_a_fresh_filter_parses() {
+        let sent = r#"{
+            "id": "filter",
+            "position": { "x": 0.0, "y": 0.0 },
+            "kind": "event_filter",
+            "data": {
+                "kinds": [],
+                "stations": [],
+                "talkgroups": [],
+                "radios": [],
+                "min_duration_ms": 0
+            }
+        }"#;
+
+        let parsed: PatchNode = serde_json::from_str(sent).expect("a fresh filter parses");
+
+        assert!(
+            matches!(parsed.body, NodeBody::EventFilter(ref f) if f == &EventFilterNode::default())
+        );
+    }
+
+    #[test]
+    fn a_loop_of_wires_is_refused_however_long_it_is() {
+        let graph = PatchGraph {
+            nodes: vec![
+                node("a", NodeBody::EventFilter(EventFilterNode::default())),
+                node("b", NodeBody::EventFilter(EventFilterNode::default())),
+                node("c", NodeBody::EventFilter(EventFilterNode::default())),
+            ],
+            edges: vec![
+                edge(("a", "events"), ("b", "events")),
+                edge(("b", "events"), ("c", "events")),
+                edge(("c", "events"), ("a", "events")),
+            ],
+        };
+        assert!(matches!(graph.validate(), Err(PatchError::Cycle(_))));
+    }
+
+    #[test]
+    fn a_chain_of_filters_is_not_a_loop() {
+        let graph = PatchGraph {
+            nodes: vec![
+                node("a", NodeBody::EventFilter(EventFilterNode::default())),
+                node("b", NodeBody::EventFilter(EventFilterNode::default())),
+            ],
+            edges: vec![edge(("a", "events"), ("b", "events"))],
+        };
+        assert!(graph.validate().is_ok());
     }
 
     #[test]
@@ -1863,6 +2118,7 @@ mod tests {
 
         let body = NodeBody::Channel(ChannelNode {
             channel_type: "nfm".to_owned(),
+            record_calls: false,
         });
         let nfm = &descriptors()[0];
         let names: Vec<String> = body
@@ -1878,6 +2134,7 @@ mod tests {
         let names = |descriptor: &ChannelDescriptor| {
             NodeBody::Channel(ChannelNode {
                 channel_type: descriptor.type_id.clone(),
+                record_calls: false,
             })
             .ports_with(Some(PortBacking::Channel(descriptor)))
             .into_iter()

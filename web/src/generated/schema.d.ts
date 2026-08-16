@@ -1396,6 +1396,7 @@ export interface components {
         };
         ChannelNode: {
             channel_type: string;
+            record_calls?: boolean;
         };
         ChannelParams: {
             settings: components["schemas"]["NfmParams"];
@@ -1860,6 +1861,10 @@ export interface components {
             /** @enum {string} */
             kind: "dv";
         } | {
+            data: components["schemas"]["VoiceCall"];
+            /** @enum {string} */
+            kind: "call";
+        } | {
             data: components["schemas"]["WsjtMessage"];
             /** @enum {string} */
             kind: "ft8";
@@ -2055,8 +2060,7 @@ export interface components {
         DmrSlots: "both" | "one" | "two";
         DmrTrunkNode: {
             protocol?: components["schemas"]["DmrTrunkProtocol"];
-            /** Format: int32 */
-            retention_seconds?: number;
+            record_calls?: boolean;
         };
         /** @enum {string} */
         DmrTrunkProtocol: "auto" | "capacity_plus" | "hytera_xpt" | "tier_three";
@@ -2181,6 +2185,18 @@ export interface components {
         EventAudio: {
             media_type: string;
             url: string;
+        };
+        EventFilterNode: {
+            contains?: string | null;
+            emergency?: boolean | null;
+            encrypted?: boolean | null;
+            has_position?: boolean | null;
+            kinds?: string[];
+            /** Format: int32 */
+            min_duration_ms?: number;
+            radios?: number[];
+            stations?: string[];
+            talkgroups?: number[];
         };
         EventImage: {
             media_type: string;
@@ -2700,6 +2716,10 @@ export interface components {
             /** @enum {string} */
             kind: "chat_output";
         } | {
+            data: components["schemas"]["EventFilterNode"];
+            /** @enum {string} */
+            kind: "event_filter";
+        } | {
             /** @enum {string} */
             kind: "video";
         } | {
@@ -3204,10 +3224,6 @@ export interface components {
             };
             /** @enum {string} */
             type: "DecodedLost";
-        } | {
-            data: components["schemas"]["VoiceCall"];
-            /** @enum {string} */
-            type: "CallCompleted";
         } | {
             data: components["schemas"]["CapturedImage"];
             /** @enum {string} */
@@ -4099,6 +4115,7 @@ export interface operations {
             query?: {
                 device_set?: number;
                 kind?: string;
+                kinds?: string;
                 limit?: number;
                 nodes?: string;
                 q?: string;
@@ -4137,6 +4154,7 @@ export interface operations {
             query?: {
                 device_set?: number;
                 kind?: string;
+                kinds?: string;
                 limit?: number;
                 nodes?: string;
                 q?: string;
@@ -4175,6 +4193,7 @@ export interface operations {
             query?: {
                 device_set?: number;
                 kind?: string;
+                kinds?: string;
                 limit?: number;
                 nodes?: string;
                 q?: string;

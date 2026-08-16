@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
-import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
+import {
+  callAudioUrl,
+  clearDecoderLog,
+  DECODER_LOG_KEY,
+  decoderLogExportUrl,
+  decoderLogQuery,
+} from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
 import { Button, Input } from "./BaseControls";
 import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
@@ -17,6 +23,7 @@ import {
   type LogFilter,
   type LogRow,
   matchesFilter,
+  passesGate,
   sourceSet,
   toQuery,
   type WireScope,
@@ -64,17 +71,25 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const lost = useDecodedStore((s) => s.lost);
   const wired = useMemo(() => sourceSet(wires.sources), [wires.sources]);
 
-  const entries = useMemo(() => log.data?.entries ?? [], [log.data]);
+  const entries = useMemo(
+    () =>
+      (log.data?.entries ?? []).filter((entry) =>
+        passesGate(wires.gate, `${entry.device_set}:${entry.channel}`, entry.event),
+      ),
+    [log.data, wires.gate],
+  );
   const rows = useMemo(
-    () => buildRows(entries, collectLive(frames, filter, wired)),
-    [entries, frames, filter, wired],
+    () => buildRows(entries, collectLive(frames, filter, wired, wires.gate)),
+    [entries, frames, filter, wired, wires.gate],
   );
 
   const clearMut = useMutation({
     mutationFn: () => clearDecoderLog(query),
     onSuccess: (deleted) => {
       const live = rows.filter((row) => row.live).length;
-      useDecodedStore.getState().dropFrames((record) => matchesFilter(record, filter, wired));
+      useDecodedStore
+        .getState()
+        .dropFrames((record) => matchesFilter(record, filter, wired, wires.gate));
       setError(null);
       setCleared(deleted + live);
     },
@@ -242,6 +257,14 @@ function RowDetail({ row }: { row: LogRow }) {
   const detail = eventDetail(row.event);
   return (
     <div className="flex flex-col gap-2">
+      {row.event.kind === "call" && row.event.data.audio != null && (
+        <audio
+          className="h-8 w-full min-w-0"
+          controls
+          preload="none"
+          src={callAudioUrl(row.event.data.audio.url)}
+        />
+      )}
       {detail.fields.length > 0 && (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
           {detail.fields.map(([label, value]) => (

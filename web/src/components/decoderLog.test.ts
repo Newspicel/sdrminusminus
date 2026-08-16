@@ -14,7 +14,9 @@ import {
   type LogFilter,
   liveRow,
   matchesFilter,
+  NO_GATE,
   NO_WIRES,
+  passesGate,
   sourceSet,
   storedRow,
   toQuery,
@@ -85,18 +87,19 @@ describe("kind labels", () => {
 });
 
 describe("toQuery", () => {
-  const wires = { nodes: "channel:a1", sources: "0:1" };
+  const wires = { nodes: "channel:a1", sources: "0:1", gate: NO_GATE };
+  const scope = { nodes: wires.nodes, sources: wires.sources };
 
   it("drops empty selects so a cleared filter is one query key, not two", () => {
-    expect(toQuery(filter(), wires)).toEqual({ limit: 500, ...wires });
-    expect(toQuery(filter({ q: "   " }), wires)).toEqual({ limit: 500, ...wires });
+    expect(toQuery(filter(), wires)).toEqual({ limit: 500, ...scope });
+    expect(toQuery(filter({ q: "   " }), wires)).toEqual({ limit: 500, ...scope });
   });
 
   it("carries every set field, trimmed", () => {
     expect(toQuery(filter({ q: " nord ", limit: 100 }), wires)).toEqual({
       q: "nord",
       limit: 100,
-      ...wires,
+      ...scope,
     });
   });
 
@@ -144,7 +147,7 @@ describe("collectLive", () => {
 
   it("honours the filter and the cap", () => {
     expect(collectLive(frames, filter({ q: "nordlicht" }), WIRED)).toHaveLength(1);
-    expect(collectLive(frames, filter(), WIRED, 2).map((r) => r.at)).toEqual([
+    expect(collectLive(frames, filter(), WIRED, NO_GATE, 2).map((r) => r.at)).toEqual([
       "2026-08-09T12:00:03Z",
       "2026-08-09T12:00:02Z",
     ]);
@@ -479,5 +482,63 @@ describe("wave-2 summaries", () => {
     expect(DECODER_KINDS).toContain("navtex");
     expect(DECODER_KINDS).toContain("acars");
     expect(DECODER_KINDS).toContain("subghz");
+  });
+});
+
+describe("passesGate", () => {
+  const calls: DecoderEvent = {
+    kind: "call",
+    data: {
+      id: 1,
+      node: "dmr",
+      source_node: "dmr",
+      started_at: "",
+      ended_at: "",
+      duration_ms: 2000,
+      device_set: 0,
+      channel: 1,
+      freq_hz: 446e6,
+      mode: "dmr",
+      destination: 505,
+      encrypted: false,
+      emergency: false,
+    },
+  } as DecoderEvent;
+  const voice: DecoderEvent = { kind: "dv", data: { mode: "dmr", kind: "voice" } } as DecoderEvent;
+
+  it("lets everything through when the source has no filter", () => {
+    expect(passesGate(NO_GATE, "0:1", voice)).toBe(true);
+  });
+
+  it("drops raw voice once a wire asks for calls only", () => {
+    const gate = { kinds: ["call"], bySource: { "0:1": [[{ kinds: ["call"] }]] } };
+    expect(passesGate(gate, "0:1", voice)).toBe(false);
+    expect(passesGate(gate, "0:1", calls)).toBe(true);
+  });
+
+  it("passes an event that any one wire admits", () => {
+    const gate = { kinds: [], bySource: { "0:1": [[{ kinds: ["call"] }], []] } };
+    expect(passesGate(gate, "0:1", voice)).toBe(true);
+  });
+
+  it("leaves a source it does not know alone", () => {
+    const gate = { kinds: ["call"], bySource: { "9:9": [[{ kinds: ["call"] }]] } };
+    expect(passesGate(gate, "0:1", voice)).toBe(true);
+  });
+});
+
+describe("toQuery with a gate", () => {
+  it("asks the server for only the kinds the wires admit", () => {
+    const wires = {
+      nodes: "dmr",
+      sources: "0:1",
+      gate: { kinds: ["call"], bySource: {} },
+    };
+    expect(toQuery(DEFAULT_LOG_FILTER, wires).kinds).toBe("call");
+  });
+
+  it("asks for everything when any wire is unfiltered", () => {
+    const wires = { nodes: "dmr", sources: "0:1", gate: NO_GATE };
+    expect(toQuery(DEFAULT_LOG_FILTER, wires).kinds).toBeUndefined();
   });
 });

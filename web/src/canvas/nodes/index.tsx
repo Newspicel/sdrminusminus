@@ -6,6 +6,7 @@ import { ChannelFace } from "./ChannelFace";
 import { ChatOutputFace } from "./ChatOutputFace";
 import { DeviceFace } from "./DeviceFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
+import { EventFilterFace } from "./EventFilterFace";
 import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
@@ -51,6 +52,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   readout: mount(ReadoutFace),
   decoder_log: mount(DecoderLogFace),
   dmr_trunk: mount(DmrTrunkFace),
+  event_filter: mount(EventFilterFace),
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
   audio_recorder: mount(AudioRecorderFace),
@@ -74,6 +76,7 @@ export const FACES: Record<NodeKind, Face> = {
   readout: ReadoutFace,
   decoder_log: DecoderLogFace,
   dmr_trunk: DmrTrunkFace,
+  event_filter: EventFilterFace,
   video: VideoFace,
   recorder: RecorderFace,
   audio_recorder: AudioRecorderFace,

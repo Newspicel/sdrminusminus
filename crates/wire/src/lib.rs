@@ -6,6 +6,7 @@ pub mod chat;
 pub mod decode;
 pub mod device;
 pub mod doctor;
+pub mod filter;
 pub mod frame;
 pub mod network;
 pub mod patch;
@@ -65,6 +66,10 @@ pub use device::{
     GainStage, GainValue, Range, StreamScope, StreamSettings, any_range_holds,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
+pub use filter::{
+    DURATION_KINDS, EventFilterNode, MAX_FILTER_DURATION_MS, MAX_FILTER_IDS, MAX_FILTER_KINDS,
+    MAX_FILTER_TEXT_LEN, POSITION_KINDS, VOICE_KINDS, predicates_for,
+};
 pub use frame::{
     AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoData,
     VideoFrame,
@@ -75,12 +80,12 @@ pub use network::{
     NetworkTransport,
 };
 pub use patch::{
-    ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
-    DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
-    MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog,
-    PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection,
-    PortRef, PortRepeat, PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout,
-    RackSlot, SignalMapNode, Size, port_stream, stream_port,
+    ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DV_DECODER_KIND,
+    DeviceNode, DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES,
+    MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, NodeBody, NodeCategory,
+    NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking,
+    PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position, RACK_COLS,
+    RACK_ROWS, RackCell, RackLayout, RackSlot, SignalMapNode, Size, port_stream, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,

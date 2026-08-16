@@ -69,7 +69,6 @@ pub enum ServerEvent {
     DecodedLost {
         count: u64,
     },
-    CallCompleted(Box<crate::rest::VoiceCall>),
     ImageCaptured(Box<crate::rest::CapturedImage>),
     ChannelLevels {
         device_set: u32,

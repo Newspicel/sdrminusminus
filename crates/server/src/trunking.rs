@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use sdrmm_engine::{Engine, TrunkSystem};
 use sdrmm_wire::{NodeBody, ServerEvent, StateScope};
@@ -10,12 +14,25 @@ const DEBOUNCE: Duration = Duration::from_millis(250);
 
 const REFRESH: Duration = Duration::from_secs(30);
 
-pub(crate) type Retentions = Arc<HashMap<String, Duration>>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CallBinding {
+    pub node: String,
+    pub device_set: u32,
+    pub channel: u32,
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct CallPolicy {
+    pub trunk_systems: HashSet<String>,
+    pub channels: Vec<CallBinding>,
+}
+
+pub(crate) type Recording = Arc<CallPolicy>;
 
 pub(crate) async fn watch_patch(
     engine: std::sync::Weak<Engine>,
     store: Arc<Store>,
-    retentions: watch::Sender<Retentions>,
+    recording: watch::Sender<Recording>,
 ) {
     let Some(strong) = engine.upgrade() else {
         return;
@@ -33,12 +50,12 @@ pub(crate) async fn watch_patch(
             tokio::task::spawn_blocking(move || resolve(&store, &engine)).await
         };
         match resolved {
-            Ok((systems, retention)) => {
+            Ok((systems, policy)) => {
                 if configured.as_ref() != Some(&systems) {
                     strong.configure_trunking(systems.clone());
                     configured = Some(systems);
                 }
-                let _ = retentions.send(retention);
+                let _ = recording.send(policy);
             }
             Err(error) => tracing::warn!(%error, "could not resolve the trunk systems"),
         }
@@ -63,9 +80,9 @@ fn touches_binding(event: &ServerEvent) -> bool {
     )
 }
 
-fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Retentions) {
+fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
     let Ok(Some(workspace)) = store.active_workspace() else {
-        return (Vec::new(), Retentions::default());
+        return (Vec::new(), Recording::default());
     };
     let graph = &workspace.snapshot.graph;
     let state = engine.snapshot();
@@ -80,45 +97,120 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Retentions) {
         })
         .collect();
     let mut systems = Vec::new();
-    let mut retentions = HashMap::new();
+    let mut policy = CallPolicy::default();
     for node in &graph.nodes {
-        let NodeBody::DmrTrunk(settings) = &node.body else {
-            continue;
-        };
-        systems.push(TrunkSystem {
-            node: node.id.clone(),
-            protocol: settings.protocol,
-            carriers: graph
-                .sources_of(&node.id, "events")
-                .filter_map(|source| live.get(source).copied())
-                .collect(),
-        });
-        if settings.retention_seconds > 0 {
-            retentions.insert(
-                node.id.clone(),
-                Duration::from_secs(u64::from(settings.retention_seconds)),
-            );
+        match &node.body {
+            NodeBody::DmrTrunk(settings) => {
+                systems.push(TrunkSystem {
+                    node: node.id.clone(),
+                    protocol: settings.protocol,
+                    carriers: graph
+                        .sources_of(&node.id, "events")
+                        .filter_map(|source| live.get(source).copied())
+                        .collect(),
+                });
+                if settings.record_calls {
+                    policy.trunk_systems.insert(node.id.clone());
+                }
+            }
+            NodeBody::Channel(settings) if settings.record_calls => {
+                let Some(&(device_set, channel)) = live.get(&node.id) else {
+                    continue;
+                };
+                policy.channels.push(CallBinding {
+                    node: node.id.clone(),
+                    device_set,
+                    channel,
+                });
+            }
+            _ => {}
         }
     }
-    (systems, Arc::new(retentions))
+    (systems, Arc::new(policy))
 }
 
 #[cfg(test)]
 mod tests {
     use sdrmm_device::DeviceRegistry;
     use sdrmm_wire::{
-        DmrTrunkNode, DmrTrunkProtocol, PatchEdge, PatchNode, PortRef, Position,
-        UpdateWorkspaceRequest, WorkspaceSnapshot,
+        ChannelNode, ChannelParams, ChannelSettings, DeviceRef, DmrTrunkNode, DmrTrunkProtocol,
+        PatchEdge, PatchNode, PortRef, Position, UpdateWorkspaceRequest, WorkspaceSnapshot,
     };
 
     use super::*;
 
-    fn trunk_node(retention_seconds: u32) -> PatchNode {
+    fn channel_node(id: &str, channel_type: &str, record_calls: bool) -> PatchNode {
+        PatchNode {
+            id: id.to_owned(),
+            body: NodeBody::Channel(ChannelNode {
+                channel_type: channel_type.to_owned(),
+                record_calls,
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        }
+    }
+
+    fn live_channel_workspace(store: &Store, engine: &Engine, node: PatchNode) {
+        let set = engine
+            .create_device_set("virtual:siggen")
+            .expect("open the virtual radio");
+        let NodeBody::Channel(channel) = &node.body else {
+            panic!("the fixture wires a channel node");
+        };
+        engine
+            .add_channel(
+                set,
+                0,
+                ChannelSettings {
+                    offset_hz: 0.0,
+                    squelch_db: None,
+                    squelch_auto_db: None,
+                    params: ChannelParams::default_for(&channel.channel_type)
+                        .expect("a known channel type"),
+                    audio: Default::default(),
+                },
+            )
+            .expect("add channel");
+        let mut snapshot = WorkspaceSnapshot::starter();
+        let node_id = node.id.clone();
+        snapshot.graph.nodes.push(node);
+        snapshot.graph.edges.push(PatchEdge {
+            from: PortRef {
+                node: "device".to_owned(),
+                port: "iq".to_owned(),
+            },
+            to: PortRef {
+                node: node_id,
+                port: "iq".to_owned(),
+            },
+        });
+        let NodeBody::Device(device) = &mut snapshot
+            .graph
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == "device")
+            .expect("the starter draws a radio")
+            .body
+        else {
+            panic!("the starter's radio is a device node");
+        };
+        device.device = Some(DeviceRef {
+            backend: "virtual".to_owned(),
+            serial: None,
+            key: Some("siggen".to_owned()),
+        });
+        let id = store.create_workspace("w", &snapshot).expect("workspace");
+        store.activate_workspace(id).expect("activate");
+    }
+
+    fn trunk_node(record_calls: bool) -> PatchNode {
         PatchNode {
             id: "trunk".to_owned(),
             body: NodeBody::DmrTrunk(DmrTrunkNode {
                 protocol: DmrTrunkProtocol::TierThree,
-                retention_seconds,
+                record_calls,
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,
@@ -135,7 +227,7 @@ mod tests {
             .expect("workspace");
         store.activate_workspace(id).expect("activate");
         let mut detail = store.workspace(id).expect("detail");
-        detail.snapshot.graph.nodes.push(trunk_node(0));
+        detail.snapshot.graph.nodes.push(trunk_node(false));
         store
             .update_workspace(
                 id,
@@ -147,19 +239,61 @@ mod tests {
             )
             .expect("store the patch");
 
-        let (systems, retentions) = resolve(&store, &engine);
+        let (systems, policy) = resolve(&store, &engine);
         assert_eq!(systems.len(), 1);
         assert!(systems[0].carriers.is_empty());
         assert!(
-            retentions.is_empty(),
-            "zero retention must not buffer calls"
+            policy.trunk_systems.is_empty(),
+            "a system told not to record must not buffer calls"
         );
+    }
+
+    #[test]
+    fn a_plain_channel_that_keeps_calls_binds_without_any_trunk_system() {
+        let store = Store::open(None).expect("in-memory store");
+        let mut registry = DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, None);
+        live_channel_workspace(&store, &engine, channel_node("dmr", "dmr", true));
+
+        let (systems, policy) = resolve(&store, &engine);
+
+        assert!(systems.is_empty(), "no trunk node was drawn");
+        assert_eq!(policy.channels.len(), 1);
+        assert_eq!(policy.channels[0].node, "dmr");
+    }
+
+    #[test]
+    fn a_channel_that_keeps_nothing_never_binds() {
+        let store = Store::open(None).expect("in-memory store");
+        let mut registry = DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, None);
+        live_channel_workspace(&store, &engine, channel_node("dmr", "dmr", false));
+
+        let (_, policy) = resolve(&store, &engine);
+
+        assert!(policy.channels.is_empty());
+    }
+
+    #[test]
+    fn a_channel_the_radio_never_opened_cannot_record_calls() {
+        let store = Store::open(None).expect("in-memory store");
+        let engine = Engine::with_registry(DeviceRegistry::new(), None);
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(channel_node("dmr", "dmr", true));
+        let id = store.create_workspace("w", &snapshot).expect("workspace");
+        store.activate_workspace(id).expect("activate");
+
+        let (_, policy) = resolve(&store, &engine);
+
+        assert!(policy.channels.is_empty());
     }
 
     #[test]
     fn only_the_input_side_of_the_events_port_names_a_carrier() {
         let mut graph = sdrmm_wire::PatchGraph::default();
-        graph.nodes.push(trunk_node(60));
+        graph.nodes.push(trunk_node(true));
         graph.edges.push(PatchEdge {
             from: PortRef {
                 node: "trunk".to_owned(),

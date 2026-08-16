@@ -470,6 +470,14 @@
             }
           },
           {
+            "name": "kinds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "device_set",
             "in": "query",
             "required": false,
@@ -558,6 +566,14 @@
         "parameters": [
           {
             "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kinds",
             "in": "query",
             "required": false,
             "schema": {
@@ -664,6 +680,14 @@
           },
           {
             "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kinds",
             "in": "query",
             "required": false,
             "schema": {
@@ -4758,6 +4782,9 @@
         "properties": {
           "channel_type": {
             "type": "string"
+          },
+          "record_calls": {
+            "type": "boolean"
           }
         }
       },
@@ -6659,6 +6686,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/VoiceCall"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "call"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/WsjtMessage"
               },
               "kind": {
@@ -7487,10 +7532,8 @@
           "protocol": {
             "$ref": "#/components/schemas/DmrTrunkProtocol"
           },
-          "retention_seconds": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
+          "record_calls": {
+            "type": "boolean"
           }
         }
       },
@@ -8001,6 +8044,68 @@
           },
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "EventFilterNode": {
+        "type": "object",
+        "properties": {
+          "contains": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "emergency": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "encrypted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "has_position": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "min_duration_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "radios": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "stations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "talkgroups": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         }
       },
@@ -9981,6 +10086,24 @@
           {
             "type": "object",
             "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/EventFilterNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "event_filter"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "kind"
             ],
             "properties": {
@@ -11819,24 +11942,6 @@
                 "type": "string",
                 "enum": [
                   "DecodedLost"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "type"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/VoiceCall"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "CallCompleted"
                 ]
               }
             }
