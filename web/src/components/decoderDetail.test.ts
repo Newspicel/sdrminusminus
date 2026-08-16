@@ -86,8 +86,7 @@ describe("eventDetail", () => {
           hard_errors: 0,
         },
       },
-      psk31: { kind: "psk31", data: { text: "CQ TEST" } },
-      psk63: { kind: "psk63", data: { text: "CQ TEST" } },
+      psk: { kind: "psk", data: { baud: "psk125", text: "CQ TEST" } },
       wspr: {
         kind: "wspr",
         data: {

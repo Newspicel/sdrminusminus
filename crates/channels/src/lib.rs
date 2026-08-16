@@ -76,7 +76,7 @@ pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
 use num_complex::Complex;
 pub use pocsag::PocsagChannel;
-pub use psk::{Psk31Channel, Psk63Channel};
+pub use psk::PskChannel;
 pub use radio_clock::RadioClockChannel;
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Decimator, FirC};
@@ -149,7 +149,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Ft8(_) | ChannelParams::Ft4(_) | ChannelParams::Wspr(_) => {
             weak_signal::occupied_band(params)
         }
-        ChannelParams::Psk31(_) | ChannelParams::Psk63(_) => psk::occupied_band(params),
+        ChannelParams::Psk(_) => psk::occupied_band(params),
         ChannelParams::Freedv(p) => dv::freedv::occupied_band(p),
         ChannelParams::Ident(p) => ident::occupied_band(p),
         ChannelParams::RadioClock(_) => radio_clock::occupied_band(),
@@ -218,7 +218,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Ft8(_) | ChannelParams::Ft4(_) | ChannelParams::Wspr(_) => {
             weak_signal::channel_filter(params)
         }
-        ChannelParams::Psk31(_) | ChannelParams::Psk63(_) => psk::channel_filter(params),
+        ChannelParams::Psk(_) => psk::channel_filter(params),
         ChannelParams::Freedv(p) => dv::freedv::channel_filter(p),
         ChannelParams::Ident(p) => ident::channel_filter(p),
         ChannelParams::RadioClock(_) => Ok(radio_clock::channel_filter()),
@@ -517,13 +517,8 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
-        descriptor: Psk31Channel::descriptor,
-        create: boxed::<Psk31Channel>,
-        create_tx: None,
-    },
-    Registration {
-        descriptor: Psk63Channel::descriptor,
-        create: boxed::<Psk63Channel>,
+        descriptor: PskChannel::descriptor,
+        create: boxed::<PskChannel>,
         create_tx: None,
     },
     Registration {
@@ -711,8 +706,7 @@ mod tests {
             "m17" => ChannelParams::M17(M17Params::default()),
             "ft8" => ChannelParams::Ft8(WsjtParams::default()),
             "ft4" => ChannelParams::Ft4(WsjtParams::default()),
-            "psk31" => ChannelParams::Psk31(PskParams::default()),
-            "psk63" => ChannelParams::Psk63(PskParams::default()),
+            "psk" => ChannelParams::Psk(PskParams::default()),
             "wspr" => ChannelParams::Wspr(WsprParams::default()),
             "freedv" => ChannelParams::Freedv(FreeDvParams::default()),
             "ident" => ChannelParams::Ident(IdentParams::default()),
@@ -733,7 +727,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 46);
+        assert_eq!(all.len(), 45);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -770,8 +764,7 @@ mod tests {
                 "freedv",
                 "ft8",
                 "ft4",
-                "psk31",
-                "psk63",
+                "psk",
                 "wspr",
                 "ident",
                 "radio_clock",
@@ -813,8 +806,7 @@ mod tests {
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
                 "m17" => (9_000.0, 48_000.0),
                 "ft8" | "ft4" | "wspr" => (3_200.0, 12_000.0),
-                "psk31" => (80.0, 8_000.0),
-                "psk63" => (160.0, 8_000.0),
+                "psk" => (650.0, 8_000.0),
                 "freedv" => (1_400.0, 8_000.0),
                 "ident" => (192_000.0, 240_000.0),
                 "radio_clock" => (200.0, 2_000.0),

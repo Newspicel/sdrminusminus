@@ -5317,25 +5317,7 @@
               "type": {
                 "type": "string",
                 "enum": [
-                  "psk31"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "settings",
-              "type"
-            ],
-            "properties": {
-              "settings": {
-                "$ref": "#/components/schemas/PskParams"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "psk63"
+                  "psk"
                 ]
               }
             }
@@ -6701,25 +6683,7 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "psk31"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "kind"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/PskText"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "psk63"
+                  "psk"
                 ]
               }
             }
@@ -10762,9 +10726,21 @@
           }
         }
       },
+      "PskBaud": {
+        "type": "string",
+        "enum": [
+          "psk31",
+          "psk63",
+          "psk125",
+          "psk250"
+        ]
+      },
       "PskParams": {
         "type": "object",
         "properties": {
+          "baud": {
+            "$ref": "#/components/schemas/PskBaud"
+          },
           "invert": {
             "type": "boolean"
           }
@@ -10773,9 +10749,13 @@
       "PskText": {
         "type": "object",
         "required": [
+          "baud",
           "text"
         ],
         "properties": {
+          "baud": {
+            "$ref": "#/components/schemas/PskBaud"
+          },
           "text": {
             "type": "string"
           }

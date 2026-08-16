@@ -13,9 +13,9 @@ use sdrmm_wire::{
     ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams, DatvStandard,
     DecodedRecord, DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams,
     FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams, NfmParams,
-    NfmToneMode, PocsagBaud, PocsagParams, PskParams, RdsUpdate, RttyParams, SelcallParams,
-    SelcallSystem, SubghzEncoding, SubghzParams, VorParams, WfmParams, WsjtParams, WsprParams,
-    YsfParams,
+    NfmToneMode, PocsagBaud, PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams,
+    SelcallParams, SelcallSystem, SubghzEncoding, SubghzParams, VorParams, WfmParams, WsjtParams,
+    WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -681,25 +681,15 @@ async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
 }
 
 #[tokio::test]
-async fn psk31_and_psk63_text_survive_the_ddc_and_reach_the_decoded_stream() {
-    for (stem, params, baud, want) in [
-        (
-            "psk31",
-            ChannelParams::Psk31(PskParams::default()),
-            31.25,
-            "PSK31 ENGINE",
-        ),
-        (
-            "psk63",
-            ChannelParams::Psk63(PskParams::default()),
-            62.5,
-            "PSK63 ENGINE",
-        ),
+async fn psk_text_survives_the_ddc_and_reaches_the_decoded_stream() {
+    for (stem, baud, want) in [
+        ("psk31", PskBaud::Psk31, "PSK31 ENGINE"),
+        ("psk250", PskBaud::Psk250, "PSK250 ENGINE"),
     ] {
         let dir = TempDir::new().unwrap();
         let engine = accelerated_engine_for(dir.path());
         let offset_hz = 5_000.0;
-        let iq = testgen::psk::transmission(&format!("{want}\n"), baud);
+        let iq = testgen::psk::transmission(&format!("{want}\n"), baud.rate());
         let mut iq = testgen::resample(&iq, 8_000.0, AUDIO_DEVICE_RATE);
         testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
         let device = plant(dir.path(), stem, iq, AUDIO_DEVICE_RATE);
@@ -710,20 +700,23 @@ async fn psk31_and_psk63_text_survive_the_ddc_and_reach_the_decoded_stream() {
                 offset_hz,
                 squelch_db: None,
                 squelch_auto_db: None,
-                params,
+                params: ChannelParams::Psk(PskParams {
+                    baud,
+                    invert: false,
+                }),
                 audio: Default::default(),
             },
             |event| match event {
-                DecoderEvent::Psk31(text) | DecoderEvent::Psk63(text) => text.text.contains(want),
+                DecoderEvent::Psk(text) => text.text.contains(want),
                 _ => false,
             },
         )
         .await;
-        let text = match record.event {
-            DecoderEvent::Psk31(text) | DecoderEvent::Psk63(text) => text.text,
-            _ => unreachable!("filtered above"),
+        let DecoderEvent::Psk(text) = record.event else {
+            unreachable!("filtered above")
         };
-        assert!(text.contains(want), "decoded {text:?}");
+        assert_eq!(text.baud, baud);
+        assert!(text.text.contains(want), "decoded {:?}", text.text);
     }
 }
 

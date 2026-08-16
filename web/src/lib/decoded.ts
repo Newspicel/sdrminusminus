@@ -271,8 +271,7 @@ function stationId(event: DecoderEvent): string | null {
     case "rtty":
     case "morse":
     case "cw_skimmer":
-    case "psk31":
-    case "psk63":
+    case "psk":
     case "ft8":
     case "ft4":
     case "wspr":

@@ -1508,11 +1508,7 @@ export interface components {
         } | {
             settings: components["schemas"]["PskParams"];
             /** @enum {string} */
-            type: "psk31";
-        } | {
-            settings: components["schemas"]["PskParams"];
-            /** @enum {string} */
-            type: "psk63";
+            type: "psk";
         } | {
             settings: components["schemas"]["WsprParams"];
             /** @enum {string} */
@@ -1858,11 +1854,7 @@ export interface components {
         } | {
             data: components["schemas"]["PskText"];
             /** @enum {string} */
-            kind: "psk31";
-        } | {
-            data: components["schemas"]["PskText"];
-            /** @enum {string} */
-            kind: "psk63";
+            kind: "psk";
         } | {
             data: components["schemas"]["WsprSpot"];
             /** @enum {string} */
@@ -2890,10 +2882,14 @@ export interface components {
             type_id?: string | null;
             why: string;
         };
+        /** @enum {string} */
+        PskBaud: "psk31" | "psk63" | "psk125" | "psk250";
         PskParams: {
+            baud?: components["schemas"]["PskBaud"];
             invert?: boolean;
         };
         PskText: {
+            baud: components["schemas"]["PskBaud"];
             text: string;
         };
         RackCell: {

@@ -968,7 +968,31 @@ impl Default for WsprParams {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PskBaud {
+    #[default]
+    Psk31,
+    Psk63,
+    Psk125,
+    Psk250,
+}
+
+impl PskBaud {
+    #[must_use]
+    pub fn rate(self) -> f64 {
+        match self {
+            Self::Psk31 => 31.25,
+            Self::Psk63 => 62.5,
+            Self::Psk125 => 125.0,
+            Self::Psk250 => 250.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PskParams {
+    #[serde(default)]
+    pub baud: PskBaud,
     #[serde(default)]
     pub invert: bool,
 }
@@ -1126,8 +1150,7 @@ pub enum ChannelParams {
     M17(M17Params),
     Ft8(WsjtParams),
     Ft4(WsjtParams),
-    Psk31(PskParams),
-    Psk63(PskParams),
+    Psk(PskParams),
     Wspr(WsprParams),
     Freedv(FreeDvParams),
     Ident(IdentParams),
@@ -1178,8 +1201,7 @@ impl ChannelParams {
             Self::M17(_) => "m17",
             Self::Ft8(_) => "ft8",
             Self::Ft4(_) => "ft4",
-            Self::Psk31(_) => "psk31",
-            Self::Psk63(_) => "psk63",
+            Self::Psk(_) => "psk",
             Self::Wspr(_) => "wspr",
             Self::Freedv(_) => "freedv",
             Self::Ident(_) => "ident",

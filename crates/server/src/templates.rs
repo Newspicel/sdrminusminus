@@ -556,7 +556,7 @@ static TEMPLATES: &[Entry] = &[
         channels: &[
             Channel::at(
                 14_070_150.0,
-                || ChannelParams::Psk31(PskParams::default()),
+                || ChannelParams::Psk(PskParams::default()),
                 LOG_READ,
             ),
             Channel::at(

@@ -155,6 +155,13 @@ const SUBGHZ_MODULATIONS: Options<NonNullable<ChannelParamsOf<"subghz">["modulat
   { value: "ook", label: "OOK/ASK" },
   { value: "fsk", label: "FSK" },
 ];
+const PSK_BAUDS: Options<NonNullable<ChannelParamsOf<"psk">["baud"]>> = [
+  { value: "psk31", label: "PSK31" },
+  { value: "psk63", label: "PSK63" },
+  { value: "psk125", label: "PSK125" },
+  { value: "psk250", label: "PSK250" },
+];
+
 const RADIO_CLOCK_STANDARDS: Options<NonNullable<ChannelParamsOf<"radio_clock">["standard"]>> = [
   { value: "dcf77", label: "DCF77" },
   { value: "wwvb", label: "WWVB" },
@@ -685,25 +692,25 @@ function ModeControls({
           onChange={(settings) => onParams({ type: "wspr", settings })}
         />
       );
-    case "psk31":
+    case "psk":
       return (
-        <Toggle
-          label="Invert"
-          checked={params.settings.invert ?? false}
-          onChange={(invert) =>
-            onParams({ type: "psk31", settings: { ...params.settings, invert } })
-          }
-        />
-      );
-    case "psk63":
-      return (
-        <Toggle
-          label="Invert"
-          checked={params.settings.invert ?? false}
-          onChange={(invert) =>
-            onParams({ type: "psk63", settings: { ...params.settings, invert } })
-          }
-        />
+        <>
+          <SettingRow label="Mode">
+            <Select
+              label="PSK symbol rate"
+              value={params.settings.baud ?? "psk31"}
+              options={PSK_BAUDS}
+              onChange={(baud) => onParams({ type: "psk", settings: { ...params.settings, baud } })}
+            />
+          </SettingRow>
+          <Toggle
+            label="Invert"
+            checked={params.settings.invert ?? false}
+            onChange={(invert) =>
+              onParams({ type: "psk", settings: { ...params.settings, invert } })
+            }
+          />
+        </>
       );
     case "navtex":
       return (

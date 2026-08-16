@@ -264,13 +264,7 @@ function SortButton({ label, onClick }: { label: string; onClick: () => void }) 
   );
 }
 
-function TextView({
-  kind,
-  scope = {},
-}: {
-  kind: "rtty" | "morse" | "psk31" | "psk63";
-  scope?: DecoderScope;
-}) {
+function TextView({ kind, scope = {} }: { kind: "rtty" | "morse" | "psk"; scope?: DecoderScope }) {
   const records = recordsInScope(useDecodedKind(kind), scope);
   const text = buildTranscript(records);
   const wpm = kind === "morse" ? latestWpm(records as readonly DecodedRecordOf<"morse">[]) : null;
@@ -383,8 +377,8 @@ function CwSkimmerView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
-function kindLabel(kind: "rtty" | "morse" | "psk31" | "psk63"): string {
-  return { rtty: "RTTY", morse: "Morse", psk31: "PSK31", psk63: "PSK63" }[kind];
+function kindLabel(kind: "rtty" | "morse" | "psk"): string {
+  return { rtty: "RTTY", morse: "Morse", psk: "PSK" }[kind];
 }
 
 function useDecodedStoreAgeOut(): (nowMs: number) => void {
@@ -632,8 +626,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
   cw_skimmer: (scope) => <CwSkimmerView scope={scope} />,
-  psk31: (scope) => <TextView kind="psk31" scope={scope} />,
-  psk63: (scope) => <TextView kind="psk63" scope={scope} />,
+  psk: (scope) => <TextView kind="psk" scope={scope} />,
   selcall: null,
   tone: (scope) => <ToneView scope={scope} />,
   ident: (scope) => <IdentView scope={scope} />,

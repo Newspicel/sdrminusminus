@@ -41,9 +41,10 @@ pub use channel::{
     MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
     MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams,
     NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud,
-    PocsagParams, PskParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits,
-    SelcallParams, SelcallSystem, Sideband, SsbParams, SstvMode, SstvParams, SubghzModulation,
-    SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams,
+    RttyStopBits, SelcallParams, SelcallSystem, Sideband, SsbParams, SstvMode, SstvParams,
+    SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams,
 };
 pub use chat::{
     ChatOutputNode, ChatOutputTarget, MAX_CHAT_TOKEN_LEN, MAX_CHAT_URL_LEN, MAX_MATRIX_ROOM_ID_LEN,
@@ -403,8 +404,8 @@ mod contract_tests {
     fn decoder_params_default_from_empty_settings() {
         use channel::{
             AcarsParams, AdsbParams, AisParams, AprsParams, DabParams, DatvParams, DrmParams,
-            GnssParams, MorseParams, NavtexParams, PocsagParams, PskParams, RadioClockParams,
-            RttyParams, SubghzParams, WsjtParams, WsprParams,
+            GnssParams, MorseParams, NavtexParams, PocsagParams, PskBaud, PskParams,
+            RadioClockParams, RttyParams, SubghzParams, WsjtParams, WsprParams,
         };
         for (json, expected) in [
             (
@@ -452,12 +453,15 @@ mod contract_tests {
                 ChannelParams::Ft4(WsjtParams::default()),
             ),
             (
-                r#"{"type":"psk31","settings":{}}"#,
-                ChannelParams::Psk31(PskParams::default()),
+                r#"{"type":"psk","settings":{}}"#,
+                ChannelParams::Psk(PskParams::default()),
             ),
             (
-                r#"{"type":"psk63","settings":{}}"#,
-                ChannelParams::Psk63(PskParams::default()),
+                r#"{"type":"psk","settings":{"baud":"psk250"}}"#,
+                ChannelParams::Psk(PskParams {
+                    baud: PskBaud::Psk250,
+                    invert: false,
+                }),
             ),
             (
                 r#"{"type":"wspr","settings":{}}"#,

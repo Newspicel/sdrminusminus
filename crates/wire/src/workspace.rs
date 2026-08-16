@@ -3,7 +3,7 @@ use utoipa::ToSchema;
 
 use crate::patch::{DeviceRef, NodeBody, PatchError, PatchGraph, PatchNode, Position, RackLayout};
 
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 3;
 
 pub const MAX_NAME_LEN: usize = 64;
 
@@ -407,7 +407,7 @@ mod tests {
         assert_eq!(back, snap);
 
         let bare: WorkspaceSnapshot =
-            serde_json::from_str(r#"{"version":2,"graph":{"nodes":[]}}"#).unwrap();
+            serde_json::from_str(r#"{"version":3,"graph":{"nodes":[]}}"#).unwrap();
         assert!(bare.rack.slots.is_empty());
         assert!(bare.graph.edges.is_empty());
         assert_eq!(bare.settings.band_region, None);
@@ -430,8 +430,8 @@ mod tests {
     #[test]
     fn validate_refuses_a_version_this_build_did_not_write() {
         let mut snap = WorkspaceSnapshot::starter();
-        snap.version = 1;
-        assert_eq!(snap.validate(), Err(WorkspaceError::Version(1)));
+        snap.version = 2;
+        assert_eq!(snap.validate(), Err(WorkspaceError::Version(2)));
     }
 
     #[test]

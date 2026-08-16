@@ -10,7 +10,7 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PskParams, PskText,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PskBaud, PskParams, PskText,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -18,38 +18,21 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 const INPUT_RATE_HZ: f64 = 8_000.0;
 const FILTER_TAPS: usize = 257;
 const TEXT_FLUSH_CHARS: usize = 64;
+const BANDWIDTH_FACTOR: f64 = 1.3;
 
-static PSK31_DESCRIPTOR: LazyLock<ChannelDescriptor> =
-    LazyLock::new(|| descriptor("psk31", "PSK31", 80.0));
-static PSK63_DESCRIPTOR: LazyLock<ChannelDescriptor> =
-    LazyLock::new(|| descriptor("psk63", "PSK63", 160.0));
-
-fn descriptor(type_id: &str, name: &str, bandwidth_hz: f64) -> ChannelDescriptor {
-    ChannelDescriptor {
-        type_id: type_id.to_owned(),
-        name: name.to_owned(),
-        bandwidth_hz,
-        input_rate_hz: INPUT_RATE_HZ,
-        has_audio: false,
-        decoder_kind: Some(type_id.to_owned()),
-        ..ChannelDescriptor::default()
-    }
-}
-
-pub(crate) fn baud(params: &ChannelParams) -> Result<f64, ChannelError> {
-    match params {
-        ChannelParams::Psk31(_) => Ok(31.25),
-        ChannelParams::Psk63(_) => Ok(62.5),
-        other => Err(ChannelError::InvalidSettings(format!(
-            "PSK channel got {} params",
-            other.type_id()
-        ))),
-    }
-}
+static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
+    type_id: "psk".to_owned(),
+    name: "PSK".to_owned(),
+    bandwidth_hz: 650.0,
+    input_rate_hz: INPUT_RATE_HZ,
+    has_audio: false,
+    decoder_kind: Some("psk".to_owned()),
+    ..ChannelDescriptor::default()
+});
 
 fn settings(params: &ChannelParams) -> Result<&PskParams, ChannelError> {
     match params {
-        ChannelParams::Psk31(p) | ChannelParams::Psk63(p) => Ok(p),
+        ChannelParams::Psk(p) => Ok(p),
         other => Err(ChannelError::InvalidSettings(format!(
             "PSK channel got {} params",
             other.type_id()
@@ -74,47 +57,60 @@ fn demodulator(baud: f64) -> Result<LinearDemod, ChannelError> {
 }
 
 pub(crate) fn occupied_band(params: &ChannelParams) -> (f64, f64) {
-    let half = baud(params).unwrap_or(62.5) * 1.3;
+    let baud = settings(params)
+        .map_or(PskBaud::default(), |p| p.baud)
+        .rate();
+    let half = baud * BANDWIDTH_FACTOR;
     (-half, half)
 }
 
 pub(crate) fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelError> {
-    let half = baud(params)? * 1.3;
+    let half = settings(params)?.baud.rate() * BANDWIDTH_FACTOR;
     Ok(ChannelFilter::Symmetric(Decimator::new(
         &design_lowpass(FILTER_TAPS, half / INPUT_RATE_HZ),
         1,
     )))
 }
 
-struct PskChannel {
+pub struct PskChannel {
     demod: LinearDemod,
     differential: DifferentialDetector,
     decoder: VaricodeDecoder,
+    baud: PskBaud,
     invert: bool,
     symbols: Vec<Complex<f32>>,
     products: Vec<Complex<f32>>,
 }
 
-impl PskChannel {
-    fn new(params: &ChannelParams) -> Result<Self, ChannelError> {
+impl ChannelRx for PskChannel {
+    fn descriptor() -> &'static ChannelDescriptor {
+        &DESCRIPTOR
+    }
+
+    fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
+        check_input_rate(ctx, &DESCRIPTOR)?;
+        let params = *self::settings(&settings.params)?;
         Ok(Self {
-            demod: demodulator(baud(params)?)?,
+            demod: demodulator(params.baud.rate())?,
             differential: DifferentialDetector::new(),
             decoder: VaricodeDecoder::default(),
-            invert: settings(params)?.invert,
+            baud: params.baud,
+            invert: params.invert,
             symbols: Vec::new(),
             products: Vec::new(),
         })
     }
 
-    fn apply(&mut self, params: &ChannelParams) -> Result<(), ChannelError> {
-        self.demod = demodulator(baud(params)?)?;
-        self.invert = settings(params)?.invert;
-        self.reset();
+    fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
+        let params = *self::settings(&settings.params)?;
+        self.demod = demodulator(params.baud.rate())?;
+        self.baud = params.baud;
+        self.invert = params.invert;
+        self.retuned();
         Ok(())
     }
 
-    fn reset(&mut self) {
+    fn retuned(&mut self) {
         self.demod.reset();
         self.differential.reset();
         self.decoder = VaricodeDecoder::default();
@@ -122,12 +118,7 @@ impl PskChannel {
         self.products.clear();
     }
 
-    fn process(
-        &mut self,
-        iq: &[Complex<f32>],
-        out: &mut ChannelOutputs,
-        event: fn(PskText) -> DecoderEvent,
-    ) {
+    fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
         self.products.clear();
@@ -138,7 +129,10 @@ impl PskChannel {
                 bit = !bit;
             }
             if let Some(text) = self.decoder.feed(bit) {
-                out.events.push(event(PskText { text }));
+                out.events.push(DecoderEvent::Psk(PskText {
+                    baud: self.baud,
+                    text,
+                }));
             }
         }
     }
@@ -206,52 +200,6 @@ fn code_matches(candidate: &str, code: u16, bits: u8) -> bool {
             .fold(0u16, |value, bit| (value << 1) | u16::from(bit == b'1'))
             == code
 }
-
-macro_rules! channel {
-    ($name:ident, $variant:ident, $descriptor:ident, $event:ident) => {
-        pub struct $name(PskChannel);
-
-        impl ChannelRx for $name {
-            fn descriptor() -> &'static ChannelDescriptor {
-                &$descriptor
-            }
-
-            fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
-                check_input_rate(ctx, &$descriptor)?;
-                if !matches!(settings.params, ChannelParams::$variant(_)) {
-                    return Err(ChannelError::InvalidSettings(format!(
-                        "{} channel got {} params",
-                        $descriptor.type_id,
-                        settings.params.type_id()
-                    )));
-                }
-                Ok(Self(PskChannel::new(&settings.params)?))
-            }
-
-            fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
-                if !matches!(settings.params, ChannelParams::$variant(_)) {
-                    return Err(ChannelError::InvalidSettings(format!(
-                        "{} channel got {} params",
-                        $descriptor.type_id,
-                        settings.params.type_id()
-                    )));
-                }
-                self.0.apply(&settings.params)
-            }
-
-            fn retuned(&mut self) {
-                self.0.reset();
-            }
-
-            fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-                self.0.process(iq, out, DecoderEvent::$event);
-            }
-        }
-    };
-}
-
-channel!(Psk31Channel, Psk31, PSK31_DESCRIPTOR, Psk31);
-channel!(Psk63Channel, Psk63, PSK63_DESCRIPTOR, Psk63);
 
 pub(crate) const VARICODE: [&str; 128] = [
     "1010101011",
@@ -418,50 +366,63 @@ mod tests {
         assert_eq!(output.as_deref(), Some("CQ de DL1ABC\n"));
     }
 
-    fn decoded_text(params: ChannelParams, iq: &[Complex<f32>]) -> String {
-        let mut channel = match params {
-            ChannelParams::Psk31(p) => Box::new(
-                Psk31Channel::new(
-                    ChannelCtx {
-                        input_rate: INPUT_RATE_HZ,
-                    },
-                    settings(ChannelParams::Psk31(p)),
-                )
-                .unwrap(),
-            ) as Box<dyn ChannelRx>,
-            ChannelParams::Psk63(p) => Box::new(
-                Psk63Channel::new(
-                    ChannelCtx {
-                        input_rate: INPUT_RATE_HZ,
-                    },
-                    settings(ChannelParams::Psk63(p)),
-                )
-                .unwrap(),
-            ),
-            _ => unreachable!(),
-        };
+    fn decoded(baud: PskBaud, iq: &[Complex<f32>]) -> Vec<PskText> {
+        let mut channel = PskChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            settings(ChannelParams::Psk(PskParams {
+                baud,
+                invert: false,
+            })),
+        )
+        .unwrap();
         let mut out = ChannelOutputs::default();
         for block in iq.chunks(997) {
             channel.process(block, &mut out);
         }
         out.events
-            .iter()
+            .into_iter()
             .filter_map(|event| match event {
-                DecoderEvent::Psk31(text) | DecoderEvent::Psk63(text) => Some(text.text.as_str()),
+                DecoderEvent::Psk(text) => Some(text),
                 _ => None,
             })
             .collect()
     }
 
     #[test]
-    fn psk31_and_psk63_fixtures_decode_across_ragged_blocks() {
-        for (params, baud) in [
-            (ChannelParams::Psk31(PskParams::default()), 31.25),
-            (ChannelParams::Psk63(PskParams::default()), 62.5),
+    fn every_baud_fixture_decodes_across_ragged_blocks() {
+        for baud in [
+            PskBaud::Psk31,
+            PskBaud::Psk63,
+            PskBaud::Psk125,
+            PskBaud::Psk250,
         ] {
-            let iq = testgen::psk::transmission("CQ de DL1ABC\n", baud);
-            let text = decoded_text(params, &iq);
-            assert!(text.contains("DL1ABC"), "{baud} baud decoded {text:?}");
+            let iq = testgen::psk::transmission("CQ de DL1ABC\n", baud.rate());
+            let events = decoded(baud, &iq);
+            let text: String = events.iter().map(|e| e.text.as_str()).collect();
+            assert!(text.contains("DL1ABC"), "{baud:?} decoded {text:?}");
+            assert!(events.iter().all(|e| e.baud == baud), "{baud:?} tagging");
+        }
+    }
+
+    #[test]
+    fn occupied_band_tracks_the_selected_baud() {
+        for baud in [PskBaud::Psk31, PskBaud::Psk250] {
+            let params = ChannelParams::Psk(PskParams {
+                baud,
+                invert: false,
+            });
+            let (low, high) = occupied_band(&params);
+            assert!(
+                (high - baud.rate() * BANDWIDTH_FACTOR).abs() < 1e-9,
+                "{baud:?}"
+            );
+            assert!((low + high).abs() < 1e-9, "{baud:?}");
+            assert!(
+                high * 2.0 <= DESCRIPTOR.bandwidth_hz,
+                "{baud:?} fits nominal"
+            );
         }
     }
 }

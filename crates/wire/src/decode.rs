@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{RadioClockStandard, channel::SstvMode};
+use crate::{PskBaud, RadioClockStandard, channel::SstvMode};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RdsUpdate {
@@ -187,6 +187,7 @@ pub struct WsjtMessage {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PskText {
+    pub baud: PskBaud,
     pub text: String,
 }
 
@@ -762,8 +763,7 @@ pub enum DecoderEvent {
     Dv(DvFrame),
     Ft8(WsjtMessage),
     Ft4(WsjtMessage),
-    Psk31(PskText),
-    Psk63(PskText),
+    Psk(PskText),
     Wspr(WsprSpot),
     Ident(IdentReport),
     Broadcast(BroadcastStatus),
@@ -802,8 +802,7 @@ impl DecoderEvent {
             Self::Dv(_) => "dv",
             Self::Ft8(_) => "ft8",
             Self::Ft4(_) => "ft4",
-            Self::Psk31(_) => "psk31",
-            Self::Psk63(_) => "psk63",
+            Self::Psk(_) => "psk",
             Self::Wspr(_) => "wspr",
             Self::Ident(_) => "ident",
             Self::Broadcast(_) => "broadcast",
@@ -998,7 +997,7 @@ impl DecoderEvent {
             Self::Ft8(m) | Self::Ft4(m) => {
                 format!("{} · {:+.0} dB · {:.0} Hz", m.text, m.snr_db, m.audio_hz)
             }
-            Self::Psk31(t) | Self::Psk63(t) => t.text.clone(),
+            Self::Psk(t) => t.text.clone(),
             Self::Wspr(s) => format!("{} · {:+.0} dB · {:.0} Hz", s.text, s.snr_db, s.audio_hz),
             Self::Ident(r) => {
                 let mut parts = vec![r.modulation.label().to_owned()];
@@ -1153,8 +1152,7 @@ impl DecoderEvent {
             Self::Rtty(_)
             | Self::Morse(_)
             | Self::CwSkimmer(_)
-            | Self::Psk31(_)
-            | Self::Psk63(_)
+            | Self::Psk(_)
             | Self::Tone(_)
             | Self::Ident(_)
             | Self::Selcall(_) => None,
@@ -1324,10 +1322,8 @@ mod tests {
                 time_offset_s: 0.0,
                 hard_errors: 0,
             }),
-            DecoderEvent::Psk31(PskText {
-                text: String::new(),
-            }),
-            DecoderEvent::Psk63(PskText {
+            DecoderEvent::Psk(PskText {
+                baud: PskBaud::Psk31,
                 text: String::new(),
             }),
             DecoderEvent::Wspr(WsprSpot {

@@ -159,9 +159,7 @@ const DETAIL: {
     body: m.text || null,
   }),
 
-  psk31: (t) => ({ fields: [], body: t.text || null }),
-
-  psk63: (t) => ({ fields: [], body: t.text || null }),
+  psk: (t) => ({ fields: fields([["Mode", t.baud.toUpperCase()]]), body: t.text || null }),
 
   wspr: (s) => ({
     fields: fields([

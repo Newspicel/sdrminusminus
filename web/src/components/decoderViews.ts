@@ -313,7 +313,7 @@ export function appendTranscript(
 }
 
 export function buildTranscript(
-  records: readonly DecodedRecordOf<"rtty" | "morse" | "psk31" | "psk63">[],
+  records: readonly DecodedRecordOf<"rtty" | "morse" | "psk">[],
   limit = TRANSCRIPT_LIMIT,
 ): string {
   return records.reduceRight((text, r) => appendTranscript(text, r.event.data.text, limit), "");

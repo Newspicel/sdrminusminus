@@ -29,8 +29,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   ident: "Signal ID",
   ft8: "FT8",
   ft4: "FT4",
-  psk31: "PSK31",
-  psk63: "PSK63",
+  psk: "PSK",
   wspr: "WSPR",
   broadcast: "Digital broadcast",
   radio_clock: "Radio clock",
@@ -239,9 +238,9 @@ export function eventSummary(event: DecoderEvent): string {
     }
     case "rtty":
     case "morse":
-    case "psk31":
-    case "psk63":
       return event.data.text;
+    case "psk":
+      return join([event.data.baud.toUpperCase(), event.data.text]);
     case "cw_skimmer": {
       const spot = event.data;
       return join([
@@ -442,8 +441,7 @@ export function eventStation(event: DecoderEvent): string | null {
     case "rtty":
     case "morse":
     case "cw_skimmer":
-    case "psk31":
-    case "psk63":
+    case "psk":
     case "selcall":
     case "tone":
     case "ident":
