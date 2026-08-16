@@ -10,6 +10,7 @@ pub mod frame;
 pub mod network;
 pub mod patch;
 pub mod position;
+pub mod propagation;
 pub mod rest;
 pub mod scan;
 pub mod state;
@@ -85,6 +86,12 @@ pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
     MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD,
     MIN_NMEA_UPDATE_INTERVAL_MS, NmeaDeviceInfo, NmeaDevicesResponse, PositionFix, PositionSource,
+};
+pub use propagation::{
+    DEFAULT_PROPAGATION_HALF_LIFE_MIN, DEFAULT_REFLECTION_HEIGHT_KM, IONOSONDE_MAX_STATIONS,
+    IONOSONDE_SOURCE, IONOSONDE_URL, IonosondeReport, IonosondeStation,
+    MAX_PROPAGATION_HALF_LIFE_MIN, MAX_REFLECTION_HEIGHT_KM, MIN_PROPAGATION_HALF_LIFE_MIN,
+    MIN_REFLECTION_HEIGHT_KM, PropagationNode,
 };
 pub use rest::{
     ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse, AuthInfo,

@@ -7,6 +7,7 @@ use crate::{
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
+    propagation::PropagationNode,
     timemachine::TimeMachineNode,
     workspace::MAX_NAME_LEN,
 };
@@ -321,6 +322,7 @@ pub enum NodeBody {
     Speaker,
     Map,
     SignalMap(SignalMapNode),
+    Propagation(PropagationNode),
     Readout,
     DecoderLog,
     DmrTrunk(DmrTrunkNode),
@@ -346,6 +348,7 @@ impl NodeBody {
             Self::Speaker => "speaker",
             Self::Map => "map",
             Self::SignalMap(_) => "signal_map",
+            Self::Propagation(_) => "propagation",
             Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
             Self::DmrTrunk(_) => "dmr_trunk",
@@ -369,6 +372,7 @@ impl NodeBody {
             Self::Scope
             | Self::Map
             | Self::SignalMap(_)
+            | Self::Propagation(_)
             | Self::Readout
             | Self::DecoderLog
             | Self::Video => NodeCategory::Display,
@@ -467,6 +471,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, Always),
         ],
+        "propagation" => vec![
+            PortSpec::new(Events, In, true, Always),
+            PortSpec::new(Position, In, false, Always),
+        ],
         "readout" | "decoder_log" | "export" => {
             vec![PortSpec::new(Events, In, true, Always)]
         }
@@ -520,6 +528,10 @@ impl PatchCatalog {
                 entry(
                     &NodeBody::SignalMap(SignalMapNode::default()),
                     "Signal survey",
+                ),
+                entry(
+                    &NodeBody::Propagation(PropagationNode::default()),
+                    "Propagation map",
                 ),
                 entry(&NodeBody::Readout, "Readout"),
                 entry(&NodeBody::DecoderLog, "Decoder log"),
@@ -804,6 +816,9 @@ impl PatchGraph {
                     {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
+                }
+                NodeBody::Propagation(settings) if !settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::NetworkExport(export) => {
                     if export.settings.address.is_empty()
@@ -2197,6 +2212,57 @@ mod tests {
             graph.validate(),
             Err(PatchError::NodeSettings("survey".to_owned()))
         );
+    }
+
+    #[test]
+    fn propagation_takes_decoder_events_and_a_station_position() {
+        let catalog = PatchCatalog::build();
+        let propagation = catalog
+            .nodes
+            .iter()
+            .find(|node| node.kind == "propagation")
+            .expect("propagation map in the palette");
+        assert_eq!(propagation.category, NodeCategory::Display);
+        assert_eq!(
+            propagation
+                .ports
+                .iter()
+                .map(|port| (port.port_type, port.direction))
+                .collect::<Vec<_>>(),
+            [
+                (PortType::Events, PortDirection::In),
+                (PortType::Position, PortDirection::In),
+            ]
+        );
+    }
+
+    #[test]
+    fn propagation_settings_are_bounded() {
+        let mut graph = PatchGraph {
+            nodes: vec![node(
+                "prop",
+                NodeBody::Propagation(crate::propagation::PropagationNode::default()),
+            )],
+            edges: Vec::new(),
+        };
+        assert_eq!(graph.validate(), Ok(()));
+
+        for broken in [
+            crate::propagation::PropagationNode {
+                half_life_minutes: 0,
+                ..Default::default()
+            },
+            crate::propagation::PropagationNode {
+                reflection_height_km: 1_000,
+                ..Default::default()
+            },
+        ] {
+            graph.nodes[0].body = NodeBody::Propagation(broken);
+            assert_eq!(
+                graph.validate(),
+                Err(PatchError::NodeSettings("prop".to_owned()))
+            );
+        }
     }
 
     #[test]

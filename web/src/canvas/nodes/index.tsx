@@ -9,6 +9,7 @@ import { DmrTrunkFace } from "./DmrTrunkFace";
 import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
+import { PropagationFace } from "./PropagationFace";
 import { ScopeFace } from "./ScopeFace";
 import { SignalMapFace } from "./SignalMapFace";
 import {
@@ -46,6 +47,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   speaker: mount(SpeakerFace),
   map: mount(MapFace),
   signal_map: mount(SignalMapFace),
+  propagation: mount(PropagationFace),
   readout: mount(ReadoutFace),
   decoder_log: mount(DecoderLogFace),
   dmr_trunk: mount(DmrTrunkFace),
@@ -68,6 +70,7 @@ export const FACES: Record<NodeKind, Face> = {
   speaker: SpeakerFace,
   map: MapFace,
   signal_map: SignalMapFace,
+  propagation: PropagationFace,
   readout: ReadoutFace,
   decoder_log: DecoderLogFace,
   dmr_trunk: DmrTrunkFace,

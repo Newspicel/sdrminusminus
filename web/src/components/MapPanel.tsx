@@ -30,6 +30,11 @@ import {
   targetDetail,
 } from "../lib/map/layers";
 import {
+  installPropagationLayers,
+  type PropagationOverlay,
+  updatePropagationSources,
+} from "../lib/map/propagation";
+import {
   framePositionOnce,
   frameSignalOnce,
   frameTargetsOnce,
@@ -68,6 +73,7 @@ export function MapPanel({
   references = [],
   positionNodes = [],
   signalSamples,
+  propagation,
   active = true,
   className,
 }: {
@@ -75,6 +81,7 @@ export function MapPanel({
   references?: readonly (readonly [number, number])[];
   positionNodes?: readonly string[];
   signalSamples?: readonly SignalSurveySample[];
+  propagation?: PropagationOverlay;
   active?: boolean;
   className?: string;
 }) {
@@ -90,14 +97,17 @@ export function MapPanel({
   const referencesRef = useRef(references);
   const positionNodesRef = useRef(positionNodes);
   const signalSamplesRef = useRef<readonly SignalSurveySample[] | null>(signalSamples ?? null);
+  const propagationRef = useRef<PropagationOverlay | null>(propagation ?? null);
   useLayoutEffect(() => {
     kindsRef.current = kinds;
     referencesRef.current = references;
     positionNodesRef.current = positionNodes;
     signalSamplesRef.current = signalSamples ?? null;
+    propagationRef.current = propagation ?? null;
   });
   const positionDrawnRef = useRef("");
   const signalDrawnRef = useRef<readonly SignalSurveySample[] | null>(null);
+  const propagationDrawnRef = useRef<PropagationOverlay | null>(null);
   const edgeRef = useRef("");
   const accentRef = useRef("");
 
@@ -148,9 +158,16 @@ export function MapPanel({
         installReferenceLayer(map, accentRef.current, edge, referencesRef.current);
         installLayers(map, edge, kindsRef.current);
         installSignalLayers(map, edge, signalSamplesRef.current !== null);
+        installPropagationLayers(
+          map,
+          edge,
+          accentRef.current,
+          propagationRef.current?.layer ?? null,
+        );
         installPositionLayers(map, accentRef.current, edge, positionNodesRef.current.length > 0);
         readyRef.current = true;
         drawnRef.current = {};
+        propagationDrawnRef.current = null;
         highlight(map, kindsRef.current, selectedRef.current);
       });
 
@@ -209,6 +226,12 @@ export function MapPanel({
         );
         setPositionCount(collection.points.features.length);
         framePositionOnce(map, collection.points, positionFramedRef);
+      }
+
+      const overlay = propagationRef.current;
+      if (overlay !== null && overlay !== propagationDrawnRef.current) {
+        propagationDrawnRef.current = overlay;
+        updatePropagationSources(map, overlay);
       }
 
       const surveySamples = signalSamplesRef.current;
@@ -336,6 +359,16 @@ export function MapPanel({
       setSignalCount(0);
     }
   }, [signalEnabled]);
+
+  const propagationLayer = propagation?.layer ?? null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || !readyRef.current) {
+      return;
+    }
+    installPropagationLayers(map, edgeRef.current, accentRef.current, propagationLayer);
+    propagationDrawnRef.current = null;
+  }, [propagationLayer]);
 
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>

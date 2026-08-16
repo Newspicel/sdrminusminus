@@ -31,6 +31,7 @@ mod decoderlog;
 pub mod doctor;
 mod gps;
 mod images;
+mod ionosonde;
 mod mcp;
 pub mod notices;
 mod rest;
@@ -62,6 +63,7 @@ pub(crate) struct AppState {
     pub(crate) tracks: Arc<tracks::Tracks>,
     pub(crate) calls: Arc<calls::Calls>,
     pub(crate) images: Arc<images::Images>,
+    pub(crate) ionosonde: Arc<ionosonde::Ionosonde>,
     pub clients: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) tools: Arc<sdrmm_tools::ToolRegistry>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
@@ -83,6 +85,7 @@ impl AppState {
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
             images: Arc::new(images::Images::default()),
+            ionosonde: Arc::new(ionosonde::Ionosonde::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             tools: Arc::new(sdrmm_tools::ToolRegistry::with_builtins()),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),

@@ -548,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ionosonde": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_ionosonde"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/occupancy": {
         parameters: {
             query?: never;
@@ -2352,6 +2368,30 @@ export interface components {
             /** Format: double */
             apex_angle_deg?: number;
         };
+        IonosondeReport: {
+            error?: string | null;
+            fetched_at?: string | null;
+            source: string;
+            stations: components["schemas"]["IonosondeStation"][];
+            url: string;
+        };
+        IonosondeStation: {
+            code: string;
+            /** Format: double */
+            confidence?: number | null;
+            /** Format: double */
+            fof2_mhz?: number | null;
+            /** Format: double */
+            latitude: number;
+            /** Format: double */
+            longitude: number;
+            /** Format: double */
+            m3000?: number | null;
+            measured_at: string;
+            /** Format: double */
+            muf3000_mhz: number;
+            name: string;
+        };
         IridiumParams: Record<string, never>;
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
@@ -2642,6 +2682,10 @@ export interface components {
             /** @enum {string} */
             kind: "signal_map";
         } | {
+            data: components["schemas"]["PropagationNode"];
+            /** @enum {string} */
+            kind: "propagation";
+        } | {
             /** @enum {string} */
             kind: "readout";
         } | {
@@ -2873,6 +2917,22 @@ export interface components {
             devices?: components["schemas"]["PresetDevice"][];
             /** Format: int32 */
             version: number;
+        };
+        PropagationNode: {
+            /** @default true */
+            compare_forecast: boolean;
+            /**
+             * Format: int32
+             * @default 30
+             */
+            half_life_minutes: number;
+            /**
+             * Format: int32
+             * @default 300
+             */
+            reflection_height_km: number;
+            /** @default false */
+            show_paths: boolean;
         };
         ProtocolMatch: {
             confirmed?: boolean;
@@ -4969,6 +5029,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_ionosonde: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ionosonde network's current MUF(3000 km) per sounding site, cached for fifteen minutes — the interval the upstream map is rebuilt on. A server with no route to the feed answers the same shape with an empty station list and the reason in `error`, so the propagation map degrades to what this receiver measured on its own */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IonosondeReport"];
                 };
             };
         };

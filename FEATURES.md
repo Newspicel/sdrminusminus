@@ -132,7 +132,7 @@ If something is shipped, then remove it.
 - Rotator control (GS-232, rotctld); rigctld-compatible rig control server
 - Saved antenna profiles — the NanoVNA tool sweeps, plots SWR and a Smith chart and
   calibrates, but a sweep is never stored against a named antenna
-- Map layers — sondes, satellites, beacons, MUF
+- Map layers — sondes, satellites, beacons
 - TinySA import, Hamlib CAT control
 - Radio astronomy; star tracker; sky map
 

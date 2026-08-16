@@ -13,6 +13,7 @@
 - [Radios and hardware](hardware.md)
 - [Channels and decoding](user-guide/channels.md)
 - [Scanning](user-guide/scanning.md)
+- [Propagation map](user-guide/propagation.md)
 - [Recording and playback](user-guide/recording.md)
 - [Network IQ export](user-guide/network-iq.md)
 - [Workspaces, templates, and presets](user-guide/workspaces.md)

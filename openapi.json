@@ -1802,6 +1802,23 @@
         }
       }
     },
+    "/api/ionosonde": {
+      "get": {
+        "operationId": "get_ionosonde",
+        "responses": {
+          "200": {
+            "description": "The ionosonde network's current MUF(3000 km) per sounding site, cached for fifteen minutes — the interval the upstream map is rebuilt on. A server with no route to the feed answers the same shape with an empty station list and the reason in `error`, so the propagation map degrades to what this receiver measured on its own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IonosondeReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/occupancy": {
       "get": {
         "operationId": "get_occupancy",
@@ -8563,6 +8580,95 @@
           }
         }
       },
+      "IonosondeReport": {
+        "type": "object",
+        "required": [
+          "source",
+          "url",
+          "stations"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fetched_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "stations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IonosondeStation"
+            }
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "IonosondeStation": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "latitude",
+          "longitude",
+          "muf3000_mhz",
+          "measured_at"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "fof2_mhz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "m3000": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "measured_at": {
+            "type": "string"
+          },
+          "muf3000_mhz": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "IridiumParams": {
         "type": "object"
       },
@@ -9793,6 +9899,24 @@
           {
             "type": "object",
             "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PropagationNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "propagation"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "kind"
             ],
             "properties": {
@@ -10694,6 +10818,31 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "PropagationNode": {
+        "type": "object",
+        "properties": {
+          "compare_forecast": {
+            "type": "boolean",
+            "default": true
+          },
+          "half_life_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "default": 30,
+            "minimum": 0
+          },
+          "reflection_height_km": {
+            "type": "integer",
+            "format": "int32",
+            "default": 300,
+            "minimum": 0
+          },
+          "show_paths": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

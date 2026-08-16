@@ -20,11 +20,11 @@ use sdrmm_wire::{
     ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, LicenseTextResponse,
-    LocateQuery, NetworkExportAction, NetworkExportRequest, NetworkExportStatus,
-    NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport,
-    PatchBinding, PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice,
-    PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
+    DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, IonosondeReport,
+    LicenseTextResponse, LocateQuery, NetworkExportAction, NetworkExportRequest,
+    NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus,
+    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
     RecordingFormat, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus,
     ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
     TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
@@ -2289,6 +2289,22 @@ struct OccupancyQuery {
 }
 
 #[utoipa::path(
+    get, path = "/api/ionosonde",
+    responses((
+        status = 200,
+        description = "The ionosonde network's current MUF(3000 km) per sounding site, cached \
+                       for fifteen minutes — the interval the upstream map is rebuilt on. \
+                       A server with no route to the feed answers the same shape with an empty \
+                       station list and the reason in `error`, so the propagation map degrades \
+                       to what this receiver measured on its own",
+        body = IonosondeReport,
+    )),
+)]
+async fn get_ionosonde(State(state): State<AppState>) -> Json<IonosondeReport> {
+    Json(state.ionosonde.report().await)
+}
+
+#[utoipa::path(
     get, path = "/api/auth",
     responses((
         status = 200,
@@ -2463,6 +2479,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_auth))
         .routes(routes!(get_clients))
         .routes(routes!(get_occupancy))
+        .routes(routes!(get_ionosonde))
         .routes(routes!(get_doctor))
         .routes(routes!(list_tools))
         .routes(routes!(run_tool))

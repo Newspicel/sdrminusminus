@@ -69,27 +69,37 @@ export function WorkspaceBar({
                     kind: "signal_map" as const,
                     data: { offset_hz: 0, bandwidth_hz: 12_500 },
                   }
-                : kind === "dmr_trunk"
+                : kind === "propagation"
                   ? {
-                      kind: "dmr_trunk" as const,
-                      data: { protocol: "auto", retention_seconds: 300 },
+                      kind: "propagation" as const,
+                      data: {
+                        half_life_minutes: 30,
+                        reflection_height_km: 300,
+                        show_paths: false,
+                        compare_forecast: true,
+                      },
                     }
-                  : kind === "network_export"
+                  : kind === "dmr_trunk"
                     ? {
-                        kind: "network_export" as const,
-                        data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
+                        kind: "dmr_trunk" as const,
+                        data: { protocol: "auto", retention_seconds: 300 },
                       }
-                    : kind === "time_machine"
+                    : kind === "network_export"
                       ? {
-                          kind: "time_machine" as const,
-                          data: { history_seconds: DEFAULT_HISTORY_SECONDS },
+                          kind: "network_export" as const,
+                          data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
                         }
-                      : kind === "chat_output"
+                      : kind === "time_machine"
                         ? {
-                            kind: "chat_output" as const,
-                            data: { target: { service: "discord" as const, webhook_url: "" } },
+                            kind: "time_machine" as const,
+                            data: { history_seconds: DEFAULT_HISTORY_SECONDS },
                           }
-                        : { kind }),
+                        : kind === "chat_output"
+                          ? {
+                              kind: "chat_output" as const,
+                              data: { target: { service: "discord" as const, webhook_url: "" } },
+                            }
+                          : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

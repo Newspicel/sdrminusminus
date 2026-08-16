@@ -22,6 +22,7 @@ import type {
   DevicesResponse,
   DoctorReport,
   ExportFormat,
+  IonosondeReport,
   LicenseTextResponse,
   NetworkExportAction,
   NetworkExportSettings,
@@ -87,6 +88,7 @@ export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
 export const OCCUPANCY_KEY = ["get", "/api/occupancy"] as const;
+export const IONOSONDE_KEY = ["get", "/api/ionosonde"] as const;
 export const ABOUT_KEY = ["get", "/api/about"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
@@ -131,6 +133,16 @@ export function occupancyQuery(minSamples: number) {
         await client.GET("/api/occupancy", { params: { query: { min_samples: minSamples } } }),
       ),
     refetchInterval: 15_000,
+  });
+}
+
+export function ionosondeQuery(enabled: boolean) {
+  return queryOptions({
+    queryKey: IONOSONDE_KEY,
+    queryFn: async (): Promise<IonosondeReport> => unwrap(await client.GET("/api/ionosonde")),
+    enabled,
+    staleTime: 10 * 60_000,
+    refetchInterval: 15 * 60_000,
   });
 }
 
