@@ -61,19 +61,52 @@ impl Default for Call {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct Signalling<'a> {
+    framing: Option<&'a Call>,
+    communication: Option<&'a Call>,
+}
+
 #[must_use]
 pub fn transmission(fich: &Fich, rate: f64) -> Vec<Complex<f32>> {
-    transmission_inner(fich, None, None, false, rate)
+    transmission_inner(fich, None, Signalling::default(), rate)
 }
 
 #[must_use]
 pub fn transmission_with_callsigns(fich: &Fich, call: &Call, rate: f64) -> Vec<Complex<f32>> {
-    transmission_inner(fich, None, Some(call), true, rate)
+    let signalling = Signalling {
+        framing: Some(call),
+        communication: Some(call),
+    };
+    transmission_inner(fich, None, signalling, rate)
+}
+
+#[must_use]
+pub fn transmission_with_padded_communication(
+    fich: &Fich,
+    call: &Call,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    let padding = Call {
+        destination: String::new(),
+        source: String::new(),
+        downlink: String::new(),
+        uplink: String::new(),
+    };
+    let signalling = Signalling {
+        framing: Some(call),
+        communication: Some(&padding),
+    };
+    transmission_inner(fich, None, signalling, rate)
 }
 
 #[must_use]
 pub fn late_entry_transmission(fich: &Fich, call: &Call, rate: f64) -> Vec<Complex<f32>> {
-    transmission_inner(fich, None, Some(call), false, rate)
+    let signalling = Signalling {
+        framing: None,
+        communication: Some(call),
+    };
+    transmission_inner(fich, None, signalling, rate)
 }
 
 #[derive(Clone, Copy)]
@@ -91,25 +124,28 @@ pub(crate) fn transmission_with_voice(
     voice: Voice<'_>,
     rate: f64,
 ) -> Vec<Complex<f32>> {
-    transmission_inner(fich, Some(voice), None, false, rate)
+    transmission_inner(fich, Some(voice), Signalling::default(), rate)
 }
 
 fn transmission_inner(
     fich: &Fich,
     voice: Option<Voice<'_>>,
-    call: Option<&Call>,
-    calls_in_header: bool,
+    signalling: Signalling<'_>,
     rate: f64,
 ) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 13));
     let mut voice_at = 0;
-    for (index, frame_type) in [fich.frame_type, 1, 1, 1, 2].into_iter().enumerate() {
+    let mut frame_number = 0u8;
+    for frame_type in [fich.frame_type, 1, 1, 1, 2] {
         let frame_fich = Fich {
             frame_type,
-            frame_number: if frame_type == 1 { index as u8 - 1 } else { 0 },
+            frame_number: if frame_type == 1 { frame_number } else { 0 },
             ..*fich
         };
-        let (payload, consumed) = payload(&frame_fich, voice, call, calls_in_header, voice_at);
+        if frame_type == 1 {
+            frame_number += 1;
+        }
+        let (payload, consumed) = payload(&frame_fich, voice, signalling, voice_at);
         voice_at += consumed;
         symbols.extend(frame(&frame_fich, &payload));
     }
@@ -128,18 +164,16 @@ fn frame(fich: &Fich, payload: &[u8]) -> Vec<u8> {
 fn payload(
     fich: &Fich,
     voice: Option<Voice<'_>>,
-    call: Option<&Call>,
-    calls_in_header: bool,
+    signalling: Signalling<'_>,
     at: usize,
 ) -> (Vec<u8>, usize) {
-    if calls_in_header
-        && matches!(fich.frame_type, 0 | 2)
-        && let Some(call) = call
+    if matches!(fich.frame_type, 0 | 2)
+        && let Some(call) = signalling.framing
     {
         return (callsign_payload(call), 0);
     }
     if fich.frame_type == 1
-        && let Some(call) = call
+        && let Some(call) = signalling.communication
         && let Some(payload) = communication_callsign_payload(fich, call)
     {
         return (payload, 0);

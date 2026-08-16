@@ -252,39 +252,36 @@ impl Decoder {
         match info.frame.kind {
             DvFrameKind::Header | DvFrameKind::Terminator => {
                 if let Some(data) = self.large_data_unit(0) {
-                    self.callsigns.destination = callsign(&data[..CALLSIGN_LEN]);
-                    self.callsigns.source = callsign(&data[CALLSIGN_LEN..]);
+                    self.callsigns.learn_pair(&data);
                 }
                 if let Some(data) = self.large_data_unit(1) {
-                    self.callsigns.downlink = callsign(&data[..CALLSIGN_LEN]);
-                    self.callsigns.uplink = callsign(&data[CALLSIGN_LEN..]);
+                    self.callsigns.learn_path(&data);
                 }
             }
             DvFrameKind::Voice => match (info.data_mode, info.frame_number) {
                 (0 | 1, 0) => {
                     if let Some(data) = self.large_data_unit(0) {
-                        self.callsigns.destination = callsign(&data[..CALLSIGN_LEN]);
-                        self.callsigns.source = callsign(&data[CALLSIGN_LEN..]);
+                        self.callsigns.learn_pair(&data);
                     }
                 }
                 (2, 0) => {
                     if let Some(data) = self.small_data_unit() {
-                        self.callsigns.destination = callsign(&data);
+                        remember(&mut self.callsigns.destination, &data);
                     }
                 }
                 (2, 1) => {
                     if let Some(data) = self.small_data_unit() {
-                        self.callsigns.source = callsign(&data);
+                        remember(&mut self.callsigns.source, &data);
                     }
                 }
                 (2, 2) => {
                     if let Some(data) = self.small_data_unit() {
-                        self.callsigns.downlink = callsign(&data);
+                        remember(&mut self.callsigns.downlink, &data);
                     }
                 }
                 (2, 3) => {
                     if let Some(data) = self.small_data_unit() {
-                        self.callsigns.uplink = callsign(&data);
+                        remember(&mut self.callsigns.uplink, &data);
                     }
                 }
                 _ => {}
@@ -442,6 +439,16 @@ struct Callsigns {
 }
 
 impl Callsigns {
+    fn learn_pair(&mut self, data: &[u8]) {
+        remember(&mut self.destination, &data[..CALLSIGN_LEN]);
+        remember(&mut self.source, &data[CALLSIGN_LEN..]);
+    }
+
+    fn learn_path(&mut self, data: &[u8]) {
+        remember(&mut self.downlink, &data[..CALLSIGN_LEN]);
+        remember(&mut self.uplink, &data[CALLSIGN_LEN..]);
+    }
+
     fn apply(&self, frame: &mut DvFrame) {
         frame.destination_call.clone_from(&self.destination);
         frame.source_call.clone_from(&self.source);
@@ -465,6 +472,12 @@ fn pack<const N: usize>(bits: &[bool]) -> Option<[u8; N]> {
             .iter()
             .fold(0u8, |value, &bit| value << 1 | u8::from(bit))
     }))
+}
+
+fn remember(field: &mut Option<String>, bytes: &[u8]) {
+    if let Some(value) = callsign(bytes) {
+        *field = Some(value);
+    }
 }
 
 fn callsign(bytes: &[u8]) -> Option<String> {
@@ -556,6 +569,33 @@ mod tests {
             frame.source_call.as_deref() == Some(call.source.as_str())
                 && frame.destination_call.as_deref() == Some(call.destination.as_str())
         }));
+    }
+
+    #[test]
+    fn padded_signalling_units_keep_the_callsigns_already_heard() {
+        let fich = tx::Fich::default();
+        let call = tx::Call::default();
+        let iq = tx::transmission_with_padded_communication(&fich, &call, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(), &iq);
+
+        assert!(!frames.is_empty(), "nothing decoded");
+        assert!(
+            frames.iter().all(|frame| {
+                frame.source_call.as_deref() == Some(call.source.as_str())
+                    && frame.destination_call.as_deref() == Some(call.destination.as_str())
+                    && frame.via.as_deref() == Some("DB0XYZ → DB0ABC")
+            }),
+            "{frames:?}"
+        );
+    }
+
+    #[test]
+    fn a_transmission_that_opens_on_a_communication_frame_is_built() {
+        let fich = tx::Fich {
+            frame_type: 1,
+            ..tx::Fich::default()
+        };
+        assert!(!decode(&mut channel(), &tx::transmission(&fich, INPUT_RATE_HZ)).is_empty());
     }
 
     #[test]
