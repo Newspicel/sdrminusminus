@@ -79,8 +79,9 @@ fn connect(endpoint: &Endpoint) -> Result<(Connection, Greeting), DeviceError> {
         match connection.read(&mut bytes[got..], crate::endpoint::CONNECT_TIMEOUT) {
             crate::socket::Read::Got(n) => got += n,
             crate::socket::Read::Idle => {
-                return Err(DeviceError::Io(format!(
-                    "{endpoint}: no rtl_tcp greeting within {:?}",
+                return Err(DeviceError::InUse(format!(
+                    "{endpoint}: no rtl_tcp greeting within {:?}; the server serves one client at \
+                     a time",
                     crate::endpoint::CONNECT_TIMEOUT
                 )));
             }

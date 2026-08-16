@@ -17,7 +17,6 @@ FROM mambaorg/micromamba:2.9.0 AS soapy
 ARG TARGETARCH
 COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-64.lock /tmp/conda-linux-64.lock
 COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-aarch64.lock /tmp/conda-linux-aarch64.lock
-COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/licenses /opt/conda/share/licenses/sdrmm-soapy
 # The explicit per-platform locks pin every transitive package URL and checksum.
 RUN case "$TARGETARCH" in \
       amd64) lock=/tmp/conda-linux-64.lock ;; \
@@ -27,31 +26,9 @@ RUN case "$TARGETARCH" in \
     && micromamba install --yes --name base --file "$lock" \
     && micromamba clean --all --yes \
     && test -f /opt/conda/lib/libSoapySDR.so \
-    && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*rtlsdr*' -print -quit)" \
-    && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*hackrf*' -print -quit)" \
-    && test -f /opt/conda/share/licenses/sdrmm-soapy/HackRF-GPL-2.0-or-later.txt \
     && for module in airspy blade lms7 pluto remote; do \
          test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname "*$module*" -print -quit)"; \
        done
-
-
-# --- SoapySDRPlay3 -------------------------------------------------------------------------
-# No platform packages this module, because it links a vendor API that is licensed for use with
-# genuine SDRplay hardware and may not be redistributed. The MIT module is compiled here and is
-# all that reaches the image; the SDK it was built against stays in this stage, and the vendor
-# library and its service are the operator's to provide (docs/src/server/deployment.md).
-FROM debian:trixie-slim AS sdrplay
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       build-essential cmake ca-certificates curl git patchelf python3 \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=soapy /opt/conda /opt/conda
-COPY packaging/sdrplay /packaging/sdrplay
-RUN install -d /modules \
-    && /packaging/sdrplay/fetch-api.sh /tmp/sdrplay-sdk \
-    && /packaging/sdrplay/build-module.sh /opt/conda /tmp/sdrplay-sdk /modules \
-    && rm -rf /tmp/sdrplay-sdk \
-    && test -n "$(find /modules -iname '*sdrPlaySupport*' -print -quit)"
 
 
 # --- workspace skeleton ------------------------------------------------------------------
@@ -109,7 +86,7 @@ WORKDIR /src
 COPY --from=planner /plan/ ./
 RUN rustup show
 
-ARG FEATURES=soapy,net-client,gpu-fft
+ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
 # cargo still builds every external dependency it declares.
@@ -143,7 +120,6 @@ RUN apt-get update \
     && useradd --system --uid 10001 --user-group --create-home --home-dir /home/sdrmm sdrmm
 
 COPY --from=soapy /opt/conda /opt/conda
-COPY --from=sdrplay /modules/. /opt/conda/lib/SoapySDR/modules0.8/
 COPY --from=builder /out/sdrmm /usr/local/bin/sdrmm
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/sdrmm/THIRD_PARTY_NOTICES.md
 

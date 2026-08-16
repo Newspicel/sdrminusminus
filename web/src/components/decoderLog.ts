@@ -7,15 +7,19 @@ import type {
   DecoderLogFilter,
 } from "../lib/types";
 import { candidateScore, dvMode, dvNetwork, dvParties, modulationLabel } from "./decoderViews";
+import { SSTV_MODE_LABELS } from "./sstvModes";
 
 export const KIND_LABELS: Record<DecoderKind, string> = {
   adsb: "ADS-B",
   ais: "AIS",
   aprs: "APRS",
   pocsag: "POCSAG",
+  flex: "FLEX",
+  ermes: "ERMES",
   rds: "RDS",
   rtty: "RTTY",
   morse: "Morse",
+  cw_skimmer: "CW skimmer",
   selcall: "Selcall",
   navtex: "NAVTEX",
   acars: "ACARS",
@@ -31,6 +35,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   broadcast: "Digital broadcast",
   radio_clock: "Radio clock",
   gnss: "GNSS lab",
+  sstv: "SSTV",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -199,6 +204,14 @@ export function eventSummary(event: DecoderEvent): string {
       const p = event.data;
       return p.text === "" ? `${p.address} (${p.function})` : `${p.address}: ${p.text}`;
     }
+    case "flex": {
+      const p = event.data;
+      return p.text === "" ? `${p.address} · ${p.payload}` : `${p.address}: ${p.text}`;
+    }
+    case "ermes": {
+      const p = event.data;
+      return p.text === "" ? `${p.local_address} · ${p.payload}` : `${p.local_address}: ${p.text}`;
+    }
     case "adsb": {
       const a = event.data;
       return join([
@@ -221,6 +234,14 @@ export function eventSummary(event: DecoderEvent): string {
     case "psk31":
     case "psk63":
       return event.data.text;
+    case "cw_skimmer": {
+      const spot = event.data;
+      return join([
+        `${spot.offset_hz >= 0 ? "+" : ""}${spot.offset_hz.toFixed(0)} Hz`,
+        `${spot.wpm.toFixed(0)} WPM`,
+        spot.text,
+      ]);
+    }
     case "ft8":
     case "ft4": {
       const message = event.data;
@@ -319,6 +340,16 @@ export function eventSummary(event: DecoderEvent): string {
         g.tow_seconds == null ? null : `TOW ${g.tow_seconds} s`,
       ]);
     }
+    case "sstv": {
+      const p = event.data;
+      return join([
+        SSTV_MODE_LABELS[p.mode],
+        `${p.width}\u00d7${p.height}`,
+        p.complete
+          ? `complete in ${Math.floor(p.duration_ms / 1000)} s`
+          : `${p.lines} of ${p.height} lines`,
+      ]);
+    }
   }
 }
 
@@ -332,6 +363,10 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.source;
     case "pocsag":
       return String(event.data.address);
+    case "flex":
+      return String(event.data.address);
+    case "ermes":
+      return String(event.data.local_address);
     case "rds":
       return event.data.pi ?? null;
     case "navtex":
@@ -360,12 +395,15 @@ export function eventStation(event: DecoderEvent): string | null {
       return `GPS-${event.data.prn}`;
     case "rtty":
     case "morse":
+    case "cw_skimmer":
     case "psk31":
     case "psk63":
     case "selcall":
     case "tone":
     case "ident":
       return null;
+    case "sstv":
+      return SSTV_MODE_LABELS[event.data.mode];
     case "broadcast": {
       const status = event.data;
       const id = status.service_id ?? status.ensemble_id;

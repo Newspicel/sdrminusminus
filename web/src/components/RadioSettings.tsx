@@ -4,6 +4,14 @@ import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
+import {
+  isSwitch,
+  settingIndex,
+  snapToRanges,
+  snapToStage,
+  spanOf,
+  stageSettings,
+} from "./capabilities";
 import { FIELD } from "./controls";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
@@ -22,7 +30,8 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
   const caps = active.capabilities;
   const settings = active.settings;
   const sampleRate = settings.sample_rate ?? 0;
-  const rateRange = caps.sample_rate_range;
+  const rateRange = spanOf(caps.sample_rate_ranges);
+  const bandwidthRange = spanOf(caps.bandwidth_ranges);
   const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
   const extras = (caps.extra ?? []).filter(
     (setting) => active.playback == null || setting.name !== LOOP_SETTING,
@@ -59,7 +68,11 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
               min={rateRange ? rateRange.min / 1e6 : undefined}
               max={rateRange ? rateRange.max / 1e6 : undefined}
               step={rateRange?.step != null ? rateRange.step / 1e6 : 0.001}
-              onCommit={(msps) => applyPatch(active.id, { sample_rate: Math.round(msps * 1e6) })}
+              onCommit={(msps) =>
+                applyPatch(active.id, {
+                  sample_rate: snapToRanges(caps.sample_rate_ranges, Math.round(msps * 1e6)),
+                })
+              }
               className="w-24"
             />
             <span className="legend">MS/s</span>
@@ -67,7 +80,7 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
         )}
       </SettingRow>
 
-      {caps.bandwidths.length > 0 && (
+      {caps.bandwidths.length > 0 ? (
         <SettingRow label="Filter">
           <Select
             label="Analog bandwidth"
@@ -80,6 +93,25 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
             onChange={(hz) => applyPatch(active.id, { bandwidth: hz })}
           />
         </SettingRow>
+      ) : (
+        bandwidthRange != null && (
+          <SettingRow label="Filter">
+            <NumberField
+              label="Analog bandwidth (MHz)"
+              value={bandwidth / 1e6}
+              min={bandwidthRange.min / 1e6}
+              max={bandwidthRange.max / 1e6}
+              step={0.01}
+              onCommit={(mhz) =>
+                applyPatch(active.id, {
+                  bandwidth: snapToRanges(caps.bandwidth_ranges, Math.round(mhz * 1e6)),
+                })
+              }
+              className="w-24"
+            />
+            <span className="legend">MHz{bandwidthRange.min === 0 ? ", 0 = auto" : ""}</span>
+          </SettingRow>
+        )
       )}
 
       {caps.antennas.length > 1 && !streamedAntenna && (
@@ -177,17 +209,48 @@ function GainControl({
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
   const shown = pending ?? value;
+  const label = `${port === undefined ? "" : `${port} `}${stage.name} gain (dB)`;
+
+  if (isSwitch(stage)) {
+    return (
+      <SettingRow label={settingLabel(stage.name)} title={stage.name}>
+        <Checkbox
+          label={label}
+          checked={shown > stage.range.min}
+          onChange={(on) => onCommit(on ? stage.range.max : stage.range.min)}
+        />
+        <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
+          {shown > stage.range.min ? `+${stage.range.max.toFixed(0)}` : "0"}{" "}
+          <span className="text-ink-faint">dB</span>
+        </span>
+      </SettingRow>
+    );
+  }
+
+  const settings = stage.values?.length ? stageSettings(stage) : [];
   return (
     <SettingRow label={settingLabel(stage.name)} title={stage.name}>
-      <Slider
-        label={`${port === undefined ? "" : `${port} `}${stage.name} gain (dB)`}
-        className="min-w-0 flex-1"
-        min={stage.range.min}
-        max={stage.range.max}
-        step={stage.range.step ?? 0.1}
-        value={shown}
-        onChange={change}
-      />
+      {settings.length > 0 ? (
+        <Slider
+          label={label}
+          className="min-w-0 flex-1"
+          min={0}
+          max={settings.length - 1}
+          step={1}
+          value={settingIndex(settings, shown)}
+          onChange={(index) => change(settings[index] ?? shown)}
+        />
+      ) : (
+        <Slider
+          label={label}
+          className="min-w-0 flex-1"
+          min={stage.range.min}
+          max={stage.range.max}
+          step={stage.range.step ?? 0.1}
+          value={shown}
+          onChange={(db) => change(snapToStage(stage, db))}
+        />
+      )}
       <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
         {shown.toFixed(1)} <span className="text-ink-faint">dB</span>
       </span>

@@ -1,4 +1,4 @@
-import { networkExportDeviceSet } from "../lib/api";
+import { networkExportChannel, networkExportDeviceSet } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { NetworkExportAction, NetworkExportSettings, NetworkExportStatus } from "../lib/types";
 
@@ -8,21 +8,48 @@ export type NetworkExportControl =
   | { kind: "active"; status: NetworkExportStatus }
   | { kind: "busy"; owner: string };
 
-interface NetworkExportTarget {
-  deviceSet: number;
-  stream: number;
+export type NetworkExportTarget =
+  | { kind: "device"; deviceSet: number; stream: number }
+  | { kind: "channel"; deviceSet: number; channel: number };
+
+export interface NetworkExportSource {
+  running: boolean;
+  active?: NetworkExportStatus | null;
 }
 
-type NetworkExportRequest = typeof networkExportDeviceSet;
+export interface NetworkExportRequests {
+  device: typeof networkExportDeviceSet;
+  channel: typeof networkExportChannel;
+}
+
+const REQUESTS: NetworkExportRequests = {
+  device: networkExportDeviceSet,
+  channel: networkExportChannel,
+};
+
+export function deviceExportSource(
+  set: { status: string; network_export?: NetworkExportStatus | null } | null,
+): NetworkExportSource | null {
+  return set === null ? null : { running: set.status === "running", active: set.network_export };
+}
+
+export function channelExportSource(
+  set: { status: string } | null,
+  channel: { network_export?: NetworkExportStatus | null } | null,
+): NetworkExportSource | null {
+  return set === null || channel === null
+    ? null
+    : { running: set.status === "running", active: channel.network_export };
+}
 
 export function deriveNetworkExportControl(
-  set: { status: string; network_export?: NetworkExportStatus | null } | null,
+  source: NetworkExportSource | null,
   node: string,
 ): NetworkExportControl {
-  if (set === null || set.status !== "running") {
+  if (source === null || !source.running) {
     return { kind: "unavailable" };
   }
-  const active = set.network_export;
+  const active = source.active;
   if (active == null) {
     return { kind: "ready" };
   }
@@ -35,15 +62,19 @@ export function networkExportMutationOptions(
   target: NetworkExportTarget | null,
   node: string,
   settings: NetworkExportSettings,
-  request: NetworkExportRequest = networkExportDeviceSet,
+  requests: NetworkExportRequests = REQUESTS,
   notify: (message: string) => void = pushToast,
 ) {
   return {
     mutationFn: (action: NetworkExportAction) => {
       if (target === null) {
-        return Promise.reject(new Error("Wire a running device's IQ into this sink first."));
+        return Promise.reject(
+          new Error("Wire a running device's IQ or a channel's baseband into this sink first."),
+        );
       }
-      return request(target.deviceSet, action, node, target.stream, settings);
+      return target.kind === "device"
+        ? requests.device(target.deviceSet, action, node, target.stream, settings)
+        : requests.channel(target.deviceSet, target.channel, action, node, settings);
     },
     onError: (error: Error) => notify(error.message),
   };

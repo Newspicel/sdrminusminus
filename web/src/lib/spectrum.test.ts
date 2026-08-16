@@ -1,45 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SpectrumFrame } from "./frame";
+import { ListenerRegistry } from "./listeners";
 import { SPECTRUM_HISTORY_ROWS, SpectrumHub, type SpectrumSocket } from "./spectrum";
-import type { ClientCommand, ServerEvent } from "./types";
+import type { ClientCommand } from "./types";
 
 function fakeSocket() {
   const sent: ClientCommand[] = [];
-  let frames: ((frame: SpectrumFrame) => void) | null = null;
-  let status: ((connected: boolean) => void) | null = null;
-  let events: ((event: ServerEvent) => void) | null = null;
+  const registry = new ListenerRegistry();
   const socket: SpectrumSocket = {
     send: (command) => sent.push(command),
     isConnected: () => true,
-    addSpectrumListener: (listener) => {
-      frames = listener;
-    },
-    removeSpectrumListener: () => {
-      frames = null;
-    },
-    addStatusListener: (listener) => {
-      status = listener;
-    },
-    removeStatusListener: () => {
-      status = null;
-    },
-    addEventListener: (listener) => {
-      events = listener;
-    },
-    removeEventListener: () => {
-      events = null;
-    },
+    on: (kind, listener) => registry.on(kind, listener),
   };
   return {
     socket,
     sent,
     started: (streamId: number, deviceSet: number, stream = 0) =>
-      events?.({
+      registry.emit("event", {
         type: "StreamStarted",
         data: { stream_id: streamId, device_set: deviceSet, stream },
       }),
     stopped: (streamId: number) =>
-      events?.({
+      registry.emit("event", {
         type: "StreamStopped",
         data: { stream_id: streamId, kind: "spectrum" },
       }),
@@ -48,7 +29,7 @@ function fakeSocket() {
       bins: readonly number[] = [1, 2],
       window: { dbMin: number; dbMax: number } = { dbMin: -110, dbMax: -20 },
     ) =>
-      frames?.({
+      registry.emit("spectrum", {
         streamId,
         seq: 0,
         timestamp: 0n,
@@ -58,8 +39,8 @@ function fakeSocket() {
         dbMax: window.dbMax,
         bins: Uint8Array.from(bins),
       }),
-    reconnect: () => status?.(true),
-    attached: () => frames !== null,
+    reconnect: () => registry.emit("status", true),
+    attached: () => registry.count("spectrum") > 0,
   };
 }
 

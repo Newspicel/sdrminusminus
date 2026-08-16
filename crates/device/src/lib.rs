@@ -13,6 +13,8 @@ pub enum DeviceError {
     Unsupported(String),
     #[error("device I/O error: {0}")]
     Io(String),
+    #[error("this radio is already in use — another program has it open ({0})")]
+    InUse(String),
     #[error("device is already streaming")]
     AlreadyStreaming,
     #[error("device is {active} and cannot start {requested} until that stops")]
@@ -180,6 +182,7 @@ pub mod duplex;
 pub mod playback;
 pub mod registry;
 pub mod restart;
+pub mod usb;
 pub mod worker;
 pub use capture::{
     Capture, CaptureConfig, CaptureRadio, CaptureStream, Next, StopHandle, StreamFailure,
@@ -317,10 +320,11 @@ mod tests {
         Capabilities {
             freq_ranges: Vec::new(),
             sample_rates: Vec::new(),
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: Vec::new(),
             antennas: Vec::new(),
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: Vec::new(),
             ppm: false,
             duplex: Duplex::RxOnly,

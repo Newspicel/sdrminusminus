@@ -246,6 +246,12 @@ impl SigmfWriter {
         });
     }
 
+    pub fn stamp_capture(&mut self, at: &str) {
+        if let Some(capture) = self.meta.captures.last_mut() {
+            capture.datetime = Some(at.to_owned());
+        }
+    }
+
     pub fn set_position(&mut self, fix: Option<&PositionFix>) {
         let frequency = self
             .meta

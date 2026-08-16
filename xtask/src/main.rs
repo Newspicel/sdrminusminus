@@ -16,6 +16,7 @@ use num_complex::Complex;
 
 mod bandplan;
 mod ber;
+mod homebrew;
 mod icons;
 mod licenses;
 mod linkage;
@@ -37,6 +38,7 @@ enum Cmd {
     Test,
     Audit,
     Smoke,
+    Screenshots,
     Fixtures,
     Bandplan {
         #[arg(long)]
@@ -82,6 +84,16 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    HomebrewTap {
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        sums: PathBuf,
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -93,6 +105,7 @@ fn main() -> Result<()> {
         Cmd::Test => test(&root()),
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
+        Cmd::Screenshots => screenshots(&root()),
         Cmd::Fixtures => fixtures(&root()),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
@@ -111,6 +124,12 @@ fn main() -> Result<()> {
             base_url,
             out,
         } => updater::manifest(&dir, &version, &base_url, out.as_deref()),
+        Cmd::HomebrewTap {
+            version,
+            sums,
+            repo,
+            out,
+        } => homebrew::tap(&sums, &version, &repo, &out),
     }
 }
 
@@ -118,6 +137,8 @@ fn main() -> Result<()> {
 const PNPM: &str = "pnpm.cmd";
 #[cfg(not(windows))]
 const PNPM: &str = "pnpm";
+
+const MACOS_LIBRARY_PREFIXES: &[&str] = &["/opt/homebrew/lib", "/usr/local/lib"];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -651,7 +672,7 @@ fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "soapy,net-client,gpu-fft".to_string(),
+        "soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft".to_string(),
     ]
 }
 
@@ -727,9 +748,30 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
             root,
         )?;
     }
+    if triple.contains("apple") {
+        add_loader_paths(root, &staged.join(exe))?;
+    }
 
     let archive = archive(root, &out, &name, windows)?;
     println!("dist: {}", archive.display());
+    Ok(())
+}
+
+fn add_loader_paths(root: &Path, binary: &Path) -> Result<()> {
+    let path = binary.to_str().context("non-utf8 binary path")?;
+    for prefix in MACOS_LIBRARY_PREFIXES {
+        run("install_name_tool", &["-add_rpath", prefix, path], root)?;
+    }
+    run("codesign", &["--sign", "-", "--force", path], root)?;
+
+    let present = linkage::rpaths(binary)?;
+    for prefix in MACOS_LIBRARY_PREFIXES {
+        ensure!(
+            present.iter().any(|rpath| rpath == prefix),
+            "{path} carries no {prefix} search path: it links @rpath/libSoapySDR and would fail \
+             to launch on a host that installed SoapySDR where every installer puts it"
+        );
+    }
     Ok(())
 }
 
@@ -881,16 +923,23 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no SoapySDR core library",
         dir.display()
     );
-    ensure!(
-        has("rtlsdr"),
-        "{} contains no SoapyRTLSDR module",
-        dir.display()
-    );
-    ensure!(
-        has("hackrf"),
-        "{} contains no SoapyHackRF module",
-        dir.display()
-    );
+    let staged_modules: Vec<&String> = files
+        .iter()
+        .zip(&names)
+        .filter(|(path, _)| {
+            path.components()
+                .any(|part| part.as_os_str() == "modules0.8")
+        })
+        .map(|(_, name)| name)
+        .collect();
+    for native in ["rtlsdr", "hackrf"] {
+        ensure!(
+            !staged_modules.iter().any(|name| name.contains(native)),
+            "{} carries a Soapy {native} module. This build drives {native} over its own USB \
+             stack and hides it from Soapy, so the bundled module could never be reached.",
+            dir.display()
+        );
+    }
     let curated = ["airspyhf", "bladerf", "lms7", "pluto", "remote"];
     for module in curated {
         ensure!(
@@ -904,18 +953,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
             .iter()
             .any(|name| name.contains("airspy") && !name.contains("airspyhf")),
         "{} contains no curated Airspy module",
-        dir.display()
-    );
-    ensure!(
-        has("sdrplaysupport"),
-        "{} contains no SoapySDRPlay3 module",
-        dir.display()
-    );
-    ensure!(
-        !names
-            .iter()
-            .any(|name| name.contains("libsdrplay_api") || name.starts_with("sdrplay_api.")),
-        "{} carries the SDRplay vendor library, which may not be redistributed",
         dir.display()
     );
     let outside_modules: Vec<&String> = files
@@ -932,8 +969,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         .map(|(_, name)| name)
         .collect();
     for driver in [
-        "rtlsdr",
-        "hackrf",
         "airspyhf",
         "airspy",
         "bladerf",
@@ -961,18 +996,6 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no dependency notices/licenses",
         dir.display()
     );
-    for license in [
-        "soapyhackrf-mit",
-        "hackrf-gpl-2.0-or-later",
-        "hackrf-bsd-3-clause",
-        "soapysdrplay3-mit",
-    ] {
-        ensure!(
-            has(license),
-            "{} contains no {license} license text",
-            dir.display()
-        );
-    }
     println!("soapy bundle: {} files in {}", files.len(), dir.display());
     Ok(())
 }
@@ -1110,6 +1133,48 @@ fn smoke(root: &Path) -> Result<()> {
     Ok(())
 }
 
+fn screenshots(root: &Path) -> Result<()> {
+    ensure_web_deps(root)?;
+    run_with_env(
+        PNPM,
+        &["--dir", "web", "build"],
+        root,
+        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
+    )?;
+    let out = root.join("assets/screenshots");
+    std::fs::create_dir_all(&out).context("create screenshot directory")?;
+    let soapy_root = root.join("target/hermetic-soapy");
+    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
+    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
+    run_with_env(
+        PNPM,
+        &[
+            "--dir",
+            "web",
+            "exec",
+            "playwright",
+            "test",
+            "--config",
+            "playwright.screenshots.config.ts",
+        ],
+        root,
+        &[
+            (
+                "SOAPY_SDR_ROOT",
+                soapy_root
+                    .to_str()
+                    .context("non-utf8 hermetic Soapy path")?,
+            ),
+            (
+                "SOAPY_SDR_PLUGIN_PATH",
+                modules.to_str().context("non-utf8 hermetic Soapy path")?,
+            ),
+        ],
+    )?;
+    println!("wrote {}", out.display());
+    Ok(())
+}
+
 fn fixtures(root: &Path) -> Result<()> {
     const CENTER_HZ: f64 = 100_000_000.0;
 
@@ -1213,6 +1278,47 @@ fn decoder_fixtures() -> Vec<Fixture> {
     }];
 
     out.push(Fixture {
+        stem: "flex_1600_2_240k".to_string(),
+        iq: at(
+            testgen::flex::transmission(
+                &testgen::flex::Page {
+                    address: 1_234_567,
+                    text: "SDR-- FLEX FIXTURE".to_string(),
+                },
+                7,
+                83,
+                NARROW,
+            ),
+            30_000.0,
+            NARROW,
+        ),
+        rate: NARROW,
+        note: "flex channel at +30 kHz -> address 1234567 \"SDR-- FLEX FIXTURE\", cycle 7 frame 83"
+            .to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "ermes_alpha_240k".to_string(),
+        iq: at(
+            testgen::ermes::transmission(
+                &testgen::ermes::Page {
+                    local_address: 234_567,
+                    message_number: 3,
+                    text: "SDR-- ERMES FIXTURE".to_string(),
+                    urgent: true,
+                    alert: 5,
+                },
+                NARROW,
+            ),
+            -30_000.0,
+            NARROW,
+        ),
+        rate: NARROW,
+        note: "ermes channel at -30 kHz -> address 234567 \"SDR-- ERMES FIXTURE\", urgent alert 5"
+            .to_string(),
+    });
+
+    out.push(Fixture {
         stem: "selcall_ccir1_48k".to_string(),
         iq: at(
             testgen::selcall::transmission(sdrmm_wire::SelcallSystem::Ccir1, "12234", AUDIO)
@@ -1290,6 +1396,24 @@ fn decoder_fixtures() -> Vec<Fixture> {
         ),
         rate: AUDIO,
         note: "morse channel at -5 kHz -> \"CQ DE DL1ABC K\" at 20 wpm".to_string(),
+    });
+
+    let first_cw = testgen::morse::transmission("VVV CQ DE DL1AAA K", 18.0, -3_500.0, AUDIO);
+    let second_cw = testgen::morse::transmission("VVV CQ DE G4BBB K", 27.0, 4_200.0, AUDIO);
+    let mut skimmer_iq =
+        vec![Complex::new(0.0, 0.0); first_cw.len().max(second_cw.len()) + AUDIO as usize * 4];
+    for (destination, source) in skimmer_iq.iter_mut().zip(first_cw) {
+        *destination += source * 0.55;
+    }
+    for (destination, source) in skimmer_iq.iter_mut().zip(second_cw) {
+        *destination += source * 0.35;
+    }
+    out.push(Fixture {
+        stem: "cw_skimmer_dual_48k".to_string(),
+        iq: skimmer_iq,
+        rate: AUDIO,
+        note: "cw_skimmer channel -> simultaneous DL1AAA at -3.5 kHz/18 wpm and G4BBB at +4.2 kHz/27 wpm"
+            .to_string(),
     });
 
     const ADSB_RATE: f64 = 2_000_000.0;
@@ -1442,6 +1566,20 @@ fn decoder_fixtures() -> Vec<Fixture> {
         ),
         rate: ATV_RATE,
         note: "atv channel at +200 kHz -> 625/25 AM, five vertical bars black to white".to_string(),
+    });
+
+    const SSTV_RATE: f64 = 48_000.0;
+    const SSTV_MODE: sdrmm_wire::SstvMode = sdrmm_wire::SstvMode::Robot36;
+    let sstv = testgen::sstv::transmission(SSTV_MODE, &testgen::sstv::bars(SSTV_MODE), 16_000.0);
+    out.push(Fixture {
+        stem: "sstv_robot36_48k".to_string(),
+        iq: at(
+            testgen::resample(&sstv, 16_000.0, SSTV_RATE),
+            4_000.0,
+            SSTV_RATE,
+        ),
+        rate: SSTV_RATE,
+        note: "sstv channel at +4 kHz -> Robot 36, eight colour bars white to black".to_string(),
     });
 
     out

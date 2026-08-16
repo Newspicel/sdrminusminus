@@ -30,6 +30,7 @@ mod chat_output;
 mod decoderlog;
 pub mod doctor;
 mod gps;
+mod images;
 mod mcp;
 pub mod notices;
 mod rest;
@@ -60,6 +61,7 @@ pub(crate) struct AppState {
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     pub(crate) tracks: Arc<tracks::Tracks>,
     pub(crate) calls: Arc<calls::Calls>,
+    pub(crate) images: Arc<images::Images>,
     pub clients: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) tools: Arc<sdrmm_tools::ToolRegistry>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
@@ -80,6 +82,7 @@ impl AppState {
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
+            images: Arc::new(images::Images::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             tools: Arc::new(sdrmm_tools::ToolRegistry::with_builtins()),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -215,6 +218,11 @@ fn start_background(state: &AppState) -> Background {
             calls::run(engine, calls, retentions_rx)
         })
     };
+    let images = {
+        let engine = Arc::downgrade(&state.engine);
+        let images = state.images.clone();
+        spawn_task("sdrmm-images", move || images::run(engine, images))
+    };
     let chat_output = {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
@@ -224,7 +232,7 @@ fn start_background(state: &AppState) -> Background {
         })
     };
     Background {
-        tasks: vec![log, patch, calls, chat_output],
+        tasks: vec![log, patch, calls, images, chat_output],
         detached: false,
     }
 }
@@ -313,11 +321,11 @@ mod tests {
     };
     use http_body_util::BodyExt;
     use sdrmm_wire::{
-        AdsbMessage, ApiError, AprsPacket, Bookmark, ChannelParams, ChannelSettings,
-        ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
-        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NetworkExportStatus,
-        NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus,
-        RecordingsResponse, StateSnapshot, VoiceCallsResponse,
+        AdsbMessage, ApiError, AprsPacket, Bookmark, CapturedImagesResponse, ChannelParams,
+        ChannelSettings, ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord,
+        DecoderEvent, DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings,
+        NetworkExportStatus, NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot,
+        RecordingStatus, RecordingsResponse, StateSnapshot, TimeMachineStatus, VoiceCallsResponse,
     };
     use tower::ServiceExt;
 
@@ -494,6 +502,9 @@ mod tests {
             "/api/bookmarks/{id}",
             "/api/devicesets/{ds}/record",
             "/api/devicesets/{ds}/channels/{ch}/record",
+            "/api/devicesets/{ds}/channels/{ch}/baseband",
+            "/api/devicesets/{ds}/channels/{ch}/network-export",
+            "/api/devicesets/{ds}/time-machine",
             "/api/audiorecordings",
             "/api/audiorecordings/{file}",
             "/api/audiorecordings/{file}/download",
@@ -512,6 +523,8 @@ mod tests {
             "/api/patch/catalog",
             "/api/tools",
             "/api/tools/run",
+            "/api/images",
+            "/api/images/{id}/png",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -528,12 +541,22 @@ mod tests {
             "AudioRecordingStatus",
             "AudioRecordingInfo",
             "NetworkExportStatus",
+            "ChannelNetworkExportRequest",
+            "TimeMachineStatus",
+            "TimeMachineRequest",
             "RecordingInfo",
             "DecoderLogEntry",
             "DecoderLogResponse",
             "VoiceCall",
             "VoiceCallsResponse",
+            "CapturedImage",
+            "CapturedImagesResponse",
+            "SstvParams",
+            "SstvPicture",
             "DecoderEvent",
+            "FlexMessage",
+            "ErmesMessage",
+            "CwSkimmerSpot",
             "SelcallSequence",
             "FreeDvParams",
             "DeletedCount",
@@ -604,6 +627,19 @@ mod tests {
         assert!(listed.calls.is_empty());
 
         let (status, body) = request(app, "GET", "/api/calls/99/audio", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+    }
+
+    #[tokio::test]
+    async fn image_endpoints_list_captures_and_reject_a_missing_picture() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/images", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: CapturedImagesResponse = serde_json::from_slice(&body).expect("json");
+        assert!(listed.images.is_empty());
+
+        let (status, body) = request(app, "GET", "/api/images/99/png", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
     }
@@ -901,6 +937,26 @@ mod tests {
         let (_, body) = request(app, "GET", "/api/presets", None).await;
         let listed: Vec<PresetInfo> = serde_json::from_slice(&body).expect("json");
         assert!(listed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn opening_a_radio_that_is_already_open_conflicts() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/devicesets",
+            Some(r#"{"device_id":"virtual:siggen"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
+        assert!(err.error.contains("already open"), "{err:?}");
+
+        let (status, _) = request(app, "DELETE", &format!("/api/devicesets/{ds}"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
@@ -1723,6 +1779,247 @@ mod tests {
         assert_eq!(done.error, None);
     }
 
+    async fn create_nfm_channel(app: &Router, ds: u32) -> u32 {
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/channels"),
+            Some(r#"{"settings":{"params":{"type":"nfm","settings":{}}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        serde_json::from_slice::<CreatedId>(&body).expect("json").id
+    }
+
+    async fn record_baseband(app: &Router, ds: u32, ch: u32, action: &str) -> (StatusCode, Bytes) {
+        request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/channels/{ch}/baseband"),
+            Some(&format!(r#"{{"action":"{action}"}}"#)),
+        )
+        .await
+    }
+
+    async fn wait_for_baseband_samples(app: &Router, ds: u32, ch: u32, min: u64) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let recording = get_state(app)
+                .await
+                .device_sets
+                .iter()
+                .find(|s| s.id == ds)
+                .expect("set listed")
+                .channels
+                .iter()
+                .find(|c| c.id == ch)
+                .expect("channel listed")
+                .baseband_recording
+                .clone();
+            if recording.is_some_and(|r| r.samples >= min) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the baseband recording never reached {min} samples"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn channel_baseband_record_roundtrip_lands_in_the_recording_library() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let ds = create_virtual_set(&app).await;
+        let ch = create_nfm_channel(&app, ds).await;
+
+        let (status, body) = record_baseband(&app, ds, ch, "start").await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let live: RecordingStatus = serde_json::from_slice(&body).expect("json");
+        assert!(live.file.starts_with(&format!("bb_{ds}_{ch}_")));
+        live.started_at.parse::<jiff::Timestamp>().expect("rfc3339");
+
+        let (status, body) = record_baseband(&app, ds, ch, "start").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(String::from_utf8_lossy(&body).contains("already recording"));
+
+        wait_for_baseband_samples(&app, ds, ch, 4_800).await;
+        let (status, body) = record_baseband(&app, ds, ch, "stop").await;
+        assert_eq!(status, StatusCode::OK);
+        let done: RecordingStatus = serde_json::from_slice(&body).expect("json");
+        assert_eq!(done.file, live.file);
+        assert!(done.samples >= 4_800);
+        assert_eq!(done.error, None);
+
+        let listed = list_recordings(&app).await;
+        let entry = listed
+            .iter()
+            .find(|entry| entry.file == done.file)
+            .expect("the finished baseband pair is in the library");
+        assert_eq!(entry.sample_rate, 48_000.0);
+        assert_eq!(entry.center_hz, 100_000_000.0);
+        assert_eq!(entry.samples, done.samples);
+
+        let (status, _) = record_baseband(&app, ds, ch, "stop").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, _) = record_baseband(&app, ds, 9_999, "start").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn channel_network_export_streams_that_channels_baseband_over_http() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let ch = create_nfm_channel(&app, ds).await;
+        let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("timeout");
+        let address = receiver.local_addr().expect("address").to_string();
+        let start = serde_json::json!({
+            "action": "start",
+            "node": "baseband:test",
+            "settings": { "transport": "udp", "format": "cf32_le", "address": address },
+        });
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/channels/{ch}/network-export"),
+            Some(&start.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let live: NetworkExportStatus = serde_json::from_slice(&body).expect("status");
+        assert_eq!(live.sample_rate, 48_000);
+        assert_eq!(live.node, "baseband:test");
+
+        let mut datagram = [0u8; 1_500];
+        let received = receiver.recv(&mut datagram).expect("baseband datagram");
+        assert!(received > 0 && received.is_multiple_of(8));
+
+        let state = get_state(&app).await;
+        let channel = &state.device_sets[0].channels[0];
+        assert_eq!(
+            channel
+                .network_export
+                .as_ref()
+                .map(|export| export.node.as_str()),
+            Some("baseband:test")
+        );
+
+        let stop = serde_json::json!({ "action": "stop", "node": "baseband:test" });
+        let (status, body) = request(
+            app,
+            "POST",
+            &format!("/api/devicesets/{ds}/channels/{ch}/network-export"),
+            Some(&stop.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let done: NetworkExportStatus = serde_json::from_slice(&body).expect("status");
+        assert!(done.samples > 0);
+        assert_eq!(done.error, None);
+    }
+
+    async fn time_machine(app: &Router, ds: u32, body: serde_json::Value) -> (StatusCode, Bytes) {
+        request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/time-machine"),
+            Some(&body.to_string()),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn the_time_machine_arms_captures_and_files_its_window_over_http() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let ds = create_virtual_set(&app).await;
+        let node = "time_machine:test";
+
+        let (status, body) = time_machine(
+            &app,
+            ds,
+            serde_json::json!({ "action": "arm", "node": node, "settings": { "history_seconds": 1 } }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let armed: TimeMachineStatus = serde_json::from_slice(&body).expect("status");
+        assert_eq!(armed.history_seconds, 1);
+        assert_eq!(armed.capacity_samples, 2_048_000);
+        assert!(armed.capture.is_none());
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let held = get_state(&app)
+                .await
+                .device_sets
+                .iter()
+                .find(|set| set.id == ds)
+                .expect("set listed")
+                .time_machine
+                .clone()
+                .expect("armed")
+                .held_samples;
+            if held >= 1_024_000 {
+                break;
+            }
+            assert!(Instant::now() < deadline, "the window never filled");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let (status, body) = time_machine(
+            &app,
+            ds,
+            serde_json::json!({ "action": "capture", "node": node }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let capturing: TimeMachineStatus = serde_json::from_slice(&body).expect("status");
+        let file = capturing.capture.expect("a capture is running").file;
+
+        let (status, body) = time_machine(
+            &app,
+            ds,
+            serde_json::json!({ "action": "stop", "node": node }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let stopped: TimeMachineStatus = serde_json::from_slice(&body).expect("status");
+        let written = stopped.capture.expect("the stop reports what it wrote");
+        assert!(
+            written.samples >= 1_024_000,
+            "the past never reached the file"
+        );
+
+        let listed = list_recordings(&app).await;
+        let entry = listed
+            .iter()
+            .find(|entry| entry.file == file)
+            .expect("the captured window is in the library");
+        assert_eq!(entry.sample_rate, 2_048_000.0);
+
+        let (status, _) = time_machine(
+            &app,
+            ds,
+            serde_json::json!({ "action": "disarm", "node": node }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(get_state(&app).await.device_sets[0].time_machine.is_none());
+
+        let (status, body) = time_machine(
+            &app,
+            ds,
+            serde_json::json!({ "action": "capture", "node": node }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(String::from_utf8_lossy(&body).contains("no time machine"));
+    }
+
     #[tokio::test]
     async fn recordings_list_reconciles_planted_files_and_prunes_vanished_ones() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -2386,6 +2683,39 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn every_template_runs_on_the_signal_generator() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let (_, body) = request(app.clone(), "GET", "/api/templates", None).await;
+        let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+
+        for template in &listed.templates {
+            let (status, body) = request(
+                app.clone(),
+                "POST",
+                &format!("/api/templates/{}/apply", template.id),
+                Some(&format!(r#"{{"device_set":{ds}}}"#)),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "{}: {}",
+                template.id,
+                String::from_utf8_lossy(&body)
+            );
+            let set = &get_state(&app).await.device_sets[0];
+            assert_eq!(set.settings.center_hz, Some(template.center_hz));
+            assert_eq!(
+                set.channels.len(),
+                template.channels.len(),
+                "{}",
+                template.id
+            );
+        }
     }
 
     #[tokio::test]

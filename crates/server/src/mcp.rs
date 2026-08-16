@@ -109,7 +109,7 @@ fn structured<T: serde::Serialize>(value: &T) -> Result<CallToolResult, ErrorDat
 }
 
 fn engine_error(err: sdrmm_engine::EngineError) -> ErrorData {
-    if err.is_not_found() || err.is_bad_request() {
+    if err.is_not_found() || err.is_bad_request() || err.is_conflict() {
         ErrorData::invalid_params(err.to_string(), None)
     } else {
         ErrorData::internal_error(err.to_string(), None)

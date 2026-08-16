@@ -56,7 +56,7 @@ describe("device references", () => {
     const duo = info({
       driver: "soapy",
       key: "123456@DT",
-      label: "RSPduo Dual Tuner",
+      label: "Dual Tuner",
       serial: "123456",
     });
     const byVariant = deviceRefOf(duo);

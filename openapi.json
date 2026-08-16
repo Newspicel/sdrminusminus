@@ -805,7 +805,7 @@
             }
           },
           "400": {
-            "description": "Unusable device, or one a device set already holds",
+            "description": "Unusable device",
             "content": {
               "application/json": {
                 "schema": {
@@ -816,6 +816,16 @@
           },
           "404": {
             "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Device already in use, here or by another program",
             "content": {
               "application/json": {
                 "schema": {
@@ -1045,6 +1055,168 @@
           },
           "400": {
             "description": "Invalid channel settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/channels/{ch}/baseband": {
+      "post": {
+        "operationId": "record_channel_baseband",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Baseband recording status: live after `start`; final counts after `stop`, where the finished SigMF pair appears in `GET /api/recordings`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot record: no recordings directory, set not running, or this channel's baseband is already recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/channels/{ch}/network-export": {
+      "post": {
+        "operationId": "network_export_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelNetworkExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Live status after start or final counters after stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkExportStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid destination, inactive export, or conflicting owner",
             "content": {
               "application/json": {
                 "schema": {
@@ -1490,6 +1662,76 @@
         }
       }
     },
+    "/api/devicesets/{ds}/time-machine": {
+      "post": {
+        "operationId": "time_machine_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeMachineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "History status after the action: `arm` starts the rolling buffer, `capture` writes the buffered past into a SigMF pair and keeps appending, `stop` finalizes that pair, `disarm` releases the buffer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeMachineStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot hold history: no recordings directory, set not running, a window that does not fit in memory, or an action the current state has nothing to do with",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/doctor": {
       "get": {
         "operationId": "get_doctor",
@@ -1500,6 +1742,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DoctorReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images": {
+      "get": {
+        "operationId": "list_images",
+        "responses": {
+          "200": {
+            "description": "Pictures captured from scanning modes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturedImagesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{id}/png": {
+      "get": {
+        "operationId": "captured_image",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Captured picture id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The captured picture",
+            "content": {
+              "image/png": {}
+            }
+          },
+          "404": {
+            "description": "Picture not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -4002,6 +4297,13 @@
               "type": "string"
             }
           },
+          "bandwidth_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "description": "Continuous analog filter widths, for hardware whose IF filter is not a discrete menu."
+          },
           "bandwidths": {
             "type": "array",
             "items": {
@@ -4051,15 +4353,12 @@
             "format": "int32",
             "minimum": 0
           },
-          "sample_rate_range": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Range"
-              }
-            ]
+          "sample_rate_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "description": "Continuous windows the radio resamples across. A radio with holes in its rate coverage —\nthe RTL2832U aliases between 300 kHz and 900 kHz — needs more than one, which is why this\nis a list and not the single range it replaced."
           },
           "sample_rates": {
             "type": "array",
@@ -4072,6 +4371,100 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CapturedImage": {
+        "type": "object",
+        "required": [
+          "id",
+          "device_set",
+          "channel",
+          "at",
+          "freq_hz",
+          "source",
+          "mode",
+          "width",
+          "height",
+          "lines",
+          "complete"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "image": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventImage"
+              }
+            ]
+          },
+          "image_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "CapturedImagesResponse": {
+        "type": "object",
+        "required": [
+          "images"
+        ],
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapturedImage"
+            }
           }
         }
       },
@@ -4257,10 +4650,30 @@
               }
             ]
           },
+          "baseband_recording": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecordingStatus"
+              }
+            ]
+          },
           "id": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "network_export": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetworkExportStatus"
+              }
+            ]
           },
           "settings": {
             "$ref": "#/components/schemas/ChannelSettings"
@@ -4299,6 +4712,24 @@
               "null"
             ],
             "format": "float"
+          }
+        }
+      },
+      "ChannelNetworkExportRequest": {
+        "type": "object",
+        "required": [
+          "action",
+          "node"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/NetworkExportAction"
+          },
+          "node": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NetworkExportSettings"
           }
         }
       },
@@ -4431,6 +4862,42 @@
             ],
             "properties": {
               "settings": {
+                "$ref": "#/components/schemas/FlexParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "flex"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/ErmesParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ermes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
                 "$ref": "#/components/schemas/AdsbParams"
               },
               "type": {
@@ -4521,6 +4988,24 @@
             ],
             "properties": {
               "settings": {
+                "$ref": "#/components/schemas/CwSkimmerParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cw_skimmer"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
                 "$ref": "#/components/schemas/NavtexParams"
               },
               "type": {
@@ -4581,6 +5066,24 @@
                 "type": "string",
                 "enum": [
                   "atv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/SstvParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "sstv"
                 ]
               }
             }
@@ -5526,6 +6029,57 @@
           }
         }
       },
+      "CwSkimmerParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "max_signals": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "threshold_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "wpm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
+      "CwSkimmerSpot": {
+        "type": "object",
+        "required": [
+          "offset_hz",
+          "text",
+          "wpm",
+          "snr_db"
+        ],
+        "properties": {
+          "offset_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "text": {
+            "type": "string"
+          },
+          "wpm": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
       "DabMode": {
         "type": "string",
         "enum": [
@@ -5639,6 +6193,42 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/FlexMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "flex"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ErmesMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ermes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/AdsbMessage"
               },
               "kind": {
@@ -5717,6 +6307,24 @@
                 "type": "string",
                 "enum": [
                   "morse"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CwSkimmerSpot"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "cw_skimmer"
                 ]
               }
             }
@@ -5990,6 +6598,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SstvPicture"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sstv"
+                ]
+              }
+            }
           }
         ]
       },
@@ -6178,15 +6804,11 @@
             "format": "int32",
             "minimum": 0
           },
-          "sample_rate_range": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Range"
-              }
-            ]
+          "sample_rate_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            }
           },
           "sample_rates": {
             "type": "array",
@@ -6309,6 +6931,16 @@
           },
           "status": {
             "$ref": "#/components/schemas/DeviceSetStatus"
+          },
+          "time_machine": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TimeMachineStatus"
+              }
+            ]
           }
         }
       },
@@ -6940,7 +7572,77 @@
           "tier_three"
         ]
       },
+      "ErmesMessage": {
+        "type": "object",
+        "required": [
+          "local_address",
+          "message_number",
+          "payload",
+          "text",
+          "urgent",
+          "alert",
+          "errors_corrected"
+        ],
+        "properties": {
+          "alert": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "local_address": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "message_number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PagerPayload"
+          },
+          "text": {
+            "type": "string"
+          },
+          "urgent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ErmesParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "invert": {
+            "type": "boolean"
+          }
+        }
+      },
       "EventAudio": {
+        "type": "object",
+        "required": [
+          "url",
+          "media_type"
+        ],
+        "properties": {
+          "media_type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "EventImage": {
         "type": "object",
         "required": [
           "url",
@@ -7078,6 +7780,73 @@
           "value": {}
         }
       },
+      "FlexMessage": {
+        "type": "object",
+        "required": [
+          "address",
+          "payload",
+          "text",
+          "baud",
+          "levels",
+          "cycle",
+          "frame",
+          "phase",
+          "errors_corrected"
+        ],
+        "properties": {
+          "address": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "baud": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cycle": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frame": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "levels": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PagerPayload"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "FlexParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "invert": {
+            "type": "boolean"
+          }
+        }
+      },
       "FreeDvMode": {
         "type": "string",
         "enum": [
@@ -7107,6 +7876,14 @@
           },
           "range": {
             "$ref": "#/components/schemas/Range"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "The settings this stage can actually hold, for hardware whose gain is a table rather than\nan even step — the R82xx's 29 irregular entries, say. Empty means every value `range`\nadmits is reachable. A client renders a control that can only land on real settings, and a\ndriver still snaps whatever it is asked for."
           }
         }
       },
@@ -8708,6 +9485,38 @@
           {
             "type": "object",
             "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "baseband_recorder"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/TimeMachineNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "time_machine"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "data",
               "kind"
             ],
@@ -8894,6 +9703,15 @@
       },
       "P25Params": {
         "type": "object"
+      },
+      "PagerPayload": {
+        "type": "string",
+        "enum": [
+          "tone",
+          "numeric",
+          "alpha",
+          "binary"
+        ]
       },
       "PatchApplyReport": {
         "type": "object",
@@ -10452,6 +11270,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/CapturedImage"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ImageCaptured"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
                 "type": "object",
                 "required": [
                   "device_set",
@@ -10633,6 +11469,89 @@
           }
         }
       },
+      "SstvMode": {
+        "type": "string",
+        "enum": [
+          "robot36",
+          "robot72",
+          "martin_m1",
+          "martin_m2",
+          "scottie_s1",
+          "scottie_s2",
+          "scottie_dx",
+          "pd50",
+          "pd90",
+          "pd120",
+          "pd180",
+          "sc2180"
+        ]
+      },
+      "SstvParams": {
+        "type": "object",
+        "properties": {
+          "keep_partial": {
+            "type": "boolean"
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SstvMode"
+              }
+            ]
+          },
+          "slant_correction": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SstvPicture": {
+        "type": "object",
+        "required": [
+          "seq",
+          "mode",
+          "width",
+          "height",
+          "lines",
+          "complete",
+          "duration_ms"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SstvMode"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "StateScope": {
         "oneOf": [
           {
@@ -10763,6 +11682,20 @@
                 "type": "string",
                 "enum": [
                   "calls"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "images"
                 ]
               }
             }
@@ -11051,6 +11984,117 @@
             "items": {
               "$ref": "#/components/schemas/TemplateInfo"
             }
+          }
+        }
+      },
+      "TimeMachineAction": {
+        "type": "string",
+        "enum": [
+          "arm",
+          "capture",
+          "stop",
+          "disarm"
+        ]
+      },
+      "TimeMachineNode": {
+        "type": "object",
+        "properties": {
+          "history_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "minimum": 0
+          }
+        }
+      },
+      "TimeMachineRequest": {
+        "type": "object",
+        "required": [
+          "action",
+          "node"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/TimeMachineAction"
+          },
+          "node": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/TimeMachineNode"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TimeMachineStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "stream",
+          "history_seconds",
+          "sample_rate",
+          "center_hz",
+          "held_samples",
+          "capacity_samples",
+          "overruns"
+        ],
+        "properties": {
+          "capacity_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "capture": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecordingStatus"
+              }
+            ]
+          },
+          "center_hz": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "held_samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "history_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "node": {
+            "type": "string"
+          },
+          "overruns": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sample_rate": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

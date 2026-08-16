@@ -7,7 +7,11 @@ members = [
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
+    "crates/device-sdrplay",
+    "crates/device-rtlsdr",
+    "crates/device-hackrf",
     "crates/device-net",
+    "crates/usb-stream",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -25,7 +29,11 @@ default-members = [
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
+    "crates/device-sdrplay",
+    "crates/device-rtlsdr",
+    "crates/device-hackrf",
     "crates/device-net",
+    "crates/usb-stream",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -51,7 +59,11 @@ sdrmm-modem = { path = "crates/modem" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
+sdrmm-device-sdrplay = { path = "crates/device-sdrplay" }
+sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
+sdrmm-device-hackrf = { path = "crates/device-hackrf" }
 sdrmm-device-net = { path = "crates/device-net" }
+sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-recorder = { path = "crates/recorder" }
 sdrmm-tools = { path = "crates/tools" }
@@ -86,9 +98,15 @@ utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 mime_guess = "2"
 
 # Device backends
+# Reads the USB bus without opening devices, so a hotplug check cannot disturb a running stream
+# or wake the vendor SoapySDR modules.
+nusb = "0.2.7"
 # Upstream 0.5.1 exposes the stream API but not getSettingInfo. This pinned fork adds only safe
 # wrappers for setting metadata and runtime/module diagnostics over the existing soapysdr-sys API.
 soapysdr = { git = "https://github.com/Newspicel/rust-soapysdr", rev = "5f05fb65366d75e4706285df5bc3864abbd51284" }
+# The SDRplay vendor API is resolved at runtime from wherever its installer put it, so nothing
+# here links or ships it and a machine without it simply reports no SDRplay hardware.
+libloading = "0.8"
 
 # DSP
 num-complex = "0.4"
@@ -134,6 +152,9 @@ cc = "1"
 
 resvg = { version = "0.48", default-features = false }
 
+# PNG encoding for the captured-picture store; the same version resvg already pulls in.
+png = { version = "0.18", default-features = false }
+
 [workspace.lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
@@ -162,6 +183,15 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-net]
+opt-level = 3
+
+[profile.dev.package.sdrmm-usb-stream]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-rtlsdr]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-hackrf]
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-virtual]

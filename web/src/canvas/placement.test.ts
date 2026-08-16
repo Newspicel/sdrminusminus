@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PatchGraph, PatchNode } from "../lib/types";
-import { NODE_SIZE } from "./graph";
-import { dropPosition, type PlacementRect, useNodePlacement } from "./placement";
+import { dropPosition, dropSize, type PlacementRect, useNodePlacement } from "./placement";
 
 const flow = vi.hoisted(() => ({
   fitBounds: vi.fn(),
@@ -58,8 +57,9 @@ describe("useNodePlacement", () => {
     expect(bounds.y + bounds.height).toBeGreaterThanOrEqual(800);
     expect(bounds.x).toBeLessThanOrEqual(position.x);
     expect(bounds.y).toBeLessThanOrEqual(position.y);
-    expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(position.x + NODE_SIZE.channel.w);
-    expect(bounds.y + bounds.height).toBeGreaterThanOrEqual(position.y + NODE_SIZE.channel.h);
+    const dropped = dropSize("channel");
+    expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(position.x + dropped.w);
+    expect(bounds.y + bounds.height).toBeGreaterThanOrEqual(position.y + dropped.h);
   });
 });
 

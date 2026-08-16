@@ -13,7 +13,7 @@ use num_complex::Complex;
 use rtrb::RingBuffer;
 use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    ClickProfile,
+    ClickProfile, DecodedImage,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
@@ -30,6 +30,7 @@ use crate::{
     network_export::NetworkExportTap,
     recording::RecorderTap,
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
+    time_machine::TimeMachineTap,
     video::VideoPacket,
 };
 
@@ -61,9 +62,17 @@ pub(crate) struct RawDecoded {
     pub(crate) event: DecoderEvent,
 }
 
+pub(crate) struct RawImage {
+    pub(crate) device_set: u32,
+    pub(crate) channel: u32,
+    pub(crate) freq_hz: f64,
+    pub(crate) image: DecodedImage,
+}
+
 #[derive(Clone)]
 pub(crate) struct DecodedSink {
     tx: mpsc::SyncSender<RawDecoded>,
+    image_tx: mpsc::SyncSender<RawImage>,
     dropped: Arc<AtomicU64>,
     device_set: u32,
     channel: u32,
@@ -72,12 +81,14 @@ pub(crate) struct DecodedSink {
 impl DecodedSink {
     pub(crate) fn new(
         tx: mpsc::SyncSender<RawDecoded>,
+        image_tx: mpsc::SyncSender<RawImage>,
         dropped: Arc<AtomicU64>,
         device_set: u32,
         channel: u32,
     ) -> Self {
         Self {
             tx,
+            image_tx,
             dropped,
             device_set,
             channel,
@@ -88,7 +99,9 @@ impl DecodedSink {
     pub(crate) fn null() -> Self {
         let (tx, rx) = mpsc::sync_channel(1);
         drop(rx);
-        Self::new(tx, Arc::new(AtomicU64::new(0)), 0, 0)
+        let (image_tx, image_rx) = mpsc::sync_channel(1);
+        drop(image_rx);
+        Self::new(tx, image_tx, Arc::new(AtomicU64::new(0)), 0, 0)
     }
 
     fn publish(&self, freq_hz: f64, event: DecoderEvent) {
@@ -99,6 +112,18 @@ impl DecodedSink {
             event,
         };
         if self.tx.try_send(record).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn publish_image(&self, freq_hz: f64, image: DecodedImage) {
+        let raw = RawImage {
+            device_set: self.device_set,
+            channel: self.channel,
+            freq_hz,
+            image,
+        };
+        if self.image_tx.try_send(raw).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -141,6 +166,9 @@ pub(crate) struct ChannelHost {
     emits_events: bool,
     gated: Vec<Complex<f32>>,
     iq_tap: IqTap,
+    baseband_rec: Option<RecorderTap>,
+    baseband_export: Option<NetworkExportTap>,
+    baseband_pos: u64,
     input_rate: f64,
     meter: LevelMeter,
 }
@@ -205,6 +233,9 @@ impl ChannelHost {
             emits_events,
             gated: Vec::new(),
             iq_tap: IqTap::new(input_rate),
+            baseband_rec: None,
+            baseband_export: None,
+            baseband_pos: 0,
             input_rate,
             meter: LevelMeter::new(input_rate),
         }))
@@ -227,6 +258,7 @@ impl ChannelHost {
             .peak_db
             .store(self.meter.peak_db().to_bits(), Ordering::Relaxed);
         self.tap_baseband(center_hz);
+        self.sink_baseband(center_hz);
         let open = match self.threshold_db {
             Some(_) => self.squelch.process(&self.filtered),
             None => true,
@@ -316,11 +348,37 @@ impl ChannelHost {
         });
     }
 
+    fn sink_baseband(&mut self, center_hz: f64) {
+        let start = self.baseband_pos;
+        self.baseband_pos += self.filtered.len() as u64;
+        if self.baseband_rec.is_none() && self.baseband_export.is_none() {
+            return;
+        }
+        let center = center_hz + self.offset_hz;
+        if self
+            .baseband_rec
+            .as_ref()
+            .is_some_and(|tap| !tap.push(&self.filtered, start, center))
+        {
+            self.baseband_rec = None;
+        }
+        if self
+            .baseband_export
+            .as_mut()
+            .is_some_and(|tap| !tap.push(&self.filtered))
+        {
+            self.baseband_export = None;
+        }
+    }
+
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
-        if !self.outputs.events.is_empty() {
+        if !self.outputs.events.is_empty() || !self.outputs.images.is_empty() {
             let freq_hz = center_hz + self.offset_hz;
             for event in self.outputs.events.drain(..) {
                 self.decoded.publish(freq_hz, event);
+            }
+            for image in self.outputs.images.drain(..) {
+                self.decoded.publish_image(freq_hz, image);
             }
         }
         for picture in self.outputs.video.drain(..) {
@@ -377,6 +435,14 @@ impl ChannelHost {
     fn set_audio_recording(&mut self, tap: Option<AudioRecorderTap>) {
         self.audio_rec = tap;
     }
+
+    fn set_baseband_recording(&mut self, tap: Option<RecorderTap>) {
+        self.baseband_rec = tap;
+    }
+
+    fn set_baseband_export(&mut self, tap: Option<NetworkExportTap>) {
+        self.baseband_export = tap;
+    }
 }
 
 pub(crate) enum DspCommand {
@@ -389,8 +455,14 @@ pub(crate) enum DspCommand {
     StopRecording,
     StartChannelRecording { id: u32, tap: AudioRecorderTap },
     StopChannelRecording { id: u32 },
+    StartBasebandRecording { id: u32, tap: RecorderTap },
+    StopBasebandRecording { id: u32 },
+    StartBasebandExport { id: u32, tap: NetworkExportTap },
+    StopBasebandExport { id: u32 },
     StartNetworkExport { tap: NetworkExportTap },
     StopNetworkExport,
+    StartTimeMachine { tap: Box<TimeMachineTap> },
+    StopTimeMachine,
 }
 
 type FatalReport = Box<dyn FnOnce(DeviceError) + Send>;
@@ -597,6 +669,7 @@ fn dsp_loop(
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
     let mut tap: Option<RecorderTap> = None;
     let mut network_tap: Option<NetworkExportTap> = None;
+    let mut history: Option<TimeMachineTap> = None;
     let mut write_pos = 0usize;
     let mut since_last = 0usize;
     let mut total: u64 = 0;
@@ -604,7 +677,13 @@ fn dsp_loop(
     let mut seq: u32 = 0;
 
     while !stop.load(Ordering::Acquire) {
-        drain_commands(commands, &mut channels, &mut tap, &mut network_tap);
+        drain_commands(
+            commands,
+            &mut channels,
+            &mut tap,
+            &mut network_tap,
+            &mut history,
+        );
         let dropped = overruns.load(Ordering::Relaxed);
         total += dropped - dropped_seen;
         dropped_seen = dropped;
@@ -632,6 +711,12 @@ fn dsp_loop(
                 .is_some_and(|network| !network.push(slice))
             {
                 network_tap = None;
+            }
+            if history
+                .as_mut()
+                .is_some_and(|keeper| !keeper.push(slice, snapshot.center_hz))
+            {
+                history = None;
             }
             for (_, host) in &mut channels {
                 host.process(slice, snapshot.center_hz);
@@ -676,6 +761,7 @@ fn drain_commands(
     channels: &mut Vec<(u32, Box<ChannelHost>)>,
     tap: &mut Option<RecorderTap>,
     network_tap: &mut Option<NetworkExportTap>,
+    history: &mut Option<TimeMachineTap>,
 ) {
     while let Ok(cmd) = commands.try_recv() {
         match cmd {
@@ -721,8 +807,34 @@ fn drain_commands(
                     host.set_audio_recording(None);
                 }
             }
+            DspCommand::StartBasebandRecording { id, tap: armed } => {
+                match channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    Some((_, host)) => host.set_baseband_recording(Some(armed)),
+                    None => {
+                        tracing::debug!(id, "baseband recording for a channel no longer hosted");
+                    }
+                }
+            }
+            DspCommand::StopBasebandRecording { id } => {
+                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    host.set_baseband_recording(None);
+                }
+            }
+            DspCommand::StartBasebandExport { id, tap: armed } => {
+                match channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    Some((_, host)) => host.set_baseband_export(Some(armed)),
+                    None => tracing::debug!(id, "baseband export for a channel no longer hosted"),
+                }
+            }
+            DspCommand::StopBasebandExport { id } => {
+                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    host.set_baseband_export(None);
+                }
+            }
             DspCommand::StartNetworkExport { tap: armed } => *network_tap = Some(armed),
             DspCommand::StopNetworkExport => *network_tap = None,
+            DspCommand::StartTimeMachine { tap: armed } => *history = Some(*armed),
+            DspCommand::StopTimeMachine => *history = None,
         }
     }
 }

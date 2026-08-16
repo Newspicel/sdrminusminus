@@ -16,6 +16,8 @@ struct Args {
     db: Option<PathBuf>,
     #[arg(long)]
     recordings_dir: Option<PathBuf>,
+    #[arg(long, hide = true, default_value_t = 1.0, value_parser = parse_playback_speed)]
+    playback_speed: f64,
     #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]
     token: Option<String>,
     #[arg(long)]
@@ -35,6 +37,16 @@ fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
 }
 
+fn parse_playback_speed(raw: &str) -> Result<f64, String> {
+    let speed: f64 = raw
+        .parse()
+        .map_err(|_| format!("`{raw}` is not a number"))?;
+    if !speed.is_finite() || speed < 1.0 {
+        return Err("playback speed must be finite and at least real time (1.0)".to_string());
+    }
+    Ok(speed)
+}
+
 fn resolve_recordings_dir(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = match cli {
         Some(path) => path,
@@ -48,6 +60,9 @@ fn resolve_recordings_dir(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "soapy")]
+    sdrmm_device_soapy::enable_isolated_probes();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -81,7 +96,13 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
 
-    let engine = Engine::new(Some(recordings_dir));
+    let engine = Engine::with_registry(
+        sdrmm_engine::builtin_registry_accelerated(
+            Some(recordings_dir.clone()),
+            args.playback_speed,
+        ),
+        Some(recordings_dir),
+    );
     let config = Config {
         bind: args.bind,
         db_path: Some(db_path),
@@ -139,6 +160,25 @@ mod tests {
             "unexpected default {}",
             path.display()
         );
+    }
+
+    #[test]
+    fn playback_speed_accepts_real_time_and_faster() {
+        assert_eq!(parse_playback_speed("1").expect("parse"), 1.0);
+        assert_eq!(parse_playback_speed("20.5").expect("parse"), 20.5);
+    }
+
+    #[test]
+    fn playback_speed_rejects_slower_than_real_time_and_nonsense() {
+        for raw in ["0.5", "0", "-2", "inf", "nan", "fast"] {
+            assert!(parse_playback_speed(raw).is_err(), "accepted {raw}");
+        }
+    }
+
+    #[test]
+    fn playback_speed_defaults_to_real_time() {
+        let args = Args::parse_from(["sdrmm"]);
+        assert_eq!(args.playback_speed, 1.0);
     }
 
     #[test]

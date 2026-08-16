@@ -32,13 +32,11 @@ while IFS= read -r core; do cp -L "$core" "$destination/lib/$(basename "$core")"
 module_dir="$(find "$prefix/lib" -type d -path '*/SoapySDR/modules0.8' | head -1)"
 test -n "$module_dir" || { echo "SoapySDR modules0.8 not found under $prefix/lib" >&2; exit 1; }
 find "$module_dir" -maxdepth 1 -type f \
-  | grep -Ei '/(lib)?(rtlsdr|hackrf|airspyhf|airspy|bladerf|lms7|plutosdr|remote).*\.(so|dylib)' \
+  | grep -Ei '/(lib)?(airspyhf|airspy|bladerf|lms7|plutosdr|remote).*\.(so|dylib)' \
   | while IFS= read -r module; do cp -L "$module" "$destination/lib/SoapySDR/modules0.8/"; done
 
-test -n "$(find "$destination/lib/SoapySDR/modules0.8" -iname '*rtlsdr*')" \
-  || { echo "SoapyRTLSDR was not staged" >&2; exit 1; }
-test -n "$(find "$destination/lib/SoapySDR/modules0.8" -iname '*hackrf*')" \
-  || { echo "SoapyHackRF was not staged" >&2; exit 1; }
+test -n "$(find "$destination/lib/SoapySDR/modules0.8" -iname '*airspy*')" \
+  || { echo "SoapyAirspy was not staged" >&2; exit 1; }
 
 copy_dependencies_linux() {
   local changed=1
@@ -66,11 +64,10 @@ copy_dependencies_macos() {
         "$prefix"/*) source="$dependency" ;;
         @rpath/*|@loader_path/*|@executable_path/*)
           # `-type l` as well as `-type f`: a library's install name is usually its soname, and
-          # conda ships that as a symlink onto the fully versioned file — `librtlsdr.0.dylib`
-          # onto `librtlsdr.0.6.0.dylib`. Matching files alone silently staged no driver library
-          # at all for rtlsdr, hackrf, airspy, LimeSuite or Pluto, and none of them missed a
-          # thing until a radio was plugged in. `cp -L` below copies the content under the name
-          # the module asks for.
+          # conda ships that as a symlink onto the fully versioned file — `libairspy.0.dylib`
+          # onto `libairspy.0.3.0.dylib`. Matching files alone silently staged no driver library
+          # at all for airspy, LimeSuite or Pluto, and none of them missed a thing until a radio
+          # was plugged in. `cp -L` below copies the content under the name the module asks for.
           source="$(find "$prefix/lib" \( -type f -o -type l \) \
             -name "$(basename "$dependency")" -print -quit)"
           ;;
@@ -108,8 +105,6 @@ for license_root in "$prefix/share/licenses" "$prefix/Library/share/licenses"; d
     cp -R "$license_root/." "$destination/licenses/texts/"
   fi
 done
-install -d "$destination/licenses/texts"
-cp "$script_directory/licenses/"*.txt "$destination/licenses/texts/"
 find "$prefix" -maxdepth 4 -type f \( -iname 'license*' -o -iname 'copying*' \) \
   | head -200 | while IFS= read -r license; do
       cp "$license" "$destination/licenses/$(basename "$(dirname "$license")")-$(basename "$license")"

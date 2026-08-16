@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, FIELD } from "../../components/controls";
 import {
+  channelExportSource,
   deriveNetworkExportControl,
+  deviceExportSource,
+  type NetworkExportTarget,
   networkExportControlsLocked,
   networkExportMutationOptions,
 } from "../../components/networkExport";
@@ -11,7 +14,7 @@ import { formatBytes } from "../../components/recordings";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
-import { iqSourceOf } from "../binding";
+import { basebandSourceOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
@@ -38,11 +41,25 @@ export function NetworkExportFace({ node }: { node: PatchNode }) {
 function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
-  const source = iqSourceOf(workspace.graph, node.id);
+  const radio = iqSourceOf(workspace.graph, node.id);
+  const channel = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
   const [address, setAddress] = useState(node.data.address);
 
   useEffect(() => setAddress(node.data.address), [node.data.address]);
-  const control = deriveNetworkExportControl(set, node.id);
+  const owner =
+    channel === null
+      ? set
+      : ([...workspace.devices.values()].find((bound) => bound.id === channel.deviceSet) ?? null);
+  const target: NetworkExportTarget | null =
+    channel !== null
+      ? { kind: "channel", deviceSet: channel.deviceSet, channel: channel.channel.id }
+      : set !== null && radio !== null
+        ? { kind: "device", deviceSet: set.id, stream: radio.stream }
+        : null;
+  const control = deriveNetworkExportControl(
+    channel === null ? deviceExportSource(set) : channelExportSource(owner, channel.channel),
+    node.id,
+  );
   const settings = {
     transport: node.data.transport,
     format: node.data.format,
@@ -58,19 +75,13 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
       ),
     }));
   };
-  const exportIq = useMutation(
-    networkExportMutationOptions(
-      set === null || source === null ? null : { deviceSet: set.id, stream: source.stream },
-      node.id,
-      settings,
-    ),
-  );
+  const exportIq = useMutation(networkExportMutationOptions(target, node.id, settings));
   const locked = networkExportControlsLocked(control, exportIq.isPending);
 
   return (
     <NodeShell
       node={node}
-      title="Network IQ"
+      title={channel === null ? "Network IQ" : "Network baseband"}
       category="sink"
       subtitle={control.kind === "active" ? node.data.address : undefined}
       live={control.kind === "active"}
@@ -113,8 +124,8 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
             />
           </SettingRow>
         </Settings>
-        {source === null || set === null ? (
-          <FaceEmpty>Wire a device's IQ out into this sink.</FaceEmpty>
+        {target === null ? (
+          <FaceEmpty>Wire a device's IQ or a channel's baseband out into this sink.</FaceEmpty>
         ) : control.kind === "active" ? (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 p-2 font-mono text-xs tabular-nums">
             <span className="text-ink-dim">Rate</span>
@@ -138,7 +149,9 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
         ) : (
           <FaceEmpty>
             {control.kind === "busy"
-              ? "Another network sink is already using this radio."
+              ? channel === null
+                ? "Another network sink is already using this radio."
+                : "Another network sink is already using this channel."
               : control.kind === "ready"
                 ? "Raw interleaved I/Q. Set the same rate and format in the receiving tool."
                 : "The radio has to be running before it can export."}

@@ -7,6 +7,7 @@ use crate::{
     device::{Capabilities, DeviceInfo, DeviceSettings},
     network::NetworkExportStatus,
     scan::ScannerStatus,
+    timemachine::TimeMachineStatus,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -64,6 +65,8 @@ pub struct DeviceSet {
     pub recording: Option<RecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_export: Option<NetworkExportStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_machine: Option<TimeMachineStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scanner: Option<ScannerStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

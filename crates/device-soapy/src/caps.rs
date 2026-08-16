@@ -105,35 +105,52 @@ pub(crate) fn duplex(rx: &[ChannelCapabilities], tx: &[ChannelCapabilities]) -> 
 
 pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities {
     let primary = directional.rx.first();
-    let (freq_ranges, sample_rates, sample_rate_range, gains, antennas, bandwidths, ppm) =
-        match primary {
-            Some(channel) => (
-                channel.freq_ranges.clone(),
-                channel.sample_rates.clone(),
-                (channel.sample_rate_ranges.len() == 1).then(|| channel.sample_rate_ranges[0]),
-                channel.gains.clone(),
-                channel.antennas.clone(),
-                channel
-                    .bandwidth_ranges
-                    .iter()
-                    .filter(|range| range.min == range.max)
-                    .map(|range| range.min)
-                    .collect(),
-                channel
-                    .frequency_components
-                    .iter()
-                    .any(|component| component == "CORR"),
-            ),
-            None => (
-                Vec::new(),
-                Vec::new(),
-                None,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                false,
-            ),
-        };
+    let (
+        freq_ranges,
+        sample_rates,
+        sample_rate_ranges,
+        gains,
+        antennas,
+        bandwidths,
+        bandwidth_ranges,
+        ppm,
+    ) = match primary {
+        Some(channel) => (
+            channel.freq_ranges.clone(),
+            channel.sample_rates.clone(),
+            channel.sample_rate_ranges.clone(),
+            channel.gains.clone(),
+            channel.antennas.clone(),
+            // A Soapy range whose ends meet is one discrete width; the rest are the continuous
+            // envelopes, and both halves have to survive or a radio loses filter settings it has.
+            channel
+                .bandwidth_ranges
+                .iter()
+                .filter(|range| range.min == range.max)
+                .map(|range| range.min)
+                .collect(),
+            channel
+                .bandwidth_ranges
+                .iter()
+                .filter(|range| range.min < range.max)
+                .copied()
+                .collect(),
+            channel
+                .frequency_components
+                .iter()
+                .any(|component| component == "CORR"),
+        ),
+        None => (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            false,
+        ),
+    };
     let rx_streams = u32::try_from(directional.rx.len()).unwrap_or(u32::MAX);
     let tx_streams = u32::try_from(directional.tx.len()).unwrap_or(u32::MAX);
     let duplex = duplex(&directional.rx, &directional.tx);
@@ -141,10 +158,11 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
     Capabilities {
         freq_ranges,
         sample_rates,
-        sample_rate_range,
+        sample_rate_ranges,
         gains,
         antennas,
         bandwidths,
+        bandwidth_ranges,
         extra,
         ppm,
         duplex,
@@ -281,7 +299,7 @@ pub(crate) fn validate(
             channel: 0,
             freq_ranges: capabilities.freq_ranges.clone(),
             sample_rates: capabilities.sample_rates.clone(),
-            sample_rate_ranges: capabilities.sample_rate_range.into_iter().collect(),
+            sample_rate_ranges: capabilities.sample_rate_ranges.clone(),
             gains: capabilities.gains.clone(),
             antennas: capabilities.antennas.clone(),
             bandwidth_ranges: capabilities
@@ -477,6 +495,60 @@ mod tests {
             !ranges
                 .iter()
                 .any(|range| range.min <= 500_000.0 && 500_000.0 <= range.max)
+        );
+    }
+
+    #[test]
+    fn every_window_and_filter_a_channel_reports_reaches_the_flat_capabilities() {
+        let windows = vec![
+            Range {
+                min: 225_001.0,
+                max: 300_000.0,
+                step: None,
+            },
+            Range {
+                min: 900_001.0,
+                max: 3_200_000.0,
+                step: None,
+            },
+        ];
+        let rx = ChannelCapabilities {
+            sample_rate_ranges: windows.clone(),
+            bandwidth_ranges: vec![
+                Range {
+                    min: 1.75e6,
+                    max: 1.75e6,
+                    step: None,
+                },
+                Range {
+                    min: 2e6,
+                    max: 28e6,
+                    step: None,
+                },
+            ],
+            ..channel(24e6, false)
+        };
+        let caps = capabilities(DirectionalCapabilities {
+            rx: vec![rx],
+            ..DirectionalCapabilities::default()
+        });
+        assert_eq!(
+            caps.sample_rate_ranges, windows,
+            "a radio with two windows must not lose both of them on the way out"
+        );
+        assert_eq!(
+            caps.bandwidths,
+            vec![1.75e6],
+            "a range whose ends meet is one discrete filter width"
+        );
+        assert_eq!(
+            caps.bandwidth_ranges,
+            vec![Range {
+                min: 2e6,
+                max: 28e6,
+                step: None
+            }],
+            "and a range with room in it is a continuous filter"
         );
     }
 

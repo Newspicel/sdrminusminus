@@ -3,6 +3,13 @@ import { useCallback } from "react";
 import type { NodeKind, PatchGraph, Position } from "../lib/types";
 import { NODE_SIZE } from "./graph";
 
+const ASSUMED_HEIGHT = 320;
+
+export function dropSize(kind: NodeKind): { w: number; h: number } {
+  const size = NODE_SIZE[kind];
+  return { w: size.w, h: size.h ?? ASSUMED_HEIGHT };
+}
+
 export interface PlacementRect {
   x: number;
   y: number;
@@ -12,16 +19,12 @@ export interface PlacementRect {
 
 const SCREEN_GAP = 24;
 
-export function useNodePlacement(): (
-  graph: PatchGraph,
-  kind: NodeKind,
-  size?: { w: number; h: number },
-) => Position {
+export function useNodePlacement(): (graph: PatchGraph, kind: NodeKind) => Position {
   const flow = useReactFlow();
   const store = useStoreApi();
 
   return useCallback(
-    (graph, kind, requested) => {
+    (graph, kind) => {
       const { width, height } = store.getState();
       const { x, y, zoom } = flow.getViewport();
       const gap = SCREEN_GAP / zoom;
@@ -33,7 +36,7 @@ export function useNodePlacement(): (
       };
       const rendered = new Map(flow.getNodes().map((node) => [node.id, node]));
       const occupied = graph.nodes.map((node) => nodeRect(node, rendered.get(node.id)));
-      const size = requested ?? NODE_SIZE[kind];
+      const size = dropSize(kind);
 
       if (width <= 0 || height <= 0 || zoom <= 0) {
         return dropPosition({ x: 0, y: 0, w: 1200, h: 800 }, size, occupied, SCREEN_GAP);
@@ -132,7 +135,7 @@ function union(viewport: PlacementRect, face: Rect): Rect {
 
 function nodeRect(node: PatchGraph["nodes"][number], rendered: Node | undefined): PlacementRect {
   const measured = measuredSize(rendered);
-  const natural = NODE_SIZE[node.kind];
+  const natural = dropSize(node.kind);
   const stored = node.size;
   return {
     x: rendered?.position.x ?? node.position.x,

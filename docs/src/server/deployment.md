@@ -43,10 +43,9 @@ owns the device with `group_add`. Running the whole service as root should be a 
 
 ### SDRplay receivers
 
-The image carries the SoapySDRPlay3 module but not the vendor API, which is licensed for use with
-genuine SDRplay hardware and cannot be redistributed. Install the API on the host, leave its
-service running there, and give the container the library plus the shared memory the service
-talks over:
+The image carries the driver but not SDRplay's vendor API, which is licensed for use with genuine
+SDRplay hardware and cannot be redistributed. Install the API on the host, leave its service
+running there, and give the container the library plus the shared memory the service talks over:
 
 ```yaml
 volumes:
@@ -55,9 +54,11 @@ ipc: host
 ```
 
 `ipc: host` is the part that is easy to miss: the API reaches `sdrplay_apiService` through POSIX
-shared memory, so a container with its own IPC namespace fails with `sdrplay_api_Open() failed`
-even though the library is right there. Without the API at all the module simply does not load,
-and every other radio works as before.
+shared memory, so a container with its own IPC namespace fails to open the API even though the
+library is right there. It is also the part to think about twice: sharing the host IPC namespace
+drops that isolation for the whole container, which reaches every other host IPC object as well.
+Use it only where the image and the host are both trusted, never for a multi-tenant deployment. Without the API at all no RSP is listed, and every other radio works as
+before.
 
 ### Data and authentication
 

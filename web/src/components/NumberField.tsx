@@ -10,6 +10,7 @@ interface Common {
   step?: number;
   className?: string;
   invalid?: boolean;
+  disabled?: boolean;
 }
 
 export function NumberField({
@@ -21,6 +22,7 @@ export function NumberField({
   step,
   className,
   invalid,
+  disabled,
 }: Common & { value: number; onCommit: (value: number) => void }) {
   const [draft, setDraft] = useDraft(value);
   return (
@@ -31,6 +33,7 @@ export function NumberField({
       step={step}
       className={className}
       invalid={invalid}
+      disabled={disabled}
       value={draft}
       onDraft={setDraft}
       onCommit={(committed) => {
@@ -90,6 +93,7 @@ function Field({
   step,
   className,
   invalid,
+  disabled,
   value,
   onDraft,
   onCommit,
@@ -107,6 +111,7 @@ function Field({
       min={min}
       max={max}
       step={step}
+      disabled={disabled}
       onValueChange={onDraft}
       onValueCommitted={onCommit}
       format={{ useGrouping: false, maximumFractionDigits: fractionDigits(step) }}

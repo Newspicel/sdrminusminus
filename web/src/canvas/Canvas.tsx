@@ -37,7 +37,7 @@ import {
   type GraphContext,
   isPinned,
   isResizable,
-  naturalSize,
+  NODE_SIZE,
   nodeOf,
   patchNode,
   pin,
@@ -62,7 +62,7 @@ const DELETE_KEYS = ["Backspace", "Delete"];
 export function Canvas() {
   const workspace = useWorkspaceContext();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>(
-    toFlowNodes(workspace.graph, workspace.context),
+    toFlowNodes(workspace.graph),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
     toFlowEdges(workspace.graph, workspace.context),
@@ -83,7 +83,6 @@ export function Canvas() {
   useEffect(() => {
     if (sameGraph(held.current, workspace.graph)) {
       setEdges(toFlowEdges(workspace.graph, context));
-      setNodes((previous) => withNaturalSizes(previous, workspace.graph, context));
       return;
     }
     held.current = workspace.graph;
@@ -93,7 +92,7 @@ export function Canvas() {
       pasted.current = new Set();
     }
     setNodes((previous) =>
-      toFlowNodes(workspace.graph, context).map((node) => {
+      toFlowNodes(workspace.graph).map((node) => {
         const mounted = previous.find((candidate) => candidate.id === node.id);
         const selected = arrived ? fresh.has(node.id) : (mounted?.selected ?? false);
         return mounted === undefined ? { ...node, selected } : { ...mounted, ...node, selected };
@@ -112,7 +111,7 @@ export function Canvas() {
           if (flow === undefined) {
             return node;
           }
-          const natural = naturalSize(node, workspace.context);
+          const natural = NODE_SIZE[node.kind];
           const { width: w, height: h } = flow;
           const resized =
             isResizable(node.kind) &&
@@ -123,7 +122,7 @@ export function Canvas() {
           return {
             ...rest,
             position: { x: flow.position.x, y: flow.position.y },
-            ...(resized ? { size: { w: w as number, h: h as number } } : {}),
+            ...(resized ? { size: { w, h } } : {}),
           };
         }),
       },
@@ -384,35 +383,16 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   );
 }
 
-function withNaturalSizes(
-  mounted: Node<FlowData>[],
-  graph: PatchGraph,
-  context: GraphContext,
-): Node<FlowData>[] {
-  const fresh = new Map(toFlowNodes(graph, context).map((node) => [node.id, node]));
-  let changed = false;
-  const next = mounted.map((node) => {
-    const size = fresh.get(node.id);
-    if (size === undefined || (size.width === node.width && size.height === node.height)) {
-      return node;
-    }
-    changed = true;
-    return { ...node, width: size.width, height: size.height };
-  });
-  return changed ? next : mounted;
-}
-
-function toFlowNodes(graph: PatchGraph, context: GraphContext): Node<FlowData>[] {
+function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
   return graph.nodes.map((node) => {
-    const natural = naturalSize(node, context);
-    const size = (isResizable(node.kind) ? node.size : null) ?? natural;
+    const size = (isResizable(node.kind) ? node.size : null) ?? NODE_SIZE[node.kind];
     return {
       id: node.id,
       type: node.kind,
       position: node.position,
       data: { node },
       width: size.w,
-      height: size.h ?? natural.h,
+      height: size.h,
     };
   });
 }

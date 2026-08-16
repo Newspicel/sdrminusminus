@@ -16,8 +16,6 @@ https://conda.anaconda.org/conda-forge/osx-64/bzip2-1.0.8-h374f1ed_10.conda#9d9a
 https://conda.anaconda.org/conda-forge/osx-64/libiconv-1.18-h57a12c2_2.conda#210a85a1119f97ea7887188d176db135
 https://conda.anaconda.org/conda-forge/osx-64/openssl-3.6.3-hc881268_1.conda#da403ed66c373b5fb25266b4be662327
 https://conda.anaconda.org/conda-forge/osx-64/libbladerf2-2024.05-h6e16a3a_2.conda#ae3075e73cb05f5847bf2007f746d4a7
-https://conda.anaconda.org/conda-forge/osx-64/libhackrf0-2026.01.3-hf3981d6_0.conda#6fe1d98d2211cabae058232d576110c1
-https://conda.anaconda.org/conda-forge/osx-64/rtl-sdr-2.0.2-h6e16a3a_3.conda#89bc22330bab357523566ffc20b0c95d
 https://conda.anaconda.org/conda-forge/osx-64/libairspyhf-1.6.8-h6e16a3a_1.conda#bf0d71747898f26d1fef38946cb76af7
 https://conda.anaconda.org/conda-forge/osx-64/libairspy-1.0.10-h6e16a3a_1.conda#7e803ea72f42dc4369c5ebee111e8ec5
 https://conda.anaconda.org/conda-forge/osx-64/liblimesuite-23.11.0-hcc62823_4.conda#7d94093a8c669f6f03456cdf2b789130
@@ -30,10 +28,8 @@ https://conda.anaconda.org/conda-forge/osx-64/python-3.14.6-hb933c43_102_cp314.c
 https://conda.anaconda.org/conda-forge/osx-64/libxml2-2.15.3-h0712280_0.conda#81ac54c8b2eb51fceb94eb0817b93cf3
 https://conda.anaconda.org/conda-forge/osx-64/soapysdr-0.8.1-py314h9ae6367_6.conda#468b24c535f8cca06c086c26397ff453
 https://conda.anaconda.org/conda-forge/osx-64/libiio-c-0.26-h573940b_2.conda#f5790a73472fcfba2bfe0eabd9bf175a
-https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-rtlsdr-0.3.3-h82c6da9_3.conda#55887c74f0be277871e54222c1d277f0
 https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-lms7-23.11.0-hc0bd658_4.conda#0db7c78c66fd7cf62623f2e13c85647e
 https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-remote-0.5.2-ha64c28d_2.tar.bz2#b46013cf640ecbe5bfb5ecb01d53561c
-https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-hackrf-0.3.4-ha64c28d_0.tar.bz2#e995f7c2dcdf42749638838e3c0b53da
 https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-bladerf-0.4.2-hc7e36d0_0.conda#444cfbd5bd4cb3c7c2351de844255a5c
 https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-airspyhf-0.2.0-ha64c28d_0.tar.bz2#db15c5581723856f829b15729a93b61b
 https://conda.anaconda.org/conda-forge/osx-64/soapysdr-module-airspy-0.2.0-ha64c28d_0.tar.bz2#b59403f2f4c2a8a5e63e1c85eac94721

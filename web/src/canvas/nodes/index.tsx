@@ -13,6 +13,7 @@ import { ScopeFace } from "./ScopeFace";
 import { SignalMapFace } from "./SignalMapFace";
 import {
   AudioRecorderFace,
+  BasebandRecorderFace,
   DecoderLogFace,
   ExportFace,
   MapFace,
@@ -22,6 +23,7 @@ import {
   SpeakerFace,
   VideoFace,
 } from "./SinkFaces";
+import { TimeMachineFace } from "./TimeMachineFace";
 
 type Face = ComponentType<{ node: PatchNode }>;
 
@@ -50,6 +52,8 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
   audio_recorder: mount(AudioRecorderFace),
+  baseband_recorder: mount(BasebandRecorderFace),
+  time_machine: mount(TimeMachineFace),
   network_export: mount(NetworkExportFace),
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
@@ -70,6 +74,8 @@ export const FACES: Record<NodeKind, Face> = {
   video: VideoFace,
   recorder: RecorderFace,
   audio_recorder: AudioRecorderFace,
+  baseband_recorder: BasebandRecorderFace,
+  time_machine: TimeMachineFace,
   network_export: NetworkExportFace,
   export: ExportFace,
   scanner: ScannerFace,

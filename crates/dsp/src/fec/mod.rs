@@ -463,6 +463,67 @@ pub fn pocsag_bch_encode(word21: u32) -> u32 {
     word | pocsag_parity(word)
 }
 
+const ERMES_GEN: u32 = 0o15315;
+const ERMES_CODE_BITS: u32 = 30;
+const ERMES_DATA_BITS: u32 = 18;
+const ERMES_CHECK_BITS: u32 = ERMES_CODE_BITS - ERMES_DATA_BITS;
+
+const fn ermes_syndrome(mut word: u32) -> u32 {
+    let mut bit = ERMES_CODE_BITS;
+    while bit > ERMES_CHECK_BITS {
+        bit -= 1;
+        if word & (1 << bit) != 0 {
+            word ^= ERMES_GEN << (bit - ERMES_CHECK_BITS);
+        }
+    }
+    word & ((1 << ERMES_CHECK_BITS) - 1)
+}
+
+const ERMES_BIT_SYNDROMES: [u32; ERMES_CODE_BITS as usize] = {
+    let mut table = [0; ERMES_CODE_BITS as usize];
+    let mut i = 0;
+    while i < table.len() {
+        table[i] = ermes_syndrome(1 << i);
+        i += 1;
+    }
+    table
+};
+
+#[must_use]
+pub fn ermes_bch_decode(word: u32) -> Option<(u32, u32)> {
+    let word = word & ((1 << ERMES_CODE_BITS) - 1);
+    let syndrome = ermes_syndrome(word);
+    if syndrome == 0 {
+        return Some((word, 0));
+    }
+    if let Some(bit) = ERMES_BIT_SYNDROMES
+        .iter()
+        .position(|&value| value == syndrome)
+    {
+        return Some((word ^ (1 << bit), 1));
+    }
+    for (first, &first_syndrome) in ERMES_BIT_SYNDROMES.iter().enumerate() {
+        if let Some(second) = ERMES_BIT_SYNDROMES
+            .iter()
+            .position(|&value| value == syndrome ^ first_syndrome)
+            && second > first
+        {
+            return Some((word ^ (1 << first) ^ (1 << second), 2));
+        }
+    }
+    None
+}
+
+#[must_use]
+pub fn ermes_bch_encode(info: u32) -> u32 {
+    assert!(
+        info >> ERMES_DATA_BITS == 0,
+        "ERMES information exceeds 18 bits"
+    );
+    let field = info << ERMES_CHECK_BITS;
+    field | ermes_syndrome(field)
+}
+
 const RDS_GEN: u32 = 0x5B9;
 const RDS_BLOCK_BITS: u32 = 26;
 const RDS_CHECK_BITS: u32 = 10;
@@ -490,7 +551,7 @@ impl RdsOffset {
 }
 
 #[must_use]
-pub fn rds_syndrome(block: u32) -> u16 {
+pub const fn rds_syndrome(block: u32) -> u16 {
     let mut rem = block & ((1 << RDS_BLOCK_BITS) - 1);
     let mut shift = RDS_BLOCK_BITS;
     while shift > RDS_CHECK_BITS {
@@ -502,9 +563,50 @@ pub fn rds_syndrome(block: u32) -> u16 {
     rem as u16
 }
 
+const RDS_MAX_BURST: u32 = 2;
+const RDS_SYNDROMES: usize = 1 << RDS_CHECK_BITS;
+const RDS_AMBIGUOUS: u32 = u32::MAX;
+
+const RDS_BURST_TABLE: [u32; RDS_SYNDROMES] = {
+    let mut table = [0u32; RDS_SYNDROMES];
+    let mut shift = 0;
+    while shift < RDS_BLOCK_BITS {
+        let mut pattern = 1u32;
+        while pattern < 1 << RDS_MAX_BURST {
+            let vector = pattern << shift;
+            if vector >> RDS_BLOCK_BITS == 0 {
+                let at = rds_syndrome(vector) as usize;
+                if table[at] == 0 {
+                    table[at] = vector;
+                } else if table[at] != vector {
+                    table[at] = RDS_AMBIGUOUS;
+                }
+            }
+            pattern += 1;
+        }
+        shift += 1;
+    }
+    table
+};
+
 #[must_use]
 pub fn rds_check_block(block: u32, offset: RdsOffset) -> Option<u16> {
     (rds_syndrome(block) == offset.word()).then_some((block >> RDS_CHECK_BITS) as u16)
+}
+
+#[must_use]
+pub fn rds_correct_block(block: u32, offset: RdsOffset) -> Option<(u16, u32)> {
+    let syndrome = rds_syndrome(block) ^ offset.word();
+    if syndrome == 0 {
+        return Some(((block >> RDS_CHECK_BITS) as u16, 0));
+    }
+    match RDS_BURST_TABLE.get(usize::from(syndrome)).copied() {
+        Some(0) | Some(RDS_AMBIGUOUS) | None => None,
+        Some(vector) => Some((
+            ((block ^ vector) >> RDS_CHECK_BITS) as u16,
+            vector.count_ones(),
+        )),
+    }
 }
 
 #[must_use]
@@ -821,6 +923,27 @@ mod tests {
     }
 
     #[test]
+    fn ermes_matches_the_analytic_vectors() {
+        assert_eq!(ermes_bch_encode(1), 0o15315);
+        assert_eq!(ermes_bch_encode((1 << 18) - 1), 0x3FFF_FC4B);
+    }
+
+    #[test]
+    fn ermes_corrects_every_one_and_two_bit_error() {
+        let clean = ermes_bch_encode(0x2_A5A5);
+        for first in 0..30 {
+            assert_eq!(ermes_bch_decode(clean ^ (1 << first)), Some((clean, 1)));
+            for second in (first + 1)..30 {
+                assert_eq!(
+                    ermes_bch_decode(clean ^ (1 << first) ^ (1 << second)),
+                    Some((clean, 2)),
+                    "errors at {first},{second}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rds_round_trips_every_offset() {
         for offset in RDS_OFFSETS {
             for data in [0x0000, 0xFFFF, 0x1234, 0xACDC] {
@@ -843,6 +966,43 @@ mod tests {
                 "bit {bit} slipped past the block check"
             );
         }
+    }
+
+    #[test]
+    fn rds_repairs_a_single_flip_or_an_adjacent_pair_anywhere_in_the_block() {
+        for offset in RDS_OFFSETS {
+            for data in [0x0000, 0xFFFF, 0x3A5C, 0xACDC] {
+                let block = rds_encode_block(data, offset);
+                assert_eq!(rds_correct_block(block, offset), Some((data, 0)));
+                for bit in 0..26 {
+                    let single = block ^ (1 << bit);
+                    assert_eq!(
+                        rds_correct_block(single, offset),
+                        Some((data, 1)),
+                        "{offset:?} bit {bit}"
+                    );
+                    if bit + 1 < 26 {
+                        let pair = block ^ (0b11 << bit);
+                        assert_eq!(
+                            rds_correct_block(pair, offset),
+                            Some((data, 2)),
+                            "{offset:?} bits {bit}..{}",
+                            bit + 1
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rds_correction_leaves_no_syndrome_pointing_at_two_error_patterns() {
+        assert!(
+            !RDS_BURST_TABLE.contains(&RDS_AMBIGUOUS),
+            "the burst table cannot resolve every pattern it holds"
+        );
+        let reachable = RDS_BURST_TABLE.iter().filter(|&&v| v != 0).count();
+        assert_eq!(reachable, 26 + 25, "one syndrome per correctable pattern");
     }
 
     #[test]

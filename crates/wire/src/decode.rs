@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::RadioClockStandard;
+use crate::{RadioClockStandard, channel::SstvMode};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RdsUpdate {
@@ -42,6 +42,39 @@ pub struct PocsagMessage {
     pub baud: u16,
     pub payload: PocsagPayload,
     pub text: String,
+    pub errors_corrected: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PagerPayload {
+    Tone,
+    Numeric,
+    Alpha,
+    Binary,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FlexMessage {
+    pub address: u64,
+    pub payload: PagerPayload,
+    pub text: String,
+    pub baud: u16,
+    pub levels: u8,
+    pub cycle: u8,
+    pub frame: u8,
+    pub phase: char,
+    pub errors_corrected: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ErmesMessage {
+    pub local_address: u32,
+    pub message_number: u8,
+    pub payload: PagerPayload,
+    pub text: String,
+    pub urgent: bool,
+    pub alert: u8,
     pub errors_corrected: u32,
 }
 
@@ -133,6 +166,14 @@ pub struct RttyText {
 pub struct MorseText {
     pub text: String,
     pub wpm: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CwSkimmerSpot {
+    pub offset_hz: f32,
+    pub text: String,
+    pub wpm: f32,
+    pub snr_db: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -640,16 +681,30 @@ pub struct GnssFrame {
     pub words: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SstvPicture {
+    pub seq: u32,
+    pub mode: SstvMode,
+    pub width: u16,
+    pub height: u16,
+    pub lines: u16,
+    pub complete: bool,
+    pub duration_ms: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
     Rds(RdsUpdate),
     Pocsag(PocsagMessage),
+    Flex(FlexMessage),
+    Ermes(ErmesMessage),
     Adsb(AdsbMessage),
     Ais(AisMessage),
     Aprs(AprsPacket),
     Rtty(RttyText),
     Morse(MorseText),
+    CwSkimmer(CwSkimmerSpot),
     Selcall(SelcallSequence),
     Navtex(NavtexMessage),
     Acars(AcarsMessage),
@@ -665,6 +720,7 @@ pub enum DecoderEvent {
     Broadcast(BroadcastStatus),
     RadioClock(RadioClockFrame),
     Gnss(GnssFrame),
+    Sstv(SstvPicture),
 }
 
 impl DecoderEvent {
@@ -673,11 +729,14 @@ impl DecoderEvent {
         match self {
             Self::Rds(_) => "rds",
             Self::Pocsag(_) => "pocsag",
+            Self::Flex(_) => "flex",
+            Self::Ermes(_) => "ermes",
             Self::Adsb(_) => "adsb",
             Self::Ais(_) => "ais",
             Self::Aprs(_) => "aprs",
             Self::Rtty(_) => "rtty",
             Self::Morse(_) => "morse",
+            Self::CwSkimmer(_) => "cw_skimmer",
             Self::Selcall(_) => "selcall",
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
@@ -693,6 +752,7 @@ impl DecoderEvent {
             Self::Broadcast(_) => "broadcast",
             Self::RadioClock(_) => "radio_clock",
             Self::Gnss(_) => "gnss",
+            Self::Sstv(_) => "sstv",
         }
     }
 
@@ -720,6 +780,20 @@ impl DecoderEvent {
                     format!("{} ({})", p.address, p.function)
                 } else {
                     format!("{}: {}", p.address, p.text)
+                }
+            }
+            Self::Flex(p) => {
+                if p.text.is_empty() {
+                    format!("{} · {:?}", p.address, p.payload)
+                } else {
+                    format!("{}: {}", p.address, p.text)
+                }
+            }
+            Self::Ermes(p) => {
+                if p.text.is_empty() {
+                    format!("{} · {:?}", p.local_address, p.payload)
+                } else {
+                    format!("{}: {}", p.local_address, p.text)
                 }
             }
             Self::Adsb(a) => {
@@ -751,6 +825,7 @@ impl DecoderEvent {
             },
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
+            Self::CwSkimmer(s) => format!("{:+.0} Hz · {:.0} WPM · {}", s.offset_hz, s.wpm, s.text),
             Self::Selcall(s) => format!(
                 "{} · {}",
                 match s.system {
@@ -919,6 +994,18 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Sstv(p) => {
+                let mut parts = vec![
+                    p.mode.label().to_owned(),
+                    format!("{}×{}", p.width, p.height),
+                ];
+                parts.push(if p.complete {
+                    format!("complete in {} s", p.duration_ms / 1_000)
+                } else {
+                    format!("{} of {} lines", p.lines, p.height)
+                });
+                parts.join(" · ")
+            }
         }
     }
 
@@ -939,6 +1026,8 @@ impl DecoderEvent {
         match self {
             Self::Rds(r) => r.pi.clone(),
             Self::Pocsag(p) => Some(p.address.to_string()),
+            Self::Flex(p) => Some(p.address.to_string()),
+            Self::Ermes(p) => Some(p.local_address.to_string()),
             Self::Adsb(a) => Some(a.icao.clone()),
             Self::Ais(m) => Some(m.mmsi.to_string()),
             Self::Aprs(p) => Some(p.source.clone()),
@@ -956,6 +1045,7 @@ impl DecoderEvent {
             Self::Wspr(s) => Some(s.callsign.clone()),
             Self::Rtty(_)
             | Self::Morse(_)
+            | Self::CwSkimmer(_)
             | Self::Psk31(_)
             | Self::Psk63(_)
             | Self::Tone(_)
@@ -967,6 +1057,7 @@ impl DecoderEvent {
                 .map(|id| format!("{id:X}")),
             Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
             Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
+            Self::Sstv(p) => Some(p.mode.label().to_owned()),
         }
     }
 }
@@ -983,6 +1074,36 @@ pub struct DecodedRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_sstv_picture_summarises_its_mode_size_and_outcome() {
+        let complete = DecoderEvent::Sstv(SstvPicture {
+            seq: 1,
+            mode: SstvMode::MartinM1,
+            width: 320,
+            height: 256,
+            lines: 256,
+            complete: true,
+            duration_ms: 114_300,
+        });
+        assert_eq!(complete.kind(), "sstv");
+        assert_eq!(
+            complete.summary(),
+            "Martin M1 · 320×256 · complete in 114 s"
+        );
+        assert_eq!(complete.station().as_deref(), Some("Martin M1"));
+
+        let cut_short = DecoderEvent::Sstv(SstvPicture {
+            seq: 2,
+            mode: SstvMode::Robot36,
+            width: 320,
+            height: 240,
+            lines: 96,
+            complete: false,
+            duration_ms: 14_500,
+        });
+        assert_eq!(cut_short.summary(), "Robot 36 · 320×240 · 96 of 240 lines");
+    }
 
     #[test]
     fn decoder_event_is_adjacently_tagged() {
@@ -1016,6 +1137,26 @@ mod tests {
                 text: String::new(),
                 errors_corrected: 0,
             }),
+            DecoderEvent::Flex(FlexMessage {
+                address: 1,
+                payload: PagerPayload::Tone,
+                text: String::new(),
+                baud: 1_600,
+                levels: 2,
+                cycle: 0,
+                frame: 0,
+                phase: 'A',
+                errors_corrected: 0,
+            }),
+            DecoderEvent::Ermes(ErmesMessage {
+                local_address: 1,
+                message_number: 0,
+                payload: PagerPayload::Tone,
+                text: String::new(),
+                urgent: false,
+                alert: 0,
+                errors_corrected: 0,
+            }),
             DecoderEvent::Adsb(AdsbMessage::default()),
             DecoderEvent::Ais(AisMessage::default()),
             DecoderEvent::Aprs(AprsPacket::default()),
@@ -1025,6 +1166,12 @@ mod tests {
             DecoderEvent::Morse(MorseText {
                 text: String::new(),
                 wpm: 0.0,
+            }),
+            DecoderEvent::CwSkimmer(CwSkimmerSpot {
+                offset_hz: 0.0,
+                text: String::new(),
+                wpm: 0.0,
+                snr_db: 0.0,
             }),
             DecoderEvent::Selcall(SelcallSequence {
                 system: crate::channel::SelcallSystem::Ccir1,

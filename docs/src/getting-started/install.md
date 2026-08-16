@@ -18,8 +18,8 @@ The app starts its receiver server on a private loopback port and opens the inte
 window. Desktop installers include a private SoapySDR runtime and the supported hardware modules,
 so installing a second system-wide copy of SoapySDR is unnecessary. SDRplay receivers need one
 extra step: their vendor API is licensed for genuine SDRplay hardware and is installed from
-[SDRplay](https://www.sdrplay.com/downloads/), not by this installer — see
-[SDRplay](../hardware.md#sdrplay).
+[the SDRplay downloads page](https://www.sdrplay.com/downloads/), not by this installer — see
+[SDRplay receivers](../hardware.md#sdrplay).
 
 ## Portable server
 
@@ -35,6 +35,23 @@ a browser on the same network.
 
 Portable archives use the host's SoapySDR 0.8 runtime. Install the core library and the module for
 your receiver before starting sdr--. Run `sdrmm --doctor` to confirm what the binary can see.
+
+## Homebrew
+
+On macOS, both packages come from the project's tap:
+
+```sh
+brew tap newspicel/tap
+brew install --cask sdrminusminus
+brew install sdrmm
+```
+
+The cask installs the desktop application into `/Applications`. The formula installs the `sdrmm`
+server and Homebrew's SoapySDR alongside it; `brew services start sdrmm` runs the server in the
+background and restarts it at login.
+
+The formula also works on Homebrew for Linux. It installs the same portable binary published on
+the releases page, not a source build.
 
 ## Nix
 

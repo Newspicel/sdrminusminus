@@ -20,7 +20,7 @@ to pin or unpin it. Moving or resizing a face on the rack does not change its si
 | Sources | Device, GPS position (device, GPSD, or NMEA serial) | Radio IQ or a live station position |
 | Channels | AM, NFM, WFM, SSB, decoders | Select and process one signal from device IQ |
 | Displays | Scope, Map, Signal survey, Readout, Decoder log, Video | Visualize spectrum, position, or channel output |
-| Sinks | Speaker, Recorder, Export | Play audio, save IQ, or export decoded rows |
+| Sinks | Speaker, Recorder, Audio recorder, Baseband recorder, Time machine, Network IQ, Export | Play audio, save IQ or a channel's baseband, hold the last seconds of a stream, send samples on, or export decoded rows |
 | Features | Scanner | Drive a device through a frequency range |
 
 The server supplies the palette and channel catalog. If a build gains or loses a backend or

@@ -108,6 +108,47 @@ describe("mergeChannelSettings", () => {
     });
     expect(next.params).toEqual({ type: "morse", settings: { bandwidth_hz: 400, wpm: null } });
   });
+
+  it("widens a pager bandwidth or inversion edit over the settings beside it", () => {
+    for (const type of ["flex", "ermes"] as const) {
+      const pager: ChannelSettings = {
+        params: { type, settings: { bandwidth_hz: 12_500, invert: false } },
+      };
+      const wider = mergeChannelSettings(pager, {
+        params: { type, settings: { bandwidth_hz: 25_000, invert: false } },
+      });
+      expect(wider.params).toEqual({
+        type,
+        settings: { bandwidth_hz: 25_000, invert: false },
+      });
+      const inverted = mergeChannelSettings(wider, {
+        params: { type, settings: { bandwidth_hz: 25_000, invert: true } },
+      });
+      expect(inverted.params).toEqual({
+        type,
+        settings: { bandwidth_hz: 25_000, invert: true },
+      });
+    }
+  });
+
+  it("carries every CW skimmer setting, and an auto speed, into the patch body", () => {
+    const skimmer: ChannelSettings = {
+      params: {
+        type: "cw_skimmer",
+        settings: { bandwidth_hz: 24_000, threshold_db: 10, max_signals: 32, wpm: 20 },
+      },
+    };
+    const next = mergeChannelSettings(skimmer, {
+      params: {
+        type: "cw_skimmer",
+        settings: { bandwidth_hz: 16_000, threshold_db: 8, max_signals: 8, wpm: null },
+      },
+    });
+    expect(next.params).toEqual({
+      type: "cw_skimmer",
+      settings: { bandwidth_hz: 16_000, threshold_db: 8, max_signals: 8, wpm: null },
+    });
+  });
 });
 
 describe("channelHasAudio", () => {

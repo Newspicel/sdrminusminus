@@ -1,36 +1,61 @@
 # Radios and hardware
 
-sdr-- uses SoapySDR 0.8 for local radios and native clients for `rtl_tcp` and SpyServer receivers.
-It also includes virtual sources for the signal generator, multi-stream tests, and SigMF playback.
+sdr-- drives RTL-SDR, HackRF and SDRplay RSP receivers with its own built-in drivers, reaches
+everything else through SoapySDR 0.8, and speaks to `rtl_tcp` and SpyServer receivers over the
+network. It also includes virtual sources for the signal
+generator, multi-stream tests, and SigMF playback.
 
 ## Supported local hardware
 
-Desktop installers and containers bundle a private SoapySDR 0.8.1 runtime with these modules:
+RTL-SDR, HackRF and SDRplay receivers need no SoapySDR module. Their drivers are part of sdr--
+itself, so they work in every build — including the minimal one — and are hidden from SoapySDR's
+search so one radio is never listed twice. RTL-SDR and HackRF need no C library at all; SDRplay
+needs the vendor API installed, see [SDRplay](#sdrplay).
+
+| Hardware or transport | Driver |
+|---|---|
+| RTL-SDR | built in |
+| HackRF | built in |
+| SDRplay RSP | built in, see [SDRplay](#sdrplay) |
+
+Everything else goes through a private SoapySDR 0.8.1 runtime that desktop installers and
+containers bundle:
 
 | Hardware or transport | Bundled module |
 |---|---|
-| RTL-SDR | SoapyRTLSDR |
-| HackRF | SoapyHackRF |
 | Airspy and Airspy HF+ | SoapyAirspy / SoapyAirspyHF |
 | bladeRF | SoapyBladeRF |
 | LimeSDR | SoapyLMS7 |
 | PlutoSDR and libiio devices | SoapyPlutoSDR |
 | Remote Soapy server | SoapyRemote |
-| SDRplay RSP | SoapySDRPlay3, with the vendor API installed separately ([below](#sdrplay)) |
 
 UHD is not included in the base package because of its size. Other modules may work if they match
 the SoapySDR 0.8 module ABI, but are not part of the release test matrix.
 
-Portable headless archives and source builds use the host SoapySDR installation. The release
-baseline is SoapySDR 0.8.1, SoapyRTLSDR 0.3.3, and SoapyHackRF 0.3.4; the complete curated set is
-listed in
+Portable headless archives and source builds use the host SoapySDR installation for the modules
+above; the built-in drivers are unaffected either way. The release baseline is SoapySDR 0.8.1, and
+the complete curated set is listed in
 [`packaging/soapy/environment.yml`](https://github.com/Newspicel/sdrminusminus/blob/main/packaging/soapy/environment.yml).
 
-Modules installed on the host are searched too, after the bundled ones: a distribution package or
-a self-built module in `/usr/local/lib/SoapySDR/modules0.8` (or the Homebrew, MacPorts or
-`/usr/lib` equivalent) is loaded without copying anything into the application. Set
-`SDRMM_SOAPY_MODULE_PATH` to search your own directories first. A module built against a different
-SoapySDR generation is refused by the core and logged rather than loaded.
+A host-installed SoapyRTLSDR or SoapyHackRF is ignored rather than competing with the built-in
+driver, so a dongle is listed once whatever else is on the machine. A bundled installation
+otherwise loads only its own modules, so a radio can never be served by two copies of the same
+driver. To add a module the bundle does not carry — a vendor module, or one you compiled
+yourself — point `SDRMM_SOAPY_MODULE_PATH` at the directory holding it; those directories are
+searched before the bundled ones. A module built against a different SoapySDR generation is
+refused by the core and logged rather than loaded.
+
+## How radios are detected
+
+Vendor SoapySDR modules open USB devices while searching for radios, and a faulty one can take
+down the process it runs in: some abort, some crash, and at least one leaks a USB context on every
+search. sdr-- therefore searches for radios in a short-lived child process. A driver that crashes
+or hangs costs one search, logged as a warning, instead of the application, and whatever a driver
+leaks is returned to the system when that child exits.
+
+The search itself runs when the set of attached USB devices changes, and once a minute so that
+network radios are still found. Set `SDRMM_SOAPY_PROBE=in-process` to search in the application
+process instead, which is only useful when debugging a driver.
 
 ## Check your installation
 
@@ -73,7 +98,8 @@ radio may expose:
 
 - separate RX and TX streams;
 - device-wide or per-stream tuning;
-- sample rates and analog bandwidths;
+- sample rates, as a menu, as continuous windows, or as both;
+- analog bandwidths, likewise;
 - antennas, gain stages, AGC, clock and time sources;
 - driver-specific booleans, enums, ranges, and text settings.
 
@@ -82,50 +108,92 @@ validating the rest. For example, RTL-SDR direct sampling changes the available 
 
 ### RTL-SDR settings
 
-Current SoapyRTLSDR builds commonly expose `direct_samp`, `iq_swap`, `offset_tune`, `digital_agc`,
-and, when supported, `biastee`, `testmode`, or `dithering`. `iq_swap` reverses spectral orientation
-by exchanging I and Q; it is independent of direct sampling.
+The built-in driver exposes one `TUNER` gain stage, a `ppm` crystal correction, `bias_tee` for
+phantom power on the antenna port, `agc` for the R82xx tuner AGC, and `direct_sampling` (`off`,
+`i`, `q`) on every board except the RTL-SDR Blog V4, whose HF path is an upconverter in front of
+the tuner rather than a tuner bypass — on that board HF is reached by tuning below 28.8 MHz with
+no setting changed.
+
+The tuner's gain table is not evenly spaced, so it is published as the table it is rather than as
+a step: the gain slider walks the 29 real settings and cannot land between them. A request that
+does come from elsewhere — the API, a stored workspace — is snapped to the nearest entry, and the
+snapped value is what the driver reports back. Asking for 20 dB on an R820T therefore reads back
+as 19.7 dB: that is the gain the hardware was programmed with, not a rounding error.
+
+The RTL2832U resamples across two windows, 225–300 kHz and 900 kHz–3.2 MHz, and aliases between
+them. Both are published, so a rate in the gap is refused rather than quietly accepted. The
+familiar rate menu is published alongside them and is what the picker offers.
+
+The R82xx IF filter is continuous rather than a menu, so it is published as a 0–8 MHz window;
+0 selects the automatic width that tracks the sample rate.
+
+### HackRF settings
+
+Three gain stages — `LNA` in 8 dB steps, `VGA` in 2 dB steps, and `AMP`, the switched +14 dB RF
+amplifier. A switched amplifier is still gain, so it is a gain stage with two settings rather
+than a boolean hidden somewhere else; the client renders it as a switch, and it shows up in the
+gain budget where it belongs. `bias_tee` supplies phantom power on the antenna port.
 
 ## SDRplay
 
-RSP1, RSP1A/B, RSP2, RSPduo, and RSPdx/R2 receivers work through
-[SoapySDRPlay3](https://github.com/pothosware/SoapySDRPlay3). Desktop installers and the container
-carry module 0.5.2, compiled at packaging time; it needs SDRplay API 3.15 or newer underneath it.
+RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx and RSPdx-R2 receivers work through a driver built into
+sdr--, with no SoapySDR module involved. The driver needs the SDRplay vendor API installed:
 
-Support arrives in two halves, and only one of them can be shipped:
-
-1. **The module** — MIT licensed, part of the package. Nothing to install.
+1. **The driver** — part of sdr--. Nothing to install.
 2. **The vendor API** — the library, service and hardware driver, licensed for use with genuine
    SDRplay hardware and not licensed for redistribution. Install it yourself from
-   [SDRplay](https://www.sdrplay.com/downloads/).
+   [SDRplay](https://www.sdrplay.com/downloads/). Version 3.15 or newer is required.
 
-So: install the API, plug in the RSP, and the receiver appears. Until the API is installed the
-module cannot load, and SoapySDR says so once at startup with an error naming `libsdrplay_api`.
-That message is expected on a machine with no SDRplay hardware and affects nothing else;
-`sdrmm --doctor` reports the same thing in plainer words under **SDRplay API**.
+Install the API, plug in the RSP, and the receiver appears. sdr-- resolves the vendor library at
+runtime from wherever the installer put it — `/usr/local/lib` on Linux and macOS,
+`C:\Program Files\SDRplay\API` on Windows — so it is never linked, never bundled, and its absence
+costs nothing: a machine without it simply lists no RSP. `sdrmm --doctor` reports what it found
+under **SDRplay API**.
 
-The API also runs a background service (`sdrplay_apiService`). If it is stopped, enumeration fails
-with `sdrplay_api_Open() failed` even though everything is installed — start the service and
+The API also runs a background service (`sdrplay_apiService`). If it is stopped, the doctor check
+says the service is not responding even though everything is installed — start the service and
 retry.
 
-A source build or portable server uses the host SoapySDR runtime, which carries no module of its
-own, so build one into it:
+If a host-installed SoapySDRPlay3 module is also present, sdr-- prefers its own driver for that
+receiver, so an RSP is never listed twice.
 
-```sh
-git clone --branch soapy-sdrplay3-0.5.2 --depth 1 \
-  https://github.com/pothosware/SoapySDRPlay3.git
-cmake -S SoapySDRPlay3 -B SoapySDRPlay3/build -DCMAKE_BUILD_TYPE=Release
-cmake --build SoapySDRPlay3/build --parallel
-sudo cmake --install SoapySDRPlay3/build
-SoapySDRUtil --find="driver=sdrplay"
-```
+### Gain
 
-Packaged installs pick a host-installed module up as well, so this also works to replace the
-bundled module with a newer one. The container's own module directory is
-`/opt/conda/lib/SoapySDR/modules0.8`.
+SDRplay hardware is specified in gain *reduction*; sdr-- presents both stages as gain, so higher
+is always more signal:
 
-RSPduo operating modes appear as distinct devices even when they share a serial number. sdr--
-keeps the selected mode in the stored device identity and handles Dual Tuner streams separately.
+- **RF** — the LNA state, in dB of gain relative to that band's weakest state. The available
+  steps change with frequency, the selected port, and HDR mode, so the range is re-read whenever
+  tuning moves to another band.
+- **IF** — 0 to 39 dB, the inverse of the 20–59 dB IF gain reduction the API takes.
+
+AGC controls the IF stage: with it enabled the IF slider sets the starting point and the setpoint
+extra sets the target level in dBFS.
+
+### Sample rates
+
+Single-tuner modes sample the ADC between 2 and 10.66 MHz, and rates below 2 MHz are reached by
+decimating a legal ADC rate, so anything from 62.5 kHz to 10.66 MHz works.
+
+### RSPduo
+
+The RSPduo appears once per operating mode it can currently offer — Tuner 1, Tuner 2, Dual Tuner,
+Master and Slave — and the chosen mode is part of the stored device identity, so a saved node
+comes back in the same mode. Dual Tuner gives one device with two independently tuned streams.
+
+Dual Tuner, Master and Slave run the ADC at a fixed 6 MHz with a 1.62 MHz IF, which puts their
+sample rates at 2 MHz and each halving below it down to 62.5 kHz, with the analog bandwidth capped
+at 1.536 MHz. A Slave waits for its master application to start; if no master appears, starting
+the stream reports that it is still waiting. The master owns the clock, so a slave cannot change
+the sample rate beyond its own decimation, and cannot apply a ppm correction.
+
+### Where the driver comes from
+
+The interface to the vendor library is written in Rust from the public
+[SDRplay API specification](https://www.sdrplay.com/api/), whose legal notice grants a royalty-free
+licence to use the information in it to design software that uses SDRplay receivers. No SDRplay
+source, header or binary is copied into this project or shipped with it, and the gain tables above
+come from the same document.
 
 ## Network receivers
 

@@ -10,28 +10,61 @@ sdr-- keeps radio hardware and real-time DSP in a Rust server while a React inte
 tuning, visualization, and control. Run both together as a desktop app, serve the same interface
 from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServer receivers.
 
+<p align="center">
+  <img src="assets/screenshots/patch.png" alt="A receiver built from device, scope, channel and speaker nodes">
+</p>
+
 ## What it can do
 
 - Build a receiver visually from device, channel, display, scanner, recorder, and output nodes.
-- Listen to AM, narrowband FM, broadcast FM, and SSB.
-- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, Morse, DCF77/WWVB/MSF/JJY radio
-  clocks, educational GPS L1 C/A acquisition and NAV telemetry, sub-GHz frames, and several
-  digital voice modes.
+- Listen to AM, narrowband FM, broadcast FM with RDS, and SSB.
+- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, PSK31/PSK63, Morse, CCIR/ZVEI/EEA
+  selective calling, DCF77/WWVB/MSF/JJY radio clocks, educational GPS L1 C/A acquisition and NAV
+  telemetry, sub-GHz frames, and several digital voice modes.
+- Pull weak amateur traffic out of the noise with FT8, FT4, and WSPR.
+- Follow DMR trunked systems: Capacity Plus, Hytera XPT, and Tier III. And keep every call as
+  replayable audio.
+- Identify an unknown signal from its bandwidth, symbol rate, and deviation, with ranked protocol
+  candidates and the reason behind each one.
 - Acquire DAB/DAB+, narrow-band DVB-S/S2 DATV, and DRM30/DRM+ carriers with lock, SNR, and
   frequency-error diagnostics.
-- Display live spectrum and waterfall views, decoded readouts, position maps, logs, and ATV video.
-- Scan frequency ranges, save workspaces and presets, search regional band plans, and record IQ as
-  SigMF for later playback.
+- Receive SSTV in twelve scanning modes, watch each picture build up line by line, and keep every
+  one that arrives in the server's picture store.
+- Display live spectrum and waterfall views, decoded readouts, position maps, band occupancy,
+  logs, and ATV video.
+- Scan frequency ranges, save workspaces, presets, and bookmarks, search regional band plans, and
+  record IQ as SigMF, channel baseband, or audio for later playback.
+- Rewind the last seconds of live reception, stream IQ or baseband to other software over UDP or
+  TCP, and forward decoded traffic to Discord or Matrix.
+- Sweep an antenna with a NanoVNA, size a new one with the antenna calculator, and take station
+  position from a GPS or NMEA source.
 - Automate the receiver through a typed REST API, WebSocket events, OpenAPI, or MCP.
 
 The built-in signal generator means you can explore the complete receive path without owning an
 SDR.
+
+| | |
+|---|---|
+| ![Spectrum and waterfall](assets/screenshots/spectrum.png) | ![Aircraft positions on the map](assets/screenshots/adsb.png) |
+| Spectrum and waterfall, pinned to the rack | ADS-B aircraft on the map, with the decoder log |
+| ![An SSTV picture](assets/screenshots/sstv.png) | ![POCSAG pager traffic](assets/screenshots/pocsag.png) |
+| A Robot 36 SSTV picture, scanned out line by line | POCSAG pager messages as they arrive |
 
 ## Get started
 
 Download the desktop installer or portable server for your platform from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases). Nightly builds are
 available from the rolling [nightly release](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly).
+
+### Homebrew
+
+```sh
+brew tap newspicel/tap
+brew install --cask sdrminusminus
+brew install sdrmm
+```
+
+### Docker
 
 To try the server with Docker:
 
@@ -44,28 +77,13 @@ the Device node. The existing Scope will immediately show synthetic signals. Add
 wire the Device's IQ output to it, wire its audio output to the Speaker, and tune the channel to
 `+300 kHz` for a 1 kHz test tone.
 
-For a real receiver, choose it instead of the signal generator. Desktop installers and containers
-bundle SoapySDR support for RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR,
-SoapyRemote, and SDRplay — the SDRplay module is included, but its vendor API is licensed for
-genuine SDRplay hardware and you install that yourself. See the
+For a real receiver, choose it instead of the signal generator. RTL-SDR, HackRF and SDRplay RSP
+receivers have built-in drivers and need no SoapySDR module. SDRplay is the one exception that
+needs SDRplay's own API installed, because its licence covers use with genuine SDRplay hardware
+rather than redistribution. Desktop installers and containers additionally bundle SoapySDR support
+for Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and SoapyRemote. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
 troubleshooting.
-
-### Nix
-
-On NixOS or another Linux system with flakes enabled, install the Tauri desktop application
-directly from GitHub:
-
-```sh
-nix --extra-experimental-features 'nix-command flakes' \
-  profile install github:Newspicel/sdrminusminus
-sdrmm-desktop
-```
-
-The flake supports x86_64 and aarch64 Linux. It does not bundle SoapySDR hardware modules; NixOS
-users select those in their system configuration and enable the corresponding device permissions.
-See the [installation guide](https://newspicel.github.io/sdrminusminus/getting-started/install.html#nix)
-for an RTL-SDR and HackRF example.
 
 ## Build from source
 
@@ -114,6 +132,7 @@ cargo run -p sdrmm --no-default-features --features net-client
 | `cargo xtask check` | Format, lint, type-check, build, and check generated-code drift |
 | `cargo xtask test` | Run Rust and frontend tests without real hardware |
 | `cargo xtask smoke` | Run the Playwright flow against the real server binary |
+| `cargo xtask screenshots` | Regenerate `assets/screenshots` from the fixture library |
 | `cargo xtask codegen` | Regenerate OpenAPI and TypeScript API types |
 | `cargo xtask audit` | Check dependencies with `cargo-deny` |
 | `cargo xtask fixtures` | Regenerate synthesized decoder fixtures |

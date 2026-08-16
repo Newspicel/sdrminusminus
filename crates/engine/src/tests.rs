@@ -7,8 +7,9 @@ use std::{
 use num_complex::Complex;
 use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
 use sdrmm_wire::{
-    AdsbParams, AudioProcessing, ChannelSettings, DecoderEvent, Duplex, NfmParams, ScanState,
-    Sideband, SsbParams, StreamScope,
+    AdsbParams, AudioProcessing, ChannelSettings, DecoderEvent, Duplex, MAX_TIME_MACHINE_SECONDS,
+    NfmParams, ScanState, Sideband, SsbParams, StreamScope, TimeMachineAction, TimeMachineNode,
+    TimeMachineStatus,
 };
 
 use super::*;
@@ -34,10 +35,11 @@ fn empty_capabilities() -> Capabilities {
     Capabilities {
         freq_ranges: Vec::new(),
         sample_rates: Vec::new(),
-        sample_rate_range: None,
+        sample_rate_ranges: Vec::new(),
         gains: Vec::new(),
         antennas: Vec::new(),
         bandwidths: Vec::new(),
+        bandwidth_ranges: Vec::new(),
         extra: Vec::new(),
         ppm: false,
         duplex: Duplex::RxOnly,
@@ -167,6 +169,28 @@ impl DeviceDriver for VanishingDriver {
         } else {
             Vec::new()
         }
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(SilentDevice {
+            capabilities: empty_capabilities(),
+            settings: mock_settings(),
+        }))
+    }
+}
+
+struct CountingDriver {
+    probes: Arc<AtomicUsize>,
+}
+
+impl DeviceDriver for CountingDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        self.probes.fetch_add(1, Ordering::SeqCst);
+        vec![mock_info("counted", None)]
     }
 
     fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
@@ -760,6 +784,24 @@ impl DeviceDriver for UnopenableDriver {
     }
 }
 
+struct BusyDriver;
+
+impl DeviceDriver for BusyDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("busy", None)]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Err(DeviceError::InUse(
+            "usb_claim_interface error -6".to_string(),
+        ))
+    }
+}
+
 struct FlappingDriver {
     probes: AtomicUsize,
 }
@@ -888,7 +930,7 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
 
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert_eq!(
         engine.snapshot().device_sets[0].status,
         DeviceSetStatus::Running,
@@ -896,14 +938,14 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
     );
 
     present.store(false, Ordering::SeqCst);
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert_eq!(
         engine.snapshot().device_sets[0].status,
         DeviceSetStatus::Running,
         "one missed probe may be a transient enumerate hiccup"
     );
 
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     let snap = engine.snapshot();
     assert_eq!(snap.device_sets[0].status, DeviceSetStatus::Error);
     assert!(
@@ -917,6 +959,50 @@ async fn probe_disappearance_faults_running_set_after_two_misses() {
     );
     wait_for_deviceset_event(&mut events, ds).await;
     engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_radio_another_program_holds_is_refused_by_name() {
+    let mut registry = DeviceRegistry::new();
+    registry.register(50, Box::new(BusyDriver));
+    let engine = Engine::with_registry(registry, None);
+
+    let refused = engine.create_device_set("mock:busy").unwrap_err();
+    assert!(refused.is_conflict(), "{refused}");
+    assert!(
+        refused.to_string().contains("already in use"),
+        "the reason must say the radio is taken, not just fail: {refused}"
+    );
+    assert!(
+        engine.snapshot().device_sets.is_empty(),
+        "a refused open must leave no half-built set behind"
+    );
+}
+
+#[tokio::test]
+async fn a_quiet_bus_is_enumerated_once_not_on_every_tick() {
+    let probes = Arc::new(AtomicUsize::new(0));
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        50,
+        Box::new(CountingDriver {
+            probes: probes.clone(),
+        }),
+    );
+    let engine = Engine::with_registry(registry, None);
+
+    let mut known = None;
+    let mut missing_once = HashSet::new();
+    let mut gate = crate::hotplug::ProbeGate::default();
+    for _ in 0..5 {
+        engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
+    }
+
+    assert_eq!(
+        probes.load(Ordering::SeqCst),
+        1,
+        "vendor drivers must not be woken while the USB bus is unchanged"
+    );
 }
 
 #[tokio::test]
@@ -934,11 +1020,11 @@ async fn hotplug_tick_emits_only_on_probe_change() {
     let mut known = None;
     let mut missing_once = HashSet::new();
     assert!(
-        !engine.hotplug_tick(&mut known, &mut missing_once),
+        !engine.hotplug_tick_for_test(&mut known, &mut missing_once),
         "first probe is baseline"
     );
     assert!(
-        engine.hotplug_tick(&mut known, &mut missing_once),
+        engine.hotplug_tick_for_test(&mut known, &mut missing_once),
         "attach must be detected"
     );
 
@@ -954,7 +1040,7 @@ async fn hotplug_tick_emits_only_on_probe_change() {
     ));
 
     assert!(
-        !engine.hotplug_tick(&mut known, &mut missing_once),
+        !engine.hotplug_tick_for_test(&mut known, &mut missing_once),
         "steady state stays quiet"
     );
 }
@@ -986,7 +1072,8 @@ async fn one_radio_opens_into_one_device_set() {
             if device == "virtual:siggen" && *held == ds),
         "expected a reopen refusal, got {refused}"
     );
-    assert!(refused.is_bad_request());
+    assert!(refused.is_conflict());
+    assert!(!refused.is_bad_request());
     assert_eq!(engine.snapshot().device_sets.len(), 1);
 
     engine.remove_device_set(ds).unwrap();
@@ -1326,11 +1413,11 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
 
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
     let mut quiet = engine.subscribe_events();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert!(
         matches!(quiet.try_recv(), Err(broadcast::error::TryRecvError::Empty)),
         "tick without overrun growth must not emit"
@@ -1619,7 +1706,7 @@ async fn recording_growth_rides_the_hotplug_tick() {
     let mut events = engine.subscribe_events();
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
     engine.stop_recording(ds).unwrap();
@@ -1755,7 +1842,7 @@ async fn writer_fault_surfaces_in_state_via_the_hotplug_tick() {
     let mut events = engine.subscribe_events();
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     wait_for_deviceset_event(&mut events, ds).await;
 
     let rec = engine.snapshot().device_sets[0].recording.clone().unwrap();
@@ -1902,7 +1989,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
     die.store(false, Ordering::SeqCst);
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
 
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(set.status, DeviceSetStatus::Running);
@@ -2044,7 +2131,7 @@ async fn a_faulted_set_releases_its_device_so_the_replug_can_reopen_it() {
     die.store(false, Ordering::SeqCst);
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(set.status, DeviceSetStatus::Running, "{:?}", set.error);
     assert!(claimed.load(Ordering::SeqCst));
@@ -2067,7 +2154,7 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
 
     let mut known = None;
     let mut missing_once = HashSet::new();
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     let set = &engine.snapshot().device_sets[0];
     assert_eq!(set.status, DeviceSetStatus::Error);
     let reported = set.error.clone().expect("reason");
@@ -2081,7 +2168,7 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
     );
 
     while events.try_recv().is_ok() {}
-    engine.hotplug_tick(&mut known, &mut missing_once);
+    engine.hotplug_tick_for_test(&mut known, &mut missing_once);
     assert!(
         events.try_recv().is_err(),
         "an unchanged reason must not re-invalidate every client"
@@ -2311,3 +2398,352 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
     assert!(!engine.device_sets_with_channels().contains(&ds));
     assert!(engine.channel_levels(ds).is_empty());
 }
+
+async fn wait_for_baseband_samples(engine: &Engine, ds: u32, ch: u32, min: u64) -> RecordingStatus {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let recording = engine
+            .snapshot()
+            .device_sets
+            .iter()
+            .find(|set| set.id == ds)
+            .and_then(|set| set.channels.iter().find(|channel| channel.id == ch))
+            .and_then(|channel| channel.baseband_recording.clone());
+        if let Some(recording) = recording
+            && recording.samples >= min
+        {
+            return recording;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the channel's baseband never reached {min} samples"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_channel_baseband_recording_lands_as_a_sigmf_pair_at_the_channel_rate() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(120_000.0)).unwrap();
+
+    let live = engine.start_channel_baseband_recording(ds, ch).unwrap();
+    assert!(live.file.starts_with(&format!("bb_{ds}_{ch}_")));
+    assert_eq!(live.error, None);
+    assert!(
+        engine.start_channel_baseband_recording(ds, ch).is_err(),
+        "one baseband recording per channel"
+    );
+    wait_for_baseband_samples(&engine, ds, ch, 4_800).await;
+
+    let finalized = engine.stop_channel_baseband_recording(ds, ch).unwrap();
+    assert_eq!(finalized.error, None);
+    assert!(finalized.samples >= 4_800);
+    assert_eq!(
+        finalized.bytes,
+        finalized.samples * sdrmm_recorder::BYTES_PER_SAMPLE
+    );
+    assert!(
+        engine.snapshot().device_sets[0].channels[0]
+            .baseband_recording
+            .is_none()
+    );
+
+    let stem = dir.path().join(&finalized.file);
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).unwrap();
+    assert_eq!(reader.meta().global.sample_rate, Some(48_000.0));
+    assert_eq!(
+        reader.meta().captures[0].frequency,
+        Some(100_120_000.0),
+        "a channel's baseband is centred on the channel, not the radio"
+    );
+    assert_eq!(reader.total_samples(), finalized.samples);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn removing_a_channel_finishes_the_baseband_it_was_writing() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    let live = engine.start_channel_baseband_recording(ds, ch).unwrap();
+    wait_for_baseband_samples(&engine, ds, ch, 480).await;
+
+    engine.remove_channel(ds, ch).unwrap();
+    assert!(engine.stop_channel_baseband_recording(ds, ch).is_err());
+
+    let stem = dir.path().join(&live.file);
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).expect("the pair was finalized");
+    assert!(reader.total_samples() >= 480);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_channel_network_export_carries_that_channel_and_not_the_radio() {
+    let engine = virtual_engine();
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let settings = NetworkExportSettings {
+        address: socket.local_addr().unwrap().to_string(),
+        ..NetworkExportSettings::default()
+    };
+
+    let live = engine
+        .start_channel_network_export(ds, ch, "net".to_owned(), settings.clone())
+        .unwrap();
+    assert_eq!(
+        live.sample_rate, 48_000,
+        "the channel's rate, not the radio's"
+    );
+    assert_eq!(live.node, "net");
+    assert!(
+        engine
+            .start_channel_network_export(ds, ch, "other".to_owned(), settings.clone())
+            .is_err(),
+        "one export per channel"
+    );
+
+    let mut buffer = [0u8; 2_048];
+    let read = socket.recv(&mut buffer).expect("datagram");
+    assert!(
+        read > 0 && read.is_multiple_of(8),
+        "cf32 pairs arrive whole"
+    );
+
+    assert!(
+        engine
+            .stop_channel_network_export(ds, ch, "someone-else")
+            .is_err(),
+        "another node cannot stop this export"
+    );
+    let done = engine.stop_channel_network_export(ds, ch, "net").unwrap();
+    assert!(done.bytes > 0);
+    assert_eq!(done.error, None);
+    assert!(
+        engine.snapshot().device_sets[0].channels[0]
+            .network_export
+            .is_none()
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+async fn wait_for_history(engine: &Engine, ds: u32, min: u64) -> TimeMachineStatus {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let history = engine
+            .snapshot()
+            .device_sets
+            .iter()
+            .find(|set| set.id == ds)
+            .and_then(|set| set.time_machine.clone());
+        if let Some(history) = history
+            && history.held_samples >= min
+        {
+            return history;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the time machine never held {min} samples"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn the_time_machine_captures_the_seconds_that_already_went_past() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = TimeMachineNode { history_seconds: 2 };
+
+    let armed = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Arm, settings)
+        .unwrap();
+    assert_eq!(armed.capacity_samples, 2 * 2_048_000);
+    assert_eq!(armed.history_seconds, 2);
+    assert!(armed.capture.is_none());
+    assert!(
+        engine
+            .control_time_machine(ds, "tm2".to_owned(), 0, TimeMachineAction::Arm, settings)
+            .is_err(),
+        "one time machine per radio"
+    );
+
+    let held = wait_for_history(&engine, ds, 2_048_000).await;
+    assert!(
+        held.held_samples >= 2_048_000,
+        "a second of history at least"
+    );
+
+    let capturing = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Capture, settings)
+        .unwrap();
+    let capture = capturing.capture.expect("a capture is running");
+    assert!(capture.file.starts_with(&format!("tm_{ds}_")));
+
+    let stopped = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Stop, settings)
+        .unwrap();
+    let finished = stopped.capture.expect("the stop reports what it wrote");
+    assert_eq!(finished.file, capture.file);
+    assert!(finished.samples >= 2_048_000);
+    assert!(
+        engine.snapshot().device_sets[0]
+            .time_machine
+            .as_ref()
+            .is_some_and(|history| history.capture.is_none()),
+        "the armed history stays, its capture does not"
+    );
+
+    let stem = dir.path().join(&capture.file);
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).expect("finalized pair");
+    assert!(
+        reader.total_samples() >= 2_048_000,
+        "the buffered past never reached the file: {} samples",
+        reader.total_samples()
+    );
+    assert_eq!(reader.meta().global.sample_rate, Some(2_048_000.0));
+
+    let disarmed = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Disarm, settings)
+        .unwrap();
+    assert_eq!(disarmed.node, "tm");
+    assert!(engine.snapshot().device_sets[0].time_machine.is_none());
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn an_armed_time_machine_locks_the_sample_rate_and_refuses_a_window_that_will_not_fit() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+
+    let too_wide = engine
+        .control_time_machine(
+            ds,
+            "tm".to_owned(),
+            0,
+            TimeMachineAction::Arm,
+            TimeMachineNode {
+                history_seconds: MAX_TIME_MACHINE_SECONDS,
+            },
+        )
+        .unwrap_err();
+    assert!(
+        too_wide.to_string().contains("MiB"),
+        "the refusal names the memory it would take: {too_wide}"
+    );
+
+    engine
+        .control_time_machine(
+            ds,
+            "tm".to_owned(),
+            0,
+            TimeMachineAction::Arm,
+            TimeMachineNode { history_seconds: 1 },
+        )
+        .unwrap();
+    let locked = engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                sample_rate: Some(1_024_000.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .unwrap_err();
+    assert!(
+        locked.to_string().contains("disarm it first"),
+        "the refusal says what to do: {locked}"
+    );
+
+    engine
+        .control_time_machine(
+            ds,
+            "tm".to_owned(),
+            0,
+            TimeMachineAction::Disarm,
+            TimeMachineNode::default(),
+        )
+        .unwrap();
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                sample_rate: Some(1_024_000.0),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("a disarmed radio retunes its rate");
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_time_machine_action_names_the_node_that_owns_the_history() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let ds = engine.create_device_set("virtual:siggen").unwrap();
+    let settings = TimeMachineNode { history_seconds: 1 };
+
+    let idle = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Capture, settings)
+        .unwrap_err();
+    assert!(idle.to_string().contains("no time machine"));
+
+    engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Arm, settings)
+        .unwrap();
+    let stranger = engine
+        .control_time_machine(
+            ds,
+            "other".to_owned(),
+            0,
+            TimeMachineAction::Capture,
+            settings,
+        )
+        .unwrap_err();
+    assert!(stranger.to_string().contains("belongs to node `tm`"));
+
+    let idle_stop = engine
+        .control_time_machine(ds, "tm".to_owned(), 0, TimeMachineAction::Stop, settings)
+        .unwrap_err();
+    assert!(idle_stop.to_string().contains("not laying down a capture"));
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[test]
+fn the_builtin_registry_carries_every_backend_this_build_compiled_in() {
+    let ids: Vec<&str> = builtin_registry(None)
+        .driver_ids()
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    assert!(ids.contains(&"virtual"), "{ids:?}");
+    #[cfg(feature = "rtlsdr")]
+    assert!(ids.contains(&"rtlsdr"), "{ids:?}");
+    #[cfg(feature = "hackrf")]
+    assert!(ids.contains(&"hackrf"), "{ids:?}");
+    #[cfg(feature = "soapy")]
+    assert!(ids.contains(&"soapy"), "{ids:?}");
+}
+
+#[test]
+fn soapy_hides_exactly_the_radios_this_build_drives_over_usb() {
+    let handled = soapy_handled_natively();
+    assert_eq!(handled.contains(&"rtlsdr"), cfg!(feature = "rtlsdr"));
+    assert_eq!(handled.contains(&"hackrf"), cfg!(feature = "hackrf"));
+    assert!(
+        !handled.contains(&"sdrplay"),
+        "the SDRplay driver reports unique serials and settles its duplicate by priority instead"
+    );
+}
+
+#[cfg(all(feature = "rtlsdr", feature = "hackrf", feature = "soapy"))]
+mod hardware;

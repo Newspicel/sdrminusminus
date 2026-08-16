@@ -52,19 +52,12 @@ cargo xtask desktop --bundles dmg
 ```
 
 Use `deb,appimage` on Linux and `msi,nsis` on Windows. Before bundling, stage the matching locked
-Soapy runtime into `apps/desktop/resources/soapy` with the scripts under `packaging/soapy`, add the
-SoapySDRPlay3 module with the scripts under `packaging/sdrplay`, then verify the result:
+Soapy runtime into `apps/desktop/resources/soapy` with the scripts under `packaging/soapy`, then
+verify the result:
 
 ```sh
-packaging/sdrplay/fetch-api.sh /tmp/sdrplay-sdk
-packaging/sdrplay/build-module.sh "$CONDA_PREFIX" /tmp/sdrplay-sdk \
-  apps/desktop/resources/soapy/lib/SoapySDR/modules0.8
 cargo xtask soapy-bundle-check
 ```
-
-The second step downloads the SDRplay API to compile against, which accepts SDRplay's licence. It
-is a build input only: the check refuses a tree that carries the vendor library, because the
-licence covers use rather than redistribution.
 
 Release CI performs this staging from the immutable platform lockfiles. A bundle must include the
 core, baseline modules, transitive libraries, and their notices.
@@ -98,6 +91,33 @@ ghcr.io/newspicel/sdrminusminus:latest
 
 Nightlies update only the `nightly` tag. Image smoke tests run the binary, inspect Soapy modules,
 start the server, and verify that the embedded UI—not the build placeholder—is served.
+
+## Homebrew tap
+
+`Newspicel/homebrew-tap` carries a `sdrmm` formula for the portable server and a `sdrminusminus`
+cask for the desktop application. Both describe published downloads rather than a source build, so
+the release workflow writes them after the release exists:
+
+```sh
+cargo xtask homebrew-tap \
+  --version 0.4.0 \
+  --sums SHA256SUMS \
+  --repo Newspicel/sdrminusminus \
+  --out ../homebrew-tap
+```
+
+The digests come from the release's own `SHA256SUMS`; an artifact the release does not carry is an
+error rather than a formula pointing at a missing download. Publishing needs a `HOMEBREW_TAP_TOKEN`
+secret with write access to the tap. Without it the job skips and the release still ships.
+
+Nightlies never reach the tap. Before pushing a change to what the generator writes, check it with
+Homebrew itself:
+
+```sh
+brew style newspicel/tap
+brew audit --strict --online newspicel/tap/sdrmm
+brew audit --strict --online --cask newspicel/tap/sdrminusminus
+```
 
 ## Release checklist
 

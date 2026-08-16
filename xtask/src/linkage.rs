@@ -84,6 +84,10 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
     Ok(())
 }
 
+pub fn rpaths(path: &Path) -> Result<Vec<String>> {
+    Ok(Image::read(path)?.rpaths)
+}
+
 fn executable_dir(path: &Path) -> PathBuf {
     if path.extension().is_some_and(|ext| ext == "app") {
         return path.join("Contents/MacOS");

@@ -12,6 +12,7 @@ import type {
   BandPlan,
   BandRegionsResponse,
   Bookmark,
+  CapturedImagesResponse,
   ChannelSettings,
   ChannelTypesResponse,
   CreateBookmarkRequest,
@@ -40,6 +41,9 @@ import type {
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
+  TimeMachineAction,
+  TimeMachineNode,
+  TimeMachineStatus,
   ToolRequest,
   ToolResponse,
   ToolsResponse,
@@ -77,6 +81,7 @@ export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
 export const AUDIO_RECORDINGS_KEY = ["get", "/api/audiorecordings"] as const;
 export const CALLS_KEY = ["get", "/api/calls"] as const;
+export const IMAGES_KEY = ["get", "/api/images"] as const;
 export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
@@ -104,6 +109,17 @@ export function callsQuery() {
 }
 
 export function callAudioUrl(url: string): string {
+  return withToken(url);
+}
+
+export function imagesQuery() {
+  return queryOptions({
+    queryKey: IMAGES_KEY,
+    queryFn: async (): Promise<CapturedImagesResponse> => unwrap(await client.GET("/api/images")),
+  });
+}
+
+export function capturedImageUrl(url: string): string {
   return withToken(url);
 }
 
@@ -292,6 +308,49 @@ export async function deleteAudioRecording(file: string): Promise<void> {
   unwrap(
     await client.DELETE("/api/audiorecordings/{file}", {
       params: { path: { file } },
+    }),
+  );
+}
+
+export async function recordChannelBaseband(
+  ds: number,
+  ch: number,
+  action: RecordAction,
+): Promise<RecordingStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/baseband", {
+      params: { path: { ds, ch } },
+      body: { action },
+    }),
+  );
+}
+
+export async function networkExportChannel(
+  ds: number,
+  ch: number,
+  action: NetworkExportAction,
+  node: string,
+  settings: NetworkExportSettings,
+): Promise<NetworkExportStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels/{ch}/network-export", {
+      params: { path: { ds, ch } },
+      body: { action, node, settings },
+    }),
+  );
+}
+
+export async function controlTimeMachine(
+  ds: number,
+  action: TimeMachineAction,
+  node: string,
+  stream: number,
+  settings: TimeMachineNode,
+): Promise<TimeMachineStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/time-machine", {
+      params: { path: { ds } },
+      body: { action, node, stream, settings },
     }),
   );
 }

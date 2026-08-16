@@ -91,12 +91,12 @@ export function watchDevicePosition(socket: SdrSocket, nodes: readonly string[])
       publish(null, cachedDeviceError);
     }
   };
-  socket.addStatusListener(status);
+  const offStatus = socket.on("status", status);
   status(socket.isConnected());
   const replay = window.setTimeout(() => status(socket.isConnected()), DEVICE_FIX_REPLAY_MS);
   const cleanup = (): void => {
     window.clearTimeout(replay);
-    socket.removeStatusListener(status);
+    offStatus();
   };
 
   if (navigator.geolocation === undefined) {

@@ -33,10 +33,11 @@ pub use fec::{
     block::{CyclicCode, ParityCode},
     bptc::{Bptc128, Bptc196},
     conv::Viterbi5,
-    crc16_ccitt, crc16_msb, crc16_msb_bits, crc16_x25, golay23_correct, golay23_encode, golay23_ok,
-    hdlc_fcs_ok, mode_s_append_overlaid_parity, mode_s_append_parity, mode_s_fix_single_bit,
-    mode_s_overlay, mode_s_syndrome, pocsag_bch_decode, pocsag_bch_encode, rds_check_block,
-    rds_encode_block, rds_syndrome, rs64_decode, rs64_encode, rs129_parity,
+    crc16_ccitt, crc16_msb, crc16_msb_bits, crc16_x25, ermes_bch_decode, ermes_bch_encode,
+    golay23_correct, golay23_encode, golay23_ok, hdlc_fcs_ok, mode_s_append_overlaid_parity,
+    mode_s_append_parity, mode_s_fix_single_bit, mode_s_overlay, mode_s_syndrome,
+    pocsag_bch_decode, pocsag_bch_encode, rds_check_block, rds_correct_block, rds_encode_block,
+    rds_syndrome, rs64_decode, rs64_encode, rs129_parity,
 };
 pub use fir::{design_bandpass, design_gaussian, design_lowpass, design_rrc};
 pub use firc::FirC;

@@ -13,6 +13,7 @@ pub mod position;
 pub mod rest;
 pub mod scan;
 pub mod state;
+pub mod timemachine;
 pub mod tools;
 pub mod workspace;
 pub mod workspace_state;
@@ -32,30 +33,32 @@ pub use bandplan::{
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
-    ChannelSettings, DabMode, DabParams, DatvParams, DatvStandard, DmrParams, DmrSlots, DpmrParams,
-    DrmMode, DrmParams, DstarParams, FreeDvMode, FreeDvParams, GnssParams, IdentParams, M17Params,
-    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB,
-    MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
-    MIN_IDENT_THRESHOLD_DB, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams,
-    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams,
-    RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem,
-    Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams,
-    YsfParams,
+    ChannelSettings, CwSkimmerParams, DabMode, DabParams, DatvParams, DatvStandard, DmrParams,
+    DmrSlots, DpmrParams, DrmMode, DrmParams, DstarParams, ErmesParams, FlexParams, FreeDvMode,
+    FreeDvParams, GnssParams, IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
+    MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_SQUELCH_AUTO_MARGIN_DB,
+    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB,
+    MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth,
+    NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams, RadioClockParams,
+    RadioClockStandard, RttyParams, RttyStopBits, SelcallParams, SelcallSystem, Sideband,
+    SsbParams, SstvMode, SstvParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams,
+    WsprParams, YsfParams,
 };
 pub use chat::{
     ChatOutputNode, ChatOutputTarget, MAX_CHAT_TOKEN_LEN, MAX_CHAT_URL_LEN, MAX_MATRIX_ROOM_ID_LEN,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,
-    DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity,
-    DvTrunkProtocol, GnssFrame, IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage,
-    PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
-    SelcallSequence, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
+    CwSkimmerSpot, DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame, DvFrameKind, DvMode,
+    DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame, IdentFeatures,
+    IdentReport, Modulation, MorseText, NavtexMessage, PagerPayload, PocsagMessage, PocsagPayload,
+    ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText, SelcallSequence, SstvPicture,
+    SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
     DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue,
-    GainStage, GainValue, Range, StreamScope, StreamSettings,
+    GainStage, GainValue, Range, StreamScope, StreamSettings, any_range_holds,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{
@@ -63,8 +66,9 @@ pub use frame::{
     VideoFrame,
 };
 pub use network::{
-    MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode, NetworkExportRequest,
-    NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat, NetworkTransport,
+    ChannelNetworkExportRequest, MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode,
+    NetworkExportRequest, NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat,
+    NetworkTransport,
 };
 pub use patch::{
     ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
@@ -81,14 +85,14 @@ pub use position::{
 };
 pub use rest::{
     ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse, AuthInfo,
-    Bookmark, ChannelRecordRequest, ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
-    EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat,
-    RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall,
-    VoiceCallsResponse,
+    Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest, ChannelTypesResponse,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage, ExportFormat,
+    LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
+    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
@@ -96,6 +100,11 @@ pub use scan::{
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus,
     RecordingStatus, StateSnapshot, TrunkFollower, TrunkProblem, TrunkSystemStatus,
+};
+pub use timemachine::{
+    DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
+    MIN_TIME_MACHINE_SECONDS, TimeMachineAction, TimeMachineNode, TimeMachineRequest,
+    TimeMachineStatus, history_capacity_samples,
 };
 pub use tools::{
     ANTENNA_TOOL_ID, AntennaDesign, AntennaGeometry, AntennaPart, AntennaPoint, AntennaReport,
@@ -554,10 +563,11 @@ mod contract_tests {
             capabilities: Capabilities {
                 freq_ranges: Vec::new(),
                 sample_rates: Vec::new(),
-                sample_rate_range: None,
+                sample_rate_ranges: Vec::new(),
                 gains: Vec::new(),
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
+                bandwidth_ranges: Vec::new(),
                 extra: Vec::new(),
                 ppm: false,
                 duplex: Duplex::RxOnly,
@@ -573,6 +583,7 @@ mod contract_tests {
             error: None,
             recording: None,
             network_export: None,
+            time_machine: None,
             scanner: None,
             playback: None,
         }
@@ -699,6 +710,105 @@ mod contract_tests {
                 .network_export,
             None
         );
+    }
+
+    #[test]
+    fn a_channel_states_its_baseband_sinks_only_while_they_run() {
+        let mut info: ChannelInfo =
+            serde_json::from_str(r#"{"id":3,"settings":{"params":{"type":"nfm","settings":{}}}}"#)
+                .unwrap();
+        assert_eq!(info.baseband_recording, None);
+        assert_eq!(info.network_export, None);
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(json.get("baseband_recording").is_none());
+        assert!(json.get("network_export").is_none());
+
+        info.baseband_recording = Some(RecordingStatus {
+            file: "bb_1_3_20260815T120000Z".to_owned(),
+            stream: 0,
+            started_at: "2026-08-15T12:00:00Z".to_owned(),
+            samples: 48_000,
+            bytes: 384_000,
+            overruns: 0,
+            error: None,
+        });
+        info.network_export = Some(NetworkExportStatus {
+            node: "net".to_owned(),
+            stream: 0,
+            settings: NetworkExportSettings::default(),
+            sample_rate: 48_000,
+            center_hz: 100_012_500,
+            samples: 4_096,
+            bytes: 32_768,
+            packets: 24,
+            overruns: 0,
+            error: None,
+        });
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["baseband_recording"]["samples"], 48_000);
+        assert_eq!(json["network_export"]["sample_rate"], 48_000);
+        assert_eq!(serde_json::from_value::<ChannelInfo>(json).unwrap(), info);
+    }
+
+    #[test]
+    fn a_time_machine_reports_its_window_and_only_names_a_capture_while_one_runs() {
+        let mut set = sample_device_set();
+        assert!(
+            serde_json::to_value(&set)
+                .unwrap()
+                .get("time_machine")
+                .is_none()
+        );
+
+        set.time_machine = Some(TimeMachineStatus {
+            node: "history".to_owned(),
+            stream: 0,
+            history_seconds: 10,
+            sample_rate: 2_048_000,
+            center_hz: 100_000_000,
+            held_samples: 10_240_000,
+            capacity_samples: 20_480_000,
+            overruns: 0,
+            capture: None,
+            error: None,
+        });
+        let mut json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["time_machine"]["held_samples"], 10_240_000);
+        assert!(json["time_machine"].get("capture").is_none());
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json.clone()).unwrap(),
+            set
+        );
+        assert_eq!(
+            set.time_machine.as_ref().unwrap().held_seconds(),
+            5.0,
+            "the window reads in seconds, not samples"
+        );
+
+        json.as_object_mut().unwrap().remove("time_machine");
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json)
+                .unwrap()
+                .time_machine,
+            None
+        );
+    }
+
+    #[test]
+    fn a_time_machine_request_defaults_its_stream_and_window() {
+        let request: TimeMachineRequest =
+            serde_json::from_str(r#"{"action":"capture","node":"history"}"#).unwrap();
+        assert_eq!(request.stream, 0);
+        assert_eq!(request.action, TimeMachineAction::Capture);
+        assert_eq!(
+            request.settings.history_seconds,
+            DEFAULT_TIME_MACHINE_SECONDS
+        );
+        assert!(request.settings.valid());
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["action"], "capture");
+        assert_eq!(json["settings"]["history_seconds"], 10);
     }
 
     #[test]

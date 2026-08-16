@@ -45,12 +45,16 @@ Desktop installers and containers use a private SoapySDR tree and search the hos
 directories after it. A module in a directory neither list names is found by pointing
 `SDRMM_SOAPY_MODULE_PATH` at it; `sdrmm --doctor` prints the search path actually in use.
 
-## SoapySDR reports an error about libsdrplay_api
+## An SDRplay receiver does not appear
 
-The bundled SoapySDRPlay3 module is reporting that the SDRplay vendor API is not installed, which
-is the normal state of a machine with no SDRplay receiver. Nothing else is affected. To use an
-RSP, install the API from [SDRplay](https://www.sdrplay.com/downloads/) and make sure its service
-is running — see [SDRplay](hardware.md#sdrplay).
+sdr-- speaks to RSP receivers through SDRplay's own API, which is not part of this package.
+Install it from [SDRplay](https://www.sdrplay.com/downloads/), make sure `sdrplay_apiService` is
+running, and check `sdrmm --doctor`: the **SDRplay API** entry names the library it loaded, or
+says what stopped it. Nothing else is affected while it is missing. An RSPduo held by another
+application offers only the modes still free, so it may be listed as Slave alone — see
+[SDRplay](hardware.md#sdrplay). In a container the API stays on the host and reaches the service
+over shared memory, which needs both a mounted library and a shared IPC namespace — see
+[SDRplay receivers](server/deployment.md#sdrplay-receivers).
 
 ## A device is present but a saved node is disconnected
 

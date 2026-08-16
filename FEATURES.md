@@ -37,9 +37,6 @@ If something is shipped, then remove it.
 
 ## 4. Recording, replay & measurement
 
-- The rest of the per-channel sinks — a baseband file, and a per-channel network tap;
-  the network export node carries a device's IQ only
-- IQ time machine — rolling ring buffer, retro-record the last N seconds after the fact
 - Inspectrum-style offline IQ viewer in the browser
 - Annotated recordings; recording scheduler + unattended satellite-pass automation
 - Wideband recording + offline re-channelization
@@ -79,9 +76,10 @@ If something is shipped, then remove it.
 ### Weather, satellite & imaging
 
 - NOAA APT; Meteor M-2 LRPT
-- Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
-- HF WEFAX — the DSP is the easy half; the picture transport ATV shipped is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
-- SSTV RX; APRS weather aggregation
+- Radiosonde (RS41 …) + map/log feature, DFM, M10/M20, iMet
+- HF WEFAX — the DSP is the easy half; the picture store SSTV shipped already holds a picture that
+  takes minutes to arrive, so what is left is the decoder and the mode's own line geometry
+- APRS weather aggregation
 
 ### Broadcast & wideband digital
 

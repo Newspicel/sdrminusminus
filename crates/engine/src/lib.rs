@@ -7,7 +7,7 @@ use std::{
         mpsc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
@@ -25,6 +25,9 @@ use tokio::sync::broadcast;
 
 pub mod audio;
 pub mod audio_recording;
+mod history;
+mod hotplug;
+pub mod image;
 pub mod iq;
 mod network_export;
 pub mod occupancy;
@@ -32,27 +35,42 @@ mod position;
 pub mod recording;
 pub mod runtime;
 pub mod scanner;
+mod sinks;
 mod spectrum;
+mod time_machine;
 pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use trunking::TrunkSystem;
-pub use video::VideoPacket;
+pub use video::{VideoPacket, VideoPicture};
 
 use crate::{
     audio_recording::AudioRecordingShared,
+    history::TimeMachineState,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
+    runtime::{
+        CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded, RawImage,
+    },
     scanner::{ScanPlan, ScannerState},
+    sinks::{BasebandSinks, ChannelBasebandRecording},
 };
 
 const VIRTUAL_PRIORITY: u8 = 10;
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
+// Above Soapy so a host-installed SoapySDRPlay3 loses the dedup for a receiver this driver
+// already speaks to directly.
+#[cfg(feature = "sdrplay")]
+const SDRPLAY_PRIORITY: u8 = 25;
+// The USB backends speak to their radios directly and are hidden from Soapy's enumeration, so
+// this rank only settles a tie against a driver that reports the same serial by another route.
+#[cfg(any(feature = "rtlsdr", feature = "hackrf"))]
+const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
@@ -60,16 +78,56 @@ const DECODED_QUEUE_CAP: usize = 4096;
 const DECODED_CHANNEL_CAP: usize = 1024;
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
+const TIME_MACHINE_STOP_POLL: Duration = Duration::from_millis(10);
+const TIME_MACHINE_STOP_POLLS: u32 = 200;
+
+/// The SoapySDR driver names this build speaks to over its own USB stack, and therefore hides
+/// from Soapy's enumeration so one radio is never listed twice.
+#[must_use]
+pub fn soapy_handled_natively() -> Vec<&'static str> {
+    [
+        #[cfg(feature = "rtlsdr")]
+        "rtlsdr",
+        #[cfg(feature = "hackrf")]
+        "hackrf",
+    ]
+    .to_vec()
+}
 
 #[must_use]
 pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
+    builtin_registry_accelerated(recordings_dir, 1.0)
+}
+
+#[must_use]
+pub fn builtin_registry_accelerated(
+    recordings_dir: Option<PathBuf>,
+    playback_speed: f64,
+) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
-    let virtual_driver = VirtualDriver::for_build(recordings_dir);
+    let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
     #[cfg(feature = "soapy")]
     registry.register(
         SOAPY_PRIORITY,
-        Box::new(sdrmm_device_soapy::SoapyDriver::new()),
+        Box::new(sdrmm_device_soapy::SoapyDriver::excluding(
+            soapy_handled_natively(),
+        )),
+    );
+    #[cfg(feature = "sdrplay")]
+    registry.register(
+        SDRPLAY_PRIORITY,
+        Box::new(sdrmm_device_sdrplay::SdrplayDriver::new()),
+    );
+    #[cfg(feature = "rtlsdr")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
+    );
+    #[cfg(feature = "hackrf")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {
@@ -133,7 +191,14 @@ impl EngineError {
                 | Self::NetworkExport(_)
                 | Self::Scan(_)
                 | Self::StreamOutOfRange { .. }
-                | Self::DeviceAlreadyOpen(..)
+        )
+    }
+
+    #[must_use]
+    pub fn is_conflict(&self) -> bool {
+        matches!(
+            self,
+            Self::DeviceAlreadyOpen(..) | Self::Device(DeviceError::InUse(_))
         )
     }
 }
@@ -147,6 +212,37 @@ struct RebuildEntry {
 
 fn sample_rate_of(settings: &DeviceSettings) -> f64 {
     settings.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE)
+}
+
+pub(crate) fn channel_input_rate(descriptor: &ChannelDescriptor, device_rate: f64) -> f64 {
+    match descriptor.native_rate_range() {
+        Some(_) => device_rate,
+        None => descriptor.input_rate_hz,
+    }
+}
+
+fn check_export_request(node: &str, settings: &NetworkExportSettings) -> Result<(), EngineError> {
+    if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
+        return Err(EngineError::NetworkExport(
+            "node id is empty or too long".to_owned(),
+        ));
+    }
+    if settings.address.is_empty() || settings.address.len() > sdrmm_wire::MAX_NETWORK_ADDRESS_LEN {
+        return Err(EngineError::NetworkExport(
+            "destination address is empty or too long".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn remove_recording_files(stem: &Path) {
+    for path in [meta_path(stem), data_path(stem)] {
+        if let Err(e) = std::fs::remove_file(&path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(path = %path.display(), error = %e, "aborted recording attempt left a file behind");
+        }
+    }
 }
 
 fn descriptor_for(params: &ChannelParams) -> Result<ChannelDescriptor, EngineError> {
@@ -439,7 +535,10 @@ struct DeviceSetState {
     error: Option<String>,
     recording: Option<RecordingState>,
     audio_recordings: HashMap<u32, ChannelAudioRecording>,
+    baseband_recordings: HashMap<u32, ChannelBasebandRecording>,
+    channel_exports: HashMap<u32, NetworkExportState>,
     network_export: Option<NetworkExportState>,
+    time_machine: Option<TimeMachineState>,
     scanner: Option<ScannerState>,
     rate_patches: u32,
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
@@ -466,6 +565,14 @@ impl DeviceSetState {
                         .audio_recordings
                         .get(&channel.id)
                         .map(ChannelAudioRecording::status),
+                    baseband_recording: self
+                        .baseband_recordings
+                        .get(&channel.id)
+                        .map(|recording| recording.status(overruns)),
+                    network_export: self
+                        .channel_exports
+                        .get(&channel.id)
+                        .map(|export| export.status(overruns)),
                     ..channel.clone()
                 })
                 .collect(),
@@ -476,6 +583,10 @@ impl DeviceSetState {
                 .network_export
                 .as_ref()
                 .map(|export| export.status(overruns)),
+            time_machine: self
+                .time_machine
+                .as_ref()
+                .map(|history| history.status(overruns)),
             scanner: self.scanner.as_ref().map(ScannerState::status),
             playback: self.playback.as_deref().map(PlaybackShared::status),
         }
@@ -574,8 +685,10 @@ pub struct Engine {
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     decoded_tx: mpsc::SyncSender<RawDecoded>,
+    image_queue_tx: mpsc::SyncSender<RawImage>,
     decoded_dropped: Arc<AtomicU64>,
     decoded_tx_out: broadcast::Sender<DecodedRecord>,
+    image_tx: broadcast::Sender<ImageCapture>,
     trunk_tx: mpsc::Sender<trunking::TrunkInput>,
     trunk_active: AtomicBool,
     trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
@@ -596,7 +709,9 @@ impl Engine {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
+        let (image_queue_tx, image_queue_rx) = mpsc::sync_channel(image::IMAGE_QUEUE_CAP);
         let (decoded_tx_out, _) = broadcast::channel(DECODED_CHANNEL_CAP);
+        let (image_tx, _) = broadcast::channel(image::IMAGE_CHANNEL_CAP);
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
@@ -605,8 +720,10 @@ impl Engine {
             event_tx,
             fault_tx,
             decoded_tx,
+            image_queue_tx,
             decoded_dropped: Arc::new(AtomicU64::new(0)),
             decoded_tx_out,
+            image_tx,
             trunk_tx,
             trunk_active: AtomicBool::new(false),
             trunk_status: trunk_status.clone(),
@@ -616,6 +733,7 @@ impl Engine {
         });
         engine.spawn_fault_drainer(fault_rx);
         engine.spawn_decoded_pump(decoded_rx);
+        engine.spawn_image_pump(image_queue_rx);
         trunking::spawn(&engine, trunk_rx, trunk_status);
         engine
     }
@@ -668,9 +786,39 @@ impl Engine {
         }
     }
 
+    fn spawn_image_pump(self: &Arc<Self>, image_rx: mpsc::Receiver<RawImage>) {
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-images".to_string())
+            .spawn(move || {
+                while let Ok(raw) = image_rx.recv() {
+                    let Some(engine) = weak.upgrade() else { return };
+                    let _ = engine.image_tx.send(ImageCapture {
+                        device_set: raw.device_set,
+                        channel: raw.channel,
+                        at: format!("{:.9}", jiff::Timestamp::now()),
+                        freq_hz: raw.freq_hz,
+                        source: raw.image.source,
+                        mode: raw.image.mode,
+                        complete: raw.image.complete,
+                        lines: raw.image.lines,
+                        picture: Arc::new(raw.image.picture),
+                    });
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::error!("failed to spawn image pump: {e}");
+        }
+    }
+
     #[must_use]
     pub fn subscribe_decoded(&self) -> broadcast::Receiver<DecodedRecord> {
         self.decoded_tx_out.subscribe()
+    }
+
+    #[must_use]
+    pub fn subscribe_images(&self) -> broadcast::Receiver<ImageCapture> {
+        self.image_tx.subscribe()
     }
 
     #[must_use]
@@ -681,6 +829,7 @@ impl Engine {
     fn decoded_sink(&self, ds: u32, channel: u32) -> DecodedSink {
         DecodedSink::new(
             self.decoded_tx.clone(),
+            self.image_queue_tx.clone(),
             self.decoded_dropped.clone(),
             ds,
             channel,
@@ -718,9 +867,20 @@ impl Engine {
             }
             let audio_recordings: Vec<ChannelAudioRecording> =
                 state.audio_recordings.drain().map(|(_, rec)| rec).collect();
+            let baseband_recordings: Vec<ChannelBasebandRecording> = state
+                .baseband_recordings
+                .drain()
+                .map(|(_, rec)| rec)
+                .collect();
+            let channel_exports: Vec<NetworkExportState> =
+                state.channel_exports.drain().map(|(_, rec)| rec).collect();
             let network_export = state.network_export.take();
             if let Some(export) = &network_export {
                 state.send_dsp(export.stream, DspCommand::StopNetworkExport);
+            }
+            let history = state.time_machine.take();
+            if let Some(history) = &history {
+                state.send_dsp(history.stream, DspCommand::StopTimeMachine);
             }
             let scanner = state.scanner.take();
             let runtime = state.runtime.clone();
@@ -739,8 +899,25 @@ impl Engine {
             for recording in audio_recordings {
                 recording.join();
             }
+            let mut wrote_files = false;
+            for recording in baseband_recordings {
+                recording.join();
+                wrote_files = true;
+            }
+            for mut export in channel_exports {
+                export.join();
+            }
             if let Some(mut export) = network_export {
                 export.join();
+            }
+            if let Some(history) = history {
+                wrote_files |= history.capture.is_some();
+                history.handle.join();
+            }
+            if wrote_files {
+                self.emit(ServerEvent::StateChanged {
+                    scope: StateScope::Recordings,
+                });
             }
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
@@ -760,9 +937,10 @@ impl Engine {
             .spawn(move || {
                 let mut known = None;
                 let mut missing_once = HashSet::new();
+                let mut gate = hotplug::ProbeGate::default();
                 loop {
                     let Some(engine) = weak.upgrade() else { return };
-                    engine.hotplug_tick(&mut known, &mut missing_once);
+                    engine.hotplug_tick(&mut known, &mut missing_once, &mut gate);
                     drop(engine);
                     std::thread::sleep(interval);
                 }
@@ -893,20 +1071,23 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        self.hotplug_tick(known, missing_once)
+        self.hotplug_tick(known, missing_once, &mut hotplug::ProbeGate::default())
     }
 
     fn hotplug_tick(
         &self,
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
+        gate: &mut hotplug::ProbeGate,
     ) -> bool {
-        let (grown, rec_faults, audio_rec_faults, export_faults, changed) = {
+        let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
             let mut inner = self.lock();
             let mut grown: Vec<(u32, u64)> = Vec::new();
             let mut rec_faults: Vec<(u32, String)> = Vec::new();
             let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
             let mut export_faults: Vec<(u32, String)> = Vec::new();
+            let mut baseband_faults: Vec<(u32, u32, String)> = Vec::new();
+            let mut history_faults: Vec<(u32, String)> = Vec::new();
             let mut changed: Vec<u32> = Vec::new();
             for (id, s) in inner.device_sets.iter_mut() {
                 let now = s.overruns_total();
@@ -944,6 +1125,52 @@ impl Engine {
                         dirty = true;
                     }
                 }
+                for (ch, recording) in &mut s.baseband_recordings {
+                    let samples = recording.shared.samples();
+                    if samples != recording.samples_seen {
+                        recording.samples_seen = samples;
+                        dirty = true;
+                    }
+                    if let Some(error) = recording.shared.error()
+                        && !recording.error_seen
+                    {
+                        recording.error_seen = true;
+                        baseband_faults.push((*id, *ch, error));
+                        dirty = true;
+                    }
+                }
+                for (ch, export) in &mut s.channel_exports {
+                    let samples = export.shared.samples();
+                    if samples != export.samples_seen {
+                        export.samples_seen = samples;
+                        dirty = true;
+                    }
+                    if let Some(error) = export.shared.error()
+                        && !export.error_seen
+                    {
+                        export.error_seen = true;
+                        baseband_faults.push((*id, *ch, error));
+                        dirty = true;
+                    }
+                }
+                if let Some(history) = &mut s.time_machine {
+                    let held = history.handle.shared().held();
+                    if held != history.held_seen {
+                        history.held_seen = held;
+                        dirty = true;
+                    }
+                    if let Some(error) = history.handle.shared().error()
+                        && !history.error_seen
+                    {
+                        history.error_seen = true;
+                        history_faults.push((*id, error));
+                        dirty = true;
+                    }
+                    if history.capture.is_some() && !history.handle.shared().capturing() {
+                        history.capture = None;
+                        dirty = true;
+                    }
+                }
                 if let Some(export) = &mut s.network_export {
                     let samples = export.shared.samples();
                     if samples != export.samples_seen {
@@ -965,7 +1192,14 @@ impl Engine {
             if !changed.is_empty() {
                 inner.revision += 1;
             }
-            (grown, rec_faults, audio_rec_faults, export_faults, changed)
+            (
+                grown,
+                rec_faults,
+                audio_rec_faults,
+                export_faults,
+                (baseband_faults, history_faults),
+                changed,
+            )
         };
         for (ds, dropped) in grown {
             tracing::warn!(ds, dropped, "capture ring overrun: device samples dropped");
@@ -979,10 +1213,21 @@ impl Engine {
         for (ds, error) in export_faults {
             tracing::warn!(ds, error = %error, "network export fault");
         }
+        let (baseband_faults, history_faults) = sink_faults;
+        for (ds, channel, error) in baseband_faults {
+            tracing::warn!(ds, channel, error = %error, "channel baseband sink fault");
+        }
+        for (ds, error) in history_faults {
+            tracing::warn!(ds, error = %error, "time machine fault");
+        }
         for ds in changed {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
+        }
+
+        if !gate.should_probe(Instant::now(), sdrmm_device::usb::fingerprint()) {
+            return false;
         }
 
         let ids: Vec<String> = self
@@ -1282,7 +1527,10 @@ impl Engine {
                     error: pending.as_ref().map(ToString::to_string),
                     recording: None,
                     audio_recordings: HashMap::new(),
+                    baseband_recordings: HashMap::new(),
+                    channel_exports: HashMap::new(),
                     network_export: None,
+                    time_machine: None,
                     scanner: None,
                     rate_patches: 0,
                     cmd_txs,
@@ -1402,6 +1650,13 @@ impl Engine {
                             .to_string(),
                     ));
                 }
+                if state.time_machine.is_some() {
+                    return Err(EngineError::Recording(
+                        "sample rate is locked while the time machine holds history; disarm it \
+                         first"
+                            .to_string(),
+                    ));
+                }
                 for channel in &state.channels {
                     let descriptor = descriptor_for(&channel.settings.params)?;
                     validate_channel(&descriptor, &channel.settings, new_rate)?;
@@ -1428,8 +1683,16 @@ impl Engine {
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let old_rate = sample_rate_of(&state.settings);
             let locked_by_export = state.network_export.is_some();
-            let locked_by_recording = state.recording.is_some();
-            if (locked_by_export || locked_by_recording)
+            let owner = if locked_by_export {
+                Some(("exporting", "stop the export first"))
+            } else if state.recording.is_some() {
+                Some(("recording", "stop the recording first"))
+            } else if state.time_machine.is_some() {
+                Some(("holding history", "disarm the time machine first"))
+            } else {
+                None
+            };
+            if let Some((owner, remedy)) = owner
                 && delta.sample_rate.is_some_and(|r| r != old_rate)
             {
                 drop(inner);
@@ -1438,11 +1701,6 @@ impl Engine {
                     ..DeviceSettings::default()
                 };
                 if let Err(e) = lock_runtime(&runtime).apply(&revert) {
-                    let owner = if locked_by_export {
-                        "exporting"
-                    } else {
-                        "recording"
-                    };
                     let message = format!(
                         "sample rate is locked while {owner}, and reverting the device to \
                          {old_rate} Hz failed: {e}"
@@ -1453,15 +1711,11 @@ impl Engine {
                         EngineError::Recording(message)
                     });
                 }
+                let message = format!("sample rate is locked while {owner}; {remedy}");
                 return Err(if locked_by_export {
-                    EngineError::NetworkExport(
-                        "sample rate is locked while exporting; stop the export first".to_string(),
-                    )
+                    EngineError::NetworkExport(message)
                 } else {
-                    EngineError::Recording(
-                        "sample rate is locked while recording; stop the recording first"
-                            .to_string(),
-                    )
+                    EngineError::Recording(message)
                 });
             }
             state.settings.merge_from(&delta);
@@ -1479,6 +1733,18 @@ impl Engine {
             if let (Some(export), Some(center_hz)) = (state.network_export.as_mut(), export_center)
             {
                 export.center_hz = center_hz;
+            }
+            let history_center = state.time_machine.as_ref().map(|history| {
+                state
+                    .settings
+                    .for_stream(history.stream, &state.capabilities.per_stream)
+                    .center_hz
+                    .unwrap_or(DEFAULT_CENTER_HZ)
+                    .round() as i64
+            });
+            if let (Some(history), Some(center_hz)) = (state.time_machine.as_mut(), history_center)
+            {
+                history.center_hz = center_hz;
             }
             let rate = sample_rate_of(&state.settings);
             let rebuilds: Vec<RebuildEntry> = if rate == old_rate {
@@ -1556,6 +1822,7 @@ impl Engine {
                 built_rate = current_rate;
                 continue;
             }
+            let orphaned = state.release_baseband_sinks(id, stream);
             match built {
                 Ok(mut host) => {
                     if let Some(media) = state.media.get(&id) {
@@ -1564,6 +1831,9 @@ impl Engine {
                     state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     state.send_dsp(stream, DspCommand::AddChannel { id, host });
                     state.rearm_audio_recording(id, stream);
+                    inner.revision += 1;
+                    drop(inner);
+                    self.close_baseband_sinks(ds, id, orphaned, "the channel was rebuilt");
                 }
                 Err(e) => {
                     tracing::error!(ds, channel = id, error = %e, "channel rebuild failed after rate change; removing channel");
@@ -1576,6 +1846,7 @@ impl Engine {
                     if let Some(recording) = recording {
                         recording.join();
                     }
+                    self.close_baseband_sinks(ds, id, orphaned, "the channel was removed");
                 }
             }
             return;
@@ -1666,6 +1937,8 @@ impl Engine {
                 stream,
                 settings: settings.clone(),
                 audio_recording: None,
+                baseband_recording: None,
+                network_export: None,
             });
             if let Some(handle) = media.take() {
                 state.media.insert(id, handle);
@@ -1728,6 +2001,7 @@ impl Engine {
             )?);
         }
         let mut orphaned: Option<ChannelAudioRecording> = None;
+        let mut orphaned_baseband = BasebandSinks::default();
         let staged = loop {
             if let Err(e) = validate_channel(&descriptor, &settings, device_rate) {
                 break Err(e);
@@ -1768,6 +2042,7 @@ impl Engine {
                     if let Some(media) = state.media.get(&ch) {
                         host.position_changed(media.position.as_ref());
                     }
+                    orphaned_baseband = state.release_baseband_sinks(ch, stream);
                     state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
                     state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
                     if descriptor.has_audio {
@@ -1820,6 +2095,7 @@ impl Engine {
                 scope: StateScope::Recordings,
             });
         }
+        self.close_baseband_sinks(ds, ch, orphaned_baseband, "the channel was rebuilt");
         staged?;
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
@@ -1828,7 +2104,7 @@ impl Engine {
     }
 
     pub fn remove_channel(&self, ds: u32, ch: u32) -> Result<(), EngineError> {
-        let (handle, recording) = {
+        let (handle, recording, baseband) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -1843,13 +2119,15 @@ impl Engine {
             state.channels.retain(|c| c.id != ch);
             let handle = state.media.remove(&ch);
             let recording = state.audio_recordings.remove(&ch);
+            let baseband = state.release_baseband_sinks(ch, stream);
             state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
             inner.revision += 1;
-            (handle, recording)
+            (handle, recording, baseband)
         };
         if let Some(recording) = recording {
             recording.join();
         }
+        self.close_baseband_sinks(ds, ch, baseband, "the channel was removed");
         if let Some(handle) = handle {
             handle.shutdown();
         }
@@ -1895,8 +2173,15 @@ impl Engine {
             std::fs::create_dir_all(&dir)
                 .map_err(|e| EngineError::RecordingIo(format!("create {}: {e}", dir.display())))?;
             let started_at = jiff::Timestamp::now();
-            let (sigmf, file) =
-                recording::create_writer(&dir, ds, stream, started_at, rate, center, &hw)?;
+            let (sigmf, file) = recording::create_writer(
+                &dir,
+                &format!("rec_{ds}"),
+                stream,
+                started_at,
+                rate,
+                center,
+                &hw,
+            )?;
             let stem = sigmf.stem().to_path_buf();
             let (tap, position, messages, shared) = recording::create_tap();
             let writer = recording::spawn_writer(sigmf, messages, shared.clone())?;
@@ -1940,13 +2225,7 @@ impl Engine {
             drop(tap);
             drop(position);
             join_recording_writer(writer);
-            for path in [meta_path(&stem), data_path(&stem)] {
-                if let Err(e) = std::fs::remove_file(&path)
-                    && e.kind() != std::io::ErrorKind::NotFound
-                {
-                    tracing::warn!(path = %path.display(), error = %e, "aborted recording attempt left a file behind");
-                }
-            }
+            remove_recording_files(&stem);
             if patch_in_flight {
                 return Err(EngineError::Recording(
                     "a sample-rate change is in flight; retry once it completes".to_string(),
@@ -2178,18 +2457,7 @@ impl Engine {
         stream: u32,
         settings: NetworkExportSettings,
     ) -> Result<NetworkExportStatus, EngineError> {
-        if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
-            return Err(EngineError::NetworkExport(
-                "node id is empty or too long".to_owned(),
-            ));
-        }
-        if settings.address.is_empty()
-            || settings.address.len() > sdrmm_wire::MAX_NETWORK_ADDRESS_LEN
-        {
-            return Err(EngineError::NetworkExport(
-                "destination address is empty or too long".to_owned(),
-            ));
-        }
+        check_export_request(&node, &settings)?;
         loop {
             let rate = {
                 let inner = self.lock();
@@ -2661,12 +2929,23 @@ fn teardown_set(mut removed: DeviceSetState) -> bool {
         scanner.stop_and_join();
     }
     lock_runtime(&removed.runtime).stop();
-    let finalized = removed.recording.take().map(RecordingState::join).is_some();
+    let mut finalized = removed.recording.take().map(RecordingState::join).is_some();
     for (_, recording) in removed.audio_recordings.drain() {
         recording.join();
     }
+    for (_, recording) in removed.baseband_recordings.drain() {
+        recording.join();
+        finalized = true;
+    }
+    for (_, mut export) in removed.channel_exports.drain() {
+        export.join();
+    }
     if let Some(mut export) = removed.network_export.take() {
         export.join();
+    }
+    if let Some(history) = removed.time_machine.take() {
+        finalized |= history.capture.is_some();
+        history.handle.join();
     }
     for (_, handle) in removed.media.drain() {
         handle.shutdown();

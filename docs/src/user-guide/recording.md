@@ -36,6 +36,45 @@ that plays up to the last second it captured.
 Channel audio and device IQ are independent: a radio can be recording its raw stream while one of
 its channels records audio, and either can be started or stopped without the other.
 
+## Record a channel's baseband
+
+A Baseband recorder node records what a channel *receives*: its own IQ, down-converted to the
+channel's center, filtered to the channel's width, and at the channel's own sample rate — a few
+tens of kHz rather than the radio's megahertz.
+
+1. Add a Baseband recorder node.
+2. Wire one or more Channel `baseband` outputs into its `baseband` input.
+3. Press **Record** beside a channel to start its own pair, **Stop** to finish it.
+
+Each wired channel writes its own SigMF pair, centred on the channel (the radio's center plus the
+channel offset), which is what lets a 12.5 kHz channel be kept for hours where the wideband stream
+would fill a disk in minutes. The tap sits before the squelch, so a closed gate still records —
+the file is what arrived at the channel, not what got through it.
+
+The finished pair lands in the same library as a device recording and can be reopened as a
+playback source. Because SigMF cannot change sample rate mid-file, anything that rebuilds the
+channel — a mode change, or a rate change on the radio underneath — finishes the file rather than
+splicing a second rate into it; removing the channel does the same.
+
+## The IQ time machine
+
+A Time machine node holds the last few seconds of a radio's IQ in memory so a signal can be
+recorded *after* it has already been heard.
+
+1. Add a Time machine node.
+2. Wire a Device `IQ` output into it, and optionally a GPS `position` output.
+3. Set how many seconds to hold, then press **Arm**. The rolling buffer starts filling.
+4. Press **Capture** when something interesting has just gone past. The buffered seconds are
+   written to a new SigMF pair, and live samples keep appending to it.
+5. Press **Stop** to finalize that pair while staying armed, or **Disarm** to release the memory.
+
+The window costs `seconds × sample rate × 8` bytes of memory, which the face shows; the server
+refuses a window above 1 GiB and names the number of seconds that fits at the current rate. The
+sample rate is locked while the buffer is armed, because a buffer measured in samples cannot
+change what a sample means underneath. Retuning stays available: a retune inside the window lands
+in the capture as its own SigMF capture segment, and the first segment is stamped with the wall
+clock of the *oldest held sample*, not the moment the button was pressed.
+
 ## Storage
 
 The headless server stores recordings in the platform data directory by default, under

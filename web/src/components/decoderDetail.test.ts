@@ -22,11 +22,41 @@ describe("eventDetail", () => {
           errors_corrected: 0,
         },
       },
+      flex: {
+        kind: "flex",
+        data: {
+          address: 123456,
+          payload: "alpha",
+          text: "TEST",
+          baud: 1600,
+          levels: 2,
+          cycle: 1,
+          frame: 2,
+          phase: "A",
+          errors_corrected: 0,
+        },
+      },
+      ermes: {
+        kind: "ermes",
+        data: {
+          local_address: 12345,
+          message_number: 1,
+          payload: "alpha",
+          text: "TEST",
+          urgent: false,
+          alert: 0,
+          errors_corrected: 0,
+        },
+      },
       adsb: { kind: "adsb", data: { icao: "3c6444", df: 17, raw: "8d" } },
       ais: { kind: "ais", data: { mmsi: 1, msg_type: 1, ais_channel: "A", nmea: "!AIVDM" } },
       aprs: { kind: "aprs", data: { source: "A", destination: "B", info: "", tnc2: "A>B:" } },
       rtty: { kind: "rtty", data: { text: "" } },
       morse: { kind: "morse", data: { text: "", wpm: 0 } },
+      cw_skimmer: {
+        kind: "cw_skimmer",
+        data: { offset_hz: 750, text: "CQ", wpm: 18, snr_db: 12 },
+      },
       ft8: {
         kind: "ft8",
         data: {
@@ -137,6 +167,18 @@ describe("eventDetail", () => {
           doppler_hz: 1000,
           code_phase_chips: 158.34,
           cn0_db_hz: 44.5,
+        },
+      },
+      sstv: {
+        kind: "sstv",
+        data: {
+          seq: 1,
+          mode: "martin_m1",
+          width: 320,
+          height: 256,
+          lines: 256,
+          complete: true,
+          duration_ms: 114_300,
         },
       },
     };

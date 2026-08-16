@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  type Listener,
+  ListenerRegistry,
+  type SocketEventKind,
+  type Unsubscribe,
+} from "./listeners";
 import { gridLocator, usePositionStore } from "./position";
 import type { ClientCommand, PositionFix, ServerEvent } from "./types";
 import type { SdrSocket } from "./ws";
@@ -26,7 +32,7 @@ function event(position: PositionFix): ServerEvent {
 class PositionSocket {
   connected = true;
   sent: ClientCommand[] = [];
-  listeners = new Set<(connected: boolean) => void>();
+  private readonly registry = new ListenerRegistry();
 
   send(command: ClientCommand): void {
     this.sent.push(command);
@@ -36,19 +42,17 @@ class PositionSocket {
     return this.connected;
   }
 
-  addStatusListener(listener: (connected: boolean) => void): void {
-    this.listeners.add(listener);
+  on<K extends SocketEventKind>(kind: K, listener: Listener<K>): Unsubscribe {
+    return this.registry.on(kind, listener);
   }
 
-  removeStatusListener(listener: (connected: boolean) => void): void {
-    this.listeners.delete(listener);
+  count(kind: SocketEventKind): number {
+    return this.registry.count(kind);
   }
 
   emit(connected: boolean): void {
     this.connected = connected;
-    for (const listener of this.listeners) {
-      listener(connected);
-    }
+    this.registry.emit("status", connected);
   }
 }
 
@@ -158,7 +162,7 @@ describe("device position watch", () => {
     });
     cleanup();
     expect(browser.clearWatch).toHaveBeenCalledWith(7);
-    expect(socket.listeners.size).toBe(0);
+    expect(socket.count("status")).toBe(0);
   });
 
   it("reports a missing geolocation provider", async () => {
@@ -175,6 +179,6 @@ describe("device position watch", () => {
       data: { node: "gps", error: "this device has no geolocation provider" },
     });
     cleanup();
-    expect(socket.listeners.size).toBe(0);
+    expect(socket.count("status")).toBe(0);
   });
 });

@@ -76,10 +76,11 @@ pub(crate) fn capabilities(
     Capabilities {
         freq_ranges,
         sample_rates: sample_rates(info),
-        sample_rate_range: None,
+        sample_rate_ranges: Vec::new(),
         gains: Vec::new(),
         antennas: Vec::new(),
         bandwidths: Vec::new(),
+        bandwidth_ranges: Vec::new(),
         extra,
         ppm: false,
         duplex: Duplex::RxOnly,

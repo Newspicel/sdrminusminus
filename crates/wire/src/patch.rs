@@ -7,6 +7,7 @@ use crate::{
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
+    timemachine::TimeMachineNode,
     workspace::MAX_NAME_LEN,
 };
 
@@ -327,6 +328,8 @@ pub enum NodeBody {
     Video,
     Recorder,
     AudioRecorder,
+    BasebandRecorder,
+    TimeMachine(TimeMachineNode),
     NetworkExport(NetworkExportNode),
     Export,
     Scanner,
@@ -350,6 +353,8 @@ impl NodeBody {
             Self::Video => "video",
             Self::Recorder => "recorder",
             Self::AudioRecorder => "audio_recorder",
+            Self::BasebandRecorder => "baseband_recorder",
+            Self::TimeMachine(_) => "time_machine",
             Self::NetworkExport(_) => "network_export",
             Self::Export => "export",
             Self::Scanner => "scanner",
@@ -371,6 +376,8 @@ impl NodeBody {
             Self::Speaker
             | Self::Recorder
             | Self::AudioRecorder
+            | Self::BasebandRecorder
+            | Self::TimeMachine(_)
             | Self::NetworkExport(_)
             | Self::ChatOutput(_)
             | Self::Export => NodeCategory::Sink,
@@ -440,7 +447,15 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Position, In, false, Always),
         ],
         "audio_recorder" => vec![PortSpec::new(Audio, In, true, Always)],
-        "network_export" => vec![PortSpec::new(Iq, In, false, Always)],
+        "baseband_recorder" => vec![PortSpec::new(Baseband, In, true, Always)],
+        "time_machine" => vec![
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Position, In, false, Always),
+        ],
+        "network_export" => vec![
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Baseband, In, false, Always),
+        ],
         "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
         "video" => vec![PortSpec::new(Video, In, true, Always)],
@@ -519,6 +534,11 @@ impl PatchCatalog {
                 entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
                 entry(&NodeBody::AudioRecorder, "Audio recorder"),
+                entry(&NodeBody::BasebandRecorder, "Baseband recorder"),
+                entry(
+                    &NodeBody::TimeMachine(TimeMachineNode::default()),
+                    "Time machine",
+                ),
                 entry(
                     &NodeBody::NetworkExport(NetworkExportNode::default()),
                     "Network IQ",
@@ -612,6 +632,7 @@ pub enum PatchError {
     TypeMismatch { from: PortType, to: PortType },
     DuplicateEdge(PortRef),
     PortOccupied(PortRef),
+    MixedNetworkSource(String),
     SelfEdge(String),
     RackCell(String),
     DuplicateRackSlot(String),
@@ -653,6 +674,10 @@ impl std::fmt::Display for PatchError {
                 f,
                 "{}.{} already has a wire and takes only one",
                 port.node, port.port
+            ),
+            Self::MixedNetworkSource(id) => write!(
+                f,
+                "network sink {id} carries a radio's IQ or a channel's baseband, not both"
             ),
             Self::SelfEdge(id) => write!(f, "node {id} cannot wire to itself"),
             Self::RackCell(node) => write!(
@@ -787,6 +812,14 @@ impl PatchGraph {
                     {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
+                    if self.sources_of(&node.id, "iq").next().is_some()
+                        && self.sources_of(&node.id, "baseband").next().is_some()
+                    {
+                        return Err(PatchError::MixedNetworkSource(node.id.clone()));
+                    }
+                }
+                NodeBody::TimeMachine(settings) if !settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::DmrTrunk(settings) => {
                     if settings.retention_seconds != 0
@@ -1060,10 +1093,11 @@ mod tests {
         Capabilities {
             freq_ranges: Vec::new(),
             sample_rates: Vec::new(),
-            sample_rate_range: None,
+            sample_rate_ranges: Vec::new(),
             gains: Vec::new(),
             antennas: Vec::new(),
             bandwidths: Vec::new(),
+            bandwidth_ranges: Vec::new(),
             extra: Vec::new(),
             ppm: false,
             duplex,
@@ -1272,6 +1306,77 @@ mod tests {
         };
         export.settings.address = "[::1]:7355".to_owned();
         graph.validate().expect("IPv6 destination");
+    }
+
+    #[test]
+    fn a_network_sink_takes_a_radio_or_a_channel_but_not_both() {
+        let graph = |edges: Vec<PatchEdge>| PatchGraph {
+            nodes: vec![
+                node("dev", NodeBody::Device(DeviceNode::default())),
+                channel("ch", "nfm"),
+                node("net", NodeBody::NetworkExport(NetworkExportNode::default())),
+            ],
+            edges,
+        };
+
+        graph(vec![edge(("dev", "iq"), ("net", "iq"))])
+            .validate()
+            .expect("a radio's IQ");
+        graph(vec![edge(("ch", "baseband"), ("net", "baseband"))])
+            .validate()
+            .expect("a channel's baseband");
+        assert_eq!(
+            graph(vec![
+                edge(("dev", "iq"), ("net", "iq")),
+                edge(("ch", "baseband"), ("net", "baseband")),
+            ])
+            .validate(),
+            Err(PatchError::MixedNetworkSource("net".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_baseband_recorder_takes_every_channel_wired_into_it() {
+        let graph = PatchGraph {
+            nodes: vec![
+                channel("a", "nfm"),
+                channel("b", "nfm"),
+                node("files", NodeBody::BasebandRecorder),
+            ],
+            edges: vec![
+                edge(("a", "baseband"), ("files", "baseband")),
+                edge(("b", "baseband"), ("files", "baseband")),
+            ],
+        };
+        graph
+            .validate_against(&descriptors())
+            .expect("a baseband recorder fans in");
+    }
+
+    #[test]
+    fn a_time_machine_holds_a_window_the_engine_can_afford() {
+        let graph = |seconds: u32| PatchGraph {
+            nodes: vec![
+                node("dev", NodeBody::Device(DeviceNode::default())),
+                node(
+                    "history",
+                    NodeBody::TimeMachine(crate::TimeMachineNode {
+                        history_seconds: seconds,
+                    }),
+                ),
+            ],
+            edges: vec![edge(("dev", "iq"), ("history", "iq"))],
+        };
+        graph(crate::DEFAULT_TIME_MACHINE_SECONDS)
+            .validate()
+            .expect("the default window");
+        for refused in [0, crate::MAX_TIME_MACHINE_SECONDS + 1] {
+            assert_eq!(
+                graph(refused).validate(),
+                Err(PatchError::NodeSettings("history".to_owned())),
+                "{refused} s"
+            );
+        }
     }
 
     #[test]
@@ -1601,7 +1706,7 @@ mod tests {
         let duo = DeviceInfo {
             driver: "soapy".to_owned(),
             key: "123456@DT".to_owned(),
-            label: "RSPduo Dual Tuner".to_owned(),
+            label: "Dual Tuner".to_owned(),
             serial: Some("123456".to_owned()),
             profile: None,
         };
