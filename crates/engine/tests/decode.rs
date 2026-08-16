@@ -14,7 +14,7 @@ use sdrmm_wire::{
     DecodedRecord, DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams,
     FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams, NfmParams,
     NfmToneMode, PocsagBaud, PocsagParams, PskParams, RdsUpdate, RttyParams, SelcallParams,
-    SelcallSystem, SubghzEncoding, SubghzParams, WfmParams, WsjtParams, WsprParams,
+    SelcallSystem, SubghzEncoding, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -981,6 +981,42 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert_eq!(frame.address, Some(0x0_A1B2));
     assert_eq!(frame.button, Some(3));
     assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
+}
+
+#[tokio::test]
+async fn ysf_callsigns_survive_a_recorded_virtual_device() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let call = testgen::dv::ysf::Call::default();
+    let iq = testgen::dv::ysf::transmission_with_callsigns(
+        &testgen::dv::ysf::Fich::default(),
+        &call,
+        AUDIO_DEVICE_RATE,
+    );
+    let device = plant(dir.path(), "ysf-callsigns", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Ysf(YsfParams::default()),
+            audio: Default::default(),
+        },
+        |event| {
+            matches!(event, DecoderEvent::Dv(frame) if frame.mode == DvMode::Ysf && frame.source_call.as_deref() == Some("DL1ABC"))
+        },
+    )
+    .await;
+
+    let DecoderEvent::Dv(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.kind, DvFrameKind::Header);
+    assert_eq!(frame.destination_call.as_deref(), Some("ALL"));
+    assert_eq!(frame.source_call.as_deref(), Some("DL1ABC"));
+    assert_eq!(frame.via.as_deref(), Some("DB0XYZ → DB0ABC"));
 }
 
 #[tokio::test]

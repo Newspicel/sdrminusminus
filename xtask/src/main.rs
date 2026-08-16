@@ -1521,6 +1521,17 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "acars channel at -40 kHz -> D-AIBC / LH0400 [H1] \"SDR-- FIXTURE\"".to_string(),
     });
 
+    out.push(Fixture {
+        stem: "ysf_callsigns_48k".to_string(),
+        iq: testgen::dv::ysf::transmission_with_callsigns(
+            &testgen::dv::ysf::Fich::default(),
+            &testgen::dv::ysf::Call::default(),
+            AUDIO,
+        ),
+        rate: AUDIO,
+        note: "ysf channel at 0 Hz -> DL1ABC to ALL via DB0XYZ and DB0ABC".to_string(),
+    });
+
     const SUBGHZ_RATE: f64 = 500_000.0;
     out.push(Fixture {
         stem: "subghz_ev1527_500k".to_string(),
