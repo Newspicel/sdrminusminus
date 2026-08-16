@@ -87,10 +87,13 @@ COPY --from=planner /plan/ ./
 RUN rustup show
 
 ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft
+# `ci` (Cargo.toml) drops LTO to answer a broken Dockerfile faster on a pull request. Releases
+# must never pass this — the published image is built from the default.
+ARG PROFILE=release
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
 # cargo still builds every external dependency it declares.
-RUN cargo build --release --locked -p sdrmm --no-default-features --features "$FEATURES"
+RUN cargo build --profile "$PROFILE" --locked -p sdrmm --no-default-features --features "$FEATURES"
 
 COPY crates crates
 COPY apps apps
@@ -98,11 +101,12 @@ COPY xtask xtask
 COPY --from=web /web/dist web/dist
 # The touch is load-bearing: cargo decides freshness by mtime, and context files older than the
 # stub rlibs built above would leave those empty stubs in the shipped binary.
-# rust-embed only bakes bytes into the binary for non-debug profiles — hence --release.
+# rust-embed only bakes bytes into the binary when debug assertions are off, which every profile
+# used here inherits from `release`.
 RUN test -f web/dist/index.html \
     && find crates apps xtask -name '*.rs' -exec touch {} + \
-    && cargo build --release --locked -p sdrmm --no-default-features --features "$FEATURES" \
-    && install -Dm755 target/release/sdrmm /out/sdrmm
+    && cargo build --profile "$PROFILE" --locked -p sdrmm --no-default-features --features "$FEATURES" \
+    && install -Dm755 "target/$PROFILE/sdrmm" /out/sdrmm
 
 
 # --- runtime -----------------------------------------------------------------------------
