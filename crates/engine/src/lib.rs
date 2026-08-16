@@ -544,6 +544,7 @@ struct DeviceSetState {
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     overruns: Vec<Arc<AtomicU64>>,
     overruns_seen: u64,
+    stalls: Vec<Arc<AtomicU64>>,
     playback: Option<Arc<PlaybackShared>>,
     runtime: Arc<Mutex<CaptureRuntime>>,
 }
@@ -612,6 +613,17 @@ impl DeviceSetState {
             .iter()
             .map(|counter| counter.load(Ordering::Relaxed))
             .sum()
+    }
+
+    /// Longest gap any lane went without touching its capture ring since the last read, and
+    /// clears it so the next report covers the next window.
+    fn take_worst_stall_ms(&self) -> u64 {
+        self.stalls
+            .iter()
+            .map(|counter| counter.swap(0, Ordering::Relaxed))
+            .max()
+            .unwrap_or(0)
+            / 1_000
     }
 
     fn send_dsp(&self, stream: u32, cmd: DspCommand) {
@@ -1082,7 +1094,7 @@ impl Engine {
     ) -> bool {
         let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
             let mut inner = self.lock();
-            let mut grown: Vec<(u32, u64)> = Vec::new();
+            let mut grown: Vec<(u32, u64, u64)> = Vec::new();
             let mut rec_faults: Vec<(u32, String)> = Vec::new();
             let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
             let mut export_faults: Vec<(u32, String)> = Vec::new();
@@ -1095,7 +1107,7 @@ impl Engine {
                 s.overruns_seen = now;
                 let mut dirty = delta > 0;
                 if delta > 0 {
-                    grown.push((*id, delta));
+                    grown.push((*id, delta, s.take_worst_stall_ms()));
                 }
                 if let Some(rec) = &mut s.recording {
                     let samples = rec.shared.samples();
@@ -1201,8 +1213,13 @@ impl Engine {
                 changed,
             )
         };
-        for (ds, dropped) in grown {
-            tracing::warn!(ds, dropped, "capture ring overrun: device samples dropped");
+        for (ds, dropped, stalled_ms) in grown {
+            tracing::warn!(
+                ds,
+                dropped,
+                stalled_ms,
+                "capture ring overrun: device samples dropped while the dsp thread was held off"
+            );
         }
         for (ds, error) in rec_faults {
             tracing::warn!(ds, error = %error, "recording fault");
@@ -1330,6 +1347,7 @@ impl Engine {
         };
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
+        let stalls = runtime.stall_counters();
         let runtime = Arc::new(Mutex::new(runtime));
 
         let (old_runtime, rebuilds, early_fault) = {
@@ -1357,6 +1375,7 @@ impl Engine {
             state.cmd_txs = cmd_txs;
             state.overruns = overruns;
             state.overruns_seen = 0;
+            state.stalls = stalls;
             state.info = info;
             state.capabilities = capabilities;
             state.settings = settings;
@@ -1506,6 +1525,7 @@ impl Engine {
 
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
+        let stalls = runtime.stall_counters();
         let faulted = {
             let mut inner = self.lock();
             inner.creating.remove(&id);
@@ -1536,6 +1556,7 @@ impl Engine {
                     cmd_txs,
                     overruns,
                     overruns_seen: 0,
+                    stalls,
                     playback,
                     runtime: Arc::new(Mutex::new(runtime)),
                 },

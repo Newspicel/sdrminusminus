@@ -4530,8 +4530,11 @@ dependencies = [
 name = "sdrmm-device"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "num-complex",
  "nusb",
+ "objc2",
+ "objc2-foundation",
  "sdrmm-usb-stream",
  "sdrmm-wire",
  "thiserror 2.0.20",

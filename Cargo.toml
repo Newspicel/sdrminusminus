@@ -133,6 +133,11 @@ rust-embed = "8"
 
 sha2 = "0.11"
 
+# macOS scheduling: keeps App Nap from throttling the capture threads of a window that is not
+# frontmost. Already in the tree through Tauri; pinned here so the headless build shares it.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
+
 # Errors / logging / util
 libc = "0.2"
 thiserror = "2"

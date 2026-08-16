@@ -182,6 +182,7 @@ pub mod duplex;
 pub mod playback;
 pub mod registry;
 pub mod restart;
+pub mod schedule;
 pub mod usb;
 pub mod worker;
 pub use capture::{
@@ -192,6 +193,7 @@ pub use duplex::DuplexState;
 pub use playback::PlaybackShared;
 pub use registry::DeviceRegistry;
 pub use restart::{Recovery, RestartPolicy, SILENT_STREAM_TIMEOUT};
+pub use schedule::Latency;
 pub use sdrmm_wire::{Direction, Duplex};
 pub use worker::Worker;
 

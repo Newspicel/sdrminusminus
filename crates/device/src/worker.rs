@@ -6,7 +6,10 @@ use std::{
     thread::JoinHandle,
 };
 
-use crate::DeviceError;
+use crate::{
+    DeviceError,
+    schedule::{self, Latency},
+};
 
 #[derive(Debug, Default)]
 pub struct Worker {
@@ -41,8 +44,10 @@ impl Worker {
         let running = self.running.clone();
         match std::thread::Builder::new()
             .name(name.to_string())
-            .spawn(move || body(&running))
-        {
+            .spawn(move || {
+                schedule::claim(Latency::Critical);
+                body(&running);
+            }) {
             Ok(handle) => {
                 self.handle = Some(handle);
                 Ok(())

@@ -59,7 +59,10 @@ pub(crate) fn spawn_encoder(
         .map_err(|e| EngineError::Audio(format!("create opus encoder: {e}")))?;
     std::thread::Builder::new()
         .name("sdrmm-opus".to_string())
-        .spawn(move || encode_loop(pcm_rx, &audio_tx, &mut encoder))
+        .spawn(move || {
+            sdrmm_device::schedule::claim(sdrmm_device::Latency::Interactive);
+            encode_loop(pcm_rx, &audio_tx, &mut encoder);
+        })
         .map_err(|e| EngineError::Audio(format!("spawn opus encoder thread: {e}")))
 }
 
