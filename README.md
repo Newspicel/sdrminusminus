@@ -22,7 +22,7 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
   selective calling, DCF77/WWVB/MSF/JJY radio clocks, educational GPS L1 C/A acquisition and NAV
   telemetry, sub-GHz frames, and several digital voice modes.
 - Pull weak amateur traffic out of the noise with FT8, FT4, and WSPR.
-- Follow DMR trunked systems — Capacity Plus, Hytera XPT, and Tier III — and keep every call as
+- Follow DMR trunked systems: Capacity Plus, Hytera XPT, and Tier III. And keep every call as
   replayable audio.
 - Identify an unknown signal from its bandwidth, symbol rate, and deviation, with ranked protocol
   candidates and the reason behind each one.
@@ -70,7 +70,7 @@ wire the Device's IQ output to it, wire its audio output to the Speaker, and tun
 `+300 kHz` for a 1 kHz test tone.
 
 For a real receiver, choose it instead of the signal generator. RTL-SDR, HackRF and SDRplay RSP
-receivers have built-in drivers and need no SoapySDR module — SDRplay is the one exception that
+receivers have built-in drivers and need no SoapySDR module. SDRplay is the one exception that
 needs SDRplay's own API installed, because its licence covers use with genuine SDRplay hardware
 rather than redistribution. Desktop installers and containers additionally bundle SoapySDR support
 for Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and SoapyRemote. See the
