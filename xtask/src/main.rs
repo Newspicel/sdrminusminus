@@ -1064,12 +1064,17 @@ fn set_version(root: &Path, version: &str) -> Result<()> {
 }
 
 fn test(root: &Path) -> Result<()> {
+    ensure_tool("nextest", "cargo-nextest")?;
     let soapy_root = root.join("target/hermetic-soapy");
     let modules = soapy_root.join("lib/SoapySDR/modules0.8");
     std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
+    // `cargo test` runs one test binary at a time; nextest schedules all of them into a single
+    // pool, which is worth minutes here because most of the 48 binaries hold only a few tests.
+    // Benches are excluded rather than covered by `--all-targets`: `harness = false` targets do
+    // not answer `--list`. `cargo xtask check` still clippies them.
     run_with_env(
         "cargo",
-        &["test", "--all-targets"],
+        &["nextest", "run", "--lib", "--bins", "--tests"],
         root,
         &[
             (
@@ -1089,17 +1094,22 @@ fn test(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn audit(root: &Path) -> Result<()> {
+fn ensure_tool(subcommand: &str, crate_name: &str) -> Result<()> {
     let installed = Command::new("cargo")
-        .args(["deny", "--version"])
+        .args([subcommand, "--version"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
     ensure!(
         installed,
-        "cargo-deny is missing: `cargo install --locked cargo-deny`"
+        "{crate_name} is missing: `cargo install --locked {crate_name}`"
     );
+    Ok(())
+}
+
+fn audit(root: &Path) -> Result<()> {
+    ensure_tool("deny", "cargo-deny")?;
     run("cargo", &["deny", "check", "advisories"], root)
 }
 

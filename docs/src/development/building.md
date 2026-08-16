@@ -87,10 +87,10 @@ pnpm --dir web exec playwright install chromium
 cargo xtask smoke
 ```
 
-`cargo xtask audit` requires `cargo-deny`:
+`cargo xtask test` requires `cargo-nextest`, and `cargo xtask audit` requires `cargo-deny`:
 
 ```sh
-cargo install --locked cargo-deny
+cargo install --locked cargo-nextest cargo-deny
 ```
 
 Tests never enumerate real hardware in CI. Engine and server tests construct a registry with the

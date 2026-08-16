@@ -94,6 +94,9 @@ jobs:
         with:
           shared-key: ubuntu
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: cargo xtask test
         run: cargo xtask test
 
@@ -181,16 +184,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      # Build without pushing, on the same gha cache scope the release job writes, so a broken
-      # Dockerfile fails on the pull request that broke it instead of on release day.
+      # Build without pushing, so a broken Dockerfile fails on the pull request that broke it
+      # instead of on release day. Its own cache scope, not the release job's: `PROFILE=ci`
+      # changes every cargo layer's key, so sharing one scope would store both profiles' layers
+      # and serve neither build a hit.
       - uses: docker/build-push-action@v7
         with:
           platforms: linux/amd64
           push: false
           load: true
           tags: sdrmm:ci
-          cache-from: type=gha,scope=linux/amd64
-          cache-to: type=gha,mode=max,scope=linux/amd64
+          build-args: PROFILE=ci
+          cache-from: type=gha,scope=linux/amd64-ci
+          cache-to: type=gha,mode=max,scope=linux/amd64-ci
       # The image is only as good as what it does on start: this asserts the binary runs and
       # that the UI really was embedded, which a `--version` check alone would not show.
       - name: Smoke the image
@@ -321,6 +327,9 @@ jobs:
         with:
           shared-key: macos
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: cargo xtask test
 
   desktop-windows:
