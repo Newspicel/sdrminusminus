@@ -255,10 +255,18 @@ pub struct SpectralDenoiser {
     overlap: Vec<f32>,
     ready: Vec<f32>,
     read: usize,
+    power: Vec<f32>,
     smoothed: Vec<f32>,
-    floor: Vec<f32>,
+    minimum: Vec<f32>,
+    running_min: Vec<f32>,
+    presence: Vec<f32>,
+    noise: Vec<f32>,
+    prior_snr: Vec<f32>,
     gains: Vec<f32>,
-    strength: f32,
+    min_age: usize,
+    frames: u32,
+    floor: f32,
+    log_floor: f32,
     spectrum: Vec<Complex<f32>>,
     scratch: Vec<Complex<f32>>,
 }
@@ -266,11 +274,22 @@ pub struct SpectralDenoiser {
 impl SpectralDenoiser {
     pub const FRAME: usize = 512;
     pub const HOP: usize = Self::FRAME / 2;
-    const GAIN_FLOOR: f32 = 0.1;
-    const POWER_SMOOTHING: f32 = 0.3;
-    const FLOOR_RISE: f32 = 0.003;
-    const GAIN_SMOOTHING: f32 = 0.5;
-    const FLOOR_BIAS: f32 = 5.0;
+    const BINS: usize = Self::FRAME / 2 + 1;
+    const MAX_ATTENUATION_DB: f32 = 20.0;
+    const WARMUP_FRAMES: u32 = 8;
+    const POWER_RETENTION: f32 = 0.8;
+    const PRESENCE_RETENTION: f32 = 0.2;
+    const NOISE_RETENTION: f32 = 0.85;
+    const SNR_RETENTION: f32 = 0.95;
+    const MINIMUM_WINDOW: usize = 256;
+    const MINIMUM_BIAS: f32 = 2.5;
+    const PRESENCE_RATIO: f32 = 5.0;
+    const MIN_PRIOR_SNR: f32 = 0.003;
+    const MAX_POST_SNR: f32 = 1.0e3;
+    const MIN_NU: f32 = 1.0e-6;
+    const MAX_NU: f32 = 500.0;
+    const MIN_ABSENCE: f32 = 0.02;
+    const MAX_ABSENCE: f32 = 0.95;
 
     #[must_use]
     pub fn new(strength: f32) -> Self {
@@ -280,7 +299,7 @@ impl SpectralDenoiser {
         let scratch_len = fft
             .get_inplace_scratch_len()
             .max(ifft.get_inplace_scratch_len());
-        Self {
+        let mut denoiser = Self {
             fft,
             ifft,
             window: hann(Self::FRAME).iter().map(|w| w.sqrt()).collect(),
@@ -288,17 +307,29 @@ impl SpectralDenoiser {
             overlap: vec![0.0; Self::FRAME],
             ready: vec![0.0; Self::FRAME],
             read: 0,
-            smoothed: vec![0.0; Self::FRAME],
-            floor: vec![0.0; Self::FRAME],
-            gains: vec![1.0; Self::FRAME],
-            strength: strength.clamp(0.0, 1.0),
+            power: vec![0.0; Self::BINS],
+            smoothed: vec![0.0; Self::BINS],
+            minimum: vec![0.0; Self::BINS],
+            running_min: vec![0.0; Self::BINS],
+            presence: vec![0.0; Self::BINS],
+            noise: vec![0.0; Self::BINS],
+            prior_snr: vec![0.0; Self::BINS],
+            gains: vec![1.0; Self::BINS],
+            min_age: 0,
+            frames: 0,
+            floor: 1.0,
+            log_floor: 0.0,
             spectrum: vec![Complex::new(0.0, 0.0); Self::FRAME],
             scratch: vec![Complex::new(0.0, 0.0); scratch_len],
-        }
+        };
+        denoiser.set_strength(strength);
+        denoiser
     }
 
     pub fn set_strength(&mut self, strength: f32) {
-        self.strength = strength.clamp(0.0, 1.0);
+        let strength = strength.clamp(0.0, 1.0);
+        self.floor = 10f32.powf(-strength * Self::MAX_ATTENUATION_DB / 20.0);
+        self.log_floor = self.floor.ln();
     }
 
     #[must_use]
@@ -312,9 +343,16 @@ impl SpectralDenoiser {
         self.ready.clear();
         self.ready.resize(Self::FRAME, 0.0);
         self.read = 0;
+        self.power.fill(0.0);
         self.smoothed.fill(0.0);
-        self.floor.fill(0.0);
+        self.minimum.fill(0.0);
+        self.running_min.fill(0.0);
+        self.presence.fill(0.0);
+        self.noise.fill(0.0);
+        self.prior_snr.fill(0.0);
         self.gains.fill(1.0);
+        self.min_age = 0;
+        self.frames = 0;
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
@@ -362,30 +400,110 @@ impl SpectralDenoiser {
     }
 
     fn shape(&mut self) {
-        let strength = self.strength;
-        for (((bin, smoothed), floor), gain) in self
-            .spectrum
-            .iter_mut()
-            .zip(&mut self.smoothed)
-            .zip(&mut self.floor)
-            .zip(&mut self.gains)
-        {
-            *smoothed += Self::POWER_SMOOTHING * (bin.norm_sqr() - *smoothed);
-            if *smoothed < *floor {
-                *floor = *smoothed;
-            } else {
-                *floor += Self::FLOOR_RISE * (*smoothed - *floor);
-            }
-            let wanted = if *smoothed > f32::MIN_POSITIVE {
-                (1.0 - strength * Self::FLOOR_BIAS * *floor / *smoothed)
-                    .clamp(Self::GAIN_FLOOR, 1.0)
-            } else {
-                1.0
-            };
-            *gain += Self::GAIN_SMOOTHING * (wanted - *gain);
-            *bin *= *gain;
+        for (slot, bin) in self.power.iter_mut().zip(&self.spectrum) {
+            *slot = bin.norm_sqr();
+        }
+        self.track_noise();
+        self.update_gains();
+        self.frames = self.frames.saturating_add(1);
+        for (k, bin) in self.spectrum.iter_mut().enumerate() {
+            let index = if k < Self::BINS { k } else { Self::FRAME - k };
+            *bin *= self.gains[index];
         }
     }
+
+    fn track_noise(&mut self) {
+        let last = Self::BINS - 1;
+        self.min_age += 1;
+        let rotate = self.min_age >= Self::MINIMUM_WINDOW;
+        let warming = self.frames < Self::WARMUP_FRAMES;
+        let blend = 1.0 / (self.frames + 1) as f32;
+        for k in 0..Self::BINS {
+            let local = 0.25 * self.power[k.saturating_sub(1)]
+                + 0.5 * self.power[k]
+                + 0.25 * self.power[(k + 1).min(last)];
+            if warming {
+                self.smoothed[k] = local;
+                self.minimum[k] = local;
+                self.running_min[k] = local;
+                self.presence[k] = 0.0;
+                self.noise[k] += blend * (self.power[k] - self.noise[k]);
+                self.noise[k] = self.noise[k].min(Self::MINIMUM_BIAS * local);
+                continue;
+            }
+            self.smoothed[k] =
+                Self::POWER_RETENTION * self.smoothed[k] + (1.0 - Self::POWER_RETENTION) * local;
+            let smoothed = self.smoothed[k];
+            if rotate {
+                self.minimum[k] = smoothed.min(self.running_min[k]);
+                self.running_min[k] = smoothed;
+            } else {
+                self.minimum[k] = self.minimum[k].min(smoothed);
+                self.running_min[k] = self.running_min[k].min(smoothed);
+            }
+            let excess = smoothed / self.minimum[k].max(f32::MIN_POSITIVE);
+            let detected = if excess > Self::PRESENCE_RATIO {
+                1.0
+            } else {
+                0.0
+            };
+            self.presence[k] = Self::PRESENCE_RETENTION * self.presence[k]
+                + (1.0 - Self::PRESENCE_RETENTION) * detected;
+            let retention =
+                Self::NOISE_RETENTION + (1.0 - Self::NOISE_RETENTION) * self.presence[k];
+            self.noise[k] = (retention * self.noise[k] + (1.0 - retention) * self.power[k])
+                .min(Self::MINIMUM_BIAS * self.minimum[k]);
+        }
+        if rotate {
+            self.min_age = 0;
+        }
+    }
+
+    fn update_gains(&mut self) {
+        if self.frames < Self::WARMUP_FRAMES {
+            self.gains.fill(1.0);
+            for k in 0..Self::BINS {
+                self.prior_snr[k] = self.posterior_snr(k);
+            }
+            return;
+        }
+        for k in 0..Self::BINS {
+            let posterior = self.posterior_snr(k);
+            let prior = (Self::SNR_RETENTION * self.prior_snr[k]
+                + (1.0 - Self::SNR_RETENTION) * (posterior - 1.0).max(0.0))
+            .max(Self::MIN_PRIOR_SNR);
+            let ratio = prior / (1.0 + prior);
+            let nu = (ratio * posterior).clamp(Self::MIN_NU, Self::MAX_NU);
+            let lsa = (ratio * (0.5 * exponential_integral(nu)).exp()).clamp(self.floor, 1.0);
+            let absence = (1.0 - self.presence[k]).clamp(Self::MIN_ABSENCE, Self::MAX_ABSENCE);
+            let odds = absence / (1.0 - absence) * (1.0 + prior) * (-nu).exp();
+            let speech = 1.0 / (1.0 + odds);
+            let gain = (speech * lsa.ln() + (1.0 - speech) * self.log_floor).exp();
+            self.prior_snr[k] = gain * gain * posterior;
+            self.gains[k] = gain;
+        }
+    }
+
+    fn posterior_snr(&self, bin: usize) -> f32 {
+        (self.power[bin] / self.noise[bin].max(f32::MIN_POSITIVE)).clamp(0.0, Self::MAX_POST_SNR)
+    }
+}
+
+fn exponential_integral(x: f32) -> f32 {
+    let x = f64::from(x);
+    let value = if x < 1.0 {
+        -x.ln() - 0.577_215_664_901_532_9
+            + x * (0.999_991_93
+                + x * (-0.249_910_55 + x * (0.055_199_68 + x * (-0.009_760_04 + x * 0.001_078_57))))
+    } else {
+        let numerator = x * (x * (x * (x + 8.573_328_740_1) + 18.059_016_973) + 8.634_760_892_5)
+            + 0.267_773_734_3;
+        let denominator = x
+            * (x * (x * (x + 9.573_322_345_4) + 25.632_956_148_6) + 21.099_653_082_7)
+            + 3.958_496_922_8;
+        (-x).exp() / x * (numerator / denominator)
+    };
+    value as f32
 }
 
 #[cfg(test)]
@@ -708,17 +826,22 @@ mod tests {
         }
     }
 
-    fn bursts_in_hiss(len: usize) -> Vec<f32> {
+    const BURST: usize = (RATE * 0.2) as usize;
+
+    fn bursts_at(amplitude: f32, len: usize) -> Vec<f32> {
         let mut rng = XorShift32(0x2C41_66B7);
-        let burst = (RATE * 0.2) as usize;
         real_tone(1_000.0 / RATE, len)
             .iter()
             .enumerate()
             .map(|(n, t)| {
-                let on = (n / burst).is_multiple_of(2);
-                (if on { t * 0.4 } else { 0.0 }) + rng.next_f32() * 0.1
+                let on = (n / BURST).is_multiple_of(2);
+                (if on { t * amplitude } else { 0.0 }) + rng.next_f32() * 0.1
             })
             .collect()
+    }
+
+    fn bursts_in_hiss(len: usize) -> Vec<f32> {
+        bursts_at(0.4, len)
     }
 
     #[test]
@@ -745,6 +868,135 @@ mod tests {
         assert!(
             gap_after < 0.4 * gap_before,
             "hiss survived: {gap_before} -> {gap_after}"
+        );
+    }
+
+    fn gap_window(index: usize, latency: usize) -> std::ops::Range<usize> {
+        let start = index * BURST + BURST / 4 + latency;
+        start..start + BURST / 2
+    }
+
+    fn level_variation(x: &[f32], block: usize) -> f32 {
+        let levels: Vec<f32> = x.chunks_exact(block).map(rms_r).collect();
+        let mean = levels.iter().sum::<f32>() / levels.len() as f32;
+        let spread = levels
+            .iter()
+            .map(|l| f64::from((l - mean) * (l - mean)))
+            .sum::<f64>()
+            / levels.len() as f64;
+        (spread.sqrt() as f32) / mean
+    }
+
+    #[test]
+    fn denoiser_leaves_a_steady_residual_rather_than_musical_noise() {
+        let mut rng = XorShift32(0x51A7_33C1);
+        let input: Vec<f32> = (0..480_000).map(|_| rng.next_f32() * 0.2).collect();
+        let mut denoiser = SpectralDenoiser::new(1.0);
+        let output = run_denoiser(&mut denoiser, &input, 960);
+
+        let before = level_variation(&input[240_000..], 512);
+        let after = level_variation(&output[240_000..], 512);
+        assert!(
+            after < 3.0 * before,
+            "the residual warbles: {before} -> {after}"
+        );
+    }
+
+    #[test]
+    fn denoiser_strength_scales_the_suppression_it_applies() {
+        let input = bursts_in_hiss(480_000);
+        let residual = |strength: f32| {
+            let mut denoiser = SpectralDenoiser::new(strength);
+            let output = run_denoiser(&mut denoiser, &input, 960);
+            rms_r(&output[gap_window(5, denoiser.latency())])
+        };
+        let raw = rms_r(&input[gap_window(5, 0)]);
+        let (off, half, full) = (residual(0.0), residual(0.5), residual(1.0));
+        assert!(
+            (off / raw - 1.0).abs() < 0.05,
+            "zero strength changed {raw} to {off}"
+        );
+        assert!(
+            half < 0.6 * off,
+            "half strength did nothing: {off} -> {half}"
+        );
+        assert!(
+            full < 0.5 * half,
+            "full strength did nothing: {half} -> {full}"
+        );
+        assert!(
+            full > 0.05 * raw,
+            "the gain floor was breached: {full} of {raw}"
+        );
+    }
+
+    #[test]
+    fn denoiser_opens_up_again_within_a_frame_of_a_burst_starting() {
+        let input = bursts_in_hiss(480_000);
+        let mut denoiser = SpectralDenoiser::new(1.0);
+        let output = run_denoiser(&mut denoiser, &input, 960);
+        let onset = 6 * BURST + denoiser.latency();
+        let span = (RATE * 0.05) as usize;
+        let early = tone_amplitude(&output[onset + span..onset + 2 * span], 1_000.0);
+        let settled = tone_amplitude(
+            &output[onset + BURST / 2..onset + BURST / 2 + span],
+            1_000.0,
+        );
+        assert!(
+            early > 0.7 * settled,
+            "the onset was swallowed: {early} of {settled}"
+        );
+    }
+
+    #[test]
+    fn denoiser_keeps_a_burst_that_sits_close_to_the_noise() {
+        let input = bursts_at(0.08, 480_000);
+        let mut denoiser = SpectralDenoiser::new(1.0);
+        let output = run_denoiser(&mut denoiser, &input, 960);
+        let latency = denoiser.latency();
+        let before = tone_amplitude(&input[gap_window(4, 0)], 1_000.0);
+        let after = tone_amplitude(&output[gap_window(4, latency)], 1_000.0);
+        assert!(
+            after > 0.5 * before,
+            "a weak signal was lost: {before} -> {after}"
+        );
+    }
+
+    #[test]
+    fn exponential_integral_matches_its_reference_values() {
+        let reference = [
+            (0.01f32, 4.037_93f32),
+            (0.1, 1.822_924),
+            (0.5, 0.559_774),
+            (1.0, 0.219_384),
+            (2.0, 0.048_900_51),
+            (5.0, 0.001_148_296),
+            (10.0, 4.156_969e-6),
+        ];
+        for (x, expected) in reference {
+            let error = (exponential_integral(x) - expected).abs() / expected;
+            assert!(
+                error < 1e-4,
+                "E1({x}) = {} not {expected}",
+                exponential_integral(x)
+            );
+        }
+    }
+
+    #[test]
+    fn denoiser_keeps_ahead_of_the_audio_rate() {
+        let input = bursts_in_hiss(60 * RATE as usize);
+        let mut denoiser = SpectralDenoiser::new(0.7);
+        let mut buf = [0.0f32; 960];
+        let started = std::time::Instant::now();
+        for chunk in input.as_chunks::<960>().0 {
+            buf.copy_from_slice(chunk);
+            denoiser.process(&mut buf);
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "a minute of audio took {:?}",
+            started.elapsed()
         );
     }
 

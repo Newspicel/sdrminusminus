@@ -9,17 +9,36 @@ If something is shipped, then remove it.
 
 ## 2. Engine — many radios, arrays and cross-cutting DSP
 
+- RX-888 / Mk2 native driver — 16-bit direct sampling over USB 3, no SoapySDR module, so the
+  whole shortwave spectrum arrives as one stream for the channelizer to split. The `usb-stream`
+  crate already carries the bulk-transfer path; what the device adds is FX3 firmware upload at
+  open, an ADC clock the rest of the stack currently assumes is a tuner, and a sample rate high
+  enough that the spectrum tap needs to decimate before it ever reaches a scope
 - `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output (so support for e.g. KrakenSDR)
 - Generic synced bank — any N receivers on a shared reference clock
 - Network coherent source — aligned multi-lane IQ from another sdr-- node or a DAQ
 - Direction finding (MUSIC/ESPRIT) with bearings on the map; multi-station triangulation
 - Passive radar (range-Doppler)
 - Beamforming, diversity combine, and noise cancelling against a reference antenna
+- Neural noise reduction on the listen path — an opt-in per-channel stage behind the OM-LSA
+  denoiser, in a feature-gated crate of its own, since loading a model is I/O and `dsp` has none.
+  DeepFilterNet3 is the fit: Rust-native under tract, MIT/Apache-2.0 for code *and* weights, and
+  natively 48 kHz. Two things gate it. Its weights are trained on full-band clean speech, while
+  radio audio is 300–3000 Hz, companded, and routinely below any SNR in that training set — it wins
+  on FM hiss and broadband RFI and invents detail on weak SSB near the floor, so it stays off by
+  default and never sits upstream of a decoder, which also keeps it away from CW and the data modes
+  it would erase. And it needs fine-tuning on band-limited speech mixed with real captures before it
+  beats the classical stage on the signals that actually matter. GTCRN is the cheaper base to
+  fine-tune (48.2 k parameters against 2.3 M) at the cost of resampling to 16 kHz and back
 - Interferometer
 - A floor that jumps up in one step is read as a signal until the channel next falls quiet, which is the deliberate half of the auto-squelch trade; a smarter estimator would tell the two apart
 
 ## 3. Spectrum, tuning & navigation
 
+- Wideband skimmer — every signal across the visible span decoded at once and labelled on the
+  waterfall, rather than one tuned channel at a time. The identifier already ranks a signal's
+  protocol from its bandwidth, symbol rate and deviation; what is missing is a pool of cheap
+  detectors fed from the span and a label layer that survives zoom, pan and a moving signal
 - Better frequency scanner, including one that spans several devices
 - Hardware-assisted wideband sweep — the scanner still sweeps by retuning; a
   firmware sweep delivers blocks stamped with their own frequency rather than a stream at one
@@ -60,7 +79,8 @@ If something is shipped, then remove it.
 ### Data, text & paging®
 
 - FLEX and further pager formats, ERMES
-- CW skimmer — every CW signal in the passband at once
+- CW skimmer — every CW signal in the passband at once; the general case is the wideband
+  skimmer (§3)
 - Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
 
 ### Sub-GHz, ISM & IoT
