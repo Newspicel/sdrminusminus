@@ -121,6 +121,8 @@ const PNPM: &str = "pnpm.cmd";
 #[cfg(not(windows))]
 const PNPM: &str = "pnpm";
 
+const MACOS_LIBRARY_PREFIXES: &[&str] = &["/opt/homebrew/lib", "/usr/local/lib"];
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -729,9 +731,30 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
             root,
         )?;
     }
+    if triple.contains("apple") {
+        add_loader_paths(root, &staged.join(exe))?;
+    }
 
     let archive = archive(root, &out, &name, windows)?;
     println!("dist: {}", archive.display());
+    Ok(())
+}
+
+fn add_loader_paths(root: &Path, binary: &Path) -> Result<()> {
+    let path = binary.to_str().context("non-utf8 binary path")?;
+    for prefix in MACOS_LIBRARY_PREFIXES {
+        run("install_name_tool", &["-add_rpath", prefix, path], root)?;
+    }
+    run("codesign", &["--sign", "-", "--force", path], root)?;
+
+    let present = linkage::rpaths(binary)?;
+    for prefix in MACOS_LIBRARY_PREFIXES {
+        ensure!(
+            present.iter().any(|rpath| rpath == prefix),
+            "{path} carries no {prefix} search path: it links @rpath/libSoapySDR and would fail \
+             to launch on a host that installed SoapySDR where every installer puts it"
+        );
+    }
     Ok(())
 }
 
