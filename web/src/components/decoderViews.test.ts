@@ -118,6 +118,18 @@ describe("multi-VOR fixes", () => {
     expect(fix?.stations).toBe(2);
   });
 
+  it("intersects radials across the antimeridian", () => {
+    const records = [
+      record("vor", vorReading("A", 0, 179.5, 45)),
+      record("vor", vorReading("B", 0, -178.5, 315), { channel: 1 }),
+    ];
+    const fix = multiVorFix(records);
+    expect(fix).not.toBeNull();
+    expect(fix?.lat).toBeCloseTo(1, 3);
+    expect(fix?.lon).toBeCloseTo(-179.5, 3);
+    expect(fix?.residualKm).toBeLessThan(0.001);
+  });
+
   it("uses the newest reading from each station", () => {
     const newest = record("vor", vorReading("A", 0, 0, 45), {
       at: "2026-08-09T12:00:01Z",

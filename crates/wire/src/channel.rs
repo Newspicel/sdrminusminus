@@ -1023,6 +1023,9 @@ impl Default for GnssParams {
     }
 }
 
+pub const MIN_NAVAID_REPORT_MS: u32 = 250;
+pub const MAX_NAVAID_REPORT_MS: u32 = 5_000;
+
 fn default_navaid_report_ms() -> u32 {
     500
 }
@@ -1038,6 +1041,7 @@ pub struct VorParams {
     #[serde(default)]
     pub magnetic_declination_deg: f64,
     #[serde(default = "default_navaid_report_ms")]
+    #[schema(minimum = 250, maximum = 5000)]
     pub report_ms: u32,
 }
 
@@ -1066,6 +1070,7 @@ pub struct IlsParams {
     #[serde(default)]
     pub component: IlsComponent,
     #[serde(default = "default_navaid_report_ms")]
+    #[schema(minimum = 250, maximum = 5000)]
     pub report_ms: u32,
 }
 

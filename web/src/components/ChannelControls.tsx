@@ -795,7 +795,7 @@ function ModeControls({
               suggestions={[]}
               placeholder="Optional identifier"
               onCommit={(station) => {
-                set({ ...params.settings, station });
+                set({ ...params.settings, station: station === "" ? undefined : station });
                 return true;
               }}
             />

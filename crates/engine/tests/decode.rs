@@ -596,13 +596,7 @@ async fn vor_radial_survives_virtual_device_playback() {
             params: ChannelParams::Vor(VorParams::default()),
             audio: Default::default(),
         },
-        |event| match event {
-            DecoderEvent::Vor(reading) => {
-                let error = (reading.radial_deg - 123.0 + 180.0).rem_euclid(360.0) - 180.0;
-                error.abs() < 0.5
-            }
-            _ => false,
-        },
+        |event| matches!(event, DecoderEvent::Vor(_)),
     )
     .await;
     let DecoderEvent::Vor(reading) = record.event else {

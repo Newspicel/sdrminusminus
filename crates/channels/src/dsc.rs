@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn decodes_a_distress_alert_fixture() {
         let symbols = [
-            112, 112, 12, 34, 56, 78, 90, 100, 12, 34, 45, 67, 89, 12, 12, 34, 117, 0,
+            112, 112, 12, 34, 56, 78, 90, 100, 12, 34, 45, 67, 89, 12, 12, 34, 117, 88,
         ];
         let iq = xng_mode_dsc::modulate::call_iq(&symbols, RATE, 0.0, 0.8);
         let mut channel = DscChannel::new(
@@ -92,10 +92,15 @@ mod tests {
         )
         .expect("channel");
         let events = run_events(&mut channel, &iq);
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event, DecoderEvent::Dsc(_)))
-        );
+        let message = events
+            .iter()
+            .find_map(|event| match event {
+                DecoderEvent::Dsc(message) => Some(message),
+                _ => None,
+            })
+            .expect("DSC message");
+        assert!(message.crc_ok);
+        assert_eq!(message.message_type, "distress_alert");
+        assert_eq!(message.station.as_deref(), Some("123456789"));
     }
 }

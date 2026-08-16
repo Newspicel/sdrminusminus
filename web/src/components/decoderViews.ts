@@ -62,7 +62,7 @@ export function multiVorFix(records: readonly DecodedRecordOf<"vor">[]): VorFix 
   }
   const earthRadiusKm = 6371;
   const refLat = average(usable.map((record) => radians(record.event.data.station_lat!)));
-  const refLon = average(usable.map((record) => radians(record.event.data.station_lon!)));
+  const refLon = averageAngle(usable.map((record) => radians(record.event.data.station_lon!)));
   let a00 = 0;
   let a01 = 0;
   let a11 = 0;
@@ -70,7 +70,8 @@ export function multiVorFix(records: readonly DecodedRecordOf<"vor">[]): VorFix 
   let b1 = 0;
   const lines = usable.map((record) => {
     const reading = record.event.data;
-    const x = earthRadiusKm * (radians(reading.station_lon!) - refLon) * Math.cos(refLat);
+    const x =
+      earthRadiusKm * normalizeRadians(radians(reading.station_lon!) - refLon) * Math.cos(refLat);
     const y = earthRadiusKm * (radians(reading.station_lat!) - refLat);
     const bearing = radians(reading.radial_deg + reading.magnetic_declination_deg);
     const nx = Math.cos(bearing);
@@ -97,7 +98,7 @@ export function multiVorFix(records: readonly DecodedRecordOf<"vor">[]): VorFix 
   const weight = lines.reduce((sum, line) => sum + line.weight, 0);
   return {
     lat: degreesFromRadians(refLat + y / earthRadiusKm),
-    lon: degreesFromRadians(refLon + x / (earthRadiusKm * Math.cos(refLat))),
+    lon: degreesFromRadians(normalizeRadians(refLon + x / (earthRadiusKm * Math.cos(refLat)))),
     residualKm: Math.sqrt(weightedError / weight),
     stations: usable.length,
   };
@@ -120,6 +121,17 @@ function degreesFromRadians(angle: number): number {
 
 function average(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function averageAngle(values: readonly number[]): number {
+  return Math.atan2(
+    values.reduce((sum, value) => sum + Math.sin(value), 0),
+    values.reduce((sum, value) => sum + Math.cos(value), 0),
+  );
+}
+
+function normalizeRadians(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
 }
 
 export function stationsInScope<S extends { deviceSet: number; channel: number }>(

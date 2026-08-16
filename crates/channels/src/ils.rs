@@ -3,7 +3,7 @@ use std::{f64::consts::TAU, sync::LazyLock};
 use num_complex::Complex;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, IlsComponent, IlsParams,
-    IlsReading,
+    IlsReading, MAX_NAVAID_REPORT_MS, MIN_NAVAID_REPORT_MS,
 };
 
 use crate::{
@@ -36,6 +36,7 @@ pub struct IlsChannel {
     tone_150_q: f64,
     envelope_sum: f64,
     samples: usize,
+    settled: bool,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&IlsParams, ChannelError> {
@@ -49,11 +50,11 @@ fn params(settings: &ChannelSettings) -> Result<&IlsParams, ChannelError> {
 }
 
 fn check_params(params: &IlsParams) -> Result<(), ChannelError> {
-    if (250..=5_000).contains(&params.report_ms) {
+    if (MIN_NAVAID_REPORT_MS..=MAX_NAVAID_REPORT_MS).contains(&params.report_ms) {
         Ok(())
     } else {
         Err(ChannelError::InvalidSettings(format!(
-            "ILS report interval must be 250–5000 ms, got {}",
+            "ILS report interval must be {MIN_NAVAID_REPORT_MS}–{MAX_NAVAID_REPORT_MS} ms, got {}",
             params.report_ms
         )))
     }
@@ -110,7 +111,10 @@ impl ChannelRx for IlsChannel {
             self.phase_150 = (self.phase_150 + step_150) % TAU;
             self.samples += 1;
             if self.samples >= self.report_samples() {
-                self.report(out);
+                if self.settled {
+                    self.report(out);
+                }
+                self.settled = true;
                 self.clear_window();
             }
         }
@@ -131,6 +135,7 @@ impl IlsChannel {
             tone_150_q: 0.0,
             envelope_sum: 0.0,
             samples: 0,
+            settled: false,
         }
     }
 
@@ -140,7 +145,7 @@ impl IlsChannel {
 
     fn report(&self, out: &mut ChannelOutputs) {
         let count = self.samples as f64;
-        let mean = self.envelope_sum / count;
+        let mean = (self.envelope_sum / count).max(1e-9);
         let modulation_90 = (2.0 * self.tone_90_i.hypot(self.tone_90_q) / count / mean) as f32;
         let modulation_150 = (2.0 * self.tone_150_i.hypot(self.tone_150_q) / count / mean) as f32;
         if modulation_90 + modulation_150 < 0.08 {
@@ -204,6 +209,46 @@ mod tests {
             .expect("ILS reading");
         assert!((reading.ddm - 0.16).abs() < 0.01, "{}", reading.ddm);
         assert!((reading.deviation_dots - 2.58).abs() < 0.2);
+    }
+
+    #[test]
+    fn silence_never_reports_a_reading() {
+        let iq = vec![Complex::new(0.0, 0.0); RATE as usize * 2];
+        let mut channel = IlsChannel::new(
+            ChannelCtx { input_rate: RATE },
+            settings(ChannelParams::Ils(IlsParams::default())),
+        )
+        .expect("channel");
+        assert!(run_events(&mut channel, &iq).is_empty());
+    }
+
+    #[test]
+    fn the_first_window_is_discarded_while_the_dc_estimator_settles() {
+        let iq: Vec<_> = (0..RATE as usize * 2)
+            .map(|index| {
+                let time = index as f64 / RATE;
+                let envelope =
+                    1.0 + 0.20 * (TAU * 90.0 * time).cos() + 0.20 * (TAU * 150.0 * time).cos();
+                Complex::new(envelope as f32, 0.0)
+            })
+            .collect();
+        let mut channel = IlsChannel::new(
+            ChannelCtx { input_rate: RATE },
+            settings(ChannelParams::Ils(IlsParams::default())),
+        )
+        .expect("channel");
+        let readings: Vec<_> = run_events(&mut channel, &iq)
+            .into_iter()
+            .filter_map(|event| match event {
+                DecoderEvent::Ils(reading) => Some(reading),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(readings.len(), 3);
+        for reading in &readings {
+            assert!((reading.modulation_90 - 0.20).abs() < 0.02, "{reading:?}");
+            assert!((reading.modulation_150 - 0.20).abs() < 0.02, "{reading:?}");
+        }
     }
 
     #[test]

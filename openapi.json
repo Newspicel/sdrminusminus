@@ -8543,7 +8543,8 @@
           "report_ms": {
             "type": "integer",
             "format": "int32",
-            "minimum": 0
+            "maximum": 5000,
+            "minimum": 250
           }
         }
       },
@@ -13014,7 +13015,8 @@
           "report_ms": {
             "type": "integer",
             "format": "int32",
-            "minimum": 0
+            "maximum": 5000,
+            "minimum": 250
           },
           "station": {
             "type": [

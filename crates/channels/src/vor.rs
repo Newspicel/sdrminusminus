@@ -2,7 +2,8 @@ use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, VorParams, VorReading,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, MAX_NAVAID_REPORT_MS,
+    MIN_NAVAID_REPORT_MS, VorParams, VorReading,
 };
 
 use crate::{
@@ -51,9 +52,9 @@ fn params(settings: &ChannelSettings) -> Result<&VorParams, ChannelError> {
 }
 
 fn check_params(params: &VorParams) -> Result<(), ChannelError> {
-    if !(250..=5_000).contains(&params.report_ms) {
+    if !(MIN_NAVAID_REPORT_MS..=MAX_NAVAID_REPORT_MS).contains(&params.report_ms) {
         return Err(ChannelError::InvalidSettings(format!(
-            "VOR report interval must be 250–5000 ms, got {}",
+            "VOR report interval must be {MIN_NAVAID_REPORT_MS}–{MAX_NAVAID_REPORT_MS} ms, got {}",
             params.report_ms
         )));
     }

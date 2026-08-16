@@ -46,3 +46,4 @@ serde_json.workspace = true
 # which `#[cfg(test)]` alone does not enable for tests/ targets).
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 blip25-vocoder = { workspace = true, features = ["encode"] }
+xng-acars.workspace = true

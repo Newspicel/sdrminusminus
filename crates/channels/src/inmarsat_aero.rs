@@ -84,9 +84,16 @@ mod tests {
     use super::*;
     use crate::testutil::{run_events, settings};
 
+    const ADSC_TEXT: &str =
+        "/BOMASAI.ADS.VT-ANB072501A070A988CA73248F0E5DC10200000F5EE1ABC000102B885E0A19F5";
+
     #[test]
     fn decodes_a_p_channel_intermediate_signal_unit() {
-        let mut units = su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, b"TEST");
+        let mut user = vec![0xFF, 0xFF];
+        user.extend(xng_acars::block::build(
+            '2', "VT-ANB", None, "B6", 'A', None, None, ADSC_TEXT, false,
+        ));
+        let mut units = su::build_isu_chain(0xA1B2C3, 0x44, 1, 7, &user);
         while !units.len().is_multiple_of(6) {
             units.push(su::fill_su());
         }
@@ -104,10 +111,15 @@ mod tests {
         )
         .expect("channel");
         let events = run_events(&mut channel, &iq);
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event, DecoderEvent::InmarsatAero(_)))
-        );
+        let message = events
+            .iter()
+            .find_map(|event| match event {
+                DecoderEvent::InmarsatAero(message) => Some(message),
+                _ => None,
+            })
+            .expect("Inmarsat Aero message");
+        assert!(message.crc_ok);
+        assert_eq!(message.station.as_deref(), Some("VT-ANB"));
+        assert_eq!(message.text.as_deref(), Some(ADSC_TEXT));
     }
 }

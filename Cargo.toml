@@ -120,6 +120,7 @@ xng-mode-vdl2 = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843
 xng-mode-hfdl = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-mode-iridium = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-types = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
+xng-acars = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 rtrb = "0.3"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
