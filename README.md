@@ -59,8 +59,9 @@ available from the rolling [nightly release](https://github.com/Newspicel/sdrmin
 ### Homebrew
 
 ```sh
+brew trust newspicel/tap
 brew tap newspicel/tap
-brew install --cask sdrminusminus
+brew install sdrminusminus
 brew install sdrmm
 ```
 
