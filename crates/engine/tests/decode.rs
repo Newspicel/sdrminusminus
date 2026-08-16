@@ -646,7 +646,7 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
 #[tokio::test]
 async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
-    let engine = engine_for(dir.path());
+    let engine = accelerated_engine_for(dir.path());
     let offset_hz = 5_000.0;
     let params = RttyParams::default();
 
@@ -815,7 +815,7 @@ async fn wspr_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
 #[tokio::test]
 async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
-    let engine = engine_for(dir.path());
+    let engine = accelerated_engine_for(dir.path());
     let offset_hz = -5_000.0;
 
     let mut iq = testgen::morse::transmission("CQ DE DL1ABC K", 20.0, 0.0, AUDIO_DEVICE_RATE);
@@ -849,7 +849,7 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
 #[tokio::test]
 async fn cw_skimmer_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
-    let engine = engine_for(dir.path());
+    let engine = accelerated_engine_for(dir.path());
     let mut iq =
         testgen::morse::transmission("VVV VVV CQ DE ENGINE K", 20.0, 3_500.0, NARROW_DEVICE_RATE);
     iq.extend(testgen::silence(NARROW_DEVICE_RATE as usize * 4));
@@ -886,7 +886,7 @@ async fn cw_skimmer_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
 #[tokio::test]
 async fn navtex_broadcast_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
-    let engine = engine_for(dir.path());
+    let engine = accelerated_engine_for(dir.path());
     let offset_hz = -3_000.0;
 
     let mut iq = testgen::navtex::transmission(
