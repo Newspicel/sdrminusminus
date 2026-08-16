@@ -2,7 +2,7 @@ use std::f64::consts::TAU;
 
 use num_complex::Complex;
 use rustfft::FftPlanner;
-use sdrmm_wire::{ChannelParams, ChannelSettings};
+use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent};
 
 use crate::{AUDIO_RATE, ChannelOutputs, ChannelRx};
 
@@ -75,6 +75,23 @@ pub(crate) fn run_ragged(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<f
         pos = end;
     }
     audio
+}
+
+pub(crate) fn run_events(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<DecoderEvent> {
+    let mut out = ChannelOutputs::default();
+    let mut events = Vec::new();
+    let mut pos = 0;
+    for len in [997usize, 1, 4_096, 65, 2_048, 7, 1_024].iter().cycle() {
+        if pos >= iq.len() {
+            break;
+        }
+        let end = (pos + len).min(iq.len());
+        out.reset();
+        chan.process(&iq[pos..end], &mut out);
+        events.append(&mut out.events);
+        pos = end;
+    }
+    events
 }
 
 pub(crate) fn split_stereo(pcm: &[f32]) -> (Vec<f32>, Vec<f32>) {

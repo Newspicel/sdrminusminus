@@ -9,11 +9,17 @@ mod cw_skimmer;
 mod dab;
 mod datv;
 mod drm;
+mod dsc;
 mod dv;
 mod ermes;
 mod flex;
 mod gnss;
+mod hfdl;
 mod ident;
+mod ils;
+mod inmarsat_aero;
+mod inmarsat_stdc;
+mod iridium;
 mod morse;
 mod navtex;
 mod nfm;
@@ -28,8 +34,11 @@ mod sstv;
 mod subghz;
 pub mod tone_squelch;
 mod tx;
+mod vdl2;
+mod vor;
 mod weak_signal;
 mod wfm;
+mod xng_adapter;
 
 #[cfg(test)]
 mod testutil;
@@ -48,6 +57,7 @@ pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
 pub use datv::DatvChannel;
 pub use drm::DrmChannel;
+pub use dsc::DscChannel;
 pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
     YsfChannel,
@@ -55,7 +65,12 @@ pub use dv::{
 pub use ermes::ErmesChannel;
 pub use flex::FlexChannel;
 pub use gnss::GnssChannel;
+pub use hfdl::HfdlChannel;
 pub use ident::IdentChannel;
+pub use ils::IlsChannel;
+pub use inmarsat_aero::InmarsatAeroChannel;
+pub use inmarsat_stdc::InmarsatStdcChannel;
+pub use iridium::IridiumChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
@@ -72,6 +87,8 @@ pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
 pub use sstv::SstvChannel;
 pub use subghz::SubghzChannel;
+pub use vdl2::Vdl2Channel;
+pub use vor::VorChannel;
 pub use weak_signal::{Ft4Channel, Ft8Channel, WsprChannel};
 pub use wfm::WfmChannel;
 
@@ -137,6 +154,14 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Ident(p) => ident::occupied_band(p),
         ChannelParams::RadioClock(_) => radio_clock::occupied_band(),
         ChannelParams::Gnss(_) => gnss::occupied_band(),
+        ChannelParams::Vor(_) => vor::occupied_band(),
+        ChannelParams::Ils(_) => ils::occupied_band(),
+        ChannelParams::Dsc(_) => dsc::occupied_band(),
+        ChannelParams::InmarsatStdc(_) => inmarsat_stdc::occupied_band(),
+        ChannelParams::InmarsatAero(_) => inmarsat_aero::occupied_band(),
+        ChannelParams::Vdl2(_) => vdl2::occupied_band(),
+        ChannelParams::Hfdl(_) => hfdl::occupied_band(),
+        ChannelParams::Iridium(_) => iridium::occupied_band(),
     }
 }
 
@@ -198,6 +223,14 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Ident(p) => ident::channel_filter(p),
         ChannelParams::RadioClock(_) => Ok(radio_clock::channel_filter()),
         ChannelParams::Gnss(_) => Ok(gnss::channel_filter()),
+        ChannelParams::Vor(_) => Ok(vor::channel_filter()),
+        ChannelParams::Ils(_) => Ok(ils::channel_filter()),
+        ChannelParams::Dsc(_) => Ok(dsc::channel_filter()),
+        ChannelParams::InmarsatStdc(_) => Ok(inmarsat_stdc::channel_filter()),
+        ChannelParams::InmarsatAero(_) => Ok(inmarsat_aero::channel_filter()),
+        ChannelParams::Vdl2(_) => Ok(vdl2::channel_filter()),
+        ChannelParams::Hfdl(_) => Ok(hfdl::channel_filter()),
+        ChannelParams::Iridium(_) => Ok(iridium::channel_filter()),
     }
 }
 
@@ -513,6 +546,46 @@ const REGISTRY: &[Registration] = &[
         create: boxed::<GnssChannel>,
         create_tx: None,
     },
+    Registration {
+        descriptor: VorChannel::descriptor,
+        create: boxed::<VorChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: IlsChannel::descriptor,
+        create: boxed::<IlsChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: DscChannel::descriptor,
+        create: boxed::<DscChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: InmarsatStdcChannel::descriptor,
+        create: boxed::<InmarsatStdcChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: InmarsatAeroChannel::descriptor,
+        create: boxed::<InmarsatAeroChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: Vdl2Channel::descriptor,
+        create: boxed::<Vdl2Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: HfdlChannel::descriptor,
+        create: boxed::<HfdlChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: IridiumChannel::descriptor,
+        create: boxed::<IridiumChannel>,
+        create_tx: None,
+    },
 ];
 
 #[must_use]
@@ -595,10 +668,11 @@ mod tests {
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
         ChannelParams, CwSkimmerParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams,
-        DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams, IdentParams, M17Params,
+        DscParams, DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams, HfdlParams,
+        IdentParams, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params,
         MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, PskParams,
         RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams, SubghzParams,
-        WfmParams, WsjtParams, WsprParams, YsfParams,
+        Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
     };
 
     use super::*;
@@ -644,6 +718,14 @@ mod tests {
             "ident" => ChannelParams::Ident(IdentParams::default()),
             "radio_clock" => ChannelParams::RadioClock(RadioClockParams::default()),
             "gnss" => ChannelParams::Gnss(GnssParams::default()),
+            "vor" => ChannelParams::Vor(VorParams::default()),
+            "ils" => ChannelParams::Ils(IlsParams::default()),
+            "dsc" => ChannelParams::Dsc(DscParams::default()),
+            "inmarsat_stdc" => ChannelParams::InmarsatStdc(InmarsatStdcParams::default()),
+            "inmarsat_aero" => ChannelParams::InmarsatAero(InmarsatAeroParams::default()),
+            "vdl2" => ChannelParams::Vdl2(Vdl2Params::default()),
+            "hfdl" => ChannelParams::Hfdl(HfdlParams::default()),
+            "iridium" => ChannelParams::Iridium(IridiumParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -651,7 +733,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 38);
+        assert_eq!(all.len(), 46);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -694,6 +776,14 @@ mod tests {
                 "ident",
                 "radio_clock",
                 "gnss",
+                "vor",
+                "ils",
+                "dsc",
+                "inmarsat_stdc",
+                "inmarsat_aero",
+                "vdl2",
+                "hfdl",
+                "iridium",
             ])
         );
         for d in &all {
@@ -729,6 +819,14 @@ mod tests {
                 "ident" => (192_000.0, 240_000.0),
                 "radio_clock" => (200.0, 2_000.0),
                 "gnss" => (2_046_000.0, 2_048_000.0),
+                "vor" => (24_000.0, 48_000.0),
+                "ils" => (20_000.0, 48_000.0),
+                "dsc" => (500.0, 8_000.0),
+                "inmarsat_stdc" => (4_000.0, 12_000.0),
+                "inmarsat_aero" => (13_000.0, 48_000.0),
+                "vdl2" => (17_000.0, 100_000.0),
+                "hfdl" => (6_000.0, 12_000.0),
+                "iridium" => (50_000.0, 250_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);

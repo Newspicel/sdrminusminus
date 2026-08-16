@@ -693,6 +693,55 @@ pub struct SstvPicture {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct VorReading {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_lon: Option<f64>,
+    pub magnetic_declination_deg: f64,
+    pub radial_deg: f64,
+    pub variable_phase_deg: f64,
+    pub reference_phase_deg: f64,
+    pub signal_db: f32,
+    pub confidence: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IlsReading {
+    pub component: crate::channel::IlsComponent,
+    pub modulation_90: f32,
+    pub modulation_150: f32,
+    pub ddm: f32,
+    pub deviation_dots: f32,
+    pub signal_db: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DataLinkMessage {
+    pub message_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    pub crc_ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fec_corrected: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snr_db: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_error_hz: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lon: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
+    pub details: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
     Rds(RdsUpdate),
@@ -721,6 +770,14 @@ pub enum DecoderEvent {
     RadioClock(RadioClockFrame),
     Gnss(GnssFrame),
     Sstv(SstvPicture),
+    Vor(VorReading),
+    Ils(IlsReading),
+    Dsc(DataLinkMessage),
+    InmarsatStdc(DataLinkMessage),
+    InmarsatAero(DataLinkMessage),
+    Vdl2(DataLinkMessage),
+    Hfdl(DataLinkMessage),
+    Iridium(DataLinkMessage),
 }
 
 impl DecoderEvent {
@@ -753,6 +810,14 @@ impl DecoderEvent {
             Self::RadioClock(_) => "radio_clock",
             Self::Gnss(_) => "gnss",
             Self::Sstv(_) => "sstv",
+            Self::Vor(_) => "vor",
+            Self::Ils(_) => "ils",
+            Self::Dsc(_) => "dsc",
+            Self::InmarsatStdc(_) => "inmarsat_stdc",
+            Self::InmarsatAero(_) => "inmarsat_aero",
+            Self::Vdl2(_) => "vdl2",
+            Self::Hfdl(_) => "hfdl",
+            Self::Iridium(_) => "iridium",
         }
     }
 
@@ -1006,6 +1071,42 @@ impl DecoderEvent {
                 });
                 parts.join(" · ")
             }
+            Self::Vor(v) => {
+                let station = v.station.as_deref().unwrap_or("VOR");
+                format!(
+                    "{station} · {:03.1}° radial · {:.0}%",
+                    v.radial_deg,
+                    v.confidence * 100.0
+                )
+            }
+            Self::Ils(i) => {
+                let component = match i.component {
+                    crate::channel::IlsComponent::Localizer => "localizer",
+                    crate::channel::IlsComponent::Glideslope => "glideslope",
+                };
+                format!(
+                    "{component} · {:+.3} DDM · {:+.2} dots",
+                    i.ddm, i.deviation_dots
+                )
+            }
+            Self::Dsc(m)
+            | Self::InmarsatStdc(m)
+            | Self::InmarsatAero(m)
+            | Self::Vdl2(m)
+            | Self::Hfdl(m)
+            | Self::Iridium(m) => {
+                let mut parts = vec![m.message_type.clone()];
+                if let Some(station) = &m.station {
+                    parts.push(station.clone());
+                }
+                if let Some(text) = &m.text {
+                    let text = text.replace('\n', " ");
+                    if !text.trim().is_empty() {
+                        parts.push(text.trim().to_owned());
+                    }
+                }
+                parts.join(" · ")
+            }
         }
     }
 
@@ -1016,6 +1117,12 @@ impl DecoderEvent {
             Self::Ais(m) => (m.lat, m.lon),
             Self::Aprs(p) => (p.lat, p.lon),
             Self::Dv(f) => (f.lat, f.lon),
+            Self::Dsc(m)
+            | Self::InmarsatStdc(m)
+            | Self::InmarsatAero(m)
+            | Self::Vdl2(m)
+            | Self::Hfdl(m)
+            | Self::Iridium(m) => (m.lat, m.lon),
             _ => (None, None),
         };
         lat.zip(lon)
@@ -1058,6 +1165,14 @@ impl DecoderEvent {
             Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
             Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
             Self::Sstv(p) => Some(p.mode.label().to_owned()),
+            Self::Vor(v) => v.station.clone(),
+            Self::Dsc(m)
+            | Self::InmarsatStdc(m)
+            | Self::InmarsatAero(m)
+            | Self::Vdl2(m)
+            | Self::Hfdl(m)
+            | Self::Iridium(m) => m.station.clone(),
+            Self::Ils(_) => None,
         }
     }
 }
@@ -1127,6 +1242,19 @@ mod tests {
 
     #[test]
     fn kind_matches_the_serialized_tag() {
+        let link = || DataLinkMessage {
+            message_type: "test".to_owned(),
+            station: None,
+            text: None,
+            crc_ok: true,
+            fec_corrected: None,
+            snr_db: None,
+            frequency_error_hz: None,
+            lat: None,
+            lon: None,
+            raw: None,
+            details: serde_json::Value::Null,
+        };
         for ev in [
             DecoderEvent::Rds(RdsUpdate::default()),
             DecoderEvent::Pocsag(PocsagMessage {
@@ -1232,6 +1360,31 @@ mod tests {
                 week: None,
                 words: Vec::new(),
             }),
+            DecoderEvent::Vor(VorReading {
+                station: None,
+                station_lat: None,
+                station_lon: None,
+                magnetic_declination_deg: 0.0,
+                radial_deg: 0.0,
+                variable_phase_deg: 0.0,
+                reference_phase_deg: 0.0,
+                signal_db: 0.0,
+                confidence: 1.0,
+            }),
+            DecoderEvent::Ils(IlsReading {
+                component: crate::channel::IlsComponent::Localizer,
+                modulation_90: 0.0,
+                modulation_150: 0.0,
+                ddm: 0.0,
+                deviation_dots: 0.0,
+                signal_db: 0.0,
+            }),
+            DecoderEvent::Dsc(link()),
+            DecoderEvent::InmarsatStdc(link()),
+            DecoderEvent::InmarsatAero(link()),
+            DecoderEvent::Vdl2(link()),
+            DecoderEvent::Hfdl(link()),
+            DecoderEvent::Iridium(link()),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());

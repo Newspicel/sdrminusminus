@@ -48,7 +48,7 @@ As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothi
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
-## Rust crates (661)
+## Rust crates (675)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -138,6 +138,8 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [crc-catalog](https://github.com/akhilles/crc-catalog.git) | 2.5.0 | MIT OR Apache-2.0 |
 | [crc32fast](https://github.com/srijs/rust-crc32fast) | 1.5.0 | MIT OR Apache-2.0 |
 | [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam) | 0.5.16 | MIT OR Apache-2.0 |
+| [crossbeam-deque](https://github.com/crossbeam-rs/crossbeam) | 0.8.7 | MIT OR Apache-2.0 |
+| [crossbeam-epoch](https://github.com/crossbeam-rs/crossbeam) | 0.9.20 | MIT OR Apache-2.0 |
 | [crossbeam-utils](https://github.com/crossbeam-rs/crossbeam) | 0.8.22 | MIT OR Apache-2.0 |
 | [crunchy](https://github.com/eira-fransham/crunchy) | 0.2.4 | MIT |
 | [crypto-common](https://github.com/RustCrypto/traits) | 0.1.7 | MIT OR Apache-2.0 |
@@ -179,6 +181,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [dtor-proc-macro](https://github.com/mmastrac/rust-ctor) | 0.0.6 | Apache-2.0 OR MIT |
 | [dunce](https://gitlab.com/kornelski/dunce) | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | [dyn-clone](https://github.com/dtolnay/dyn-clone) | 1.0.20 | MIT OR Apache-2.0 |
+| [either](https://github.com/rayon-rs/either) | 1.17.0 | MIT OR Apache-2.0 |
 | [embed-resource](https://github.com/nabijaczleweli/rust-embed-resource) | 3.0.11 | MIT |
 | [embed_plist](https://github.com/nvzqz/embed-plist-rs) | 1.2.2 | MIT OR Apache-2.0 |
 | [equivalent](https://github.com/indexmap-rs/equivalent) | 1.0.2 | Apache-2.0 OR MIT |
@@ -414,6 +417,8 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [range-alloc](https://github.com/gfx-rs/range-alloc) | 0.1.5 | MIT OR Apache-2.0 |
 | [raw-window-handle](https://github.com/rust-windowing/raw-window-handle) | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
 | [raw-window-metal](https://github.com/rust-windowing/raw-window-metal) | 1.1.0 | MIT OR Apache-2.0 |
+| [rayon](https://github.com/rayon-rs/rayon) | 1.12.0 | MIT OR Apache-2.0 |
+| [rayon-core](https://github.com/rayon-rs/rayon) | 1.13.0 | MIT OR Apache-2.0 |
 | [redox_syscall](https://gitlab.redox-os.org/redox-os/syscall) | 0.5.18 | MIT |
 | [redox_users](https://gitlab.redox-os.org/redox-os/users) | 0.5.2 | MIT |
 | [ref-cast](https://github.com/dtolnay/ref-cast) | 1.0.26 | MIT OR Apache-2.0 |
@@ -698,6 +703,15 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [x11-dl](https://github.com/AltF02/x11-rs.git) | 2.21.0 | MIT |
 | [xattr](https://github.com/Stebalien/xattr) | 1.6.1 | MIT OR Apache-2.0 |
 | [xml-rs](https://github.com/kornelski/xml-rs) | 0.8.29 | MIT |
+| [xng-acars](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-dsp](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-mode-aero](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-mode-dsc](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-mode-hfdl](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-mode-iridium](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-mode-stdc](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-mode-vdl2](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [xng-types](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
 | [yoke](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
 | [yoke-derive](https://github.com/unicode-org/icu4x) | 0.8.2 | Unicode-3.0 |
 | [zerocopy](https://github.com/google/zerocopy) | 0.8.56 | BSD-2-Clause OR Apache-2.0 OR MIT |

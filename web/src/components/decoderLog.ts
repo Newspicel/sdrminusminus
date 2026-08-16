@@ -36,6 +36,14 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   radio_clock: "Radio clock",
   gnss: "GNSS lab",
   sstv: "SSTV",
+  vor: "VOR",
+  ils: "ILS",
+  dsc: "DSC",
+  inmarsat_stdc: "Inmarsat STD-C",
+  inmarsat_aero: "Inmarsat Aero",
+  vdl2: "VDL Mode 2",
+  hfdl: "HFDL",
+  iridium: "Iridium",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -350,6 +358,35 @@ export function eventSummary(event: DecoderEvent): string {
           : `${p.lines} of ${p.height} lines`,
       ]);
     }
+    case "vor": {
+      const reading = event.data;
+      return join([
+        reading.station ?? "VOR",
+        `${reading.radial_deg.toFixed(1)}° radial`,
+        `${Math.round(reading.confidence * 100)}%`,
+      ]);
+    }
+    case "ils": {
+      const reading = event.data;
+      return join([
+        reading.component === "localizer" ? "localizer" : "glideslope",
+        `${reading.ddm >= 0 ? "+" : ""}${reading.ddm.toFixed(3)} DDM`,
+        `${reading.deviation_dots >= 0 ? "+" : ""}${reading.deviation_dots.toFixed(2)} dots`,
+      ]);
+    }
+    case "dsc":
+    case "inmarsat_stdc":
+    case "inmarsat_aero":
+    case "vdl2":
+    case "hfdl":
+    case "iridium": {
+      const message = event.data;
+      return join([
+        message.message_type,
+        message.station ?? null,
+        message.text?.replaceAll("\n", " ").trim() ?? null,
+      ]);
+    }
   }
 }
 
@@ -393,6 +430,15 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.standard.toUpperCase();
     case "gnss":
       return `GPS-${event.data.prn}`;
+    case "vor":
+      return event.data.station ?? null;
+    case "dsc":
+    case "inmarsat_stdc":
+    case "inmarsat_aero":
+    case "vdl2":
+    case "hfdl":
+    case "iridium":
+      return event.data.station ?? null;
     case "rtty":
     case "morse":
     case "cw_skimmer":
@@ -401,6 +447,7 @@ export function eventStation(event: DecoderEvent): string | null {
     case "selcall":
     case "tone":
     case "ident":
+    case "ils":
       return null;
     case "sstv":
       return SSTV_MODE_LABELS[event.data.mode];

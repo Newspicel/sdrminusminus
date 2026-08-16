@@ -1,6 +1,6 @@
 import { Autocomplete as Primitive } from "@base-ui/react/autocomplete";
 import { useState } from "react";
-import { FIELD, SURFACE } from "./controls";
+import { commitText, FIELD, SURFACE } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
 
 export interface AutocompleteSuggestion {
@@ -29,12 +29,7 @@ export function TextAutocomplete({
   const portalContainer = usePortalContainer();
 
   const commit = (candidate: string): void => {
-    const next = candidate.trim();
-    if (next === "" || (next !== value && !onCommit(next))) {
-      setDraft(value);
-    } else {
-      setDraft(next);
-    }
+    setDraft(commitText(candidate, value, onCommit));
   };
 
   return (

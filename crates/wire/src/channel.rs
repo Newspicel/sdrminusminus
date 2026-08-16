@@ -1023,6 +1023,75 @@ impl Default for GnssParams {
     }
 }
 
+pub const MIN_NAVAID_REPORT_MS: u32 = 250;
+pub const MAX_NAVAID_REPORT_MS: u32 = 5_000;
+
+fn default_navaid_report_ms() -> u32 {
+    500
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct VorParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_lon: Option<f64>,
+    #[serde(default)]
+    pub magnetic_declination_deg: f64,
+    #[serde(default = "default_navaid_report_ms")]
+    #[schema(minimum = 250, maximum = 5000)]
+    pub report_ms: u32,
+}
+
+impl Default for VorParams {
+    fn default() -> Self {
+        Self {
+            station: None,
+            station_lat: None,
+            station_lon: None,
+            magnetic_declination_deg: 0.0,
+            report_ms: default_navaid_report_ms(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IlsComponent {
+    #[default]
+    Localizer,
+    Glideslope,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IlsParams {
+    #[serde(default)]
+    pub component: IlsComponent,
+    #[serde(default = "default_navaid_report_ms")]
+    #[schema(minimum = 250, maximum = 5000)]
+    pub report_ms: u32,
+}
+
+impl Default for IlsParams {
+    fn default() -> Self {
+        Self {
+            component: IlsComponent::default(),
+            report_ms: default_navaid_report_ms(),
+        }
+    }
+}
+
+empty_params! {
+    DscParams,
+    InmarsatStdcParams,
+    InmarsatAeroParams,
+    Vdl2Params,
+    HfdlParams,
+    IridiumParams,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "settings", rename_all = "snake_case")]
 pub enum ChannelParams {
@@ -1064,6 +1133,14 @@ pub enum ChannelParams {
     Ident(IdentParams),
     RadioClock(RadioClockParams),
     Gnss(GnssParams),
+    Vor(VorParams),
+    Ils(IlsParams),
+    Dsc(DscParams),
+    InmarsatStdc(InmarsatStdcParams),
+    InmarsatAero(InmarsatAeroParams),
+    Vdl2(Vdl2Params),
+    Hfdl(HfdlParams),
+    Iridium(IridiumParams),
 }
 
 impl ChannelParams {
@@ -1108,6 +1185,14 @@ impl ChannelParams {
             Self::Ident(_) => "ident",
             Self::RadioClock(_) => "radio_clock",
             Self::Gnss(_) => "gnss",
+            Self::Vor(_) => "vor",
+            Self::Ils(_) => "ils",
+            Self::Dsc(_) => "dsc",
+            Self::InmarsatStdc(_) => "inmarsat_stdc",
+            Self::InmarsatAero(_) => "inmarsat_aero",
+            Self::Vdl2(_) => "vdl2",
+            Self::Hfdl(_) => "hfdl",
+            Self::Iridium(_) => "iridium",
         }
     }
 }

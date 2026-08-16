@@ -583,6 +583,20 @@ mod tests {
                 "{schema} schema missing"
             );
         }
+        let spec: serde_json::Value = serde_json::from_str(&spec).expect("spec is JSON");
+        for params in ["VorParams", "IlsParams"] {
+            let report_ms = &spec["components"]["schemas"][params]["properties"]["report_ms"];
+            assert_eq!(
+                report_ms["minimum"],
+                serde_json::json!(sdrmm_wire::MIN_NAVAID_REPORT_MS),
+                "{params} report_ms minimum"
+            );
+            assert_eq!(
+                report_ms["maximum"],
+                serde_json::json!(sdrmm_wire::MAX_NAVAID_REPORT_MS),
+                "{params} report_ms maximum"
+            );
+        }
     }
 
     #[test]

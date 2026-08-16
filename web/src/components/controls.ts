@@ -78,4 +78,13 @@ export function segmentSm(selected: boolean): string {
   );
 }
 
+export function commitText(
+  candidate: string,
+  value: string,
+  onCommit: (value: string) => boolean,
+): string {
+  const next = candidate.trim();
+  return next !== value && !onCommit(next) ? value : next;
+}
+
 export type Options<T> = readonly { value: T; label: string }[];

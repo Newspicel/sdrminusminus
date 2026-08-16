@@ -14,7 +14,8 @@ use sdrmm_wire::{
     DecodedRecord, DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams,
     FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams, NfmParams,
     NfmToneMode, PocsagBaud, PocsagParams, PskParams, RdsUpdate, RttyParams, SelcallParams,
-    SelcallSystem, SubghzEncoding, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    SelcallSystem, SubghzEncoding, SubghzParams, VorParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams,
 };
 use tempfile::TempDir;
 
@@ -577,6 +578,33 @@ async fn gps_ca_acquisition_survives_virtual_device_playback() {
     assert_eq!(frame.doppler_hz, 1_000.0);
     assert!((frame.code_phase_chips - 158.34).abs() < 0.6);
     assert!(frame.cn0_db_hz > 40.0);
+}
+
+#[tokio::test]
+async fn vor_radial_survives_virtual_device_playback() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let iq = testgen::vor::transmission(123.0, 2);
+    let device = plant(dir.path(), "vor", iq, testgen::vor::RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Vor(VorParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Vor(_)),
+    )
+    .await;
+    let DecoderEvent::Vor(reading) = record.event else {
+        unreachable!("filtered above")
+    };
+    let error = (reading.radial_deg - 123.0 + 180.0).rem_euclid(360.0) - 180.0;
+    assert!(error.abs() < 0.5, "radial {}", reading.radial_deg);
+    assert!(reading.confidence > 0.8);
 }
 
 #[tokio::test]

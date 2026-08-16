@@ -26,8 +26,10 @@ import {
   identMeasurements,
   inScope,
   isAtBottom,
+  latestVorReadings,
   latestWpm,
   modulationLabel,
+  multiVorFix,
   ptyLabel,
   rdsPicture,
   rdsQuality,
@@ -481,6 +483,73 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+function VorView({ scope = {} }: { scope?: DecoderScope }) {
+  const readings = latestVorReadings(recordsInScope(useDecodedKind("vor"), scope));
+  const fix = multiVorFix(readings);
+  if (readings.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No VOR reports yet.</span>
+      </div>
+    );
+  }
+  return (
+    <div className={PANE}>
+      {fix === null ? (
+        <span className={EMPTY}>
+          Add coordinates to two non-parallel VOR channels to calculate a position fix.
+        </span>
+      ) : (
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <span className="font-mono text-xl tabular-nums text-ink">
+            {fix.lat.toFixed(5)}, {fix.lon.toFixed(5)}
+          </span>
+          <span className={CHIP}>{fix.stations} stations</span>
+          <span className="text-xs text-ink-dim">
+            {fix.residualKm < 1
+              ? `${Math.round(fix.residualKm * 1000)} m`
+              : `${fix.residualKm.toFixed(1)} km`}{" "}
+            residual
+          </span>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left text-xs">
+          <thead>
+            <tr>
+              <th className={TABLE_HEAD}>Station</th>
+              <th className={TABLE_HEAD}>Radial</th>
+              <th className={TABLE_HEAD}>Confidence</th>
+              <th className={TABLE_HEAD}>Signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {readings.map((record) => {
+              const reading = record.event.data;
+              return (
+                <tr key={reading.station ?? `${record.device_set}:${record.channel}`}>
+                  <td className={TABLE_CELL}>
+                    {reading.station ?? `D${record.device_set} C${record.channel}`}
+                  </td>
+                  <td className={`${TABLE_CELL} font-mono tabular-nums`}>
+                    {reading.radial_deg.toFixed(1)}°
+                  </td>
+                  <td className={`${TABLE_CELL} font-mono tabular-nums`}>
+                    {Math.round(reading.confidence * 100)}%
+                  </td>
+                  <td className={`${TABLE_CELL} font-mono tabular-nums`}>
+                    {reading.signal_db.toFixed(1)} dB
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function PicturesView({ scope = {} }: { scope?: DecoderScope }) {
   const result = useQuery(imagesQuery());
   const images = (result.data?.images ?? []).filter((image) =>
@@ -583,6 +652,14 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   radio_clock: null,
   gnss: null,
   sstv: (scope) => <PicturesView scope={scope} />,
+  vor: (scope) => <VorView scope={scope} />,
+  ils: null,
+  dsc: null,
+  inmarsat_stdc: null,
+  inmarsat_aero: null,
+  vdl2: null,
+  hfdl: null,
+  iridium: null,
 };
 
 function isDecoderKind(kind: string): kind is DecoderKind {

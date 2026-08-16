@@ -625,8 +625,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -4505,6 +4507,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "xng-acars",
+ "xng-mode-aero",
+ "xng-mode-dsc",
+ "xng-mode-hfdl",
+ "xng-mode-iridium",
+ "xng-mode-stdc",
+ "xng-mode-vdl2",
+ "xng-types",
 ]
 
 [[package]]
@@ -7604,6 +7614,127 @@ name = "xml-rs"
 version = "0.8.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
+
+[[package]]
+name = "xng-acars"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "base64 0.22.1",
+ "crc",
+ "miniz_oxide",
+ "serde",
+ "serde_json",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-dsp"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "crc",
+ "num-complex",
+ "rustfft",
+]
+
+[[package]]
+name = "xng-mode-aero"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "num-complex",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "xng-acars",
+ "xng-dsp",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-mode-dsc"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "num-complex",
+ "serde",
+ "serde_json",
+ "xng-dsp",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-mode-hfdl"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "num-complex",
+ "serde",
+ "serde_json",
+ "xng-acars",
+ "xng-dsp",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-mode-iridium"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "crc",
+ "num-complex",
+ "rayon",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "xng-acars",
+ "xng-dsp",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-mode-stdc"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "num-complex",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "xng-dsp",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-mode-vdl2"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "num-complex",
+ "serde",
+ "serde_json",
+ "xng-acars",
+ "xng-dsp",
+ "xng-types",
+]
+
+[[package]]
+name = "xng-types"
+version = "0.21.0"
+source = "git+https://github.com/airframesio/xng?rev=6a768a2f843099171d7ed08df9fe0f3ba0678f25#6a768a2f843099171d7ed08df9fe0f3ba0678f25"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+]
 
 [[package]]
 name = "xtask"
