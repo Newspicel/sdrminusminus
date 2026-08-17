@@ -315,6 +315,9 @@ impl Prospector {
                 grant.logical_channel == logical_channel && grant.source == Some(source)
             })
         });
+        if frame.kind == DvFrameKind::Data && !identified {
+            return None;
+        }
         let weight = if identified {
             IDENTIFIED_WEIGHT
         } else {
@@ -540,10 +543,13 @@ impl Prospector {
     }
 }
 
+/// A data call names its parties in a header that looks much like any other burst, so a system
+/// that only ever carries telemetry can still be placed. It is held to the stricter of the two
+/// tests below: only a matching radio counts, because a control channel carries short data too.
 fn identifies_a_call(frame: &DvFrame) -> bool {
     matches!(
         frame.kind,
-        DvFrameKind::Header | DvFrameKind::Voice | DvFrameKind::Terminator
+        DvFrameKind::Header | DvFrameKind::Voice | DvFrameKind::Terminator | DvFrameKind::Data
     )
 }
 
@@ -1015,6 +1021,40 @@ mod tests {
         }]);
 
         assert_eq!(prospector.frequency_of(LCN), Some(TRAFFIC_HZ));
+    }
+
+    fn data_call(destination: u32, source: u32) -> DvFrame {
+        DvFrame {
+            slot: Some(1),
+            destination: Some(destination),
+            source: Some(source),
+            ..DvFrame::new(DvMode::Dmr, DvFrameKind::Data)
+        }
+    }
+
+    #[test]
+    fn a_system_that_only_carries_data_can_still_be_placed() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 9_999, Some(9_998), now);
+
+        let found = bind(&mut prospector, &data_call(9_999, 9_998), now);
+
+        assert_eq!(found.map(|found| found.confirmed), Some(true));
+        assert_eq!(prospector.frequency_of(LCN), Some(TRAFFIC_HZ));
+    }
+
+    #[test]
+    fn a_data_call_that_names_no_radio_places_nothing() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 9_999, None, now);
+
+        assert!(
+            bind(&mut prospector, &data_call(9_999, 9_998), now).is_none(),
+            "short data on a control channel was read as a placed call"
+        );
+        assert_eq!(prospector.frequency_of(LCN), None);
     }
 
     #[test]
