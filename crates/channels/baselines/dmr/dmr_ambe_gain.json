@@ -1,0 +1,6 @@
+{
+  "at_ber": 0.001,
+  "gain_db": 6.127422950461254,
+  "seed": 2619,
+  "recipe": "3 half-rate AMBE+2 frames per trial -> encode_code_vectors -> Annex S interleave -> tg::dibits -> steady framing (88 preamble + 24 sync + 108 payload + 40 tail) -> tg::c4fm (CpmMod) 48k/4800 -> AWGN (Eb per info bit, overhead charged) -> channel filter -> CpmDemod (burst timing bw) -> Mapping::soft_bits x i8::MAX; hard = deinterleave(sign) + decode_code_vectors, soft = decode_frame_soft, same stream; scored over the Golay-protected info vectors u0 and u1; gain = horizontal gap of the BER curves at 1e-3, release"
+}

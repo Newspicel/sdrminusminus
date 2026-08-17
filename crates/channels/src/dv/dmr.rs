@@ -1,22 +1,18 @@
 use std::sync::LazyLock;
 
-use blip25_vocoder::{
-    halfrate::frame::decode_code_vectors,
-    vocoder::{FrameStatus, Rate, Vocoder},
-};
 use num_complex::Complex;
-use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, FracResampler, ParityCode, crc16_msb, rs129_parity};
+use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, ParityCode, crc16_msb, rs129_parity};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DmrSlots,
     DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, Vendor,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes};
-use crate::{
-    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    check_input_rate, clamp_full_scale,
+use super::{
+    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes,
+    vocoder::{HALF_RATE_SOFT_BITS, MbeDecoder},
 };
+use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 pub(crate) const BAUD: f64 = 4_800.0;
 pub(crate) const DEVIATION_HZ: f64 = 1_944.0;
@@ -56,9 +52,8 @@ const MBC_HEADER_MASK: u16 = 0xAAAA;
 const DATA_HEADER_MASK: u16 = 0xCCCC;
 
 const LC_BITS: usize = 72;
-const VOCODER_FRAME_BITS: usize = 72;
+const VOCODER_FRAME_BITS: usize = HALF_RATE_SOFT_BITS;
 const VOCODER_FRAMES_PER_BURST: usize = 3;
-const VOCODER_RATE_HZ: f64 = 8_000.0;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dmr".to_owned(),
@@ -216,6 +211,7 @@ struct Decoder {
     followers: [u8; 2],
     follower_countdown: [usize; 2],
     bits: Vec<bool>,
+    soft: Vec<i8>,
     bytes: Vec<u8>,
     slots: [SlotState; 2],
     short_lc: ShortLc,
@@ -236,7 +232,7 @@ struct SlotState {
     embedded_errors: u32,
     encrypted: Option<bool>,
     talker_alias: TalkerAlias,
-    voice: VoiceDecoder,
+    voice: MbeDecoder,
 }
 
 impl SlotState {
@@ -246,7 +242,7 @@ impl SlotState {
             embedded_errors: 0,
             encrypted: None,
             talker_alias: TalkerAlias::default(),
-            voice: VoiceDecoder::new(),
+            voice: MbeDecoder::half_rate(),
         }
     }
 
@@ -269,6 +265,7 @@ impl Decoder {
             followers: [0; 2],
             follower_countdown: [0; 2],
             bits: Vec::with_capacity(BURST_BITS),
+            soft: Vec::with_capacity(BURST_BITS),
             bytes: Vec::with_capacity(BURST_BITS / 8),
             slots: std::array::from_fn(|_| SlotState::new()),
             short_lc: ShortLc::default(),
@@ -439,14 +436,16 @@ impl Decoder {
         if !self.take_speaker(index) {
             return;
         }
-        let mut payload = [false; VOCODER_FRAME_BITS * VOCODER_FRAMES_PER_BURST];
-        payload[..HALF_PAYLOAD_BITS].copy_from_slice(&self.bits[..HALF_PAYLOAD_BITS]);
-        payload[HALF_PAYLOAD_BITS..].copy_from_slice(&self.bits[156..]);
+        self.window
+            .vocoder_soft_bits(0, BURST_SYMBOLS, &mut self.soft);
+        let mut payload = [0i8; VOCODER_FRAME_BITS * VOCODER_FRAMES_PER_BURST];
+        payload[..HALF_PAYLOAD_BITS].copy_from_slice(&self.soft[..HALF_PAYLOAD_BITS]);
+        payload[HALF_PAYLOAD_BITS..].copy_from_slice(&self.soft[156..]);
         for frame in payload.as_chunks::<VOCODER_FRAME_BITS>().0 {
             let state = &mut self.slots[index];
             state
                 .voice
-                .decode(frame, state.encrypted != Some(false), out);
+                .decode_half_soft(frame, state.encrypted != Some(false), out);
         }
     }
 
@@ -1381,125 +1380,21 @@ fn signed_bits(value: u32, width: u32) -> i32 {
     ((value << shift) as i32) >> shift
 }
 
-const AMBE_DMR_INTERLEAVE: [[(u8, u8); 2]; 36] = [
-    [(0, 23), (0, 5)],
-    [(1, 10), (2, 3)],
-    [(0, 22), (0, 4)],
-    [(1, 9), (2, 2)],
-    [(0, 21), (0, 3)],
-    [(1, 8), (2, 1)],
-    [(0, 20), (0, 2)],
-    [(1, 7), (2, 0)],
-    [(0, 19), (0, 1)],
-    [(1, 6), (3, 13)],
-    [(0, 18), (0, 0)],
-    [(1, 5), (3, 12)],
-    [(0, 17), (1, 22)],
-    [(1, 4), (3, 11)],
-    [(0, 16), (1, 21)],
-    [(1, 3), (3, 10)],
-    [(0, 15), (1, 20)],
-    [(1, 2), (3, 9)],
-    [(0, 14), (1, 19)],
-    [(1, 1), (3, 8)],
-    [(0, 13), (1, 18)],
-    [(1, 0), (3, 7)],
-    [(0, 12), (1, 17)],
-    [(2, 10), (3, 6)],
-    [(0, 11), (1, 16)],
-    [(2, 9), (3, 5)],
-    [(0, 10), (1, 15)],
-    [(2, 8), (3, 4)],
-    [(0, 9), (1, 14)],
-    [(2, 7), (3, 3)],
-    [(0, 8), (1, 13)],
-    [(2, 6), (3, 2)],
-    [(0, 7), (1, 12)],
-    [(2, 5), (3, 1)],
-    [(0, 6), (1, 11)],
-    [(2, 4), (3, 0)],
-];
-
-fn ambe_code_vectors(frame: &[bool; VOCODER_FRAME_BITS]) -> [u32; 4] {
-    let mut code = [0u32; 4];
-    for (dibit, places) in frame.as_chunks::<2>().0.iter().zip(AMBE_DMR_INTERLEAVE) {
-        for (&bit, (row, column)) in dibit.iter().zip(places) {
-            code[usize::from(row)] |= u32::from(bit) << column;
-        }
-    }
-    code
-}
-
-struct VoiceDecoder {
-    vocoder: Vocoder,
-    resampler: FracResampler,
-    pcm_8k: Vec<Complex<f32>>,
-    pcm_48k: Vec<Complex<f32>>,
-}
-
-impl VoiceDecoder {
-    fn new() -> Self {
-        Self {
-            vocoder: Vocoder::new(Rate::HalfRate3600x2450),
-            resampler: FracResampler::new(f64::from(AUDIO_RATE) / VOCODER_RATE_HZ),
-            pcm_8k: Vec::with_capacity(160),
-            pcm_48k: Vec::with_capacity(960),
-        }
-    }
-
-    fn reset(&mut self) {
-        self.vocoder.reset();
-        self.resampler = FracResampler::new(f64::from(AUDIO_RATE) / VOCODER_RATE_HZ);
-        self.pcm_8k.clear();
-        self.pcm_48k.clear();
-    }
-
-    fn decode(
-        &mut self,
-        bits: &[bool; VOCODER_FRAME_BITS],
-        encrypted: bool,
-        out: &mut ChannelOutputs,
-    ) {
-        if encrypted {
-            out.audio_pcm.extend(std::iter::repeat_n(0.0, 960));
-            out.audio_rate = AUDIO_RATE;
-            return;
-        }
-        let frame = decode_code_vectors(ambe_code_vectors(bits));
-        let status = if frame.errors[0] == u8::MAX {
-            FrameStatus::LOST
-        } else {
-            FrameStatus::new(u32::from(frame.error_total()), false)
-        };
-        let Ok(pcm) = self.vocoder.decode_info(&frame.info, status) else {
-            return;
-        };
-        self.pcm_8k.clear();
-        self.pcm_8k.extend(
-            pcm.into_iter()
-                .map(|sample| Complex::new(f32::from(sample) / 32_768.0, 0.0)),
-        );
-        self.resampler.process(&self.pcm_8k, &mut self.pcm_48k);
-        out.audio_pcm
-            .extend(self.pcm_48k.iter().map(|sample| sample.re));
-        clamp_full_scale(&mut out.audio_pcm);
-        if !self.pcm_48k.is_empty() {
-            out.audio_rate = AUDIO_RATE;
-        }
-    }
-}
-
 fn dmr_crc16(data: &[u8]) -> u16 {
     !crc16_msb(0x1021, 0, data)
 }
 
 #[cfg(test)]
 mod tests {
-    use blip25_vocoder::halfrate::frame::encode_code_vectors;
     use sdrmm_wire::DmrSlots;
 
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::dmr as tx, testutil::settings};
+    use crate::{
+        AUDIO_RATE,
+        dv::{testutil::decode, vocoder::testutil::half_rate_frames},
+        testgen::dv::dmr as tx,
+        testutil::settings,
+    };
 
     fn channel(slots: DmrSlots) -> DmrChannel {
         DmrChannel::new(
@@ -1626,38 +1521,11 @@ mod tests {
         assert!(ras.checked_block(&payload, CSBK_MASK, 1).is_none());
     }
 
-    fn dmr_interleave(code: &[u32; 4]) -> [bool; VOCODER_FRAME_BITS] {
-        let mut out = [false; VOCODER_FRAME_BITS];
-        for (dibit, places) in out
-            .as_chunks_mut::<2>()
-            .0
-            .iter_mut()
-            .zip(AMBE_DMR_INTERLEAVE)
-        {
-            for (bit, (row, column)) in dibit.iter_mut().zip(places) {
-                *bit = code[usize::from(row)] >> column & 1 == 1;
-            }
-        }
-        out
-    }
-
     fn encoded_tone_sockets() -> [[bool; 216]; 6] {
-        let mut encoder = Vocoder::new(Rate::HalfRate3600x2450);
         let mut sockets = [[false; 216]; 6];
-        for frame_no in 0..18 {
-            let pcm: [i16; 160] = std::array::from_fn(|i| {
-                let sample = frame_no * 160 + i;
-                (12_000.0 * (std::f64::consts::TAU * 440.0 * sample as f64 / 8_000.0).sin()) as i16
-            });
-            let info: [u16; 4] = encoder
-                .encode_info(&pcm)
-                .expect("encode AMBE tone")
-                .try_into()
-                .expect("half-rate info vectors");
-            let air = dmr_interleave(&encode_code_vectors(&info));
-            let burst = frame_no / 3;
-            let at = frame_no % 3 * VOCODER_FRAME_BITS;
-            sockets[burst][at..at + VOCODER_FRAME_BITS].copy_from_slice(&air);
+        for (index, air) in half_rate_frames(18).iter().enumerate() {
+            let at = index % 3 * VOCODER_FRAME_BITS;
+            sockets[index / 3][at..at + VOCODER_FRAME_BITS].copy_from_slice(air);
         }
         sockets
     }
@@ -1741,7 +1609,10 @@ mod tests {
             audio.len()
         );
         assert!(audio.iter().all(|sample| sample.is_finite()));
-        assert!(audio.iter().all(|sample| sample.abs() <= 1.0));
+        assert!(
+            audio.iter().all(|sample| sample.abs() < 1.0),
+            "presentation gain drove the vocoder into full-scale clipping"
+        );
         let settled = &audio[3 * 960..];
         let rms = crate::testutil::rms(settled);
         let (frequency, _) = crate::testutil::dominant_tone(settled, f64::from(AUDIO_RATE));

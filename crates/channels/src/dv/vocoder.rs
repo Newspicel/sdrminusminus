@@ -5,8 +5,12 @@ use std::{
 };
 
 use blip25_vocoder::{
+    enhancement::{ClassicalConfig, EnhancementMode},
     fullrate,
-    halfrate::frame::decode_code_vectors,
+    halfrate::{
+        self,
+        frame::{decode_code_vectors, decode_frame_soft},
+    },
     vocoder::{FrameStatus, Rate, Vocoder},
 };
 use codec2::{Codec2, Codec2Mode};
@@ -18,6 +22,10 @@ use crate::{AUDIO_RATE, ChannelOutputs, clamp_full_scale};
 const VOCODER_RATE_HZ: f64 = 8_000.0;
 const MBE_FRAME_SAMPLES: usize = 160;
 const OUTPUT_SAMPLES_PER_MBE_FRAME: usize = 960;
+
+pub(crate) const HALF_RATE_SOFT_BITS: usize = halfrate::frame::SOFT_BITS;
+
+const PRESENTATION_GAIN_DB: f32 = 9.0;
 
 pub(crate) const AMBE_3600_INTERLEAVE: [[(u8, u8); 2]; 36] = [
     [(0, 23), (0, 5)],
@@ -132,8 +140,13 @@ impl MbeDecoder {
     }
 
     fn new(rate: Rate) -> Self {
+        let mut vocoder = Vocoder::new(rate);
+        vocoder.set_enhancement(EnhancementMode::Classical(ClassicalConfig {
+            output_gain_db: PRESENTATION_GAIN_DB,
+            ..ClassicalConfig::default()
+        }));
         Self {
-            vocoder: Vocoder::new(rate),
+            vocoder,
             output: PcmOutput::new(),
         }
     }
@@ -141,6 +154,21 @@ impl MbeDecoder {
     pub(crate) fn reset(&mut self) {
         self.vocoder.reset();
         self.output.reset();
+    }
+
+    fn synthesize(&mut self, info: &[u16], status: FrameStatus, out: &mut ChannelOutputs) {
+        if let Ok(pcm) = self.vocoder.decode_info(info, status) {
+            self.output.append_i16(&pcm, out);
+        }
+    }
+
+    fn half_rate_frame(&mut self, frame: &halfrate::frame::Frame, out: &mut ChannelOutputs) {
+        let status = if frame.errors[0] == u8::MAX {
+            FrameStatus::LOST
+        } else {
+            FrameStatus::new(u32::from(frame.error_total()), false)
+        };
+        self.synthesize(&frame.info, status, out);
     }
 
     pub(crate) fn decode_half_code_vectors(
@@ -153,15 +181,20 @@ impl MbeDecoder {
             PcmOutput::silence(1, out);
             return;
         }
-        let frame = decode_code_vectors(code);
-        let status = if frame.errors[0] == u8::MAX {
-            FrameStatus::LOST
-        } else {
-            FrameStatus::new(u32::from(frame.error_total()), false)
-        };
-        if let Ok(pcm) = self.vocoder.decode_info(&frame.info, status) {
-            self.output.append_i16(&pcm, out);
+        self.half_rate_frame(&decode_code_vectors(code), out);
+    }
+
+    pub(crate) fn decode_half_soft(
+        &mut self,
+        soft: &[i8; HALF_RATE_SOFT_BITS],
+        encrypted: bool,
+        out: &mut ChannelOutputs,
+    ) {
+        if encrypted {
+            PcmOutput::silence(1, out);
+            return;
         }
+        self.half_rate_frame(&decode_frame_soft(soft), out);
     }
 
     pub(crate) fn decode_half_info(
@@ -178,10 +211,8 @@ impl MbeDecoder {
         for (i, &bit) in bits.iter().enumerate() {
             packed[i / 8] |= u8::from(bit) << (7 - i % 8);
         }
-        let info = blip25_vocoder::halfrate::unpack_natural(&packed);
-        if let Ok(pcm) = self.vocoder.decode_info(&info, FrameStatus::new(0, false)) {
-            self.output.append_i16(&pcm, out);
-        }
+        let info = halfrate::unpack_natural(&packed);
+        self.synthesize(&info, FrameStatus::CLEAN, out);
     }
 
     pub(crate) fn decode_full_dibits(
@@ -196,9 +227,7 @@ impl MbeDecoder {
         }
         let frame = fullrate::frame::decode_frame(dibits);
         let status = FrameStatus::new(u32::from(frame.error_total()), false);
-        if let Ok(pcm) = self.vocoder.decode_info(&frame.info, status) {
-            self.output.append_i16(&pcm, out);
-        }
+        self.synthesize(&frame.info, status, out);
     }
 
     pub(crate) fn decode_full_code_vectors(
@@ -366,7 +395,7 @@ pub(crate) mod testutil {
     fn tone(frame: usize) -> [i16; 160] {
         std::array::from_fn(|i| {
             let sample = frame * 160 + i;
-            (12_000.0 * (std::f64::consts::TAU * 440.0 * sample as f64 / 8_000.0).sin()) as i16
+            (6_000.0 * (std::f64::consts::TAU * 440.0 * sample as f64 / 8_000.0).sin()) as i16
         })
     }
 

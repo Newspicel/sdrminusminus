@@ -154,6 +154,20 @@ impl SymbolWindow {
         }
     }
 
+    pub(crate) fn vocoder_soft_bits(&mut self, end_back: usize, symbols: usize, out: &mut Vec<i8>) {
+        out.clear();
+        for i in (0..symbols).rev() {
+            self.soft_scratch.clear();
+            self.mapping
+                .soft_bits(self.soft(end_back + i), &mut self.soft_scratch);
+            out.extend(
+                self.soft_scratch
+                    .iter()
+                    .map(|b| (b.0 * f32::from(i8::MAX)) as i8),
+            );
+        }
+    }
+
     pub(crate) fn reset(&mut self) {
         self.soft.clear();
         self.register = 0;
@@ -408,7 +422,10 @@ pub(crate) mod testutil {
             audio.len()
         );
         assert!(audio.iter().all(|sample| sample.is_finite()));
-        assert!(audio.iter().all(|sample| sample.abs() <= 1.0));
+        assert!(
+            audio.iter().all(|sample| sample.abs() < 1.0),
+            "presentation gain drove the vocoder into full-scale clipping"
+        );
         let settled = &audio[3 * 960..];
         let rms = crate::testutil::rms(settled);
         let (frequency, _) = crate::testutil::dominant_tone(settled, f64::from(AUDIO_RATE));

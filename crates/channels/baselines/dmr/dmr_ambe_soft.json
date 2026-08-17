@@ -1,0 +1,107 @@
+{
+  "ber": {
+    "label": "dmr half-rate ambe fec soft, phase-3 cpm chain, post-FEC BER over the Golay-protected info bits, seed 0xa3b, release",
+    "points": [
+      {
+        "ebn0_db": 14.0,
+        "errors": 603,
+        "trials": 199440
+      },
+      {
+        "ebn0_db": 16.0,
+        "errors": 606,
+        "trials": 1284264
+      },
+      {
+        "ebn0_db": 18.0,
+        "errors": 394,
+        "trials": 2160000
+      },
+      {
+        "ebn0_db": 20.0,
+        "errors": 207,
+        "trials": 2160000
+      },
+      {
+        "ebn0_db": 22.0,
+        "errors": 181,
+        "trials": 2160000
+      },
+      {
+        "ebn0_db": 24.0,
+        "errors": 87,
+        "trials": 2160000
+      }
+    ]
+  },
+  "fer": {
+    "label": "dmr half-rate ambe fec soft, phase-3 cpm chain, frames whose protected info vectors came out wrong, seed 0xa3b, release",
+    "points": [
+      {
+        "ebn0_db": 14.0,
+        "errors": 105,
+        "trials": 8310
+      },
+      {
+        "ebn0_db": 16.0,
+        "errors": 108,
+        "trials": 53511
+      },
+      {
+        "ebn0_db": 18.0,
+        "errors": 72,
+        "trials": 90000
+      },
+      {
+        "ebn0_db": 20.0,
+        "errors": 38,
+        "trials": 90000
+      },
+      {
+        "ebn0_db": 22.0,
+        "errors": 33,
+        "trials": 90000
+      },
+      {
+        "ebn0_db": 24.0,
+        "errors": 17,
+        "trials": 90000
+      }
+    ]
+  },
+  "uncorrectable": {
+    "label": "dmr half-rate ambe fec soft, phase-3 cpm chain, frames the extended Golay refused (synth-side repeat or mute), seed 0xa3b, release",
+    "points": [
+      {
+        "ebn0_db": 14.0,
+        "errors": 35,
+        "trials": 8310
+      },
+      {
+        "ebn0_db": 16.0,
+        "errors": 78,
+        "trials": 53511
+      },
+      {
+        "ebn0_db": 18.0,
+        "errors": 64,
+        "trials": 90000
+      },
+      {
+        "ebn0_db": 20.0,
+        "errors": 35,
+        "trials": 90000
+      },
+      {
+        "ebn0_db": 22.0,
+        "errors": 17,
+        "trials": 90000
+      },
+      {
+        "ebn0_db": 24.0,
+        "errors": 10,
+        "trials": 90000
+      }
+    ]
+  }
+}
