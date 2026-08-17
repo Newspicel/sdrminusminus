@@ -13,7 +13,6 @@ import {
   iqSourceOf,
   refFromDeviceId,
   refMatches,
-  unboundChannels,
 } from "./binding";
 
 function info(overrides: Partial<DeviceInfo>): DeviceInfo {
@@ -125,24 +124,6 @@ describe("binding", () => {
     const channels = bindChannels(graph(), devices);
     expect(channels.get("nfm")?.id).toBe(9);
     expect(channels.get("am")?.id).toBe(7);
-    expect(unboundChannels(graph(), "dev", live, channels).map((c) => c.id)).toEqual([11]);
-  });
-
-  it("scopes the orphan list to the set's own nodes", () => {
-    const a = set(1, rtl, [channel(1, "nfm")]);
-    const b = set(2, other, [channel(1, "am")]);
-    const twoRadios: PatchGraph = {
-      nodes: [
-        node("devA", { kind: "device", data: { device: deviceRefOf(rtl) } }),
-        node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
-        node("devB", { kind: "device", data: { device: deviceRefOf(other) } }),
-      ],
-      edges: [{ from: { node: "devA", port: "iq" }, to: { node: "nfm", port: "iq" } }],
-    };
-    const devices = bindDevices(twoRadios, [a, b]);
-    const channels = bindChannels(twoRadios, devices);
-    expect(unboundChannels(twoRadios, "devA", a, channels)).toEqual([]);
-    expect(unboundChannels(twoRadios, "devB", b, channels).map((c) => c.id)).toEqual([1]);
   });
 
   it("leaves a node unbound when the engine has no channel of its type yet", () => {

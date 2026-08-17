@@ -13,7 +13,7 @@ import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/
 import { pushToast } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
-import { claimedDevices, deviceRefOf, refMatches, unboundChannels } from "../binding";
+import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
@@ -196,7 +196,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const scanning = scannerOwnsTuning(set);
   const overruns = set.overruns ?? 0;
-  const orphans = unboundChannels(workspace.graph, node.id, set, workspace.channels);
 
   return (
     <NodeShell
@@ -212,21 +211,14 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
         <RadioSettings active={set} className="p-2" />
 
-        {(overruns > 0 || orphans.length > 0) && (
+        {overruns > 0 && (
           <Readout>
-            {overruns > 0 && (
-              <ReadoutRow
-                label="Overruns"
-                title="Device samples dropped at the capture ring since the radio opened — the DSP thread is behind, and audio and spectrum have gaps"
-              >
-                {overruns}
-              </ReadoutRow>
-            )}
-            {orphans.length > 0 && (
-              <ReadoutRow label="Channels with no node">
-                {orphans.map((channel) => channel.settings.params.type).join(" · ")}
-              </ReadoutRow>
-            )}
+            <ReadoutRow
+              label="Overruns"
+              title="Device samples dropped at the capture ring since the radio opened — the DSP thread is behind, and audio and spectrum have gaps"
+            >
+              {overruns}
+            </ReadoutRow>
           </Readout>
         )}
 

@@ -99,20 +99,6 @@ export function bindChannels(
   return bound;
 }
 
-export function unboundChannels(
-  graph: PatchGraph,
-  deviceNode: string,
-  set: DeviceSet,
-  bound: ReadonlyMap<string, ChannelInfo>,
-): ChannelInfo[] {
-  const shown = new Set(
-    channelNodesOf(graph, deviceNode)
-      .map(({ node }) => bound.get(node.id)?.id)
-      .filter((id) => id !== undefined),
-  );
-  return set.channels.filter((channel) => !shown.has(channel.id));
-}
-
 export function iqSourceOf(
   graph: PatchGraph,
   node: string,
