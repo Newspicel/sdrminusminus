@@ -5,6 +5,8 @@ use super::{bits, dibits, filler};
 
 const VOICE_SYNC: u64 = 0x5D57_7F77_57FF;
 const DATA_SYNC: u64 = 0xF7FD_D5DD_FD55;
+const MS_VOICE_SYNC: u64 = 0x7F7D_5DD5_7DFD;
+const MS_DATA_SYNC: u64 = 0xD5D7_F77F_D757;
 const BS_VOICE_SYNC: u64 = 0x755F_D7DF_75F7;
 const BS_DATA_SYNC: u64 = 0xDFF5_7D75_DF5D;
 
@@ -66,6 +68,33 @@ pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
 }
 
 #[must_use]
+pub fn simplex_transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
+    let voice: [[bool; 216]; 6] = std::array::from_fn(|_| {
+        let mut payload = [false; 216];
+        payload[..108].copy_from_slice(&filler(108, u32::from(call.color_code) + 17));
+        payload[108..].copy_from_slice(&filler(108, u32::from(call.color_code) + 23));
+        payload
+    });
+    let mut tx = Keyed::default();
+    for burst in call_bursts_with_voice(call, &voice) {
+        tx.burst(&ms_sourced(burst));
+    }
+    tx.modulate(rate)
+}
+
+fn ms_sourced(mut burst: Vec<bool>) -> Vec<bool> {
+    let sync = if burst[108..156] == bits(VOICE_SYNC, 48) {
+        MS_VOICE_SYNC
+    } else if burst[108..156] == bits(DATA_SYNC, 48) {
+        MS_DATA_SYNC
+    } else {
+        return burst;
+    };
+    burst[108..156].copy_from_slice(&bits(sync, 48));
+    burst
+}
+
+#[must_use]
 pub fn repeater_transmission(call: &Call, slot: u8, rate: f64) -> Vec<Complex<f32>> {
     repeater_calls(call, None, slot, rate)
 }
@@ -108,6 +137,10 @@ fn call_bursts(call: &Call) -> Vec<Vec<bool>> {
         payload[108..].copy_from_slice(&filler(108, u32::from(call.color_code) + 23));
         payload
     });
+    call_bursts_with_voice(call, &voice)
+}
+
+fn call_bursts_with_voice(call: &Call, voice: &[[bool; 216]; 6]) -> Vec<Vec<bool>> {
     let mut bursts = vec![data_burst(
         call,
         DT_VOICE_LC_HEADER,

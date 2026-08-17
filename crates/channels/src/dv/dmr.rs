@@ -69,6 +69,7 @@ struct Sync {
     bits: u64,
     voice: bool,
     slot: Option<u8>,
+    cach: bool,
 }
 
 const SYNCS: [Sync; 8] = [
@@ -76,41 +77,49 @@ const SYNCS: [Sync; 8] = [
         bits: 0x755F_D7DF_75F7,
         voice: true,
         slot: None,
+        cach: true,
     },
     Sync {
         bits: 0xDFF5_7D75_DF5D,
         voice: false,
         slot: None,
+        cach: true,
     },
     Sync {
         bits: 0x7F7D_5DD5_7DFD,
         voice: true,
         slot: None,
+        cach: false,
     },
     Sync {
         bits: 0xD5D7_F77F_D757,
         voice: false,
         slot: None,
+        cach: false,
     },
     Sync {
         bits: 0x5D57_7F77_57FF,
         voice: true,
         slot: Some(1),
+        cach: false,
     },
     Sync {
         bits: 0xF7FD_D5DD_FD55,
         voice: false,
         slot: Some(1),
+        cach: false,
     },
     Sync {
         bits: 0x7DFF_D5F5_5D5F,
         voice: true,
         slot: Some(2),
+        cach: false,
     },
     Sync {
         bits: 0xD755_7F5F_F7F5,
         voice: false,
         slot: Some(2),
+        cach: false,
     },
 ];
 
@@ -200,7 +209,11 @@ impl DmrChannel {
 #[derive(Clone, Copy)]
 enum Pending {
     None,
-    Burst { voice: bool, slot: Option<u8> },
+    Burst {
+        voice: bool,
+        slot: Option<u8>,
+        cach: bool,
+    },
 }
 
 struct Decoder {
@@ -210,6 +223,8 @@ struct Decoder {
     countdown: usize,
     followers: [u8; 2],
     follower_countdown: [usize; 2],
+    follower_cach: [bool; 2],
+    follower_slot: [Option<u8>; 2],
     bits: Vec<bool>,
     soft: Vec<i8>,
     bytes: Vec<u8>,
@@ -264,6 +279,8 @@ impl Decoder {
             countdown: 0,
             followers: [0; 2],
             follower_countdown: [0; 2],
+            follower_cach: [false; 2],
+            follower_slot: [None; 2],
             bits: Vec::with_capacity(BURST_BITS),
             soft: Vec::with_capacity(BURST_BITS),
             bytes: Vec::with_capacity(BURST_BITS / 8),
@@ -281,6 +298,8 @@ impl Decoder {
         self.countdown = 0;
         self.followers = [0; 2];
         self.follower_countdown = [0; 2];
+        self.follower_cach = [false; 2];
+        self.follower_slot = [None; 2];
         self.slots.iter_mut().for_each(SlotState::reset);
         self.short_lc.reset();
         self.mbc_headers.fill(None);
@@ -300,7 +319,7 @@ impl Decoder {
             if self.follower_countdown[index] > 0 {
                 self.follower_countdown[index] -= 1;
                 if self.follower_countdown[index] == 0 {
-                    self.voice_burst(index as u8 + 1, out);
+                    self.voice_burst(index, out);
                 }
             }
         }
@@ -311,7 +330,7 @@ impl Decoder {
             }
             match std::mem::replace(&mut self.pending, Pending::None) {
                 Pending::None => {}
-                Pending::Burst { voice, slot } => self.burst(voice, slot, out),
+                Pending::Burst { voice, slot, cach } => self.burst(voice, slot, cach, out),
             }
             return;
         }
@@ -322,10 +341,15 @@ impl Decoder {
         for sync in &SYNCS {
             if self.window.sync_distance(sync.bits, SYNC_BITS) <= SYNC_TOLERANCE {
                 self.window.anchor(sync.bits, SYNC_BITS);
-                let slot = sync.slot.or_else(|| self.cach(out));
+                let slot = match (sync.slot, sync.cach) {
+                    (slot @ Some(_), _) => slot,
+                    (None, true) => self.cach(out),
+                    (None, false) => None,
+                };
                 self.pending = Pending::Burst {
                     voice: sync.voice,
                     slot,
+                    cach: sync.cach,
                 };
                 self.countdown = TRAILING_SYMBOLS;
                 if let Some(index) = slot_index(slot) {
@@ -360,12 +384,14 @@ impl Decoder {
         Some(slot)
     }
 
-    fn burst(&mut self, voice: bool, slot: Option<u8>, out: &mut ChannelOutputs) {
+    fn burst(&mut self, voice: bool, slot: Option<u8>, cach: bool, out: &mut ChannelOutputs) {
         if voice {
             self.window.bits(0, BURST_SYMBOLS, &mut self.bits);
             let index = slot_index(slot).unwrap_or(0);
             self.voice_payload(index, slot, out);
             self.followers[index] = 5;
+            self.follower_cach[index] = cach;
+            self.follower_slot[index] = slot;
             self.schedule_follower(index);
             return;
         }
@@ -406,17 +432,19 @@ impl Decoder {
         self.follower_countdown[index] = SUPERFRAME_STRIDE;
     }
 
-    fn voice_burst(&mut self, slot: u8, out: &mut ChannelOutputs) {
-        let index = usize::from(slot - 1);
-        self.cach_at(BURST_SYMBOLS, out);
+    fn voice_burst(&mut self, index: usize, out: &mut ChannelOutputs) {
+        let slot = self.follower_slot[index];
+        if self.follower_cach[index] {
+            self.cach_at(BURST_SYMBOLS, out);
+        }
         self.window.bits(0, BURST_SYMBOLS, &mut self.bits);
-        if let Some(frame) = self.embedded_signalling(index, Some(slot)) {
+        if let Some(frame) = self.embedded_signalling(index, slot) {
             if let Some(encrypted) = frame.encrypted {
                 self.slots[index].encrypted = Some(encrypted);
             }
             self.emit(frame, out);
         }
-        self.voice_payload(index, Some(slot), out);
+        self.voice_payload(index, slot, out);
         self.schedule_follower(index);
     }
 
@@ -1953,6 +1981,32 @@ mod tests {
         assert!(
             (audio.len() as isize - (voice_frames * 960) as isize).abs() <= 4,
             "the second call never reached the speaker: {} samples",
+            audio.len()
+        );
+    }
+
+    #[test]
+    fn a_simplex_call_does_not_invent_a_timeslot() {
+        let call = tx::Call::default();
+        let iq = tx::simplex_transmission(&call, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(DmrSlots::Both), &iq);
+        assert!(!frames.is_empty(), "an MS-sourced call decoded to nothing");
+        assert!(
+            frames.iter().all(|frame| frame.slot.is_none()),
+            "guard time was read as a CACH and became a timeslot: {:?}",
+            frames.iter().map(|f| f.slot).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_simplex_call_keeps_every_burst_on_the_speaker() {
+        let call = tx::Call::default();
+        let iq = tx::simplex_transmission(&call, INPUT_RATE_HZ);
+        let (_, audio) = decode_audio(&iq);
+        let voice_frames = 18;
+        assert!(
+            (audio.len() as isize - (voice_frames * 960) as isize).abs() <= 2,
+            "an invented timeslot took bursts off the speaker: {} samples",
             audio.len()
         );
     }
