@@ -50,6 +50,7 @@ import {
 } from "./graph";
 import { NODE_TYPES } from "./nodes";
 import { closeEngineObjects } from "./remove";
+import { focusNode } from "./selection";
 
 export interface FlowData extends Record<string, unknown> {
   node: PatchNode;
@@ -100,6 +101,11 @@ export function Canvas() {
     );
     setEdges(toFlowEdges(workspace.graph, context));
   }, [workspace.graph, context, setNodes, setEdges]);
+
+  const focus = workspace.selected;
+  useEffect(() => {
+    setNodes((previous) => focusNode(previous, focus));
+  }, [focus, workspace.graph, setNodes]);
 
   const commitGeometry = useCallback(() => {
     workspace.edit((snapshot) => ({
