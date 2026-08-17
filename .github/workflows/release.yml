@@ -612,6 +612,34 @@ jobs:
             installer="$(find "$bundle/nsis" -name '*-setup.exe' -print -quit)"
             test -n "$installer"
             carries "$(7z l "$installer")" "$installer"
+            # Carrying the runtime is half of it, and on Windows the other half is *where*. The
+            # binary imports SoapySDR.dll, so the loader resolves it out of the executable's own
+            # directory before `main` runs — a payload installed only under `soapy\` kills the
+            # process with a system error dialog. The bundlers key their resource table by
+            # source path, so listing one file under two destinations silently drops one of
+            # them; this asserts the layout the loader needs rather than the bundler's input.
+            payload="$RUNNER_TEMP/nsis-payload"
+            rm -rf "$payload"
+            7z x -y -o"$payload" "$installer" > /dev/null
+            exe="$(find "$payload" -name '*.exe' -not -path '*PLUGINSDIR*' -print -quit)"
+            core="$(find "$payload" -iname 'SoapySDR.dll' -print -quit)"
+            if [ -z "$exe" ] || [ -z "$core" ]; then
+              echo "$installer holds no executable and SoapySDR.dll to compare. It extracted:" >&2
+              find "$payload" >&2
+              exit 1
+            fi
+            if [ "$(dirname "$exe")" != "$(dirname "$core")" ]; then
+              echo "$installer installs $core, but the loader searches $(dirname "$exe")" >&2
+              find "$payload" >&2
+              exit 1
+            fi
+            module="$(find "$payload" -ipath '*/soapy/lib/SoapySDR/modules0.8/*airspy*' -print -quit)"
+            if [ -z "$module" ]; then
+              echo "$installer installs no Soapy module where the app points SOAPY_SDR_PLUGIN_PATH." >&2
+              find "$payload" >&2
+              exit 1
+            fi
+            echo "$installer installs SoapySDR.dll beside the executable and its modules under soapy/."
           fi
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/

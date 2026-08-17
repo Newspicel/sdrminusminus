@@ -16,8 +16,9 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": {
-      "resources/soapy": "soapy",
       "resources/soapy/bin": ".",
+      "resources/soapy/lib": "soapy/lib",
+      "resources/soapy/licenses": "soapy/licenses",
       "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "macOS": {

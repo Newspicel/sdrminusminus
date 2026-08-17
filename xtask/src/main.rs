@@ -16,6 +16,7 @@ use num_complex::Complex;
 
 mod bandplan;
 mod ber;
+mod bundle;
 mod homebrew;
 mod icons;
 mod licenses;
@@ -112,10 +113,13 @@ fn main() -> Result<()> {
         Cmd::Icons => icons::icons(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
-        Cmd::SoapyBundleCheck { dir } => soapy_bundle_check(
-            dir.unwrap_or_else(|| root().join("apps/desktop/resources/soapy"))
-                .as_path(),
-        ),
+        Cmd::SoapyBundleCheck { dir } => {
+            soapy_bundle_check(
+                dir.unwrap_or_else(|| root().join("apps/desktop/resources/soapy"))
+                    .as_path(),
+            )?;
+            bundle::check_resources(&root())
+        }
         Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
         Cmd::SetVersion { version } => set_version(&root(), &version),
         Cmd::UpdaterManifest {
@@ -441,6 +445,7 @@ mod dev_command_tests {
 }
 
 fn check(root: &Path) -> Result<()> {
+    bundle::check_resources(root)?;
     check_toolchain_pins(root)?;
     check_windows_rs_alignment(root)?;
     check_baked_in_fixtures(root)?;
@@ -867,6 +872,7 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
     web_build(root)?;
     assert_web_dist(root)?;
     soapy_bundle_check(&root.join("apps/desktop/resources/soapy"))?;
+    bundle::check_resources(root)?;
 
     let installed = Command::new("cargo")
         .args(["tauri", "--version"])
