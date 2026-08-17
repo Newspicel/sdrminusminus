@@ -10,9 +10,8 @@ import { Rack } from "./canvas/Rack";
 import { useHotkeys } from "./canvas/useHotkeys";
 import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
+import { WorkspaceStart } from "./canvas/WorkspaceStart";
 import { AboutPanel } from "./components/AboutPanel";
-import { Button } from "./components/BaseControls";
-import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { ServerDown } from "./components/ServerDown";
 import { Shortcuts } from "./components/Shortcuts";
@@ -358,15 +357,7 @@ export function App() {
         )}
 
         {workspace.unreachable === null && workspace.active === null && !workspace.pending && (
-          <div className="flex min-h-0 flex-1 items-center justify-center">
-            <Button
-              type="button"
-              className={BTN_PRIMARY}
-              onClick={() => workspace.create("Workspace")}
-            >
-              Create a workspace
-            </Button>
-          </div>
+          <WorkspaceStart onCreate={workspace.create} />
         )}
 
         <Shortcuts

@@ -785,4 +785,31 @@ test.describe("the workspace", () => {
     await page.goto("/");
     await expect(page.locator('header img[src="/icon.svg"]')).toBeVisible();
   });
+
+  test("takes a name for the first workspace on an empty desk", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const original: WorkspaceDetail = await page.request
+      .get(`/api/workspaces/${list.active}`)
+      .then((r) => r.json());
+
+    await page.getByRole("button", { name: original.name, exact: true }).click();
+    await page.getByRole("button", { name: `Delete ${original.name}` }).click();
+
+    const field = page.getByRole("textbox", { name: "Name for the new workspace" });
+    await expect(field).toBeVisible();
+    await field.fill("Bench");
+    await page.getByRole("button", { name: "Create a workspace" }).click();
+
+    await expect(page.getByRole("button", { name: "Bench", exact: true })).toBeVisible();
+    await expect(field).toHaveCount(0);
+    const named = await page.request.get("/api/workspaces").then((r) => r.json());
+    expect(named.workspaces.map((entry: { name: string }) => entry.name)).toEqual(["Bench"]);
+
+    const restored = await page.request
+      .post("/api/workspaces", { data: { name: original.name, snapshot: original.snapshot } })
+      .then((r) => r.json());
+    await page.request.post(`/api/workspaces/${restored.id}/activate`);
+    await page.request.delete(`/api/workspaces/${named.active}`);
+  });
 });

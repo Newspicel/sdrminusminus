@@ -210,7 +210,8 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
           className="w-24"
         />
         <span className="legend">
-          kHz{loOffset === 0 ? ", 0 = tune dead centre" : `, spike ${formatHz(-loOffset)} off centre`}
+          kHz
+          {loOffset === 0 ? ", 0 = tune dead centre" : `, spike ${formatHz(-loOffset)} off centre`}
         </span>
       </SettingRow>
 

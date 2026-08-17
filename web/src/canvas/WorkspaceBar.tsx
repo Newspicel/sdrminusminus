@@ -87,7 +87,12 @@ export function WorkspaceBar({
               onCreate(name);
               close();
             }}
-            onRemove={onRemove}
+            onRemove={(id) => {
+              onRemove(id);
+              if (id === activeWorkspace) {
+                close();
+              }
+            }}
           />
         )}
       </Popover>
