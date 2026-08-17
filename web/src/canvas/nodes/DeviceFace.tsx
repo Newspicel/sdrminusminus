@@ -214,7 +214,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         {overruns > 0 && (
           <Readout>
             <ReadoutRow
-              label="Overruns"
+              label="Drops"
               title="Device samples dropped at the capture ring since the radio opened — the DSP thread is behind, and audio and spectrum have gaps"
             >
               {overruns}
