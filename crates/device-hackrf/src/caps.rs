@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
-    StreamScope, any_range_holds,
+    Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage,
+    GainValue, Range, StreamScope, any_range_holds,
 };
 
 use crate::driver::{Config, FILTER_WIDTHS_HZ, snap_filter_width};
@@ -79,6 +79,7 @@ pub(crate) fn capabilities() -> Capabilities {
         tx_streams: 1,
         per_stream: StreamScope::default(),
         directional: None,
+        dc_artifact: DcArtifact::Managed,
     }
 }
 

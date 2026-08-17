@@ -112,6 +112,31 @@ impl std::fmt::Display for Direction {
     }
 }
 
+/// Who places and removes the receiver's own DC artifact.
+///
+/// A zero-IF front end lands an impulse at the tuned frequency. Moving the LO clear of every
+/// channel is the only correction that works, because a signal genuinely at 0 Hz is
+/// arithmetically indistinguishable from the offset, and the blocker must not run until the
+/// artifact has somewhere harmless to sit.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DcArtifact {
+    /// Hardware the engine does not recognise. The operator says where the LO sits and whether
+    /// the term is removed, because only they know what the front end already does for itself.
+    #[default]
+    Operator,
+    /// A front end whose artifact the engine knows how to handle. It parks the LO clear of every
+    /// channel and removes the term without asking, and neither is an operator setting.
+    Managed,
+}
+
+impl DcArtifact {
+    #[must_use]
+    pub const fn is_managed(self) -> bool {
+        matches!(self, Self::Managed)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Duplex {
@@ -392,6 +417,10 @@ pub struct Capabilities {
     pub per_stream: StreamScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub directional: Option<DirectionalCapabilities>,
+    /// Whether the engine handles this front end's DC artifact itself. Managed hardware hides
+    /// `dc_block` and `lo_offset_hz`, which it overrides.
+    #[serde(default)]
+    pub dc_artifact: DcArtifact,
 }
 
 const fn one_stream() -> u32 {
@@ -453,6 +482,21 @@ pub struct DeviceSettings {
 ///
 /// Beyond this the wanted signal falls into the tuner's analog filter roll-off.
 pub const MAX_LO_OFFSET_FRACTION: f64 = 0.4;
+
+/// How far the engine parks the LO on hardware whose artifact it manages.
+///
+/// Far enough that the artifact clears a channel sitting at the tune frequency, well inside
+/// [`MAX_LO_OFFSET_FRACTION`] so the wanted signal stays out of the tuner's filter roll-off.
+pub const MANAGED_LO_OFFSET_FRACTION: f64 = 0.25;
+
+#[must_use]
+pub fn managed_lo_offset_hz(sample_rate: f64) -> f64 {
+    if sample_rate.is_finite() && sample_rate > 0.0 {
+        sample_rate * MANAGED_LO_OFFSET_FRACTION
+    } else {
+        0.0
+    }
+}
 
 #[must_use]
 pub fn lo_offset_limit_hz(sample_rate: f64) -> f64 {
@@ -641,6 +685,7 @@ mod tests {
             tx_streams: 0,
             per_stream: StreamScope::default(),
             directional: None,
+            dc_artifact: DcArtifact::Operator,
         }
     }
 

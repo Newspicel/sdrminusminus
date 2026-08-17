@@ -7,9 +7,9 @@ use std::{
 use num_complex::Complex;
 use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
 use sdrmm_wire::{
-    AdsbParams, AudioProcessing, ChannelSettings, DecoderEvent, Duplex, MAX_TIME_MACHINE_SECONDS,
-    NfmParams, ScanState, Sideband, SsbParams, StreamScope, TimeMachineAction, TimeMachineNode,
-    TimeMachineStatus,
+    AdsbParams, AudioProcessing, ChannelSettings, DcArtifact, DecoderEvent, Duplex,
+    MAX_TIME_MACHINE_SECONDS, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
+    TimeMachineAction, TimeMachineNode, TimeMachineStatus,
 };
 
 use super::*;
@@ -55,6 +55,7 @@ fn empty_capabilities() -> Capabilities {
         tx_streams: 0,
         per_stream: StreamScope::default(),
         directional: None,
+        dc_artifact: DcArtifact::Operator,
     }
 }
 
@@ -1187,11 +1188,12 @@ fn parked(id: u32, offset_hz: f64) -> ChannelInfo {
 
 #[test]
 fn an_lo_offset_no_channel_sits_on_is_left_where_it_was_asked_for() {
-    let placed = resolve_lo_offset(
+    let placed = plan_front_end(
         &tuner_caps(),
         &offset_settings(250_000.0),
         &[parked(1, 0.0)],
-    );
+    )
+    .lo_offset_hz;
     assert_eq!(placed, 250_000.0);
 }
 
@@ -1209,11 +1211,12 @@ fn the_lo_steps_aside_when_a_decoder_is_parked_on_it() {
         "the test channel was not actually sitting on the artifact"
     );
 
-    let placed = resolve_lo_offset(
+    let placed = plan_front_end(
         &tuner_caps(),
         &settings,
         std::slice::from_ref(&on_the_artifact),
-    );
+    )
+    .lo_offset_hz;
     assert_ne!(placed, 250_000.0, "the LO stayed under the decoder");
     assert!(
         artifact_clears_channels(
@@ -1239,7 +1242,7 @@ fn the_lo_finds_a_gap_between_several_decoders() {
         parked(3, -187_500.0),
         parked(4, 187_500.0),
     ];
-    let placed = resolve_lo_offset(&tuner_caps(), &settings, &crowded);
+    let placed = plan_front_end(&tuner_caps(), &settings, &crowded).lo_offset_hz;
     assert!(
         artifact_clears_channels(placed, &settings, &tuner_caps(), &crowded),
         "no placement cleared four decoders, settled on {placed} Hz"
@@ -1248,7 +1251,8 @@ fn the_lo_finds_a_gap_between_several_decoders() {
 
 #[test]
 fn an_offset_that_was_never_asked_for_is_not_invented_to_dodge_a_channel() {
-    let placed = resolve_lo_offset(&tuner_caps(), &offset_settings(0.0), &[parked(1, 0.0)]);
+    let placed =
+        plan_front_end(&tuner_caps(), &offset_settings(0.0), &[parked(1, 0.0)]).lo_offset_hz;
     assert_eq!(placed, 0.0);
 }
 
@@ -1259,10 +1263,99 @@ fn a_radio_that_has_not_said_where_it_is_tuned_keeps_its_lo_where_it_is() {
         ..offset_settings(250_000.0)
     };
     assert_eq!(
-        resolve_lo_offset(&tuner_caps(), &untuned, &[]),
+        plan_front_end(&tuner_caps(), &untuned, &[]).lo_offset_hz,
         0.0,
         "a centre the front end cannot displace was displaced anyway"
     );
+}
+
+fn managed_caps() -> Capabilities {
+    Capabilities {
+        dc_artifact: DcArtifact::Managed,
+        ..tuner_caps()
+    }
+}
+
+fn untouched_settings() -> DeviceSettings {
+    DeviceSettings {
+        center_hz: Some(100e6),
+        sample_rate: Some(2_400_000.0),
+        ..DeviceSettings::default()
+    }
+}
+
+#[test]
+fn managed_hardware_parks_its_artifact_without_being_asked() {
+    let plan = plan_front_end(&managed_caps(), &untouched_settings(), &[parked(1, 0.0)]);
+    assert_ne!(
+        plan.lo_offset_hz, 0.0,
+        "the artifact was left under the tune frequency"
+    );
+    assert!(
+        plan.dc_block,
+        "the artifact was moved clear but never removed"
+    );
+    assert!(
+        artifact_clears_channels(
+            plan.lo_offset_hz,
+            &untouched_settings(),
+            &managed_caps(),
+            &[parked(1, 0.0)]
+        ),
+        "the artifact landed inside the decoder it was moved to avoid"
+    );
+}
+
+#[test]
+fn managed_hardware_ignores_the_operator_settings_it_does_not_show() {
+    let asked = DeviceSettings {
+        lo_offset_hz: Some(0.0),
+        dc_block: Some(false),
+        ..untouched_settings()
+    };
+    let plan = plan_front_end(&managed_caps(), &asked, &[]);
+    assert_ne!(plan.lo_offset_hz, 0.0);
+    assert!(plan.dc_block);
+}
+
+#[test]
+fn the_blocker_stays_off_while_the_artifact_has_nowhere_to_go() {
+    let boxed_in = Capabilities {
+        freq_ranges: vec![sdrmm_wire::Range {
+            min: 100e6,
+            max: 100e6,
+            step: None,
+        }],
+        ..managed_caps()
+    };
+    let plan = plan_front_end(&boxed_in, &untouched_settings(), &[parked(1, 0.0)]);
+    assert_eq!(
+        plan.lo_offset_hz, 0.0,
+        "the LO was displaced to a frequency the tuner cannot reach"
+    );
+    assert!(
+        !plan.dc_block,
+        "the blocker notched the centre bin with a decoder sitting on it"
+    );
+}
+
+#[test]
+fn unknown_hardware_still_answers_to_its_settings() {
+    let asked = DeviceSettings {
+        dc_block: Some(true),
+        ..offset_settings(250_000.0)
+    };
+    let plan = plan_front_end(&tuner_caps(), &asked, &[]);
+    assert_eq!(plan.lo_offset_hz, 250_000.0);
+    assert!(plan.dc_block);
+
+    let quiet = DeviceSettings {
+        dc_block: Some(false),
+        ..offset_settings(0.0)
+    };
+    let plan = plan_front_end(&tuner_caps(), &quiet, &[]);
+    assert_eq!(plan.lo_offset_hz, 0.0);
+    assert!(!plan.dc_block);
 }
 
 #[tokio::test]

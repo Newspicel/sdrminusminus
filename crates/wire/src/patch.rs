@@ -1116,7 +1116,7 @@ mod tests {
     use super::*;
     use crate::{
         channel::ChannelSettings,
-        device::{Duplex, StreamScope},
+        device::{DcArtifact, Duplex, StreamScope},
         filter::MAX_FILTER_IDS,
     };
 
@@ -1169,6 +1169,7 @@ mod tests {
             tx_streams,
             per_stream: StreamScope::default(),
             directional: None,
+            dc_artifact: DcArtifact::Operator,
         }
     }
 

@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceSettings,
-    DirectionalCapabilities, Duplex, ExtraSetting, Range,
+    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DcArtifact,
+    DeviceSettings, DirectionalCapabilities, Duplex, ExtraSetting, Range,
 };
 use soapysdr::ArgType;
 
@@ -170,6 +170,7 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         tx_streams,
         per_stream: sdrmm_wire::StreamScope::default(),
         directional: Some(directional),
+        dc_artifact: DcArtifact::Operator,
     }
 }
 

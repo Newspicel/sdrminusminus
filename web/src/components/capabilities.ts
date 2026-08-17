@@ -1,4 +1,4 @@
-import type { GainStage, Range } from "../lib/types";
+import type { Capabilities, GainStage, Range } from "../lib/types";
 
 export function isSwitch(stage: GainStage): boolean {
   const values = stage.values ?? [];
@@ -74,4 +74,12 @@ export function clampLoOffsetHz(hz: number, sampleRate: number | undefined): num
   const limit = loOffsetLimitHz(sampleRate);
   if (!Number.isFinite(hz)) return 0;
   return Math.min(Math.max(hz, -limit), limit);
+}
+
+/**
+ * Whether the engine places and removes this front end's DC artifact itself. Hardware it knows
+ * leaves the operator nothing to decide, so the panel drops both controls.
+ */
+export function managesDcArtifact(caps: Pick<Capabilities, "dc_artifact">): boolean {
+  return caps.dc_artifact === "managed";
 }

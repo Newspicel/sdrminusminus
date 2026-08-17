@@ -11,7 +11,7 @@ use sdrmm_device::{
 };
 use sdrmm_recorder::{SigmfError, SigmfReader};
 use sdrmm_wire::{
-    Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range, StreamScope,
+    Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range, StreamScope,
 };
 
 use crate::{BLOCK_SECS, DRIVER_ID, FILE_KEY_PREFIX};
@@ -84,6 +84,7 @@ impl FilePlayback {
             tx_streams: 0,
             per_stream: StreamScope::default(),
             directional: None,
+            dc_artifact: DcArtifact::Operator,
         };
         let settings = DeviceSettings {
             center_hz: Some(center_hz),

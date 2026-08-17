@@ -1286,6 +1286,11 @@ export interface components {
             /** @description Continuous analog filter widths, for hardware whose IF filter is not a discrete menu. */
             bandwidth_ranges?: components["schemas"]["Range"][];
             bandwidths: number[];
+            /**
+             * @description Whether the engine handles this front end's DC artifact itself. Managed hardware hides
+             *     `dc_block` and `lo_offset_hz`, which it overrides.
+             */
+            dc_artifact?: components["schemas"]["DcArtifact"];
             directional?: null | components["schemas"]["DirectionalCapabilities"];
             duplex?: components["schemas"]["Duplex"];
             extra?: components["schemas"]["ExtraSetting"][];
@@ -1786,6 +1791,16 @@ export interface components {
         };
         /** @enum {string} */
         DatvStandard: "dvb_s" | "dvb_s2";
+        /**
+         * @description Who places and removes the receiver's own DC artifact.
+         *
+         *     A zero-IF front end lands an impulse at the tuned frequency. Moving the LO clear of every
+         *     channel is the only correction that works, because a signal genuinely at 0 Hz is
+         *     arithmetically indistinguishable from the offset, and the blocker must not run until the
+         *     artifact has somewhere harmless to sit.
+         * @enum {string}
+         */
+        DcArtifact: "operator" | "managed";
         DecodedRecord: {
             at: string;
             /** Format: int32 */

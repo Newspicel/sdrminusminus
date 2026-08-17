@@ -20,8 +20,9 @@ use sdrmm_device::{
 use sdrmm_device_virtual::{VirtualDriver, stream_marker_offset_hz};
 use sdrmm_engine::{Engine, SpectrumSnapshot};
 use sdrmm_wire::{
-    Capabilities, ChannelParams, ChannelSettings, DecoderEvent, DeviceInfo, DeviceSettings, Duplex,
-    GainValue, NfmParams, PocsagBaud, PocsagParams, ScanSettings, StreamScope, StreamSettings,
+    Capabilities, ChannelParams, ChannelSettings, DcArtifact, DecoderEvent, DeviceInfo,
+    DeviceSettings, Duplex, GainValue, NfmParams, PocsagBaud, PocsagParams, ScanSettings,
+    StreamScope, StreamSettings,
 };
 use tokio::sync::broadcast;
 
@@ -528,6 +529,7 @@ impl DeviceDriver for PagingDriver {
                     antenna: false,
                 },
                 directional: None,
+                dc_artifact: DcArtifact::Operator,
             },
             settings: DeviceSettings {
                 center_hz: Some(DEFAULT_CENTER_HZ),

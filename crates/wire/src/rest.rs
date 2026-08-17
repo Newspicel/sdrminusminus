@@ -461,7 +461,7 @@ pub struct ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::{Capabilities, DeviceProfile, Duplex, Range, StreamScope};
+    use crate::device::{Capabilities, DcArtifact, DeviceProfile, Duplex, Range, StreamScope};
 
     fn scoped(nodes: Option<&str>, sources: Option<&str>) -> DecoderLogQuery {
         DecoderLogQuery {
@@ -545,6 +545,7 @@ mod tests {
             tx_streams: 0,
             per_stream: StreamScope::default(),
             directional: None,
+            dc_artifact: DcArtifact::Operator,
         }
         .profile()
     }

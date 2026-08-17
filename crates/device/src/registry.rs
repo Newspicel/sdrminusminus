@@ -132,7 +132,7 @@ impl DeviceRegistry {
 mod tests {
     use std::sync::Mutex;
 
-    use sdrmm_wire::{Capabilities, DeviceSettings, Duplex, StreamScope};
+    use sdrmm_wire::{Capabilities, DcArtifact, DeviceSettings, Duplex, StreamScope};
 
     use super::*;
     use crate::{RxSink, lock};
@@ -217,6 +217,7 @@ mod tests {
                 tx_streams: 0,
                 per_stream: StreamScope::default(),
                 directional: None,
+                dc_artifact: DcArtifact::Operator,
             })
         }
 

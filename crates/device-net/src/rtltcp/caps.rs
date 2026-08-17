@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
-    StreamScope,
+    Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage,
+    GainValue, Range, StreamScope,
 };
 
 use crate::rtltcp::proto::{Command, Tuner, ordered};
@@ -109,6 +109,7 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         tx_streams: 0,
         per_stream: StreamScope::default(),
         directional: None,
+        dc_artifact: DcArtifact::Managed,
     }
 }
 

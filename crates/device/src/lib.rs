@@ -346,6 +346,7 @@ mod tests {
             tx_streams: 0,
             per_stream,
             directional: None,
+            dc_artifact: sdrmm_wire::DcArtifact::Operator,
         }
     }
 

@@ -4,6 +4,7 @@ import {
   clampLoOffsetHz,
   isSwitch,
   loOffsetLimitHz,
+  managesDcArtifact,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -160,5 +161,16 @@ describe("clampLoOffsetHz", () => {
   it("falls back to tuning dead centre when there is no room or no number", () => {
     expect(clampLoOffsetHz(250_000, undefined)).toBe(0);
     expect(clampLoOffsetHz(Number.NaN, 2_400_000)).toBe(0);
+  });
+});
+
+describe("managesDcArtifact", () => {
+  it("keeps the controls for hardware the engine does not recognise", () => {
+    expect(managesDcArtifact({ dc_artifact: "operator" })).toBe(false);
+    expect(managesDcArtifact({})).toBe(false);
+  });
+
+  it("drops them for a front end the engine handles itself", () => {
+    expect(managesDcArtifact({ dc_artifact: "managed" })).toBe(true);
   });
 });

@@ -1,5 +1,7 @@
 use sdrmm_device::DeviceError;
-use sdrmm_wire::{ArgumentOption, Capabilities, ExtraSetting, GainStage, Range, StreamScope};
+use sdrmm_wire::{
+    ArgumentOption, Capabilities, DcArtifact, ExtraSetting, GainStage, Range, StreamScope,
+};
 
 use crate::{
     ffi,
@@ -515,6 +517,7 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
             StreamScope::default()
         },
         directional: None,
+        dc_artifact: DcArtifact::Operator,
     }
 }
 

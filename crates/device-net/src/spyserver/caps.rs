@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range,
-    StreamScope,
+    ArgumentOption, Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue,
+    Range, StreamScope,
 };
 
 use crate::spyserver::proto::{ClientSync, DeviceInfo, IqFormat, Setting, ordered};
@@ -88,6 +88,7 @@ pub(crate) fn capabilities(
         tx_streams: 0,
         per_stream: StreamScope::default(),
         directional: None,
+        dc_artifact: DcArtifact::Operator,
     }
 }
 

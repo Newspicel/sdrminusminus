@@ -24,6 +24,7 @@ use sdrmm_wire::{
 use tokio::sync::broadcast;
 
 use crate::{
+    FrontEndPlan,
     audio::{PcmBlock, PcmPayload},
     audio_recording::AudioRecorderTap,
     iq::{IqBlock, IqTap},
@@ -638,7 +639,7 @@ impl CaptureRuntime {
     pub fn start(
         mut device: Box<dyn SdrDevice>,
         settings: &DeviceSettings,
-        lo_offset_hz: f64,
+        front_end: FrontEndPlan,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
@@ -702,8 +703,8 @@ impl CaptureRuntime {
                 meta: Arc::new(ArcSwap::from_pointee(DspMeta {
                     center_hz,
                     sample_rate,
-                    lo_offset_hz,
-                    dc_block: settings.dc_block.unwrap_or(false),
+                    lo_offset_hz: front_end.lo_offset_hz,
+                    dc_block: front_end.dc_block,
                 })),
                 spectrum_tx,
                 cmd_tx,
@@ -776,7 +777,7 @@ impl CaptureRuntime {
             .collect()
     }
 
-    pub fn set_meta(&self, settings: &DeviceSettings, lo_offset_hz: f64) {
+    pub fn set_meta(&self, settings: &DeviceSettings, front_end: FrontEndPlan) {
         let sample_rate = crate::sample_rate_of(settings);
         for (stream, lane) in self.lanes.iter().enumerate() {
             let center_hz = settings
@@ -786,8 +787,8 @@ impl CaptureRuntime {
             lane.meta.store(Arc::new(DspMeta {
                 center_hz,
                 sample_rate,
-                lo_offset_hz,
-                dc_block: settings.dc_block.unwrap_or(false),
+                lo_offset_hz: front_end.lo_offset_hz,
+                dc_block: front_end.dc_block,
             }));
         }
     }

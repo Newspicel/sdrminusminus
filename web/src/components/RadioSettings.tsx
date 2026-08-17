@@ -8,6 +8,7 @@ import {
   clampLoOffsetHz,
   isSwitch,
   loOffsetLimitHz,
+  managesDcArtifact,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -37,6 +38,7 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
   const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
   const loOffsetLimit = loOffsetLimitHz(sampleRate);
   const loOffset = active.lo_offset_in_force_hz ?? 0;
+  const managedDcArtifact = managesDcArtifact(caps);
   const extras = (caps.extra ?? []).filter(
     (setting) => active.playback == null || setting.name !== LOOP_SETTING,
   );
@@ -188,32 +190,38 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
         </SettingRow>
       )}
 
-      <SettingRow label="DC block">
-        <Checkbox
-          label="Remove the receiver's own DC spike"
-          checked={settings.dc_block ?? false}
-          onChange={(dc_block) => applyPatch(active.id, { dc_block })}
-        />
-        <span className="legend">notches the centre bin</span>
-      </SettingRow>
+      {!managedDcArtifact && (
+        <>
+          <SettingRow label="DC block">
+            <Checkbox
+              label="Remove the receiver's own DC spike"
+              checked={settings.dc_block ?? false}
+              onChange={(dc_block) => applyPatch(active.id, { dc_block })}
+            />
+            <span className="legend">notches the centre bin</span>
+          </SettingRow>
 
-      <SettingRow label="LO offset">
-        <NumberField
-          label="Local oscillator offset (kHz)"
-          value={(settings.lo_offset_hz ?? 0) / 1e3}
-          min={-loOffsetLimit / 1e3}
-          max={loOffsetLimit / 1e3}
-          step={25}
-          onCommit={(khz) =>
-            applyPatch(active.id, { lo_offset_hz: clampLoOffsetHz(khz * 1e3, sampleRate) })
-          }
-          className="w-24"
-        />
-        <span className="legend">
-          kHz
-          {loOffset === 0 ? ", 0 = tune dead centre" : `, spike ${formatHz(-loOffset)} off centre`}
-        </span>
-      </SettingRow>
+          <SettingRow label="LO offset">
+            <NumberField
+              label="Local oscillator offset (kHz)"
+              value={(settings.lo_offset_hz ?? 0) / 1e3}
+              min={-loOffsetLimit / 1e3}
+              max={loOffsetLimit / 1e3}
+              step={25}
+              onCommit={(khz) =>
+                applyPatch(active.id, { lo_offset_hz: clampLoOffsetHz(khz * 1e3, sampleRate) })
+              }
+              className="w-24"
+            />
+            <span className="legend">
+              kHz
+              {loOffset === 0
+                ? ", 0 = tune dead centre"
+                : `, spike ${formatHz(-loOffset)} off centre`}
+            </span>
+          </SettingRow>
+        </>
+      )}
 
       {extras.map((setting) => (
         <ExtraControl

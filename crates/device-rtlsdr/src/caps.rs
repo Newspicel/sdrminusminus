@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentOption, Capabilities, DeviceInfo, DeviceSettings, Duplex, ExtraSetting, ExtraValue,
-    GainStage, GainValue, Range, StreamScope,
+    ArgumentOption, Capabilities, DcArtifact, DeviceInfo, DeviceSettings, Duplex, ExtraSetting,
+    ExtraValue, GainStage, GainValue, Range, StreamScope,
 };
 
 use crate::{
@@ -160,6 +160,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         tx_streams: 0,
         per_stream: StreamScope::default(),
         directional: None,
+        dc_artifact: DcArtifact::Managed,
     }
 }
 

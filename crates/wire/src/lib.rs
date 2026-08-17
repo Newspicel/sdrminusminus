@@ -61,10 +61,10 @@ pub use decode::{
     VorReading, WsjtMessage, WsprSpot,
 };
 pub use device::{
-    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
-    DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue,
-    GainStage, GainValue, MAX_LO_OFFSET_FRACTION, Range, StreamScope, StreamSettings,
-    any_range_holds, lo_offset_limit_hz,
+    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DcArtifact,
+    DeviceInfo, DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting,
+    ExtraValue, GainStage, GainValue, MANAGED_LO_OFFSET_FRACTION, MAX_LO_OFFSET_FRACTION, Range,
+    StreamScope, StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use filter::{
@@ -594,6 +594,7 @@ mod contract_tests {
                 tx_streams: 0,
                 per_stream: StreamScope::default(),
                 directional: None,
+                dc_artifact: DcArtifact::Operator,
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,

@@ -1787,6 +1787,7 @@ mod tests {
                     tx_streams: 0,
                     per_stream: sdrmm_wire::StreamScope::default(),
                     directional: None,
+                    dc_artifact: sdrmm_wire::DcArtifact::Operator,
                 },
                 settings: sdrmm_wire::DeviceSettings {
                     sample_rate: Some(2_048_000.0),

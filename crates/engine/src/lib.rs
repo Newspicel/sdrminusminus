@@ -398,35 +398,81 @@ fn artifact_clears_channels(
     })
 }
 
-/// Settles on an LO offset that the tuner can reach and that no decoder is sitting on.
+/// Where the front end's DC artifact ends up, and whether it is safe to remove it there.
 ///
-/// Moving the LO is invisible downstream because the front end mixes the displacement back out,
-/// so the placement is free to shift as channels come and go.
-fn resolve_lo_offset(
+/// The blocker notches whatever sits at 0 Hz, so it may only run once the artifact has been
+/// parked clear of every channel. Blocking without that placement is what puts a notch through
+/// a decoder tuned to the centre.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FrontEndPlan {
+    pub lo_offset_hz: f64,
+    pub dc_block: bool,
+}
+
+/// Walks the placement ladder for the first displacement the tuner can reach with no decoder
+/// sitting on it. `None` when every placement is spoken for.
+fn place_artifact(
+    wanted_hz: f64,
     capabilities: &Capabilities,
     settings: &DeviceSettings,
     channels: &[ChannelInfo],
-) -> f64 {
-    let rate = sample_rate_of(settings);
-    let asked = settings.effective_lo_offset_hz(capabilities, rate);
-    if asked == 0.0 || settings.center_hz.is_none() {
-        return 0.0;
+    rate: f64,
+) -> Option<f64> {
+    if wanted_hz == 0.0 {
+        return None;
     }
     let limit = sdrmm_wire::lo_offset_limit_hz(rate);
-    for scale in LO_PLACEMENTS {
-        let candidate = (asked * scale).clamp(-limit, limit);
+    LO_PLACEMENTS.into_iter().find_map(|scale| {
+        let candidate = (wanted_hz * scale).clamp(-limit, limit);
         let placed = DeviceSettings {
             lo_offset_hz: Some(candidate),
             ..settings.clone()
         };
-        if placed.effective_lo_offset_hz(capabilities, rate) != candidate {
-            continue;
-        }
-        if artifact_clears_channels(candidate, settings, capabilities, channels) {
-            return candidate;
-        }
+        (placed.effective_lo_offset_hz(capabilities, rate) == candidate
+            && artifact_clears_channels(candidate, settings, capabilities, channels))
+        .then_some(candidate)
+    })
+}
+
+/// Settles the front end: where the LO sits and whether the DC term is removed.
+///
+/// Moving the LO is invisible downstream because the front end mixes the displacement back out,
+/// so the placement is free to shift as channels come and go. Hardware the engine recognises
+/// gets both decided for it; anything else is left to the operator, who may have a front end
+/// that already corrects itself.
+pub(crate) fn plan_front_end(
+    capabilities: &Capabilities,
+    settings: &DeviceSettings,
+    channels: &[ChannelInfo],
+) -> FrontEndPlan {
+    let rate = sample_rate_of(settings);
+    // A centre the radio has not reported cannot be displaced: there is nothing to subtract the
+    // offset from, and the front end would mix back a shift the hardware never took.
+    if settings.center_hz.is_none() {
+        return FrontEndPlan {
+            lo_offset_hz: 0.0,
+            dc_block: !capabilities.dc_artifact.is_managed() && settings.dc_block.unwrap_or(false),
+        };
     }
-    asked
+    if capabilities.dc_artifact.is_managed() {
+        let placed = place_artifact(
+            sdrmm_wire::managed_lo_offset_hz(rate),
+            capabilities,
+            settings,
+            channels,
+            rate,
+        );
+        return FrontEndPlan {
+            lo_offset_hz: placed.unwrap_or(0.0),
+            dc_block: placed.is_some(),
+        };
+    }
+    let asked = settings.effective_lo_offset_hz(capabilities, rate);
+    FrontEndPlan {
+        lo_offset_hz: place_artifact(asked, capabilities, settings, channels, rate)
+            .unwrap_or(asked),
+        dc_block: settings.dc_block.unwrap_or(false),
+    }
 }
 
 /// Turns an operator-frame patch into the one the driver receives.
@@ -644,8 +690,9 @@ struct DeviceSetState {
     info: DeviceInfo,
     capabilities: Capabilities,
     settings: DeviceSettings,
-    /// The LO displacement the hardware is actually holding, which the front end mixes back out.
-    lo_offset_hz: f64,
+    /// Where the front end's DC artifact is parked and whether it is being removed there. The
+    /// displacement is mixed back out downstream, so nothing the operator sees moves with it.
+    front_end: FrontEndPlan,
     status: DeviceSetStatus,
     channels: Vec<ChannelInfo>,
     media: HashMap<u32, ChannelMedia>,
@@ -677,7 +724,7 @@ impl DeviceSetState {
             capabilities: self.capabilities.clone(),
             settings: self.settings.clone(),
             status: self.status,
-            lo_offset_in_force_hz: self.lo_offset_hz,
+            lo_offset_in_force_hz: self.front_end.lo_offset_hz,
             channels: self
                 .channels
                 .iter()
@@ -1472,12 +1519,12 @@ impl Engine {
             .registry
             .open(&device_id)
             .and_then(|(info, mut device)| {
-                let lo_offset_hz =
-                    resolve_lo_offset(device.capabilities(), &stored_settings, &stored_channels);
-                device.apply(&stored_settings.to_hardware(lo_offset_hz))?;
-                Ok((info, device, lo_offset_hz))
+                let front_end =
+                    plan_front_end(device.capabilities(), &stored_settings, &stored_channels);
+                device.apply(&stored_settings.to_hardware(front_end.lo_offset_hz))?;
+                Ok((info, device, front_end))
             });
-        let (info, device, lo_offset_hz) = match opened {
+        let (info, device, front_end) = match opened {
             Ok(opened) => opened,
             Err(e) => {
                 self.note_reconnect_failure(ds, &e.to_string());
@@ -1487,12 +1534,12 @@ impl Engine {
         let capabilities = device.capabilities().clone();
         let playback = device.playback();
         let mut settings = stored_settings.clone();
-        settings.merge_from(&device.settings().to_operator(lo_offset_hz));
+        settings.merge_from(&device.settings().to_operator(front_end.lo_offset_hz));
         let rate = sample_rate_of(&settings);
         let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
         let fault_tx = self.fault_tx.clone();
         let handler_gate = gate.clone();
-        let runtime = match CaptureRuntime::start(device, &settings, lo_offset_hz, move |err| {
+        let runtime = match CaptureRuntime::start(device, &settings, front_end, move |err| {
             let mut gate = handler_gate
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1543,7 +1590,7 @@ impl Engine {
             state.info = info;
             state.capabilities = capabilities;
             state.settings = settings;
-            state.lo_offset_hz = lo_offset_hz;
+            state.front_end = front_end;
             state.status = DeviceSetStatus::Running;
             state.error = None;
             state.playback = playback;
@@ -1714,9 +1761,10 @@ impl Engine {
             id
         };
         let fault_tx = self.fault_tx.clone();
-        let started = CaptureRuntime::start(device, &settings, 0.0, move |err| {
-            let _ = fault_tx.send((id, err));
-        });
+        let started =
+            CaptureRuntime::start(device, &settings, FrontEndPlan::default(), move |err| {
+                let _ = fault_tx.send((id, err));
+            });
         let runtime = match started {
             Ok(runtime) => runtime,
             Err(e) => {
@@ -1740,7 +1788,7 @@ impl Engine {
                     info,
                     capabilities,
                     settings,
-                    lo_offset_hz: 0.0,
+                    front_end: FrontEndPlan::default(),
                     status: if pending.is_some() {
                         DeviceSetStatus::Error
                     } else {
@@ -1849,13 +1897,13 @@ impl Engine {
     /// The displacement is mixed back out downstream, so nothing the operator sees moves; only the
     /// front end's own DC term does.
     fn replace_lo(&self, ds: u32) {
-        let (runtime, settings, lo_offset_hz, hardware) = {
+        let (runtime, settings, front_end, hardware) = {
             let mut inner = self.lock();
             let Some(state) = inner.device_sets.get_mut(&ds) else {
                 return;
             };
-            let resolved = resolve_lo_offset(&state.capabilities, &state.settings, &state.channels);
-            if resolved == state.lo_offset_hz {
+            let resolved = plan_front_end(&state.capabilities, &state.settings, &state.channels);
+            if resolved == state.front_end {
                 return;
             }
             let restated = DeviceSettings {
@@ -1873,19 +1921,19 @@ impl Engine {
                     .collect(),
                 ..DeviceSettings::default()
             };
-            state.lo_offset_hz = resolved;
+            state.front_end = resolved;
             (
                 state.runtime.clone(),
                 state.settings.clone(),
                 resolved,
-                restated.to_hardware(resolved),
+                restated.to_hardware(resolved.lo_offset_hz),
             )
         };
         if let Err(e) = lock_runtime(&runtime).apply(&hardware) {
             tracing::warn!(ds, error = %e, "could not move the LO clear of a channel");
             return;
         }
-        lock_runtime(&runtime).set_meta(&settings, lo_offset_hz);
+        lock_runtime(&runtime).set_meta(&settings, front_end);
     }
 
     fn patch_device_from(
@@ -1894,7 +1942,7 @@ impl Engine {
         delta: DeviceSettings,
         origin: PatchOrigin,
     ) -> Result<(), EngineError> {
-        let (runtime, hardware, lo_offset_hz, _rate_guard) = {
+        let (runtime, hardware, front_end, _rate_guard) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -1907,8 +1955,13 @@ impl Engine {
             }
             let mut wanted = state.settings.clone();
             wanted.merge_from(&delta);
-            let lo_offset_hz = resolve_lo_offset(&state.capabilities, &wanted, &state.channels);
-            let hardware = hardware_delta(&delta, &wanted, lo_offset_hz, state.lo_offset_hz);
+            let front_end = plan_front_end(&state.capabilities, &wanted, &state.channels);
+            let hardware = hardware_delta(
+                &delta,
+                &wanted,
+                front_end.lo_offset_hz,
+                state.front_end.lo_offset_hz,
+            );
             validate_streams(&state.capabilities, &hardware)?;
             let mut rate_change = false;
             if let Some(new_rate) = delta.sample_rate
@@ -1943,12 +1996,12 @@ impl Engine {
                 state.rate_patches += 1;
                 RatePatchGuard { engine: self, ds }
             });
-            (runtime, hardware, lo_offset_hz, guard)
+            (runtime, hardware, front_end, guard)
         };
         let actual = {
             let mut runtime = lock_runtime(&runtime);
             runtime.apply(&hardware)?;
-            runtime.device_settings(lo_offset_hz)
+            runtime.device_settings(front_end.lo_offset_hz)
         };
         let (settings, rate, rebuilds) = {
             let mut inner = self.lock();
@@ -2038,12 +2091,12 @@ impl Engine {
                     })
                     .collect()
             };
-            state.lo_offset_hz = lo_offset_hz;
+            state.front_end = front_end;
             let settings = state.settings.clone();
             inner.revision += 1;
             (settings, rate, rebuilds)
         };
-        lock_runtime(&runtime).set_meta(&settings, lo_offset_hz);
+        lock_runtime(&runtime).set_meta(&settings, front_end);
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);

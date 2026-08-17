@@ -10,7 +10,9 @@ use sdrmm_device::{
     DeviceDriver, DeviceError, RxSink, SdrDevice, Worker, check_stream_settings, single_rx_sink,
 };
 use sdrmm_recorder::scan_stems;
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, Duplex, Range, StreamScope};
+use sdrmm_wire::{
+    Capabilities, DcArtifact, DeviceInfo, DeviceSettings, Duplex, Range, StreamScope,
+};
 
 mod playback;
 pub use playback::{FilePlayback, LOOP_SETTING};
@@ -229,6 +231,7 @@ fn siggen_capabilities() -> Capabilities {
         tx_streams: 0,
         per_stream: StreamScope::default(),
         directional: None,
+        dc_artifact: DcArtifact::Operator,
     }
 }
 
