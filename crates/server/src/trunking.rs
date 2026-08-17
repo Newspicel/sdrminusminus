@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use sdrmm_engine::{Engine, TrunkSystem};
+use sdrmm_engine::{Engine, TrunkSystem, trunking::TrunkRadio};
 use sdrmm_wire::{NodeBody, ServerEvent, StateScope};
 use tokio::sync::{broadcast::error::RecvError, watch};
 
@@ -84,6 +84,7 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
     let Ok(Some(workspace)) = store.active_workspace() else {
         return (Vec::new(), Recording::default());
     };
+    let saved = store.workspace_state(workspace.info.id).unwrap_or_default();
     let graph = &workspace.snapshot.graph;
     let state = engine.snapshot();
     let live: HashMap<String, (u32, u32)> = crate::workspace::bind(graph, &state)
@@ -95,6 +96,9 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
                 .into_iter()
                 .map(move |(node, channel)| (node, (device_set, channel)))
         })
+        .collect();
+    let devices: HashMap<String, u32> = crate::workspace::bind_devices(graph, &state)
+        .into_iter()
         .collect();
     let mut systems = Vec::new();
     let mut policy = CallPolicy::default();
@@ -108,6 +112,10 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
                         .sources_of(&node.id, "events")
                         .filter_map(|source| live.get(source).copied())
                         .collect(),
+                    discovery: settings.discovery.clone(),
+                    channel_map: settings.channel_map.clone(),
+                    learned: learned_for(&saved, &node.id, engine),
+                    radio: own_radio(graph, &node.id, settings, &devices),
                 });
                 if settings.record_calls {
                     policy.trunk_systems.insert(node.id.clone());
@@ -127,6 +135,47 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
         }
     }
     (systems, Arc::new(policy))
+}
+
+/// What the search already worked out for the site this system is sitting on. Keyed by colour
+/// code because neighbouring sites of one system reuse logical channel numbers on their own
+/// frequencies, so the plan learned at one site would place calls on the wrong one at the next.
+fn learned_for(
+    saved: &sdrmm_wire::WorkspaceState,
+    node: &str,
+    engine: &Engine,
+) -> Vec<sdrmm_wire::DmrChannelEntry> {
+    let color_code = engine
+        .trunk_systems()
+        .into_iter()
+        .find(|system| system.node == node)
+        .and_then(|system| system.color_code);
+    saved
+        .trunk(node, color_code)
+        .map(|trunk| trunk.channels.clone())
+        .unwrap_or_default()
+}
+
+fn own_radio(
+    graph: &sdrmm_wire::PatchGraph,
+    node: &str,
+    settings: &sdrmm_wire::DmrTrunkNode,
+    devices: &HashMap<String, u32>,
+) -> Option<TrunkRadio> {
+    let control_hz = settings.control_hz?;
+    let source = graph.sources_of(node, "iq").next()?;
+    let stream = graph
+        .edges
+        .iter()
+        .find(|edge| edge.to.node == node && edge.to.port == "iq" && edge.from.node == source)
+        .and_then(|edge| sdrmm_wire::port_stream("iq", &edge.from.port))
+        .unwrap_or(0);
+    Some(TrunkRadio {
+        device_set: *devices.get(source)?,
+        stream,
+        control_hz,
+        ignore_crc: settings.ignore_crc,
+    })
 }
 
 #[cfg(test)]
@@ -211,11 +260,90 @@ mod tests {
             body: NodeBody::DmrTrunk(DmrTrunkNode {
                 protocol: DmrTrunkProtocol::TierThree,
                 record_calls,
+                ..DmrTrunkNode::default()
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,
             label: None,
         }
+    }
+
+    fn trunk_on_a_radio(store: &Store, engine: &Engine, control_hz: Option<u64>) {
+        let _ = engine.create_device_set("virtual:siggen");
+        let mut snapshot = WorkspaceSnapshot::starter();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "trunk".to_owned(),
+            body: NodeBody::DmrTrunk(DmrTrunkNode {
+                protocol: DmrTrunkProtocol::TierThree,
+                control_hz,
+                ..DmrTrunkNode::default()
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        snapshot.graph.edges.push(PatchEdge {
+            from: PortRef {
+                node: "device".to_owned(),
+                port: "iq".to_owned(),
+            },
+            to: PortRef {
+                node: "trunk".to_owned(),
+                port: "iq".to_owned(),
+            },
+        });
+        let NodeBody::Device(device) = &mut snapshot
+            .graph
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == "device")
+            .expect("the starter draws a radio")
+            .body
+        else {
+            panic!("the starter's radio is a device node");
+        };
+        device.device = Some(DeviceRef {
+            backend: "virtual".to_owned(),
+            serial: None,
+            key: Some("siggen".to_owned()),
+        });
+        let id = store.create_workspace("w", &snapshot).expect("workspace");
+        store.activate_workspace(id).expect("activate");
+    }
+
+    #[test]
+    fn a_system_wired_straight_to_a_radio_names_its_own_control_channel() {
+        let store = Store::open(None).expect("in-memory store");
+        let mut registry = DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, None);
+        trunk_on_a_radio(&store, &engine, Some(451_000_000));
+
+        let (systems, _) = resolve(&store, &engine);
+
+        assert_eq!(systems.len(), 1);
+        let radio = systems[0].radio.expect("the radio was not resolved");
+        assert_eq!(radio.control_hz, 451_000_000);
+        assert_eq!(radio.stream, 0);
+        assert!(
+            systems[0].carriers.is_empty(),
+            "a system on its own radio needs no wired carrier"
+        );
+    }
+
+    #[test]
+    fn a_system_whose_radio_never_opened_waits_instead_of_guessing() {
+        let store = Store::open(None).expect("in-memory store");
+        let engine = Engine::with_registry(DeviceRegistry::new(), None);
+        trunk_on_a_radio(&store, &engine, Some(451_000_000));
+
+        let (systems, _) = resolve(&store, &engine);
+
+        assert_eq!(systems.len(), 1);
+        assert!(
+            systems[0].radio.is_none(),
+            "a system claimed a radio the engine never opened"
+        );
     }
 
     #[test]

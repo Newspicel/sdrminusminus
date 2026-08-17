@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{channel::ChannelSettings, device::DeviceSettings};
+use crate::{channel::ChannelSettings, device::DeviceSettings, patch::DmrChannelEntry};
 
 pub const WORKSPACE_STATE_VERSION: u32 = 1;
 
@@ -10,6 +10,21 @@ pub struct WorkspaceState {
     pub version: u32,
     #[serde(default)]
     pub devices: Vec<WorkspaceDevice>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trunks: Vec<WorkspaceTrunk>,
+}
+
+/// A trunk system's channel plan as the server worked it out, kept apart from the patch so a
+/// frequency the search confirmed is not an edit to what the operator drew.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WorkspaceTrunk {
+    pub node: String,
+    /// Which site the plan belongs to. Neighbouring sites of one system repeat logical channel
+    /// numbers on different frequencies, so a plan learned from one site is wrong for the next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_code: Option<u8>,
+    #[serde(default)]
+    pub channels: Vec<DmrChannelEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -32,6 +47,7 @@ impl WorkspaceState {
         Self {
             version: WORKSPACE_STATE_VERSION,
             devices: Vec::new(),
+            trunks: Vec::new(),
         }
     }
 
@@ -87,6 +103,42 @@ impl WorkspaceState {
         for device in &mut self.devices {
             device.channels.retain(|channel| present(&channel.node));
         }
+        self.trunks.retain(|trunk| present(&trunk.node));
+    }
+
+    #[must_use]
+    pub fn trunk(&self, node: &str, color_code: Option<u8>) -> Option<&WorkspaceTrunk> {
+        self.trunks
+            .iter()
+            .find(|trunk| trunk.node == node && trunk.color_code == color_code)
+    }
+
+    pub fn merge_trunks(&mut self, learned: Vec<WorkspaceTrunk>) {
+        for trunk in learned {
+            if trunk.channels.is_empty() {
+                continue;
+            }
+            match self
+                .trunks
+                .iter_mut()
+                .find(|held| held.node == trunk.node && held.color_code == trunk.color_code)
+            {
+                Some(held) => {
+                    for channel in trunk.channels {
+                        match held
+                            .channels
+                            .iter_mut()
+                            .find(|kept| kept.lcn == channel.lcn)
+                        {
+                            Some(kept) => *kept = channel,
+                            None => held.channels.push(channel),
+                        }
+                    }
+                    held.channels.sort_unstable_by_key(|channel| channel.lcn);
+                }
+                None => self.trunks.push(trunk),
+            }
+        }
     }
 }
 
@@ -117,6 +169,88 @@ mod tests {
             },
             channels,
         }
+    }
+
+    fn trunk(node: &str, color_code: Option<u8>, channels: &[(u16, u64)]) -> WorkspaceTrunk {
+        WorkspaceTrunk {
+            node: node.to_string(),
+            color_code,
+            channels: channels
+                .iter()
+                .map(|(lcn, freq_hz)| DmrChannelEntry {
+                    lcn: *lcn,
+                    freq_hz: *freq_hz,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_learned_channel_plan_survives_a_restart() {
+        let mut state = WorkspaceState::new();
+        state.merge_trunks(vec![trunk("sys", Some(3), &[(17, 451_012_500)])]);
+
+        assert_eq!(
+            state.trunk("sys", Some(3)).map(|held| held.channels.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn each_site_keeps_its_own_channel_plan() {
+        let mut state = WorkspaceState::new();
+        state.merge_trunks(vec![
+            trunk("sys", Some(3), &[(17, 451_012_500)]),
+            trunk("sys", Some(7), &[(17, 452_500_000)]),
+        ]);
+
+        assert_eq!(
+            state
+                .trunk("sys", Some(3))
+                .map(|held| held.channels[0].freq_hz),
+            Some(451_012_500)
+        );
+        assert_eq!(
+            state
+                .trunk("sys", Some(7))
+                .map(|held| held.channels[0].freq_hz),
+            Some(452_500_000),
+            "a neighbouring site overwrote this one's plan"
+        );
+    }
+
+    #[test]
+    fn a_replanned_channel_replaces_the_frequency_it_used_to_have() {
+        let mut state = WorkspaceState::new();
+        state.merge_trunks(vec![trunk("sys", Some(3), &[(17, 451_012_500)])]);
+        state.merge_trunks(vec![trunk(
+            "sys",
+            Some(3),
+            &[(17, 451_050_000), (2, 451_000_000)],
+        )]);
+
+        let held = state.trunk("sys", Some(3)).expect("the plan");
+        assert_eq!(held.channels.len(), 2);
+        assert_eq!(held.channels[0].lcn, 2, "the plan was left unsorted");
+        assert_eq!(held.channels[1].freq_hz, 451_050_000);
+    }
+
+    #[test]
+    fn a_system_that_learned_nothing_is_not_written_down() {
+        let mut state = WorkspaceState::new();
+        state.merge_trunks(vec![trunk("sys", Some(3), &[])]);
+
+        assert!(state.trunks.is_empty());
+    }
+
+    #[test]
+    fn a_deleted_system_takes_its_channel_plan_with_it() {
+        let mut state = WorkspaceState::new();
+        state.merge_trunks(vec![trunk("sys", Some(3), &[(17, 451_012_500)])]);
+
+        state.retain_nodes(|node| node != "sys");
+
+        assert!(state.trunks.is_empty());
     }
 
     #[test]

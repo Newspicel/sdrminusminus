@@ -233,6 +233,7 @@ struct Decoder {
     mbc_headers: [Option<MbcHeader>; 2],
     speaking: Option<usize>,
     speaking_hold: usize,
+    tier_three: bool,
 }
 
 #[derive(Clone)]
@@ -289,6 +290,7 @@ impl Decoder {
             mbc_headers: std::array::from_fn(|_| None),
             speaking: None,
             speaking_hold: 0,
+            tier_three: false,
         }
     }
 
@@ -594,40 +596,25 @@ impl Decoder {
         let opcode = bits_to_u32(payload, 2, 6) as u8;
         let fid = bits_to_u32(payload, 8, 8) as u8;
         set_dmr_vendor(&mut frame, fid);
-        frame.opcode = Some(csbk_opcode_name(fid, opcode));
+        frame.opcode = Some(csbk_opcode_name(fid, opcode, self.tier_three));
         if fid != 0 {
             frame.data = Some(hex_bits(&payload[16..80]));
         }
-        if fid == 0
-            && matches!(
-                opcode,
-                0b000100
-                    | 0b000101
-                    | 0b101110
-                    | 0b101111
-                    | 0b110000
-                    | 0b110001
-                    | 0b110010
-                    | 0b110101
-                    | 0b111000
-                    | 0b111101
-            )
-        {
+        if fid == 0 && matches!(opcode, 4 | 5 | 46 | 47 | 48..=56 | 61) {
             frame.destination = Some(bits_to_u32(payload, 32, 24));
             frame.source = Some(bits_to_u32(payload, 56, 24));
-        } else if fid == 0 && opcode == 0b100110 {
+        } else if fid == 0 && opcode == 38 {
             frame.source = Some(bits_to_u32(payload, 32, 24));
             frame.destination = Some(bits_to_u32(payload, 56, 24));
         }
         match (fid, opcode) {
-            (0, 0b110001 | 0b110010) => frame.group_call = Some(true),
-            (0, 0b000100 | 0b000101 | 0b110000 | 0b110101) => {
-                frame.group_call = Some(false);
-            }
+            (0, 49 | 50 | 52 | 56) => frame.group_call = Some(true),
+            (0, 4 | 5 | 48 | 51 | 53 | 54 | 55) => frame.group_call = Some(false),
             _ => {}
         }
         decode_vendor_csbk(&mut frame, fid, opcode, payload);
-        decode_tier_three_csbk(&mut frame, fid, opcode, payload);
+        decode_tier_three_csbk(&mut frame, fid, opcode, payload, self.tier_three);
+        self.tier_three |= frame.trunk_protocol == Some(DvTrunkProtocol::TierThree);
         Some(frame)
     }
 
@@ -636,8 +623,11 @@ impl Decoder {
         let opcode = bits_to_u32(payload, 2, 6) as u8;
         let fid = bits_to_u32(payload, 8, 8) as u8;
         set_dmr_vendor(&mut frame, fid);
-        frame.opcode = Some(format!("{} MBC header", csbk_opcode_name(fid, opcode)));
-        decode_tier_three_csbk(&mut frame, fid, opcode, payload);
+        frame.opcode = Some(format!(
+            "{} MBC header",
+            csbk_opcode_name(fid, opcode, self.tier_three)
+        ));
+        decode_tier_three_csbk(&mut frame, fid, opcode, payload, self.tier_three);
         if fid == 0 && opcode == 0b101000 {
             let announcement = bits_to_u32(payload, 16, 5) as u8;
             if announcement == 0b00101 {
@@ -682,7 +672,7 @@ impl Decoder {
         }
         frame.opcode = Some(format!(
             "{} absolute parameters",
-            csbk_opcode_name(header.fid, opcode)
+            csbk_opcode_name(header.fid, opcode, self.tier_three)
         ));
         Some(frame)
     }
@@ -917,6 +907,8 @@ fn decode_short_lc(bits: &[bool]) -> DvFrame {
                         slot,
                         activity: activity_name(activity).to_owned(),
                         destination_hash: Some(bits_to_u32(bits, hash_at, 8) as u8),
+                        destination: None,
+                        logical_channel: None,
                     });
                 }
             }
@@ -983,23 +975,49 @@ fn activity_name(activity: u8) -> &'static str {
     }
 }
 
-fn csbk_opcode_name(fid: u8, opcode: u8) -> String {
+fn csbk_opcode_name(fid: u8, opcode: u8, tier_three: bool) -> String {
+    if fid == 0 && opcode == 56 {
+        return if tier_three {
+            "talkgroup data channel grant, multiple items".to_owned()
+        } else {
+            "BS outbound activation".to_owned()
+        };
+    }
     let name = match (fid, opcode) {
-        (0, 0b000100) => "unit-to-unit voice service request",
-        (0, 0b000101) => "unit-to-unit voice service answer response",
-        (0, 0b000111) => "channel timing",
-        (0, 0b100110) => "negative acknowledge response",
-        (0, 0b111000) => "BS outbound activation",
-        (0, 0b111101) => "preamble",
-        (0, 0b011001) => "ALOHA",
-        (0, 0b011100) => "AHOY",
-        (0, 0b101000) => "broadcast",
-        (0, 0b101110) => "clear",
-        (0, 0b101111) => "protect",
-        (0, 0b110000) => "private voice channel grant",
-        (0, 0b110001) => "talkgroup voice channel grant",
-        (0, 0b110010) => "broadcast talkgroup voice channel grant",
-        (0, 0b110101) => "duplex private voice channel grant",
+        (0, 3) => "feature not supported",
+        (0, 4) => "unit-to-unit voice service request",
+        (0, 5) => "unit-to-unit voice service answer response",
+        (0, 7) => "channel timing",
+        (0, 25) => "ALOHA",
+        (0, 26) => "unified data transport outbound header",
+        (0, 27) => "unified data transport inbound header",
+        (0, 28) => "AHOY",
+        (0, 30) => "activation",
+        (0, 31) => "random access service request",
+        (0, 32) => "acknowledge response, outbound control channel",
+        (0, 33) => "acknowledge response, inbound control channel",
+        (0, 34) => "acknowledge response, outbound traffic channel",
+        (0, 35) => "acknowledge response, inbound traffic channel",
+        (0, 36) => "unified data transport for DGNA, outbound header",
+        (0, 37) => "unified data transport for DGNA, inbound header",
+        (0, 38) => "negative acknowledge response",
+        (0, 40) => "broadcast",
+        (0, 42) => "maintenance",
+        (0, 46) => "clear",
+        (0, 47) => "protect",
+        (0, 48) => "private voice channel grant",
+        (0, 49) => "talkgroup voice channel grant",
+        (0, 50) => "broadcast talkgroup voice channel grant",
+        (0, 51) => "private data channel grant, single item",
+        (0, 52) => "talkgroup data channel grant, single item",
+        (0, 53) => "duplex private voice channel grant",
+        (0, 54) => "duplex private data channel grant",
+        (0, 55) => "private data channel grant, multiple items",
+        (0, 57) => "move TSCC",
+        (0, 61) => "preamble",
+        (0x10, 25) => "Capacity Max ALOHA",
+        (0x10, 33) => "Capacity Max voice channel update, open mode",
+        (0x10, 34) => "Capacity Max voice channel update, advantage mode",
         (0x10, 0x3A) => "Capacity Plus system CSBK",
         (0x10, 0x3B) => "Capacity Plus adjacent sites",
         (0x10, 0x3E) => "Capacity Plus channel status",
@@ -1041,8 +1059,24 @@ fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]
         frame.trunk_protocol = Some(DvTrunkProtocol::CapacityPlus);
     } else if fid == 0x68 && matches!(opcode, 0x0A | 0x0B) {
         frame.trunk_protocol = Some(DvTrunkProtocol::HyteraXpt);
+    } else if fid == 0x10 && matches!(opcode, 25 | 33 | 34) {
+        frame.trunk_protocol = Some(DvTrunkProtocol::TierThree);
     }
     match (fid, opcode) {
+        (0x10, 25) => {
+            set_system_identity(frame, payload, 40);
+            frame.destination = Some(bits_to_u32(payload, 56, 24));
+            frame.data = Some(format!(
+                "version {}, mask {}, service {}, wait {}, registration {}, backoff {}",
+                bits_to_u32(payload, 19, 3),
+                bits_to_u32(payload, 24, 5),
+                bits_to_u32(payload, 29, 2),
+                bits_to_u32(payload, 31, 4),
+                u8::from(payload[35]),
+                bits_to_u32(payload, 36, 4)
+            ));
+        }
+        (0x10, 33 | 34) => decode_capacity_max_update(frame, opcode, payload),
         (0x10, 0x3A | 0x3E) => {
             frame.rest_channel = Some(bits_to_u32(payload, 20, 4) as u16);
             frame.data = Some(format!(
@@ -1111,36 +1145,235 @@ fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]
     }
 }
 
-fn is_tier_three_grant(opcode: u8) -> bool {
-    matches!(opcode, 0b110000..=0b110101)
+fn decode_capacity_max_update(frame: &mut DvFrame, opcode: u8, payload: &[bool]) {
+    let channel = bits_to_u32(payload, 16, 12) as u16;
+    frame.channel = Some(channel);
+    let talkgroups = if opcode == 33 {
+        [bits_to_u32(payload, 32, 24), bits_to_u32(payload, 56, 24)]
+    } else {
+        [bits_to_u32(payload, 32, 10), bits_to_u32(payload, 42, 10)]
+    };
+    for (index, destination) in talkgroups.into_iter().enumerate() {
+        if destination == 0 {
+            continue;
+        }
+        frame.slot_activity.push(DvSlotActivity {
+            slot: index as u8 + 1,
+            activity: "group voice".to_owned(),
+            destination_hash: None,
+            destination: Some(destination),
+            logical_channel: Some(channel),
+        });
+    }
+    frame.data = Some(format!(
+        "channel {channel}, TS1 {}, TS2 {}",
+        talkgroups[0], talkgroups[1]
+    ));
 }
 
-fn decode_tier_three_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]) {
-    if fid != 0 {
+fn is_tier_three_grant(opcode: u8) -> bool {
+    matches!(opcode, 48..=56)
+}
+
+fn is_tier_three_voice_grant(opcode: u8) -> bool {
+    matches!(opcode, 48 | 49 | 50 | 53)
+}
+
+fn tier_three_opcode(opcode: u8) -> bool {
+    is_tier_three_grant(opcode) || matches!(opcode, 25 | 28 | 31 | 32 | 33 | 40 | 42 | 57)
+}
+
+fn decode_tier_three_csbk(
+    frame: &mut DvFrame,
+    fid: u8,
+    opcode: u8,
+    payload: &[bool],
+    tier_three: bool,
+) {
+    if fid != 0 || (opcode == 56 && !tier_three) {
         return;
     }
-    if is_tier_three_grant(opcode) || matches!(opcode, 0b011001 | 0b011100 | 0b101000) {
+    if tier_three_opcode(opcode) {
         frame.trunk_protocol = Some(DvTrunkProtocol::TierThree);
     }
-    if is_tier_three_grant(opcode) {
-        frame.channel = Some(bits_to_u32(payload, 16, 12) as u16);
-        frame.slot = Some(if payload[28] { 2 } else { 1 });
-        frame.late_entry = Some(payload[29]);
-        frame.emergency = Some(payload[30]);
-    } else if opcode == 0b011001 {
-        frame.system_id = Some(bits_to_u32(payload, 40, 16) as u16);
-        frame.destination = Some(bits_to_u32(payload, 56, 24));
-        frame.data = Some(format!(
-            "mask {}, service {}, wait {}, backoff {}",
-            bits_to_u32(payload, 25, 5),
-            bits_to_u32(payload, 30, 2),
-            bits_to_u32(payload, 32, 4),
-            bits_to_u32(payload, 37, 4)
-        ));
-    } else if opcode == 0b011100 {
-        frame.group_call = Some(payload[25]);
-        frame.destination = Some(bits_to_u32(payload, 32, 24));
-        frame.source = Some(bits_to_u32(payload, 56, 24));
+    match opcode {
+        _ if is_tier_three_grant(opcode) => {
+            frame.channel = Some(bits_to_u32(payload, 16, 12) as u16);
+            frame.slot = Some(if payload[28] { 2 } else { 1 });
+            frame.late_entry = Some(payload[29]);
+            frame.emergency = Some(payload[30]);
+            if !is_tier_three_voice_grant(opcode) {
+                frame.data = Some("data call".to_owned());
+            }
+        }
+        25 => {
+            set_system_identity(frame, payload, 40);
+            frame.destination = Some(bits_to_u32(payload, 56, 24));
+            frame.data = Some(format!(
+                "version {}, mask {}, service {}, wait {}, registration {}, backoff {}",
+                bits_to_u32(payload, 19, 3),
+                bits_to_u32(payload, 24, 5),
+                bits_to_u32(payload, 29, 2),
+                bits_to_u32(payload, 31, 4),
+                u8::from(payload[35]),
+                bits_to_u32(payload, 36, 4)
+            ));
+        }
+        28 => decode_ahoy(frame, payload),
+        31 => {
+            frame.source = Some(bits_to_u32(payload, 56, 24));
+            frame.data = Some(format!(
+                "service {}, target {}",
+                bits_to_u32(payload, 21, 6),
+                bits_to_u32(payload, 32, 24)
+            ));
+        }
+        32..=35 => decode_acknowledge(frame, payload),
+        40 => decode_announcement(frame, payload),
+        57 => {
+            frame.channel = Some(bits_to_u32(payload, 44, 12) as u16);
+            frame.destination = Some(bits_to_u32(payload, 56, 24));
+            frame.data = Some(format!(
+                "move to TSCC on channel {}, mask {}, registration {}, backoff {}",
+                bits_to_u32(payload, 44, 12),
+                bits_to_u32(payload, 25, 5),
+                u8::from(payload[35]),
+                bits_to_u32(payload, 36, 4)
+            ));
+        }
+        _ => {}
+    }
+}
+
+fn set_system_identity(frame: &mut DvFrame, payload: &[bool], at: usize) {
+    let model = bits_to_u32(payload, at, 2);
+    let (net_bits, site_bits) = match model {
+        0 => (9, 3),
+        1 => (7, 5),
+        2 => (4, 8),
+        _ => (2, 10),
+    };
+    frame.system_id = Some(bits_to_u32(payload, at, 16) as u16);
+    frame.network_id = Some(bits_to_u32(payload, at + 2, net_bits));
+    frame.site_id = Some(bits_to_u32(payload, at + 2 + net_bits, site_bits) as u16);
+}
+
+fn service_kind_name(service: u8) -> &'static str {
+    match service {
+        0 => "individual voice call",
+        1 => "talkgroup voice call",
+        2 => "individual packet call",
+        3 => "talkgroup packet call",
+        4 => "individual short data call",
+        5 => "talkgroup short data call",
+        6 => "short data polling",
+        7 => "status transport",
+        8 => "call diversion",
+        9 => "call answer",
+        10 => "duplex radio-to-radio voice call",
+        11 => "duplex radio-to-radio packet call",
+        13 => "supplementary service",
+        14 => "registration or radio check",
+        15 => "cancel call",
+        _ => "reserved service",
+    }
+}
+
+fn decode_ahoy(frame: &mut DvFrame, payload: &[bool]) {
+    let service = bits_to_u32(payload, 28, 4) as u8;
+    frame.group_call = Some(payload[25]);
+    frame.destination = Some(bits_to_u32(payload, 32, 24));
+    frame.source = Some(bits_to_u32(payload, 56, 24));
+    frame.encrypted = Some(payload[17]);
+    frame.opcode = Some(format!("AHOY, {}", service_kind_name(service)));
+    frame.data = Some(format!(
+        "service {service}, options {:02X}, blocks {}",
+        bits_to_u32(payload, 16, 7),
+        bits_to_u32(payload, 26, 2)
+    ));
+}
+
+fn decode_acknowledge(frame: &mut DvFrame, payload: &[bool]) {
+    let response = bits_to_u32(payload, 16, 7) as u8;
+    let reason = bits_to_u32(payload, 23, 8) as u8;
+    let name = match response {
+        0 => "acknowledged",
+        1 => "queued",
+        2 => "registration accepted",
+        3 => "refused",
+        _ => "response",
+    };
+    frame.group_call = Some(payload[16]);
+    frame.destination = Some(bits_to_u32(payload, 32, 24));
+    frame.source = Some(bits_to_u32(payload, 56, 24));
+    frame.opcode = Some(format!("acknowledge response, {name}"));
+    frame.data = Some(format!("response {response}, reason {reason:02X}"));
+}
+
+fn announcement_name(announcement: u8) -> &'static str {
+    match announcement {
+        0 => "announce or withdraw TSCC",
+        1 => "call timer parameters",
+        2 => "vote now advice",
+        3 => "local time",
+        4 => "mass registration",
+        5 => "channel frequency",
+        6 => "adjacent site",
+        7 => "site information",
+        30 | 31 => "vendor specific announcement",
+        _ => "reserved announcement",
+    }
+}
+
+fn decode_announcement(frame: &mut DvFrame, payload: &[bool]) {
+    let announcement = bits_to_u32(payload, 16, 5) as u8;
+    frame.opcode = Some(format!("broadcast, {}", announcement_name(announcement)));
+    match announcement {
+        0 => {
+            frame.channel = Some(bits_to_u32(payload, 56, 12) as u16);
+            set_system_identity(frame, payload, 40);
+            frame.data = Some(format!(
+                "TSCC on channel {} colour {}, second channel {} colour {}",
+                bits_to_u32(payload, 56, 12),
+                bits_to_u32(payload, 25, 4),
+                bits_to_u32(payload, 68, 12),
+                bits_to_u32(payload, 29, 4)
+            ));
+        }
+        2 => {
+            set_system_identity(frame, payload, 21);
+            frame.channel = Some(bits_to_u32(payload, 68, 12) as u16);
+            frame.data = Some(format!(
+                "vote for channel {}, priority {}/{}",
+                bits_to_u32(payload, 68, 12),
+                bits_to_u32(payload, 58, 3),
+                bits_to_u32(payload, 61, 3)
+            ));
+        }
+        4 => {
+            set_system_identity(frame, payload, 40);
+            frame.destination = Some(bits_to_u32(payload, 56, 24));
+            frame.data = Some(format!("mask {}", bits_to_u32(payload, 21, 14)));
+        }
+        6 => {
+            set_system_identity(frame, payload, 21);
+            frame.channel = Some(bits_to_u32(payload, 68, 12) as u16);
+            frame.data = Some(format!(
+                "neighbour TSCC on channel {}, network connection {}, priority {}/{}",
+                bits_to_u32(payload, 68, 12),
+                u8::from(payload[57]),
+                bits_to_u32(payload, 58, 3),
+                bits_to_u32(payload, 61, 3)
+            ));
+        }
+        7 => {
+            set_system_identity(frame, payload, 40);
+            frame.data = Some(format!(
+                "site parameters {:04X}",
+                bits_to_u32(payload, 21, 14)
+            ));
+        }
+        _ => set_system_identity(frame, payload, 40),
     }
 }
 
@@ -1502,11 +1735,218 @@ mod tests {
         put(&mut payload, 32, 24, 9_001);
         put(&mut payload, 56, 24, 1_234_567);
         let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
-        decode_tier_three_csbk(&mut frame, 0, 0b110001, &payload);
+        decode_tier_three_csbk(&mut frame, 0, 0b110001, &payload, false);
         assert_eq!(frame.channel, Some(37));
         assert_eq!(frame.slot, Some(2));
         assert_eq!(frame.late_entry, Some(true));
         assert_eq!(frame.emergency, Some(true));
+    }
+
+    #[test]
+    fn a_data_grant_is_followed_but_marked_as_data() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 12, 37);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 52, &payload, false);
+        assert_eq!(frame.channel, Some(37));
+        assert_eq!(frame.data.as_deref(), Some("data call"));
+    }
+
+    #[test]
+    fn a_tier_two_outbound_activation_is_not_read_as_a_grant() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 12, 37);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 56, &payload, false);
+        assert_eq!(frame.channel, None);
+        assert_eq!(frame.trunk_protocol, None);
+
+        let mut tier_three = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut tier_three, 0, 56, &payload, true);
+        assert_eq!(tier_three.channel, Some(37));
+    }
+
+    #[test]
+    fn aloha_reads_its_parameters_where_the_standard_puts_them() {
+        let mut payload = [false; 96];
+        put(&mut payload, 19, 3, 5);
+        put(&mut payload, 24, 5, 21);
+        put(&mut payload, 29, 2, 3);
+        put(&mut payload, 31, 4, 9);
+        payload[35] = true;
+        put(&mut payload, 36, 4, 11);
+        put(&mut payload, 56, 24, 4_001);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 25, &payload, false);
+
+        assert_eq!(frame.trunk_protocol, Some(DvTrunkProtocol::TierThree));
+        assert_eq!(frame.destination, Some(4_001));
+        assert_eq!(
+            frame.data.as_deref(),
+            Some("version 5, mask 21, service 3, wait 9, registration 1, backoff 11")
+        );
+    }
+
+    #[test]
+    fn the_system_identity_code_splits_by_the_model_it_declares() {
+        let identity = |model: u64, net: u64, site: u64, net_bits: usize, site_bits: usize| {
+            let mut payload = [false; 96];
+            put(&mut payload, 40, 2, model);
+            put(&mut payload, 42, net_bits, net);
+            put(&mut payload, 42 + net_bits, site_bits, site);
+            let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+            decode_tier_three_csbk(&mut frame, 0, 25, &payload, false);
+            (frame.network_id, frame.site_id)
+        };
+
+        assert_eq!(identity(0, 400, 5, 9, 3), (Some(400), Some(5)));
+        assert_eq!(identity(1, 100, 21, 7, 5), (Some(100), Some(21)));
+        assert_eq!(identity(2, 12, 200, 4, 8), (Some(12), Some(200)));
+        assert_eq!(identity(3, 3, 900, 2, 10), (Some(3), Some(900)));
+    }
+
+    #[test]
+    fn an_adjacent_site_announcement_names_the_neighbour_control_channel() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 5, 6);
+        put(&mut payload, 21, 2, 2);
+        put(&mut payload, 23, 4, 12);
+        put(&mut payload, 27, 8, 200);
+        payload[57] = true;
+        put(&mut payload, 68, 12, 811);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 40, &payload, false);
+
+        assert_eq!(frame.opcode.as_deref(), Some("broadcast, adjacent site"));
+        assert_eq!(frame.channel, Some(811));
+        assert_eq!(frame.network_id, Some(12));
+        assert_eq!(frame.site_id, Some(200));
+        assert!(
+            frame
+                .data
+                .as_deref()
+                .is_some_and(|data| data.contains("neighbour TSCC on channel 811"))
+        );
+    }
+
+    #[test]
+    fn a_vote_now_announcement_names_the_channel_to_move_to() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 5, 2);
+        put(&mut payload, 68, 12, 42);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 40, &payload, false);
+
+        assert_eq!(frame.opcode.as_deref(), Some("broadcast, vote now advice"));
+        assert_eq!(frame.channel, Some(42));
+    }
+
+    #[test]
+    fn an_announce_tscc_names_both_control_channels_of_the_site() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 5, 0);
+        put(&mut payload, 25, 4, 3);
+        put(&mut payload, 29, 4, 5);
+        put(&mut payload, 56, 12, 811);
+        put(&mut payload, 68, 12, 812);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 40, &payload, false);
+
+        assert_eq!(frame.channel, Some(811));
+        assert_eq!(
+            frame.data.as_deref(),
+            Some("TSCC on channel 811 colour 3, second channel 812 colour 5")
+        );
+    }
+
+    #[test]
+    fn a_move_tscc_names_the_channel_the_radio_must_go_to() {
+        let mut payload = [false; 96];
+        put(&mut payload, 44, 12, 900);
+        put(&mut payload, 56, 24, 4_001);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 57, &payload, false);
+
+        assert_eq!(frame.channel, Some(900));
+        assert_eq!(frame.destination, Some(4_001));
+    }
+
+    #[test]
+    fn an_ahoy_names_the_service_it_asks_for() {
+        let mut payload = [false; 96];
+        put(&mut payload, 28, 4, 14);
+        put(&mut payload, 32, 24, 9_001);
+        put(&mut payload, 56, 24, 4_001);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 28, &payload, false);
+
+        assert_eq!(
+            frame.opcode.as_deref(),
+            Some("AHOY, registration or radio check")
+        );
+        assert_eq!(frame.destination, Some(9_001));
+        assert_eq!(frame.source, Some(4_001));
+    }
+
+    #[test]
+    fn a_registration_acknowledgement_names_itself() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 7, 2);
+        put(&mut payload, 32, 24, 9_001);
+        put(&mut payload, 56, 24, 4_001);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 32, &payload, false);
+
+        assert_eq!(
+            frame.opcode.as_deref(),
+            Some("acknowledge response, registration accepted")
+        );
+        assert_eq!(frame.source, Some(4_001));
+    }
+
+    #[test]
+    fn a_capacity_max_channel_update_reports_both_timeslots() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 12, 811);
+        put(&mut payload, 32, 24, 9_001);
+        put(&mut payload, 56, 24, 9_002);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_vendor_csbk(&mut frame, 0x10, 33, &payload);
+
+        assert_eq!(frame.trunk_protocol, Some(DvTrunkProtocol::TierThree));
+        assert_eq!(frame.channel, Some(811));
+        assert_eq!(frame.slot_activity.len(), 2);
+        assert_eq!(frame.slot_activity[0].slot, 1);
+        assert_eq!(frame.slot_activity[0].destination, Some(9_001));
+        assert_eq!(frame.slot_activity[0].logical_channel, Some(811));
+        assert_eq!(frame.slot_activity[1].slot, 2);
+        assert_eq!(frame.slot_activity[1].destination, Some(9_002));
+    }
+
+    #[test]
+    fn a_capacity_max_update_skips_a_timeslot_nobody_is_using() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 12, 811);
+        put(&mut payload, 32, 24, 9_001);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_vendor_csbk(&mut frame, 0x10, 33, &payload);
+
+        assert_eq!(frame.slot_activity.len(), 1);
+        assert_eq!(frame.slot_activity[0].slot, 1);
+    }
+
+    #[test]
+    fn advantage_mode_reads_the_shorter_talkgroup_fields() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 12, 811);
+        put(&mut payload, 32, 10, 501);
+        put(&mut payload, 42, 10, 502);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_vendor_csbk(&mut frame, 0x10, 34, &payload);
+
+        assert_eq!(frame.slot_activity.len(), 2);
+        assert_eq!(frame.slot_activity[0].destination, Some(501));
+        assert_eq!(frame.slot_activity[1].destination, Some(502));
     }
 
     #[test]
@@ -1893,8 +2333,17 @@ mod tests {
             (0b110000, "private voice channel grant"),
             (0b110001, "talkgroup voice channel grant"),
         ] {
-            assert_eq!(csbk_opcode_name(0, opcode), name, "opcode {opcode:06b}");
+            assert_eq!(
+                csbk_opcode_name(0, opcode, false),
+                name,
+                "opcode {opcode:06b}"
+            );
         }
+        assert_eq!(
+            csbk_opcode_name(0, 56, true),
+            "talkgroup data channel grant, multiple items",
+            "opcode 56 kept its Tier II meaning on a Tier III control channel"
+        );
     }
 
     #[test]

@@ -3291,6 +3291,7 @@ mod tests {
         let (app, state) = test_router_with_state();
         let workspace = store_siggen_workspace(&app).await;
         let planted = sdrmm_wire::WorkspaceState {
+            trunks: Vec::new(),
             version: sdrmm_wire::WORKSPACE_STATE_VERSION,
             devices: vec![sdrmm_wire::WorkspaceDevice {
                 node: "device".to_string(),

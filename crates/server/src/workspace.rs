@@ -153,9 +153,33 @@ pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
         .clone();
     let captured = capture(graph, &state.engine.snapshot(), &unrestored);
     stored.merge(captured);
+    stored.merge_trunks(learned_trunks(&state.engine));
     let recoverable = state.store.history_nodes(active.info.id)?;
     stored.retain_nodes(|node| graph.node(node).is_some() || recoverable.contains(node));
     state.store.put_workspace_state(active.info.id, &stored)
+}
+
+/// The channel plans the trunk search confirmed for itself, so a restart does not start the hunt
+/// over. Only what a call actually answered is kept: an announced frequency comes back on its own
+/// and a guess from the band plan is not a measurement.
+fn learned_trunks(engine: &sdrmm_engine::Engine) -> Vec<sdrmm_wire::WorkspaceTrunk> {
+    engine
+        .trunk_systems()
+        .into_iter()
+        .map(|system| sdrmm_wire::WorkspaceTrunk {
+            node: system.node,
+            color_code: system.color_code,
+            channels: system
+                .channel_map
+                .into_iter()
+                .filter(|channel| channel.source == sdrmm_wire::TrunkChannelSource::Learned)
+                .map(|channel| sdrmm_wire::DmrChannelEntry {
+                    lcn: channel.logical_channel,
+                    freq_hz: channel.freq_hz,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 pub(crate) fn spawn_autosave(state: &AppState) {

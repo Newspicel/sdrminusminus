@@ -275,12 +275,110 @@ pub enum DmrTrunkProtocol {
     TierThree,
 }
 
+pub const MAX_DMR_SEARCH_RANGES: usize = 8;
+pub const MAX_DMR_SEARCH_CANDIDATES: usize = 512;
+pub const MIN_DMR_SEARCH_STEP_HZ: u64 = 1_250;
+pub const MAX_DMR_CHANNEL_MAP: usize = 512;
+pub const MAX_DMR_PROBES: u8 = 8;
+pub const DEFAULT_DMR_PROBES: u8 = 4;
+pub const MAX_DMR_LOGICAL_CHANNEL: u16 = 4095;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DmrSearchRange {
+    pub start_hz: u64,
+    pub end_hz: u64,
+    pub step_hz: u64,
+}
+
+impl DmrSearchRange {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        self.step_hz >= MIN_DMR_SEARCH_STEP_HZ
+            && self.start_hz > 0
+            && self.end_hz >= self.start_hz
+            && self.candidates() <= MAX_DMR_SEARCH_CANDIDATES
+    }
+
+    #[must_use]
+    pub fn candidates(&self) -> usize {
+        if self.step_hz == 0 || self.end_hz < self.start_hz {
+            return 0;
+        }
+        ((self.end_hz - self.start_hz) / self.step_hz) as usize + 1
+    }
+
+    pub fn frequencies(&self) -> impl Iterator<Item = u64> + '_ {
+        (0..self.candidates() as u64).map(|step| self.start_hz + step * self.step_hz)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DmrChannelEntry {
+    pub lcn: u16,
+    pub freq_hz: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DmrDiscovery {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ranges: Vec<DmrSearchRange>,
+    #[serde(default)]
+    pub max_probes: u8,
+}
+
+impl DmrDiscovery {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        self.ranges.len() <= MAX_DMR_SEARCH_RANGES
+            && self.ranges.iter().all(DmrSearchRange::valid)
+            && self.candidates() <= MAX_DMR_SEARCH_CANDIDATES
+            && self.max_probes <= MAX_DMR_PROBES
+    }
+
+    #[must_use]
+    pub fn candidates(&self) -> usize {
+        self.ranges.iter().map(DmrSearchRange::candidates).sum()
+    }
+
+    #[must_use]
+    pub fn probes(&self) -> u8 {
+        if self.max_probes == 0 {
+            DEFAULT_DMR_PROBES
+        } else {
+            self.max_probes.min(MAX_DMR_PROBES)
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DmrTrunkNode {
     #[serde(default)]
     pub protocol: DmrTrunkProtocol,
     #[serde(default)]
     pub record_calls: bool,
+    #[serde(default)]
+    pub discovery: DmrDiscovery,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channel_map: Vec<DmrChannelEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_hz: Option<u64>,
+    #[serde(default)]
+    pub ignore_crc: bool,
+}
+
+impl DmrTrunkNode {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        self.discovery.valid()
+            && self.channel_map.len() <= MAX_DMR_CHANNEL_MAP
+            && self
+                .channel_map
+                .iter()
+                .all(|entry| entry.lcn <= MAX_DMR_LOGICAL_CHANNEL && entry.freq_hz > 0)
+            && self.control_hz.is_none_or(|hz| hz > 0)
+    }
 }
 
 pub const DEFAULT_SIGNAL_MAP_OFFSET_HZ: i64 = 0;
@@ -309,6 +407,10 @@ impl Default for DmrTrunkNode {
         Self {
             protocol: DmrTrunkProtocol::Auto,
             record_calls: true,
+            discovery: DmrDiscovery::default(),
+            channel_map: Vec::new(),
+            control_hz: None,
+            ignore_crc: false,
         }
     }
 }
@@ -482,7 +584,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             vec![PortSpec::new(Events, In, true, Always)]
         }
         "dmr_trunk" => vec![
-            PortSpec::new(Events, In, true, Always),
+            PortSpec::new(Iq, In, false, Always)
+                .noted("the radio the control channel sits on; the system runs its own decoder"),
+            PortSpec::new(Events, In, true, Always)
+                .noted("DMR decoders already tuned to a carrier of this system"),
             PortSpec::new(Events, Out, true, Always),
         ],
         "chat_output" => vec![PortSpec::new(Events, In, true, Always)],
@@ -857,7 +962,10 @@ impl PatchGraph {
                 NodeBody::TimeMachine(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
-                NodeBody::DmrTrunk(_) => {
+                NodeBody::DmrTrunk(settings) => {
+                    if !settings.valid() {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
                     let only_dmr = self.sources_of(&node.id, "events").all(|source| {
                         self.node(source).is_some_and(|source| {
                             matches!(
@@ -867,6 +975,10 @@ impl PatchGraph {
                         })
                     });
                     if !only_dmr {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
+                    let on_iq = self.sources_of(&node.id, "iq").next().is_some();
+                    if on_iq && settings.control_hz.is_none() {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
                 }
@@ -1401,6 +1513,123 @@ mod tests {
         };
         assert_eq!(
             other.validate(),
+            Err(PatchError::NodeSettings("system".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_dmr_trunk_system_on_its_own_radio_needs_a_control_frequency() {
+        let wired = |control_hz| {
+            PatchGraph {
+                nodes: vec![
+                    node("radio", NodeBody::Device(DeviceNode::default())),
+                    node(
+                        "system",
+                        NodeBody::DmrTrunk(DmrTrunkNode {
+                            control_hz,
+                            ..DmrTrunkNode::default()
+                        }),
+                    ),
+                ],
+                edges: vec![edge(("radio", "iq"), ("system", "iq"))],
+            }
+            .validate()
+        };
+
+        wired(Some(451_000_000)).expect("a control channel anyone could tune");
+        assert_eq!(
+            wired(None),
+            Err(PatchError::NodeSettings("system".to_owned())),
+            "a system on its own radio was left without a control frequency"
+        );
+    }
+
+    #[test]
+    fn a_dmr_trunk_system_refuses_a_channel_search_it_cannot_run() {
+        let searching = |ranges: Vec<DmrSearchRange>| {
+            PatchGraph {
+                nodes: vec![node(
+                    "system",
+                    NodeBody::DmrTrunk(DmrTrunkNode {
+                        discovery: DmrDiscovery {
+                            enabled: true,
+                            ranges,
+                            max_probes: 4,
+                        },
+                        ..DmrTrunkNode::default()
+                    }),
+                )],
+                edges: Vec::new(),
+            }
+            .validate()
+        };
+
+        searching(vec![DmrSearchRange {
+            start_hz: 451_000_000,
+            end_hz: 451_500_000,
+            step_hz: 12_500,
+        }])
+        .expect("a range the search can hold");
+        assert_eq!(
+            searching(vec![DmrSearchRange {
+                start_hz: 450_000_000,
+                end_hz: 460_000_000,
+                step_hz: 12_500,
+            }]),
+            Err(PatchError::NodeSettings("system".to_owned())),
+            "a range wider than the search can hold was accepted"
+        );
+        assert_eq!(
+            searching(vec![DmrSearchRange {
+                start_hz: 451_500_000,
+                end_hz: 451_000_000,
+                step_hz: 12_500,
+            }]),
+            Err(PatchError::NodeSettings("system".to_owned()))
+        );
+        assert_eq!(
+            searching(vec![DmrSearchRange {
+                start_hz: 451_000_000,
+                end_hz: 451_100_000,
+                step_hz: 500,
+            }]),
+            Err(PatchError::NodeSettings("system".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_dmr_trunk_system_refuses_a_channel_plan_it_cannot_use() {
+        let planned = |channel_map: Vec<DmrChannelEntry>| {
+            PatchGraph {
+                nodes: vec![node(
+                    "system",
+                    NodeBody::DmrTrunk(DmrTrunkNode {
+                        channel_map,
+                        ..DmrTrunkNode::default()
+                    }),
+                )],
+                edges: Vec::new(),
+            }
+            .validate()
+        };
+
+        planned(vec![DmrChannelEntry {
+            lcn: 17,
+            freq_hz: 451_012_500,
+        }])
+        .expect("a channel anyone could tune");
+        assert_eq!(
+            planned(vec![DmrChannelEntry {
+                lcn: 17,
+                freq_hz: 0,
+            }]),
+            Err(PatchError::NodeSettings("system".to_owned()))
+        );
+        assert_eq!(
+            planned(vec![DmrChannelEntry {
+                lcn: MAX_DMR_LOGICAL_CHANNEL + 1,
+                freq_hz: 451_012_500,
+            }]),
             Err(PatchError::NodeSettings("system".to_owned()))
         );
     }

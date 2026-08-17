@@ -916,7 +916,7 @@ impl Engine {
         engine.spawn_fault_drainer(fault_rx);
         engine.spawn_decoded_pump(decoded_rx);
         engine.spawn_image_pump(image_queue_rx);
-        trunking::spawn(&engine, trunk_rx, trunk_status);
+        trunking::spawn(&engine, engine.trunk_tx.clone(), trunk_rx, trunk_status);
         engine
     }
 

@@ -120,6 +120,30 @@ pub struct TrunkProblem {
     pub attempts: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TrunkChannelSource {
+    Announced,
+    Manual,
+    Learned,
+    Predicted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TrunkChannel {
+    pub logical_channel: u16,
+    pub freq_hz: u64,
+    pub source: TrunkChannelSource,
+    pub confidence: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TrunkProbe {
+    pub device_set: u32,
+    pub channel: u32,
+    pub freq_hz: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TrunkSystemStatus {
     pub node: String,
@@ -128,6 +152,14 @@ pub struct TrunkSystemStatus {
     pub carriers: u32,
     pub followers: Vec<TrunkFollower>,
     pub problems: Vec<TrunkProblem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channel_map: Vec<TrunkChannel>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub probes: Vec<TrunkProbe>,
+    #[serde(default)]
+    pub searching: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_code: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
