@@ -32,6 +32,7 @@ const TRAILING_SYMBOLS: usize = HALF_PAYLOAD_BITS / 2;
 const SLOT_SYMBOLS: usize = 144;
 
 const SUPERFRAME_STRIDE: usize = SLOT_SYMBOLS * 2;
+const SPEAKER_HOLD_SYMBOLS: usize = SUPERFRAME_STRIDE * 3;
 
 pub(crate) const SYNC_TOLERANCE: u32 = 4;
 
@@ -219,6 +220,8 @@ struct Decoder {
     slots: [SlotState; 2],
     short_lc: ShortLc,
     mbc_headers: [Option<MbcHeader>; 2],
+    speaking: Option<usize>,
+    speaking_hold: usize,
 }
 
 #[derive(Clone)]
@@ -270,6 +273,8 @@ impl Decoder {
             slots: std::array::from_fn(|_| SlotState::new()),
             short_lc: ShortLc::default(),
             mbc_headers: std::array::from_fn(|_| None),
+            speaking: None,
+            speaking_hold: 0,
         }
     }
 
@@ -282,10 +287,18 @@ impl Decoder {
         self.slots.iter_mut().for_each(SlotState::reset);
         self.short_lc.reset();
         self.mbc_headers.fill(None);
+        self.speaking = None;
+        self.speaking_hold = 0;
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
         self.window.push(symbol);
+        if self.speaking_hold > 0 {
+            self.speaking_hold -= 1;
+            if self.speaking_hold == 0 {
+                self.speaking = None;
+            }
+        }
         for index in 0..2 {
             if self.follower_countdown[index] > 0 {
                 self.follower_countdown[index] -= 1;
@@ -378,6 +391,10 @@ impl Decoder {
             DvFrameKind::Terminator => {
                 self.slots[index].encrypted = None;
                 self.slots[index].voice.reset();
+                if self.speaking == Some(index) {
+                    self.speaking = None;
+                    self.speaking_hold = 0;
+                }
             }
             _ => {}
         }
@@ -406,8 +423,20 @@ impl Decoder {
         self.schedule_follower(index);
     }
 
+    fn take_speaker(&mut self, index: usize) -> bool {
+        if self.speaking.is_some_and(|speaking| speaking != index) {
+            return false;
+        }
+        self.speaking = Some(index);
+        self.speaking_hold = SPEAKER_HOLD_SYMBOLS;
+        true
+    }
+
     fn voice_payload(&mut self, index: usize, slot: Option<u8>, out: &mut ChannelOutputs) {
         if slot.is_some_and(|slot| !self.params.slots.accepts(slot)) {
+            return;
+        }
+        if !self.take_speaker(index) {
             return;
         }
         let mut payload = [false; VOCODER_FRAME_BITS * VOCODER_FRAMES_PER_BURST];
@@ -2010,6 +2039,51 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing slot {slot} call: {frames:?}"));
             assert_eq!(call.destination, Some(destination));
         }
+    }
+
+    #[test]
+    fn concurrent_repeater_slots_yield_one_call_worth_of_audio() {
+        let first = tx::Call {
+            destination: 101,
+            source: 1_000_001,
+            ..tx::Call::default()
+        };
+        let second = tx::Call {
+            destination: 202,
+            source: 2_000_002,
+            ..tx::Call::default()
+        };
+        let iq = tx::dual_slot_transmission(&first, &second, INPUT_RATE_HZ);
+        let (frames, audio) = decode_audio(&iq);
+        assert!(
+            frames.iter().any(|frame| frame.slot == Some(2)),
+            "the unheard slot stopped being reported"
+        );
+        let voice_frames = 18;
+        assert!(
+            (audio.len() as isize - (voice_frames * 960) as isize).abs() <= 2,
+            "audio from both slots ran together: {} samples for {voice_frames} vocoder frames",
+            audio.len()
+        );
+    }
+
+    #[test]
+    fn a_slot_that_stops_hands_the_speaker_over() {
+        let first = tx::Call::default();
+        let second = tx::Call {
+            destination: 202,
+            source: 2_000_002,
+            ..tx::Call::default()
+        };
+        let mut iq = tx::repeater_transmission(&first, 1, INPUT_RATE_HZ);
+        iq.extend(tx::repeater_transmission(&second, 2, INPUT_RATE_HZ));
+        let (_, audio) = decode_audio(&iq);
+        let voice_frames = 36;
+        assert!(
+            (audio.len() as isize - (voice_frames * 960) as isize).abs() <= 4,
+            "the second call never reached the speaker: {} samples",
+            audio.len()
+        );
     }
 
     #[test]
