@@ -82,7 +82,7 @@ impl PcmOutput {
     }
 
     fn reset(&mut self) {
-        self.resampler = FracResampler::new(f64::from(AUDIO_RATE) / VOCODER_RATE_HZ);
+        self.resampler.reset();
         self.pcm_8k.clear();
         self.pcm_48k.clear();
     }

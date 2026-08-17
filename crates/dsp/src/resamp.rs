@@ -43,6 +43,13 @@ impl FracResampler {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.t = (self.taps_per_phase - 1) as f64;
+        self.buf.clear();
+        self.buf
+            .resize(self.taps_per_phase - 1, Complex::new(0.0, 0.0));
+    }
+
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         out.clear();
         self.buf.extend_from_slice(input);
@@ -155,6 +162,28 @@ mod tests {
         assert!((expected.len() as i64 - got.len() as i64).abs() <= 1);
         for (i, (a, b)) in expected.iter().zip(&got).enumerate() {
             assert!((a - b).norm() < 1e-3, "sample {i}: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn reset_leaves_the_state_a_fresh_resampler_would_have() {
+        let ratio = 48_000.0 / 8_000.0;
+        let input = complex_tone(0.037, 4_000);
+
+        let mut fresh = FracResampler::new(ratio);
+        let mut expected = Vec::new();
+        fresh.process(&input, &mut expected);
+
+        let mut reused = FracResampler::new(ratio);
+        let mut scratch = Vec::new();
+        reused.process(&complex_tone(0.11, 2_500), &mut scratch);
+        reused.reset();
+        let mut got = Vec::new();
+        reused.process(&input, &mut got);
+
+        assert_eq!(expected.len(), got.len(), "reset shifted the output phase");
+        for (i, (a, b)) in expected.iter().zip(&got).enumerate() {
+            assert_eq!(a, b, "sample {i}: fresh {a}, reset {b}");
         }
     }
 }
