@@ -1,7 +1,7 @@
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use sdrmm_dsp::{RdsOffset, rds_encode_block};
+use sdrmm_dsp::{RdsOffset, design_rds_shaping, rds_encode_block};
 
 use super::fm_modulate;
 
@@ -12,7 +12,7 @@ const DEVIATION_HZ: f64 = 75_000.0;
 const AUDIO_LEVEL: f64 = 0.45;
 const PILOT_LEVEL: f64 = 0.09;
 const RDS_LEVEL: f64 = 0.04;
-const SHAPING_SPAN: f64 = 5.0;
+const SHAPING_SPAN: usize = 5;
 
 const BLOCK_BITS: u32 = 26;
 const GROUP_BITS: f64 = 104.0;
@@ -66,13 +66,37 @@ pub fn composite(
     audio_tone_hz: Option<f64>,
     rate: f64,
 ) -> Vec<f32> {
+    multiplex(station, seconds, audio_tone_hz, rate, true)
+}
+
+#[must_use]
+pub fn monophonic(
+    station: &Station,
+    seconds: f64,
+    audio_tone_hz: Option<f64>,
+    rate: f64,
+) -> Vec<f32> {
+    multiplex(station, seconds, audio_tone_hz, rate, false)
+}
+
+fn multiplex(
+    station: &Station,
+    seconds: f64,
+    audio_tone_hz: Option<f64>,
+    rate: f64,
+    pilot_tone: bool,
+) -> Vec<f32> {
     let len = (seconds.max(0.0) * rate) as usize;
     let data = subcarrier(station, len, rate);
     (0..len)
         .map(|n| {
             let t = n as f64 / rate;
             let audio = audio_tone_hz.map_or(0.0, |f| AUDIO_LEVEL * (TAU * f * t).cos());
-            let pilot = PILOT_LEVEL * (TAU * PILOT_HZ * t).cos();
+            let pilot = if pilot_tone {
+                PILOT_LEVEL * (TAU * PILOT_HZ * t).cos()
+            } else {
+                0.0
+            };
             let level = f64::from(data.get(n).copied().unwrap_or(0.0));
             let rds = RDS_LEVEL * level * (TAU * SUBCARRIER_HZ * t).cos();
             (audio + pilot + rds) as f32
@@ -175,19 +199,10 @@ fn af_pairs(freqs: &[f64]) -> Vec<[u8; 2]> {
     all.as_chunks::<2>().0.to_vec()
 }
 
-fn shaping(t: f64) -> f64 {
-    let a = PI / (4.0 * BIT_RATE);
-    let edge = 2.0 * BIT_RATE;
-    if (t.abs() - a / TAU).abs() < 1e-9 {
-        return edge;
-    }
-    2.0 * a * (TAU * edge * t).cos() / (a * a - 4.0 * PI * PI * t * t)
-}
-
 fn shaping_taps(rate: f64) -> Vec<f64> {
-    let half = (SHAPING_SPAN * rate / BIT_RATE).round() as usize;
-    (0..=2 * half)
-        .map(|k| shaping((k as f64 - half as f64) / rate))
+    design_rds_shaping(rate / BIT_RATE, SHAPING_SPAN)
+        .into_iter()
+        .map(f64::from)
         .collect()
 }
 

@@ -274,7 +274,10 @@ describe("eventSummary", () => {
     expect(eventSummary({ kind: "tone", data: { open: false } })).toBe("no tone · muted");
     expect(eventSummary({ kind: "morse", data: { text: "SOS", wpm: 18 } })).toBe("SOS");
     expect(
-      eventSummary({ kind: "rds", data: { block_errors: 0, groups: 10, pi: "D3C2", ps: "NDR2" } }),
+      eventSummary({
+        kind: "rds",
+        data: { block_errors: 0, blocks: 40, groups: 10, pi: "D3C2", ps: "NDR2" },
+      }),
     ).toBe("PI D3C2 · NDR2");
   });
 
@@ -342,7 +345,7 @@ describe("eventSummary", () => {
     expect(eventSummary({ kind: "adsb", data: { icao: "3c6444", df: 11, raw: "5d" } })).toBe(
       "3c6444",
     );
-    expect(eventSummary({ kind: "rds", data: { block_errors: 3, groups: 0 } })).toBe("");
+    expect(eventSummary({ kind: "rds", data: { block_errors: 3, blocks: 3, groups: 0 } })).toBe("");
   });
 });
 
@@ -350,7 +353,9 @@ describe("eventStation", () => {
   it("is null for the character-stream decoders", () => {
     expect(eventStation({ kind: "rtty", data: { text: "x" } })).toBeNull();
     expect(eventStation({ kind: "morse", data: { text: "x", wpm: 12 } })).toBeNull();
-    expect(eventStation({ kind: "rds", data: { block_errors: 0, groups: 1 } })).toBeNull();
+    expect(
+      eventStation({ kind: "rds", data: { block_errors: 0, blocks: 4, groups: 1 } }),
+    ).toBeNull();
   });
 
   it("does not mistake a Selcall recipient for the transmitter", () => {

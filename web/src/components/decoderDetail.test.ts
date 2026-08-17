@@ -19,7 +19,7 @@ function dataLink(
 describe("eventDetail", () => {
   it("answers for every decoder the wire union declares", () => {
     const sample: Record<DecoderKind, DecoderEvent> = {
-      rds: { kind: "rds", data: { groups: 0, block_errors: 0 } },
+      rds: { kind: "rds", data: { groups: 0, blocks: 0, block_errors: 0 } },
       call: {
         kind: "call",
         data: {
@@ -466,6 +466,7 @@ describe("eventDetail", () => {
       kind: "rds",
       data: {
         groups: 100,
+        blocks: 402,
         block_errors: 2,
         pi: "D389",
         ps: "RADIO 1 ",

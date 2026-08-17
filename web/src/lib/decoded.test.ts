@@ -24,7 +24,7 @@ function rds(data: Partial<RdsUpdate> = {}, offsetMs = 0): DecodedRecord {
     device_set: 0,
     channel: 2,
     freq_hz: 100_300_000,
-    event: { kind: "rds", data: { groups: 1, block_errors: 0, pi: "D3C2", ...data } },
+    event: { kind: "rds", data: { groups: 1, blocks: 4, block_errors: 0, pi: "D3C2", ...data } },
   };
 }
 

@@ -11198,6 +11198,7 @@
         "type": "object",
         "required": [
           "groups",
+          "blocks",
           "block_errors"
         ],
         "properties": {
@@ -11209,6 +11210,11 @@
             }
           },
           "block_errors": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "blocks": {
             "type": "integer",
             "format": "int64",
             "minimum": 0

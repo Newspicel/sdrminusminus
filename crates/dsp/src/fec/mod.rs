@@ -563,7 +563,7 @@ pub const fn rds_syndrome(block: u32) -> u16 {
     rem as u16
 }
 
-const RDS_MAX_BURST: u32 = 2;
+const RDS_MAX_BURST: u32 = 5;
 const RDS_SYNDROMES: usize = 1 << RDS_CHECK_BITS;
 const RDS_AMBIGUOUS: u32 = u32::MAX;
 
@@ -969,25 +969,21 @@ mod tests {
     }
 
     #[test]
-    fn rds_repairs_a_single_flip_or_an_adjacent_pair_anywhere_in_the_block() {
+    fn rds_repairs_every_burst_of_span_five_or_less() {
         for offset in RDS_OFFSETS {
             for data in [0x0000, 0xFFFF, 0x3A5C, 0xACDC] {
                 let block = rds_encode_block(data, offset);
                 assert_eq!(rds_correct_block(block, offset), Some((data, 0)));
-                for bit in 0..26 {
-                    let single = block ^ (1 << bit);
-                    assert_eq!(
-                        rds_correct_block(single, offset),
-                        Some((data, 1)),
-                        "{offset:?} bit {bit}"
-                    );
-                    if bit + 1 < 26 {
-                        let pair = block ^ (0b11 << bit);
+                for shift in 0..26 {
+                    for pattern in 1u32..1 << RDS_MAX_BURST {
+                        let vector = pattern << shift;
+                        if vector >> 26 != 0 {
+                            continue;
+                        }
                         assert_eq!(
-                            rds_correct_block(pair, offset),
-                            Some((data, 2)),
-                            "{offset:?} bits {bit}..{}",
-                            bit + 1
+                            rds_correct_block(block ^ vector, offset),
+                            Some((data, vector.count_ones())),
+                            "{offset:?} burst {pattern:#b} at {shift}"
                         );
                     }
                 }
@@ -1002,7 +998,21 @@ mod tests {
             "the burst table cannot resolve every pattern it holds"
         );
         let reachable = RDS_BURST_TABLE.iter().filter(|&&v| v != 0).count();
-        assert_eq!(reachable, 26 + 25, "one syndrome per correctable pattern");
+        assert_eq!(reachable, 367, "one syndrome per correctable burst");
+    }
+
+    #[test]
+    fn rds_correction_stops_where_the_code_stops_being_unambiguous() {
+        let span_six: Vec<u32> = (0..26)
+            .flat_map(|shift| (1u32 << 5..1 << 6).map(move |pattern| pattern << shift))
+            .filter(|&vector| vector >> 26 == 0 && vector & 1 != 0)
+            .collect();
+        assert!(
+            span_six
+                .iter()
+                .any(|&vector| RDS_BURST_TABLE[usize::from(rds_syndrome(vector))] != vector),
+            "a span-six burst would still be mistaken for a shorter one"
+        );
     }
 
     #[test]

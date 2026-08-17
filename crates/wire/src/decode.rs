@@ -24,6 +24,7 @@ pub struct RdsUpdate {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alt_freqs_hz: Vec<f64>,
     pub groups: u64,
+    pub blocks: u64,
     pub block_errors: u64,
 }
 

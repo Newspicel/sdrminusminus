@@ -244,10 +244,11 @@ export function formatClock(at: string): string {
 }
 
 export function rdsPicture(records: readonly DecodedRecordOf<"rds">[]): RdsUpdate | null {
-  if (records.length === 0) {
+  const current = sameStation(records);
+  if (current.length === 0) {
     return null;
   }
-  const merged = records.reduceRight<Record<string, unknown>>((acc, r) => {
+  const merged = current.reduceRight<Record<string, unknown>>((acc, r) => {
     for (const [key, value] of Object.entries(r.event.data)) {
       if (value != null) {
         acc[key] = value;
@@ -256,6 +257,31 @@ export function rdsPicture(records: readonly DecodedRecordOf<"rds">[]): RdsUpdat
     return acc;
   }, {});
   return merged as unknown as RdsUpdate;
+}
+
+function sameStation(
+  records: readonly DecodedRecordOf<"rds">[],
+): readonly DecodedRecordOf<"rds">[] {
+  const newest = records[0]?.event.data;
+  if (newest == null) {
+    return [];
+  }
+  let groups = newest.groups;
+  let end = records.length;
+  for (let i = 1; i < records.length; i += 1) {
+    const older = records[i]?.event.data;
+    if (older == null) {
+      break;
+    }
+    const restarted = older.groups > groups;
+    const retuned = older.pi != null && newest.pi != null && older.pi !== newest.pi;
+    if (restarted || retuned) {
+      end = i;
+      break;
+    }
+    groups = older.groups;
+  }
+  return records.slice(0, end);
 }
 
 export type RdsQualityLabel = "no lock" | "good" | "fair" | "poor";
@@ -271,7 +297,7 @@ export interface RdsQuality {
 export function rdsQuality(update: RdsUpdate): RdsQuality {
   const groups = update.groups;
   const blockErrors = update.block_errors;
-  const blocks = groups * 4 + blockErrors;
+  const blocks = Math.max(update.blocks, groups * 4 + blockErrors);
   const errorRate = blocks === 0 ? 0 : blockErrors / blocks;
   if (groups === 0) {
     return { groups, blockErrors, errorRate, label: "no lock", className: "text-danger" };

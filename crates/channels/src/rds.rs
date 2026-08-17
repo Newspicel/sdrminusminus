@@ -2,8 +2,8 @@ use std::f64::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex;
 use sdrmm_dsp::{
-    Costas, Decimator, Nco, Pll, RdsOffset, SymbolSync, design_lowpass, rds_check_block,
-    rds_correct_block,
+    ComplexOnePole, Costas, Decimator, Nco, Pll, RdsOffset, SymbolSync, design_lowpass,
+    design_rds_biphase, rds_check_block, rds_correct_block,
 };
 use sdrmm_modem::{
     constellation::{Constellation, tables},
@@ -14,17 +14,19 @@ use sdrmm_wire::{DecoderEvent, RdsUpdate};
 const BIT_RATE: f64 = 1_187.5;
 const PILOT_HZ: f64 = 19_000.0;
 const DATA_EDGE_HZ: f64 = 2.0 * BIT_RATE;
-const NEIGHBOUR_HZ: f64 = 4_000.0;
 const TARGET_BASEBAND_HZ: f64 = 9_600.0;
 const MIN_BASEBAND_HZ: f64 = 3.0 * DATA_EDGE_HZ;
-const PILOT_CUTOFF_HZ: f64 = 1_000.0;
 const BLACKMAN_TRANSITION: f64 = 5.5;
+const SHAPING_SPAN_SYMBOLS: usize = 4;
 
-const PILOT_LOOP_BW: f64 = 0.002;
-const PILOT_RANGE: f64 = 0.001;
+const PILOT_CUTOFF_HZ: f64 = 100.0;
+const PILOT_STAGES: usize = 3;
+const PILOT_LOOP_BW_HZ: f64 = 2.0;
+const PILOT_RANGE_HZ: f64 = 25.0;
+const PILOT_LOCK_ON: f32 = 0.7;
 const TIMING_LOOP_BW: f64 = 0.01;
 const PHASE_LOOP_BW: f64 = 0.02;
-const PHASE_RANGE: f64 = 0.005;
+const PHASE_RANGE_HZ: f64 = 25.0;
 
 const BLOCK_BITS: usize = 26;
 const BLOCK_MASK: u32 = (1 << BLOCK_BITS) - 1;
@@ -33,7 +35,8 @@ const A_SLOT: usize = 0;
 const B_SLOT: usize = 1;
 const C_SLOT: usize = 2;
 const LAST_SLOT: usize = BLOCKS_PER_GROUP - 1;
-const MAX_BLOCK_MISSES: u32 = 12;
+const SYNC_WINDOW_BLOCKS: u32 = 50;
+const SYNC_WINDOW_LIMIT: u32 = 20;
 
 const PS_LEN: usize = 8;
 const RT_LEN: usize = 64;
@@ -44,6 +47,25 @@ const AF_COUNT_TOP: u8 = 249;
 const AF_MAX_CODE: u8 = 204;
 const AF_BASE_HZ: f64 = 87_500_000.0;
 const AF_STEP_HZ: f64 = 100_000.0;
+
+const FIRST_GLYPH: usize = 0x20;
+
+const EBU_LATIN: [char; 224] = [
+    ' ', '!', '"', '#', '¤', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', //
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', //
+    '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', //
+    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '―', '_', //
+    '‖', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', //
+    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '¯', '«', //
+    'á', 'à', 'é', 'è', 'í', 'ì', 'ó', 'ò', 'ú', 'ù', 'Ñ', 'Ç', 'Ş', 'ß', '¡', 'Ĳ', //
+    'â', 'ä', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'û', 'ü', 'ñ', 'ç', 'ş', 'ğ', 'ı', 'ĳ', //
+    'ª', 'α', '©', '‰', 'Ğ', 'ě', 'ň', 'ő', 'π', '€', '£', '$', '←', '↑', '→', '↓', //
+    'º', '¹', '²', '³', '±', 'İ', 'ń', 'ű', 'µ', '¿', '÷', '°', '¼', '½', '¾', '§', //
+    'Á', 'À', 'É', 'È', 'Í', 'Ì', 'Ó', 'Ò', 'Ú', 'Ù', 'Ř', 'Č', 'Š', 'Ž', 'Ð', 'Ŀ', //
+    'Â', 'Ä', 'Ê', 'Ë', 'Î', 'Ï', 'Ô', 'Ö', 'Û', 'Ü', 'ř', 'č', 'š', 'ž', 'đ', 'ŀ', //
+    'Ã', 'Å', 'Æ', 'Œ', 'ŷ', 'Ý', 'Õ', 'Ø', 'Þ', 'Ŋ', 'Ŕ', 'Ć', 'Ś', 'Ź', 'Ŧ', 'ð', //
+    'ã', 'å', 'æ', 'œ', 'ŵ', 'ý', 'õ', 'ø', 'þ', 'ŋ', 'ŕ', 'ć', 'ś', 'ź', 'ŧ', 'ť', //
+];
 
 const PTY_NAMES: [&str; 32] = [
     "None",
@@ -85,7 +107,9 @@ pub(crate) struct RdsDecoder {
     nco: Nco,
     pilot_decim: Decimator,
     data_decim: Decimator,
+    pilot_narrow: ComplexOnePole,
     pll: Pll,
+    pilot_locked: bool,
     matched: Decimator,
     timing: SymbolSync,
     phase: Costas,
@@ -106,17 +130,23 @@ impl RdsDecoder {
         let factor = decimation(mpx_rate);
         let baseband_rate = mpx_rate / factor as f64;
         let sps = baseband_rate / BIT_RATE;
-        let data_lp = anti_alias(mpx_rate, baseband_rate, factor);
-        let pilot_lp = design_lowpass(data_lp.len(), PILOT_CUTOFF_HZ / mpx_rate);
+        let anti_alias = anti_alias(mpx_rate, baseband_rate, factor);
         Self {
             mpx_rate,
             nco: Nco::new(PILOT_HZ as f32, mpx_rate as f32),
-            pilot_decim: Decimator::new(&pilot_lp, factor),
-            data_decim: Decimator::new(&data_lp, factor),
-            pll: Pll::new(PILOT_LOOP_BW, FRAC_1_SQRT_2, 0.0, PILOT_RANGE),
-            matched: Decimator::new(&matched_taps(sps, baseband_rate), 1),
+            pilot_decim: Decimator::new(&anti_alias, factor),
+            data_decim: Decimator::new(&anti_alias, factor),
+            pilot_narrow: ComplexOnePole::new(baseband_rate, PILOT_CUTOFF_HZ, PILOT_STAGES),
+            pll: Pll::new(
+                PILOT_LOOP_BW_HZ / baseband_rate,
+                FRAC_1_SQRT_2,
+                0.0,
+                PILOT_RANGE_HZ / baseband_rate,
+            ),
+            pilot_locked: false,
+            matched: Decimator::new(&design_rds_biphase(sps, SHAPING_SPAN_SYMBOLS), 1),
             timing: SymbolSync::new(sps, TIMING_LOOP_BW),
-            phase: Costas::new(PHASE_LOOP_BW, FRAC_1_SQRT_2, 0.0, PHASE_RANGE),
+            phase: Costas::new(PHASE_LOOP_BW, FRAC_1_SQRT_2, 0.0, PHASE_RANGE_HZ / BIT_RATE),
             alphabet: tables::bpsk(),
             differential: DifferentialDecoder::new(),
             frames: GroupDecoder::default(),
@@ -142,11 +172,21 @@ impl RdsDecoder {
         self.pilot_decim
             .process(&self.pilot_mix, &mut self.pilot_bb);
         self.data_decim.process(&self.data_mix, &mut self.data_bb);
+        debug_assert_eq!(
+            self.pilot_bb.len(),
+            self.data_bb.len(),
+            "the pilot and data paths drifted apart"
+        );
 
         self.carrier_free.clear();
         for (&pilot, &data) in self.pilot_bb.iter().zip(&self.data_bb) {
-            let _ = self.pll.process(pilot);
-            self.carrier_free.push(data * self.pll.harmonic(3.0).conj());
+            let _ = self.pll.process(self.pilot_narrow.process(pilot));
+            self.pilot_locked |= self.pll.lock() > PILOT_LOCK_ON;
+            self.carrier_free.push(if self.pilot_locked {
+                data * self.pll.harmonic(3.0).conj()
+            } else {
+                data
+            });
         }
         self.matched.process(&self.carrier_free, &mut self.shaped);
 
@@ -179,45 +219,18 @@ fn anti_alias(mpx_rate: f64, baseband_rate: f64, factor: usize) -> Vec<f32> {
     )
 }
 
-fn matched_taps(sps: f64, baseband_rate: f64) -> Vec<f32> {
-    let span = sps.round().max(2.0) as usize;
-    let biphase: Vec<f32> = (0..span)
-        .map(|k| {
-            if (k as f64 + 0.5) < 0.5 * sps {
-                1.0
-            } else {
-                -1.0
-            }
-        })
-        .collect();
-    let taps =
-        (BLACKMAN_TRANSITION * baseband_rate / (NEIGHBOUR_HZ - DATA_EDGE_HZ)).ceil() as usize;
-    let band = design_lowpass(
-        taps.max(3) | 1,
-        0.5 * (DATA_EDGE_HZ + NEIGHBOUR_HZ) / baseband_rate,
-    );
-    convolve(&biphase, &band)
-}
-
-fn convolve(a: &[f32], b: &[f32]) -> Vec<f32> {
-    let mut out = vec![0.0f32; a.len() + b.len() - 1];
-    for (i, &x) in a.iter().enumerate() {
-        for (slot, &y) in out[i..].iter_mut().zip(b) {
-            *slot += x * y;
-        }
-    }
-    out
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 enum BlockSync {
     #[default]
     Hunt,
+    Confirm {
+        slot: usize,
+        bits: usize,
+    },
     Track {
         slot: usize,
         bits: usize,
-        misses: u32,
-        confirmed: bool,
+        recent: u64,
     },
 }
 
@@ -235,7 +248,9 @@ struct GroupDecoder {
     blocks: [Option<Block>; BLOCKS_PER_GROUP],
     station: Station,
     groups: u64,
+    blocks_read: u64,
     block_errors: u64,
+    reported_errors: u64,
 }
 
 impl GroupDecoder {
@@ -247,24 +262,21 @@ impl GroupDecoder {
         }
         match self.sync {
             BlockSync::Hunt => self.hunt(),
-            BlockSync::Track {
-                slot,
-                bits,
-                misses,
-                confirmed,
-            } => {
-                let bits = bits + 1;
-                if bits < BLOCK_BITS {
-                    self.sync = BlockSync::Track {
-                        slot,
-                        bits,
-                        misses,
-                        confirmed,
-                    };
-                } else {
-                    self.close_block(slot, misses, confirmed, out);
-                }
+            BlockSync::Confirm { slot, bits } if bits + 1 < BLOCK_BITS => {
+                self.sync = BlockSync::Confirm {
+                    slot,
+                    bits: bits + 1,
+                };
             }
+            BlockSync::Confirm { slot, .. } => self.confirm(slot, out),
+            BlockSync::Track { slot, bits, recent } if bits + 1 < BLOCK_BITS => {
+                self.sync = BlockSync::Track {
+                    slot,
+                    bits: bits + 1,
+                    recent,
+                };
+            }
+            BlockSync::Track { slot, recent, .. } => self.close_block(slot, recent, out),
         }
     }
 
@@ -273,50 +285,55 @@ impl GroupDecoder {
             if let Some(block) = check_slot(self.window, slot, false, None) {
                 self.blocks = [None; BLOCKS_PER_GROUP];
                 self.store(slot, Some(block));
-                self.sync = BlockSync::Track {
+                self.sync = BlockSync::Confirm {
                     slot: next_slot(slot),
                     bits: 0,
-                    misses: 0,
-                    confirmed: false,
                 };
                 return;
             }
         }
     }
 
-    fn close_block(
-        &mut self,
-        slot: usize,
-        misses: u32,
-        confirmed: bool,
-        out: &mut Vec<DecoderEvent>,
-    ) {
+    fn confirm(&mut self, slot: usize, out: &mut Vec<DecoderEvent>) {
         let version_b = self.blocks[B_SLOT].map(|b| b.data & 0x0800 != 0);
-        let (misses, confirmed) = match check_slot(self.window, slot, confirmed, version_b) {
-            Some(block) => {
-                self.store(slot, Some(block));
-                (0, true)
-            }
-            None => {
-                self.store(slot, None);
-                self.block_errors = self.block_errors.saturating_add(1);
-                let misses = misses + 1;
-                if !confirmed || misses > MAX_BLOCK_MISSES {
-                    self.blocks = [None; BLOCKS_PER_GROUP];
-                    self.sync = BlockSync::Hunt;
-                    return;
-                }
-                (misses, confirmed)
-            }
+        let Some(block) = check_slot(self.window, slot, false, version_b) else {
+            self.blocks = [None; BLOCKS_PER_GROUP];
+            self.sync = BlockSync::Hunt;
+            return;
         };
+        self.blocks_read = self.blocks_read.saturating_add(2);
+        self.store(slot, Some(block));
         if slot == LAST_SLOT {
             self.close_group(out);
         }
         self.sync = BlockSync::Track {
             slot: next_slot(slot),
             bits: 0,
-            misses,
-            confirmed,
+            recent: 0,
+        };
+    }
+
+    fn close_block(&mut self, slot: usize, recent: u64, out: &mut Vec<DecoderEvent>) {
+        let version_b = self.blocks[B_SLOT].map(|b| b.data & 0x0800 != 0);
+        self.blocks_read = self.blocks_read.saturating_add(1);
+        let block = check_slot(self.window, slot, true, version_b);
+        if block.is_none() {
+            self.block_errors = self.block_errors.saturating_add(1);
+        }
+        self.store(slot, block);
+        let recent = recent_misses(recent, block.is_none());
+        if recent.count_ones() > SYNC_WINDOW_LIMIT {
+            self.blocks = [None; BLOCKS_PER_GROUP];
+            self.sync = BlockSync::Hunt;
+            return;
+        }
+        if slot == LAST_SLOT {
+            self.close_group(out);
+        }
+        self.sync = BlockSync::Track {
+            slot: next_slot(slot),
+            bits: 0,
+            recent,
         };
     }
 
@@ -324,9 +341,14 @@ impl GroupDecoder {
         if self.blocks.iter().all(Option::is_some) {
             self.groups = self.groups.saturating_add(1);
         }
-        if self.station.apply(&self.blocks) {
-            let update = self.station.update(self.groups, self.block_errors);
-            out.push(DecoderEvent::Rds(update));
+        let changed = self.station.apply(&self.blocks);
+        if changed || self.block_errors != self.reported_errors {
+            self.reported_errors = self.block_errors;
+            out.push(DecoderEvent::Rds(self.station.update(
+                self.groups,
+                self.blocks_read,
+                self.block_errors,
+            )));
         }
         self.blocks = [None; BLOCKS_PER_GROUP];
     }
@@ -336,6 +358,10 @@ impl GroupDecoder {
             *cell = block;
         }
     }
+}
+
+const fn recent_misses(history: u64, missed: bool) -> u64 {
+    ((history << 1) | missed as u64) & ((1 << SYNC_WINDOW_BLOCKS) - 1)
 }
 
 const fn next_slot(slot: usize) -> usize {
@@ -574,7 +600,7 @@ impl Station {
         }
     }
 
-    fn update(&self, groups: u64, block_errors: u64) -> RdsUpdate {
+    fn update(&self, groups: u64, blocks: u64, block_errors: u64) -> RdsUpdate {
         RdsUpdate {
             pi: self.pi.map(|pi| format!("{pi:04X}")),
             ps: self.ps.text.clone(),
@@ -593,6 +619,7 @@ impl Station {
                 .map(|&code| AF_BASE_HZ + AF_STEP_HZ * f64::from(code))
                 .collect(),
             groups,
+            blocks,
             block_errors,
         }
     }
@@ -619,11 +646,11 @@ fn publish(slot: &mut Option<String>, value: Option<String>) -> bool {
 fn text(raw: &[u8]) -> String {
     raw.iter()
         .map(|&c| {
-            if (0x20..=0x7E).contains(&c) {
-                char::from(c)
-            } else {
-                '?'
-            }
+            usize::from(c)
+                .checked_sub(FIRST_GLYPH)
+                .and_then(|i| EBU_LATIN.get(i))
+                .copied()
+                .unwrap_or('?')
         })
         .collect::<String>()
         .trim_end()
@@ -633,11 +660,17 @@ fn text(raw: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use sdrmm_dsp::rds_encode_block;
+    use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 
     use super::*;
-    use crate::testgen::rds::{Station as TxStation, composite, groups as tx_groups};
+    use crate::testgen::{
+        add_noise, fm_modulate,
+        rds::{Station as TxStation, composite, groups as tx_groups, monophonic},
+    };
 
     const RATE: f64 = 240_000.0;
+    const DEVIATION_HZ: f64 = 75_000.0;
+    const AUDIO_EDGE_HZ: f64 = 15_000.0;
     const GROUP_BITS: usize = BLOCK_BITS * BLOCKS_PER_GROUP;
 
     fn station() -> TxStation {
@@ -716,6 +749,23 @@ mod tests {
             .collect()
     }
 
+    fn over_the_air(mpx: &[f32], noise: f32) -> Vec<f32> {
+        let mut iq = fm_modulate(mpx, DEVIATION_HZ, RATE);
+        add_noise(&mut iq, 0x5eed_1234, noise);
+        let mut fm = AngleDemod::new(
+            &AngleParams::new(
+                AngleKind::Fm {
+                    deviation: DEVIATION_HZ / RATE,
+                },
+                AUDIO_EDGE_HZ / RATE,
+            ),
+            &AngleRx::detector_only(AngleDetector::Discriminator),
+        );
+        let mut out = Vec::new();
+        fm.process(&iq, &mut out);
+        out
+    }
+
     fn run(decoder: &mut RdsDecoder, mpx: &[f32]) -> Vec<DecoderEvent> {
         let mut events = Vec::new();
         let mut pos = 0;
@@ -749,6 +799,51 @@ mod tests {
             assert_eq!(update.pi.as_deref(), Some("D3C2"), "skip {skip}");
             assert_eq!(update.ps.as_deref(), Some("SDR--FM"), "skip {skip}");
         }
+    }
+
+    #[test]
+    fn a_lone_matching_offset_word_in_noise_never_declares_sync() {
+        let mut rng = 0x1234_5678u32;
+        let bits: Vec<bool> = (0..40_000)
+            .map(|_| {
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                rng & 1 != 0
+            })
+            .collect();
+        let (decoder, events) = drive(&bits);
+        assert!(events.is_empty(), "noise produced {} events", events.len());
+        assert_eq!(decoder.groups, 0, "noise assembled a group");
+        assert_eq!(
+            decoder.blocks_read, 0,
+            "an unconfirmed offset match was read as a block"
+        );
+        assert_eq!(
+            decoder.block_errors, 0,
+            "hunting for sync was charged as block errors"
+        );
+    }
+
+    #[test]
+    fn the_block_counter_covers_every_block_the_error_count_is_measured_against() {
+        let (decoder, _) = drive(&bits_of(&tx_groups(&station(), 40)));
+        assert_eq!(decoder.block_errors, 0);
+        assert_eq!(
+            decoder.blocks_read,
+            BLOCKS_PER_GROUP as u64 * decoder.groups,
+            "{} blocks read for {} groups",
+            decoder.blocks_read,
+            decoder.groups
+        );
+    }
+
+    #[test]
+    fn text_reads_the_ebu_latin_repertoire_of_annex_e() {
+        assert_eq!(text(b"Koeln"), "Koeln");
+        assert_eq!(text(&[0x91, 0x9B, 0x97, 0x99, 0x8D]), "äçöüß");
+        assert_eq!(text(&[0x24, 0xAB, 0xAA]), "¤$£");
+        assert_eq!(text(&[0x00, 0x1F]), "??");
     }
 
     #[test]
@@ -831,6 +926,33 @@ mod tests {
         assert!(
             update.block_errors > 0,
             "the picture completed without ever noticing the damage"
+        );
+    }
+
+    #[test]
+    fn a_long_dead_patch_drops_sync_and_the_group_boundary_is_found_again() {
+        const DEAD_BLOCKS: u64 = 40;
+        let clean = bits_of(&tx_groups(&station(), 30));
+        let carried = BLOCKS_PER_GROUP as u64 * 30;
+        let mut bits = clean.clone();
+        bits.extend(std::iter::repeat_n(true, DEAD_BLOCKS as usize * BLOCK_BITS));
+        bits.extend(&clean);
+
+        let (decoder, _) = drive(&bits);
+        assert!(
+            decoder.block_errors <= u64::from(SYNC_WINDOW_LIMIT) + 1,
+            "{} blocks were charged before sync was given up",
+            decoder.block_errors
+        );
+        assert!(
+            decoder.groups >= 50,
+            "only {} groups across the gap",
+            decoder.groups
+        );
+        assert!(
+            decoder.blocks_read < 2 * carried + DEAD_BLOCKS,
+            "{} blocks read: the hunt for sync was counted too",
+            decoder.blocks_read
         );
     }
 
@@ -963,6 +1085,40 @@ mod tests {
     }
 
     #[test]
+    fn a_monophonic_broadcast_decodes_without_a_pilot_to_lock_to() {
+        let mut decoder = RdsDecoder::new(RATE);
+        let events = run(
+            &mut decoder,
+            &monophonic(&station(), 4.0, Some(1_000.0), RATE),
+        );
+        let update = last_update(&events);
+        assert_eq!(update.pi.as_deref(), Some("D3C2"));
+        assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
+        assert_eq!(
+            update.radiotext.as_deref(),
+            Some("sdr-- reference transmission")
+        );
+        assert_eq!(decoder.frames.block_errors, 0);
+    }
+
+    #[test]
+    fn a_noisy_channel_costs_few_blocks_at_the_recommended_subcarrier_level() {
+        let mut decoder = RdsDecoder::new(RATE);
+        let mpx = composite(&station(), 12.0, Some(1_000.0), RATE);
+        let events = run(&mut decoder, &over_the_air(&mpx, 0.25));
+        let update = last_update(&events);
+        assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
+        assert_eq!(
+            update.radiotext.as_deref(),
+            Some("sdr-- reference transmission")
+        );
+        let (blocks, errors) = (decoder.frames.blocks_read, decoder.frames.block_errors);
+        assert!(blocks > 500, "only {blocks} blocks read");
+        let lost = errors as f64 / blocks as f64;
+        assert!(lost < 0.02, "lost {:.1}% of the blocks", 100.0 * lost);
+    }
+
+    #[test]
     fn reset_forgets_the_station() {
         let mut decoder = RdsDecoder::new(RATE);
         let events = run(&mut decoder, &composite(&station(), 3.0, None, RATE));
@@ -970,53 +1126,5 @@ mod tests {
         decoder.reset();
         assert_eq!(decoder.frames.groups, 0);
         assert_eq!(decoder.frames.station.ps.text, None);
-    }
-}
-
-#[cfg(test)]
-mod tmp_bench {
-    use std::time::Instant;
-
-    use super::*;
-    use crate::testgen::{rds::composite, tone_audio, wfm::composite as wfm_composite};
-
-    const RATE: f64 = 240_000.0;
-
-    fn timed(label: &str, mpx: &[f32]) {
-        let mut decoder = RdsDecoder::new(RATE);
-        let mut events = Vec::new();
-        let start = Instant::now();
-        for chunk in mpx.chunks(4_096) {
-            decoder.process(chunk, &mut events);
-        }
-        let dt = start.elapsed();
-        let audio_s = mpx.len() as f64 / RATE;
-        println!(
-            "{label}: {:?} for {audio_s:.1} s → {:.4}x realtime, {} events",
-            dt,
-            dt.as_secs_f64() / audio_s,
-            events.len()
-        );
-    }
-
-    #[test]
-    fn tmp_measure() {
-        let secs = 20.0;
-        let n = (secs * RATE) as usize;
-        let left = tone_audio(1_000.0, 1.0, RATE, n);
-        let right = tone_audio(3_000.0, 1.0, RATE, n);
-        timed("no pilot ", &wfm_composite(&left, &right, false, RATE));
-        timed("pilot    ", &wfm_composite(&left, &right, true, RATE));
-        let station = crate::testgen::rds::Station {
-            pi: 0xD3C2,
-            ps: "SDR--FM".to_owned(),
-            radiotext: "sdr-- reference transmission".to_owned(),
-            pty: 10,
-            tp: true,
-            ta: false,
-            music: true,
-            alt_freqs_hz: vec![89_800_000.0],
-        };
-        timed("rds      ", &composite(&station, secs, Some(1_000.0), RATE));
     }
 }

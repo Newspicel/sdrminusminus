@@ -39,7 +39,10 @@ pub use fec::{
     pocsag_bch_decode, pocsag_bch_encode, rds_check_block, rds_correct_block, rds_encode_block,
     rds_syndrome, rs64_decode, rs64_encode, rs129_parity,
 };
-pub use fir::{design_bandpass, design_gaussian, design_lowpass, design_rrc};
+pub use fir::{
+    design_bandpass, design_gaussian, design_lowpass, design_rds_biphase, design_rds_shaping,
+    design_rrc,
+};
 pub use firc::FirC;
 pub use fm::FmDemod;
 pub use iir::{

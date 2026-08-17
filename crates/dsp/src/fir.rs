@@ -89,6 +89,49 @@ pub fn design_rrc(sps: f64, alpha: f64, span: usize) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
+#[must_use]
+pub fn design_rds_shaping(sps: f64, span: usize) -> Vec<f32> {
+    normalized(&rds_taps(sps, span, false))
+}
+
+#[must_use]
+pub fn design_rds_biphase(sps: f64, span: usize) -> Vec<f32> {
+    normalized(&rds_taps(sps, span, true))
+}
+
+fn rds_taps(sps: f64, span: usize, biphase: bool) -> Vec<f64> {
+    assert!(sps > 1.0, "need more than one sample per symbol");
+    assert!(span >= 1, "span must cover at least one symbol");
+    let half = (span as f64 * sps).round().max(1.0) as usize;
+    (0..=2 * half)
+        .map(|k| {
+            let t = (k as f64 - half as f64) / sps;
+            if biphase {
+                rds_shaping_pulse(t) - rds_shaping_pulse(t - 0.5)
+            } else {
+                rds_shaping_pulse(t)
+            }
+        })
+        .collect()
+}
+
+fn rds_shaping_pulse(symbols: f64) -> f64 {
+    let denom = 2.0 * PI * (1.0 / 16.0 - 4.0 * symbols * symbols);
+    if denom.abs() < 1e-9 {
+        return 2.0;
+    }
+    (4.0 * PI * symbols).cos() / denom
+}
+
+fn normalized(taps: &[f64]) -> Vec<f32> {
+    let scale = taps
+        .iter()
+        .map(|v| v.abs())
+        .sum::<f64>()
+        .max(f64::MIN_POSITIVE);
+    taps.iter().map(|v| (v / scale) as f32).collect()
+}
+
 fn rrc_pulse(t: f64, alpha: f64) -> f64 {
     if t.abs() < 1e-9 {
         return 1.0 - alpha + 4.0 * alpha / PI;
@@ -269,5 +312,52 @@ mod tests {
             );
         }
         assert!(h[mid] > 0.0, "center tap must be the peak");
+    }
+
+    const RDS_SPS: f64 = 9_600.0 / 1_187.5;
+
+    #[test]
+    fn rds_shaping_is_a_cosine_lowpass_that_dies_at_twice_the_bit_rate() {
+        let h = design_rds_shaping(RDS_SPS, 5);
+        let peak = response_db(&h, 0.0);
+        for (symbols, expected_db) in [(0.0, 0.0), (0.5, -0.69), (1.0, -3.01), (1.5, -8.34)] {
+            let db = response_db(&h, symbols / RDS_SPS) - peak;
+            assert!(
+                (db - expected_db).abs() < 0.3,
+                "{symbols} bit rates: {db} dB, expected {expected_db}"
+            );
+        }
+        for i in 0..=40 {
+            let symbols = 2.0 + 2.0 * f64::from(i) / 40.0;
+            let db = response_db(&h, symbols / RDS_SPS) - peak;
+            assert!(db < -40.0, "band edge leak {db} dB at {symbols} bit rates");
+        }
+    }
+
+    #[test]
+    fn rds_biphase_nulls_dc_and_peaks_at_the_bit_rate() {
+        let h = design_rds_biphase(RDS_SPS, 4);
+        let peak = response_db(&h, 1.0 / RDS_SPS);
+        assert!(
+            response_db(&h, 0.0) - peak < -60.0,
+            "dc leak {} dB",
+            response_db(&h, 0.0) - peak
+        );
+        for symbols in [0.5, 1.5] {
+            let db = response_db(&h, symbols / RDS_SPS) - peak;
+            assert!(db < 0.0, "{symbols} bit rates rose above the peak: {db} dB");
+        }
+        for i in 0..=40 {
+            let symbols = 2.0 + 2.0 * f64::from(i) / 40.0;
+            let db = response_db(&h, symbols / RDS_SPS) - peak;
+            assert!(db < -40.0, "band edge leak {db} dB at {symbols} bit rates");
+        }
+    }
+
+    #[test]
+    fn rds_biphase_is_antisymmetric_about_the_half_symbol() {
+        let h = design_rds_biphase(RDS_SPS, 4);
+        let sum: f64 = h.iter().map(|&v| f64::from(v)).sum();
+        assert!(sum.abs() < 1e-5, "the taps carry a dc component: {sum}");
     }
 }

@@ -3027,6 +3027,8 @@ export interface components {
             /** Format: int64 */
             block_errors: number;
             /** Format: int64 */
+            blocks: number;
+            /** Format: int64 */
             groups: number;
             music?: boolean | null;
             pi?: string | null;
