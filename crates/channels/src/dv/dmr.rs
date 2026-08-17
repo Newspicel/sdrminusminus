@@ -1788,6 +1788,28 @@ mod tests {
     }
 
     #[test]
+    fn an_off_air_capacity_max_aloha_reads_as_its_site_announced_itself() {
+        let bytes = [
+            0x99, 0x00, 0x09, 0x00, 0xF6, 0x84, 0x07, 0x00, 0x00, 0x00, 0x00, 0xC8,
+        ];
+        let mut payload = [false; 96];
+        for (i, bit) in payload.iter_mut().enumerate() {
+            *bit = bytes[i / 8] >> (7 - i % 8) & 1 == 1;
+        }
+        assert_eq!(bits_to_u32(&payload, 2, 6), 25, "not an ALOHA");
+
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 25, &payload, false);
+
+        assert_eq!(frame.network_id, Some(1));
+        assert_eq!(frame.site_id, Some(1));
+        assert_eq!(
+            frame.data.as_deref(),
+            Some("version 2, mask 0, service 0, wait 7, registration 1, backoff 6")
+        );
+    }
+
+    #[test]
     fn the_system_identity_code_splits_by_the_model_it_declares() {
         let identity = |model: u64, net: u64, site: u64, net_bits: usize, site_bits: usize| {
             let mut payload = [false; 96];
