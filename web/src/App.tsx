@@ -35,11 +35,13 @@ import {
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { useDecodedStore } from "./lib/decoded";
+import { useHuntStore } from "./lib/hunt";
 import { iqHub } from "./lib/iq";
 import { useLevelStore } from "./lib/levels";
 import { usePositionStore, watchDevicePosition } from "./lib/position";
 import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
+import { symbolHub } from "./lib/symbols";
 import { pushToast } from "./lib/toasts";
 import type {
   CapturedImage,
@@ -76,6 +78,7 @@ export function App() {
   const { applyPatch, cachedSettings } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
+  const scanSession = state.data?.scan_session ?? null;
   const trunks = useMemo(() => state.data?.trunk_systems ?? [], [state.data?.trunk_systems]);
 
   const onServerEvent = useCallback(
@@ -123,10 +126,12 @@ export function App() {
     });
     s.on("event", useDecodedStore.getState().observe);
     s.on("event", useScannerStore.getState().observe);
+    s.on("event", useHuntStore.getState().observe);
     s.on("event", usePositionStore.getState().observe);
     s.on("event", useLevelStore.getState().observe);
     spectrumHub.attach(s);
     iqHub.attach(s);
+    symbolHub.attach(s);
     videoHub.attach(s);
     audioEngine.attach(s);
     setSocket(s);
@@ -134,6 +139,7 @@ export function App() {
     return () => {
       spectrumHub.detach();
       iqHub.detach();
+      symbolHub.detach();
       videoHub.detach();
       audioEngine.detach();
       s.close();
@@ -321,6 +327,7 @@ export function App() {
               settings,
               context,
               deviceSets,
+              scanSession,
               trunks,
               devices,
               channels,

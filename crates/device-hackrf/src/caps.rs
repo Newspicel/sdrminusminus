@@ -82,6 +82,7 @@ pub(crate) fn capabilities() -> Capabilities {
         per_stream: StreamScope::default(),
         directional: None,
         dc_artifact: DcArtifact::Managed,
+        hardware_sweep: true,
     }
 }
 

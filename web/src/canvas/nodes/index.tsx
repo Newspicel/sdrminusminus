@@ -18,6 +18,7 @@ import {
   BasebandRecorderFace,
   DecoderLogFace,
   ExportFace,
+  HuntFace,
   MapFace,
   ReadoutFace,
   RecorderFace,
@@ -61,6 +62,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   network_export: mount(NetworkExportFace),
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
+  hunt: mount(HuntFace),
 };
 
 export const FACES: Record<NodeKind, Face> = {
@@ -85,4 +87,5 @@ export const FACES: Record<NodeKind, Face> = {
   network_export: NetworkExportFace,
   export: ExportFace,
   scanner: ScannerFace,
+  hunt: HuntFace,
 };

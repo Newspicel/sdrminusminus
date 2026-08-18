@@ -26,6 +26,7 @@ pub enum StreamKind {
     Audio,
     Video,
     Iq,
+    Symbols,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -58,6 +59,11 @@ pub enum ServerEvent {
         device_set: u32,
         channel: u32,
     },
+    SymbolStreamStarted {
+        stream_id: u16,
+        device_set: u32,
+        channel: u32,
+    },
     StreamStopped {
         stream_id: u16,
         kind: StreamKind,
@@ -77,6 +83,10 @@ pub enum ServerEvent {
     ScannerUpdate {
         device_set: u32,
         status: Box<crate::scan::ScannerStatus>,
+    },
+    HuntUpdate {
+        device_set: u32,
+        status: Box<crate::hunt::HuntStatus>,
     },
     PositionChanged {
         node: String,
@@ -126,6 +136,14 @@ pub enum ClientCommand {
         channel: u32,
     },
     UnsubscribeIq {
+        device_set: u32,
+        channel: u32,
+    },
+    SubscribeSymbols {
+        device_set: u32,
+        channel: u32,
+    },
+    UnsubscribeSymbols {
         device_set: u32,
         channel: u32,
     },

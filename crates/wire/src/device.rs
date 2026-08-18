@@ -421,6 +421,10 @@ pub struct Capabilities {
     /// `dc_block` and `lo_offset_hz`, which it overrides.
     #[serde(default)]
     pub dc_artifact: DcArtifact,
+    /// Whether the radio sweeps in its own firmware, delivering blocks stamped with the frequency
+    /// each was taken at instead of a stream at one tuning.
+    #[serde(default)]
+    pub hardware_sweep: bool,
 }
 
 const fn one_stream() -> u32 {
@@ -686,6 +690,7 @@ mod tests {
             per_stream: StreamScope::default(),
             directional: None,
             dc_artifact: DcArtifact::Operator,
+            hardware_sweep: false,
         }
     }
 

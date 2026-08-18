@@ -7,7 +7,8 @@ use std::{
 use arc_swap::ArcSwap;
 use num_complex::Complex;
 use sdrmm_device::{
-    DeviceDriver, DeviceError, RxSink, SdrDevice, Worker, check_stream_settings, single_rx_sink,
+    DeviceDriver, DeviceError, RxSink, SdrDevice, SweepPlan, SweepSink, Worker,
+    check_stream_settings, single_rx_sink,
 };
 use sdrmm_recorder::scan_stems;
 use sdrmm_wire::{
@@ -31,6 +32,11 @@ pub const WFM_DEVIATION_HZ: f64 = 75_000.0;
 pub const MOD_TONE_HZ: f64 = 1_000.0;
 
 pub const STREAM_MARKER_SPACING_HZ: f64 = 50_000.0;
+
+/// Where the pretend firmware sweep parks its one carrier, so a sweep that works is a sweep that
+/// finds it.
+pub const SWEEP_MARKER_HZ: f64 = 101_000_000.0;
+const SWEEP_BLOCK_SAMPLES: usize = 4_096;
 
 #[must_use]
 pub fn stream_marker_offset_hz(stream: u32) -> f64 {
@@ -195,6 +201,7 @@ pub struct SigGen {
     settings: DeviceSettings,
     shared: Arc<ArcSwap<SigParams>>,
     worker: Worker,
+    sweeper: Worker,
 }
 
 impl Default for SigGen {
@@ -232,7 +239,22 @@ fn siggen_capabilities() -> Capabilities {
         per_stream: StreamScope::default(),
         directional: None,
         dc_artifact: DcArtifact::Operator,
+        hardware_sweep: true,
     }
+}
+
+/// Every tuning the sweep visits, in the order the firmware would walk them.
+fn sweep_centers(plan: &SweepPlan) -> Vec<f64> {
+    let step = plan.sample_rate_hz;
+    let mut centers = Vec::new();
+    for band in &plan.bands {
+        let mut center = band.start_hz + step / 2.0;
+        while center - step / 2.0 < band.stop_hz {
+            centers.push(center);
+            center += step;
+        }
+    }
+    centers
 }
 
 impl SigGen {
@@ -245,6 +267,7 @@ impl SigGen {
                 sample_rate: DEFAULT_SAMPLE_RATE_HZ,
             })),
             worker: Worker::new(),
+            sweeper: Worker::new(),
         }
     }
 
@@ -342,6 +365,42 @@ impl SdrDevice for SigGen {
 
     fn rx_stop(&mut self) {
         self.worker.stop();
+    }
+
+    fn sweep_start(&mut self, plan: &SweepPlan, mut sink: SweepSink) -> Result<(), DeviceError> {
+        plan.check()?;
+        let centers = sweep_centers(plan);
+        if centers.is_empty() {
+            return Err(DeviceError::Unsupported(
+                "the sweep bands hold no tuning at this sample rate".to_string(),
+            ));
+        }
+        let sample_rate = plan.sample_rate_hz;
+        self.sweeper.start("sdrmm-siggen-sweep", move |running| {
+            let mut generator = Generator::stream_marker(0);
+            let mut block = vec![Complex::new(0.0f32, 0.0); SWEEP_BLOCK_SAMPLES];
+            let mut next = Instant::now();
+            let mut at = 0usize;
+            while running.load(Ordering::Acquire) {
+                let center = centers[at];
+                at = (at + 1) % centers.len();
+                generator.set_marker_offset_hz(SWEEP_MARKER_HZ - center);
+                generator.fill(&mut block, sample_rate);
+                sink.push(center, &block);
+
+                next += Duration::from_secs_f64(block.len() as f64 / sample_rate);
+                let now = Instant::now();
+                if next > now {
+                    std::thread::sleep(next - now);
+                } else {
+                    next = now;
+                }
+            }
+        })
+    }
+
+    fn sweep_stop(&mut self) {
+        self.sweeper.stop();
     }
 }
 

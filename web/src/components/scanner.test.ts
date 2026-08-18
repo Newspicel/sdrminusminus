@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSet, ScannerStatus, TemplateInfo } from "../lib/types";
 import { rankDevices } from "./devices";
-import { formatDb, liveStatus, newRange, parseRanges, scanRefusal, targetCount } from "./scanner";
+import {
+  formatDb,
+  formatMhz,
+  gangCandidates,
+  ganged,
+  liveStatus,
+  newRange,
+  parseRanges,
+  scanRefusal,
+  sweepKind,
+  targetCount,
+} from "./scanner";
 import { supports } from "./templates";
 
 describe("parseRanges", () => {
@@ -186,5 +197,76 @@ describe("rankDevices", () => {
       "A recording",
       "Signal Generator",
     ]);
+  });
+});
+
+describe("formatMhz", () => {
+  it("shows a dash rather than a frequency nobody reported", () => {
+    expect(formatMhz(null)).toBe("—");
+    expect(formatMhz(undefined)).toBe("—");
+    expect(formatMhz(Number.NaN)).toBe("—");
+    expect(formatMhz(145_500_000)).toBe("145.5000 MHz");
+  });
+});
+
+describe("gangCandidates", () => {
+  const base = {
+    settings: {},
+    channels: [],
+    capabilities: {
+      freq_ranges: [],
+      sample_rates: [],
+      gains: [],
+      antennas: [],
+      bandwidths: [],
+      rx_streams: 1,
+      tx_streams: 0,
+      duplex: "rx_only",
+    },
+  } as unknown as DeviceSet;
+  const set = (over: Partial<DeviceSet>): DeviceSet =>
+    ({ ...base, status: "running", ...over }) as unknown as DeviceSet;
+
+  it("offers only radios that are free to join the sweep", () => {
+    const active = set({ id: 1 });
+    const sets = [
+      active,
+      set({ id: 2 }),
+      set({ id: 3, status: "idle" }),
+      set({ id: 4, scanner: {} as never }),
+      set({ id: 5, hunt: {} as never }),
+      set({
+        id: 6,
+        capabilities: { ...base.capabilities, per_stream: { tuning: true } },
+      }),
+    ];
+    expect(gangCandidates(sets, active).map((s) => s.id)).toEqual([2]);
+  });
+
+  it("offers nothing when no radio is driving the scan", () => {
+    expect(gangCandidates([set({ id: 1 })], null)).toEqual([]);
+  });
+});
+
+describe("ganged", () => {
+  const active = { id: 1 } as DeviceSet;
+  it("names the other radios sweeping the same plan", () => {
+    const session = { device_sets: [1, 2, 3], settings: {} };
+    expect(ganged(session, active)).toEqual([2, 3]);
+  });
+
+  it("says nothing when this radio is not in the scan", () => {
+    expect(ganged(null, active)).toEqual([]);
+    expect(ganged({ device_sets: [2], settings: {} }, active)).toEqual([]);
+    expect(ganged({ device_sets: [1, 2], settings: {} }, null)).toEqual([]);
+  });
+});
+
+describe("sweepKind", () => {
+  it("says what is actually doing the sweeping, not what was asked for", () => {
+    const radio = { capabilities: { hardware_sweep: true } } as DeviceSet;
+    expect(sweepKind(radio, null)).toBe("the radio's own");
+    expect(sweepKind(radio, { hardware_sweep: false } as never)).toBe("by retuning");
+    expect(sweepKind(null, null)).toBe("by retuning");
   });
 });

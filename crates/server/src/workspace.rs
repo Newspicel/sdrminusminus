@@ -118,7 +118,7 @@ pub(crate) fn capture(
                 .device_sets
                 .iter()
                 .find(|set| set.id == binding.device_set)?;
-            if set.scanner.is_some() || unrestored.contains(&binding.node) {
+            if set.scanner.is_some() || set.hunt.is_some() || unrestored.contains(&binding.node) {
                 return None;
             }
             Some(WorkspaceDevice {
@@ -374,6 +374,11 @@ pub(crate) fn reconcile(
                 Ok(_) => report.stopped_scans += 1,
                 Err(err) => tracing::warn!(%err, set = set.id, "could not stop a sweep on switch"),
             }
+        }
+        if set.hunt.is_some()
+            && let Err(err) = engine.stop_hunt(set.id)
+        {
+            tracing::warn!(%err, set = set.id, "could not stop a hunt on switch");
         }
         for channel in &set.channels {
             if binding.channels.iter().any(|(_, id)| *id == channel.id) {

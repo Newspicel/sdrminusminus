@@ -8,6 +8,7 @@ pub mod device;
 pub mod doctor;
 pub mod filter;
 pub mod frame;
+pub mod hunt;
 pub mod network;
 pub mod patch;
 pub mod position;
@@ -72,9 +73,10 @@ pub use filter::{
     MAX_FILTER_TEXT_LEN, POSITION_KINDS, VOICE_KINDS, predicates_for,
 };
 pub use frame::{
-    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoData,
-    VideoFrame,
+    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, SymbolFrame,
+    SymbolPlane, VideoData, VideoFrame,
 };
+pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{
     ChannelNetworkExportRequest, MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode,
     NetworkExportRequest, NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat,
@@ -114,7 +116,9 @@ pub use rest::{
     TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
-    MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
+    MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,
+    ScanRequest, ScanSession, ScanSessionRequest, ScanSessionStatus, ScanSettings, ScanState,
+    ScannerStatus,
 };
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
@@ -602,6 +606,7 @@ mod contract_tests {
                 per_stream: StreamScope::default(),
                 directional: None,
                 dc_artifact: DcArtifact::Operator,
+                hardware_sweep: false,
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
@@ -614,6 +619,7 @@ mod contract_tests {
             network_export: None,
             time_machine: None,
             scanner: None,
+            hunt: None,
             playback: None,
         }
     }
@@ -872,10 +878,13 @@ mod contract_tests {
                 ..scan::ScanSettings::default()
             },
             targets: 161,
+            first_hz: 144_000_000.0,
+            last_hz: 146_000_000.0,
             current_hz: 145_500_000.0,
             current_db: Some(-31.5),
             sweeps: 4,
             hits: 9,
+            hardware_sweep: false,
             error: None,
         });
         let mut json = serde_json::to_value(&set).unwrap();
@@ -924,6 +933,97 @@ mod contract_tests {
     }
 
     #[test]
+    fn hunt_update_event_shape() {
+        let ev = ServerEvent::HuntUpdate {
+            device_set: 2,
+            status: Box::new(hunt::HuntStatus {
+                settings: hunt::HuntSettings {
+                    freq_hz: 433_920_000.0,
+                    bw_hz: 12_500.0,
+                    interval_ms: 50,
+                },
+                level_db: Some(-58.5),
+                smooth_db: Some(-59.0),
+                floor_db: Some(-92.0),
+                best_db: Some(-40.0),
+                strength: 0.63,
+                closing: true,
+                readings: 17,
+                error: None,
+            }),
+        };
+        let json = serde_json::to_value(&ev).unwrap();
+        assert_eq!(json["type"], "HuntUpdate");
+        assert_eq!(json["data"]["device_set"], 2);
+        assert_eq!(json["data"]["status"]["closing"], true);
+        assert_eq!(json["data"]["status"]["settings"]["freq_hz"], 433_920_000.0);
+        assert!(
+            json["data"]["status"].get("error").is_none(),
+            "a hunt with nothing wrong must not carry a null fault"
+        );
+        let back: ServerEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(back, ev);
+    }
+
+    #[test]
+    fn a_hunt_status_fills_in_what_an_older_client_leaves_out() {
+        let status: hunt::HuntStatus =
+            serde_json::from_str(r#"{"settings":{"freq_hz":446000000.0},"readings":0}"#).unwrap();
+        assert_eq!(status.settings.bw_hz, 12_500.0);
+        assert_eq!(status.settings.interval_ms, 50);
+        assert_eq!(status.strength, 0.0);
+        assert!(!status.closing);
+        assert_eq!(status.level_db, None);
+    }
+
+    #[test]
+    fn a_ganged_scan_is_listed_on_the_state_only_while_one_is_running() {
+        let quiet = StateSnapshot::default();
+        let json = serde_json::to_value(&quiet).unwrap();
+        assert!(
+            json.get("scan_session").is_none(),
+            "an idle server must not claim a scan"
+        );
+
+        let ganged = StateSnapshot {
+            scan_session: Some(scan::ScanSession {
+                device_sets: vec![1, 4],
+                settings: scan::ScanSettings {
+                    mode: scan::ScanMode::CloseCall,
+                    margin_db: 15.0,
+                    ..scan::ScanSettings::default()
+                },
+            }),
+            ..StateSnapshot::default()
+        };
+        let json = serde_json::to_value(&ganged).unwrap();
+        assert_eq!(
+            json["scan_session"]["device_sets"],
+            serde_json::json!([1, 4])
+        );
+        assert_eq!(json["scan_session"]["settings"]["mode"], "close_call");
+        let back: StateSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(back, ganged);
+    }
+
+    #[test]
+    fn a_scan_request_that_names_no_mode_still_scans_the_listed_frequencies() {
+        let settings: scan::ScanSettings =
+            serde_json::from_str(r#"{"frequencies":[145500000.0]}"#).unwrap();
+        assert_eq!(settings.mode, scan::ScanMode::Targets);
+        assert_eq!(settings.margin_db, 12.0);
+        assert!(
+            settings.hardware_sweep,
+            "a client that says nothing must still get the radio's own sweep"
+        );
+
+        let session: scan::ScanSessionRequest =
+            serde_json::from_str(r#"{"action":"stop"}"#).unwrap();
+        assert_eq!(session.action, scan::ScanAction::Stop);
+        assert!(session.device_sets.is_empty());
+    }
+
+    #[test]
     fn scanner_update_event_shape() {
         let ev = ServerEvent::ScannerUpdate {
             device_set: 3,
@@ -931,10 +1031,13 @@ mod contract_tests {
                 state: scan::ScanState::Scanning,
                 settings: scan::ScanSettings::default(),
                 targets: 0,
+                first_hz: 446_000_000.0,
+                last_hz: 446_000_000.0,
                 current_hz: 446_000_000.0,
                 current_db: None,
                 sweeps: 0,
                 hits: 0,
+                hardware_sweep: false,
                 error: None,
             }),
         };

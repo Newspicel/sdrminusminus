@@ -39,20 +39,9 @@ If something is shipped, then remove it.
   waterfall, rather than one tuned channel at a time. The identifier already ranks a signal's
   protocol from its bandwidth, symbol rate and deviation; what is missing is a pool of cheap
   detectors fed from the span and a label layer that survives zoom, pan and a moving signal
-- Better frequency scanner, including one that spans several devices
-- Hardware-assisted wideband sweep — the scanner still sweeps by retuning; a
-  firmware sweep delivers blocks stamped with their own frequency rather than a stream at one
-  tuning, so the scanner's device-set spectrum tap has nothing to read it with yet
-- Strongest-signal "close-call" finder
-- Signal-strength hunt mode — Geiger-style audio/visual feedback as you close on a transmitter
 - Server-side zoom of the *device* spectrum — zooming a device scope re-frames bins
   that already arrived rather than resolving finer; the readout is honest about it. A channel's
   baseband scope resolves properly, being a transform of that channel's own samples
-- Pinch-zoom on touch pointers
-- 3D spectrogram view — a height-mapped surface reads worse than the 2D waterfall for
-  finding signals (the near ridge occludes the far one); the persistence display above shows the
-  same third dimension honestly. A perspective tilt of the existing waterfall, and a range–Doppler
-  surface for passive radar (§2), are the two cases that would earn it
 
 ## 4. Recording, replay & measurement
 

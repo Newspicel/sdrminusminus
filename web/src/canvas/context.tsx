@@ -4,6 +4,7 @@ import type {
   DeviceSet,
   PatchGraph,
   RackLayout,
+  ScanSession,
   TrunkSystemStatus,
   WorkspaceSettings,
   WorkspaceSnapshot,
@@ -18,6 +19,7 @@ export interface Workspace {
   settings: WorkspaceSettings;
   context: GraphContext;
   deviceSets: readonly DeviceSet[];
+  scanSession: ScanSession | null;
   trunks: readonly TrunkSystemStatus[];
   devices: ReadonlyMap<string, DeviceSet>;
   channels: ReadonlyMap<string, ChannelInfo>;

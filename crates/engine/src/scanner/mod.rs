@@ -7,12 +7,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sdrmm_wire::{
-    MAX_SCAN_TARGETS, ScanSettings, ScanState, ScannerStatus, ServerEvent, StateScope,
-};
+use sdrmm_device::SweepPlan;
+use sdrmm_wire::{ScanMode, ScanSettings, ScanState, ScannerStatus, ServerEvent, StateScope};
 use tokio::sync::broadcast::error::TryRecvError;
 
 use crate::{Engine, EngineError, runtime::SpectrumSnapshot};
+
+mod close_call;
+mod plan;
+pub(crate) mod session;
+mod sweep;
+
+use close_call::CloseCall;
+use plan::Tuning;
+pub(crate) use plan::{ScanPlan, partition};
 
 const USABLE_SPAN_FRACTION: f64 = 0.8;
 const RETUNE_SETTLE: Duration = Duration::from_millis(30);
@@ -50,121 +58,24 @@ fn lock_status(status: &Mutex<ScannerStatus>) -> std::sync::MutexGuard<'_, Scann
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-pub(crate) struct ScanPlan {
-    pub(crate) targets: Vec<f64>,
-}
-
-impl ScanPlan {
-    pub(crate) fn build(settings: &ScanSettings) -> Result<Self, EngineError> {
-        let bad = |msg: String| EngineError::Scan(msg);
-        if !settings.threshold_db.is_finite() {
-            return Err(bad("threshold_db must be finite".to_string()));
-        }
-        if !settings.measure_bw_hz.is_finite() || settings.measure_bw_hz <= 0.0 {
-            return Err(bad(format!(
-                "measure_bw_hz must be positive, got {}",
-                settings.measure_bw_hz
-            )));
-        }
-        let mut targets: Vec<f64> = Vec::new();
-        for range in &settings.ranges {
-            if !range.start_hz.is_finite() || !range.stop_hz.is_finite() {
-                return Err(bad("scan range bounds must be finite".to_string()));
-            }
-            if !range.step_hz.is_finite() || range.step_hz <= 0.0 {
-                return Err(bad(format!(
-                    "scan range step must be positive, got {}",
-                    range.step_hz
-                )));
-            }
-            if range.stop_hz < range.start_hz {
-                return Err(bad(format!(
-                    "scan range {} Hz–{} Hz ends before it starts",
-                    range.start_hz, range.stop_hz
-                )));
-            }
-            let steps = ((range.stop_hz - range.start_hz) / range.step_hz).floor();
-            let too_many = !steps.is_finite()
-                || steps < 0.0
-                || steps >= MAX_SCAN_TARGETS as f64
-                || targets.len() + (steps as usize) + 1 > MAX_SCAN_TARGETS;
-            if too_many {
-                return Err(bad(format!(
-                    "scan expands to more than {MAX_SCAN_TARGETS} targets; widen the step or \
-                     narrow the range"
-                )));
-            }
-            let count = steps as usize + 1;
-            for i in 0..count {
-                targets.push(range.start_hz + range.step_hz * i as f64);
-            }
-        }
-        for &freq in &settings.frequencies {
-            if !freq.is_finite() || freq <= 0.0 {
-                return Err(bad(format!(
-                    "scan frequency {freq} is not a usable Hz value"
-                )));
-            }
-            targets.push(freq);
-        }
-        if targets.len() > MAX_SCAN_TARGETS {
-            return Err(bad(format!(
-                "scan expands to more than {MAX_SCAN_TARGETS} targets"
-            )));
-        }
-        for t in &mut targets {
-            *t = t.round();
-        }
-        targets.sort_by(f64::total_cmp);
-        targets.dedup();
-        if targets.is_empty() {
-            return Err(bad(
-                "a scan needs at least one range or frequency".to_string()
-            ));
-        }
-        Ok(Self { targets })
-    }
-
-    fn tunings(&self, usable_span: f64) -> Vec<Tuning> {
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < self.targets.len() {
-            let low = self.targets[i];
-            let mut j = i + 1;
-            while j < self.targets.len() && self.targets[j] - low <= usable_span {
-                j += 1;
-            }
-            out.push(Tuning {
-                center_hz: f64::midpoint(low, self.targets[j - 1]),
-                first: i,
-                last: j - 1,
-            });
-            i = j;
-        }
-        out
-    }
-}
-
-struct Tuning {
-    center_hz: f64,
-    first: usize,
-    last: usize,
-}
-
 pub(crate) fn spawn(
     engine: &Arc<Engine>,
     ds: u32,
     plan: ScanPlan,
     settings: ScanSettings,
 ) -> Result<ScannerState, EngineError> {
+    let hardware = settings.hardware_sweep && engine.sweeps_in_firmware(ds);
     let status = Arc::new(Mutex::new(ScannerStatus {
         state: ScanState::Scanning,
         settings: settings.clone(),
         targets: plan.targets.len() as u32,
+        first_hz: plan.targets[0],
+        last_hz: *plan.targets.last().unwrap_or(&plan.targets[0]),
         current_hz: plan.targets[0],
         current_db: None,
         sweeps: 0,
         hits: 0,
+        hardware_sweep: hardware,
         error: None,
     }));
     let stop = Arc::new(AtomicBool::new(false));
@@ -183,6 +94,9 @@ pub(crate) fn spawn(
                     stop,
                     status,
                     last_update: None,
+                    hardware,
+                    in_sweep: false,
+                    close_call: CloseCall::default(),
                 };
                 scan.run();
             })
@@ -203,6 +117,9 @@ struct Scan {
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<ScannerStatus>>,
     last_update: Option<Instant>,
+    hardware: bool,
+    in_sweep: bool,
+    close_call: CloseCall,
 }
 
 enum Halt {
@@ -210,9 +127,25 @@ enum Halt {
     Failed(String),
 }
 
+/// A frequency the scan decided to stop on, and the level it has to keep to stay there.
+#[derive(Clone, Copy, Debug)]
+struct Call {
+    hz: f64,
+    db: f32,
+    keep_db: f32,
+}
+
 impl Scan {
     fn run(mut self) {
-        match self.sweep_forever() {
+        let outcome = self.sweep_forever();
+        if self.in_sweep
+            && let Some(engine) = self.engine.upgrade()
+            && let Err(e) = sweep::leave(&engine, self.ds)
+            && !matches!(e, EngineError::DeviceSetNotFound(_))
+        {
+            tracing::error!(ds = self.ds, error = %e, "could not put the receive stream back");
+        }
+        match outcome {
             Ok(()) | Err(Halt::Stopped) => {}
             Err(Halt::Failed(error)) => {
                 tracing::warn!(ds = self.ds, %error, "scan stopped");
@@ -231,6 +164,10 @@ impl Scan {
         loop {
             let engine = self.engine.upgrade().ok_or(Halt::Stopped)?;
             let rate = engine.scan_sample_rate(self.ds).ok_or(Halt::Stopped)?;
+            if self.hardware {
+                self.firmware_pass(&engine, rate)?;
+                continue;
+            }
             let usable = rate * USABLE_SPAN_FRACTION - self.settings.measure_bw_hz;
             if usable <= 0.0 {
                 return Err(Halt::Failed(format!(
@@ -247,6 +184,128 @@ impl Scan {
         }
     }
 
+    /// One pass of the radio's own sweep: the blocks arrive stamped with the frequency each was
+    /// taken at, so nothing here retunes and every target is read as its block goes past.
+    fn firmware_pass(&mut self, engine: &Arc<Engine>, rate: f64) -> Result<(), Halt> {
+        if !self.in_sweep {
+            let plan = SweepPlan::new(
+                sweep::bands(&self.plan.targets, rate, self.settings.measure_bw_hz),
+                rate,
+            );
+            if let Err(error) = sweep::enter(engine, self.ds, &plan) {
+                tracing::warn!(ds = self.ds, %error, "no firmware sweep; retuning instead");
+                self.hardware = false;
+                lock_status(&self.status).hardware_sweep = false;
+                self.push_update(engine, true);
+                return Ok(());
+            }
+            self.in_sweep = true;
+        }
+        let mut rx = engine
+            .subscribe_spectrum(self.ds, 0)
+            .map_err(|e| Halt::Failed(e.to_string()))?;
+        let mut heard = Instant::now();
+        let mut first_center = None;
+        loop {
+            self.check_stop()?;
+            match rx.try_recv() {
+                Ok(snapshot) => {
+                    heard = Instant::now();
+                    match first_center {
+                        None => first_center = Some(snapshot.center_hz),
+                        Some(start) if (snapshot.center_hz - start).abs() < 1.0 => {
+                            lock_status(&self.status).sweeps += 1;
+                        }
+                        Some(_) => {}
+                    }
+                    if let Some(call) = self.read_block(engine, &snapshot) {
+                        self.hit(engine, call, snapshot.center_hz)?;
+                        return Ok(());
+                    }
+                }
+                Err(TryRecvError::Empty) => {
+                    if heard.elapsed() >= SPECTRUM_TIMEOUT {
+                        return Err(Halt::Failed(format!(
+                            "the firmware sweep went quiet for {SPECTRUM_TIMEOUT:?}"
+                        )));
+                    }
+                    std::thread::sleep(POLL);
+                }
+                Err(TryRecvError::Lagged(_)) => {}
+                Err(TryRecvError::Closed) => return Err(Halt::Stopped),
+            }
+        }
+    }
+
+    /// Reads every target this block covers, answering with the first one over the threshold.
+    ///
+    /// A block spans one tuning out of a plan that may hold thousands of targets, so the sorted
+    /// list is cut down to that span before anything is measured.
+    fn read_block(&mut self, engine: &Arc<Engine>, snapshot: &SpectrumSnapshot) -> Option<Call> {
+        if self.settings.mode == ScanMode::CloseCall {
+            let call = self.call_in(snapshot)?;
+            self.note_hit(call);
+            return Some(call);
+        }
+        let mut seen = None;
+        for &target in covered(&self.plan.targets, snapshot, self.settings.measure_bw_hz) {
+            let Some(db) = measure(snapshot, target, self.settings.measure_bw_hz) else {
+                continue;
+            };
+            seen = Some((target, db));
+            if db >= self.settings.threshold_db {
+                let call = Call {
+                    hz: target,
+                    db,
+                    keep_db: self.settings.threshold_db,
+                };
+                self.note_hit(call);
+                return Some(call);
+            }
+        }
+        if let Some((target, db)) = seen {
+            let mut status = lock_status(&self.status);
+            status.current_hz = target;
+            status.current_db = Some(db);
+            drop(status);
+            self.push_update(engine, false);
+        }
+        None
+    }
+
+    /// The loudest carrier in a block, and the level it has to keep to stay held.
+    fn call_in(&mut self, snapshot: &SpectrumSnapshot) -> Option<Call> {
+        let margin = self.settings.margin_db;
+        let peak = self.close_call.strongest(snapshot, margin)?;
+        Some(Call {
+            hz: peak.hz,
+            db: peak.db,
+            keep_db: peak.floor_db + margin,
+        })
+    }
+
+    fn note_hit(&self, call: Call) {
+        let mut status = lock_status(&self.status);
+        status.current_hz = call.hz;
+        status.current_db = Some(call.db);
+        status.hits += 1;
+    }
+
+    /// Puts the receive stream back, holds on what the sweep found, and returns to sweeping.
+    fn hit(&mut self, engine: &Arc<Engine>, call: Call, center_hz: f64) -> Result<(), Halt> {
+        sweep::leave(engine, self.ds).map_err(|e| Halt::Failed(e.to_string()))?;
+        self.in_sweep = false;
+        let mut rx = engine
+            .scan_retune(self.ds, center_hz)
+            .map_err(|e| match e {
+                EngineError::DeviceSetNotFound(_) => Halt::Stopped,
+                other => Halt::Failed(other.to_string()),
+            })?;
+        std::thread::sleep(RETUNE_SETTLE);
+        drain(&mut rx);
+        self.hold(engine, &mut rx, call, center_hz)
+    }
+
     fn visit(&mut self, engine: &Arc<Engine>, tuning: &Tuning) -> Result<(), Halt> {
         let mut rx = engine
             .scan_retune(self.ds, tuning.center_hz)
@@ -257,9 +316,12 @@ impl Scan {
         std::thread::sleep(RETUNE_SETTLE);
         drain(&mut rx);
 
+        let dwell = Duration::from_millis(u64::from(self.settings.dwell_ms)).max(MIN_DWELL);
+        if self.settings.mode == ScanMode::CloseCall {
+            return self.watch(engine, &mut rx, tuning.center_hz, dwell);
+        }
         let targets: Vec<f64> = self.plan.targets[tuning.first..=tuning.last].to_vec();
         let mut peaks = vec![f32::NEG_INFINITY; targets.len()];
-        let dwell = Duration::from_millis(u64::from(self.settings.dwell_ms)).max(MIN_DWELL);
         self.listen(&mut rx, &targets, &mut peaks, dwell)?;
 
         for (&target, &level) in targets.iter().zip(&peaks) {
@@ -271,21 +333,67 @@ impl Scan {
             }
             self.push_update(engine, false);
             if level >= self.settings.threshold_db {
+                let call = Call {
+                    hz: target,
+                    db: level,
+                    keep_db: self.settings.threshold_db,
+                };
                 lock_status(&self.status).hits += 1;
-                self.hold(engine, &mut rx, target, tuning.center_hz)?;
+                self.hold(engine, &mut rx, call, tuning.center_hz)?;
                 return Ok(());
             }
         }
         Ok(())
     }
 
+    /// Watches one tuning for the loudest thing standing clear of the noise, rather than reading
+    /// frequencies someone had to name in advance.
+    fn watch(
+        &mut self,
+        engine: &Arc<Engine>,
+        rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
+        center_hz: f64,
+        dwell: Duration,
+    ) -> Result<(), Halt> {
+        let deadline = Instant::now() + dwell;
+        let mut heard = Instant::now();
+        loop {
+            self.check_stop()?;
+            match rx.try_recv() {
+                Ok(snapshot) => {
+                    heard = Instant::now();
+                    if let Some(call) = self.call_in(&snapshot) {
+                        self.note_hit(call);
+                        return self.hold(engine, rx, call, center_hz);
+                    }
+                    lock_status(&self.status).current_hz = center_hz;
+                    self.push_update(engine, false);
+                    if Instant::now() >= deadline {
+                        return Ok(());
+                    }
+                }
+                Err(TryRecvError::Empty) => {
+                    if heard.elapsed() >= SPECTRUM_TIMEOUT {
+                        return Err(Halt::Failed(format!(
+                            "the device produced no spectrum within {SPECTRUM_TIMEOUT:?}"
+                        )));
+                    }
+                    std::thread::sleep(POLL);
+                }
+                Err(TryRecvError::Lagged(_)) => {}
+                Err(TryRecvError::Closed) => return Err(Halt::Stopped),
+            }
+        }
+    }
+
     fn hold(
         &mut self,
         engine: &Arc<Engine>,
         rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
-        target: f64,
+        call: Call,
         center_hz: f64,
     ) -> Result<(), Halt> {
+        let target = call.hz;
         if let Some(channel) = self.settings.hold_channel
             && let Err(e) = engine.scan_park_channel(self.ds, channel, target - center_hz)
         {
@@ -313,7 +421,7 @@ impl Scan {
             )?;
             lock_status(&self.status).current_db = peak.is_finite().then_some(peak);
             self.push_update(engine, false);
-            if peak >= self.settings.threshold_db {
+            if peak >= call.keep_db {
                 quiet_since = None;
             } else {
                 let since = *quiet_since.get_or_insert_with(Instant::now);
@@ -386,6 +494,16 @@ impl Scan {
     }
 }
 
+/// The stretch of a sorted target list that a block could hold a reading for.
+fn covered<'a>(targets: &'a [f64], snapshot: &SpectrumSnapshot, bw_hz: f64) -> &'a [f64] {
+    let half = f64::from(snapshot.span_hz) / 2.0 + bw_hz / 2.0;
+    let low = snapshot.center_hz - half;
+    let high = snapshot.center_hz + half;
+    let first = targets.partition_point(|&hz| hz < low);
+    let last = targets.partition_point(|&hz| hz <= high);
+    &targets[first..last]
+}
+
 fn drain(rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>) {
     while !matches!(
         rx.try_recv(),
@@ -393,7 +511,7 @@ fn drain(rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>) {
     ) {}
 }
 
-fn measure(snapshot: &SpectrumSnapshot, target: f64, bw_hz: f64) -> Option<f32> {
+pub(crate) fn measure(snapshot: &SpectrumSnapshot, target: f64, bw_hz: f64) -> Option<f32> {
     let n = snapshot.db.len();
     if n == 0 || snapshot.span_hz <= 0.0 {
         return None;
@@ -417,130 +535,7 @@ fn measure(snapshot: &SpectrumSnapshot, target: f64, bw_hz: f64) -> Option<f32> 
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::ScanRange;
-
     use super::*;
-
-    fn settings(ranges: Vec<ScanRange>, frequencies: Vec<f64>) -> ScanSettings {
-        ScanSettings {
-            ranges,
-            frequencies,
-            ..ScanSettings::default()
-        }
-    }
-
-    #[test]
-    fn plan_expands_ranges_inclusively_and_dedups() {
-        let plan = ScanPlan::build(&settings(
-            vec![
-                ScanRange {
-                    start_hz: 144_000_000.0,
-                    stop_hz: 144_100_000.0,
-                    step_hz: 25_000.0,
-                },
-                ScanRange {
-                    start_hz: 144_100_000.0,
-                    stop_hz: 144_150_000.0,
-                    step_hz: 25_000.0,
-                },
-            ],
-            vec![145_500_000.0],
-        ))
-        .expect("plan");
-        assert_eq!(
-            plan.targets,
-            vec![
-                144_000_000.0,
-                144_025_000.0,
-                144_050_000.0,
-                144_075_000.0,
-                144_100_000.0,
-                144_125_000.0,
-                144_150_000.0,
-                145_500_000.0,
-            ]
-        );
-    }
-
-    #[test]
-    fn plan_stops_at_the_last_whole_step() {
-        let plan = ScanPlan::build(&settings(
-            vec![ScanRange {
-                start_hz: 100.0,
-                stop_hz: 249.0,
-                step_hz: 50.0,
-            }],
-            Vec::new(),
-        ))
-        .expect("plan");
-        assert_eq!(plan.targets, vec![100.0, 150.0, 200.0]);
-    }
-
-    #[test]
-    fn plan_rejects_unusable_settings() {
-        for bad in [
-            settings(Vec::new(), Vec::new()),
-            settings(
-                vec![ScanRange {
-                    start_hz: 100.0,
-                    stop_hz: 200.0,
-                    step_hz: 0.0,
-                }],
-                Vec::new(),
-            ),
-            settings(
-                vec![ScanRange {
-                    start_hz: 200.0,
-                    stop_hz: 100.0,
-                    step_hz: 10.0,
-                }],
-                Vec::new(),
-            ),
-            settings(Vec::new(), vec![f64::NAN]),
-            settings(
-                vec![ScanRange {
-                    start_hz: 0.0,
-                    stop_hz: 1e9,
-                    step_hz: 1.0,
-                }],
-                Vec::new(),
-            ),
-        ] {
-            assert!(ScanPlan::build(&bad).is_err(), "accepted {bad:?}");
-        }
-    }
-
-    #[test]
-    fn tunings_cover_every_target_within_the_usable_span() {
-        let plan = ScanPlan::build(&settings(
-            vec![ScanRange {
-                start_hz: 144_000_000.0,
-                stop_hz: 146_000_000.0,
-                step_hz: 12_500.0,
-            }],
-            Vec::new(),
-        ))
-        .expect("plan");
-        let usable = 1_000_000.0;
-        let tunings = plan.tunings(usable);
-        assert_eq!(
-            tunings.len(),
-            2,
-            "greedy grouping must not split needlessly"
-        );
-        let mut covered = 0;
-        for tuning in &tunings {
-            for &target in &plan.targets[tuning.first..=tuning.last] {
-                assert!(
-                    (target - tuning.center_hz).abs() <= usable / 2.0,
-                    "target {target} outside tuning at {}",
-                    tuning.center_hz
-                );
-                covered += 1;
-            }
-        }
-        assert_eq!(covered, plan.targets.len(), "every target scanned once");
-    }
 
     fn snapshot(center_hz: f64, span_hz: f32, db: Vec<f32>) -> SpectrumSnapshot {
         SpectrumSnapshot {
@@ -606,15 +601,21 @@ mod tests {
                 state: ScanState::Scanning,
                 settings: settings.clone(),
                 targets: 1,
+                first_hz: 100_000_000.0,
+                last_hz: 100_000_000.0,
                 current_hz: 100_000_000.0,
                 current_db: None,
                 sweeps: 0,
                 hits: 0,
+                hardware_sweep: false,
                 error: None,
             })),
             settings,
             stop: Arc::new(AtomicBool::new(false)),
             last_update: None,
+            hardware: false,
+            in_sweep: false,
+            close_call: CloseCall::default(),
         }
     }
 

@@ -22,6 +22,8 @@ import type {
   DevicesResponse,
   DoctorReport,
   ExportFormat,
+  HuntSettings,
+  HuntStatus,
   IonosondeReport,
   LicenseTextResponse,
   NetworkExportAction,
@@ -39,6 +41,7 @@ import type {
   RecordingStatus,
   RecordingsResponse,
   ScannerStatus,
+  ScanSessionStatus,
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
@@ -601,6 +604,39 @@ export async function startScan(ds: number, settings: ScanSettings): Promise<Sca
 export async function stopScan(ds: number): Promise<ScannerStatus> {
   return unwrap(
     await client.POST("/api/devicesets/{ds}/scanner", {
+      params: { path: { ds } },
+      body: { action: "stop" },
+    }),
+  );
+}
+
+export async function startScanSession(
+  deviceSets: readonly number[],
+  settings: ScanSettings,
+): Promise<ScanSessionStatus> {
+  return unwrap(
+    await client.POST("/api/scanner", {
+      body: { action: "start", device_sets: [...deviceSets], settings },
+    }),
+  );
+}
+
+export async function stopScanSession(): Promise<ScanSessionStatus> {
+  return unwrap(await client.POST("/api/scanner", { body: { action: "stop" } }));
+}
+
+export async function startHunt(ds: number, settings: HuntSettings): Promise<HuntStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/hunt", {
+      params: { path: { ds } },
+      body: { action: "start", settings },
+    }),
+  );
+}
+
+export async function stopHunt(ds: number): Promise<HuntStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/hunt", {
       params: { path: { ds } },
       body: { action: "stop" },
     }),

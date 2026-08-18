@@ -186,6 +186,17 @@ pub trait SdrDevice: Send {
     fn playback(&self) -> Option<Arc<PlaybackShared>> {
         None
     }
+
+    /// Hands the sweep to the radio's own firmware, which retunes between blocks faster than any
+    /// host round trip and stamps each block with the frequency it was taken at.
+    fn sweep_start(&mut self, _plan: &SweepPlan, _sink: SweepSink) -> Result<(), DeviceError> {
+        Err(DeviceError::Unsupported(
+            "this radio has no firmware sweep; the scanner has to retune for every step"
+                .to_string(),
+        ))
+    }
+
+    fn sweep_stop(&mut self) {}
 }
 
 pub mod capture;
@@ -195,6 +206,7 @@ pub mod playback;
 pub mod registry;
 pub mod restart;
 pub mod schedule;
+pub mod sweep;
 pub mod usb;
 pub mod worker;
 pub use capture::{
@@ -207,6 +219,7 @@ pub use registry::DeviceRegistry;
 pub use restart::{Recovery, RestartPolicy, SILENT_STREAM_TIMEOUT};
 pub use schedule::Latency;
 pub use sdrmm_wire::{Direction, Duplex};
+pub use sweep::{SweepBand, SweepPlan, SweepSink};
 pub use worker::Worker;
 
 #[cfg(test)]
@@ -347,6 +360,7 @@ mod tests {
             per_stream,
             directional: None,
             dc_artifact: sdrmm_wire::DcArtifact::Operator,
+            hardware_sweep: false,
         }
     }
 

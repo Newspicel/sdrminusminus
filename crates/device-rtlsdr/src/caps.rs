@@ -161,6 +161,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         per_stream: StreamScope::default(),
         directional: None,
         dc_artifact: DcArtifact::Managed,
+        hardware_sweep: false,
     }
 }
 

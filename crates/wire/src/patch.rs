@@ -415,7 +415,30 @@ impl Default for DmrTrunkNode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+/// What a hunt node remembers between sessions: where it was last pointed and how loud a click
+/// track the operator wanted.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct HuntNode {
+    #[serde(default)]
+    pub settings: crate::hunt::HuntSettings,
+    #[serde(default = "default_clicks")]
+    pub clicks: bool,
+}
+
+const fn default_clicks() -> bool {
+    true
+}
+
+impl Default for HuntNode {
+    fn default() -> Self {
+        Self {
+            settings: crate::hunt::HuntSettings::default(),
+            clicks: default_clicks(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
     Device(DeviceNode),
@@ -439,6 +462,7 @@ pub enum NodeBody {
     NetworkExport(NetworkExportNode),
     Export,
     Scanner,
+    Hunt(HuntNode),
 }
 
 impl NodeBody {
@@ -466,6 +490,7 @@ impl NodeBody {
             Self::NetworkExport(_) => "network_export",
             Self::Export => "export",
             Self::Scanner => "scanner",
+            Self::Hunt(_) => "hunt",
         }
     }
 
@@ -481,7 +506,9 @@ impl NodeBody {
             | Self::Readout
             | Self::DecoderLog
             | Self::Video => NodeCategory::Display,
-            Self::Scanner | Self::DmrTrunk(_) | Self::EventFilter(_) => NodeCategory::Feature,
+            Self::Scanner | Self::Hunt(_) | Self::DmrTrunk(_) | Self::EventFilter(_) => {
+                NodeCategory::Feature
+            }
             Self::Speaker
             | Self::Recorder
             | Self::AudioRecorder
@@ -565,7 +592,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Baseband, In, false, Always),
         ],
-        "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
+        "scanner" | "hunt" => vec![PortSpec::new(Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
         "video" => vec![PortSpec::new(Video, In, true, Always)],
         "map" => vec![
@@ -672,6 +699,7 @@ impl PatchCatalog {
                 ),
                 entry(&NodeBody::Export, "Export"),
                 entry(&NodeBody::Scanner, "Scanner"),
+                entry(&NodeBody::Hunt(HuntNode::default()), "Signal hunt"),
             ],
         }
     }
@@ -1263,6 +1291,7 @@ mod tests {
             per_stream: StreamScope::default(),
             directional: None,
             dc_artifact: DcArtifact::Operator,
+            hardware_sweep: false,
         }
     }
 
@@ -1948,6 +1977,7 @@ mod tests {
             "network_export" => NodeBody::NetworkExport(NetworkExportNode::default()),
             "export" => NodeBody::Export,
             "scanner" => NodeBody::Scanner,
+            "hunt" => NodeBody::Hunt(HuntNode::default()),
             other => panic!("the palette offers {other}, which this test does not build"),
         }
     }

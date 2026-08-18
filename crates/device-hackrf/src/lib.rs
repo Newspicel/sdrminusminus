@@ -8,7 +8,8 @@ use driver::{BurstQueue, DeviceDescriptor, FilterWidth, HackRf, SweepBlocks, TX_
 pub use driver::{SweepPlan, SweepRange, SweepStyle};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, DuplexState,
-    LutConverter, RxSink, Sample, SampleConverter, SdrDevice, TxStream, lock, single_rx_sink,
+    LutConverter, RxSink, Sample, SampleConverter, SdrDevice, SweepSink, TxStream, Worker, lock,
+    single_rx_sink,
 };
 use sdrmm_usb_stream::{NusbBulkOut, RxStream};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
@@ -18,6 +19,8 @@ mod convert;
 mod driver;
 
 const DRIVER_ID: &str = "hackrf";
+const SWEEP_READ_TIMEOUT: Duration = Duration::from_millis(100);
+const SWEEP_MAX_RANGES: usize = 10;
 const NOSERIAL_KEY_PREFIX: &str = "noserial-";
 
 fn map_err(err: driver::Error) -> DeviceError {
@@ -160,6 +163,7 @@ pub struct HackRfDevice {
     settings: DeviceSettings,
     duplex: Arc<Mutex<DuplexState>>,
     capture: Capture<HackRfRadio>,
+    sweeper: Worker,
 }
 
 impl HackRfDevice {
@@ -174,8 +178,35 @@ impl HackRfDevice {
             capabilities,
             settings,
             capture: Capture::new(),
+            sweeper: Worker::new(),
         }
     }
+}
+
+/// The firmware sweeps in whole megahertz, so a band is widened to the megahertz boundaries that
+/// contain it rather than silently losing the edges the caller asked for. The firmware also holds
+/// ten ranges at most, so the narrowest gaps are swallowed until the list fits — sweeping a little
+/// spectrum nobody asked for beats refusing the plan.
+fn firmware_ranges(plan: &sdrmm_device::SweepPlan) -> Result<Vec<SweepRange>, DeviceError> {
+    plan.check()?;
+    let mut ranges: Vec<SweepRange> = Vec::with_capacity(plan.bands.len());
+    for band in &plan.bands {
+        let start_mhz = (band.start_hz / 1e6).floor().max(1.0);
+        let stop_mhz = (band.stop_hz / 1e6).ceil().max(start_mhz + 1.0);
+        ranges.push(SweepRange {
+            start_hz: (start_mhz as u64) * 1_000_000,
+            stop_hz: (stop_mhz as u64) * 1_000_000,
+        });
+    }
+    ranges.sort_by_key(|range| range.start_hz);
+    while ranges.len() > SWEEP_MAX_RANGES {
+        let seam = (1..ranges.len())
+            .min_by_key(|&i| ranges[i].start_hz.saturating_sub(ranges[i - 1].stop_hz))
+            .unwrap_or(1);
+        let absorbed = ranges.remove(seam);
+        ranges[seam - 1].stop_hz = ranges[seam - 1].stop_hz.max(absorbed.stop_hz);
+    }
+    Ok(ranges)
 }
 
 fn write_to_hardware(device: &mut HackRf, applied: &caps::Applied) -> Result<(), DeviceError> {
@@ -243,6 +274,42 @@ impl SdrDevice for HackRfDevice {
     fn rx_stop(&mut self) {
         self.capture.stop();
         lock(&self.duplex).release(Direction::Rx);
+    }
+
+    fn sweep_start(
+        &mut self,
+        plan: &sdrmm_device::SweepPlan,
+        mut sink: SweepSink,
+    ) -> Result<(), DeviceError> {
+        let ranges = firmware_ranges(plan)?;
+        let rate = u32::try_from(plan.sample_rate_hz.round() as i64).map_err(|_| {
+            DeviceError::Unsupported(format!("sweep sample rate {} Hz", plan.sample_rate_hz))
+        })?;
+        self.radio
+            .lock()
+            .set_sample_rate_hz(rate)
+            .map_err(map_err)?;
+        let firmware = SweepPlan::interleaved(ranges, rate & !3);
+        let mut sweep = self.sweep_start(&firmware)?;
+        self.sweeper
+            .start("sdrmm-hackrf-sweep", move |running| {
+                while running.load(std::sync::atomic::Ordering::Acquire) {
+                    match sweep.read(SWEEP_READ_TIMEOUT, |capture| {
+                        sink.push(capture.tuned_hz as f64, capture.samples);
+                    }) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            sink.fail(e);
+                            return;
+                        }
+                    }
+                }
+            })
+            .inspect_err(|_| self.sweep_stop())
+    }
+
+    fn sweep_stop(&mut self) {
+        self.sweeper.stop();
     }
 
     fn tx_start_channels(&mut self, channels: &[u32]) -> Result<Box<dyn TxStream>, DeviceError> {
@@ -598,6 +665,78 @@ mod tests {
         ));
         state.release(Direction::Rx);
         state.claim(Direction::Tx).expect("transmit");
+    }
+
+    #[test]
+    fn a_band_widens_to_the_whole_megahertz_the_firmware_steps_in() {
+        let plan = sdrmm_device::SweepPlan::new(
+            vec![sdrmm_device::SweepBand {
+                start_hz: 88_500_000.0,
+                stop_hz: 107_900_000.0,
+            }],
+            20_000_000.0,
+        );
+        assert_eq!(
+            firmware_ranges(&plan).expect("a coverable band"),
+            vec![SweepRange {
+                start_hz: 88_000_000,
+                stop_hz: 108_000_000,
+            }],
+            "narrowing a band would leave the edges unswept"
+        );
+    }
+
+    #[test]
+    fn a_band_thinner_than_a_step_still_gets_a_megahertz_to_sweep() {
+        let plan = sdrmm_device::SweepPlan::new(
+            vec![sdrmm_device::SweepBand {
+                start_hz: 433_050_000.0,
+                stop_hz: 433_100_000.0,
+            }],
+            20_000_000.0,
+        );
+        let ranges = firmware_ranges(&plan).expect("a narrow band");
+        assert_eq!(ranges[0].start_hz, 433_000_000);
+        assert!(
+            ranges[0].stop_hz > ranges[0].start_hz,
+            "an empty range stalls the firmware"
+        );
+    }
+
+    #[test]
+    fn more_bands_than_the_firmware_holds_are_merged_at_the_narrowest_gaps() {
+        let bands = (0..14)
+            .map(|i| sdrmm_device::SweepBand {
+                start_hz: 100e6 + f64::from(i) * 10e6,
+                stop_hz: 101e6 + f64::from(i) * 10e6,
+            })
+            .chain(std::iter::once(sdrmm_device::SweepBand {
+                start_hz: 2_400e6,
+                stop_hz: 2_401e6,
+            }))
+            .collect();
+        let ranges =
+            firmware_ranges(&sdrmm_device::SweepPlan::new(bands, 20_000_000.0)).expect("merged");
+        assert_eq!(ranges.len(), SWEEP_MAX_RANGES, "the firmware holds ten");
+        assert_eq!(
+            ranges[0].start_hz, 100_000_000,
+            "the bottom of the plan must still be swept"
+        );
+        assert_eq!(
+            ranges[SWEEP_MAX_RANGES - 1].stop_hz,
+            2_401_000_000,
+            "the far band must not be the one dropped"
+        );
+        assert!(
+            ranges.windows(2).all(|w| w[0].stop_hz <= w[1].start_hz),
+            "merging must not leave overlapping ranges: {ranges:?}"
+        );
+    }
+
+    #[test]
+    fn a_plan_the_generic_check_refuses_never_reaches_the_firmware() {
+        let plan = sdrmm_device::SweepPlan::new(Vec::new(), 20_000_000.0);
+        assert!(firmware_ranges(&plan).is_err());
     }
 
     #[test]

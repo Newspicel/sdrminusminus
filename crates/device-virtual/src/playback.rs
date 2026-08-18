@@ -85,6 +85,7 @@ impl FilePlayback {
             per_stream: StreamScope::default(),
             directional: None,
             dc_artifact: DcArtifact::Operator,
+            hardware_sweep: false,
         };
         let settings = DeviceSettings {
             center_hz: Some(center_hz),

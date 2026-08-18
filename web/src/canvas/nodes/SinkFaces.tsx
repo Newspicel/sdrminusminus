@@ -5,6 +5,8 @@ import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
 import type { EventGate, WireScope } from "../../components/decoderLog";
+import { HuntPanel } from "../../components/HuntPanel";
+import { DEFAULT_HUNT_SETTINGS } from "../../components/hunt";
 import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import {
@@ -33,6 +35,7 @@ import type {
   DeviceSet,
   EventFilterNode,
   PatchNode,
+  PatchNodeOf,
   RecordAction,
   RecordingStatus,
   VoiceCall,
@@ -46,6 +49,7 @@ import {
   targetsOf,
 } from "../binding";
 import { useWorkspaceContext } from "../context";
+import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { RADIO_IDLE, useFaceEmptyText } from "./faceCopy";
@@ -745,6 +749,49 @@ function BasebandRecordingReadout({ status }: { status: RecordingStatus }) {
   );
 }
 
+export function HuntFace({ node }: { node: PatchNode }) {
+  if (node.kind !== "hunt") {
+    return null;
+  }
+  return <HuntNodeFace node={node} />;
+}
+
+function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
+  const workspace = useWorkspaceContext();
+  const set = deviceSetOf(workspace, node.id);
+  const hunting = set?.hunt != null;
+  const remember = (data: Partial<PatchNodeOf<"hunt">["data"]>): void => {
+    workspace.edit((snapshot) => ({
+      ...snapshot,
+      graph: patchNode(snapshot.graph, node.id, (current) =>
+        current.kind === "hunt" ? { ...current, data: { ...current.data, ...data } } : current,
+      ),
+    }));
+  };
+  return (
+    <NodeShell
+      node={node}
+      title="Signal hunt"
+      category="feature"
+      subtitle={hunting ? "owns this radio" : undefined}
+      live={set !== null}
+    >
+      <HuntPanel
+        active={set}
+        settings={node.data.settings ?? DEFAULT_HUNT_SETTINGS}
+        clicks={node.data.clicks ?? true}
+        onSettings={(settings) => remember({ settings })}
+        onClicks={(clicks) => remember({ clicks })}
+        empty={
+          targetsOf(workspace.graph, node.id, "control").length > 0
+            ? RADIO_IDLE
+            : "Wire this node's control out to a device; the hunt then parks that radio on one frequency."
+        }
+      />
+    </NodeShell>
+  );
+}
+
 export function ScannerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
@@ -759,6 +806,8 @@ export function ScannerFace({ node }: { node: PatchNode }) {
     >
       <ScannerPanel
         active={set}
+        others={workspace.deviceSets}
+        session={workspace.scanSession}
         empty={
           targetsOf(workspace.graph, node.id, "control").length > 0
             ? RADIO_IDLE

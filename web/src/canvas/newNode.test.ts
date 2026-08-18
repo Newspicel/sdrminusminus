@@ -24,6 +24,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   network_export: true,
   export: true,
   scanner: true,
+  hunt: true,
 };
 
 const KINDS = Object.keys(EVERY_KIND) as NodeKind[];

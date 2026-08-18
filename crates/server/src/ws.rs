@@ -13,10 +13,10 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{adaptive_db_window, decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, VideoPacket};
+use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket};
 use sdrmm_wire::{
     AudioFrame, ClientCommand, IqFrame, ServerEvent, SpectrumFrame, StateScope, StreamKind,
-    VideoData, VideoFrame,
+    SymbolFrame, VideoData, VideoFrame,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -104,6 +104,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let mut audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut iq: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
+    let mut symbols: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut last_position_publish: Option<Instant> = None;
     let mut next_media_id: u16 = MEDIA_ID_BASE;
 
@@ -210,7 +211,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     };
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let live = |id: u16| media_id_live(&audio, &video, &iq, id);
+                                let live =
+                                    |id: u16| media_id_live(&audio, &video, &iq, &symbols, id);
                                 match alloc_stream_id(
                                     &mut next_media_id,
                                     MEDIA_ID_BASE..=u16::MAX,
@@ -276,7 +278,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     };
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let live = |id: u16| media_id_live(&audio, &video, &iq, id);
+                                let live =
+                                    |id: u16| media_id_live(&audio, &video, &iq, &symbols, id);
                                 match alloc_stream_id(
                                     &mut next_media_id,
                                     MEDIA_ID_BASE..=u16::MAX,
@@ -342,7 +345,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     };
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let live = |id: u16| media_id_live(&audio, &video, &iq, id);
+                                let live =
+                                    |id: u16| media_id_live(&audio, &video, &iq, &symbols, id);
                                 match alloc_stream_id(
                                     &mut next_media_id,
                                     MEDIA_ID_BASE..=u16::MAX,
@@ -383,6 +387,74 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             let stopped = ServerEvent::StreamStopped {
                                 stream_id,
                                 kind: StreamKind::Iq,
+                            };
+                            let _ = out_tx.send(text_event(&stopped)).await;
+                        }
+                    }
+                    Ok(ClientCommand::SubscribeSymbols {
+                        device_set,
+                        channel,
+                    }) => {
+                        let subscribe = {
+                            let engine = engine.clone();
+                            tokio::task::spawn_blocking(move || {
+                                engine.subscribe_symbols(device_set, channel)
+                            })
+                            .await
+                        };
+                        match flatten_join(subscribe) {
+                            Ok(rx) => {
+                                if let Some((old_id, old)) = symbols.remove(&(device_set, channel))
+                                {
+                                    old.abort();
+                                    let stopped = ServerEvent::StreamStopped {
+                                        stream_id: old_id,
+                                        kind: StreamKind::Symbols,
+                                    };
+                                    let _ = out_tx.send(text_event(&stopped)).await;
+                                }
+                                let live =
+                                    |id: u16| media_id_live(&audio, &video, &iq, &symbols, id);
+                                match alloc_stream_id(
+                                    &mut next_media_id,
+                                    MEDIA_ID_BASE..=u16::MAX,
+                                    live,
+                                ) {
+                                    Some(stream_id) => {
+                                        let started = ServerEvent::SymbolStreamStarted {
+                                            stream_id,
+                                            device_set,
+                                            channel,
+                                        };
+                                        let _ = out_tx.send(text_event(&started)).await;
+                                        let task = spawn_symbols(stream_id, rx, out_tx.clone());
+                                        symbols.insert((device_set, channel), (stream_id, task));
+                                    }
+                                    None => {
+                                        let err = ServerEvent::Error {
+                                            message: "no free media stream ids on this connection"
+                                                .to_string(),
+                                        };
+                                        let _ = out_tx.send(text_event(&err)).await;
+                                    }
+                                }
+                            }
+                            Err(message) => {
+                                let _ = out_tx
+                                    .send(text_event(&ServerEvent::Error { message }))
+                                    .await;
+                            }
+                        }
+                    }
+                    Ok(ClientCommand::UnsubscribeSymbols {
+                        device_set,
+                        channel,
+                    }) => {
+                        if let Some((stream_id, task)) = symbols.remove(&(device_set, channel)) {
+                            task.abort();
+                            let stopped = ServerEvent::StreamStopped {
+                                stream_id,
+                                kind: StreamKind::Symbols,
                             };
                             let _ = out_tx.send(text_event(&stopped)).await;
                         }
@@ -721,13 +793,57 @@ fn media_id_live(
     audio: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    symbols: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     id: u16,
 ) -> bool {
     audio
         .values()
+        .chain(symbols.values())
         .chain(video.values())
         .chain(iq.values())
         .any(|(sid, _)| *sid == id)
+}
+
+fn spawn_symbols(
+    stream_id: u16,
+    mut rx: broadcast::Receiver<SymbolBlock>,
+    out_tx: mpsc::Sender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(block) => {
+                    let frame = SymbolFrame {
+                        stream_id,
+                        seq: block.seq,
+                        timestamp: block.timestamp,
+                        plane: block.plane,
+                        symbol_rate: block.symbol_rate,
+                        evm: block.evm,
+                        mer_db: block.mer_db,
+                        margin: block.margin,
+                        freq_error_hz: block.freq_error_hz,
+                        reference: &block.reference,
+                        symbols: &block.symbols,
+                    }
+                    .encode();
+
+                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => {
+                    let stopped = ServerEvent::StreamStopped {
+                        stream_id,
+                        kind: StreamKind::Symbols,
+                    };
+                    let _ = out_tx.send(text_event(&stopped)).await;
+                    break;
+                }
+            }
+        }
+    })
 }
 
 fn spawn_iq(
@@ -1050,6 +1166,107 @@ mod tests {
                 assert_eq!(kind, StreamKind::Iq);
             }
             other => panic!("expected StreamStopped, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn symbol_lifecycle_shares_the_media_id_space_with_the_other_streams() {
+        let engine = test_engine();
+        let ds = engine
+            .create_device_set("virtual:siggen")
+            .expect("device set");
+        let voice = engine
+            .add_channel(ds, 0, nfm_channel(0.0))
+            .expect("nfm channel");
+        let mut ws = connect(engine).await;
+
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeIq {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        let iq_id = match next_event(&mut ws).await {
+            ServerEvent::IqStreamStarted { stream_id, .. } => stream_id,
+            other => panic!("expected IqStreamStarted, got {other:?}"),
+        };
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeSymbols {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        let symbol_id = match next_event(&mut ws).await {
+            ServerEvent::SymbolStreamStarted {
+                stream_id,
+                device_set,
+                channel,
+            } => {
+                assert_eq!((device_set, channel), (ds, voice));
+                assert!(
+                    stream_id >= MEDIA_ID_BASE,
+                    "symbol id {stream_id:#x} collides with the spectrum range"
+                );
+                stream_id
+            }
+            other => panic!("expected SymbolStreamStarted, got {other:?}"),
+        };
+        assert_ne!(
+            symbol_id, iq_id,
+            "a live baseband id must not be handed to a symbol stream"
+        );
+
+        send(
+            &mut ws,
+            &ClientCommand::UnsubscribeSymbols {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        match next_event(&mut ws).await {
+            ServerEvent::StreamStopped { stream_id, kind } => {
+                assert_eq!(stream_id, symbol_id);
+                assert_eq!(kind, StreamKind::Symbols);
+            }
+            other => panic!("expected StreamStopped, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_symbol_subscription_to_a_channel_that_is_gone_is_refused_not_dropped() {
+        let engine = test_engine();
+        let ds = engine
+            .create_device_set("virtual:siggen")
+            .expect("device set");
+        let mut ws = connect(engine).await;
+
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeSymbols {
+                device_set: ds,
+                channel: 4_242,
+            },
+        )
+        .await;
+        match next_event(&mut ws).await {
+            ServerEvent::Error { message } => assert!(!message.is_empty()),
+            other => panic!("expected Error, got {other:?}"),
         }
     }
 
@@ -1788,6 +2005,7 @@ mod tests {
                     per_stream: sdrmm_wire::StreamScope::default(),
                     directional: None,
                     dc_artifact: sdrmm_wire::DcArtifact::Operator,
+                    hardware_sweep: false,
                 },
                 settings: sdrmm_wire::DeviceSettings {
                     sample_rate: Some(2_048_000.0),

@@ -546,6 +546,7 @@ mod tests {
             per_stream: StreamScope::default(),
             directional: None,
             dc_artifact: DcArtifact::Operator,
+            hardware_sweep: false,
         }
         .profile()
     }

@@ -110,6 +110,7 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         per_stream: StreamScope::default(),
         directional: None,
         dc_artifact: DcArtifact::Managed,
+        hardware_sweep: false,
     }
 }
 

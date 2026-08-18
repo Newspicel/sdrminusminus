@@ -15,8 +15,10 @@ use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     ClickProfile, DecodedImage,
 };
-use sdrmm_device::{DeviceError, RxSink, SdrDevice};
-use sdrmm_dsp::{Ddc, IqDcBlocker, LevelMeter, Nco, Squelch};
+use sdrmm_device::{DeviceError, RxSink, SdrDevice, SweepPlan, SweepSink};
+use sdrmm_dsp::{
+    Ddc, IqDcBlocker, LevelMeter, Nco, SpectrumAnalyzer as CpuSpectrumAnalyzer, Squelch,
+};
 use sdrmm_wire::{
     ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, PositionFix,
     StreamScope,
@@ -31,6 +33,7 @@ use crate::{
     network_export::NetworkExportTap,
     recording::RecorderTap,
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
+    symbols::{SymbolBatcher, SymbolBlock},
     time_machine::TimeMachineTap,
     video::VideoPacket,
 };
@@ -185,6 +188,7 @@ pub(crate) struct ChannelSinks {
     pub(crate) video_tx: broadcast::Sender<VideoPacket>,
     pub(crate) video_pos: Arc<AtomicU64>,
     pub(crate) iq_tx: broadcast::Sender<IqBlock>,
+    pub(crate) symbol_tx: broadcast::Sender<SymbolBlock>,
     pub(crate) level_db: Arc<AtomicU32>,
     pub(crate) peak_db: Arc<AtomicU32>,
     pub(crate) squelch_db: Arc<AtomicU32>,
@@ -215,6 +219,7 @@ pub(crate) struct ChannelHost {
     emits_events: bool,
     gated: Vec<Complex<f32>>,
     iq_tap: IqTap,
+    symbol_batcher: SymbolBatcher,
     baseband_rec: Option<RecorderTap>,
     baseband_export: Option<NetworkExportTap>,
     baseband_pos: u64,
@@ -283,6 +288,7 @@ impl ChannelHost {
             emits_events,
             gated: Vec::new(),
             iq_tap: IqTap::new(input_rate),
+            symbol_batcher: SymbolBatcher::new(),
             baseband_rec: None,
             baseband_export: None,
             baseband_pos: 0,
@@ -332,7 +338,9 @@ impl ChannelHost {
         };
         if open {
             self.outputs.reset();
+            self.arm_symbol_tap();
             self.rx.process(&self.filtered, &mut self.outputs);
+            self.publish_symbols();
             self.publish_frames(center_hz, video_pos);
             if self.has_audio {
                 self.audio.process_audio(&mut self.outputs.audio_pcm);
@@ -357,7 +365,9 @@ impl ChannelHost {
                 self.gated
                     .resize(self.filtered.len(), Complex::new(0.0, 0.0));
                 self.outputs.reset();
+                self.arm_symbol_tap();
                 self.rx.process(&self.gated, &mut self.outputs);
+                self.publish_symbols();
                 self.publish_frames(center_hz, video_pos);
             }
             self.zero_carry += self.filtered.len() as f64 * self.pcm_per_input;
@@ -385,6 +395,24 @@ impl ChannelHost {
         {
             self.audio_rec = None;
         }
+    }
+
+    fn arm_symbol_tap(&mut self) {
+        let wanted = self.sinks.symbol_tx.receiver_count() > 0;
+        if !wanted && self.outputs.symbols.wanted() {
+            self.symbol_batcher.reset();
+        }
+        self.outputs.symbols.set_wanted(wanted);
+    }
+
+    fn publish_symbols(&mut self) {
+        if !self.outputs.symbols.wanted() {
+            return;
+        }
+        let sinks = &self.sinks;
+        self.symbol_batcher.push(&self.outputs.symbols, |block| {
+            let _ = sinks.symbol_tx.send(block);
+        });
     }
 
     fn tap_baseband(&mut self, center_hz: f64) {
@@ -632,14 +660,27 @@ pub struct CaptureRuntime {
     device: Option<Box<dyn SdrDevice>>,
     lanes: Vec<Lane>,
     per_stream: StreamScope,
+    sweeping: bool,
     _awake: sdrmm_device::schedule::Awake,
 }
 
 impl CaptureRuntime {
     pub fn start(
+        device: Box<dyn SdrDevice>,
+        settings: &DeviceSettings,
+        front_end: FrontEndPlan,
+        on_fatal: impl FnOnce(DeviceError) + Send + 'static,
+    ) -> Result<Self, DeviceError> {
+        Self::start_with_taps(device, settings, front_end, Vec::new(), on_fatal)
+    }
+
+    /// Starts a receive stream that publishes on taps a previous runtime already handed out, so a
+    /// switch out of a firmware sweep does not cut off everyone watching the spectrum.
+    pub fn start_with_taps(
         mut device: Box<dyn SdrDevice>,
         settings: &DeviceSettings,
         front_end: FrontEndPlan,
+        taps: Vec<broadcast::Sender<SpectrumSnapshot>>,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
@@ -693,7 +734,10 @@ impl CaptureRuntime {
                     }
                 },
             ));
-            let (spectrum_tx, _) = broadcast::channel::<SpectrumSnapshot>(8);
+            let spectrum_tx = taps
+                .get(stream)
+                .cloned()
+                .unwrap_or_else(|| broadcast::channel::<SpectrumSnapshot>(8).0);
             let (cmd_tx, cmd_rx) = mpsc::channel::<DspCommand>();
             let center_hz = settings
                 .for_stream(stream as u32, &per_stream)
@@ -722,6 +766,7 @@ impl CaptureRuntime {
             device: Some(device),
             lanes,
             per_stream,
+            sweeping: false,
             _awake: sdrmm_device::schedule::stay_awake("a radio is streaming"),
         };
 
@@ -808,19 +853,144 @@ impl CaptureRuntime {
     }
 
     pub fn stop(&mut self) {
+        drop(self.halt());
+    }
+
+    /// Stops everything the radio is doing and hands it back still open.
+    ///
+    /// Switching between a receive stream and a firmware sweep is a different session on the same
+    /// hardware, and reopening a radio the operating system has not finished releasing is how a
+    /// switch turns into a lost device set.
+    pub fn release_device(&mut self) -> Option<Box<dyn SdrDevice>> {
+        self.halt()
+    }
+
+    fn halt(&mut self) -> Option<Box<dyn SdrDevice>> {
         for lane in &self.lanes {
             lane.stop.store(true, Ordering::Release);
         }
-        if let Some(mut device) = self.device.take() {
-            device.rx_stop();
-        }
+        let device = self.device.take().map(|mut device| {
+            if self.sweeping {
+                device.sweep_stop();
+            } else {
+                device.rx_stop();
+            }
+            device
+        });
         for lane in &mut self.lanes {
             lane.waker.wake();
             if let Some(handle) = lane.dsp.take() {
                 let _ = handle.join();
             }
         }
+        device
     }
+
+    /// The spectrum senders this runtime publishes on, so a successor keeps every subscriber a
+    /// mode switch would otherwise cut off.
+    #[must_use]
+    pub fn taps(&self) -> Vec<broadcast::Sender<SpectrumSnapshot>> {
+        self.lanes
+            .iter()
+            .map(|lane| lane.spectrum_tx.clone())
+            .collect()
+    }
+
+    #[must_use]
+    pub const fn is_sweeping(&self) -> bool {
+        self.sweeping
+    }
+
+    /// Runs the radio's own sweep, turning every frequency-stamped block into one spectrum frame
+    /// on the same tap a receive stream feeds.
+    /// Hands the radio back with the error when the sweep will not start, because a caller that
+    /// gave up its receive stream to ask has nothing left to put back otherwise.
+    pub fn start_sweep(
+        mut device: Box<dyn SdrDevice>,
+        plan: &SweepPlan,
+        taps: Vec<broadcast::Sender<SpectrumSnapshot>>,
+        on_fatal: impl FnOnce(DeviceError) + Send + 'static,
+    ) -> Result<Self, (Box<dyn SdrDevice>, DeviceError)> {
+        if let Err(e) = plan.check() {
+            return Err((device, e));
+        }
+        let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
+        let per_stream = device.capabilities().per_stream;
+        let mut taps = taps;
+        taps.resize_with(lane_count, || broadcast::channel::<SpectrumSnapshot>(8).0);
+        let lanes: Vec<Lane> = taps
+            .iter()
+            .map(|spectrum_tx| {
+                let (cmd_tx, _cmd_rx) = mpsc::channel::<DspCommand>();
+                Lane {
+                    meta: Arc::new(ArcSwap::from_pointee(DspMeta {
+                        center_hz: crate::DEFAULT_CENTER_HZ,
+                        sample_rate: plan.sample_rate_hz,
+                        lo_offset_hz: 0.0,
+                        dc_block: false,
+                    })),
+                    spectrum_tx: spectrum_tx.clone(),
+                    cmd_tx,
+                    overruns: Arc::new(AtomicU64::new(0)),
+                    stalled_us: Arc::new(AtomicU64::new(0)),
+                    waker: Arc::new(Waker::default()),
+                    stop: Arc::new(AtomicBool::new(false)),
+                    dsp: None,
+                }
+            })
+            .collect();
+
+        let sink = sweep_sink(taps[0].clone(), plan.sample_rate_hz, on_fatal);
+        if let Err(e) = device.sweep_start(plan, sink) {
+            return Err((device, e));
+        }
+        Ok(Self {
+            device: Some(device),
+            lanes,
+            per_stream,
+            sweeping: true,
+            _awake: sdrmm_device::schedule::stay_awake("a radio is sweeping"),
+        })
+    }
+}
+
+/// Turns each stamped block into a spectrum frame at the frequency it was taken at.
+fn sweep_sink(
+    tx: broadcast::Sender<SpectrumSnapshot>,
+    sample_rate: f64,
+    on_fatal: impl FnOnce(DeviceError) + Send + 'static,
+) -> SweepSink {
+    let mut analyzer = CpuSpectrumAnalyzer::new(FFT_SIZE);
+    let mut db = vec![0.0f32; FFT_SIZE];
+    let mut seq = 0u32;
+    let mut timestamp = 0u64;
+    let mut short = 0u64;
+    SweepSink::with_fatal_handler(
+        move |center_hz, samples| {
+            let Some(window) = samples.get(..FFT_SIZE) else {
+                short += 1;
+                tracing::warn!(
+                    samples = samples.len(),
+                    wanted = FFT_SIZE,
+                    total = short,
+                    "sweep block too short to transform; that tuning went unread"
+                );
+                return;
+            };
+            analyzer.power_db(window, &mut db);
+            seq = seq.wrapping_add(1);
+            timestamp += window.len() as u64;
+            let _ = tx.send(SpectrumSnapshot {
+                seq,
+                timestamp,
+                center_hz,
+                span_hz: sample_rate as f32,
+                lo_hz: center_hz,
+                db: Arc::from(db.as_slice()),
+            });
+        },
+        on_fatal,
+    )
 }
 
 impl Drop for CaptureRuntime {
@@ -1065,6 +1235,7 @@ mod tests {
             video_tx: broadcast::channel(8).0,
             video_pos: Arc::new(AtomicU64::new(0)),
             iq_tx: broadcast::channel(crate::iq::IQ_CHANNEL_CAP).0,
+            symbol_tx: broadcast::channel(crate::symbols::SYMBOL_CHANNEL_CAP).0,
             level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
             peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
             squelch_db: Arc::new(AtomicU32::new(f32::NAN.to_bits())),

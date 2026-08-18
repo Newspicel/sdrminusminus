@@ -1,3 +1,4 @@
+import { DEFAULT_HUNT_SETTINGS } from "../components/hunt";
 import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
 import type { NodeBody, NodeKind, PositionSource } from "../lib/types";
 
@@ -55,6 +56,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       };
     case "network_export":
       return { kind, data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" } };
+    case "hunt":
+      return { kind, data: { settings: DEFAULT_HUNT_SETTINGS, clicks: true } };
     case "time_machine":
       return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
     case "chat_output":

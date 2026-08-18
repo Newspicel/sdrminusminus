@@ -1416,6 +1416,76 @@
         }
       }
     },
+    "/api/devicesets/{ds}/hunt": {
+      "post": {
+        "operationId": "hunt_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HuntRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Hunt status: the initial state after `start`, the final state after `stop`. Readings arrive as the `HuntUpdate` WS event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HuntStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable hunt settings, set not running, scanning, already hunting, or not hunting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/network-export": {
       "post": {
         "operationId": "network_export_device_set",
@@ -2176,6 +2246,63 @@
           },
           "404": {
             "description": "Recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scanner": {
+      "post": {
+        "operationId": "scan_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Every device set in the scan and the state it started or ended in.                            Live progress arrives as one `ScannerUpdate` WS event per set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanSessionStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable scan settings, a set that is not running,                                       already scanning, or no scan to stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or hold channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
             "content": {
               "application/json": {
                 "schema": {
@@ -4387,6 +4514,10 @@
               "$ref": "#/components/schemas/GainStage"
             }
           },
+          "hardware_sweep": {
+            "type": "boolean",
+            "description": "Whether the radio sweeps in its own firmware, delivering blocks stamped with the frequency\neach was taken at instead of a stream at one tuning."
+          },
           "per_stream": {
             "$ref": "#/components/schemas/StreamScope"
           },
@@ -6036,6 +6167,74 @@
               "data": {
                 "type": "object",
                 "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SubscribeSymbols"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "UnsubscribeSymbols"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
                   "node"
                 ],
                 "properties": {
@@ -7307,6 +7506,16 @@
               },
               {
                 "$ref": "#/components/schemas/DeviceFault"
+              }
+            ]
+          },
+          "hunt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HuntStatus"
               }
             ]
           },
@@ -8618,6 +8827,131 @@
       },
       "HfdlParams": {
         "type": "object"
+      },
+      "HuntAction": {
+        "type": "string",
+        "enum": [
+          "start",
+          "stop"
+        ]
+      },
+      "HuntNode": {
+        "type": "object",
+        "description": "What a hunt node remembers between sessions: where it was last pointed and how loud a click\ntrack the operator wanted.",
+        "properties": {
+          "clicks": {
+            "type": "boolean"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/HuntSettings"
+          }
+        }
+      },
+      "HuntRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/HuntAction"
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HuntSettings"
+              }
+            ]
+          }
+        }
+      },
+      "HuntSettings": {
+        "type": "object",
+        "required": [
+          "freq_hz"
+        ],
+        "properties": {
+          "bw_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "interval_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How often a reading is published. A hunt is walked with, so the feedback has to keep up\nwith the steps rather than with a status panel.",
+            "minimum": 0
+          }
+        }
+      },
+      "HuntStatus": {
+        "type": "object",
+        "required": [
+          "settings",
+          "readings"
+        ],
+        "properties": {
+          "best_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "closing": {
+            "type": "boolean",
+            "description": "Whether the last few readings are climbing: the answer to \"warmer or colder\"."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "floor_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "The quietest and loudest this hunt has seen, so a meter can scale itself to the ground\nactually covered instead of to a guess about how loud the transmitter is."
+          },
+          "level_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "The strongest reading in the last interval."
+          },
+          "readings": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/HuntSettings"
+          },
+          "smooth_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "The reading with the jitter taken out, which is what a walking operator can act on."
+          },
+          "strength": {
+            "type": "number",
+            "format": "float",
+            "description": "Where the current reading sits between `floor_db` and `best_db`, from 0 to 1."
+          }
+        }
       },
       "IdentFeatures": {
         "type": "object",
@@ -10388,6 +10722,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HuntNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "hunt"
+                ]
+              }
+            }
           }
         ]
       },
@@ -11617,6 +11969,31 @@
           "stop"
         ]
       },
+      "ScanMember": {
+        "type": "object",
+        "required": [
+          "device_set",
+          "status"
+        ],
+        "properties": {
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ScannerStatus"
+          }
+        }
+      },
+      "ScanMode": {
+        "type": "string",
+        "description": "What a scan is looking for.",
+        "enum": [
+          "targets",
+          "close_call"
+        ]
+      },
       "ScanRange": {
         "type": "object",
         "required": [
@@ -11660,6 +12037,74 @@
           }
         }
       },
+      "ScanSession": {
+        "type": "object",
+        "description": "The device sets sweeping one plan together, so a client can tell a ganged scan from several\nunrelated ones.",
+        "required": [
+          "device_sets",
+          "settings"
+        ],
+        "properties": {
+          "device_sets": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ScanSettings"
+          }
+        }
+      },
+      "ScanSessionRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ScanAction"
+          },
+          "device_sets": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanSettings"
+              }
+            ]
+          }
+        }
+      },
+      "ScanSessionStatus": {
+        "type": "object",
+        "required": [
+          "settings",
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanMember"
+            }
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ScanSettings"
+          }
+        }
+      },
       "ScanSettings": {
         "type": "object",
         "properties": {
@@ -11675,6 +12120,10 @@
               "format": "double"
             }
           },
+          "hardware_sweep": {
+            "type": "boolean",
+            "description": "Whether to let a radio that sweeps in its own firmware do the sweeping. Radios without one\nretune for every step either way."
+          },
           "hold_channel": {
             "type": [
               "integer",
@@ -11683,9 +12132,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "margin_db": {
+            "type": "number",
+            "format": "float",
+            "description": "How far over the noise floor a carrier has to stand to be called, in close-call mode."
+          },
           "measure_bw_hz": {
             "type": "number",
             "format": "double"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ScanMode"
           },
           "ranges": {
             "type": "array",
@@ -11739,10 +12196,22 @@
               "null"
             ]
           },
+          "first_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "hardware_sweep": {
+            "type": "boolean",
+            "description": "Whether the sweep in force is the radio's own. A scan that asked for one and did not get\nit says so here rather than looking like a firmware sweep that is merely slow."
+          },
           "hits": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "last_hz": {
+            "type": "number",
+            "format": "double"
           },
           "settings": {
             "$ref": "#/components/schemas/ScanSettings"
@@ -12043,6 +12512,46 @@
                 "type": "object",
                 "required": [
                   "stream_id",
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SymbolStreamStarted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "stream_id",
                   "kind"
                 ],
                 "properties": {
@@ -12220,6 +12729,38 @@
                 "type": "string",
                 "enum": [
                   "ScannerUpdate"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "device_set",
+                  "status"
+                ],
+                "properties": {
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "status": {
+                    "$ref": "#/components/schemas/HuntStatus"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "HuntUpdate"
                 ]
               }
             }
@@ -12611,6 +13152,16 @@
             "format": "int64",
             "minimum": 0
           },
+          "scan_session": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanSession"
+              }
+            ]
+          },
           "trunk_systems": {
             "type": "array",
             "items": {
@@ -12625,7 +13176,8 @@
           "spectrum",
           "audio",
           "video",
-          "iq"
+          "iq",
+          "symbols"
         ]
       },
       "StreamScope": {

@@ -1,4 +1,4 @@
-import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange } from "../lib/types";
+import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange, ScanSession } from "../lib/types";
 
 export interface RangeValues {
   startMhz: number;
@@ -65,8 +65,41 @@ export function scanRefusal(set: DeviceSet | null): string | null {
     : null;
 }
 
-export function formatMhz(hz: number): string {
-  return `${(hz / 1e6).toFixed(4)} MHz`;
+/// The other radios a scan could be spread over: running, idle of any sweep or hunt of their own,
+/// and able to follow a single dial.
+export function gangCandidates(
+  sets: readonly DeviceSet[],
+  active: DeviceSet | null,
+): readonly DeviceSet[] {
+  if (active === null) {
+    return [];
+  }
+  return sets.filter(
+    (set) =>
+      set.id !== active.id &&
+      set.status === "running" &&
+      set.scanner == null &&
+      set.hunt == null &&
+      set.capabilities.per_stream?.tuning !== true,
+  );
+}
+
+export function ganged(session: ScanSession | null, active: DeviceSet | null): readonly number[] {
+  if (session === null || active === null || !session.device_sets.includes(active.id)) {
+    return [];
+  }
+  return session.device_sets.filter((id) => id !== active.id);
+}
+
+export function sweepKind(set: DeviceSet | null, status: ScannerStatus | null): string {
+  if (status !== null) {
+    return status.hardware_sweep === true ? "the radio's own" : "by retuning";
+  }
+  return set?.capabilities.hardware_sweep === true ? "the radio's own" : "by retuning";
+}
+
+export function formatMhz(hz: number | null | undefined): string {
+  return hz == null || !Number.isFinite(hz) ? "—" : `${(hz / 1e6).toFixed(4)} MHz`;
 }
 
 export function formatDb(db: number | null | undefined): string {

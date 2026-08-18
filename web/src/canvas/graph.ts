@@ -258,6 +258,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   network_export: { w: 380 },
   export: { w: 320 },
   scanner: { w: 400 },
+  hunt: { w: 340 },
 };
 
 export function isResizable(kind: NodeKind): boolean {

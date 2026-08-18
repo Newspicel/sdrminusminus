@@ -530,6 +530,7 @@ impl DeviceDriver for PagingDriver {
                 },
                 directional: None,
                 dc_artifact: DcArtifact::Operator,
+                hardware_sweep: false,
             },
             settings: DeviceSettings {
                 center_hz: Some(DEFAULT_CENTER_HZ),

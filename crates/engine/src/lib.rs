@@ -17,9 +17,10 @@ use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     AudioRecordingStatus, Capabilities, ChannelDescriptor, ChannelInfo, ChannelLevel,
     ChannelParams, ChannelSettings, DecodedRecord, DeviceFault, DeviceInfo, DeviceSet,
-    DeviceSetStatus, DeviceSettings, NetworkExportSettings, NetworkExportStatus, PlaybackRequest,
-    PlaybackStatus, PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, StreamSettings, TrunkSystemStatus,
+    DeviceSetStatus, DeviceSettings, HuntSettings, HuntStatus, NetworkExportSettings,
+    NetworkExportStatus, PlaybackRequest, PlaybackStatus, PositionFix, RecordingStatus,
+    ScanSession, ScanSessionStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
+    StateSnapshot, StreamSettings, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
@@ -28,6 +29,7 @@ pub mod audio_recording;
 mod discovery;
 mod history;
 mod hotplug;
+mod hunt;
 pub mod image;
 pub mod iq;
 mod network_export;
@@ -38,6 +40,7 @@ pub mod runtime;
 pub mod scanner;
 mod sinks;
 mod spectrum;
+pub mod symbols;
 mod time_machine;
 pub mod trunking;
 pub mod video;
@@ -46,18 +49,20 @@ pub use image::ImageCapture;
 pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
+pub use symbols::{SYMBOL_BLOCKS_PER_SEC, SymbolBlock};
 pub use trunking::TrunkSystem;
 pub use video::{VideoPacket, VideoPicture};
 
 use crate::{
     audio_recording::AudioRecordingShared,
     history::TimeMachineState,
+    hunt::HuntState,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
     runtime::{
         CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded, RawImage,
     },
-    scanner::{ScanPlan, ScannerState},
+    scanner::{ScannerState, session::SessionState},
     sinks::{BasebandSinks, ChannelBasebandRecording},
 };
 
@@ -547,6 +552,7 @@ impl ChannelMedia {
         let (audio_tx, _) = broadcast::channel(audio::AUDIO_CHANNEL_CAP);
         let (video_tx, _) = broadcast::channel(video::VIDEO_CHANNEL_CAP);
         let (iq_tx, _) = broadcast::channel(iq::IQ_CHANNEL_CAP);
+        let (symbol_tx, _) = broadcast::channel(symbols::SYMBOL_CHANNEL_CAP);
         let encoder = audio::spawn_encoder(channels, pcm_rx, audio_tx.clone())?;
         Ok(Self {
             sinks: ChannelSinks {
@@ -555,6 +561,7 @@ impl ChannelMedia {
                 video_tx,
                 video_pos: Arc::new(AtomicU64::new(0)),
                 iq_tx,
+                symbol_tx,
                 level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
                 peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
                 squelch_db: Arc::new(AtomicU32::new(f32::NAN.to_bits())),
@@ -706,6 +713,7 @@ struct DeviceSetState {
     network_export: Option<NetworkExportState>,
     time_machine: Option<TimeMachineState>,
     scanner: Option<ScannerState>,
+    hunt: Option<HuntState>,
     rate_patches: u32,
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     overruns: Vec<Arc<AtomicU64>>,
@@ -757,6 +765,7 @@ impl DeviceSetState {
                 .as_ref()
                 .map(|history| history.status(overruns)),
             scanner: self.scanner.as_ref().map(ScannerState::status),
+            hunt: self.hunt.as_ref().map(HuntState::status),
             playback: self.playback.as_deref().map(PlaybackShared::status),
         }
     }
@@ -853,10 +862,23 @@ impl Drop for RatePatchGuard<'_> {
 #[derive(Default)]
 struct Inner {
     device_sets: BTreeMap<u32, DeviceSetState>,
+    scan_session: Option<SessionState>,
     creating: HashSet<u32>,
     pending_faults: HashMap<u32, DeviceError>,
     next_ds_id: u32,
     revision: u64,
+}
+
+impl Inner {
+    fn leave_scan_session(&mut self, ds: u32) {
+        let Some(session) = self.scan_session.as_mut() else {
+            return;
+        };
+        session.device_sets.retain(|&id| id != ds);
+        if session.device_sets.is_empty() {
+            self.scan_session = None;
+        }
+    }
 }
 
 pub struct Engine {
@@ -1070,11 +1092,16 @@ impl Engine {
                 state.send_dsp(history.stream, DspCommand::StopTimeMachine);
             }
             let scanner = state.scanner.take();
+            let hunt = state.hunt.take();
             let runtime = state.runtime.clone();
+            inner.leave_scan_session(ds);
             inner.revision += 1;
             drop(inner);
             if let Some(scanner) = scanner {
                 scanner.stop_and_join();
+            }
+            if let Some(hunt) = hunt {
+                hunt.stop_and_join();
             }
             lock_runtime(&runtime).stop();
             if let Some(recording) = recording {
@@ -1725,6 +1752,7 @@ impl Engine {
                 .iter()
                 .map(|(id, s)| s.project(*id))
                 .collect(),
+            scan_session: inner.scan_session.as_ref().map(SessionState::project),
             trunk_systems,
             revision: inner.revision,
         }
@@ -1806,6 +1834,7 @@ impl Engine {
                     network_export: None,
                     time_machine: None,
                     scanner: None,
+                    hunt: None,
                     rate_patches: 0,
                     cmd_txs,
                     overruns,
@@ -1846,6 +1875,7 @@ impl Engine {
             let mut inner = self.lock();
             let removed = inner.device_sets.remove(&ds);
             if removed.is_some() {
+                inner.leave_scan_session(ds);
                 inner.revision += 1;
             }
             removed
@@ -1870,6 +1900,7 @@ impl Engine {
                 return;
             }
             inner.revision += 1;
+            inner.scan_session = None;
             std::mem::take(&mut inner.device_sets)
                 .into_values()
                 .collect()
@@ -1948,7 +1979,7 @@ impl Engine {
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            if origin == PatchOrigin::Client && state.scanner.is_some() {
+            if origin == PatchOrigin::Client && (state.scanner.is_some() || state.hunt.is_some()) {
                 return Err(EngineError::Scan(
                     "the device is being tuned by a running scan; stop the scan first".to_string(),
                 ));
@@ -3041,6 +3072,23 @@ impl Engine {
         Ok(handle.sinks.iq_tx.subscribe())
     }
 
+    pub fn subscribe_symbols(
+        &self,
+        ds: u32,
+        ch: u32,
+    ) -> Result<broadcast::Receiver<SymbolBlock>, EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let handle = state
+            .media
+            .get(&ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        Ok(handle.sinks.symbol_tx.subscribe())
+    }
+
     #[must_use]
     pub fn channel_types(&self) -> Vec<ChannelDescriptor> {
         sdrmm_channels::descriptors()
@@ -3051,98 +3099,47 @@ impl Engine {
         ds: u32,
         settings: ScanSettings,
     ) -> Result<ScannerStatus, EngineError> {
-        let plan = ScanPlan::build(&settings)?;
-        {
-            let inner = self.lock();
-            let state = inner
-                .device_sets
-                .get(&ds)
-                .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            if state.scanner.is_some() {
-                return Err(EngineError::Scan("a scan is already running".to_string()));
-            }
-            if state.status != DeviceSetStatus::Running {
-                return Err(EngineError::Scan(
-                    "the device set is not running".to_string(),
-                ));
-            }
-            if state.capabilities.per_stream.tuning {
-                return Err(EngineError::Scan(
-                    "this radio tunes each receive stream independently, so a sweep of the \
-                     shared dial would retune every lane at once; scanning one stream is not \
-                     supported yet"
-                        .to_string(),
-                ));
-            }
-            if !state.capabilities.freq_ranges.is_empty() {
-                let reachable = |hz: f64| {
-                    state
-                        .capabilities
-                        .freq_ranges
-                        .iter()
-                        .any(|r| hz >= r.min && hz <= r.max)
-                };
-                if let Some(&bad) = plan.targets.iter().find(|&&hz| !reachable(hz)) {
-                    let ranges = state
-                        .capabilities
-                        .freq_ranges
-                        .iter()
-                        .map(|r| format!("{}–{} Hz", r.min, r.max))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    return Err(EngineError::Scan(format!(
-                        "{bad} Hz is outside this device's tuning range ({ranges})"
-                    )));
-                }
-            }
-            if let Some(channel) = settings.hold_channel
-                && !state.channels.iter().any(|c| c.id == channel)
-            {
-                return Err(EngineError::ChannelNotFound(channel, ds));
-            }
-        }
-        let scanner = scanner::spawn(self, ds, plan, settings)?;
-        let status = scanner.status();
-        {
-            let mut inner = self.lock();
-            let Some(state) = inner.device_sets.get_mut(&ds) else {
-                drop(inner);
-                scanner.stop_and_join();
-                return Err(EngineError::DeviceSetNotFound(ds));
-            };
-            if state.scanner.is_some() {
-                drop(inner);
-                scanner.stop_and_join();
-                return Err(EngineError::Scan("a scan is already running".to_string()));
-            }
-            state.scanner = Some(scanner);
-            inner.revision += 1;
-        }
-        self.emit(ServerEvent::StateChanged {
-            scope: StateScope::DeviceSet(ds),
-        });
-        Ok(status)
+        let mut session = scanner::session::start(self, &[ds], settings)?;
+        session
+            .members
+            .pop()
+            .map(|member| member.status)
+            .ok_or(EngineError::DeviceSetNotFound(ds))
+    }
+
+    /// Sweeps one plan with several radios at once, each taking a share of the targets.
+    pub fn start_scan_session(
+        self: &Arc<Self>,
+        device_sets: &[u32],
+        settings: ScanSettings,
+    ) -> Result<ScanSessionStatus, EngineError> {
+        scanner::session::start(self, device_sets, settings)
     }
 
     pub fn stop_scan(&self, ds: u32) -> Result<ScannerStatus, EngineError> {
-        let scanner = {
-            let mut inner = self.lock();
-            let state = inner
-                .device_sets
-                .get_mut(&ds)
-                .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            let scanner = state
-                .scanner
-                .take()
-                .ok_or_else(|| EngineError::Scan("no scan is running".to_string()))?;
-            inner.revision += 1;
-            scanner
-        };
-        let status = scanner.stop_and_join();
-        self.emit(ServerEvent::StateChanged {
-            scope: StateScope::DeviceSet(ds),
-        });
-        Ok(status)
+        scanner::session::stop_one(self, ds)
+    }
+
+    pub fn stop_scan_session(&self) -> Result<ScanSessionStatus, EngineError> {
+        scanner::session::stop_all(self)
+    }
+
+    /// Parks the radio on one frequency and streams how strong it is, fast enough to walk with.
+    pub fn start_hunt(
+        self: &Arc<Self>,
+        ds: u32,
+        settings: HuntSettings,
+    ) -> Result<HuntStatus, EngineError> {
+        hunt::start(self, ds, settings)
+    }
+
+    pub fn stop_hunt(&self, ds: u32) -> Result<HuntStatus, EngineError> {
+        hunt::stop(self, ds)
+    }
+
+    #[must_use]
+    pub fn scan_session(&self) -> Option<ScanSession> {
+        self.lock().scan_session.as_ref().map(SessionState::project)
     }
 
     pub fn control_playback(
@@ -3172,6 +3169,14 @@ impl Engine {
             scope: StateScope::DeviceSet(ds),
         });
         Ok(status)
+    }
+
+    #[must_use]
+    pub fn sweeps_in_firmware(&self, ds: u32) -> bool {
+        self.lock()
+            .device_sets
+            .get(&ds)
+            .is_some_and(|state| state.capabilities.hardware_sweep)
     }
 
     pub(crate) fn scan_sample_rate(&self, ds: u32) -> Option<f64> {
@@ -3259,6 +3264,9 @@ fn lock_runtime(runtime: &Mutex<CaptureRuntime>) -> std::sync::MutexGuard<'_, Ca
 fn teardown_set(mut removed: DeviceSetState) -> bool {
     if let Some(scanner) = removed.scanner.take() {
         scanner.stop_and_join();
+    }
+    if let Some(hunt) = removed.hunt.take() {
+        hunt.stop_and_join();
     }
     lock_runtime(&removed.runtime).stop();
     let mut finalized = removed.recording.take().map(RecordingState::join).is_some();

@@ -171,6 +171,7 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         per_stream: sdrmm_wire::StreamScope::default(),
         directional: Some(directional),
         dc_artifact: DcArtifact::Operator,
+        hardware_sweep: false,
     }
 }
 
