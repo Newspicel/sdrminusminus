@@ -49,9 +49,13 @@ For local development:
 cargo xtask dev
 ```
 
-This runs `sdrmm` with development CORS on port `8080`, restarting it when backend inputs change,
-and Vite with hot module replacement on <http://localhost:5173>. Vite proxies API and WebSocket
-traffic to the Rust server.
+This runs `sdrmm` with development CORS on port `8080` and Vite with hot module replacement on
+<http://localhost:5173>. Vite proxies API and WebSocket traffic to the Rust server. Pass `--watch`
+to restart the Rust server whenever backend inputs change:
+
+```sh
+cargo xtask dev --watch
+```
 
 ## Backend feature flags
 

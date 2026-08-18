@@ -151,8 +151,9 @@ pnpm --dir web build
 cargo run -p sdrmm
 ```
 
-Then open <http://localhost:8080>. For development, `cargo xtask dev` runs the auto-reloading Rust
-server and a Vite dev server with hot reload at <http://localhost:5173>.
+Then open <http://localhost:8080>. For development, `cargo xtask dev` runs the Rust server and a
+Vite dev server with hot reload at <http://localhost:5173>; add `--watch` to also restart the Rust
+server when backend inputs change.
 
 A virtual and network-only build does not require SoapySDR:
 
@@ -180,7 +181,7 @@ cargo run -p sdrmm --no-default-features --features net-client
 
 | Command | Purpose |
 |---|---|
-| `cargo xtask dev` | Run the auto-reloading server and frontend dev server |
+| `cargo xtask dev` | Run the server and frontend dev server (`--watch` restarts the server on backend changes) |
 | `cargo xtask check` | Format, lint, type-check, build, and check generated-code drift |
 | `cargo xtask test` | Run Rust and frontend tests without real hardware |
 | `cargo xtask smoke` | Run the Playwright flow against the real server binary |
