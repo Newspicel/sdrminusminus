@@ -6680,6 +6680,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/ScramblerStatus"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scrambler"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/DvFrame"
               },
               "kind": {
@@ -7537,6 +7555,44 @@
           }
         }
       },
+      "DmrChannelEntry": {
+        "type": "object",
+        "required": [
+          "lcn",
+          "freq_hz"
+        ],
+        "properties": {
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lcn": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DmrDiscovery": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_probes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DmrSearchRange"
+            }
+          }
+        }
+      },
       "DmrParams": {
         "type": "object",
         "properties": {
@@ -7545,6 +7601,31 @@
           },
           "slots": {
             "$ref": "#/components/schemas/DmrSlots"
+          }
+        }
+      },
+      "DmrSearchRange": {
+        "type": "object",
+        "required": [
+          "start_hz",
+          "end_hz",
+          "step_hz"
+        ],
+        "properties": {
+          "end_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "start_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "step_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -7559,6 +7640,26 @@
       "DmrTrunkNode": {
         "type": "object",
         "properties": {
+          "channel_map": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DmrChannelEntry"
+            }
+          },
+          "control_hz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/DmrDiscovery"
+          },
+          "ignore_crc": {
+            "type": "boolean"
+          },
           "protocol": {
             "$ref": "#/components/schemas/DmrTrunkProtocol"
           },
@@ -7984,7 +8085,23 @@
           "activity": {
             "type": "string"
           },
+          "destination": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "destination_hash": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "logical_channel": {
             "type": [
               "integer",
               "null"
@@ -9842,10 +9959,28 @@
             "format": "int32",
             "minimum": 0
           },
+          "inversion_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "scrambler_mode": {
+            "$ref": "#/components/schemas/NfmScramblerMode"
+          },
           "tone_mode": {
             "$ref": "#/components/schemas/NfmToneMode"
           }
         }
+      },
+      "NfmScramblerMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "inversion",
+          "auto"
+        ]
       },
       "NfmToneMode": {
         "type": "string",
@@ -11624,6 +11759,25 @@
           }
         }
       },
+      "ScramblerStatus": {
+        "type": "object",
+        "required": [
+          "confidence"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "inversion_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "SelcallParams": {
         "type": "object",
         "properties": {
@@ -12973,6 +13127,44 @@
           }
         }
       },
+      "TrunkChannel": {
+        "type": "object",
+        "required": [
+          "logical_channel",
+          "freq_hz",
+          "source",
+          "confidence"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "logical_channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "source": {
+            "$ref": "#/components/schemas/TrunkChannelSource"
+          }
+        }
+      },
+      "TrunkChannelSource": {
+        "type": "string",
+        "enum": [
+          "announced",
+          "manual",
+          "learned",
+          "predicted"
+        ]
+      },
       "TrunkFollower": {
         "type": "object",
         "required": [
@@ -13008,6 +13200,31 @@
           "slot": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TrunkProbe": {
+        "type": "object",
+        "required": [
+          "device_set",
+          "channel",
+          "freq_hz"
+        ],
+        "properties": {
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
             "minimum": 0
           }
         }
@@ -13067,6 +13284,20 @@
             "format": "int32",
             "minimum": 0
           },
+          "channel_map": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrunkChannel"
+            }
+          },
+          "color_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "detected": {
             "oneOf": [
               {
@@ -13086,11 +13317,22 @@
           "node": {
             "type": "string"
           },
+          "probes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrunkProbe"
+            }
+          },
           "problems": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/TrunkProblem"
             }
+          },
+          "searching": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

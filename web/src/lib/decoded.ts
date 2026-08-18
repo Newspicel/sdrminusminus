@@ -278,6 +278,7 @@ function stationId(event: DecoderEvent): string | null {
     case "ft4":
     case "wspr":
     case "tone":
+    case "scrambler":
     case "dv":
     case "ident":
     case "broadcast":

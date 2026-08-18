@@ -42,8 +42,8 @@ pub use channel::{
     MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS,
     MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
     MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams,
-    NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud,
-    PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams,
+    NavtexParams, NfmParams, NfmScramblerMode, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
+    PocsagBaud, PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams,
     RttyStopBits, SelcallParams, SelcallSystem, Sideband, SsbParams, SstvMode, SstvParams,
     SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
     YsfParams,
@@ -57,8 +57,8 @@ pub use decode::{
     DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame,
     IdentFeatures, IdentReport, IlsReading, Modulation, MorseText, NavtexMessage, PagerPayload,
     PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
-    SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
-    VorReading, WsjtMessage, WsprSpot,
+    ScramblerStatus, SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
+    Vendor, VorReading, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DcArtifact,
@@ -81,12 +81,15 @@ pub use network::{
     NetworkTransport,
 };
 pub use patch::{
-    ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DV_DECODER_KIND,
-    DeviceNode, DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES,
-    MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, NodeBody, NodeCategory,
-    NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking,
-    PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position, RACK_COLS,
-    RACK_ROWS, RackCell, RackLayout, RackSlot, SignalMapNode, Size, port_stream, stream_port,
+    ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ,
+    DV_DECODER_KIND, DeviceNode, DeviceRef, DmrChannelEntry, DmrDiscovery, DmrSearchRange,
+    DmrTrunkNode, DmrTrunkProtocol, MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES,
+    MAX_DMR_SEARCH_CANDIDATES, MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES,
+    MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ,
+    NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph,
+    PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType,
+    Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, SignalMapNode, Size,
+    port_stream, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -115,7 +118,8 @@ pub use scan::{
 };
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
-    RecordingStatus, StateSnapshot, TrunkFollower, TrunkProblem, TrunkSystemStatus,
+    RecordingStatus, StateSnapshot, TrunkChannel, TrunkChannelSource, TrunkFollower, TrunkProbe,
+    TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{
     DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,
@@ -143,7 +147,7 @@ pub use workspace::{
     WorkspacesResponse,
 };
 pub use workspace_state::{
-    WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
+    WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState, WorkspaceTrunk,
 };
 pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
 
@@ -293,6 +297,8 @@ mod contract_tests {
                 tone_mode: NfmToneMode::Off,
                 ctcss_hz: None,
                 dcs_code: None,
+                scrambler_mode: NfmScramblerMode::default(),
+                inversion_hz: None,
             })
         );
         let ssb: ChannelParams = serde_json::from_str(r#"{"type":"ssb","settings":{}}"#).unwrap();

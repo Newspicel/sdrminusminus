@@ -35,6 +35,7 @@ mod subghz;
 pub mod tone_squelch;
 mod tx;
 mod vdl2;
+mod voice_inversion;
 mod vor;
 mod weak_signal;
 mod wfm;

@@ -311,6 +311,13 @@ pub struct ToneSquelchStatus {
     pub open: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ScramblerStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inversion_hz: Option<f64>,
+    pub confidence: f64,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Modulation {
@@ -489,6 +496,10 @@ pub struct DvSlotActivity {
     pub activity: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_hash: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_channel: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -761,6 +772,7 @@ pub enum DecoderEvent {
     Acars(AcarsMessage),
     Subghz(SubghzFrame),
     Tone(ToneSquelchStatus),
+    Scrambler(ScramblerStatus),
     Dv(DvFrame),
     Call(crate::rest::VoiceCall),
     Ft8(WsjtMessage),
@@ -801,6 +813,7 @@ impl DecoderEvent {
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
             Self::Tone(_) => "tone",
+            Self::Scrambler(_) => "scrambler",
             Self::Dv(_) => "dv",
             Self::Ft8(_) => "ft8",
             Self::Ft4(_) => "ft4",
@@ -940,6 +953,13 @@ impl DecoderEvent {
                 parts.push(if t.open { "open" } else { "muted" }.to_owned());
                 parts.join(" · ")
             }
+            Self::Scrambler(s) => match s.inversion_hz {
+                Some(hz) => format!(
+                    "inversion {hz:.0} Hz · {:.0}% confidence",
+                    s.confidence * 100.0
+                ),
+                None => "no inversion".to_owned(),
+            },
             Self::Subghz(f) => {
                 let mut parts = vec![if f.bits == 0 {
                     format!("raw, {} edges", f.timings_us.len())
@@ -1187,6 +1207,7 @@ impl DecoderEvent {
             | Self::CwSkimmer(_)
             | Self::Psk(_)
             | Self::Tone(_)
+            | Self::Scrambler(_)
             | Self::Ident(_)
             | Self::Selcall(_) => None,
             Self::Broadcast(status) => status
@@ -1341,6 +1362,7 @@ mod tests {
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
+            DecoderEvent::Scrambler(ScramblerStatus::default()),
             DecoderEvent::Ft8(WsjtMessage {
                 text: String::new(),
                 snr_db: 0.0,

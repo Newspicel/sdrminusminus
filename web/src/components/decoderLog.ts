@@ -29,6 +29,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   acars: "ACARS",
   subghz: "Sub-GHz",
   tone: "Tone",
+  scrambler: "Scrambler",
   dv: "Digital voice",
   ident: "Signal ID",
   ft8: "FT8",

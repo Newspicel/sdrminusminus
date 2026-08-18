@@ -4,8 +4,8 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, Highpass, RealDecimator, design_lowpass};
 use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NfmParams, NfmToneMode,
-    ToneSquelchStatus,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NfmParams, NfmScramblerMode,
+    NfmToneMode, ScramblerStatus, ToneSquelchStatus,
 };
 
 use crate::{
@@ -13,6 +13,10 @@ use crate::{
     TxPayload, check_input_rate, clamp_full_scale,
     tone_squelch::{AUDIO_CORNER_HZ, ToneSquelch, is_standard_ctcss, is_standard_dcs},
     tx::{Burst, TxQueue},
+    voice_inversion::{
+        DEFAULT_INVERSION_HZ, Inversion, InversionDetector, MAX_INVERSION_HZ, MIN_INVERSION_HZ,
+        VoiceInverter, is_supported_inversion,
+    },
 };
 
 const VOICE_CUTOFF_HZ: f64 = 3_400.0;
@@ -34,6 +38,82 @@ pub struct NfmChannel {
     audio_lp: RealDecimator,
     demod_buf: Vec<f32>,
     tone: Option<Tone>,
+    scrambler: Option<Scrambler>,
+}
+
+struct Scrambler {
+    mode: NfmScramblerMode,
+    inverter: VoiceInverter,
+    detector: Option<InversionDetector>,
+    reported: ScramblerStatus,
+}
+
+impl Scrambler {
+    fn new(p: &NfmParams) -> Self {
+        let rate = DESCRIPTOR.input_rate_hz;
+        Self {
+            mode: p.scrambler_mode,
+            inverter: VoiceInverter::new(rate, p.inversion_hz.unwrap_or(DEFAULT_INVERSION_HZ)),
+            detector: detector_for(p, rate),
+            reported: ScramblerStatus::default(),
+        }
+    }
+
+    fn configure(&mut self, p: &NfmParams) {
+        self.mode = p.scrambler_mode;
+        if let Some(hz) = p.inversion_hz {
+            self.inverter.set_carrier(hz);
+        }
+        match (&mut self.detector, p.scrambler_mode) {
+            (slot @ None, NfmScramblerMode::Auto) => {
+                *slot = detector_for(p, DESCRIPTOR.input_rate_hz);
+            }
+            (slot, mode) if mode != NfmScramblerMode::Auto => *slot = None,
+            _ => {}
+        }
+    }
+
+    fn reset(&mut self) {
+        self.inverter.reset();
+        if let Some(detector) = &mut self.detector {
+            detector.reset();
+        }
+    }
+
+    fn step(&mut self, audio: &mut [f32], out: &mut ChannelOutputs) {
+        let status = match self.mode {
+            NfmScramblerMode::Off => ScramblerStatus::default(),
+            NfmScramblerMode::Inversion => {
+                self.inverter.process(audio);
+                ScramblerStatus {
+                    inversion_hz: Some(self.inverter.carrier_hz()),
+                    confidence: 1.0,
+                }
+            }
+            NfmScramblerMode::Auto => {
+                let found = self
+                    .detector
+                    .as_mut()
+                    .map_or_else(Inversion::default, |detector| detector.process(audio));
+                if let Some(hz) = found.carrier_hz {
+                    self.inverter.set_carrier(hz);
+                    self.inverter.process(audio);
+                }
+                ScramblerStatus {
+                    inversion_hz: found.carrier_hz,
+                    confidence: f64::from(found.confidence),
+                }
+            }
+        };
+        if status.inversion_hz != self.reported.inversion_hz {
+            self.reported = status;
+            out.events.push(DecoderEvent::Scrambler(status));
+        }
+    }
+}
+
+fn detector_for(p: &NfmParams, rate: f64) -> Option<InversionDetector> {
+    (p.scrambler_mode == NfmScramblerMode::Auto).then(|| InversionDetector::new(rate))
 }
 
 struct Tone {
@@ -133,6 +213,18 @@ fn check_params(p: &NfmParams) -> Result<(), ChannelError> {
                 p.dcs_code
             )))
         }
+        _ => check_scrambler(p),
+    }
+}
+
+fn check_scrambler(p: &NfmParams) -> Result<(), ChannelError> {
+    match p.scrambler_mode {
+        NfmScramblerMode::Inversion if !p.inversion_hz.is_some_and(is_supported_inversion) => {
+            Err(ChannelError::InvalidSettings(format!(
+                "nfm inversion needs a carrier in {MIN_INVERSION_HZ}..={MAX_INVERSION_HZ} Hz, got {:?}",
+                p.inversion_hz
+            )))
+        }
         _ => Ok(()),
     }
 }
@@ -184,6 +276,7 @@ impl ChannelRx for NfmChannel {
             audio_lp: audio_lowpass(),
             demod_buf: Vec::new(),
             tone: (p.tone_mode != NfmToneMode::Off).then(|| Tone::new(p)),
+            scrambler: (p.scrambler_mode != NfmScramblerMode::Off).then(|| Scrambler::new(p)),
         })
     }
 
@@ -196,12 +289,20 @@ impl ChannelRx for NfmChannel {
             (Some(tone), _) => tone.configure(p),
             (none, _) => *none = Some(Tone::new(p)),
         }
+        match (&mut self.scrambler, p.scrambler_mode) {
+            (_, NfmScramblerMode::Off) => self.scrambler = None,
+            (Some(scrambler), _) => scrambler.configure(p),
+            (none, _) => *none = Some(Scrambler::new(p)),
+        }
         Ok(())
     }
 
     fn retuned(&mut self) {
         if let Some(tone) = &mut self.tone {
             tone.reset();
+        }
+        if let Some(scrambler) = &mut self.scrambler {
+            scrambler.reset();
         }
     }
 
@@ -214,6 +315,9 @@ impl ChannelRx for NfmChannel {
         let mut open = true;
         if let Some(tone) = &mut self.tone {
             open = tone.step(&mut self.demod_buf, out);
+        }
+        if let Some(scrambler) = &mut self.scrambler {
+            scrambler.step(&mut self.demod_buf, out);
         }
         self.audio_lp.process(&self.demod_buf, &mut out.audio_pcm);
         clamp_full_scale(&mut out.audio_pcm);
@@ -231,9 +335,20 @@ pub struct NfmTx {
     deviation_hz: f64,
     queue: TxQueue<f32>,
     audio_lp: RealDecimator,
+    inverter: Option<VoiceInverter>,
     filtered: Vec<f32>,
     burst: Burst,
     phase: f64,
+}
+
+fn tx_inverter(p: &NfmParams, rate: f64) -> Option<VoiceInverter> {
+    match p.scrambler_mode {
+        NfmScramblerMode::Inversion => Some(VoiceInverter::new(
+            rate,
+            p.inversion_hz.unwrap_or(DEFAULT_INVERSION_HZ),
+        )),
+        NfmScramblerMode::Off | NfmScramblerMode::Auto => None,
+    }
 }
 
 impl ChannelTx for NfmTx {
@@ -245,11 +360,13 @@ impl ChannelTx for NfmTx {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
         check_bandwidth(p)?;
+        check_scrambler(p)?;
         Ok(Self {
             rate: ctx.input_rate,
             deviation_hz: deviation_hz(p),
             queue: TxQueue::new(DESCRIPTOR.type_id.as_str(), f64::from(AUDIO_RATE)),
             audio_lp: audio_lowpass(),
+            inverter: tx_inverter(p, f64::from(AUDIO_RATE)),
             filtered: Vec::new(),
             burst: Burst::new(ctx.input_rate),
             phase: 0.0,
@@ -259,7 +376,9 @@ impl ChannelTx for NfmTx {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         check_bandwidth(p)?;
+        check_scrambler(p)?;
         self.deviation_hz = deviation_hz(p);
+        self.inverter = tx_inverter(p, f64::from(AUDIO_RATE));
         Ok(())
     }
 
@@ -271,6 +390,9 @@ impl ChannelTx for NfmTx {
         };
         self.queue.accept(pcm.len())?;
         self.audio_lp.process(&pcm, &mut self.filtered);
+        if let Some(inverter) = &mut self.inverter {
+            inverter.process(&mut self.filtered);
+        }
         clamp_full_scale(&mut self.filtered);
         self.queue.extend(self.filtered.iter().copied());
         Ok(())
@@ -304,7 +426,7 @@ mod tests {
     use crate::{
         testgen::{
             burst, fm_modulate,
-            nfm::{ctcss_audio, dcs_audio, mix},
+            nfm::{ctcss_audio, dcs_audio, mix, speech_audio},
             tone_audio,
         },
         testutil::{complex_noise, dominant_tone, fm_iq, rms, run_ragged, settings},
@@ -664,6 +786,142 @@ mod tests {
                 Err(ChannelError::InvalidSettings(_))
             ));
         }
+    }
+
+    fn scrambler_params(mode: NfmScramblerMode, inversion_hz: Option<f64>) -> NfmParams {
+        NfmParams {
+            scrambler_mode: mode,
+            inversion_hz,
+            ..NfmParams::default()
+        }
+    }
+
+    fn scrambled_iq(audio: &[f32], carrier_hz: f64) -> Vec<Complex<f32>> {
+        let mut scrambled = audio.to_vec();
+        VoiceInverter::new(RATE, carrier_hz).process(&mut scrambled);
+        fm_modulate(&scrambled, DEVIATION_HZ, RATE)
+    }
+
+    fn run_scrambler(
+        chan: &mut NfmChannel,
+        iq: &[Complex<f32>],
+    ) -> (Vec<ScramblerStatus>, Vec<f32>) {
+        let mut out = ChannelOutputs::default();
+        let (mut statuses, mut audio) = (Vec::new(), Vec::new());
+        let mut pos = 0;
+        for len in [997usize, 4_096, 65, 2_048].iter().cycle() {
+            if pos >= iq.len() {
+                break;
+            }
+            let end = (pos + len).min(iq.len());
+            out.reset();
+            chan.process(&iq[pos..end], &mut out);
+            for event in &out.events {
+                let DecoderEvent::Scrambler(status) = event else {
+                    panic!("nfm emitted {}", event.kind())
+                };
+                statuses.push(*status);
+            }
+            audio.extend_from_slice(&out.audio_pcm);
+            pos = end;
+        }
+        (statuses, audio)
+    }
+
+    #[test]
+    fn a_scrambled_voice_stays_inverted_without_the_descrambler() {
+        let iq = scrambled_iq(&tone_audio(1_000.0, 0.7, RATE, 48_000), 3_300.0);
+        let audio = run_ragged(&mut channel(), &iq);
+        let (freq, _) = dominant_tone(&audio[8_000..44_000], RATE);
+        assert!(
+            (2_290.0..2_310.0).contains(&freq),
+            "scrambled voice at {freq} Hz"
+        );
+    }
+
+    #[test]
+    fn inversion_puts_a_scrambled_voice_back_where_it_started() {
+        let iq = scrambled_iq(&tone_audio(1_000.0, 0.7, RATE, 48_000), 3_300.0);
+        let mut chan = tone_channel(scrambler_params(NfmScramblerMode::Inversion, Some(3_300.0)));
+        let (statuses, audio) = run_scrambler(&mut chan, &iq);
+        let (freq, ratio) = dominant_tone(&audio[8_000..44_000], RATE);
+        assert!((995.0..1_005.0).contains(&freq), "recovered {freq} Hz");
+        assert!(ratio > 10.0, "tone-to-rest {ratio}");
+        assert_eq!(statuses.first().and_then(|s| s.inversion_hz), Some(3_300.0));
+    }
+
+    #[test]
+    fn auto_locks_onto_the_carrier_and_reports_it() {
+        let speech = speech_audio(RATE, 6 * RATE as usize);
+        let iq = scrambled_iq(&speech, 3_000.0);
+        let mut chan = tone_channel(scrambler_params(NfmScramblerMode::Auto, None));
+        let (statuses, _) = run_scrambler(&mut chan, &iq);
+        let found = statuses
+            .last()
+            .and_then(|s| s.inversion_hz)
+            .unwrap_or_default();
+        assert!(
+            (found - 3_000.0).abs() <= 100.0,
+            "auto found {found} Hz: {statuses:?}"
+        );
+    }
+
+    #[test]
+    fn auto_leaves_a_clear_voice_alone() {
+        let speech = speech_audio(RATE, 6 * RATE as usize);
+        let iq = fm_modulate(&speech, DEVIATION_HZ, RATE);
+        let mut chan = tone_channel(scrambler_params(NfmScramblerMode::Auto, None));
+        let (statuses, _) = run_scrambler(&mut chan, &iq);
+        assert!(statuses.is_empty(), "{statuses:?}");
+    }
+
+    #[test]
+    fn auto_finds_no_carrier_in_noise() {
+        let mut chan = tone_channel(scrambler_params(NfmScramblerMode::Auto, None));
+        let noise = complex_noise(0x51a3_7b19, 0.5, 6 * RATE as usize);
+        let (statuses, _) = run_scrambler(&mut chan, &noise);
+        assert!(statuses.is_empty(), "{statuses:?}");
+    }
+
+    #[test]
+    fn an_inversion_carrier_the_descrambler_cannot_use_is_refused() {
+        for p in [
+            scrambler_params(NfmScramblerMode::Inversion, None),
+            scrambler_params(NfmScramblerMode::Inversion, Some(500.0)),
+            scrambler_params(NfmScramblerMode::Inversion, Some(9_000.0)),
+            scrambler_params(NfmScramblerMode::Inversion, Some(f64::NAN)),
+        ] {
+            let built = NfmChannel::new(ctx(), settings(ChannelParams::Nfm(p.clone())));
+            assert!(
+                matches!(built, Err(ChannelError::InvalidSettings(_))),
+                "{p:?} must be refused"
+            );
+            let built = NfmTx::new(ctx(), settings(ChannelParams::Nfm(p.clone())));
+            assert!(
+                matches!(built, Err(ChannelError::InvalidSettings(_))),
+                "{p:?} must be refused by the transmitter"
+            );
+        }
+    }
+
+    #[test]
+    fn tx_scrambles_what_the_matching_receiver_takes_apart() {
+        let params =
+            ChannelParams::Nfm(scrambler_params(NfmScramblerMode::Inversion, Some(3_300.0)));
+        let mut tx = NfmTx::new(ctx(), settings(params.clone())).unwrap();
+        tx.submit(TxPayload::Audio(tone_audio(1_000.0, 1.0, RATE, 24_000)))
+            .unwrap();
+        let iq = burst(&mut tx);
+
+        let plain = run_ragged(&mut channel(), &iq);
+        let (sent, _) = dominant_tone(&plain[6_000..20_000], RATE);
+        assert!((2_290.0..2_310.0).contains(&sent), "sent as {sent} Hz");
+
+        let mut rx = NfmChannel::new(ctx(), settings(params)).unwrap();
+        let audio = run_ragged(&mut rx, &iq);
+        let (freq, ratio) = dominant_tone(&audio[8_000..20_000], RATE);
+        assert!((995.0..1_005.0).contains(&freq), "received {freq} Hz");
+        assert!(ratio > 10.0, "tone-to-rest {ratio}");
     }
 
     const fn ctx() -> ChannelCtx {

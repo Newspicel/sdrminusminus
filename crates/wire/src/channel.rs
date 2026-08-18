@@ -88,6 +88,15 @@ pub enum NfmToneMode {
     Dcs,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NfmScramblerMode {
+    #[default]
+    Off,
+    Inversion,
+    Auto,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NfmParams {
     #[serde(default = "default_nfm_bandwidth_hz")]
@@ -98,6 +107,10 @@ pub struct NfmParams {
     pub ctcss_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dcs_code: Option<u16>,
+    #[serde(default)]
+    pub scrambler_mode: NfmScramblerMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inversion_hz: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -121,6 +134,8 @@ impl Default for NfmParams {
             tone_mode: NfmToneMode::default(),
             ctcss_hz: None,
             dcs_code: None,
+            scrambler_mode: NfmScramblerMode::default(),
+            inversion_hz: None,
         }
     }
 }

@@ -1872,6 +1872,10 @@ export interface components {
             /** @enum {string} */
             kind: "tone";
         } | {
+            data: components["schemas"]["ScramblerStatus"];
+            /** @enum {string} */
+            kind: "scrambler";
+        } | {
             data: components["schemas"]["DvFrame"];
             /** @enum {string} */
             kind: "dv";
@@ -2076,13 +2080,38 @@ export interface components {
             time_sources?: string[];
             tx?: components["schemas"]["ChannelCapabilities"][];
         };
+        DmrChannelEntry: {
+            /** Format: int64 */
+            freq_hz: number;
+            /** Format: int32 */
+            lcn: number;
+        };
+        DmrDiscovery: {
+            enabled?: boolean;
+            /** Format: int32 */
+            max_probes?: number;
+            ranges?: components["schemas"]["DmrSearchRange"][];
+        };
         DmrParams: {
             ignore_crc?: boolean;
             slots?: components["schemas"]["DmrSlots"];
         };
+        DmrSearchRange: {
+            /** Format: int64 */
+            end_hz: number;
+            /** Format: int64 */
+            start_hz: number;
+            /** Format: int64 */
+            step_hz: number;
+        };
         /** @enum {string} */
         DmrSlots: "both" | "one" | "two";
         DmrTrunkNode: {
+            channel_map?: components["schemas"]["DmrChannelEntry"][];
+            /** Format: int64 */
+            control_hz?: number | null;
+            discovery?: components["schemas"]["DmrDiscovery"];
+            ignore_crc?: boolean;
             protocol?: components["schemas"]["DmrTrunkProtocol"];
             record_calls?: boolean;
         };
@@ -2182,7 +2211,11 @@ export interface components {
         DvSlotActivity: {
             activity: string;
             /** Format: int32 */
+            destination?: number | null;
+            /** Format: int32 */
             destination_hash?: number | null;
+            /** Format: int32 */
+            logical_channel?: number | null;
             /** Format: int32 */
             slot: number;
         };
@@ -2679,8 +2712,13 @@ export interface components {
             ctcss_hz?: number | null;
             /** Format: int32 */
             dcs_code?: number | null;
+            /** Format: double */
+            inversion_hz?: number | null;
+            scrambler_mode?: components["schemas"]["NfmScramblerMode"];
             tone_mode?: components["schemas"]["NfmToneMode"];
         };
+        /** @enum {string} */
+        NfmScramblerMode: "off" | "inversion" | "auto";
         /** @enum {string} */
         NfmToneMode: "off" | "detect" | "ctcss" | "dcs";
         NmeaDeviceInfo: {
@@ -3157,6 +3195,12 @@ export interface components {
         };
         /** @enum {string} */
         ScanState: "scanning" | "holding";
+        ScramblerStatus: {
+            /** Format: double */
+            confidence: number;
+            /** Format: double */
+            inversion_hz?: number | null;
+        };
         SelcallParams: {
             system?: components["schemas"]["SelcallSystem"];
         };
@@ -3512,6 +3556,17 @@ export interface components {
         ToolsResponse: {
             tools: components["schemas"]["ToolDescriptor"][];
         };
+        TrunkChannel: {
+            /** Format: int32 */
+            confidence: number;
+            /** Format: int64 */
+            freq_hz: number;
+            /** Format: int32 */
+            logical_channel: number;
+            source: components["schemas"]["TrunkChannelSource"];
+        };
+        /** @enum {string} */
+        TrunkChannelSource: "announced" | "manual" | "learned" | "predicted";
         TrunkFollower: {
             /** Format: int32 */
             channel: number;
@@ -3523,6 +3578,14 @@ export interface components {
             logical_channel?: number | null;
             /** Format: int32 */
             slot: number;
+        };
+        TrunkProbe: {
+            /** Format: int32 */
+            channel: number;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: int64 */
+            freq_hz: number;
         };
         TrunkProblem: {
             /** Format: int32 */
@@ -3539,10 +3602,16 @@ export interface components {
         TrunkSystemStatus: {
             /** Format: int32 */
             carriers: number;
+            channel_map?: components["schemas"]["TrunkChannel"][];
+            /** Format: int32 */
+            color_code?: number | null;
             detected?: null | components["schemas"]["DvTrunkProtocol"];
             followers: components["schemas"]["TrunkFollower"][];
             node: string;
+            probes?: components["schemas"]["TrunkProbe"][];
             problems: components["schemas"]["TrunkProblem"][];
+            /** Format: int32 */
+            searching?: number;
         };
         UpdateWorkspaceRequest: {
             name?: string | null;

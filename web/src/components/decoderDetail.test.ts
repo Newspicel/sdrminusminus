@@ -143,6 +143,7 @@ describe("eventDetail", () => {
         },
       },
       tone: { kind: "tone", data: { open: true } },
+      scrambler: { kind: "scrambler", data: { inversion_hz: 3300, confidence: 0.8 } },
       dv: { kind: "dv", data: { mode: "dmr", kind: "header", errors_corrected: 0 } },
       ident: {
         kind: "ident",

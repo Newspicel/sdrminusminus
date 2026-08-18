@@ -272,6 +272,10 @@ describe("eventSummary", () => {
       "DCS 023 · muted",
     );
     expect(eventSummary({ kind: "tone", data: { open: false } })).toBe("no tone · muted");
+    expect(
+      eventSummary({ kind: "scrambler", data: { inversion_hz: 3_300, confidence: 0.82 } }),
+    ).toBe("inversion 3300 Hz · 82% confidence");
+    expect(eventSummary({ kind: "scrambler", data: { confidence: 0 } })).toBe("no inversion");
     expect(eventSummary({ kind: "morse", data: { text: "SOS", wpm: 18 } })).toBe("SOS");
     expect(
       eventSummary({

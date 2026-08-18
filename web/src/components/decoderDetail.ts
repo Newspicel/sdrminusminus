@@ -239,6 +239,14 @@ const DETAIL: {
         : (r.candidates ?? []).map((m) => `${m.name} — ${candidateScore(m)} — ${m.why}`).join("\n"),
   }),
 
+  scrambler: (s) => ({
+    fields: fields([
+      ["Inversion", s.inversion_hz == null ? undefined : `${s.inversion_hz.toFixed(0)} Hz`],
+      ["Confidence", s.inversion_hz == null ? undefined : `${(s.confidence * 100).toFixed(0)}%`],
+    ]),
+    body: null,
+  }),
+
   tone: (t) => ({
     fields: fields([
       ["CTCSS", t.ctcss_hz == null ? undefined : `${t.ctcss_hz.toFixed(1)} Hz`],

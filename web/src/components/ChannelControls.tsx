@@ -65,6 +65,11 @@ const NFM_TONE_MODES: Options<NonNullable<ChannelParamsOf<"nfm">["tone_mode"]>> 
   { value: "ctcss", label: "CTCSS" },
   { value: "dcs", label: "DCS" },
 ];
+const NFM_SCRAMBLER_MODES: Options<NonNullable<ChannelParamsOf<"nfm">["scrambler_mode"]>> = [
+  { value: "off", label: "Off" },
+  { value: "inversion", label: "Inversion" },
+  { value: "auto", label: "Auto" },
+];
 const CTCSS_TONES_HZ = [
   67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8, 97.4, 100.0, 103.5, 107.2,
   110.9, 114.8, 118.8, 123.0, 127.3, 131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5,
@@ -79,6 +84,9 @@ const DCS_CODES = [
   732, 734, 743, 754,
 ];
 const CTCSS_DEFAULT_HZ = 88.5;
+const INVERSION_DEFAULT_HZ = 3_300;
+const INVERSION_MIN_HZ = 1_500;
+const INVERSION_MAX_HZ = 4_500;
 const DCS_DEFAULT_CODE = 23;
 const CTCSS_OPTIONS: Options<number> = CTCSS_TONES_HZ.map((hz) => ({
   value: hz,
@@ -288,6 +296,7 @@ function ModeControls({
   switch (params.type) {
     case "nfm": {
       const mode = params.settings.tone_mode ?? "off";
+      const scrambler = params.settings.scrambler_mode ?? "off";
       const set = (settings: ChannelParamsOf<"nfm">) => onParams({ type: "nfm", settings });
       return (
         <>
@@ -331,6 +340,34 @@ function ModeControls({
                 options={DCS_OPTIONS}
                 onChange={(dcs_code) => set({ ...params.settings, dcs_code })}
               />
+            </SettingRow>
+          )}
+          <SettingRow label="Scrambler">
+            <Select
+              label="Voice scrambler"
+              value={scrambler}
+              options={NFM_SCRAMBLER_MODES}
+              onChange={(scrambler_mode) =>
+                set({
+                  ...params.settings,
+                  scrambler_mode,
+                  inversion_hz: params.settings.inversion_hz ?? INVERSION_DEFAULT_HZ,
+                })
+              }
+            />
+          </SettingRow>
+          {scrambler === "inversion" && (
+            <SettingRow label="Carrier">
+              <NumberField
+                label="Inversion carrier (Hz)"
+                value={params.settings.inversion_hz ?? INVERSION_DEFAULT_HZ}
+                min={INVERSION_MIN_HZ}
+                max={INVERSION_MAX_HZ}
+                step={50}
+                onCommit={(inversion_hz) => set({ ...params.settings, inversion_hz })}
+                className="w-20"
+              />
+              <span className="legend">Hz</span>
             </SettingRow>
           )}
         </>

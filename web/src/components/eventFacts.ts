@@ -125,6 +125,12 @@ export function eventSummary(event: DecoderEvent): string {
         f.repeats > 1 ? `\u00d7${f.repeats}` : null,
       ]);
     }
+    case "scrambler": {
+      const s = event.data;
+      return s.inversion_hz == null
+        ? "no inversion"
+        : `inversion ${s.inversion_hz.toFixed(0)} Hz · ${(s.confidence * 100).toFixed(0)}% confidence`;
+    }
     case "tone": {
       const t = event.data;
       const heard = join([
@@ -297,6 +303,7 @@ export function eventStation(event: DecoderEvent): string | null {
     case "psk":
     case "selcall":
     case "tone":
+    case "scrambler":
     case "ident":
     case "ils":
       return null;
