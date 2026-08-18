@@ -3,23 +3,32 @@ import type { DecodedState } from "../lib/decoded";
 import type { DecodedRecord, DecoderEvent, DecoderLogEntry } from "../lib/types";
 import {
   buildRows,
+  clampColumnWidth,
   collectLive,
   DECODER_KINDS,
   DEFAULT_LOG_FILTER,
+  defaultColumnWidths,
   droppedNotice,
   eventStation,
   eventSummary,
   isFiltered,
   kindLabel,
+  LOG_COLUMNS,
   type LogFilter,
   liveRow,
+  MAX_COLUMN_WIDTH,
+  MIN_COLUMN_WIDTH,
   matchesFilter,
   NO_GATE,
   NO_WIRES,
   passesGate,
+  readColumnWidths,
+  resizeColumn,
   sourceSet,
   storedRow,
   toQuery,
+  totalColumnWidth,
+  writeColumnWidths,
 } from "./decoderLog";
 
 const WIRED = sourceSet("0:0,1:0");
@@ -484,6 +493,30 @@ describe("wave-2 summaries", () => {
     expect(eventStation(raw)).toBeNull();
   });
 
+  it("summarises a named sensor by its reading rather than its bit pattern", () => {
+    const sensor: DecoderEvent = {
+      kind: "subghz",
+      data: {
+        modulation: "ook",
+        encoding: "pwm",
+        bits: 40,
+        data: "2AA1A95823",
+        short_us: 208,
+        repeats: 10,
+        reading: {
+          model: "LaCrosse-TX141THBv2",
+          id: 0x2a,
+          channel: 2,
+          battery_ok: false,
+          temperature_c: -7.5,
+          humidity_pct: 88,
+        },
+      },
+    };
+    expect(eventSummary(sensor)).toBe("LaCrosse-TX141THBv2 · id 2A · ch 2 · -7.5 °C · 88 % · ×10");
+    expect(eventStation(sensor)).toBe("LaCrosse-TX141THBv2 2A");
+  });
+
   it("gives the new kinds the names operators use for them", () => {
     expect(kindLabel("navtex")).toBe("NAVTEX");
     expect(kindLabel("acars")).toBe("ACARS");
@@ -549,5 +582,79 @@ describe("toQuery with a gate", () => {
   it("asks for everything when any wire is unfiltered", () => {
     const wires = { nodes: "dmr", sources: "0:1", gate: NO_GATE };
     expect(toQuery(DEFAULT_LOG_FILTER, wires).kinds).toBeUndefined();
+  });
+});
+
+function fakeStorage(): Storage {
+  const map = new Map<string, string>();
+  return {
+    get length() {
+      return map.size;
+    },
+    clear: () => map.clear(),
+    getItem: (key: string) => map.get(key) ?? null,
+    key: (index: number) => [...map.keys()][index] ?? null,
+    removeItem: (key: string) => map.delete(key),
+    setItem: (key: string, value: string) => map.set(key, value),
+  };
+}
+
+function useStorage(store: Storage | undefined): void {
+  Object.defineProperty(globalThis, "localStorage", {
+    value: store,
+    configurable: true,
+    writable: true,
+  });
+}
+
+describe("column widths", () => {
+  it("starts from the declared defaults", () => {
+    const widths = defaultColumnWidths();
+    expect(Object.keys(widths)).toEqual(LOG_COLUMNS.map((column) => column.key));
+    expect(totalColumnWidth(widths)).toBe(
+      LOG_COLUMNS.reduce((sum, column) => sum + column.width, 0),
+    );
+  });
+
+  it("clamps to the allowed range and rounds to whole pixels", () => {
+    expect(clampColumnWidth(MIN_COLUMN_WIDTH - 40)).toBe(MIN_COLUMN_WIDTH);
+    expect(clampColumnWidth(MAX_COLUMN_WIDTH + 40)).toBe(MAX_COLUMN_WIDTH);
+    expect(clampColumnWidth(120.4)).toBe(120);
+    expect(clampColumnWidth(Number.NaN)).toBe(MIN_COLUMN_WIDTH);
+  });
+
+  it("resizes one column without touching the others", () => {
+    const widths = defaultColumnWidths();
+    const next = resizeColumn(widths, "station", 240);
+    expect(next.station).toBe(240);
+    expect(next.summary).toBe(widths.summary);
+    expect(widths.station).toBe(defaultColumnWidths().station);
+  });
+
+  it("round-trips through storage", () => {
+    useStorage(fakeStorage());
+    writeColumnWidths(resizeColumn(defaultColumnWidths(), "kind", 200));
+    expect(readColumnWidths().kind).toBe(200);
+  });
+
+  it("falls back to defaults on missing, corrupt or bogus storage", () => {
+    useStorage(undefined);
+    expect(readColumnWidths()).toEqual(defaultColumnWidths());
+
+    const store = fakeStorage();
+    useStorage(store);
+    store.setItem("sdrmm.decoderLog.columns", "{not json");
+    expect(readColumnWidths()).toEqual(defaultColumnWidths());
+
+    store.setItem(
+      "sdrmm.decoderLog.columns",
+      JSON.stringify({ kind: "wide", station: 9000, bogus: 12 }),
+    );
+    const widths = readColumnWidths();
+    expect(widths.kind).toBe(defaultColumnWidths().kind);
+    expect(widths.station).toBe(MAX_COLUMN_WIDTH);
+    expect(Object.keys(widths)).toEqual(LOG_COLUMNS.map((column) => column.key));
+
+    useStorage(undefined);
   });
 });

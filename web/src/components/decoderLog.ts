@@ -8,9 +8,9 @@ import type {
   DecoderLogFilter,
   EventFilterNode,
 } from "../lib/types";
-import { eventStation, eventSummary, hasPosition, hex5 } from "./eventFacts";
+import { eventStation, eventSummary, hasPosition, hex2, hex5 } from "./eventFacts";
 
-export { eventStation, eventSummary, hasPosition, hex5 };
+export { eventStation, eventSummary, hasPosition, hex2, hex5 };
 
 export const KIND_LABELS: Record<DecoderKind, string> = {
   call: "Call",
@@ -74,6 +74,85 @@ export interface LogRow {
   channel: number;
   live: boolean;
   event: DecoderEvent;
+}
+
+export const LOG_COLUMNS = [
+  { key: "at", label: "Time", width: 84 },
+  { key: "kind", label: "Kind", width: 96 },
+  { key: "freq", label: "Frequency", width: 116 },
+  { key: "station", label: "Station", width: 152 },
+  { key: "summary", label: "Summary", width: 320 },
+] as const;
+
+export type LogColumnKey = (typeof LOG_COLUMNS)[number]["key"];
+
+export type ColumnWidths = Record<LogColumnKey, number>;
+
+export const MIN_COLUMN_WIDTH = 56;
+
+export const MAX_COLUMN_WIDTH = 720;
+
+export const COLUMN_STEP = 8;
+
+const COLUMN_KEY = "sdrmm.decoderLog.columns";
+
+export function defaultColumnWidths(): ColumnWidths {
+  const widths = {} as ColumnWidths;
+  for (const column of LOG_COLUMNS) {
+    widths[column.key] = column.width;
+  }
+  return widths;
+}
+
+export function clampColumnWidth(px: number): number {
+  if (!Number.isFinite(px)) {
+    return MIN_COLUMN_WIDTH;
+  }
+  return Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, px)));
+}
+
+export function resizeColumn(widths: ColumnWidths, key: LogColumnKey, px: number): ColumnWidths {
+  return { ...widths, [key]: clampColumnWidth(px) };
+}
+
+export function totalColumnWidth(widths: ColumnWidths): number {
+  return LOG_COLUMNS.reduce((sum, column) => sum + widths[column.key], 0);
+}
+
+function storage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function readColumnWidths(): ColumnWidths {
+  const widths = defaultColumnWidths();
+  let stored: unknown;
+  try {
+    const raw = storage()?.getItem(COLUMN_KEY);
+    stored = raw === null || raw === undefined ? null : JSON.parse(raw);
+  } catch {
+    return widths;
+  }
+  if (stored === null || typeof stored !== "object") {
+    return widths;
+  }
+  const record = stored as Record<string, unknown>;
+  for (const column of LOG_COLUMNS) {
+    const value = record[column.key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      widths[column.key] = clampColumnWidth(value);
+    }
+  }
+  return widths;
+}
+
+export function writeColumnWidths(widths: ColumnWidths): void {
+  try {
+    storage()?.setItem(COLUMN_KEY, JSON.stringify(widths));
+  } catch {}
 }
 
 export function kindLabel(kind: string): string {

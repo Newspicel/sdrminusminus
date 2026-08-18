@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import {
   callAudioUrl,
@@ -14,19 +14,26 @@ import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
 import { eventDetail } from "./decoderDetail";
 import {
   buildRows,
+  COLUMN_STEP,
+  type ColumnWidths,
   collectLive,
   DEFAULT_LOG_FILTER,
   droppedNotice,
   isFiltered,
   kindLabel,
   LIMIT_OPTIONS,
+  LOG_COLUMNS,
   type LogFilter,
   type LogRow,
   matchesFilter,
   passesGate,
+  readColumnWidths,
+  resizeColumn,
   sourceSet,
   toQuery,
+  totalColumnWidth,
   type WireScope,
+  writeColumnWidths,
 } from "./decoderLog";
 import { formatClock } from "./decoderViews";
 import { formatMhz } from "./format";
@@ -45,6 +52,11 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const [error, setError] = useState<string | null>(null);
   const [cleared, setCleared] = useState<number | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
+  const [widths, setWidths] = useState<ColumnWidths>(readColumnWidths);
+  const latest = useRef(widths);
+  latest.current = widths;
+
+  const commit = (): void => writeColumnWidths(latest.current);
 
   useEffect(() => {
     if (search === filter.q) {
@@ -161,14 +173,38 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
-            <table className="w-full border-collapse font-mono text-xs">
+            <table
+              className="table-fixed border-collapse font-mono text-xs"
+              style={{ width: totalColumnWidth(widths), minWidth: "100%" }}
+            >
+              <colgroup>
+                {LOG_COLUMNS.map((column, index) => (
+                  <col
+                    key={column.key}
+                    style={
+                      index === LOG_COLUMNS.length - 1 ? undefined : { width: widths[column.key] }
+                    }
+                  />
+                ))}
+              </colgroup>
               <thead className="sticky top-0 bg-panel">
                 <tr className="border-b border-line">
-                  <th className={TABLE_HEAD}>Time</th>
-                  <th className={TABLE_HEAD}>Kind</th>
-                  <th className={`${TABLE_HEAD} text-right`}>Frequency</th>
-                  <th className={TABLE_HEAD}>Station</th>
-                  <th className={TABLE_HEAD}>Summary</th>
+                  {LOG_COLUMNS.map((column) => (
+                    <th
+                      key={column.key}
+                      className={`${TABLE_HEAD} relative ${
+                        column.key === "freq" ? "text-right" : ""
+                      }`}
+                    >
+                      <span className="block truncate">{column.label}</span>
+                      <ColumnHandle
+                        label={column.label}
+                        width={widths[column.key]}
+                        onResize={(px) => setWidths((w) => resizeColumn(w, column.key, px))}
+                        onCommit={commit}
+                      />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -187,29 +223,30 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
                       }}
                     >
                       <td
-                        className={`${TABLE_CELL} whitespace-nowrap tabular-nums text-ink-dim`}
+                        className={`${TABLE_CELL} truncate tabular-nums text-ink-dim`}
                         title={row.at}
                       >
                         {formatClock(row.at)}
                       </td>
-                      <td className={`${TABLE_CELL} whitespace-nowrap text-ink-dim`}>
+                      <td className={`${TABLE_CELL} truncate text-ink-dim`}>
                         {kindLabel(row.kind)}
                       </td>
-                      <td
-                        className={`${TABLE_CELL} whitespace-nowrap text-right tabular-nums text-ink`}
-                      >
+                      <td className={`${TABLE_CELL} truncate text-right tabular-nums text-ink`}>
                         {formatMhz(row.freqHz)}
                       </td>
-                      <td className={`${TABLE_CELL} whitespace-nowrap text-ink`}>
+                      <td
+                        className={`${TABLE_CELL} truncate text-ink`}
+                        title={row.station ?? undefined}
+                      >
                         {row.station ?? "—"}
                       </td>
-                      <td className={`${TABLE_CELL} max-w-0 truncate text-ink`} title={row.summary}>
+                      <td className={`${TABLE_CELL} truncate text-ink`} title={row.summary}>
                         {row.summary}
                       </td>
                     </tr>
                     {opened === row.key && (
                       <tr className="border-b border-line/50 bg-panel-2">
-                        <td colSpan={5} className="px-3 py-2">
+                        <td colSpan={LOG_COLUMNS.length} className="px-3 py-2">
                           <RowDetail row={row} />
                         </td>
                       </tr>
@@ -250,6 +287,60 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
         </Button>
       </FaceFooter>
     </>
+  );
+}
+
+function ColumnHandle({
+  label,
+  width,
+  onResize,
+  onCommit,
+}: {
+  label: string;
+  width: number;
+  onResize: (px: number) => void;
+  onCommit: () => void;
+}) {
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize ${label} column`}
+      tabIndex={0}
+      className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        drag.current = { x: event.clientX, width };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const start = drag.current;
+        if (start !== null) {
+          onResize(start.width + event.clientX - start.x);
+        }
+      }}
+      onPointerUp={(event) => {
+        if (drag.current !== null) {
+          drag.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          onCommit();
+        }
+      }}
+      onLostPointerCapture={() => {
+        drag.current = null;
+      }}
+      onKeyDown={(event) => {
+        const step =
+          event.key === "ArrowLeft" ? -COLUMN_STEP : event.key === "ArrowRight" ? COLUMN_STEP : 0;
+        if (step !== 0) {
+          event.preventDefault();
+          onResize(width + step);
+          onCommit();
+        }
+      }}
+    />
   );
 }
 
