@@ -28,6 +28,8 @@ import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 
+const formatFilter = (hz: number): string => (hz === 0 ? "Auto (match rate)" : formatHz(hz));
+
 export function RadioSettings({ active, className }: { active: DeviceSet; className?: string }) {
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
@@ -93,8 +95,8 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
             value={bandwidth}
             options={withCurrent(
               bandwidth,
-              caps.bandwidths.map((hz) => ({ value: hz, label: formatHz(hz) })),
-              formatHz,
+              caps.bandwidths.map((hz) => ({ value: hz, label: formatFilter(hz) })),
+              formatFilter,
             )}
             onChange={(hz) => applyPatch(active.id, { bandwidth: hz })}
           />
