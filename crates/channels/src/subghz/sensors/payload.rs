@@ -1,7 +1,7 @@
 use sdrmm_dsp::{crc4_msb, crc8_msb, lfsr_digest8, lfsr_digest8_reflect};
 use sdrmm_wire::SubghzReading;
 
-pub(super) const PAYLOAD_BYTES: usize = 12;
+pub(super) const PAYLOAD_BYTES: usize = 16;
 
 pub(super) type Payload = [u8; PAYLOAD_BYTES];
 
@@ -457,6 +457,111 @@ pub(super) fn tpms_toyota(b: &Payload) -> Option<SubghzReading> {
     })
 }
 
+const WS2032_PREAMBLE: u8 = 0xF5;
+
+pub(super) fn ws2032(b: &Payload) -> Option<SubghzReading> {
+    let mut frame = [0u8; 14];
+    frame[0] = WS2032_PREAMBLE;
+    frame[1..].copy_from_slice(&b[..13]);
+    let sum = frame[..12]
+        .iter()
+        .fold(0u32, |acc, &byte| acc + u32::from(byte));
+    if sum == 0 || (sum & 0xFF) as u8 != frame[12] {
+        return None;
+    }
+    if crc8_msb(0x31, 0x00, &frame) != 0 {
+        return None;
+    }
+    let magnitude = f64::from(u16::from(frame[4] & 0x07) << 8 | u16::from(frame[5])) / 10.0;
+    let temperature_c = if frame[4] & 0x08 == 0 {
+        magnitude
+    } else {
+        -magnitude
+    };
+    let humidity = f64::from(frame[6]);
+    if !plausible(temperature_c, Some(humidity)) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "WS2032".to_owned(),
+        id: u32::from(frame[1]) << 8 | u32::from(frame[2]),
+        battery_ok: Some(frame[3] & 0x01 == 0),
+        temperature_c: Some(temperature_c),
+        humidity_pct: Some(humidity),
+        wind_avg_kmh: Some(f64::from(frame[7]) * 0.43 * 3.6),
+        wind_max_kmh: Some(f64::from(frame[8]) * 0.43 * 3.6),
+        wind_dir_deg: Some(f64::from(frame[4] >> 4) * 22.5),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn emos_e6016_rain(b: &Payload) -> Option<SubghzReading> {
+    if b[0] != 0xAA || b[1] != 0xA5 || b[2] != 0x8A {
+        return None;
+    }
+    let sum = b[..8].iter().fold(0u32, |acc, &byte| acc + u32::from(byte));
+    if (sum & 0xFF) as u8 != b[8] {
+        return None;
+    }
+    let tips = u32::from(b[6] & 0x0F) << 8 | u32::from(b[7]);
+    Some(SubghzReading {
+        model: "EMOS-E6016R".to_owned(),
+        id: u32::from(b[3]),
+        battery_ok: Some(b[4] >> 6 != 0),
+        rain_mm: Some(f64::from(tips) * 0.7),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn geevon_tx163(b: &Payload) -> Option<SubghzReading> {
+    if b[5] != 0xAA || b[6] != 0x55 || b[7] != 0xAA {
+        return None;
+    }
+    if crc8_msb(0x31, 0x7B, &b[..9]) != 0 {
+        return None;
+    }
+    let raw = u32::from(b[2]) << 4 | u32::from(b[3] >> 4);
+    let temperature_c = (f64::from(raw) - 500.0) / 10.0;
+    let humidity = f64::from(b[4]);
+    if !plausible(temperature_c, Some(humidity)) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Geevon-TX163".to_owned(),
+        id: u32::from(b[0]),
+        channel: Some(((b[1] & 0x30) >> 4) + 1),
+        battery_ok: Some(b[1] & 0x80 == 0),
+        temperature_c: Some(temperature_c),
+        humidity_pct: Some(humidity),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn rubicson_pool(b: &Payload) -> Option<SubghzReading> {
+    if b[3] & 0x0F != 0 || b[5] != 0 {
+        return None;
+    }
+    if b[0] == 0 && b[2] == 0 && b[4] == 0 {
+        return None;
+    }
+    if crc8_msb(0x31, 0x00, &b[..4]) != b[4] {
+        return None;
+    }
+    let raw = u32::from(b[2] & 0x7F) << 4 | u32::from(b[3] >> 4);
+    let temperature_c = (f64::from(raw) - 1_024.0) / 10.0;
+    if !plausible(temperature_c, None) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Rubicson-48942".to_owned(),
+        id: u32::from(b[0] & 0x0F) << 6 | u32::from((b[1] & 0xFC) >> 2),
+        channel: Some((b[0] >> 4) + 1),
+        battery_ok: Some(b[2] & 0x80 == 0),
+        temperature_c: Some(temperature_c),
+        ..SubghzReading::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,6 +981,84 @@ mod tests {
             ]))
             .is_none()
         );
+    }
+
+    #[test]
+    fn a_ws2032_reports_wind_beside_its_temperature() {
+        let reading = ws2032(&payload(&[
+            0x2C, 0x41, 0x00, 0x60, 0xAE, 0x3F, 0x0C, 0x15, 0x00, 0x01, 0x31, 0x02, 0xDB,
+        ]))
+        .expect("valid WS2032");
+        assert_eq!(reading.model, "WS2032");
+        assert_eq!(reading.id, 0x2C41);
+        assert_eq!(reading.temperature_c, Some(17.4));
+        assert_eq!(reading.humidity_pct, Some(63.0));
+        assert_eq!(reading.wind_dir_deg, Some(135.0));
+        let avg = reading.wind_avg_kmh.expect("an average wind speed");
+        let gust = reading.wind_max_kmh.expect("a gust");
+        assert!((avg - 18.576).abs() < 1e-3, "average {avg}");
+        assert!(gust > avg, "gust {gust} should exceed the average {avg}");
+    }
+
+    #[test]
+    fn ws2032_rejects_a_frame_whose_trailing_crc_does_not_close() {
+        assert!(
+            ws2032(&payload(&[
+                0x2C, 0x41, 0x00, 0x60, 0xAE, 0x3F, 0x0C, 0x15, 0x00, 0x01, 0x31, 0x02, 0xDC,
+            ]))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn an_emos_rain_gauge_reports_millimetres_and_no_temperature() {
+        let reading = emos_e6016_rain(&payload(&[
+            0xAA, 0xA5, 0x8A, 0x34, 0xC0, 0x00, 0x01, 0x2B, 0xF9,
+        ]))
+        .expect("valid EMOS rain gauge");
+        assert_eq!(reading.model, "EMOS-E6016R");
+        assert_eq!(reading.id, 0x34);
+        assert_eq!(reading.rain_mm, Some(209.29999999999998));
+        assert_eq!(reading.temperature_c, None);
+        assert_eq!(reading.battery_ok, Some(true));
+    }
+
+    #[test]
+    fn a_geevon_payload_matches_the_worked_example_its_spec_publishes() {
+        let reading = geevon_tx163(&payload(&[
+            0x87, 0x00, 0x29, 0xE0, 0x2B, 0xAA, 0x55, 0xAA, 0x69,
+        ]))
+        .expect("valid Geevon");
+        assert_eq!(reading.model, "Geevon-TX163");
+        assert_eq!(reading.id, 0x87);
+        assert_eq!(reading.channel, Some(1));
+        assert_eq!(reading.temperature_c, Some(17.0));
+        assert_eq!(reading.humidity_pct, Some(43.0));
+    }
+
+    #[test]
+    fn geevon_rejects_a_frame_whose_fixed_bytes_are_not_where_they_belong() {
+        assert!(
+            geevon_tx163(&payload(&[
+                0x87, 0x00, 0x29, 0xE0, 0x2B, 0xAB, 0x55, 0xAA, 0x69
+            ]))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_rubicson_pool_payload_reads_back_the_values_it_was_built_from() {
+        let reading =
+            rubicson_pool(&payload(&[0x1A, 0x9C, 0x4E, 0xF0, 0x4F, 0x00])).expect("valid pool");
+        assert_eq!(reading.model, "Rubicson-48942");
+        assert_eq!(reading.id, 0x2A7);
+        assert_eq!(reading.channel, Some(2));
+        assert_eq!(reading.temperature_c, Some(23.9));
+    }
+
+    #[test]
+    fn rubicson_pool_rejects_a_frame_whose_crc_byte_is_wrong() {
+        assert!(rubicson_pool(&payload(&[0x1A, 0x9C, 0x4E, 0xF0, 0x50, 0x00])).is_none());
     }
 
     #[test]

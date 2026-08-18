@@ -73,10 +73,11 @@ If something is shipped, then remove it.
 
 - Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§6)
 - More of the ISM sensor library. Five pulse slicers (PCM, PPM, PWM, Manchester, differential
-  Manchester) and ten devices are in, which is the framing rtl_433 uses for ~94% of its
-  catalogue; what is left is payload layouts on the same table — TPMS, meters, the wind and rain
-  message types, and the remaining weather-station families. Three slicers are unported
-  (PIWM, OSV1, RZI/NRZS) because only a handful of devices use them
+  Manchester), two row recodes and 22 devices are in, which is the framing rtl_433 uses for ~94%
+  of its catalogue; what is left is payload layouts on the same table — more of the TPMS and
+  meter families, the multi-message weather stations (Hideki, Oregon Scientific), and anything
+  whose shortest pulse falls under the ~30 µs the channel can debounce to. Three slicers are
+  unported (PIWM, OSV1, RZI/NRZS) because only a handful of devices use them
 - Escape hatch for the long tail: a UDP or TCP sink into the rtl_433 binary. The IQ export
   already speaks `cu8`, which is rtl_433's native sample format; what is missing is the transport
   glue and a way to fold its output back into the decoder log

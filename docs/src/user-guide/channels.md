@@ -88,11 +88,17 @@ across five pulse codings:
 
 | Coding | Devices |
 |---|---|
-| Pulse position | Nexus-T/TH, Acurite 609TXC, Acurite 606TX, Prologue-TH, inFactory-TH |
-| Pulse width | LaCrosse TX141TH-Bv2, Fine Offset WH2 |
+| Pulse position | Nexus-T/TH, Rubicson (also Solight TE44, EMOS E0107T), Acurite 609TXC, Acurite 606TX, Prologue-TH, inFactory-TH, Kedsum-TH, Springfield soil probe |
+| Pulse width | LaCrosse TX141TH-Bv2, Fine Offset WH2, Auriol HG02832, Geevon TX16-3, WS2032 weather mast, EMOS E6016 rain gauge, Rubicson 48942 pool, WT0124 pool, Opus XT300 soil probe |
 | Manchester | Ambient Weather F007TH |
-| Pulse code (FSK) | Ambient Weather WH31E |
+| Pulse code (FSK) | Ambient Weather WH31E, Renault TPMS, Toyota TPMS |
 | Differential Manchester | WT450-TH |
+
+Beyond temperature and humidity a reading can carry soil moisture, wind speed and direction,
+rainfall, tyre pressure, and power, so a weather mast, a soil probe and a tyre sensor all land in
+the same decoder log. Two of the tyre sensors stack a second coding on top of their bits —
+Manchester for the Renault, differential Manchester for the Toyota — which is undone after
+framing, the way the flexible decoder in rtl_433 expresses it.
 
 Each device is matched on its own pulse timings, then accepted only if its checksum, digest or
 parity closes, so an unrecognised burst still falls through to the raw timing view rather than

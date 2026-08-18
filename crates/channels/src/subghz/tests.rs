@@ -708,3 +708,84 @@ fn reads_a_toyota_tyre_sensor_off_a_differential_manchester_burst() {
     assert_eq!(reading.temperature_c, Some(22.0));
     assert!(reading.pressure_kpa.is_some_and(|kpa| kpa > 200.0));
 }
+
+fn inverted_pwm_row(bytes: &[u8], count: usize, short_us: u32, long_us: u32) -> Vec<u32> {
+    let bits: Vec<bool> = payload_bits(bytes, count).iter().map(|&bit| !bit).collect();
+    pwm_row(&bits, short_us, long_us)
+}
+
+#[test]
+fn reads_a_ws2032_weather_mast_with_its_wind() {
+    let mut bits = payload_bits(&[0x0A], 8);
+    bits.extend(
+        payload_bits(
+            &[
+                0x2C, 0x41, 0x00, 0x60, 0xAE, 0x3F, 0x0C, 0x15, 0x00, 0x01, 0x31, 0x02, 0xDB,
+            ],
+            104,
+        )
+        .iter()
+        .map(|&bit| !bit),
+    );
+    let mut timings = Vec::new();
+    for &bit in &bits {
+        timings.push(if bit { 500 } else { 1_000 });
+        timings.push(500);
+    }
+    timings.pop();
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "WS2032");
+    assert_eq!(reading.temperature_c, Some(17.4));
+    assert!(reading.wind_avg_kmh.is_some_and(|kmh| kmh > 18.0));
+}
+
+#[test]
+fn reads_a_geevon_outdoor_sensor() {
+    let timings = inverted_pwm_row(
+        &[0x87, 0x00, 0x29, 0xE0, 0x2B, 0xAA, 0x55, 0xAA, 0x69, 0x00],
+        73,
+        250,
+        500,
+    );
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Geevon-TX163");
+    assert_eq!(reading.temperature_c, Some(17.0));
+    assert_eq!(reading.humidity_pct, Some(43.0));
+}
+
+#[test]
+fn reads_an_emos_rain_gauge() {
+    let timings = inverted_pwm_row(
+        &[0xAA, 0xA5, 0x8A, 0x34, 0xC0, 0x00, 0x01, 0x2B, 0xF9],
+        72,
+        300,
+        800,
+    );
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "EMOS-E6016R");
+    assert!(reading.rain_mm.is_some_and(|mm| (mm - 209.3).abs() < 0.01));
+}
+
+#[test]
+fn reads_a_rubicson_pool_thermometer() {
+    let timings = inverted_pwm_row(&[0x1A, 0x9C, 0x4E, 0xF0, 0x4F, 0x00], 41, 280, 480);
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Rubicson-48942");
+    assert_eq!(reading.temperature_c, Some(23.9));
+}

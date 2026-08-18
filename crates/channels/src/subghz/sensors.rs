@@ -214,6 +214,35 @@ const SENSORS: &[Device] = &[
         read: payload::acurite_606tx,
     },
     Device {
+        framing: pwm(500, 1_000, 0, 750, 4_000, 0),
+        layout: Layout::After {
+            sync: 0x0000_000A,
+            sync_bits: 8,
+            bits: 104,
+            recode: Recode::None,
+        },
+        invert: true,
+        read: payload::ws2032,
+    },
+    Device {
+        framing: pwm(250, 500, 750, 625, 1_700, 0),
+        layout: row(73, 73),
+        invert: true,
+        read: payload::geevon_tx163,
+    },
+    Device {
+        framing: pwm(300, 800, 0, 1_000, 2_500, 0),
+        layout: row(72, 73),
+        invert: true,
+        read: payload::emos_e6016_rain,
+    },
+    Device {
+        framing: pwm(280, 480, 730, 5_000, 6_000, 0),
+        layout: row(41, 41),
+        invert: true,
+        read: payload::rubicson_pool,
+    },
+    Device {
         framing: pwm(252, 612, 860, 750, 62_990, 0),
         layout: row(40, 40),
         invert: true,
