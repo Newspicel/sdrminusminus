@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ListenerRegistry } from "./listeners";
-import { SPECTRUM_HISTORY_ROWS, SpectrumHub, type SpectrumSocket } from "./spectrum";
+import {
+  binsForView,
+  resampleRows,
+  SPECTRUM_HISTORY_ROWS,
+  SpectrumHub,
+  type SpectrumSocket,
+} from "./spectrum";
 import type { ClientCommand } from "./types";
 
 function fakeSocket() {
@@ -213,6 +219,74 @@ function rowsOf(history: { rows: Uint8Array; count: number; bins: number }): num
   ]);
 }
 
+describe("spectrum resolution", () => {
+  it("asks for more bins as the view narrows, up to the radio's FFT", () => {
+    expect(binsForView(1)).toBe(1024);
+    expect(binsForView(0.5)).toBe(2048);
+    expect(binsForView(0.26)).toBe(4096);
+    expect(binsForView(0.01)).toBe(4096);
+    expect(binsForView(0)).toBe(1024);
+  });
+
+  it("keeps a narrow peak when rows lose resolution", () => {
+    expect([...resampleRows(Uint8Array.from([0, 9, 0, 0]), 1, 4, 2)]).toEqual([9, 0]);
+  });
+
+  it("stretches rows that gain resolution", () => {
+    expect([...resampleRows(Uint8Array.from([1, 2]), 1, 2, 4)]).toEqual([1, 1, 2, 2]);
+  });
+});
+
+const zoomListener = () => {};
+
+describe("SpectrumHub resolution", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("subscribes at the widest resolution any watcher wants and settles back", () => {
+    const fake = fakeSocket();
+    const hub = new SpectrumHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 0, () => {});
+    const dropWide = hub.subscribe(1, 0, () => {}, 4096);
+    dropWide();
+
+    const asked = subscribes(fake.sent).map((c) =>
+      c.type === "SubscribeSpectrum" ? c.data.bins : 0,
+    );
+    expect(asked).toEqual([1024, 4096, 1024]);
+  });
+
+  it("re-subscribes when a watcher zooms in, once per change", () => {
+    const fake = fakeSocket();
+    const hub = new SpectrumHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 0, zoomListener);
+    hub.setBins(1, 0, zoomListener, 2048);
+    hub.setBins(1, 0, zoomListener, 2048);
+
+    const asked = subscribes(fake.sent).map((c) =>
+      c.type === "SubscribeSpectrum" ? c.data.bins : 0,
+    );
+    expect(asked).toEqual([1024, 2048]);
+  });
+
+  it("ignores a zoom from a watcher it does not know", () => {
+    const fake = fakeSocket();
+    const hub = new SpectrumHub();
+    hub.attach(fake.socket);
+    hub.subscribe(1, 0, () => {});
+    hub.setBins(1, 0, () => {}, 4096);
+
+    expect(subscribes(fake.sent)).toHaveLength(1);
+  });
+});
+
 describe("SpectrumHub history", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -263,7 +337,7 @@ describe("SpectrumHub history", () => {
     expect(history.meta[1]).toMatchObject({ dbMin: -100, dbMax: 0, centerHz: 100e6 });
   });
 
-  it("drops the metadata with the rows when the bin count changes", () => {
+  it("keeps the metadata through a resolution change", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
     hub.attach(fake.socket);
@@ -273,8 +347,8 @@ describe("SpectrumHub history", () => {
     fake.push(9, [7, 8, 9]);
 
     const history = hub.history(1, 0);
-    expect(history.count).toBe(1);
-    expect(history.meta).toHaveLength(1);
+    expect(history.count).toBe(2);
+    expect(history.meta).toHaveLength(2);
   });
 
   it("keeps the newest rows once the ring has wrapped", () => {
@@ -294,7 +368,7 @@ describe("SpectrumHub history", () => {
     expect(rows[rows.length - 1]).toEqual([(SPECTRUM_HISTORY_ROWS + 1) & 0xff, 0]);
   });
 
-  it("drops what it held when the bin count changes", () => {
+  it("rescales what it held when the bin count changes", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
     hub.attach(fake.socket);
@@ -303,7 +377,10 @@ describe("SpectrumHub history", () => {
     fake.push(9, [1, 2]);
     fake.push(9, [7, 8, 9]);
 
-    expect(rowsOf(hub.history(1, 0))).toEqual([[7, 8, 9]]);
+    expect(rowsOf(hub.history(1, 0))).toEqual([
+      [1, 2, 2],
+      [7, 8, 9],
+    ]);
   });
 
   it("forgets a lane nobody came back for", () => {

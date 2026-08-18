@@ -4,6 +4,7 @@ import type { BandPlan, ChannelInfo } from "../../lib/types";
 import {
   bookmarkDraft,
   channelTypeAt,
+  dragTuneHz,
   pickAt,
   pickText,
   scopeSource,
@@ -71,6 +72,24 @@ describe("scopeSource", () => {
   it("stays on the spectrum when neither wire is drawn", () => {
     expect(scopeSource("baseband", false, false)).toBe("iq");
     expect(scopeSource("iq", false, false)).toBe("iq");
+  });
+});
+
+describe("dragTuneHz", () => {
+  it("moves the centre with the drag, scaled to the visible span", () => {
+    expect(dragTuneHz(100_000_000, 2_000_000, FULL_VIEW, 250, 1000)).toBe(100_500_000);
+    expect(dragTuneHz(100_000_000, 2_000_000, FULL_VIEW, -250, 1000)).toBe(99_500_000);
+  });
+
+  it("scales by the zoomed window when only part of the span is visible", () => {
+    expect(dragTuneHz(100_000_000, 2_000_000, { start: 0.25, end: 0.75 }, 500, 1000)).toBe(
+      100_500_000,
+    );
+  });
+
+  it("stays put without a span or a width to measure against", () => {
+    expect(dragTuneHz(100_000_000, 0, FULL_VIEW, 250, 1000)).toBe(100_000_000);
+    expect(dragTuneHz(100_000_000, 2_000_000, FULL_VIEW, 250, 0)).toBe(100_000_000);
   });
 });
 

@@ -28,6 +28,7 @@ precision highp float;
 in vec2 vUv;
 out vec4 fragColor;
 uniform sampler2D uTex;
+uniform highp sampler2D uShift;
 uniform float uWrite;
 uniform float uHeight;
 uniform float uRows;
@@ -45,14 +46,15 @@ void main() {
   float rowsBack = (1.0 - vUv.y) * (uRows - 1.0);
   float row = mod(uWrite - 1.0 - rowsBack, uHeight);
   float ty = (row + 0.5) / uHeight;
-  float tx = uViewStart + vUv.x * uViewWidth;
-  float v = texture(uTex, vec2(tx, ty)).r;
+  float tx = uViewStart + vUv.x * uViewWidth + texelFetch(uShift, ivec2(0, int(row)), 0).r;
+  float v = (tx < 0.0 || tx > 1.0) ? 0.0 : texture(uTex, vec2(tx, ty)).r;
   fragColor = vec4(colormap(v), 1.0);
 }`;
 
 export interface WaterfallView {
   pushRow(bins: Uint8Array): void;
   seed(rows: Uint8Array, count: number, bins: number): void;
+  shiftRows(delta: number): void;
   setWindow(start: number, width: number): void;
   setColormap(name: Colormap): void;
   dispose(): void;
@@ -107,6 +109,7 @@ let recovering: Shared | null = null;
 interface Attachment {
   context: Shared;
   texture: WebGLTexture;
+  shiftTexture: WebGLTexture;
 }
 
 class Plot implements WaterfallView {
@@ -115,6 +118,8 @@ class Plot implements WaterfallView {
   private live: Attachment | null = null;
   private bins = 0;
   private writeRow = 0;
+  private readonly shifts = new Float32Array(HISTORY_ROWS);
+  private shiftsDirty = true;
   private windowStart = 0;
   private windowWidth = 1;
   private map = 0;
@@ -140,13 +145,21 @@ class Plot implements WaterfallView {
       return;
     }
     const gl = context.gl;
+    gl.activeTexture(gl.TEXTURE0);
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.live = { context, texture };
+    const shiftTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, shiftTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, HISTORY_ROWS, 0, gl.RED, gl.FLOAT, null);
+    this.live = { context, texture, shiftTexture };
     this.allocate(1024);
     this.onStatus(null);
   }
@@ -171,6 +184,11 @@ class Plot implements WaterfallView {
     if (bins.length !== this.bins) {
       this.allocate(bins.length);
     }
+    if (this.shifts[this.writeRow] !== 0) {
+      this.shifts[this.writeRow] = 0;
+      this.shiftsDirty = true;
+    }
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.texSubImage2D(
       gl.TEXTURE_2D,
@@ -197,6 +215,7 @@ class Plot implements WaterfallView {
     }
     this.allocate(bins);
     const gl = live.context.gl;
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.texSubImage2D(
       gl.TEXTURE_2D,
@@ -210,6 +229,16 @@ class Plot implements WaterfallView {
       rows.subarray(place.skip * bins, (place.skip + place.rows) * bins),
     );
     this.writeRow = place.write;
+  }
+
+  shiftRows(delta: number): void {
+    if (delta === 0) {
+      return;
+    }
+    for (let i = 0; i < HISTORY_ROWS; i++) {
+      this.shifts[i] = (this.shifts[i] ?? 0) + delta;
+    }
+    this.shiftsDirty = true;
   }
 
   setWindow(start: number, width: number): void {
@@ -227,6 +256,7 @@ class Plot implements WaterfallView {
     const live = this.live;
     if (live !== null) {
       live.context.gl.deleteTexture(live.texture);
+      live.context.gl.deleteTexture(live.shiftTexture);
       this.live = null;
     }
     if (plots.size === 0) {
@@ -267,6 +297,13 @@ class Plot implements WaterfallView {
     }
     const { gl, canvas: buffer, uniforms } = live.context;
     gl.viewport(0, 0, w, h);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, live.shiftTexture);
+    if (this.shiftsDirty) {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, HISTORY_ROWS, gl.RED, gl.FLOAT, this.shifts);
+      this.shiftsDirty = false;
+    }
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.uniform1f(uniforms.write, this.writeRow);
     gl.uniform1f(uniforms.height, HISTORY_ROWS);
@@ -286,6 +323,9 @@ class Plot implements WaterfallView {
     const gl = live.context.gl;
     this.bins = Math.max(1, bins);
     this.writeRow = 0;
+    this.shifts.fill(0);
+    this.shiftsDirty = true;
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.texImage2D(
       gl.TEXTURE_2D,
@@ -381,6 +421,9 @@ function build(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext): Shared {
   const program = createProgram(gl, VERT, FRAG);
   const quad = createFullScreenQuad(gl, program);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.useProgram(program);
+  gl.uniform1i(gl.getUniformLocation(program, "uTex"), 0);
+  gl.uniform1i(gl.getUniformLocation(program, "uShift"), 1);
   return {
     canvas,
     gl,

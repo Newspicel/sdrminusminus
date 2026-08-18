@@ -126,7 +126,7 @@ export function NodeShell({
         )}
         <header
           className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
-            surface === "canvas" && selected ? "cursor-grab active:cursor-grabbing" : ""
+            surface === "canvas" ? "node-drag cursor-grab active:cursor-grabbing" : ""
           }`}
         >
           <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
@@ -134,7 +134,9 @@ export function NodeShell({
           {subtitle !== undefined && (
             <span className="legend ml-auto truncate text-ink-faint">{subtitle}</span>
           )}
-          <span className={`flex items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}>
+          <span
+            className={`nodrag flex cursor-auto items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}
+          >
             {actions}
             <Button
               type="button"
@@ -166,12 +168,18 @@ export function NodeShell({
         </header>
 
         <div
-          className={`relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
-            active ? "nopan nowheel" : ""
+          className={`relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan ${
+            active ? "nowheel" : ""
           }`}
         >
           <Active value={active}>{children}</Active>
-          {!active && <span aria-hidden className="absolute inset-0 z-20" />}
+          {!active && (
+            <span
+              aria-hidden
+              className="absolute inset-0 z-20"
+              onPointerDown={() => workspace.select(node.id)}
+            />
+          )}
         </div>
 
         {ports.map((port, index) => (

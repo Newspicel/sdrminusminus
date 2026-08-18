@@ -1,6 +1,11 @@
 import { identify, suggestedAt } from "../../components/bandPlan";
 import { formatMhz } from "../../components/format";
-import { type SpectrumView, spanToOffset, viewToSpan } from "../../components/spectrumView";
+import {
+  type SpectrumView,
+  spanToOffset,
+  viewToSpan,
+  viewWidth,
+} from "../../components/spectrumView";
 import type { BandPlan, ChannelInfo, ChannelParams } from "../../lib/types";
 
 export type ScopeSource = "iq" | "baseband";
@@ -28,6 +33,19 @@ export function pickAt(
 ): ScopePick {
   const offsetHz = Math.round(spanToOffset(viewToSpan(view, at), spanHz));
   return { hz: centerHz + offsetHz, offsetHz };
+}
+
+export function dragTuneHz(
+  centerHz: number,
+  spanHz: number,
+  view: SpectrumView,
+  deltaPx: number,
+  widthPx: number,
+): number {
+  if (!(spanHz > 0) || !(widthPx > 0)) {
+    return Math.round(centerHz);
+  }
+  return Math.round(centerHz + (deltaPx / widthPx) * spanHz * viewWidth(view));
 }
 
 export function pickText(pick: ScopePick): { frequency: string; offset: string } {

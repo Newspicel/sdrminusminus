@@ -10,10 +10,61 @@ export interface SpectrumSocket {
 
 export const SPECTRUM_FPS = 30;
 export const SPECTRUM_BINS = 1024;
+export const SPECTRUM_MAX_BINS = 4096;
 
 export const SPECTRUM_HISTORY_ROWS = 1024;
 
 const RELEASE_GRACE_MS = 5_000;
+
+export function binsForView(width: number): number {
+  if (!(width > 0)) {
+    return SPECTRUM_BINS;
+  }
+  let bins = SPECTRUM_BINS;
+  while (bins < SPECTRUM_MAX_BINS && bins * width < SPECTRUM_BINS) {
+    bins *= 2;
+  }
+  return bins;
+}
+
+export function resampleRows(
+  rows: Uint8Array,
+  count: number,
+  fromBins: number,
+  toBins: number,
+): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(count * toBins);
+  if (fromBins === 0 || toBins === 0) {
+    return out;
+  }
+  for (let row = 0; row < count; row++) {
+    const from = row * fromBins;
+    const to = row * toBins;
+    for (let x = 0; x < toBins; x++) {
+      const lo = Math.min(fromBins - 1, Math.floor((x * fromBins) / toBins));
+      const hi = Math.min(fromBins - 1, Math.max(lo, Math.ceil(((x + 1) * fromBins) / toBins) - 1));
+      let peak = 0;
+      for (let i = lo; i <= hi; i++) {
+        const value = rows[from + i] ?? 0;
+        if (value > peak) {
+          peak = value;
+        }
+      }
+      out[to + x] = peak;
+    }
+  }
+  return out;
+}
+
+function resolveBins(desired: Iterable<number>): number {
+  let top = SPECTRUM_BINS;
+  for (const bins of desired) {
+    if (bins > top) {
+      top = bins;
+    }
+  }
+  return Math.min(SPECTRUM_MAX_BINS, top);
+}
 
 export interface Lane {
   deviceSet: number;
@@ -53,11 +104,15 @@ class History {
       return;
     }
     if (frame.bins.length !== this.bins) {
+      if (this.filled > 0) {
+        this.ring = resampleRows(this.ring, SPECTRUM_HISTORY_ROWS, this.bins, frame.bins.length);
+      } else {
+        this.ring = new Uint8Array(frame.bins.length * SPECTRUM_HISTORY_ROWS);
+        this.meta = [];
+        this.write = 0;
+        this.filled = 0;
+      }
       this.bins = frame.bins.length;
-      this.ring = new Uint8Array(this.bins * SPECTRUM_HISTORY_ROWS);
-      this.meta = [];
-      this.write = 0;
-      this.filled = 0;
     }
     this.ring.set(frame.bins, this.write * this.bins);
     this.meta[this.write] = {
@@ -89,9 +144,10 @@ class History {
 }
 
 interface Watched {
-  listeners: Set<(frame: SpectrumFrame) => void>;
+  listeners: Map<(frame: SpectrumFrame) => void, number>;
   history: History;
   release: number;
+  bins: number;
 }
 
 export class SpectrumHub {
@@ -107,7 +163,7 @@ export class SpectrumHub {
       return;
     }
     lane.history.record(frame);
-    for (const listener of lane.listeners) {
+    for (const listener of lane.listeners.keys()) {
       listener(frame);
     }
   };
@@ -160,19 +216,43 @@ export class SpectrumHub {
     deviceSet: number,
     stream: number,
     listener: (frame: SpectrumFrame) => void,
+    bins: number = SPECTRUM_BINS,
   ): () => void {
     const key = laneKey(deviceSet, stream);
     let lane = this.lanes.get(key);
     if (lane === undefined) {
-      lane = { listeners: new Set(), history: new History(), release: 0 };
+      lane = {
+        listeners: new Map([[listener, bins]]),
+        history: new History(),
+        release: 0,
+        bins: resolveBins([bins]),
+      };
       this.lanes.set(key, lane);
       this.send({ deviceSet, stream }, true);
-    } else if (lane.release !== 0) {
+      return () => this.release(key, { deviceSet, stream }, listener);
+    }
+    if (lane.release !== 0) {
       clearTimeout(lane.release);
       lane.release = 0;
     }
-    lane.listeners.add(listener);
+    lane.listeners.set(listener, bins);
+    this.refresh(key, { deviceSet, stream });
     return () => this.release(key, { deviceSet, stream }, listener);
+  }
+
+  setBins(
+    deviceSet: number,
+    stream: number,
+    listener: (frame: SpectrumFrame) => void,
+    bins: number,
+  ): void {
+    const key = laneKey(deviceSet, stream);
+    const lane = this.lanes.get(key);
+    if (lane === undefined || !lane.listeners.has(listener)) {
+      return;
+    }
+    lane.listeners.set(listener, bins);
+    this.refresh(key, { deviceSet, stream });
   }
 
   history(deviceSet: number, stream: number): SpectrumHistory {
@@ -203,7 +283,11 @@ export class SpectrumHub {
       return;
     }
     watched.listeners.delete(listener);
-    if (watched.listeners.size > 0 || watched.release !== 0) {
+    if (watched.listeners.size > 0) {
+      this.refresh(key, lane);
+      return;
+    }
+    if (watched.release !== 0) {
       return;
     }
     watched.release = setTimeout(() => {
@@ -212,7 +296,20 @@ export class SpectrumHub {
     }, RELEASE_GRACE_MS);
   }
 
+  private refresh(key: string, lane: Lane): void {
+    const watched = this.lanes.get(key);
+    if (watched === undefined) {
+      return;
+    }
+    const resolved = resolveBins(watched.listeners.values());
+    if (resolved !== watched.bins) {
+      watched.bins = resolved;
+      this.send(lane, true);
+    }
+  }
+
   private send(lane: Lane, on: boolean): void {
+    const bins = this.lanes.get(laneKey(lane.deviceSet, lane.stream))?.bins ?? SPECTRUM_BINS;
     this.socket?.send(
       on
         ? {
@@ -220,7 +317,7 @@ export class SpectrumHub {
             data: {
               device_set: lane.deviceSet,
               fps: SPECTRUM_FPS,
-              bins: SPECTRUM_BINS,
+              bins,
               stream: lane.stream,
             },
           }

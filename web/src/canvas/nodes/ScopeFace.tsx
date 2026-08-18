@@ -15,6 +15,12 @@ import { type Options, plotButton, segment, segmentSm } from "../../components/c
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
 import { Slider } from "../../components/Slider";
+import {
+  alignHistory,
+  type FrameKey,
+  retuneAction,
+  seedRows,
+} from "../../components/spectrumAlign";
 import { frozenAge, frozenCursor, frozenLength, frozenRow } from "../../components/spectrumFreeze";
 import {
   accumulateTraces,
@@ -22,7 +28,6 @@ import {
   dequantize,
   frameWindow,
   requantize,
-  requantizeHistory,
   TRACE_MODES,
   type TraceMode,
   type TraceState,
@@ -52,7 +57,12 @@ import {
 } from "../../gl/waterfall";
 import { bookmarksQuery } from "../../lib/api";
 import type { SpectrumFrame } from "../../lib/frame";
-import { SPECTRUM_HISTORY_ROWS, type SpectrumHistory, spectrumHub } from "../../lib/spectrum";
+import {
+  binsForView,
+  SPECTRUM_HISTORY_ROWS,
+  type SpectrumHistory,
+  spectrumHub,
+} from "../../lib/spectrum";
 import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
@@ -71,6 +81,7 @@ import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
 import {
   bookmarkDraft,
   channelTypeAt,
+  dragTuneHz,
   pickAt,
   type ScopePick,
   type ScopeSource,
@@ -81,7 +92,9 @@ import {
 import { DensityLayer, drawPlot, type PlotFrame, type PlotTrace } from "./scopePlot";
 
 const DRAG_SLOP_PX = 4;
-const GRAB_PX = 10;
+const GRAB_PX = 12;
+const TUNE_THROTTLE_MS = 150;
+const BINS_DEBOUNCE_MS = 300;
 const COLORMAP_KEY = "sdrmm.colormap";
 const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
@@ -101,6 +114,9 @@ interface Gesture {
   view: SpectrumView;
   channel: number | null;
   moved: boolean;
+  centerHz: number;
+  sentHz: number | null;
+  sentAt: number;
 }
 
 const SOURCES: Options<ScopeSource> = [
@@ -212,6 +228,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const densityRef = useRef<DensityLayer | null>(null);
   const rowRef = useRef<Uint8Array | null>(null);
   const frozenDbRef = useRef<Float32Array | null>(null);
+  const keyRef = useRef<FrameKey | null>(null);
+  const hoverRef = useRef<number | null>(null);
+  const listenerRef = useRef<((frame: SpectrumFrame) => void) | null>(null);
 
   const [meta, setMeta] = useState<FrameMeta | null>(() =>
     seedFrame === null ? null : metaOf(seedFrame),
@@ -250,6 +269,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     lockRef.current = lock;
     frozenRef.current = frozen;
     scrubRef.current = scrub;
+    if (!active) {
+      hoverRef.current = null;
+    }
   });
 
   const faces = new Map<number, string>();
@@ -389,26 +411,50 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
 
   useEffect(() => {
     const past = spectrumHub.history(set.id, stream);
-    const opening = lockRef.current;
-    rendererRef.current?.seed(
-      opening === null ? past.rows : requantizeHistory(past, opening),
-      past.count,
-      past.bins,
-    );
+    if (past.count > 0) {
+      rendererRef.current?.seed(
+        seedRows(past, frameRef.current, lockRef.current),
+        past.count,
+        past.bins,
+      );
+    }
+    keyRef.current = frameRef.current === null ? null : frameKeyOf(frameRef.current);
     let count = 0;
-    return spectrumHub.subscribe(set.id, stream, (frame) => {
+    const listener = (frame: SpectrumFrame): void => {
+      const action = retuneAction(keyRef.current, frameKeyOf(frame));
+      keyRef.current = frameKeyOf(frame);
       frameRef.current = frame;
       const held = lockRef.current;
       const window = held ?? frameWindow(frame);
       const db = dequantize(frame, liveDbRef.current);
       liveDbRef.current = db;
+      let seeded = false;
+      if (action.kind !== "none") {
+        tracesRef.current = null;
+        densityRef.current?.clear();
+        if (action.kind === "shift") {
+          rendererRef.current?.shiftRows(action.delta);
+        } else if (frozenRef.current === null) {
+          const rows = spectrumHub.history(set.id, stream);
+          if (rows.count > 0) {
+            rendererRef.current?.seed(
+              alignHistory(rows, { centerHz: frame.centerHz, spanHz: frame.spanHz }, held),
+              rows.count,
+              rows.bins,
+            );
+            seeded = true;
+          }
+        }
+      }
       if (frozenRef.current === null) {
-        if (held === null) {
-          rendererRef.current?.pushRow(frame.bins);
-        } else {
-          const row = requantize(frame.bins, frameWindow(frame), held, rowRef.current);
-          rowRef.current = row;
-          rendererRef.current?.pushRow(row);
+        if (!seeded) {
+          if (held === null) {
+            rendererRef.current?.pushRow(frame.bins);
+          } else {
+            const row = requantize(frame.bins, frameWindow(frame), held, rowRef.current);
+            rowRef.current = row;
+            rendererRef.current?.pushRow(row);
+          }
         }
         tracesRef.current = accumulateTraces(tracesRef.current, db);
         densityRef.current?.add(db, viewRef.current, window);
@@ -417,8 +463,31 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       if (count === 1 || count % 8 === 0) {
         setMeta(metaOf(frame));
       }
-    });
+    };
+    listenerRef.current = listener;
+    const drop = spectrumHub.subscribe(
+      set.id,
+      stream,
+      listener,
+      binsForView(viewWidth(viewRef.current)),
+    );
+    return () => {
+      if (listenerRef.current === listener) {
+        listenerRef.current = null;
+      }
+      drop();
+    };
   }, [set.id, stream]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const listener = listenerRef.current;
+      if (listener !== null) {
+        spectrumHub.setBins(set.id, stream, listener, binsForView(viewWidth(view)));
+      }
+    }, BINS_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [view, set.id, stream]);
 
   useEffect(() => {
     let raf = 0;
@@ -437,6 +506,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         window,
         traces: overlays(tracesRef.current, modesRef.current, frame),
         density: densityRef.current,
+        cursor: hoverRef.current,
       });
       raf = requestAnimationFrame(loop);
     };
@@ -502,11 +572,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     if (past.count === 0) {
       return;
     }
-    rendererRef.current?.seed(
-      held === null ? past.rows : requantizeHistory(past, held),
-      past.count,
-      past.bins,
-    );
+    rendererRef.current?.seed(seedRows(past, frameRef.current, held), past.count, past.bins);
   };
 
   const toggleTrace = (mode: TraceMode): void => {
@@ -549,7 +615,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (!active || event.button !== 0 || plotRef.current === null || spanHz <= 0) {
+    if (!active || event.button !== 0 || plotRef.current === null || meta === null || spanHz <= 0) {
       return;
     }
     if (!onPlotSurface(event.target, plotRef.current)) {
@@ -557,7 +623,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     }
     const rect = plotRef.current.getBoundingClientRect();
     const at = pointerFraction(event.clientX);
-    const grabbed = markerAt(set.channels, view, spanHz, at, GRAB_PX / rect.width);
+    const grabbed =
+      markerFrom(event.target, set.channels) ??
+      markerAt(set.channels, view, spanHz, at, GRAB_PX / rect.width);
     if (grabbed !== null) {
       selectChannel(grabbed.id);
     }
@@ -567,11 +635,18 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       view,
       channel: grabbed?.id ?? null,
       moved: false,
+      centerHz: meta.centerHz,
+      sentHz: null,
+      sentAt: 0,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    hoverRef.current =
+      active && plotRef.current !== null && onPlotSurface(event.target, plotRef.current)
+        ? pointerFraction(event.clientX)
+        : null;
     const gesture = gestureRef.current;
     if (gesture === null) {
       return;
@@ -590,6 +665,22 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     }
     setPanning(true);
     const rect = plotRef.current?.getBoundingClientRect();
+    if (isFullView(gesture.view)) {
+      const hz = dragTuneHz(
+        gesture.centerHz,
+        spanHz,
+        gesture.view,
+        gesture.pointerX - event.clientX,
+        rect?.width || 1,
+      );
+      const now = Date.now();
+      if (hz !== gesture.sentHz && now - gesture.sentAt >= TUNE_THROTTLE_MS) {
+        gesture.sentHz = hz;
+        gesture.sentAt = now;
+        tuneCenter(hz);
+      }
+      return;
+    }
     setView(panView(gesture.view, (gesture.pointerX - event.clientX) / (rect?.width || 1)));
   };
 
@@ -607,6 +698,18 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     if (gesture.moved) {
       if (gesture.channel !== null && preview !== null) {
         tuneChannel(gesture.channel, preview.offsetHz);
+      } else if (gesture.channel === null && isFullView(gesture.view) && meta !== null) {
+        const rect = plotRef.current?.getBoundingClientRect();
+        const hz = dragTuneHz(
+          gesture.centerHz,
+          meta.spanHz,
+          gesture.view,
+          gesture.pointerX - event.clientX,
+          rect?.width || 1,
+        );
+        if (hz !== gesture.sentHz) {
+          tuneCenter(hz);
+        }
       }
       return;
     }
@@ -659,6 +762,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={() => {
+        hoverRef.current = null;
+      }}
       onContextMenu={onContextMenu}
       onDoubleClick={(event) => {
         const plot = plotRef.current;
@@ -982,7 +1088,8 @@ function Markers({
                   />
                   <Button
                     type="button"
-                    className="pointer-events-auto absolute inset-y-0 w-5 -translate-x-1/2 cursor-ew-resize"
+                    data-marker={channel.id}
+                    className="pointer-events-auto absolute inset-y-0 w-6 -translate-x-1/2 cursor-ew-resize"
                     style={{ left: `${at * 100}%` }}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -1000,6 +1107,7 @@ function Markers({
             >
               <MarkerLabel
                 active={shown.channel.id === selected}
+                channel={shown.channel.id}
                 className={stacked ? "group-hover:hidden" : ""}
               >
                 {markerName(shown.channel, shown.offsetHz)}
@@ -1010,6 +1118,7 @@ function Markers({
                   <MarkerLabel
                     key={channel.id}
                     active={channel.id === selected}
+                    channel={channel.id}
                     className="hidden group-hover:block"
                   >
                     {markerName(channel, offsetHz)}
@@ -1088,18 +1197,21 @@ function markerName(channel: ChannelInfo, offsetHz: number): string {
 function MarkerLabel({
   active,
   className,
+  channel,
   children,
 }: {
   active: boolean;
   className?: string;
+  channel?: number;
   children: ReactNode;
 }) {
   return (
     <span
       aria-hidden
+      data-marker={channel}
       className={`rounded-[2px] border px-1 py-px font-mono text-[10px] whitespace-nowrap tabular-nums ${
         active ? "border-accent bg-bg text-accent" : "border-line bg-bg/85 text-ink-dim"
-      } ${className ?? ""}`}
+      } ${channel === undefined ? "" : "cursor-ew-resize"} ${className ?? ""}`}
     >
       {children}
     </span>
@@ -1132,11 +1244,29 @@ function markerAt(
   return best;
 }
 
+function markerFrom(
+  target: EventTarget | null,
+  channels: readonly ChannelInfo[],
+): ChannelInfo | null {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const id = target.closest("[data-marker]")?.getAttribute("data-marker");
+  if (id == null) {
+    return null;
+  }
+  return channels.find((channel) => String(channel.id) === id) ?? null;
+}
+
 function onPlotSurface(target: EventTarget | null, plot: HTMLElement): boolean {
   if (!(target instanceof Node) || !plot.contains(target)) {
     return false;
   }
   return !(target instanceof Element) || target.closest("[data-plot-chrome]") === null;
+}
+
+function frameKeyOf(frame: SpectrumFrame): FrameKey {
+  return { centerHz: frame.centerHz, spanHz: frame.spanHz, bins: frame.bins.length };
 }
 
 function metaOf(frame: SpectrumFrame): FrameMeta {

@@ -1,3 +1,4 @@
+import { formatMhz } from "../../components/format";
 import {
   addDensity,
   clearDensity,
@@ -11,7 +12,9 @@ import {
   decibelTicks,
   frequencyTicks,
   type SpectrumView,
+  spanToOffset,
   spanToView,
+  viewToSpan,
   viewWidth,
 } from "../../components/spectrumView";
 import type { Colormap } from "../../gl/colormap";
@@ -44,6 +47,24 @@ export interface PlotOptions {
   window: DbWindow;
   traces: readonly PlotTrace[];
   density: DensityLayer | null;
+  cursor?: number | null;
+}
+
+export function readoutAt(
+  frame: PlotFrame,
+  view: SpectrumView,
+  at: number,
+): { hz: number; db: number } | null {
+  if (at < 0 || at > 1 || frame.db.length === 0 || !(frame.spanHz > 0)) {
+    return null;
+  }
+  const fraction = viewToSpan(view, at);
+  const hz = frame.centerHz + spanToOffset(fraction, frame.spanHz);
+  const index = Math.min(
+    frame.db.length - 1,
+    Math.max(0, Math.round(fraction * (frame.db.length - 1))),
+  );
+  return { hz, db: frame.db[index] ?? Number.NEGATIVE_INFINITY };
 }
 
 export class GridBitmap {
@@ -185,6 +206,44 @@ export function drawPlot(canvas: HTMLCanvasElement | null, options: PlotOptions)
   ctx.globalAlpha = TRACE_FILL_ALPHA;
   ctx.fill();
   ctx.globalAlpha = 1;
+
+  const cursor = options.cursor ?? null;
+  if (cursor !== null) {
+    drawCursor(ctx, frame, view, cursor, width, plotH);
+  }
+}
+
+function drawCursor(
+  ctx: CanvasRenderingContext2D,
+  frame: PlotFrame,
+  view: SpectrumView,
+  at: number,
+  width: number,
+  plotH: number,
+): void {
+  const readout = readoutAt(frame, view, at);
+  if (readout === null) {
+    return;
+  }
+  const x = Math.round(at * width) + 0.5;
+  ctx.strokeStyle = token("plot-ink-dim");
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, plotH);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  const level = Number.isFinite(readout.db) ? `  ${readout.db.toFixed(1)} dB` : "";
+  const text = `${formatMhz(readout.hz)}${level}`;
+  const w = ctx.measureText(text).width + 8;
+  const left = x + 6 + w > width ? x - 6 - w : x + 6;
+  ctx.fillStyle = token("plot-bg");
+  ctx.globalAlpha = 0.85;
+  ctx.fillRect(left, 4, w, 14);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = token("plot-ink");
+  ctx.textAlign = "left";
+  ctx.fillText(text, left + 4, 11);
 }
 
 function drawGrid(

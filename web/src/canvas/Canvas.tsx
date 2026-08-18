@@ -14,15 +14,7 @@ import {
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
 import { pushToast } from "../lib/toasts";
@@ -236,14 +228,6 @@ export function Canvas() {
     [refusal],
   );
 
-  const flowNodes = useMemo(
-    () =>
-      nodes.map((node) =>
-        node.draggable === node.selected ? node : { ...node, draggable: node.selected },
-      ),
-    [nodes],
-  );
-
   const [menu, setMenu] = useState<Menu | null>(null);
   const openMenu = useCallback((event: React.MouseEvent, target: Menu["target"]) => {
     event.preventDefault();
@@ -253,7 +237,7 @@ export function Canvas() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ReactFlow
-        nodes={flowNodes}
+        nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         onNodesChange={handleNodesChange}
@@ -399,6 +383,7 @@ function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
       data: { node },
       width: size.w,
       height: size.h,
+      dragHandle: ".node-drag",
     };
   });
 }
