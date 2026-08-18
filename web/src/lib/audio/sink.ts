@@ -12,10 +12,18 @@ import {
   TARGET_FRAMES,
 } from "./worklet";
 
+const VOLUME_RANGE_DB = 60;
+const VOLUME_RAMP_SECONDS = 0.02;
+
 let ctx: AudioContext | null = null;
 let workletModule: Promise<void> | null = null;
 const outputListeners = new Set<(running: boolean) => void>();
 let recoveryArmed = false;
+
+export function gainForVolume(volume: number): number {
+  const position = Math.min(1, Math.max(0, volume));
+  return position <= 0 ? 0 : 10 ** ((position - 1) * (VOLUME_RANGE_DB / 20));
+}
 
 export function isOutputRunning(): boolean {
   return ctx === null || ctx.state === "running";
@@ -122,7 +130,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       channels: CHANNELS,
     },
   });
-  const gain = new GainNode(context, { gain: volume });
+  const gain = new GainNode(context, { gain: gainForVolume(volume) });
   node.connect(gain).connect(context.destination);
   node.port.onmessage = (event: MessageEvent<WorkletReport>) => {
     onReport(event.data);
@@ -186,7 +194,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       post(node, new Float32Array(frames * CHANNELS));
     },
     setVolume(v) {
-      gain.gain.value = v;
+      gain.gain.setTargetAtTime(gainForVolume(v), context.currentTime, VOLUME_RAMP_SECONDS);
     },
     reset() {
       post(node, "reset");

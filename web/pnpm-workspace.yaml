@@ -1,6 +1,10 @@
-# Security floor for transitive deps (GHSA advisory: js-yaml < 4.3.1, via openapi-typescript).
 overrides:
+  # GHSA advisory: js-yaml < 4.3.1, via openapi-typescript.
   js-yaml: "^4.3.1"
+  # Babel 7 (required by babel-plugin-react-compiler) asks for semver `^6.3.1`, whose 6.3.1
+  # carries no provenance and is refused by the trust policy below. Every semver API Babel
+  # calls is unchanged in 7.x.
+  semver: "^7.8.5"
 
 # A version whose supply-chain trust evidence (provenance, signatures) is weaker than an
 # earlier-published one is refused rather than accepted quietly, on fresh resolution and on every

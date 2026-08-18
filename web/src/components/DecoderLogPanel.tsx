@@ -54,10 +54,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const [cleared, setCleared] = useState<number | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
   const [widths, setWidths] = useState<ColumnWidths>(readColumnWidths);
-  const latest = useRef(widths);
-  latest.current = widths;
-
-  const commit = (): void => writeColumnWidths(latest.current);
+  const commit = (): void => writeColumnWidths(widths);
 
   useEffect(() => {
     if (search === filter.q) {

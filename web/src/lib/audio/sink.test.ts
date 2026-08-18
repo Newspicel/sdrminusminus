@@ -8,6 +8,7 @@ class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
 
   state = FakeAudioContext.initialState;
+  currentTime = 0;
   destination = {};
   audioWorklet = { addModule: vi.fn(() => Promise.resolve()) };
   resume = vi.fn(() => Promise.resolve());
@@ -43,14 +44,19 @@ class FakeWorkletNode {
 }
 
 class FakeGainNode {
-  gain: { value: number };
+  gain: { value: number; setTargetAtTime: (value: number) => void };
   connect = vi.fn((dest: unknown) => dest);
   disconnect = vi.fn();
 
   static instances: FakeGainNode[] = [];
 
   constructor(_ctx: unknown, opts: { gain: number }) {
-    this.gain = { value: opts.gain };
+    this.gain = {
+      value: opts.gain,
+      setTargetAtTime: (value: number) => {
+        this.gain.value = value;
+      },
+    };
     FakeGainNode.instances.push(this);
   }
 }
@@ -104,7 +110,11 @@ describe("createWebAudioSink", () => {
   });
 
   it("reports a suspended context, retries resume on gesture, and reports recovery", async () => {
-    createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
+    createDecoder.mockResolvedValue({
+      channels: 1,
+      decode: vi.fn(),
+      close: vi.fn(),
+    });
     const sinkModule = await importSink();
     const reported: boolean[] = [];
     sinkModule.onOutputStateChange((running) => reported.push(running));
@@ -129,7 +139,11 @@ describe("createWebAudioSink", () => {
   });
 
   it("a context created suspended (autoplay veto) is resumed inside the creating gesture", async () => {
-    createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
+    createDecoder.mockResolvedValue({
+      channels: 1,
+      decode: vi.fn(),
+      close: vi.fn(),
+    });
     FakeAudioContext.initialState = "suspended";
     const sinkModule = await importSink();
     const reported: boolean[] = [];
@@ -151,7 +165,11 @@ describe("createWebAudioSink", () => {
   });
 
   it("conceal posts a silence buffer of exactly the gap size", async () => {
-    createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
+    createDecoder.mockResolvedValue({
+      channels: 1,
+      decode: vi.fn(),
+      close: vi.fn(),
+    });
     const { createWebAudioSink } = await importSink();
 
     const sink = await createWebAudioSink(
@@ -229,5 +247,34 @@ describe("createWebAudioSink", () => {
     emit?.(Float32Array.from([0.25, -0.5]));
     const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
     expect(Array.from(posted ?? [])).toEqual([0.25, -0.5]);
+  });
+  it("tapers the slider position onto a 60 dB gain curve at creation and on change", async () => {
+    createDecoder.mockResolvedValue({
+      channels: 1,
+      decode: vi.fn(),
+      close: vi.fn(),
+    });
+    const { createWebAudioSink, gainForVolume } = await importSink();
+
+    expect(gainForVolume(0)).toBe(0);
+    expect(gainForVolume(1)).toBeCloseTo(1, 6);
+    expect(gainForVolume(0.5)).toBeCloseTo(10 ** -1.5, 6);
+    expect(gainForVolume(-1)).toBe(0);
+    expect(gainForVolume(2)).toBeCloseTo(1, 6);
+    for (const step of [0.1, 0.4, 0.8]) {
+      expect(gainForVolume(step)).toBeLessThan(gainForVolume(step + 0.1));
+    }
+
+    const sink = await createWebAudioSink(
+      "1:1",
+      0.5,
+      () => {},
+      () => {},
+    );
+    const gain = FakeGainNode.instances[0];
+    expect(gain?.gain.value).toBeCloseTo(gainForVolume(0.5), 6);
+
+    sink.setVolume(0.25);
+    expect(gain?.gain.value).toBeCloseTo(gainForVolume(0.25), 6);
   });
 });
