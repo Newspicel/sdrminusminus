@@ -648,3 +648,63 @@ fn reads_an_opus_soil_probe() {
     assert_eq!(reading.moisture_pct, Some(47.0));
     assert_eq!(reading.temperature_c, Some(21.0));
 }
+
+fn manchester_pairs(bits: &[bool]) -> Vec<bool> {
+    bits.iter().flat_map(|&bit| [!bit, bit]).collect()
+}
+
+fn differential_pairs(bits: &[bool]) -> Vec<bool> {
+    let mut out = Vec::with_capacity(bits.len() * 2);
+    let mut previous = false;
+    for &bit in bits {
+        let first = !previous;
+        let second = if bit { first } else { !first };
+        out.push(first);
+        out.push(second);
+        previous = second;
+    }
+    out
+}
+
+#[test]
+fn reads_a_renault_tyre_sensor_off_a_manchester_coded_fsk_burst() {
+    let mut bits = [true, false].repeat(12);
+    bits.extend(payload_bits(&[0xAA, 0xA9], 16));
+    bits.extend(manchester_pairs(&payload_bits(
+        &[0x35, 0x34, 0x30, 0x93, 0x1A, 0x4C, 0xFF, 0xFF, 0x04],
+        72,
+    )));
+    let p = SubghzParams {
+        modulation: SubghzModulation::Fsk,
+        ..SubghzParams::default()
+    };
+    let frames = decode(p, &fsk_nrz(&bits, 52, 40_000.0, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Renault-TPMS");
+    assert_eq!(reading.pressure_kpa, Some(231.0));
+    assert_eq!(reading.temperature_c, Some(18.0));
+}
+
+#[test]
+fn reads_a_toyota_tyre_sensor_off_a_differential_manchester_burst() {
+    let mut bits = payload_bits(&[0xA9, 0xE0], 11);
+    bits.extend(differential_pairs(&payload_bits(
+        &[0x1A, 0x2B, 0x3C, 0x4D, 0x4E, 0x1F, 0x00, 0x63, 0xFD],
+        72,
+    )));
+    let p = SubghzParams {
+        modulation: SubghzModulation::Fsk,
+        ..SubghzParams::default()
+    };
+    let frames = decode(p, &fsk_nrz(&bits, 52, 40_000.0, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Toyota-TPMS");
+    assert_eq!(reading.temperature_c, Some(22.0));
+    assert!(reading.pressure_kpa.is_some_and(|kpa| kpa > 200.0));
+}

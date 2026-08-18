@@ -111,6 +111,68 @@ impl Rows {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Recode {
+    None,
+    Manchester,
+    Differential,
+}
+
+pub(super) fn recode(mode: Recode, bits: &[bool]) -> Vec<bool> {
+    match mode {
+        Recode::None => bits.to_vec(),
+        Recode::Manchester => manchester_pairs(bits),
+        Recode::Differential => differential_pairs(bits),
+    }
+}
+
+fn manchester_pairs(bits: &[bool]) -> Vec<bool> {
+    let mut out = Vec::with_capacity(bits.len() / 2);
+    let (pairs, _) = bits.as_chunks::<2>();
+    for &[first, second] in pairs {
+        if first == second {
+            break;
+        }
+        out.push(second);
+    }
+    out
+}
+
+fn differential_pairs(bits: &[bool]) -> Vec<bool> {
+    let mut index = 0;
+    let mut previous = false;
+    let mut out = Vec::with_capacity(bits.len() / 2);
+    while index + 2 < bits.len() {
+        let (first, second, third) = (bits[index], bits[index + 1], bits[index + 2]);
+        index += 2;
+        if first != second {
+            if second != third {
+                out.push(false);
+            } else {
+                previous = first;
+                index -= 1;
+                break;
+            }
+        } else {
+            previous = !first;
+            index -= 2;
+            break;
+        }
+    }
+    while index + 1 < bits.len() {
+        let first = bits[index];
+        index += 1;
+        if first == previous {
+            break;
+        }
+        let second = bits[index];
+        index += 1;
+        out.push(first == second);
+        previous = second;
+    }
+    out
+}
+
 pub(super) fn slice(framing: &Framing, edges_us: &[u32]) -> Vec<Vec<bool>> {
     if edges_us.is_empty() {
         return Vec::new();
@@ -154,7 +216,6 @@ fn pcm(framing: &Framing, pulses: &Pulses, short_us: u32, long_us: u32) -> Rows 
         framing.tolerance_us
     };
     let max_zeros = i64::from(gap_limit / long_us);
-    let last = pulses.len() - 1;
     for index in 0..pulses.len() {
         let pulse = pulses.pulse(index);
         let gap = pulses.gap(index);
@@ -162,12 +223,10 @@ fn pcm(framing: &Framing, pulses: &Pulses, short_us: u32, long_us: u32) -> Rows 
         for _ in 0..highs {
             rows.bit(true);
         }
-        if index != last {
-            let span = i64::from(gap) + i64::from(short_us) - i64::from(long_us);
-            let lows = divide_round(span, long_us).clamp(0, max_zeros);
-            for _ in 0..lows {
-                rows.bit(false);
-            }
+        let span = i64::from(gap) + i64::from(short_us) - i64::from(long_us);
+        let lows = divide_round(span, long_us).clamp(0, max_zeros);
+        for _ in 0..lows {
+            rows.bit(false);
         }
         if short_us != long_us && pulse.abs_diff(short_us) > tolerance {
             rows.discard();
@@ -450,7 +509,11 @@ mod tests {
             &edges,
         );
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0], bits_of("11100100001"));
+        assert!(
+            rows[0].starts_with(&bits_of("11100100001")),
+            "{:?}",
+            rows[0]
+        );
     }
 
     #[test]
@@ -468,7 +531,7 @@ mod tests {
             ),
             &edges,
         );
-        assert_eq!(rows[0], bits_of("1101"));
+        assert!(rows[0].starts_with(&bits_of("1101")), "{:?}", rows[0]);
     }
 
     #[test]
@@ -589,6 +652,35 @@ mod tests {
             &edges,
         );
         assert_eq!(rows[0], bits_of("10100"));
+    }
+
+    #[test]
+    fn a_manchester_pair_yields_its_second_bit_and_stops_on_a_missing_clock() {
+        let encoded = [false, true, true, false, false, true, true, true];
+        assert_eq!(
+            recode(Recode::Manchester, &encoded),
+            vec![true, false, true]
+        );
+        assert_eq!(recode(Recode::None, &encoded), encoded.to_vec());
+    }
+
+    #[test]
+    fn differential_manchester_round_trips_the_bits_it_was_given() {
+        let want = [true, false, true, true, false, false, true, false];
+        let mut raw = vec![false, true, false];
+        let mut previous = false;
+        for &bit in &want {
+            let first = !previous;
+            let second = if bit { first } else { !first };
+            raw.push(first);
+            raw.push(second);
+            previous = second;
+        }
+        let decoded = recode(Recode::Differential, &raw);
+        assert!(
+            decoded.ends_with(&want),
+            "decoded {decoded:?} should end with {want:?}"
+        );
     }
 
     #[test]

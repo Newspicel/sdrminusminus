@@ -3,7 +3,7 @@ mod payload;
 use sdrmm_wire::{SubghzEncoding, SubghzReading};
 
 use self::payload::{PAYLOAD_BYTES, Payload};
-use super::slicer::{Coding, Framing, slice};
+use super::slicer::{Coding, Framing, Recode, recode, slice};
 
 pub(super) struct Match {
     pub encoding: SubghzEncoding,
@@ -23,6 +23,7 @@ enum Layout {
         sync: u32,
         sync_bits: usize,
         bits: usize,
+        recode: Recode,
     },
 }
 
@@ -91,9 +92,48 @@ const SENSORS: &[Device] = &[
             sync: 0x00AA_2DD4,
             sync_bits: 24,
             bits: 56,
+            recode: Recode::None,
         },
         invert: false,
         read: payload::ambientweather_wh31e,
+    },
+    Device {
+        framing: Framing {
+            coding: Coding::Pcm {
+                short_us: 52,
+                long_us: 52,
+            },
+            gap_us: 0,
+            reset_us: 150,
+            tolerance_us: 0,
+        },
+        layout: Layout::After {
+            sync: 0x0000_AAA9,
+            sync_bits: 16,
+            bits: 72,
+            recode: Recode::Manchester,
+        },
+        invert: false,
+        read: payload::tpms_renault,
+    },
+    Device {
+        framing: Framing {
+            coding: Coding::Pcm {
+                short_us: 52,
+                long_us: 52,
+            },
+            gap_us: 0,
+            reset_us: 150,
+            tolerance_us: 0,
+        },
+        layout: Layout::After {
+            sync: 0x0000_054F,
+            sync_bits: 11,
+            bits: 72,
+            recode: Recode::Differential,
+        },
+        invert: false,
+        read: payload::tpms_toyota,
     },
     Device {
         framing: Framing {
@@ -106,6 +146,7 @@ const SENSORS: &[Device] = &[
             sync: 0x0000_0145,
             sync_bits: 12,
             bits: 48,
+            recode: Recode::None,
         },
         invert: false,
         read: payload::ambientweather_f007th,
@@ -302,17 +343,21 @@ fn found_rows(row: &[bool], device: &Device) -> Vec<Vec<bool>> {
             sync,
             sync_bits,
             bits,
+            recode: mode,
         } => {
             let mut out = Vec::new();
             let span = sync_bits + bits;
             let mut start = 0;
             while start + span <= row.len() {
-                if matches_sync(row, start, sync, sync_bits) {
-                    out.push(row[start + sync_bits..start + span].to_vec());
-                    start += span;
-                } else {
+                if !matches_sync(row, start, sync, sync_bits) {
                     start += 1;
+                    continue;
                 }
+                let body = recode(mode, &row[start + sync_bits..]);
+                if body.len() >= bits {
+                    out.push(body[..bits].to_vec());
+                }
+                start += span;
             }
             out
         }

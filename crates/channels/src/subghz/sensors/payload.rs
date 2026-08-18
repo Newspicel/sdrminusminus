@@ -1,7 +1,7 @@
 use sdrmm_dsp::{crc4_msb, crc8_msb, lfsr_digest8, lfsr_digest8_reflect};
 use sdrmm_wire::SubghzReading;
 
-pub(super) const PAYLOAD_BYTES: usize = 8;
+pub(super) const PAYLOAD_BYTES: usize = 12;
 
 pub(super) type Payload = [u8; PAYLOAD_BYTES];
 
@@ -415,6 +415,48 @@ pub(super) fn opus_xt300(b: &Payload) -> Option<SubghzReading> {
     })
 }
 
+pub(super) fn tpms_renault(b: &Payload) -> Option<SubghzReading> {
+    if crc8_msb(0x07, 0x00, &b[..8]) != b[8] {
+        return None;
+    }
+    let raw = u32::from(b[0] & 0x03) << 8 | u32::from(b[1]);
+    let pressure_kpa = f64::from(raw) * 0.75;
+    let temperature_c = f64::from(i16::from(b[2]) - 30);
+    if !plausible(temperature_c, None) || pressure_kpa > 900.0 {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Renault-TPMS".to_owned(),
+        id: u32::from(b[5]) << 16 | u32::from(b[4]) << 8 | u32::from(b[3]),
+        temperature_c: Some(temperature_c),
+        pressure_kpa: Some(pressure_kpa),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn tpms_toyota(b: &Payload) -> Option<SubghzReading> {
+    if crc8_msb(0x07, 0x80, &b[..8]) != b[8] {
+        return None;
+    }
+    let pressure = u16::from(b[4] & 0x7F) << 1 | u16::from(b[5] >> 7);
+    if pressure != u16::from(b[7] ^ 0xFF) {
+        return None;
+    }
+    let raw_temperature = u16::from(b[5] & 0x7F) << 1 | u16::from(b[6] >> 7);
+    let temperature_c = f64::from(raw_temperature) - 40.0;
+    let pressure_kpa = (f64::from(pressure) * 0.25 - 7.0) * 6.894_757_293_168_361;
+    if !plausible(temperature_c, None) || !(0.0..=900.0).contains(&pressure_kpa) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Toyota-TPMS".to_owned(),
+        id: u32::from(b[0]) << 24 | u32::from(b[1]) << 16 | u32::from(b[2]) << 8 | u32::from(b[3]),
+        temperature_c: Some(temperature_c),
+        pressure_kpa: Some(pressure_kpa),
+        ..SubghzReading::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,6 +839,42 @@ mod tests {
         assert!(
             nexus(&frame).is_none(),
             "Nexus must defer to the family whose CRC closes"
+        );
+    }
+
+    #[test]
+    fn a_renault_tyre_sensor_reports_pressure_in_kilopascals() {
+        let reading = tpms_renault(&payload(&[
+            0x35, 0x34, 0x30, 0x93, 0x1A, 0x4C, 0xFF, 0xFF, 0x04,
+        ]))
+        .expect("valid Renault TPMS");
+        assert_eq!(reading.model, "Renault-TPMS");
+        assert_eq!(reading.id, 0x4C_1A93);
+        assert_eq!(reading.temperature_c, Some(18.0));
+        assert_eq!(reading.pressure_kpa, Some(231.0));
+        assert_eq!(reading.humidity_pct, None);
+    }
+
+    #[test]
+    fn a_toyota_tyre_sensor_converts_its_pressure_out_of_psi() {
+        let reading = tpms_toyota(&payload(&[
+            0x1A, 0x2B, 0x3C, 0x4D, 0x4E, 0x1F, 0x00, 0x63, 0xFD,
+        ]))
+        .expect("valid Toyota TPMS");
+        assert_eq!(reading.model, "Toyota-TPMS");
+        assert_eq!(reading.id, 0x1A2B_3C4D);
+        assert_eq!(reading.temperature_c, Some(22.0));
+        let kpa = reading.pressure_kpa.expect("a pressure");
+        assert!((kpa - 220.63).abs() < 0.01, "pressure {kpa} kPa");
+    }
+
+    #[test]
+    fn toyota_rejects_a_frame_whose_two_pressure_copies_disagree() {
+        assert!(
+            tpms_toyota(&payload(&[
+                0x1A, 0x2B, 0x3C, 0x4D, 0x4E, 0x1F, 0x00, 0x64, 0xFD
+            ]))
+            .is_none()
         );
     }
 
