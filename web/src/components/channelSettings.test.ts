@@ -8,6 +8,7 @@ import {
   clampOffsetHz,
   mergeAudio,
   mergeChannelSettings,
+  offsetForFrequencyHz,
   offsetLimitHz,
   rateMismatch,
   withNotchAdded,
@@ -293,5 +294,27 @@ describe("audioChainActive", () => {
     expect(audioChainActive({ filter: { enabled: true } })).toBe(true);
     expect(audioChainActive({ click_removal: { enabled: true } })).toBe(true);
     expect(audioChainActive({ notches: [{ freq_hz: 1_000, width_hz: 100 }] })).toBe(true);
+  });
+});
+
+describe("offsetForFrequencyHz", () => {
+  it("turns an absolute frequency into an offset from the tuned center", () => {
+    expect(offsetForFrequencyHz(433_920_000, 433_000_000, 1_000_000)).toBe(920_000);
+    expect(offsetForFrequencyHz(432_500_000, 433_000_000, 1_000_000)).toBe(-500_000);
+    expect(offsetForFrequencyHz(433_000_000, 433_000_000, null)).toBe(0);
+  });
+
+  it("rounds to whole hertz", () => {
+    expect(offsetForFrequencyHz(433_920_000.4, 433_000_000, null)).toBe(920_000);
+  });
+
+  it("refuses a frequency the current span cannot reach", () => {
+    expect(offsetForFrequencyHz(435_000_000, 433_000_000, 1_000_000)).toBeNull();
+    expect(offsetForFrequencyHz(435_000_000, 433_000_000, null)).toBe(2_000_000);
+  });
+
+  it("has no answer without finite inputs", () => {
+    expect(offsetForFrequencyHz(Number.NaN, 433_000_000, null)).toBeNull();
+    expect(offsetForFrequencyHz(433_000_000, Number.POSITIVE_INFINITY, null)).toBeNull();
   });
 });

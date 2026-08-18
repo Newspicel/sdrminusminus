@@ -121,6 +121,10 @@ Tune a channel by editing its offset, dragging its marker on a connected Scope, 
 keyboard while the channel is selected. The displayed absolute frequency is the source stream's
 center plus the channel offset.
 
+**Freq** next to the offset takes an absolute frequency instead and works the offset out for you.
+A bare number is read as megahertz; a `kHz`, `MHz` or `GHz` suffix is honoured. Frequencies the
+current sample rate cannot reach are rejected, and the reachable span is shown below the field.
+
 Audio channels can gate their output with squelch. A lower threshold opens more easily; turning
 squelch off passes audio continuously.
 

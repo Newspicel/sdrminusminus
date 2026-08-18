@@ -93,6 +93,7 @@ function SignalSurvey({
   const [live, setLive] = useState<{
     level: number | null;
     targetHz: number;
+    centerHz: number;
     spanHz: number;
   } | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
@@ -119,7 +120,7 @@ function SignalSurvey({
         const now = performance.now();
         if (now - lastLevelRenderRef.current >= LEVEL_REFRESH_MS || measured === null) {
           lastLevelRenderRef.current = now;
-          setLive({ level: measured, targetHz, spanHz: frame.spanHz });
+          setLive({ level: measured, targetHz, centerHz: frame.centerHz, spanHz: frame.spanHz });
         }
 
         const fix = positionRef.current;
@@ -188,6 +189,7 @@ function SignalSurvey({
           <OffsetStepper
             offsetHz={node.data.offset_hz}
             limitHz={offsetLimitHz}
+            centerHz={live?.centerHz ?? null}
             onOffset={(offset) => updateSettings(offset, node.data.bandwidth_hz)}
           />
         </fieldset>

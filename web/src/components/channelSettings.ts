@@ -117,6 +117,18 @@ export function clampOffsetHz(hz: number, limitHz: number | null): number {
   return limitHz === null ? hz : Math.min(limitHz, Math.max(-limitHz, hz));
 }
 
+export function offsetForFrequencyHz(
+  frequencyHz: number,
+  centerHz: number,
+  limitHz: number | null,
+): number | null {
+  if (!Number.isFinite(frequencyHz) || !Number.isFinite(centerHz)) {
+    return null;
+  }
+  const offsetHz = Math.round(frequencyHz - centerHz);
+  return limitHz !== null && Math.abs(offsetHz) > limitHz ? null : offsetHz;
+}
+
 export function rateMismatch(
   descriptor: ChannelDescriptor | undefined,
   sampleRateHz: number | null | undefined,

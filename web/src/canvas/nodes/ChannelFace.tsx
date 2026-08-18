@@ -99,6 +99,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               channel={channel}
               descriptor={descriptor}
               spanHz={set.settings.sample_rate ?? null}
+              centerHz={centerHz}
             />
             {unwired.map((reason) => (
               <p key={reason} className="legend px-2 pb-2">

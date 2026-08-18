@@ -182,11 +182,13 @@ export function ChannelControls({
   channel,
   descriptor,
   spanHz,
+  centerHz,
 }: {
   deviceSet: number;
   channel: ChannelInfo;
   descriptor: ChannelDescriptor | undefined;
   spanHz: number | null;
+  centerHz: number | null;
 }) {
   const { applyEdit } = useChannelPatch();
   const onEdit = (edit: ChannelEdit): void => applyEdit(deviceSet, channel.id, edit);
@@ -205,6 +207,7 @@ export function ChannelControls({
         <OffsetStepper
           offsetHz={offsetHz}
           limitHz={limitHz}
+          centerHz={centerHz}
           onOffset={(offset_hz) => onEdit({ offset_hz })}
         />
       </SettingRow>
