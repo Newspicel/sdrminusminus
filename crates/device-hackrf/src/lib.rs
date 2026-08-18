@@ -4,7 +4,7 @@ use std::{
 };
 
 use convert::samples_to_cs8;
-use driver::{BurstQueue, DeviceDescriptor, HackRf, SweepBlocks, TX_TRANSFER_SIZE};
+use driver::{BurstQueue, DeviceDescriptor, FilterWidth, HackRf, SweepBlocks, TX_TRANSFER_SIZE};
 pub use driver::{SweepPlan, SweepRange, SweepStyle};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, DuplexState,
@@ -186,8 +186,8 @@ fn write_to_hardware(device: &mut HackRf, applied: &caps::Applied) -> Result<(),
         device.set_sample_rate_hz(rate).map_err(map_err)?;
     }
     match applied.filter {
-        Some(caps::FilterWidth::Hz(hz)) => device.set_filter_width_hz(hz).map_err(map_err)?,
-        Some(caps::FilterWidth::MatchRate) => device.set_filter_to_match_rate().map_err(map_err)?,
+        Some(FilterWidth::Hz(hz)) => device.set_filter_width_hz(hz).map_err(map_err)?,
+        Some(FilterWidth::MatchRate) => device.set_filter_to_match_rate().map_err(map_err)?,
         None => {}
     }
     if let Some(db) = applied.lna_gain_db {

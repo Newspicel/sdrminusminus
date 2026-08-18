@@ -4,7 +4,7 @@ use sdrmm_wire::{
     GainValue, Range, StreamScope, any_range_holds,
 };
 
-use crate::driver::{Config, FILTER_WIDTHS_HZ, snap_filter_width};
+use crate::driver::{Config, FILTER_WIDTHS_HZ, FilterWidth, snap_filter_width};
 
 pub(crate) const ANTENNA: &str = "RX";
 pub(crate) const LNA_STAGE: &str = "LNA";
@@ -67,7 +67,9 @@ pub(crate) fn capabilities() -> Capabilities {
             },
         ],
         antennas: vec![ANTENNA.to_string()],
-        bandwidths: FILTER_WIDTHS_HZ.iter().copied().map(f64::from).collect(),
+        bandwidths: std::iter::once(FILTER_MATCH_RATE_HZ)
+            .chain(FILTER_WIDTHS_HZ.iter().copied().map(f64::from))
+            .collect(),
         bandwidth_ranges: Vec::new(),
         extra: vec![ExtraSetting::Bool {
             name: BIAS_TEE_SETTING.to_string(),
@@ -94,12 +96,6 @@ pub(crate) struct Applied {
     pub(crate) vga_gain_db: Option<u8>,
     pub(crate) amp: Option<bool>,
     pub(crate) bias_tee: Option<bool>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FilterWidth {
-    MatchRate,
-    Hz(u32),
 }
 
 pub(crate) fn validate(
@@ -205,7 +201,10 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         ppm: None,
         antenna: Some(ANTENNA.to_string()),
-        bandwidth: Some(f64::from(config.filter_width_hz)),
+        bandwidth: Some(match config.filter {
+            FilterWidth::MatchRate => FILTER_MATCH_RATE_HZ,
+            FilterWidth::Hz(hz) => f64::from(hz),
+        }),
         dc_block: None,
         lo_offset_hz: None,
         gains: vec![
@@ -282,8 +281,9 @@ mod tests {
         assert_eq!(caps.gains[2].name, "VGA");
         assert_eq!(caps.gains[2].range.step, Some(2.0));
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
-        assert_eq!(caps.bandwidths.len(), 16);
-        assert_eq!(caps.bandwidths.first(), Some(&1.75e6));
+        assert_eq!(caps.bandwidths.len(), 17);
+        assert_eq!(caps.bandwidths.first(), Some(&0.0));
+        assert_eq!(caps.bandwidths.get(1), Some(&1.75e6));
         assert_eq!(caps.bandwidths.last(), Some(&28e6));
         assert!(caps.bandwidths.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(
@@ -626,6 +626,17 @@ mod tests {
     }
 
     #[test]
+    fn a_matched_filter_reports_as_the_automatic_choice_and_re_applies_as_one() {
+        let settings = settings_from_config(&Config::default());
+        assert_eq!(settings.bandwidth, Some(0.0));
+        assert_eq!(
+            validate(&settings, &capabilities()).unwrap().filter,
+            Some(FilterWidth::MatchRate)
+        );
+        assert!(capabilities().bandwidths.contains(&0.0));
+    }
+
+    #[test]
     fn settings_mirror_the_drivers_applied_config() {
         let config = Config {
             frequency_hz: 100_000_000,
@@ -633,7 +644,7 @@ mod tests {
             lna_gain_db: 16,
             vga_gain_db: 30,
             tx_vga_gain_db: 0,
-            filter_width_hz: 1_750_000,
+            filter: FilterWidth::Hz(1_750_000),
             amp_enabled: true,
             bias_tee_enabled: false,
         };

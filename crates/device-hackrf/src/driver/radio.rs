@@ -4,7 +4,7 @@ use tracing::{debug, info};
 
 use super::{
     commands::TransceiverMode,
-    config::{self, Config},
+    config::{self, Config, FilterWidth},
     control::{
         Control, VendorControlRequest, decode_c_string, decode_part_id_serial,
         validate_gain_response,
@@ -117,22 +117,23 @@ impl HackRf {
         self.control
             .control_out(&VendorControlRequest::set_sample_rate(sample_rate_hz))?;
         self.config.sample_rate_hz = sample_rate_hz;
-        self.write_filter_width(config::filter_width_for_rate(sample_rate_hz))
+        self.write_filter(self.config.filter)
     }
 
     pub(crate) fn set_filter_width_hz(&mut self, width_hz: u32) -> Result<()> {
         config::validate_filter_width(width_hz)?;
-        self.write_filter_width(width_hz)
+        self.write_filter(FilterWidth::Hz(width_hz))
     }
 
     pub(crate) fn set_filter_to_match_rate(&mut self) -> Result<()> {
-        self.write_filter_width(config::filter_width_for_rate(self.config.sample_rate_hz))
+        self.write_filter(FilterWidth::MatchRate)
     }
 
-    fn write_filter_width(&mut self, width_hz: u32) -> Result<()> {
+    fn write_filter(&mut self, filter: FilterWidth) -> Result<()> {
+        let width_hz = filter.resolve(self.config.sample_rate_hz);
         self.control
             .control_out(&VendorControlRequest::set_baseband_bandwidth(width_hz))?;
-        self.config.filter_width_hz = width_hz;
+        self.config.filter = filter;
         Ok(())
     }
 

@@ -14,6 +14,22 @@ pub(crate) const FILTER_WIDTHS_HZ: [u32; 16] = [
 const FILTER_RATE_FRACTION_NUM: u64 = 3;
 const FILTER_RATE_FRACTION_DEN: u64 = 4;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum FilterWidth {
+    #[default]
+    MatchRate,
+    Hz(u32),
+}
+
+impl FilterWidth {
+    pub(crate) fn resolve(self, sample_rate_hz: u32) -> u32 {
+        match self {
+            Self::MatchRate => filter_width_for_rate(sample_rate_hz),
+            Self::Hz(hz) => hz,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Config {
     pub(crate) frequency_hz: u64,
@@ -21,7 +37,7 @@ pub(crate) struct Config {
     pub(crate) lna_gain_db: u8,
     pub(crate) vga_gain_db: u8,
     pub(crate) tx_vga_gain_db: u8,
-    pub(crate) filter_width_hz: u32,
+    pub(crate) filter: FilterWidth,
     pub(crate) amp_enabled: bool,
     pub(crate) bias_tee_enabled: bool,
 }
@@ -34,7 +50,7 @@ impl Default for Config {
             lna_gain_db: DEFAULT_LNA_GAIN_DB,
             vga_gain_db: DEFAULT_VGA_GAIN_DB,
             tx_vga_gain_db: DEFAULT_TX_VGA_GAIN_DB,
-            filter_width_hz: filter_width_for_rate(DEFAULT_SAMPLE_RATE_HZ),
+            filter: FilterWidth::MatchRate,
             amp_enabled: false,
             bias_tee_enabled: false,
         }
@@ -133,9 +149,19 @@ mod tests {
         assert_eq!(config.lna_gain_db, 8);
         assert_eq!(config.vga_gain_db, 20);
         assert_eq!(config.tx_vga_gain_db, 0);
-        assert_eq!(config.filter_width_hz, 7_000_000);
+        assert_eq!(config.filter, FilterWidth::MatchRate);
+        assert_eq!(config.filter.resolve(config.sample_rate_hz), 7_000_000);
         assert!(!config.amp_enabled);
         assert!(!config.bias_tee_enabled);
+    }
+
+    #[test]
+    fn an_explicit_width_holds_across_rates_while_match_rate_follows() {
+        let explicit = FilterWidth::Hz(1_750_000);
+        assert_eq!(explicit.resolve(2_000_000), 1_750_000);
+        assert_eq!(explicit.resolve(20_000_000), 1_750_000);
+        assert_eq!(FilterWidth::MatchRate.resolve(2_000_000), 1_750_000);
+        assert_eq!(FilterWidth::MatchRate.resolve(20_000_000), 15_000_000);
     }
 
     #[test]
