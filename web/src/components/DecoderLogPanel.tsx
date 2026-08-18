@@ -19,6 +19,7 @@ import {
   collectLive,
   DEFAULT_LOG_FILTER,
   droppedNotice,
+  FLEX_COLUMN,
   isFiltered,
   kindLabel,
   LIMIT_OPTIONS,
@@ -178,19 +179,17 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
               style={{ width: totalColumnWidth(widths), minWidth: "100%" }}
             >
               <colgroup>
-                {LOG_COLUMNS.map((column, index) => (
+                {LOG_COLUMNS.map((column) => (
                   <col
                     key={column.key}
-                    style={
-                      index === LOG_COLUMNS.length - 1 ? undefined : { width: widths[column.key] }
-                    }
+                    style={column.key === FLEX_COLUMN ? undefined : { width: widths[column.key] }}
                   />
                 ))}
               </colgroup>
               <thead className="sticky top-0 bg-panel">
                 <tr className="border-b border-line">
-                  {LOG_COLUMNS.map((column, index) => {
-                    const last = index === LOG_COLUMNS.length - 1;
+                  {LOG_COLUMNS.map((column) => {
+                    const last = column.key === FLEX_COLUMN;
                     return (
                       <th
                         key={column.key}

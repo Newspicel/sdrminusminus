@@ -6,6 +6,26 @@ export function hex5(address: number): string {
   return address.toString(16).toUpperCase().padStart(5, "0");
 }
 
+export function hex2(value: number): string {
+  return value.toString(16).toUpperCase().padStart(2, "0");
+}
+
+export function sensorFacts(reading: {
+  model: string;
+  id: number;
+  channel?: number | null;
+  temperature_c?: number | null;
+  humidity_pct?: number | null;
+}): (string | null)[] {
+  return [
+    reading.model,
+    `id ${hex2(reading.id)}`,
+    reading.channel == null ? null : `ch ${reading.channel}`,
+    reading.temperature_c == null ? null : `${reading.temperature_c.toFixed(1)} °C`,
+    reading.humidity_pct == null ? null : `${reading.humidity_pct.toFixed(0)} %`,
+  ];
+}
+
 function position(lat: number | null | undefined, lon: number | null | undefined): string | null {
   return lat == null || lon == null ? null : `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
 }
@@ -119,7 +139,9 @@ export function eventSummary(event: DecoderEvent): string {
     case "subghz": {
       const f = event.data;
       return join([
-        f.bits === 0 ? `raw, ${(f.timings_us ?? []).length} edges` : `${f.bits} bit ${f.data}`,
+        ...(f.reading == null
+          ? [f.bits === 0 ? `raw, ${(f.timings_us ?? []).length} edges` : `${f.bits} bit ${f.data}`]
+          : sensorFacts(f.reading)),
         f.address == null ? null : `addr ${hex5(f.address)}`,
         f.button == null ? null : `btn ${f.button.toString(16).toUpperCase()}`,
         f.repeats > 1 ? `\u00d7${f.repeats}` : null,
@@ -268,6 +290,9 @@ export function eventStation(event: DecoderEvent): string | null {
       return event.data.registration;
     case "subghz": {
       const f = event.data;
+      if (f.reading != null) {
+        return `${f.reading.model} ${hex2(f.reading.id)}`;
+      }
       if (f.address != null) {
         return hex5(f.address);
       }

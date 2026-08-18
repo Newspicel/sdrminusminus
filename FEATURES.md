@@ -72,7 +72,9 @@ If something is shipped, then remove it.
 ### Sub-GHz, ISM & IoT
 
 - Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§6)
-- Protocol library — the encoding is classified and the bits handed back; a table of known payload layouts (weather stations, TPMS, meters) is data work, not DSP
+- Protocol library beyond the first three sensors — Nexus-T/TH, Acurite 609TXC and LaCrosse
+  TX141TH-Bv2 read as named temperature/humidity readings; TPMS, meters and the rest of the
+  weather-station families are payload layouts to add to the same table
 - ISM sensor suite (rtl_433-style); escape hatch is a UDP sink into the rtl_433 binary
 - ChirpChat / LoRa, Meshtastic, MeshCore
 - End-of-Train (EOT) telemetry

@@ -86,6 +86,8 @@ export const LOG_COLUMNS = [
 
 export type LogColumnKey = (typeof LOG_COLUMNS)[number]["key"];
 
+export const FLEX_COLUMN: LogColumnKey = "summary";
+
 export type ColumnWidths = Record<LogColumnKey, number>;
 
 export const MIN_COLUMN_WIDTH = 56;
@@ -142,7 +144,7 @@ export function readColumnWidths(): ColumnWidths {
   const record = stored as Record<string, unknown>;
   for (const column of LOG_COLUMNS) {
     const value = record[column.key];
-    if (typeof value === "number" && Number.isFinite(value)) {
+    if (column.key !== FLEX_COLUMN && typeof value === "number" && Number.isFinite(value)) {
       widths[column.key] = clampColumnWidth(value);
     }
   }

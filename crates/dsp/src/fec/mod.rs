@@ -59,6 +59,38 @@ pub fn crc16_msb(poly: u16, init: u16, data: &[u8]) -> u16 {
 }
 
 #[must_use]
+pub fn crc8_msb(poly: u8, init: u8, data: &[u8]) -> u8 {
+    data.iter().fold(init, |crc, &byte| {
+        (0..8).fold(crc ^ byte, |acc, _| {
+            if acc & 0x80 == 0 {
+                acc << 1
+            } else {
+                (acc << 1) ^ poly
+            }
+        })
+    })
+}
+
+#[must_use]
+pub fn lfsr_digest8_reflect(poly: u8, key: u8, data: &[u8]) -> u8 {
+    let mut key = key;
+    let mut sum = 0u8;
+    for &byte in data.iter().rev() {
+        for bit in 0..8 {
+            if byte >> bit & 1 == 1 {
+                sum ^= key;
+            }
+            key = if key & 0x80 == 0 {
+                key << 1
+            } else {
+                (key << 1) ^ poly
+            };
+        }
+    }
+    sum
+}
+
+#[must_use]
 pub fn rs129_parity(msg: &[u8]) -> [u8; 3] {
     const POLY: [u8; 3] = [64, 56, 14];
     let mut parity = [0u8; 3];
@@ -618,6 +650,35 @@ pub fn rds_encode_block(data: u16, offset: RdsOffset) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crc8_matches_the_published_catalogue_check_values() {
+        let check = b"123456789";
+        assert_eq!(crc8_msb(0x07, 0x00, check), 0xF4);
+        assert_eq!(crc8_msb(0x31, 0xFF, check), 0xF7);
+        assert_eq!(crc8_msb(0x1D, 0xFD, check), 0x7E);
+    }
+
+    #[test]
+    fn an_lfsr_digest_of_one_set_bit_is_the_key_it_started_from() {
+        assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[]), 0x00);
+        assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[0x00]), 0x00);
+        assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[0x01]), 0xF4);
+        assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[0x80]), 0x23);
+    }
+
+    #[test]
+    fn an_lfsr_digest_is_linear_over_the_message_bits() {
+        let left = [0x8Fu8, 0x12, 0xC9, 0x2F];
+        let right = [0x2Au8, 0xA1, 0xA9, 0x58];
+        let mixed: Vec<u8> = left.iter().zip(right).map(|(&a, b)| a ^ b).collect();
+        assert_eq!(
+            lfsr_digest8_reflect(0x31, 0xF4, &mixed),
+            lfsr_digest8_reflect(0x31, 0xF4, &left) ^ lfsr_digest8_reflect(0x31, 0xF4, &right)
+        );
+        assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &left), 0x9F);
+        assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &right), 0x23);
+    }
 
     #[test]
     fn p25_reed_solomon_corrects_to_each_codes_capacity() {

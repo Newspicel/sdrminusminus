@@ -12678,6 +12678,7 @@
         "type": "string",
         "enum": [
           "pwm",
+          "ppm",
           "manchester",
           "raw"
         ]
@@ -12722,6 +12723,16 @@
           },
           "modulation": {
             "$ref": "#/components/schemas/SubghzModulation"
+          },
+          "reading": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubghzReading"
+              }
+            ]
           },
           "repeats": {
             "type": "integer",
@@ -12775,6 +12786,51 @@
           },
           "modulation": {
             "$ref": "#/components/schemas/SubghzModulation"
+          }
+        }
+      },
+      "SubghzReading": {
+        "type": "object",
+        "required": [
+          "model",
+          "id"
+        ],
+        "properties": {
+          "battery_ok": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "humidity_pct": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string"
+          },
+          "temperature_c": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
           }
         }
       },

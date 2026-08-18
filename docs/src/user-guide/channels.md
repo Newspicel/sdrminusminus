@@ -39,7 +39,7 @@ list.
 | Marine | AIS, NAVTEX, Digital Selective Calling, Inmarsat STD-C / EGC | fixture-only |
 | Amateur data and HF | APRS / AX.25, RTTY, PSK (31, 63, 125, 250 baud), Morse (CW), CW skimmer, FT8, FT4, WSPR | fixture-only |
 | Paging and telemetry | POCSAG | tested on air |
-| Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
+| Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors (Nexus-T/TH, Acurite 609TXC, LaCrosse TX141TH-Bv2), radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
 | Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
 | Utility | Signal identifier, Iridium bursts | fixture-only |
@@ -80,6 +80,10 @@ project's own transmitter, so the framing is real traffic while the waveform is 
 Mode 2, HFDL, Inmarsat Classic Aero, Inmarsat STD-C and Digital Selective Calling use decoders
 from the [xng](https://github.com/airframesio/xng) project, which are exercised against real
 traffic upstream; the label describes this integration, not that work.
+
+The ISM sensor payload layouts, their validation heuristics, and the LFSR digest the LaCrosse
+sensor checksums with follow [rtl_433](https://github.com/merbanan/rtl_433) (GPL-2.0-or-later),
+which documents the pulse timings and field positions each of these sensors transmits.
 
 The wideband digital channels are **acquisition only**. They report waveform lock, SNR, frequency
 error, and the configured symbol rate where one applies. They do not decode DAB FIC/MSC, DVB

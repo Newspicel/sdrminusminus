@@ -402,6 +402,56 @@ describe("eventDetail", () => {
     expect(detail.body).toBe("320/960  960/320  320");
   });
 
+  it("puts a named sensor reading ahead of the framing that carried it", () => {
+    const detail = eventDetail({
+      kind: "subghz",
+      data: {
+        modulation: "ook",
+        encoding: "ppm",
+        bits: 36,
+        data: "8F80D5F2F",
+        short_us: 1000,
+        repeats: 8,
+        reading: {
+          model: "Nexus-TH",
+          id: 0x8f,
+          channel: 1,
+          battery_ok: true,
+          temperature_c: 21.3,
+          humidity_pct: 47,
+        },
+      },
+    });
+    expect(detail.fields.slice(0, 6)).toEqual([
+      ["Model", "Nexus-TH"],
+      ["Sensor id", "8F"],
+      ["Channel", "1"],
+      ["Temperature", "21.3 °C"],
+      ["Humidity", "47 %"],
+      ["Battery", "yes"],
+    ]);
+  });
+
+  it("omits the sensor fields a reading did not carry", () => {
+    const detail = eventDetail({
+      kind: "subghz",
+      data: {
+        modulation: "ook",
+        encoding: "ppm",
+        bits: 36,
+        data: "A3901EF0",
+        short_us: 1000,
+        repeats: 4,
+        reading: { model: "Nexus-T", id: 0xa3, temperature_c: 3 },
+      },
+    });
+    const labels = detail.fields.map(([label]) => label);
+    expect(labels).toContain("Temperature");
+    expect(labels).not.toContain("Humidity");
+    expect(labels).not.toContain("Channel");
+    expect(labels).not.toContain("Battery");
+  });
+
   it("reports a raw capture as timings with no payload", () => {
     const detail = eventDetail({
       kind: "subghz",

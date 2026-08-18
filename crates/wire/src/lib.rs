@@ -57,8 +57,8 @@ pub use decode::{
     DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame,
     IdentFeatures, IdentReport, IlsReading, Modulation, MorseText, NavtexMessage, PagerPayload,
     PocsagMessage, PocsagPayload, ProtocolMatch, PskText, RadioClockFrame, RdsUpdate, RttyText,
-    ScramblerStatus, SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
-    Vendor, VorReading, WsjtMessage, WsprSpot,
+    ScramblerStatus, SelcallSequence, SstvPicture, SubghzEncoding, SubghzFrame, SubghzReading,
+    ToneSquelchStatus, Vendor, VorReading, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DcArtifact,

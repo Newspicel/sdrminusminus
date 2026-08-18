@@ -11,6 +11,7 @@ import {
   droppedNotice,
   eventStation,
   eventSummary,
+  FLEX_COLUMN,
   isFiltered,
   kindLabel,
   LOG_COLUMNS,
@@ -635,6 +636,18 @@ describe("column widths", () => {
     useStorage(fakeStorage());
     writeColumnWidths(resizeColumn(defaultColumnWidths(), "kind", 200));
     expect(readColumnWidths().kind).toBe(200);
+  });
+
+  it("keeps the flex column off storage so it always fills the panel", () => {
+    const store = fakeStorage();
+    useStorage(store);
+    store.setItem(
+      "sdrmm.decoderLog.columns",
+      JSON.stringify({ ...defaultColumnWidths(), [FLEX_COLUMN]: 900 }),
+    );
+    expect(readColumnWidths()[FLEX_COLUMN]).toBe(defaultColumnWidths()[FLEX_COLUMN]);
+    expect(totalColumnWidth(readColumnWidths())).toBe(totalColumnWidth(defaultColumnWidths()));
+    useStorage(undefined);
   });
 
   it("falls back to defaults on missing, corrupt or bogus storage", () => {

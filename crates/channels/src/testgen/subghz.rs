@@ -38,6 +38,65 @@ pub fn pwm_timings(frame: &Pwm) -> Vec<u32> {
     out
 }
 
+#[derive(Clone, Debug)]
+pub struct Ppm {
+    pub bits: Vec<bool>,
+    pub pulse_us: u32,
+    pub short_gap_us: u32,
+    pub long_gap_us: u32,
+    pub sync_gap_us: u32,
+    pub repeats: u32,
+}
+
+#[must_use]
+pub fn ppm_timings(frame: &Ppm) -> Vec<u32> {
+    let mut out = Vec::with_capacity(frame.bits.len() * 2 * frame.repeats.max(1) as usize);
+    for _ in 0..frame.repeats.max(1) {
+        for &bit in &frame.bits {
+            out.push(frame.pulse_us);
+            out.push(if bit {
+                frame.long_gap_us
+            } else {
+                frame.short_gap_us
+            });
+        }
+        out.push(frame.pulse_us);
+        out.push(frame.sync_gap_us);
+    }
+    out
+}
+
+#[derive(Clone, Debug)]
+pub struct PwmBurst {
+    pub bits: Vec<bool>,
+    pub short_us: u32,
+    pub long_us: u32,
+    pub preamble_us: u32,
+    pub preamble_pulses: u32,
+    pub repeats: u32,
+}
+
+#[must_use]
+pub fn pwm_burst_timings(frame: &PwmBurst) -> Vec<u32> {
+    let mut out = Vec::new();
+    for _ in 0..frame.repeats.max(1) {
+        for _ in 0..frame.preamble_pulses {
+            out.push(frame.preamble_us);
+            out.push(frame.preamble_us);
+        }
+        for &bit in &frame.bits {
+            let (pulse, gap) = if bit {
+                (frame.long_us, frame.short_us)
+            } else {
+                (frame.short_us, frame.long_us)
+            };
+            out.push(pulse);
+            out.push(gap);
+        }
+    }
+    out
+}
+
 #[must_use]
 pub fn manchester_cells(bits: &[bool]) -> Vec<bool> {
     bits.iter().flat_map(|&b| [b, !b]).collect()

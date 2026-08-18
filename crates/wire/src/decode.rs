@@ -279,9 +279,24 @@ pub struct AcarsMessage {
 #[serde(rename_all = "snake_case")]
 pub enum SubghzEncoding {
     Pwm,
+    Ppm,
     Manchester,
     #[default]
     Raw,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct SubghzReading {
+    pub model: String,
+    pub id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery_ok: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_c: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub humidity_pct: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -296,6 +311,8 @@ pub struct SubghzFrame {
     pub button: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tri_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reading: Option<SubghzReading>,
     pub short_us: u32,
     pub repeats: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

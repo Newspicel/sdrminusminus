@@ -1,5 +1,5 @@
 import type { AprsPacket, DataLinkMessage, DecoderEvent, DecoderKind, DvFrame } from "../lib/types";
-import { hex5 } from "./decoderLog";
+import { hex2, hex5 } from "./decoderLog";
 import {
   candidateScore,
   dvMode,
@@ -212,6 +212,18 @@ const DETAIL: {
 
   subghz: (f) => ({
     fields: fields([
+      ["Model", f.reading?.model],
+      ["Sensor id", f.reading == null ? undefined : hex2(f.reading.id)],
+      ["Channel", f.reading?.channel == null ? undefined : String(f.reading.channel)],
+      [
+        "Temperature",
+        f.reading?.temperature_c == null ? undefined : `${f.reading.temperature_c.toFixed(1)} °C`,
+      ],
+      [
+        "Humidity",
+        f.reading?.humidity_pct == null ? undefined : `${f.reading.humidity_pct.toFixed(0)} %`,
+      ],
+      ["Battery", flag(f.reading?.battery_ok)],
       ["Modulation", f.modulation],
       ["Encoding", f.encoding],
       ["Payload", f.bits === 0 ? undefined : `${f.data} (${f.bits} bit)`],

@@ -3434,7 +3434,7 @@ export interface components {
             stream: number;
         };
         /** @enum {string} */
-        SubghzEncoding: "pwm" | "manchester" | "raw";
+        SubghzEncoding: "pwm" | "ppm" | "manchester" | "raw";
         SubghzFrame: {
             /** Format: int32 */
             address?: number | null;
@@ -3445,6 +3445,7 @@ export interface components {
             data: string;
             encoding: components["schemas"]["SubghzEncoding"];
             modulation: components["schemas"]["SubghzModulation"];
+            reading?: null | components["schemas"]["SubghzReading"];
             /** Format: int32 */
             repeats: number;
             /** Format: int32 */
@@ -3462,6 +3463,18 @@ export interface components {
             /** Format: int32 */
             min_pulse_us?: number;
             modulation?: components["schemas"]["SubghzModulation"];
+        };
+        SubghzReading: {
+            battery_ok?: boolean | null;
+            /** Format: int32 */
+            channel?: number | null;
+            /** Format: double */
+            humidity_pct?: number | null;
+            /** Format: int32 */
+            id: number;
+            model: string;
+            /** Format: double */
+            temperature_c?: number | null;
         };
         TemplateInfo: {
             /** Format: double */
