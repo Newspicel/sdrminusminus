@@ -1,35 +1,50 @@
+import { useState } from "react";
 import { Button } from "../../components/BaseControls";
 import { BTN_SM, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
+import { OptionalNumberField } from "../../components/NumberField";
 import type { DmrChannelEntry, TrunkChannel } from "../../lib/types";
 import {
+  channelEntry,
+  MAX_LOGICAL_CHANNEL,
   planSummary,
   trunkChannelSourceHint,
   trunkChannelSourceLabel,
   trunkChannelSourceTone,
   usable,
+  withChannel,
   withoutChannel,
 } from "./dmrTrunk";
 
 export function ChannelPlanTable({
+  label,
   rows,
   entries,
   found,
   following,
   onChange,
 }: {
+  label: string;
   rows: readonly TrunkChannel[];
   entries: readonly DmrChannelEntry[];
   found: readonly DmrChannelEntry[];
   following: ReadonlySet<number>;
   onChange: (entries: DmrChannelEntry[]) => void;
 }) {
-  if (rows.length === 0) {
-    return null;
-  }
+  const [lcn, setLcn] = useState<number | null>(null);
+  const [mhz, setMhz] = useState<number | null>(null);
+  const pending = channelEntry(lcn, mhz);
+  const add = () => {
+    if (pending === null) {
+      return;
+    }
+    onChange(withChannel(entries, pending));
+    setLcn(null);
+    setMhz(null);
+  };
   return (
     <div className="border-b border-line">
       <div className="flex items-center justify-between gap-2 px-2 pt-2">
-        <span className="legend">Channel plan</span>
+        <span className="legend">{label}</span>
         {found.length > 0 && (
           <Button type="button" className={BTN_SM} onClick={() => onChange([...entries, ...found])}>
             Keep {found.length} found
@@ -41,7 +56,7 @@ export function ChannelPlanTable({
           <thead className="sticky top-0 bg-panel">
             <tr>
               <th className={`${TABLE_HEAD} text-right`}>LCN</th>
-              <th className={`${TABLE_HEAD} text-right`}>Frequency</th>
+              <th className={`${TABLE_HEAD} text-right`}>MHz</th>
               <th className={TABLE_HEAD}>Known by</th>
               <th className={TABLE_HEAD}>
                 <span className="sr-only">Actions</span>
@@ -86,7 +101,32 @@ export function ChannelPlanTable({
           </tbody>
         </table>
       </div>
-      <p className="px-2 pb-2 text-xs text-ink-dim">{planSummary(rows)}</p>
+      <div className="flex items-center gap-2 px-2 pt-2">
+        <OptionalNumberField
+          label="Logical channel to add"
+          placeholder="LCN"
+          value={lcn}
+          min={0}
+          max={MAX_LOGICAL_CHANNEL}
+          step={1}
+          className="w-16"
+          onCommit={setLcn}
+        />
+        <OptionalNumberField
+          label="Frequency to add"
+          placeholder="451.0125"
+          value={mhz}
+          min={0}
+          step={0.0125}
+          className="w-24"
+          onCommit={setMhz}
+        />
+        <span className="legend">MHz</span>
+        <Button type="button" className={BTN_SM} disabled={pending === null} onClick={add}>
+          Add
+        </Button>
+      </div>
+      <p className="px-2 py-2 text-xs text-ink-dim">{planSummary(rows)}</p>
     </div>
   );
 }

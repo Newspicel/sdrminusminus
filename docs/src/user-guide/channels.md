@@ -194,14 +194,15 @@ store holds 24 hours of pictures, capped at 512 of them.
 
 ## Following a DMR trunk system
 
-The **DMR trunk system** node turns a control channel into the traffic channels it grants. Wire the
-`events` output of one or more DMR decoders into it and choose the system type, or leave it on
-auto-detect and let the signalling identify itself.
+The **DMR trunk system** node turns a control channel into the traffic channels it grants. Wire a
+radio's `iq` output into it, name the control channel in MHz, and choose the system type, or leave
+it on auto-detect and let the signalling identify itself. The node runs its own decoders, so no DMR
+channel has to be drawn for it.
 
 | System | How it is followed |
 |---|---|
 | Tier III (including Capacity Max) | Logical channels are learned from the system's own channel definitions; a receiver opens when a voice grant names one. |
-| Capacity Plus | No frequency is granted, so every carrier you wire in is itself a traffic channel. Both timeslots of each are followed once the system is recognized. |
+| Capacity Plus | No frequency is granted, so every repeater output is itself a traffic channel. List them under **Repeater outputs** and both timeslots of each are followed once the system is recognized. |
 | Hytera XPT | As Capacity Plus, using XPT's own signalling. |
 
 The receivers it opens belong to the server, not to the patch, so following continues while no
@@ -210,9 +211,8 @@ outside the radio's current sample rate cannot be opened, and the node says so r
 quietly. Widen the sample rate, retune so the traffic channels fall inside it, or give the system a
 second radio.
 
-Completed calls are buffered in memory for the retention set on the node, audio included. Encrypted
-transmissions keep only their metadata. Set retention to off to follow traffic without buffering
-any audio.
+With **Record calls** on, completed calls are buffered in memory, audio included. Encrypted
+transmissions keep only their metadata. Turn it off to follow traffic without buffering any audio.
 
 ## Where decoder output goes
 

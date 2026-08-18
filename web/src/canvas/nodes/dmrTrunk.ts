@@ -20,30 +20,27 @@ export const DMR_TRUNK_PROTOCOLS: readonly { value: DmrTrunkProtocol; label: str
   { value: "tier_three", label: "Tier III / Capacity Max" },
 ];
 
-export function dmrTrunkGuidance(
+export function trunkProtocolLabel(
   protocol: DmrTrunkProtocol,
   detected: DvTrunkProtocol | null = null,
 ): string {
-  if (protocol === "auto" && detected !== null) {
-    switch (detected) {
-      case "capacity_plus":
-        return "Detected Capacity Plus signalling; both timeslots of every wired carrier are being followed.";
-      case "hytera_xpt":
-        return "Detected Hytera XPT signalling; both timeslots of every wired carrier are being followed.";
-      case "tier_three":
-        return "Detected Tier III signalling; voice grants create traffic receivers automatically.";
-    }
-  }
-  switch (protocol) {
+  switch (protocol === "auto" ? detected : protocol) {
     case "capacity_plus":
-      return "Add one DMR decoder for every known repeater output frequency. Both timeslots are isolated automatically.";
+      return "Capacity Plus";
     case "hytera_xpt":
-      return "Add one DMR decoder for every Hytera XPT repeater output frequency. Both timeslots are isolated automatically.";
+      return "Hytera XPT";
     case "tier_three":
-      return "Add the DMR control-channel decoder. Standard channel definitions and voice grants create traffic receivers automatically.";
-    case "auto":
-      return "The system detects Capacity Plus, Hytera XPT, or Tier III signalling from the connected DMR carriers.";
+      return "Tier III";
+    default:
+      return "Listening for signalling";
   }
+}
+
+export function planLabel(
+  protocol: DmrTrunkProtocol,
+  detected: DvTrunkProtocol | null = null,
+): string {
+  return followsTierThree(protocol, detected) ? "Channel plan" : "Repeater outputs";
 }
 
 export function followsTierThree(
@@ -111,24 +108,26 @@ export function formatSearchRanges(ranges: readonly DmrSearchRange[] | undefined
     .join("; ");
 }
 
-export function parseChannelMap(text: string): DmrChannelEntry[] {
-  const seen = new Map<number, number>();
-  for (const line of lines(text)) {
-    const match = /^\s*(\d+)\s*[=\s]\s*([\d.]+)\s*$/.exec(line);
-    if (match === null) {
-      continue;
-    }
-    const lcn = Number(match[1]);
-    const freq_hz = Math.round(Number(match[2]) * 1e6);
-    if (lcn <= MAX_LOGICAL_CHANNEL && freq_hz > 0 && seen.size < MAX_CHANNEL_MAP) {
-      seen.set(lcn, freq_hz);
-    }
+export function channelEntry(lcn: number | null, mhz: number | null): DmrChannelEntry | null {
+  if (lcn === null || mhz === null || !Number.isInteger(lcn)) {
+    return null;
   }
-  return [...seen].map(([lcn, freq_hz]) => ({ lcn, freq_hz })).sort((a, b) => a.lcn - b.lcn);
+  const freq_hz = Math.round(mhz * 1e6);
+  if (lcn < 0 || lcn > MAX_LOGICAL_CHANNEL || !Number.isFinite(freq_hz) || freq_hz <= 0) {
+    return null;
+  }
+  return { lcn, freq_hz };
 }
 
-export function formatChannelMap(entries: readonly DmrChannelEntry[] | undefined): string {
-  return (entries ?? []).map((entry) => `${entry.lcn} = ${megahertz(entry.freq_hz)}`).join("; ");
+export function withChannel(
+  entries: readonly DmrChannelEntry[] | undefined,
+  entry: DmrChannelEntry,
+): DmrChannelEntry[] {
+  const kept = withoutChannel(entries, entry.lcn);
+  if (kept.length >= MAX_CHANNEL_MAP) {
+    return kept;
+  }
+  return [...kept, entry].toSorted((a, b) => a.lcn - b.lcn);
 }
 
 export function parseControlHz(text: string): number | undefined {
@@ -137,6 +136,14 @@ export function parseControlHz(text: string): number | undefined {
     return undefined;
   }
   return Math.round(value * 1e6);
+}
+
+export function controlChannelStalled(
+  onIq: boolean,
+  controlHz: number | null | undefined,
+  carriers: number | undefined,
+): boolean {
+  return onIq && controlHz != null && carriers === 0;
 }
 
 export function awaitingControlChannel(
@@ -236,10 +243,10 @@ export function searchSummary(
 ): string {
   const candidates = searchCandidates(ranges ?? []);
   if (candidates === 0) {
-    return "Give the search a frequency range to sweep.";
+    return "";
   }
   if (searching === 0) {
-    return `${candidates} frequencies ready to sweep. The search starts when a grant names a channel nobody has placed yet.`;
+    return `${candidates} frequencies ready.`;
   }
   return `Hunting ${searching} logical channel${searching === 1 ? "" : "s"} across ${candidates} frequencies with ${probes} receiver${probes === 1 ? "" : "s"}.`;
 }

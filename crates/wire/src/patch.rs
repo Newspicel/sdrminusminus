@@ -585,9 +585,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         }
         "dmr_trunk" => vec![
             PortSpec::new(Iq, In, false, Always)
-                .noted("the radio the control channel sits on; the system runs its own decoder"),
-            PortSpec::new(Events, In, true, Always)
-                .noted("DMR decoders already tuned to a carrier of this system"),
+                .noted("the radio the control channel sits on; the system runs its own decoders"),
             PortSpec::new(Events, Out, true, Always),
         ],
         "chat_output" => vec![PortSpec::new(Events, In, true, Always)],
@@ -962,21 +960,8 @@ impl PatchGraph {
                 NodeBody::TimeMachine(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
-                NodeBody::DmrTrunk(settings) => {
-                    if !settings.valid() {
-                        return Err(PatchError::NodeSettings(node.id.clone()));
-                    }
-                    let only_dmr = self.sources_of(&node.id, "events").all(|source| {
-                        self.node(source).is_some_and(|source| {
-                            matches!(
-                                &source.body,
-                                NodeBody::Channel(channel) if channel.channel_type == "dmr"
-                            )
-                        })
-                    });
-                    if !only_dmr {
-                        return Err(PatchError::NodeSettings(node.id.clone()));
-                    }
+                NodeBody::DmrTrunk(settings) if !settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::ChatOutput(settings) if !settings.target.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
@@ -1495,25 +1480,6 @@ mod tests {
     }
 
     #[test]
-    fn a_dmr_trunk_system_accepts_only_dmr_carrier_events() {
-        let system = node("system", NodeBody::DmrTrunk(DmrTrunkNode::default()));
-        let dmr = PatchGraph {
-            nodes: vec![channel("carrier", "dmr"), system.clone()],
-            edges: vec![edge(("carrier", "events"), ("system", "events"))],
-        };
-        dmr.validate().expect("DMR carrier");
-
-        let other = PatchGraph {
-            nodes: vec![channel("carrier", "nfm"), system],
-            edges: vec![edge(("carrier", "events"), ("system", "events"))],
-        };
-        assert_eq!(
-            other.validate(),
-            Err(PatchError::NodeSettings("system".to_owned()))
-        );
-    }
-
-    #[test]
     fn a_dmr_trunk_system_takes_its_own_radio_before_a_control_frequency() {
         let wired = |control_hz| {
             PatchGraph {
@@ -1772,19 +1738,35 @@ mod tests {
     }
 
     #[test]
-    fn dmr_trunk_wires_use_the_same_name_at_both_ends() {
+    fn a_dmr_trunk_system_takes_a_radio_and_hands_out_events() {
         let graph = PatchGraph {
             nodes: vec![
-                channel("carrier", "dmr"),
+                node("radio", NodeBody::Device(DeviceNode::default())),
                 node("system", NodeBody::DmrTrunk(DmrTrunkNode::default())),
                 node("log", NodeBody::DecoderLog),
             ],
             edges: vec![
-                edge(("carrier", "events"), ("system", "events")),
+                edge(("radio", "iq"), ("system", "iq")),
                 edge(("system", "events"), ("log", "events")),
             ],
         };
         graph.validate().expect("matching wire names");
+
+        let carrier = PatchGraph {
+            nodes: vec![
+                channel("carrier", "dmr"),
+                node("system", NodeBody::DmrTrunk(DmrTrunkNode::default())),
+            ],
+            edges: vec![edge(("carrier", "events"), ("system", "events"))],
+        };
+        assert_eq!(
+            carrier.validate(),
+            Err(PatchError::Direction(PortRef {
+                node: "system".to_owned(),
+                port: "events".to_owned()
+            })),
+            "a system that decodes for itself took a decoder's events"
+        );
     }
 
     #[test]
@@ -1883,7 +1865,7 @@ mod tests {
     }
 
     #[test]
-    fn the_only_type_level_cycle_is_the_guarded_dmr_transform() {
+    fn the_only_type_level_cycle_is_the_guarded_event_transform() {
         let catalog = PatchCatalog::build();
         let reaches = |from: &NodeTypeInfo, to: &NodeTypeInfo| {
             from.ports
@@ -1913,7 +1895,7 @@ mod tests {
             .filter(|&kind| reachable[kind][kind])
             .map(|kind| catalog.nodes[kind].kind.as_str())
             .collect();
-        assert_eq!(cycle, vec!["dmr_trunk", "event_filter"]);
+        assert_eq!(cycle, vec!["event_filter"]);
     }
 
     #[test]

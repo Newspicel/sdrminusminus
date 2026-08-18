@@ -3,19 +3,21 @@ import type { TrunkChannel } from "../../lib/types";
 import {
   adoptable,
   awaitingControlChannel,
+  channelEntry,
   channelPlanRows,
+  controlChannelStalled,
   DMR_TRUNK_PROTOCOLS,
-  dmrTrunkGuidance,
   followsTierThree,
-  formatChannelMap,
   formatSearchRanges,
-  parseChannelMap,
   parseControlHz,
   parseSearchRanges,
+  planLabel,
   planSummary,
   searchCandidates,
   searchSummary,
+  trunkProtocolLabel,
   usable,
+  withChannel,
   withoutChannel,
 } from "./dmrTrunk";
 
@@ -29,13 +31,20 @@ describe("DMR trunk protocols", () => {
     ]);
   });
 
-  it("explains that every XPT repeater output must be connected", () => {
-    expect(dmrTrunkGuidance("hytera_xpt")).toContain("every Hytera XPT repeater output frequency");
-    expect(dmrTrunkGuidance("auto")).toContain("Hytera XPT");
-    expect(dmrTrunkGuidance("auto", "hytera_xpt")).toContain("Detected Hytera XPT signalling");
+  it("names the protocol it settled on rather than the one that was picked", () => {
+    expect(trunkProtocolLabel("hytera_xpt")).toBe("Hytera XPT");
+    expect(trunkProtocolLabel("auto", "capacity_plus")).toBe("Capacity Plus");
+    expect(trunkProtocolLabel("auto", "tier_three")).toBe("Tier III");
+    expect(trunkProtocolLabel("auto")).toBe("Listening for signalling");
   });
 
-  it("offers the channel plan only where logical channels are used", () => {
+  it("calls the plan what it is for each kind of system", () => {
+    expect(planLabel("tier_three")).toBe("Channel plan");
+    expect(planLabel("auto", "tier_three")).toBe("Channel plan");
+    expect(planLabel("capacity_plus")).toBe("Repeater outputs");
+  });
+
+  it("offers the search only where logical channels are granted", () => {
     expect(followsTierThree("tier_three")).toBe(true);
     expect(followsTierThree("auto", "tier_three")).toBe(true);
     expect(followsTierThree("auto", "capacity_plus")).toBe(false);
@@ -44,28 +53,41 @@ describe("DMR trunk protocols", () => {
 });
 
 describe("DMR channel plan", () => {
-  it("reads logical channels written with either an equals sign or a space", () => {
-    expect(parseChannelMap("17 = 451.0125; 18 451.025")).toEqual([
+  it("takes a logical channel and a frequency in MHz", () => {
+    expect(channelEntry(17, 451.0125)).toEqual({ lcn: 17, freq_hz: 451_012_500 });
+  });
+
+  it("waits for both halves before it makes an entry", () => {
+    expect(channelEntry(17, null)).toBeNull();
+    expect(channelEntry(null, 451.0125)).toBeNull();
+  });
+
+  it("refuses a channel or a frequency the system could never use", () => {
+    expect(channelEntry(-1, 451.0125)).toBeNull();
+    expect(channelEntry(99_999, 451.0125)).toBeNull();
+    expect(channelEntry(17.5, 451.0125)).toBeNull();
+    expect(channelEntry(17, 0)).toBeNull();
+  });
+
+  it("keeps the plan ordered by logical channel", () => {
+    const entries = withChannel([{ lcn: 18, freq_hz: 451_025_000 }], {
+      lcn: 17,
+      freq_hz: 451_012_500,
+    });
+
+    expect(entries).toEqual([
       { lcn: 17, freq_hz: 451_012_500 },
       { lcn: 18, freq_hz: 451_025_000 },
     ]);
   });
 
-  it("keeps the last frequency given for a repeated logical channel", () => {
-    expect(parseChannelMap("17 = 451.0125; 17 = 451.05")).toEqual([
-      { lcn: 17, freq_hz: 451_050_000 },
-    ]);
-  });
+  it("replaces a logical channel rather than listing it twice", () => {
+    const entries = withChannel([{ lcn: 17, freq_hz: 451_012_500 }], {
+      lcn: 17,
+      freq_hz: 451_050_000,
+    });
 
-  it("drops entries it cannot read instead of guessing", () => {
-    expect(parseChannelMap("17 = 451.0125; nonsense; 99999 = 451.05; 3 = 0")).toEqual([
-      { lcn: 17, freq_hz: 451_012_500 },
-    ]);
-  });
-
-  it("round-trips through the text the user typed", () => {
-    const text = "17 = 451.0125; 18 = 451.025";
-    expect(formatChannelMap(parseChannelMap(text))).toBe(text);
+    expect(entries).toEqual([{ lcn: 17, freq_hz: 451_050_000 }]);
   });
 });
 
@@ -98,7 +120,7 @@ describe("DMR channel search", () => {
   });
 
   it("says what the search is doing right now", () => {
-    expect(searchSummary([], 0, 0)).toContain("frequency range");
+    expect(searchSummary([], 0, 0)).toBe("");
     expect(searchSummary(parseSearchRanges("451.0-451.05 / 12.5"), 0, 0)).toContain(
       "5 frequencies ready",
     );
@@ -217,5 +239,13 @@ describe("the control channel field", () => {
     expect(awaitingControlChannel(true, undefined)).toBe(true);
     expect(awaitingControlChannel(true, 451_012_500)).toBe(false);
     expect(awaitingControlChannel(false, null)).toBe(false);
+  });
+
+  it("says a named control channel the server never opened is not running", () => {
+    expect(controlChannelStalled(true, 451_012_500, 0)).toBe(true);
+    expect(controlChannelStalled(true, 451_012_500, 1)).toBe(false);
+    expect(controlChannelStalled(true, null, 0)).toBe(false);
+    expect(controlChannelStalled(false, 451_012_500, 0)).toBe(false);
+    expect(controlChannelStalled(true, 451_012_500, undefined)).toBe(false);
   });
 });

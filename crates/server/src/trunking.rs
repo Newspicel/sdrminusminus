@@ -109,10 +109,6 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
                 systems.push(TrunkSystem {
                     node: node.id.clone(),
                     protocol: settings.protocol,
-                    carriers: graph
-                        .sources_of(&node.id, "events")
-                        .filter_map(|source| live.get(source).copied())
-                        .collect(),
                     discovery: settings.discovery.clone(),
                     channel_map: settings.channel_map.clone(),
                     learned: learned_for(&saved, &node.id, &live_trunks),
@@ -325,10 +321,6 @@ mod tests {
         let radio = systems[0].radio.expect("the radio was not resolved");
         assert_eq!(radio.control_hz, 451_000_000);
         assert_eq!(radio.stream, 0);
-        assert!(
-            systems[0].carriers.is_empty(),
-            "a system on its own radio needs no wired carrier"
-        );
     }
 
     #[test]
@@ -386,7 +378,6 @@ mod tests {
 
         let (systems, policy) = resolve(&store, &engine);
         assert_eq!(systems.len(), 1);
-        assert!(systems[0].carriers.is_empty());
         assert!(
             policy.trunk_systems.is_empty(),
             "a system told not to record must not buffer calls"
@@ -433,22 +424,5 @@ mod tests {
         let (_, policy) = resolve(&store, &engine);
 
         assert!(policy.channels.is_empty());
-    }
-
-    #[test]
-    fn only_the_input_side_of_the_events_port_names_a_carrier() {
-        let mut graph = sdrmm_wire::PatchGraph::default();
-        graph.nodes.push(trunk_node(true));
-        graph.edges.push(PatchEdge {
-            from: PortRef {
-                node: "trunk".to_owned(),
-                port: "events".to_owned(),
-            },
-            to: PortRef {
-                node: "log".to_owned(),
-                port: "events".to_owned(),
-            },
-        });
-        assert_eq!(graph.sources_of("trunk", "events").count(), 0);
     }
 }

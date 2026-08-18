@@ -1117,7 +1117,44 @@ fn state_at(conn: &Connection, id: i64, seq: i64) -> Result<Option<String>, Stor
 fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
     let mut value: serde_json::Value = serde_json::from_str(json)?;
     migrate_call_buffers(&mut value);
+    migrate_trunk_carriers(&mut value);
     serde_json::from_value(value)
+}
+
+/// A trunk system used to be fed by DMR decoders wired into it. It runs its own decoders now, so
+/// the wires that fed it name a port that no longer exists and would refuse the whole patch.
+fn migrate_trunk_carriers(snapshot: &mut serde_json::Value) {
+    let Some(graph) = snapshot.get_mut("graph") else {
+        return;
+    };
+    let systems: HashSet<String> = graph
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|node| node.get("kind").and_then(serde_json::Value::as_str) == Some("dmr_trunk"))
+        .filter_map(|node| node.get("id")?.as_str().map(str::to_owned))
+        .collect();
+    if systems.is_empty() {
+        return;
+    }
+    let Some(edges) = graph
+        .get_mut("edges")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    edges.retain(|edge| {
+        let Some(end) = edge.get("to") else {
+            return true;
+        };
+        let lands = end
+            .get("node")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| systems.contains(id));
+        let port = end.get("port").and_then(serde_json::Value::as_str);
+        !(lands && matches!(port, Some("events" | "carriers")))
+    });
 }
 
 fn migrate_call_buffers(snapshot: &mut serde_json::Value) {
@@ -2382,12 +2419,14 @@ mod tests {
             panic!("DMR system");
         };
         assert!(settings.record_calls);
-        assert!(migrated.graph.edges.iter().any(|edge| {
-            edge.from.node == "carrier"
-                && edge.from.port == "events"
-                && edge.to.node == "system"
-                && edge.to.port == "events"
-        }));
+        assert!(
+            !migrated
+                .graph
+                .edges
+                .iter()
+                .any(|edge| edge.to.node == "system"),
+            "a wire into a system that decodes for itself survived"
+        );
     }
 
     #[test]

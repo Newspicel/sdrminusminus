@@ -28,7 +28,6 @@ const RETRY_MAX: Duration = Duration::from_secs(300);
 pub struct TrunkSystem {
     pub node: String,
     pub protocol: DmrTrunkProtocol,
-    pub carriers: Vec<(u32, u32)>,
     pub discovery: DmrDiscovery,
     pub channel_map: Vec<DmrChannelEntry>,
     pub learned: Vec<DmrChannelEntry>,
@@ -54,7 +53,6 @@ struct Carrier {
     system_node: String,
     protocol: DmrTrunkProtocol,
     device_set: u32,
-    channel: u32,
     stream: u32,
     center_hz: f64,
     sample_rate: f64,
@@ -66,8 +64,7 @@ struct Carrier {
 enum FollowerKey {
     KnownCarrier {
         system_node: String,
-        device_set: u32,
-        carrier: u32,
+        freq_hz: u64,
         slot: u8,
     },
     TierThree {
@@ -160,7 +157,7 @@ struct Follower {
     engine: Weak<Engine>,
     status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
     systems: Vec<TrunkSystem>,
-    carriers: HashMap<(u32, u32), Vec<Carrier>>,
+    carriers: HashMap<(u32, u32), Carrier>,
     definitions: HashMap<(String, u16), u64>,
     followers: HashMap<FollowerKey, FollowerChannel>,
     problems: HashMap<FollowerKey, Problem>,
@@ -197,46 +194,43 @@ impl Follower {
         }
     }
 
-    fn resolve_carriers(&self, engine: &Engine) -> HashMap<(u32, u32), Vec<Carrier>> {
+    fn resolve_carriers(&self, engine: &Engine) -> HashMap<(u32, u32), Carrier> {
         let state = engine.snapshot();
-        let mut carriers: HashMap<(u32, u32), Vec<Carrier>> = HashMap::new();
+        let mut carriers = HashMap::new();
         for system in &self.systems {
-            let own = self
-                .controls
-                .get(&system.node)
-                .map(|control| (control.device_set, control.channel));
-            for &(device_set, channel) in system.carriers.iter().chain(own.iter()) {
-                let Some(set) = state.device_sets.iter().find(|set| set.id == device_set) else {
-                    continue;
-                };
-                let Some(info) = set.channels.iter().find(|info| info.id == channel) else {
-                    continue;
-                };
-                let ChannelParams::Dmr(params) = &info.settings.params else {
-                    continue;
-                };
-                let Some(center_hz) = set.settings.center_hz else {
-                    continue;
-                };
-                let absolute = center_hz + info.settings.offset_hz;
-                if !absolute.is_finite() || absolute <= 0.0 {
-                    continue;
-                }
-                carriers
-                    .entry((device_set, channel))
-                    .or_default()
-                    .push(Carrier {
-                        system_node: system.node.clone(),
-                        protocol: system.protocol,
-                        device_set,
-                        channel,
-                        stream: info.stream,
-                        center_hz,
-                        sample_rate: crate::sample_rate_of(&set.settings),
-                        freq_hz: absolute.round() as u64,
-                        ignore_crc: params.ignore_crc,
-                    });
+            let Some(control) = self.controls.get(&system.node) else {
+                continue;
+            };
+            let (device_set, channel) = (control.device_set, control.channel);
+            let Some(set) = state.device_sets.iter().find(|set| set.id == device_set) else {
+                continue;
+            };
+            let Some(info) = set.channels.iter().find(|info| info.id == channel) else {
+                continue;
+            };
+            let ChannelParams::Dmr(params) = &info.settings.params else {
+                continue;
+            };
+            let Some(center_hz) = set.settings.center_hz else {
+                continue;
+            };
+            let absolute = center_hz + info.settings.offset_hz;
+            if !absolute.is_finite() || absolute <= 0.0 {
+                continue;
             }
+            carriers.insert(
+                (device_set, channel),
+                Carrier {
+                    system_node: system.node.clone(),
+                    protocol: system.protocol,
+                    device_set,
+                    stream: info.stream,
+                    center_hz,
+                    sample_rate: crate::sample_rate_of(&set.settings),
+                    freq_hz: absolute.round() as u64,
+                    ignore_crc: params.ignore_crc,
+                },
+            );
         }
         carriers
     }
@@ -266,7 +260,7 @@ impl Follower {
             self.prospect(&engine, &system_node, freq_hz, frame);
             return;
         }
-        let Some(bound) = self
+        let Some(carrier) = self
             .carriers
             .get(&(record.device_set, record.channel))
             .cloned()
@@ -276,20 +270,15 @@ impl Follower {
         if frame.crc_verified == Some(false) {
             return;
         }
-        for carrier in &bound {
-            if let Some(protocol) = frame.trunk_protocol {
-                self.note_detection(&carrier.system_node, protocol);
+        if let Some(protocol) = frame.trunk_protocol {
+            self.note_detection(&carrier.system_node, protocol);
+        }
+        match self.protocol_of(&carrier.system_node, carrier.protocol) {
+            Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt) => {
+                self.provision_known_carrier(&engine, &carrier);
             }
-            match self.protocol_of(&carrier.system_node, carrier.protocol) {
-                Some(DvTrunkProtocol::CapacityPlus) => {
-                    self.provision_known_carrier(&engine, carrier)
-                }
-                Some(DvTrunkProtocol::HyteraXpt) => self.provision_known_carrier(&engine, carrier),
-                Some(DvTrunkProtocol::TierThree) => {
-                    self.observe_tier_three(&engine, carrier, frame)
-                }
-                None => {}
-            }
+            Some(DvTrunkProtocol::TierThree) => self.observe_tier_three(&engine, &carrier, frame),
+            None => {}
         }
     }
 
@@ -323,7 +312,6 @@ impl Follower {
         let carrier = self
             .carriers
             .values()
-            .flatten()
             .find(|carrier| carrier.system_node == system_node)
             .cloned();
         if let Some(carrier) = carrier {
@@ -375,7 +363,6 @@ impl Follower {
         let listening: Vec<String> = self
             .carriers
             .values()
-            .flatten()
             .filter(|carrier| carrier.device_set == device_set)
             .map(|carrier| carrier.system_node.clone())
             .collect();
@@ -644,22 +631,38 @@ impl Follower {
     }
 
     fn provision_known_carrier(&mut self, engine: &Engine, carrier: &Carrier) {
-        for slot in [1, 2] {
-            self.ensure_follower(
-                engine,
-                carrier,
-                FollowerKey::KnownCarrier {
-                    system_node: carrier.system_node.clone(),
-                    device_set: carrier.device_set,
-                    carrier: carrier.channel,
-                    slot,
-                },
-                Grant {
-                    slot,
-                    freq_hz: carrier.freq_hz,
-                },
-            );
+        for freq_hz in self.repeaters_of(carrier) {
+            for slot in [1, 2] {
+                self.ensure_follower(
+                    engine,
+                    carrier,
+                    FollowerKey::KnownCarrier {
+                        system_node: carrier.system_node.clone(),
+                        freq_hz,
+                        slot,
+                    },
+                    Grant { slot, freq_hz },
+                );
+            }
         }
+    }
+
+    /// Capacity Plus and XPT grant no frequency, so the plan is the traffic list.
+    fn repeaters_of(&self, carrier: &Carrier) -> Vec<u64> {
+        let mut freqs = vec![carrier.freq_hz];
+        let Some(system) = self
+            .systems
+            .iter()
+            .find(|system| system.node == carrier.system_node)
+        else {
+            return freqs;
+        };
+        for entry in &system.channel_map {
+            if !freqs.contains(&entry.freq_hz) {
+                freqs.push(entry.freq_hz);
+            }
+        }
+        freqs
     }
 
     fn ensure_follower(
@@ -802,7 +805,7 @@ impl Follower {
         };
         self.tune_control_channels(&engine);
         self.carriers = self.resolve_carriers(&engine);
-        let live: Vec<Carrier> = self.carriers.values().flatten().cloned().collect();
+        let live: Vec<Carrier> = self.carriers.values().cloned().collect();
         let known: Vec<(FollowerKey, u32, u32)> = self
             .followers
             .iter()
@@ -831,8 +834,15 @@ impl Follower {
             .retain(|(node, _), _| nodes.contains(&node.as_str()));
         self.detected
             .retain(|node, _| nodes.contains(&node.as_str()));
-        self.problems
-            .retain(|key, _| nodes.contains(&key.system_node()));
+        let settled: Vec<FollowerKey> = self
+            .problems
+            .keys()
+            .filter(|key| !nodes.contains(&key.system_node()) || !self.system_holds(&live, key))
+            .cloned()
+            .collect();
+        for key in settled {
+            self.problems.remove(&key);
+        }
         self.prospectors
             .retain(|node, _| nodes.contains(&node.as_str()));
         for system in &self.systems {
@@ -868,17 +878,15 @@ impl Follower {
         match key {
             FollowerKey::KnownCarrier {
                 system_node,
-                device_set,
-                carrier,
+                freq_hz,
                 ..
             } => live.iter().any(|source| {
                 source.system_node == *system_node
-                    && source.device_set == *device_set
-                    && source.channel == *carrier
                     && matches!(
                         self.protocol_of(system_node, source.protocol),
                         Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt)
                     )
+                    && self.repeaters_of(source).contains(freq_hz)
             }),
             FollowerKey::TierThree { system_node, .. } => live.iter().any(|source| {
                 source.system_node == *system_node
@@ -907,7 +915,6 @@ impl Follower {
             carriers: self
                 .carriers
                 .values()
-                .flatten()
                 .filter(|carrier| carrier.system_node == system.node)
                 .count() as u32,
             followers: self
@@ -1099,18 +1106,37 @@ mod tests {
         discovery: DmrDiscovery,
         channel_map: Vec<DmrChannelEntry>,
     ) -> Follower {
+        let control_hz = engine
+            .snapshot()
+            .device_sets
+            .iter()
+            .find(|set| set.id == carrier.0)
+            .and_then(|set| set.settings.center_hz)
+            .expect("a tuned radio") as u64;
         let mut follower = Follower {
             engine: Arc::downgrade(engine),
             status: Arc::new(Mutex::new(Vec::new())),
             systems: vec![TrunkSystem {
                 node: "trunk".to_owned(),
                 protocol,
-                carriers: vec![carrier],
                 discovery,
                 channel_map,
                 learned: Vec::new(),
-                radio: None,
+                radio: Some(TrunkRadio {
+                    device_set: carrier.0,
+                    stream: 0,
+                    control_hz,
+                    ignore_crc: false,
+                }),
             }],
+            controls: HashMap::from([(
+                "trunk".to_owned(),
+                FollowerChannel {
+                    device_set: carrier.0,
+                    channel: carrier.1,
+                    freq_hz: control_hz,
+                },
+            )]),
             carriers: HashMap::new(),
             definitions: HashMap::new(),
             followers: HashMap::new(),
@@ -1118,7 +1144,6 @@ mod tests {
             detected: HashMap::new(),
             prospectors: HashMap::new(),
             probes: HashMap::new(),
-            controls: HashMap::new(),
             watching: Vec::new(),
             tx: mpsc::channel().0,
         };
@@ -1286,6 +1311,56 @@ mod tests {
     }
 
     #[test]
+    fn capacity_plus_keeps_both_slots_of_every_repeater_the_plan_names() {
+        let engine = engine();
+        let (device_set, channel, center_hz) = control_channel(&engine);
+        let carrier = (device_set, channel);
+        let second = center_hz as u64 + 25_000;
+        let mut follower = searching_follower(
+            &engine,
+            DmrTrunkProtocol::CapacityPlus,
+            carrier,
+            DmrDiscovery::default(),
+            vec![DmrChannelEntry {
+                lcn: 2,
+                freq_hz: second,
+            }],
+        );
+
+        follower.observe(&record(
+            carrier,
+            DvFrame {
+                trunk_protocol: Some(DvTrunkProtocol::CapacityPlus),
+                crc_verified: Some(true),
+                ..DvFrame::new(DvMode::Dmr, DvFrameKind::Control)
+            },
+        ));
+
+        let planned = status(&follower);
+        assert_eq!(planned.followers.len(), 4);
+        assert!(
+            planned
+                .followers
+                .iter()
+                .filter(|follower| follower.freq_hz == second)
+                .count()
+                == 2,
+            "the second repeater of the plan was never followed"
+        );
+
+        follower.systems[0].channel_map.clear();
+        follower.reconcile();
+
+        let after = status(&follower);
+        assert_eq!(
+            after.followers.len(),
+            2,
+            "a forgotten repeater kept running"
+        );
+        assert!(after.followers.iter().all(|kept| kept.freq_hz != second));
+    }
+
+    #[test]
     fn auto_follows_hytera_xpt_once_its_signalling_identifies_it() {
         let engine = engine();
         let (device_set, channel, _) = control_channel(&engine);
@@ -1367,7 +1442,7 @@ mod tests {
 
         assert_eq!(
             engine.snapshot().device_sets[0].channels.len(),
-            1,
+            0,
             "the orphaned follower was left running"
         );
         assert!(follower.followers.is_empty());
@@ -1397,7 +1472,6 @@ mod tests {
             systems: vec![TrunkSystem {
                 node: "trunk".to_owned(),
                 protocol: DmrTrunkProtocol::TierThree,
-                carriers: Vec::new(),
                 discovery: DmrDiscovery::default(),
                 channel_map: Vec::new(),
                 learned: Vec::new(),
@@ -1460,7 +1534,6 @@ mod tests {
             systems: vec![TrunkSystem {
                 node: "trunk".to_owned(),
                 protocol: DmrTrunkProtocol::TierThree,
-                carriers: Vec::new(),
                 discovery: DmrDiscovery::default(),
                 channel_map: Vec::new(),
                 learned: Vec::new(),
@@ -1794,7 +1867,7 @@ mod tests {
 
         assert_eq!(
             engine.snapshot().device_sets[0].channels.len(),
-            1,
+            0,
             "orphaned search receivers were left running"
         );
         assert!(follower.probes.is_empty());
