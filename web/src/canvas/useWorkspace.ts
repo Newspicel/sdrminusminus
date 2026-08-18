@@ -5,6 +5,7 @@ import {
   applyWorkspace,
   createWorkspace,
   deleteWorkspace,
+  STATE_KEY,
   stepWorkspace,
   updateWorkspace,
   WORKSPACES_KEY,
@@ -83,8 +84,10 @@ export function useWorkspace(): WorkspaceStore {
   const stepMut = useMutation({
     mutationFn: (variables: { id: number; step: "undo" | "redo" }) =>
       stepWorkspace(variables.id, variables.step),
-    onSuccess: (stepped, variables) =>
-      queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], stepped),
+    onSuccess: (stepped, variables) => {
+      queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], stepped);
+      void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+    },
   });
   const stepAsync = stepMut.mutateAsync;
 

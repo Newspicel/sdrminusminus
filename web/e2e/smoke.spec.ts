@@ -625,6 +625,38 @@ test.describe("the workspace", () => {
     await expect.poll(stored).toEqual(before);
   });
 
+  test("undoes a tuning change, not only an arrangement", async ({ page }) => {
+    await page.goto("/");
+    const radio = async (): Promise<{ id: number; centerHz: number } | null> => {
+      const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
+      const set = state.device_sets[0];
+      const centerHz = set?.settings.center_hz;
+      return set === undefined || centerHz == null ? null : { id: set.id, centerHz };
+    };
+    const tunedTo = async (): Promise<number | null> => (await radio())?.centerHz ?? null;
+    await expect.poll(tunedTo).not.toBeNull();
+    const open = await radio();
+    if (open === null) {
+      throw new Error("an open radio to tune");
+    }
+    const { id, centerHz } = open;
+    const moved = centerHz + 2_000_000;
+
+    await page.request.patch(`/api/devicesets/${id}/device`, { data: { center_hz: moved } });
+    await expect.poll(tunedTo).toBe(moved);
+
+    const undo = page.getByRole("button", { name: /^undo/i });
+    await expect(undo).toBeEnabled();
+    await undo.click();
+    await expect.poll(tunedTo).toBe(centerHz);
+
+    await page.getByRole("button", { name: /^redo/i }).click();
+    await expect.poll(tunedTo).toBe(moved);
+
+    await undo.click();
+    await expect.poll(tunedTo).toBe(centerHz);
+  });
+
   test("copies the selected node and pastes a second one beside it", async ({ page }) => {
     await page.goto("/");
     const stored = async (): Promise<string[]> => {

@@ -2973,6 +2973,98 @@ mod tests {
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
     }
 
+    #[tokio::test]
+    async fn undoing_a_dial_move_puts_the_frequency_back() {
+        let app = test_router();
+        let workspace =
+            put_active_workspace(&app, &virtual_snapshot("siggen", &[("nfm", "nfm", "iq")])).await;
+        apply(&app, workspace).await;
+
+        let opened = get_state(&app).await;
+        let set = &opened.device_sets[0];
+        let (ds, ch) = (set.id, set.channels[0].id);
+        let was_center = set
+            .settings
+            .center_hz
+            .expect("the radio is tuned somewhere");
+        let was_offset = set.channels[0].settings.offset_hz;
+
+        let (status, body) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(&format!(r#"{{"center_hz":{}}}"#, was_center + 1_000_000.0)),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/channels/{ch}"),
+            Some(r#"{"offset_hz":25000.0,"params":{"type":"nfm","settings":{}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let moved = get_state(&app).await;
+        assert_eq!(
+            moved.device_sets[0].channels[0].settings.offset_hz,
+            25_000.0
+        );
+        assert!(
+            workspace_detail(&app, workspace).await.history.can_undo,
+            "a dial move is a step the history knows about"
+        );
+
+        let undone = step(&app, workspace, "undo").await;
+        assert!(undone.history.can_redo);
+        let back = get_state(&app).await;
+        assert_eq!(
+            back.device_sets[0].channels[0].settings.offset_hz, was_offset,
+            "the channel was left where the undone step put it"
+        );
+        assert_eq!(
+            back.device_sets[0].settings.center_hz,
+            Some(was_center + 1_000_000.0),
+            "undo walked back one step, not both"
+        );
+
+        step(&app, workspace, "undo").await;
+        assert_eq!(
+            get_state(&app).await.device_sets[0].settings.center_hz,
+            Some(was_center)
+        );
+
+        step(&app, workspace, "redo").await;
+        assert_eq!(
+            get_state(&app).await.device_sets[0].settings.center_hz,
+            Some(was_center + 1_000_000.0),
+            "redo puts the radio back where the undo took it from"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_radio_the_canvas_does_not_draw_records_no_history() {
+        let app = test_router();
+        let workspace = workspaces(&app).await.active.expect("seeded workspace");
+        let ds = create_virtual_set(&app).await;
+
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"center_hz":123000000.0}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(!workspace_detail(&app, workspace).await.history.can_undo);
+    }
+
     async fn workspace_detail(app: &Router, id: i64) -> sdrmm_wire::WorkspaceDetail {
         let (status, body) =
             request(app.clone(), "GET", &format!("/api/workspaces/{id}"), None).await;

@@ -189,9 +189,44 @@ const MIGRATIONS: &[&str] = &[
     -- also what every workspace stored before this table reads as.
     ALTER TABLE workspaces ADD COLUMN history_at INTEGER NOT NULL DEFAULT 0;
     ",
+    "
+    -- Undo reaches the dial, not only the drawing. `state` is the workspace's settings as they
+    -- stood at that entry, null on an entry that left them alone — which is every entry written
+    -- before this column, and every arrangement gesture after it. An entry with no state of its
+    -- own reads the nearest one behind it, so a layout step between two dial moves does not
+    -- pretend the dial went back. `node` names whose dial moved, so a drag that lands a hundred
+    -- patches coalesces into the one step the operator made.
+    ALTER TABLE workspace_history ADD COLUMN state TEXT;
+    ALTER TABLE workspace_history ADD COLUMN node TEXT;
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
+
+/// How long one settings entry keeps absorbing further moves of the same dial. A drag sends a
+/// patch every frame; each one is not a step the operator would want to walk back.
+const HISTORY_COALESCE: jiff::SignedDuration = jiff::SignedDuration::from_secs(1);
+
+/// A settings change as the history records it: whose dial moved, and where the workspace stood
+/// on either side of the move.
+pub struct SettingsStep<'a> {
+    pub node: &'a str,
+    pub before: &'a WorkspaceState,
+    pub after: &'a WorkspaceState,
+}
+
+/// A workspace after an undo or a redo, with the settings the step reached — `None` when the step
+/// only rearranged the canvas and the radios should be left where they are.
+pub struct SteppedWorkspace {
+    pub detail: WorkspaceDetail,
+    pub settings: Option<WorkspaceState>,
+}
+
+struct RecordedSettings<'a> {
+    node: &'a str,
+    before: &'a str,
+    after: &'a str,
+}
 
 pub struct RecordingRow {
     pub stem: String,
@@ -592,7 +627,7 @@ impl Store {
         }
         if let Some(snapshot) = &req.snapshot {
             let json = serde_json::to_string(snapshot)?;
-            record_history(&tx, id, &json)?;
+            record_history(&tx, id, &json, None)?;
             tx.execute(
                 "UPDATE workspaces SET snapshot = ?2, nodes = ?3 WHERE id = ?1",
                 params![id, json, snapshot.graph.nodes.len() as i64],
@@ -607,15 +642,46 @@ impl Store {
         Ok(info)
     }
 
-    pub fn undo_workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
+    pub fn undo_workspace(&self, id: i64) -> Result<SteppedWorkspace, StoreError> {
         self.step_history(id, Step::Undo)
     }
 
-    pub fn redo_workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
+    pub fn redo_workspace(&self, id: i64) -> Result<SteppedWorkspace, StoreError> {
         self.step_history(id, Step::Redo)
     }
 
-    fn step_history(&self, id: i64, step: Step) -> Result<WorkspaceDetail, StoreError> {
+    /// Writes down a settings change so undo can reach it, next to the arrangement it belongs to.
+    ///
+    /// Answers whether the step is a new one: a burst of patches from one drag coalesces into the
+    /// entry it started, and a patch that changed nothing records nothing.
+    pub fn record_settings(&self, id: i64, step: &SettingsStep<'_>) -> Result<bool, StoreError> {
+        let before = serde_json::to_string(step.before)?;
+        let after = serde_json::to_string(step.after)?;
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        let snapshot: String = tx
+            .query_row(
+                "SELECT snapshot FROM workspaces WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StoreError::WorkspaceNotFound(id))?;
+        let recorded = record_history(
+            &tx,
+            id,
+            &snapshot,
+            Some(RecordedSettings {
+                node: step.node,
+                before: &before,
+                after: &after,
+            }),
+        )?;
+        tx.commit()?;
+        Ok(recorded)
+    }
+
+    fn step_history(&self, id: i64, step: Step) -> Result<SteppedWorkspace, StoreError> {
         let mut conn = self.lock();
         let tx = conn.transaction()?;
         let at = history_at(&tx, id)?;
@@ -631,6 +697,16 @@ impl Store {
             });
         };
         let snapshot = parse_workspace_snapshot(&json)?;
+        let leaving = state_at(&tx, id, at)?;
+        let reaching = state_at(&tx, id, seq)?;
+        let settings = match reaching {
+            Some(reaching) if Some(&reaching) != leaving.as_ref() => {
+                let state = serde_json::from_str::<WorkspaceState>(&reaching)?.current();
+                write_workspace_state(&tx, id, &state)?;
+                Some(state)
+            }
+            _ => None,
+        };
         tx.execute(
             "UPDATE workspaces SET snapshot = ?2, nodes = ?3, history_at = ?4, \
              revision = revision + 1, updated_at = ?5 WHERE id = ?1",
@@ -644,7 +720,7 @@ impl Store {
         )?;
         let detail = read_workspace(&tx, id)?;
         tx.commit()?;
-        Ok(detail)
+        Ok(SteppedWorkspace { detail, settings })
     }
 
     pub fn history_nodes(&self, workspace_id: i64) -> Result<HashSet<String>, StoreError> {
@@ -722,14 +798,8 @@ impl Store {
         workspace_id: i64,
         state: &WorkspaceState,
     ) -> Result<(), StoreError> {
-        let json = serde_json::to_string(state)?;
         let conn = self.lock();
-        conn.execute(
-            "INSERT INTO workspace_state (workspace_id, updated_at, state) VALUES (?1, ?2, ?3) \
-             ON CONFLICT(workspace_id) DO UPDATE SET updated_at = ?2, state = ?3",
-            params![workspace_id, now_rfc3339(), json],
-        )?;
-        Ok(())
+        write_workspace_state(&conn, workspace_id, state)
     }
 
     pub fn activate_workspace(&self, id: i64) -> Result<(), StoreError> {
@@ -864,6 +934,19 @@ impl Step {
     }
 }
 
+fn write_workspace_state(
+    conn: &Connection,
+    workspace_id: i64,
+    state: &WorkspaceState,
+) -> Result<(), StoreError> {
+    conn.execute(
+        "INSERT INTO workspace_state (workspace_id, updated_at, state) VALUES (?1, ?2, ?3) \
+         ON CONFLICT(workspace_id) DO UPDATE SET updated_at = ?2, state = ?3",
+        params![workspace_id, now_rfc3339(), serde_json::to_string(state)?],
+    )?;
+    Ok(())
+}
+
 fn history_at(conn: &Connection, id: i64) -> Result<i64, StoreError> {
     conn.query_row(
         "SELECT history_at FROM workspaces WHERE id = ?1",
@@ -887,7 +970,12 @@ fn read_history(conn: &Connection, id: i64, at: i64) -> Result<WorkspaceHistory,
     })
 }
 
-fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreError> {
+fn record_history(
+    conn: &Connection,
+    id: i64,
+    json: &str,
+    settings: Option<RecordedSettings<'_>>,
+) -> Result<bool, StoreError> {
     let at = history_at(conn, id)?;
     let now = now_rfc3339();
     let at = if at == 0 {
@@ -909,14 +997,33 @@ fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreErr
     } else {
         at
     };
-    let unchanged: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM workspace_history \
-         WHERE workspace_id = ?1 AND seq = ?2 AND snapshot = ?3)",
-        params![id, at, json],
-        |row| row.get(0),
-    )?;
-    if unchanged {
-        return Ok(());
+    if let Some(settings) = &settings {
+        conn.execute(
+            "UPDATE workspace_history SET state = ?3 \
+             WHERE workspace_id = ?1 AND seq = ?2 AND state IS NULL",
+            params![id, at, settings.before],
+        )?;
+    }
+    let head = read_entry(conn, id, at)?;
+    if head.as_ref().is_some_and(|head| head.snapshot == json)
+        && match &settings {
+            None => true,
+            Some(settings) => state_at(conn, id, at)?.as_deref() == Some(settings.after),
+        }
+    {
+        return Ok(false);
+    }
+    if let (Some(head), Some(settings)) = (&head, &settings)
+        && head.node.as_deref() == Some(settings.node)
+        && head.snapshot == json
+        && within_coalesce(&head.created_at, &now)
+    {
+        conn.execute(
+            "UPDATE workspace_history SET state = ?3, created_at = ?4 \
+             WHERE workspace_id = ?1 AND seq = ?2",
+            params![id, at, settings.after, now],
+        )?;
+        return Ok(false);
     }
     conn.execute(
         "DELETE FROM workspace_history WHERE workspace_id = ?1 AND seq > ?2",
@@ -924,9 +1031,16 @@ fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreErr
     )?;
     let seq = at + 1;
     conn.execute(
-        "INSERT INTO workspace_history (workspace_id, seq, created_at, snapshot) \
-         VALUES (?1, ?2, ?3, ?4)",
-        params![id, seq, now, json],
+        "INSERT INTO workspace_history (workspace_id, seq, created_at, snapshot, state, node) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            seq,
+            now,
+            json,
+            settings.as_ref().map(|settings| settings.after),
+            settings.as_ref().map(|settings| settings.node)
+        ],
     )?;
     conn.execute(
         "DELETE FROM workspace_history WHERE workspace_id = ?1 AND seq <= ?2",
@@ -936,7 +1050,68 @@ fn record_history(conn: &Connection, id: i64, json: &str) -> Result<(), StoreErr
         "UPDATE workspaces SET history_at = ?2 WHERE id = ?1",
         params![id, seq],
     )?;
-    Ok(())
+    Ok(true)
+}
+
+struct HistoryEntry {
+    snapshot: String,
+    node: Option<String>,
+    created_at: String,
+}
+
+fn read_entry(conn: &Connection, id: i64, seq: i64) -> Result<Option<HistoryEntry>, StoreError> {
+    Ok(conn
+        .query_row(
+            "SELECT snapshot, node, created_at FROM workspace_history \
+             WHERE workspace_id = ?1 AND seq = ?2",
+            params![id, seq],
+            |row| {
+                Ok(HistoryEntry {
+                    snapshot: row.get(0)?,
+                    node: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
+fn within_coalesce(entry: &str, now: &str) -> bool {
+    let (Ok(entry), Ok(now)) = (
+        entry.parse::<jiff::Timestamp>(),
+        now.parse::<jiff::Timestamp>(),
+    ) else {
+        return false;
+    };
+    let gap = now.duration_since(entry);
+    gap >= jiff::SignedDuration::ZERO && gap <= HISTORY_COALESCE
+}
+
+/// The settings an entry stands for. Entries that changed none of their own read the nearest one
+/// behind them; an entry older than anything the history knows about the settings reads the
+/// oldest, which is where the radios stood before the first move it recorded.
+fn state_at(conn: &Connection, id: i64, seq: i64) -> Result<Option<String>, StoreError> {
+    let behind: Option<String> = conn
+        .query_row(
+            "SELECT state FROM workspace_history \
+             WHERE workspace_id = ?1 AND seq <= ?2 AND state IS NOT NULL \
+             ORDER BY seq DESC LIMIT 1",
+            params![id, seq],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if behind.is_some() {
+        return Ok(behind);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT state FROM workspace_history \
+             WHERE workspace_id = ?1 AND seq > ?2 AND state IS NOT NULL \
+             ORDER BY seq ASC LIMIT 1",
+            params![id, seq],
+            |row| row.get(0),
+        )
+        .optional()?)
 }
 
 fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
@@ -2311,13 +2486,13 @@ mod tests {
         write(&store, id, &without("speaker"));
         write(&store, id, &without("scope"));
 
-        let back = store.undo_workspace(id).expect("undo");
+        let back = store.undo_workspace(id).expect("undo").detail;
         assert_eq!(back.snapshot, without("speaker"));
         assert!(back.history.can_undo && back.history.can_redo);
         assert!(back.info.revision > 3);
         assert_eq!(back.info.nodes, 2);
 
-        let base = store.undo_workspace(id).expect("undo to the start");
+        let base = store.undo_workspace(id).expect("undo to the start").detail;
         assert_eq!(base.snapshot, starter, "the state the first edit left");
         assert!(!base.history.can_undo && base.history.can_redo);
         assert!(matches!(
@@ -2326,10 +2501,10 @@ mod tests {
         ));
 
         assert_eq!(
-            store.redo_workspace(id).expect("redo").snapshot,
+            store.redo_workspace(id).expect("redo").detail.snapshot,
             without("speaker")
         );
-        let forward = store.redo_workspace(id).expect("redo");
+        let forward = store.redo_workspace(id).expect("redo").detail;
         assert_eq!(forward.snapshot, without("scope"));
         assert!(!forward.history.can_redo);
         assert!(matches!(
@@ -2351,7 +2526,7 @@ mod tests {
         assert_eq!(now.snapshot, without("device"));
         assert!(now.history.can_undo && !now.history.can_redo);
         assert_eq!(
-            store.undo_workspace(id).expect("undo").snapshot,
+            store.undo_workspace(id).expect("undo").detail.snapshot,
             without("speaker"),
             "the branch it was made from"
         );
@@ -2366,7 +2541,7 @@ mod tests {
         write(&store, id, &without("speaker"));
         write(&store, id, &without("speaker"));
         assert_eq!(
-            store.undo_workspace(id).expect("undo").snapshot,
+            store.undo_workspace(id).expect("undo").detail.snapshot,
             WorkspaceSnapshot::starter()
         );
     }
@@ -2399,7 +2574,7 @@ mod tests {
             .skip(1)
         {
             assert_eq!(
-                store.undo_workspace(id).expect("undo").snapshot,
+                store.undo_workspace(id).expect("undo").detail.snapshot,
                 labelled(at)
             );
         }
@@ -2407,6 +2582,143 @@ mod tests {
             store.undo_workspace(id),
             Err(StoreError::WorkspaceHistoryEnd { .. })
         ));
+    }
+
+    fn tuned(node: &str, center_hz: f64) -> WorkspaceState {
+        let mut state = WorkspaceState::new();
+        state.merge(vec![sdrmm_wire::WorkspaceDevice {
+            node: node.to_string(),
+            settings: DeviceSettings {
+                center_hz: Some(center_hz),
+                ..DeviceSettings::default()
+            },
+            channels: Vec::new(),
+        }]);
+        state
+    }
+
+    fn dial(store: &Store, id: i64, node: &str, from: f64, to: f64) -> bool {
+        store
+            .record_settings(
+                id,
+                &SettingsStep {
+                    node,
+                    before: &tuned(node, from),
+                    after: &tuned(node, to),
+                },
+            )
+            .expect("record")
+    }
+
+    fn center_of(state: &Option<WorkspaceState>, node: &str) -> Option<f64> {
+        state.as_ref()?.device(node)?.settings.center_hz
+    }
+
+    #[test]
+    fn the_history_walks_back_out_of_a_dial_move() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+
+        assert!(dial(&store, id, "device", 100e6, 101e6));
+        assert!(store.workspace(id).expect("read").history.can_undo);
+
+        let back = store.undo_workspace(id).expect("undo");
+        assert_eq!(center_of(&back.settings, "device"), Some(100e6));
+        assert_eq!(
+            store
+                .workspace_state(id)
+                .expect("state")
+                .device("device")
+                .and_then(|device| device.settings.center_hz),
+            Some(100e6),
+            "the settings the step reached are the ones a restart would come back to"
+        );
+
+        let forward = store.redo_workspace(id).expect("redo");
+        assert_eq!(center_of(&forward.settings, "device"), Some(101e6));
+    }
+
+    #[test]
+    fn an_arrangement_step_between_two_dial_moves_leaves_the_dial_alone() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+
+        assert!(dial(&store, id, "device", 100e6, 101e6));
+        write(&store, id, &without("speaker"));
+        assert!(dial(&store, id, "device", 101e6, 102e6));
+
+        let to_layout = store.undo_workspace(id).expect("undo");
+        assert_eq!(center_of(&to_layout.settings, "device"), Some(101e6));
+
+        let to_first_dial = store.undo_workspace(id).expect("undo");
+        assert_eq!(to_first_dial.detail.snapshot, WorkspaceSnapshot::starter());
+        assert!(
+            to_first_dial.settings.is_none(),
+            "an arrangement step moved a radio that had not been touched"
+        );
+
+        let to_start = store.undo_workspace(id).expect("undo");
+        assert_eq!(center_of(&to_start.settings, "device"), Some(100e6));
+    }
+
+    #[test]
+    fn a_drag_of_one_dial_is_one_step_and_a_second_dial_is_another() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+
+        assert!(dial(&store, id, "device", 100e6, 100.1e6));
+        assert!(
+            !dial(&store, id, "device", 100.1e6, 100.2e6),
+            "a drag lands a patch a frame and none of them is a step of its own"
+        );
+        assert!(!dial(&store, id, "device", 100.2e6, 100.3e6));
+        assert!(dial(&store, id, "scope", 1e6, 2e6));
+
+        assert_eq!(
+            center_of(&store.undo_workspace(id).expect("undo").settings, "device"),
+            Some(100.3e6)
+        );
+        assert_eq!(
+            center_of(&store.undo_workspace(id).expect("undo").settings, "device"),
+            Some(100e6),
+            "the whole drag walks back at once"
+        );
+    }
+
+    #[test]
+    fn walking_back_past_the_first_dial_move_leaves_the_radios_alone() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        write(&store, id, &without("speaker"));
+        write(&store, id, &without("scope"));
+        assert!(dial(&store, id, "device", 100e6, 101e6));
+
+        let off_the_dial = store.undo_workspace(id).expect("undo");
+        assert_eq!(center_of(&off_the_dial.settings, "device"), Some(100e6));
+        for _ in 0..2 {
+            assert!(
+                store.undo_workspace(id).expect("undo").settings.is_none(),
+                "an arrangement older than the first dial move moved a radio"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dial_move_that_lands_where_it_started_is_not_a_step() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        assert!(!dial(&store, id, "device", 100e6, 100e6));
+        assert!(!store.workspace(id).expect("read").history.can_undo);
+    }
+
+    #[test]
+    fn a_burst_coalesces_only_while_it_is_still_the_same_gesture() {
+        let start = "2026-08-18T10:00:00.000000000Z";
+        assert!(within_coalesce(start, "2026-08-18T10:00:00.016000000Z"));
+        assert!(within_coalesce(start, "2026-08-18T10:00:01.000000000Z"));
+        assert!(!within_coalesce(start, "2026-08-18T10:00:01.500000000Z"));
+        assert!(!within_coalesce(start, "2026-08-18T09:59:59.000000000Z"));
+        assert!(!within_coalesce("not a time", start));
     }
 
     #[test]

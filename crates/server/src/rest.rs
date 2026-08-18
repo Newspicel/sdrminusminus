@@ -36,7 +36,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
     AppState,
-    store::{RecordingRow, Store, StoreError},
+    store::{RecordingRow, SteppedWorkspace, Store, StoreError},
     workspace,
 };
 
@@ -309,8 +309,19 @@ async fn patch_device(
     Path(ds): Path<u32>,
     Json(settings): Json<DeviceSettings>,
 ) -> Result<StatusCode, AppError> {
-    let engine = state.engine.clone();
-    tokio::task::spawn_blocking(move || engine.patch_device(ds, settings)).await??;
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        let _serialized = state
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let edit = workspace::begin_edit(&state, ds, None);
+        state.engine.patch_device(ds, settings)?;
+        if let Some(edit) = edit {
+            workspace::finish_edit(&state, edit);
+        }
+        Ok(())
+    })
+    .await??;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -355,8 +366,19 @@ async fn patch_channel(
     Path((ds, ch)): Path<(u32, u32)>,
     Json(settings): Json<ChannelSettings>,
 ) -> Result<StatusCode, AppError> {
-    let engine = state.engine.clone();
-    tokio::task::spawn_blocking(move || engine.patch_channel(ds, ch, settings)).await??;
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        let _serialized = state
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let edit = workspace::begin_edit(&state, ds, Some(ch));
+        state.engine.patch_channel(ds, ch, settings)?;
+        if let Some(edit) = edit {
+            workspace::finish_edit(&state, edit);
+        }
+        Ok(())
+    })
+    .await??;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -2091,7 +2113,7 @@ async fn redo_workspace(
 async fn step_history(
     state: AppState,
     id: i64,
-    step: fn(&Store, i64) -> Result<WorkspaceDetail, StoreError>,
+    step: fn(&Store, i64) -> Result<SteppedWorkspace, StoreError>,
 ) -> Result<Json<WorkspaceDetail>, AppError> {
     let gps_state = state.clone();
     let detail = tokio::task::spawn_blocking(move || -> Result<WorkspaceDetail, AppError> {
@@ -2100,20 +2122,24 @@ async fn step_history(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = state.store.workspace(id)?;
-        let detail = step(&state.store, id)?;
-        if state.store.active_workspace_id()? == Some(id)
-            && !before.snapshot.graph.same_topology(&detail.snapshot.graph)
-        {
-            let saved = state.store.workspace_state(id)?;
-            workspace::reconcile(&state, &detail.snapshot.graph, &saved);
-            let report = bring_up(&state, id, &detail.snapshot, &saved)?;
-            for refusal in &report.refused {
-                tracing::warn!(
-                    workspace = id,
-                    node = refusal.node,
-                    reason = refusal.reason,
-                    "a node could not be restored by the history step"
-                );
+        let stepped = step(&state.store, id)?;
+        let detail = stepped.detail;
+        if state.store.active_workspace_id()? == Some(id) {
+            if !before.snapshot.graph.same_topology(&detail.snapshot.graph) {
+                let saved = state.store.workspace_state(id)?;
+                workspace::reconcile(&state, &detail.snapshot.graph, &saved);
+                let report = bring_up(&state, id, &detail.snapshot, &saved)?;
+                for refusal in &report.refused {
+                    tracing::warn!(
+                        workspace = id,
+                        node = refusal.node,
+                        reason = refusal.reason,
+                        "a node could not be restored by the history step"
+                    );
+                }
+            }
+            if let Some(settings) = &stepped.settings {
+                workspace::restore_settings(&state, &detail.snapshot.graph, settings);
             }
         }
         state.engine.emit_scope(StateScope::Workspaces);

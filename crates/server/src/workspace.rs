@@ -9,7 +9,7 @@ use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
 use crate::{
     AppState,
-    store::{Store, StoreError},
+    store::{SettingsStep, Store, StoreError},
 };
 
 const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
@@ -145,18 +145,102 @@ pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
         return Ok(());
     };
     let graph = &active.snapshot.graph;
-    let mut stored = state.store.workspace_state(active.info.id)?;
+    let mut stored = live_state(state, active.info.id, graph)?;
+    stored.merge_trunks(learned_trunks(&state.engine.trunk_systems()));
+    let recoverable = state.store.history_nodes(active.info.id)?;
+    stored.retain_nodes(|node| graph.node(node).is_some() || recoverable.contains(node));
+    state.store.put_workspace_state(active.info.id, &stored)
+}
+
+fn live_state(
+    state: &AppState,
+    workspace: i64,
+    graph: &PatchGraph,
+) -> Result<WorkspaceState, StoreError> {
+    let mut stored = state.store.workspace_state(workspace)?;
     let unrestored = state
         .unrestored
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
-    let captured = capture(graph, &state.engine.snapshot(), &unrestored);
-    stored.merge(captured);
-    stored.merge_trunks(learned_trunks(&state.engine.trunk_systems()));
-    let recoverable = state.store.history_nodes(active.info.id)?;
-    stored.retain_nodes(|node| graph.node(node).is_some() || recoverable.contains(node));
-    state.store.put_workspace_state(active.info.id, &stored)
+    stored.merge(capture(graph, &state.engine.snapshot(), &unrestored));
+    Ok(stored)
+}
+
+/// A settings change in flight: which node the operator is turning, and where the workspace stood
+/// before the turn. Held across the engine patch so the history can record both sides of it.
+pub(crate) struct SettingsEdit {
+    workspace: i64,
+    node: String,
+    graph: PatchGraph,
+    before: WorkspaceState,
+}
+
+/// Opens a settings change for the node the patch lands on, or `None` when it lands on a radio the
+/// active workspace does not draw — an ad-hoc device has no node whose history could hold it.
+pub(crate) fn begin_edit(state: &AppState, ds: u32, channel: Option<u32>) -> Option<SettingsEdit> {
+    let active = state.store.active_workspace().ok()??;
+    let graph = active.snapshot.graph;
+    let binding = bind(&graph, &state.engine.snapshot())
+        .into_iter()
+        .find(|binding| binding.device_set == ds)?;
+    let node = match channel {
+        Some(channel) => binding
+            .channels
+            .iter()
+            .find(|(_, bound)| *bound == channel)?
+            .0
+            .clone(),
+        None => binding.node,
+    };
+    let before = live_state(state, active.info.id, &graph).ok()?;
+    Some(SettingsEdit {
+        workspace: active.info.id,
+        node,
+        graph,
+        before,
+    })
+}
+
+pub(crate) fn finish_edit(state: &AppState, edit: SettingsEdit) {
+    let after = match live_state(state, edit.workspace, &edit.graph) {
+        Ok(after) => after,
+        Err(err) => {
+            tracing::warn!(%err, "could not read back a settings change for the history");
+            return;
+        }
+    };
+    let step = SettingsStep {
+        node: &edit.node,
+        before: &edit.before,
+        after: &after,
+    };
+    match state.store.record_settings(edit.workspace, &step) {
+        Ok(true) => state.engine.emit_scope(StateScope::Workspaces),
+        Ok(false) => {}
+        Err(err) => tracing::warn!(%err, "could not record a settings change in the history"),
+    }
+}
+
+/// Puts every bound radio and channel back where the settings say, after undo or redo reached a
+/// step that moved them.
+pub(crate) fn restore_settings(state: &AppState, graph: &PatchGraph, saved: &WorkspaceState) {
+    let engine = &state.engine;
+    for binding in bind(graph, &engine.snapshot()) {
+        if let Err(err) = restore_device(engine, binding.device_set, &binding.node, saved) {
+            tracing::warn!(err, node = binding.node, "could not step a radio back");
+        }
+        for (node, channel) in binding.channels {
+            let Some(stored) = saved.channel(&node) else {
+                continue;
+            };
+            if let Err(err) =
+                engine.patch_channel(binding.device_set, channel, stored.settings.clone())
+            {
+                tracing::warn!(%err, node, "could not step a channel back");
+            }
+        }
+    }
 }
 
 /// The channel plans the trunk search confirmed for itself, so a restart does not start the hunt
