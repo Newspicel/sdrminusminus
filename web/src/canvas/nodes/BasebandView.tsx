@@ -12,6 +12,9 @@ import {
   eyeScale,
   peakMagnitude,
   samplesPerSymbol,
+  symbolHistogram,
+  symbolPhase,
+  Trend,
 } from "../../components/baseband";
 import { plotButton, segment } from "../../components/controls";
 import { NumberField } from "../../components/NumberField";
@@ -20,19 +23,30 @@ import { colormapLut } from "../../components/persistence";
 import { FULL_VIEW } from "../../components/spectrumView";
 import type { Colormap } from "../../gl/colormap";
 import { SpectrumAnalyzer } from "../../lib/dsp/fft";
-import type { IqFrame } from "../../lib/frame";
+import type { IqFrame, SymbolFrame } from "../../lib/frame";
 import { iqHub } from "../../lib/iq";
+import { symbolHub } from "../../lib/symbols";
 import { token } from "../../lib/tokens";
 import type { ChannelInfo } from "../../lib/types";
 import { drawPlot, GridBitmap } from "./scopePlot";
+import { drawHistogram, drawTrend } from "./symbolPlot";
 
-export const BASEBAND_VIEWS = ["spectrum", "constellation", "eye"] as const;
+export const BASEBAND_VIEWS = [
+  "spectrum",
+  "constellation",
+  "eye",
+  "levels",
+  "quality",
+  "drift",
+] as const;
 export type BasebandView = (typeof BASEBAND_VIEWS)[number];
 
 const FFT_SIZE = 2048;
 const GRID = 320;
 const SPECTRUM_RANGE_DB = 90;
 const MIN_SYMBOL_RATE = 1;
+const TREND_POINTS = 240;
+const SCATTER_VIEWS: readonly BasebandView[] = ["constellation", "eye"];
 
 export function BasebandView({
   deviceSet,
@@ -52,6 +66,14 @@ export function BasebandView({
   const [eyeComponent, setEyeComponent] = useState<EyeComponent>("frequency");
   const [symbolRate, setSymbolRate] = useState(4800);
   const [decimate, setDecimate] = useState(false);
+
+  const [symbols, setSymbols] = useState<SymbolFrame | null>(() =>
+    symbolHub.latest(deviceSet, channel.id),
+  );
+  const symbolsRef = useRef<SymbolFrame | null>(symbols);
+  const merRef = useRef(new Trend(TREND_POINTS));
+  const marginRef = useRef(new Trend(TREND_POINTS));
+  const driftRef = useRef(new Trend(TREND_POINTS));
 
   const gridRef = useRef<BasebandGrid | null>(null);
   const bitmapRef = useRef<GridBitmap | null>(null);
@@ -81,19 +103,23 @@ export function BasebandView({
         symbolRate: rate,
         decimate: sparse,
       } = settingsRef.current;
-      if (mode !== "spectrum") {
+      if (SCATTER_VIEWS.includes(mode)) {
         const grid = gridRef.current ?? createBasebandGrid(GRID, GRID);
         gridRef.current = grid;
         decayBasebandGrid(grid);
         bitmapRef.current?.invalidate();
         const period = samplesPerSymbol(burst.sampleRate, rate);
         if (mode === "constellation") {
-          addConstellation(
-            grid,
-            burst.samples,
-            peakMagnitude(burst.samples),
-            sparse ? Math.round(period) : 1,
-          );
+          if (symbolsRef.current === null) {
+            const step = sparse ? Math.round(period) : 1;
+            addConstellation(
+              grid,
+              burst.samples,
+              peakMagnitude(burst.samples),
+              step,
+              sparse ? symbolPhase(burst.samples, period) : 0,
+            );
+          }
         } else {
           addEye(grid, burst.samples, period, rail, eyeScale(burst.samples, rail));
         }
@@ -106,17 +132,44 @@ export function BasebandView({
   }, [deviceSet, channel.id]);
 
   useEffect(() => {
+    let seen = 0;
+    merRef.current.clear();
+    marginRef.current.clear();
+    driftRef.current.clear();
+    return symbolHub.subscribe(deviceSet, channel.id, (block) => {
+      symbolsRef.current = block;
+      merRef.current.push(block.merDb);
+      marginRef.current.push(block.margin);
+      driftRef.current.push(block.freqErrorHz);
+      const { view: mode } = settingsRef.current;
+      if (mode === "constellation") {
+        const grid = gridRef.current ?? createBasebandGrid(GRID, GRID);
+        gridRef.current = grid;
+        decayBasebandGrid(grid);
+        bitmapRef.current?.invalidate();
+        addConstellation(grid, paired(block), referenceScale(block));
+      }
+      seen += 1;
+      if (seen === 1 || seen % 4 === 0) {
+        setSymbols(block);
+      }
+    });
+  }, [deviceSet, channel.id]);
+
+  useEffect(() => {
     let raf = 0;
     const loop = () => {
       draw(
         canvasRef.current,
         frameRef.current,
-        settingsRef.current.view,
+        symbolsRef.current,
+        settingsRef.current,
         gridRef.current,
         bitmapRef,
         colormap,
         analyzerRef,
         dbRef,
+        { mer: merRef.current, margin: marginRef.current, drift: driftRef.current },
       );
       raf = requestAnimationFrame(loop);
     };
@@ -133,7 +186,7 @@ export function BasebandView({
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
         <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
-          {frame === null ? "" : formatReadout(frame, view, period)}
+          {readout(view, frame, symbols, period)}
         </span>
         <div
           data-plot-chrome
@@ -176,7 +229,7 @@ export function BasebandView({
               )}
             </Popover>
           )}
-          {view === "constellation" && (
+          {view === "constellation" && symbols === null && (
             <Button
               type="button"
               className={plotButton(decimate)}
@@ -186,7 +239,9 @@ export function BasebandView({
               symbols
             </Button>
           )}
-          {(view === "eye" || (view === "constellation" && decimate)) && (
+          {(view === "eye" ||
+            (symbols === null &&
+              (view === "levels" || (view === "constellation" && decimate)))) && (
             <>
               <NumberField
                 label="Symbol rate"
@@ -207,13 +262,54 @@ export function BasebandView({
         {label}
       </span>
 
-      {frame === null && (
+      {waiting(view, frame, symbols) !== null && (
         <p className="pointer-events-none absolute inset-0 flex items-center justify-center pb-12 text-sm text-plot-ink-dim">
-          Waiting for the first burst…
+          {waiting(view, frame, symbols)}
         </p>
       )}
     </div>
   );
+}
+
+export function readout(
+  view: BasebandView,
+  frame: IqFrame | null,
+  block: SymbolFrame | null,
+  period: number,
+): string {
+  if (SCATTER_VIEWS.includes(view) && view !== "constellation") {
+    return frame === null ? "" : formatReadout(frame, view, period);
+  }
+  if (view === "spectrum") {
+    return frame === null ? "" : formatReadout(frame, view, period);
+  }
+  if (block !== null) {
+    return formatMeasurement(block);
+  }
+  return frame === null ? "" : formatReadout(frame, view, period);
+}
+
+export function formatMeasurement(block: SymbolFrame): string {
+  const rate =
+    block.symbolRate >= 1000
+      ? `${(block.symbolRate / 1000).toFixed(2)} kBd`
+      : `${block.symbolRate.toFixed(2)} Bd`;
+  const mer = block.merDb >= 99 ? "clean" : `${block.merDb.toFixed(1)} dB MER`;
+  return `${rate}   ${(block.evm * 100).toFixed(1)}% EVM   ${mer}   ×${block.margin.toFixed(2)} margin   ${block.freqErrorHz >= 0 ? "+" : ""}${block.freqErrorHz.toFixed(0)} Hz`;
+}
+
+export function waiting(
+  view: BasebandView,
+  frame: IqFrame | null,
+  block: SymbolFrame | null,
+): string | null {
+  if (view === "quality" || view === "drift") {
+    return block === null ? "This channel's decoder does not report symbols." : null;
+  }
+  if (frame === null && block === null) {
+    return "Waiting for the first burst…";
+  }
+  return null;
 }
 
 function formatReadout(frame: IqFrame, view: BasebandView, period: number): string {
@@ -228,17 +324,79 @@ function formatReadout(frame: IqFrame, view: BasebandView, period: number): stri
   return `${centre}   ${rate}   ${period.toFixed(2)} Sa/sym`;
 }
 
+interface Trends {
+  mer: Trend;
+  margin: Trend;
+  drift: Trend;
+}
+
+export function paired(block: SymbolFrame): Float32Array {
+  if (block.plane === "complex") {
+    return block.symbols;
+  }
+  const out = new Float32Array(block.symbols.length * 2);
+  for (let i = 0; i < block.symbols.length; i++) {
+    out[i * 2] = block.symbols[i] ?? 0;
+  }
+  return out;
+}
+
+export function referenceScale(block: SymbolFrame): number {
+  let peak = 0;
+  if (block.plane === "complex") {
+    for (let i = 0; i + 1 < block.reference.length; i += 2) {
+      peak = Math.max(peak, Math.hypot(block.reference[i] ?? 0, block.reference[i + 1] ?? 0));
+    }
+  } else {
+    for (const level of block.reference) {
+      peak = Math.max(peak, Math.abs(level));
+    }
+  }
+  return peak > 0 ? peak * 1.4 : 1;
+}
+
 function draw(
   canvas: HTMLCanvasElement | null,
   frame: IqFrame | null,
-  view: BasebandView,
+  block: SymbolFrame | null,
+  settings: { view: BasebandView; eyeComponent: EyeComponent; symbolRate: number },
   grid: BasebandGrid | null,
   bitmapRef: { current: GridBitmap | null },
   colormap: Colormap,
   analyzerRef: { current: SpectrumAnalyzer | null },
   dbRef: { current: Float32Array | null },
+  trends: Trends,
 ): void {
-  if (canvas === null || frame === null) {
+  if (canvas === null) {
+    return;
+  }
+  const view = settings.view;
+  if (view === "quality") {
+    drawTrend(
+      canvas,
+      [
+        { trend: trends.mer, colour: token("plot-trace"), label: "MER dB" },
+        { trend: trends.margin, colour: token("plot-hold"), label: "margin" },
+      ],
+      "per block",
+      false,
+    );
+    return;
+  }
+  if (view === "drift") {
+    drawTrend(
+      canvas,
+      [{ trend: trends.drift, colour: token("plot-trace"), label: "carrier" }],
+      "Hz",
+      true,
+    );
+    return;
+  }
+  if (view === "levels") {
+    drawLevels(canvas, frame, block, settings);
+    return;
+  }
+  if (frame === null) {
     return;
   }
   if (view === "spectrum") {
@@ -263,6 +421,45 @@ function draw(
     return;
   }
   drawScatter(canvas, grid, bitmapRef, colormap, view);
+}
+
+function drawLevels(
+  canvas: HTMLCanvasElement,
+  frame: IqFrame | null,
+  block: SymbolFrame | null,
+  settings: { symbolRate: number },
+): void {
+  if (block !== null) {
+    const scale = referenceScale(block);
+    const stride = block.plane === "complex" ? 2 : 1;
+    drawHistogram(
+      canvas,
+      symbolHistogram(block.symbols, stride, scale),
+      [...block.reference],
+      scale,
+    );
+    return;
+  }
+  if (frame === null) {
+    return;
+  }
+  const period = samplesPerSymbol(frame.sampleRate, settings.symbolRate);
+  const rail = discriminator(frame.samples, period, symbolPhase(frame.samples, period));
+  drawHistogram(canvas, symbolHistogram(rail, 1, 1), [], 1);
+}
+
+export function discriminator(samples: Float32Array, period: number, offset: number): Float32Array {
+  const count = samples.length >> 1;
+  const step = Math.max(1, Math.round(period));
+  const out: number[] = [];
+  for (let i = Math.max(1, offset); i < count; i += step) {
+    const re = samples[i * 2] ?? 0;
+    const im = samples[i * 2 + 1] ?? 0;
+    const pr = samples[i * 2 - 2] ?? 0;
+    const pi = samples[i * 2 - 1] ?? 0;
+    out.push(Math.atan2(im * pr - re * pi, re * pr + im * pi) / Math.PI);
+  }
+  return Float32Array.from(out);
 }
 
 function drawScatter(

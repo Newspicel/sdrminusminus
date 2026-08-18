@@ -114,6 +114,33 @@ impl Constellation {
     }
 
     #[must_use]
+    pub fn nearest(&self, y: Complex<f32>) -> Complex<f32> {
+        let mut best = Complex::new(0.0, 0.0);
+        let mut best_d2 = f64::INFINITY;
+        for &p in &self.points {
+            let dr = f64::from(y.re) - f64::from(p.re);
+            let di = f64::from(y.im) - f64::from(p.im);
+            let d2 = dr * dr + di * di;
+            if d2 < best_d2 {
+                best_d2 = d2;
+                best = p;
+            }
+        }
+        best
+    }
+
+    #[must_use]
+    pub fn min_distance(&self) -> f64 {
+        let mut min = f64::INFINITY;
+        for i in 0..self.points.len() {
+            for j in (i + 1)..self.points.len() {
+                min = min.min(f64::from((self.points[i] - self.points[j]).norm()));
+            }
+        }
+        min
+    }
+
+    #[must_use]
     pub fn hard_slice(&self, y: Complex<f32>) -> u32 {
         let mut best = 0usize;
         let mut best_d2 = f64::INFINITY;

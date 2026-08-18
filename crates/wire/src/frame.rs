@@ -10,6 +10,7 @@ pub enum FrameKind {
     IqF32 = 2,
     VideoGray = 3,
     VideoRgb = 4,
+    Symbols = 5,
 }
 
 impl FrameKind {
@@ -21,6 +22,7 @@ impl FrameKind {
             2 => Some(Self::IqF32),
             3 => Some(Self::VideoGray),
             4 => Some(Self::VideoRgb),
+            5 => Some(Self::Symbols),
             _ => None,
         }
     }
@@ -119,6 +121,70 @@ impl IqFrame<'_> {
         buf.extend_from_slice(&self.sample_rate.to_le_bytes());
         for sample in self.samples {
             buf.extend_from_slice(&sample.to_le_bytes());
+        }
+        buf
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SymbolPlane {
+    Complex = 0,
+    Level = 1,
+}
+
+impl SymbolPlane {
+    #[must_use]
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Complex),
+            1 => Some(Self::Level),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolFrame<'a> {
+    pub stream_id: u16,
+    pub seq: u32,
+    pub timestamp: u64,
+    pub plane: SymbolPlane,
+    pub symbol_rate: f32,
+    pub evm: f32,
+    pub mer_db: f32,
+    pub margin: f32,
+    pub freq_error_hz: f32,
+    pub reference: &'a [f32],
+    pub symbols: &'a [f32],
+}
+
+impl SymbolFrame<'_> {
+    #[must_use]
+    pub fn encoded_len(&self) -> usize {
+        HEADER_LEN + 1 + 4 * 5 + 2 + self.reference.len() * 4 + self.symbols.len() * 4
+    }
+
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.encoded_len());
+        buf.push(PROTOCOL_VERSION);
+        buf.push(FrameKind::Symbols as u8);
+        buf.extend_from_slice(&self.stream_id.to_le_bytes());
+        buf.extend_from_slice(&self.seq.to_le_bytes());
+        buf.extend_from_slice(&self.timestamp.to_le_bytes());
+        buf.push(self.plane as u8);
+        buf.extend_from_slice(&self.symbol_rate.to_le_bytes());
+        buf.extend_from_slice(&self.evm.to_le_bytes());
+        buf.extend_from_slice(&self.mer_db.to_le_bytes());
+        buf.extend_from_slice(&self.margin.to_le_bytes());
+        buf.extend_from_slice(&self.freq_error_hz.to_le_bytes());
+        buf.extend_from_slice(&(self.reference.len() as u16).to_le_bytes());
+        for value in self.reference {
+            buf.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in self.symbols {
+            buf.extend_from_slice(&value.to_le_bytes());
         }
         buf
     }
@@ -260,6 +326,72 @@ mod tests {
             assert_eq!(layout, ch_layout);
             assert_eq!(out, opus);
         }
+    }
+
+    #[test]
+    fn symbols_roundtrip_carrying_both_the_cloud_and_its_reference() {
+        let reference: Vec<f32> = vec![0.707, 0.707, -0.707, 0.707, -0.707, -0.707, 0.707, -0.707];
+        let symbols: Vec<f32> = (0..128).map(|i| (i as f32) * 0.01 - 0.64).collect();
+        let frame = SymbolFrame {
+            stream_id: 11,
+            seq: 9,
+            timestamp: 4096,
+            plane: SymbolPlane::Complex,
+            symbol_rate: 4800.0,
+            evm: 0.083,
+            mer_db: 21.6,
+            margin: 3.2,
+            freq_error_hz: -12.5,
+            reference: &reference,
+            symbols: &symbols,
+        };
+        let buf = frame.encode();
+        assert_eq!(buf.len(), frame.encoded_len());
+
+        assert_eq!(buf[0], PROTOCOL_VERSION);
+        assert_eq!(FrameKind::from_u8(buf[1]), Some(FrameKind::Symbols));
+        assert_eq!(u16::from_le_bytes([buf[2], buf[3]]), 11);
+        assert_eq!(u32::from_le_bytes(buf[4..8].try_into().unwrap()), 9);
+        assert_eq!(u64::from_le_bytes(buf[8..16].try_into().unwrap()), 4096);
+        assert_eq!(SymbolPlane::from_u8(buf[16]), Some(SymbolPlane::Complex));
+        assert_eq!(f32::from_le_bytes(buf[17..21].try_into().unwrap()), 4800.0);
+        assert_eq!(f32::from_le_bytes(buf[21..25].try_into().unwrap()), 0.083);
+        assert_eq!(f32::from_le_bytes(buf[25..29].try_into().unwrap()), 21.6);
+        assert_eq!(f32::from_le_bytes(buf[29..33].try_into().unwrap()), 3.2);
+        assert_eq!(f32::from_le_bytes(buf[33..37].try_into().unwrap()), -12.5);
+
+        let count = u16::from_le_bytes([buf[37], buf[38]]) as usize;
+        assert_eq!(count, reference.len());
+        let floats: Vec<f32> = buf[39..]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&c| f32::from_le_bytes(c))
+            .collect();
+        assert_eq!(&floats[..count], reference.as_slice());
+        assert_eq!(&floats[count..], symbols.as_slice());
+    }
+
+    #[test]
+    fn a_level_plane_frame_needs_no_reference_pairs() {
+        let symbols: Vec<f32> = vec![1.0, 0.33, -0.33, -1.0];
+        let reference: Vec<f32> = vec![1.0, 0.33, -0.33, -1.0];
+        let frame = SymbolFrame {
+            stream_id: 1,
+            seq: 0,
+            timestamp: 0,
+            plane: SymbolPlane::Level,
+            symbol_rate: 4800.0,
+            evm: 0.0,
+            mer_db: 0.0,
+            margin: 0.0,
+            freq_error_hz: 0.0,
+            reference: &reference,
+            symbols: &symbols,
+        };
+        let buf = frame.encode();
+        assert_eq!(buf.len(), frame.encoded_len());
+        assert_eq!(SymbolPlane::from_u8(buf[16]), Some(SymbolPlane::Level));
     }
 
     fn decode_iq(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, f64, f32, Vec<f32>) {

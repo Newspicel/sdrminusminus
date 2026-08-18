@@ -57,6 +57,7 @@ pub struct CpmDemod {
     sync: SymbolSync,
     level_max: f32,
     centre: f32,
+    centre_scale: f64,
     peak: f32,
     idle_peak: f32,
     centre_alpha: f32,
@@ -171,6 +172,7 @@ impl CpmDemod {
             sync: SymbolSync::new(sps, timing_bw),
             level_max,
             centre: 0.0,
+            centre_scale: params.h() / (2.0 * sps),
             peak: level_max,
             idle_peak: level_max,
             centre_alpha: 1.0 / (centre_symbols * sps as f32),
@@ -194,6 +196,16 @@ impl CpmDemod {
             retimed_carrier: Vec::new(),
             retimed_settled: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn settled(&self) -> &[bool] {
+        &self.retimed_settled
+    }
+
+    #[must_use]
+    pub fn frequency_error_cycles_per_sample(&self) -> f64 {
+        f64::from(self.centre) * self.centre_scale
     }
 
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<f32>) {
@@ -442,6 +454,37 @@ mod tests {
             .unwrap();
         assert!((1..40).contains(&delay), "implausible alignment {delay}");
         (errors, got.len() - skip)
+    }
+
+    #[test]
+    fn the_centre_tracker_reads_back_the_carrier_offset_it_was_given() {
+        let sent = symbols(20_000, 23, 4);
+        let params = four_level(1_944.0);
+        let clean = transmit(&params, &sent);
+        let measure = |offset_hz: f64| {
+            let shifted: Vec<Complex<f32>> = clean
+                .iter()
+                .enumerate()
+                .map(|(i, &x)| {
+                    let phase = TAU * offset_hz * i as f64 / RATE;
+                    x * Complex::new(phase.cos() as f32, phase.sin() as f32)
+                })
+                .collect();
+            let mut demod = CpmDemod::new(&params, &rx_rrc(), TIMING_BW_BURST);
+            listening(&mut demod, 0x2211);
+            let mut soft = Vec::new();
+            demod.process(&shifted, &mut soft);
+            demod.frequency_error_cycles_per_sample() * RATE
+        };
+
+        let base = measure(0.0);
+        for offset_hz in [-600.0f64, -200.0, 200.0, 600.0] {
+            let moved = measure(offset_hz) - base;
+            assert!(
+                (moved - offset_hz).abs() < 20.0,
+                "a {offset_hz} Hz shift moved the tracker by {moved} Hz"
+            );
+        }
     }
 
     #[test]

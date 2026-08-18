@@ -9,7 +9,7 @@ use sdrmm_wire::{
 };
 
 use super::{
-    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes,
+    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes, tap_c4fm,
     vocoder::{HALF_RATE_SOFT_BITS, MbeDecoder},
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -182,6 +182,7 @@ impl ChannelRx for DmrChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
+        tap_c4fm(out, &self.demod, &self.symbols, BAUD, INPUT_RATE_HZ);
         for &symbol in &self.symbols {
             self.decoder.push(symbol, out);
         }
@@ -1647,11 +1648,11 @@ fn dmr_crc16(data: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::DmrSlots;
+    use sdrmm_wire::{DmrSlots, SymbolPlane};
 
     use super::*;
     use crate::{
-        AUDIO_RATE,
+        AUDIO_RATE, ChannelOutputs,
         dv::{testutil::decode, vocoder::testutil::half_rate_frames},
         testgen::dv::dmr as tx,
         testutil::settings,
@@ -2130,6 +2131,51 @@ mod tests {
             }
         }
         (frames, audio)
+    }
+
+    #[test]
+    fn the_symbol_tap_reads_a_clean_call_as_four_well_separated_levels() {
+        let call = tx::Call::default();
+        let iq = tx::transmission(&call, INPUT_RATE_HZ);
+        let mut chan = channel(DmrSlots::Both);
+        let mut out = ChannelOutputs::default();
+        out.symbols.set_wanted(true);
+
+        let mut seen = 0usize;
+        let mut worst = f32::INFINITY;
+        for block in iq.chunks(2_048) {
+            out.reset();
+            chan.process(block, &mut out);
+            if out.symbols.symbols.is_empty() {
+                continue;
+            }
+            seen += out.symbols.symbols.len();
+            assert_eq!(out.symbols.plane, Some(SymbolPlane::Level));
+            assert_eq!(out.symbols.reference.len(), 4);
+            assert_eq!(out.symbols.symbol_rate, BAUD);
+            worst = worst.min(out.symbols.margin);
+        }
+
+        assert!(seen > 700, "only {seen} symbols reached the tap");
+        assert!(
+            worst > 2.0,
+            "a clean transmission left only {worst} of slicing margin"
+        );
+    }
+
+    #[test]
+    fn a_tap_nobody_asked_for_stays_empty_through_a_whole_call() {
+        let call = tx::Call::default();
+        let iq = tx::transmission(&call, INPUT_RATE_HZ);
+        let mut chan = channel(DmrSlots::Both);
+        let mut out = ChannelOutputs::default();
+
+        for block in iq.chunks(2_048) {
+            out.reset();
+            chan.process(block, &mut out);
+            assert!(out.symbols.symbols.is_empty());
+            assert_eq!(out.symbols.plane, None);
+        }
     }
 
     #[test]

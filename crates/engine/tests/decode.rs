@@ -11,11 +11,11 @@ use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, BroadcastSystem,
     ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams, DatvStandard,
-    DecodedRecord, DecoderEvent, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams,
-    FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams, NfmParams,
-    NfmToneMode, PocsagBaud, PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams,
-    SelcallParams, SelcallSystem, SubghzEncoding, SubghzParams, VorParams, WfmParams, WsjtParams,
-    WsprParams, YsfParams,
+    DecodedRecord, DecoderEvent, DmrParams, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams,
+    FlexParams, FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams,
+    NfmParams, NfmToneMode, PocsagBaud, PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams,
+    SelcallParams, SelcallSystem, SubghzEncoding, SubghzParams, SymbolPlane, VorParams, WfmParams,
+    WsjtParams, WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -1450,4 +1450,91 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
         before.groups,
         after.groups
     );
+}
+
+#[tokio::test]
+async fn a_dmr_call_reaches_the_symbol_stream_with_its_measurement() {
+    let call = testgen::dv::dmr::Call::default();
+    let iq = testgen::dv::dmr::transmission(&call, AUDIO_DEVICE_RATE);
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(dir.path(), "dmr_symbols", iq, AUDIO_DEVICE_RATE);
+
+    let ds = engine.create_device_set(&device).unwrap();
+    let ch = engine
+        .add_channel(
+            ds,
+            0,
+            ChannelSettings {
+                offset_hz: 0.0,
+                squelch_db: None,
+                squelch_auto_db: None,
+                params: ChannelParams::Dmr(DmrParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .unwrap();
+
+    let mut rx = engine.subscribe_symbols(ds, ch).unwrap();
+    let block = tokio::time::timeout(DECODE_TIMEOUT, async {
+        loop {
+            match rx.recv().await {
+                Ok(block) => return block,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    panic!("symbol stream closed")
+                }
+            }
+        }
+    })
+    .await
+    .expect("a symbol block within the timeout");
+    engine.remove_device_set(ds).unwrap();
+
+    assert_eq!(block.plane, SymbolPlane::Level);
+    assert_eq!(block.symbol_rate, 4_800.0);
+    assert_eq!(&*block.reference, &[1.0, 3.0, -1.0, -3.0]);
+    assert_eq!(block.symbols.len(), 480);
+    assert!(
+        block.symbols.iter().all(|s| s.is_finite()),
+        "the cloud carried a value nothing can plot"
+    );
+    assert!(
+        block.margin > 1.5,
+        "a fixture call left only {} of slicing margin",
+        block.margin
+    );
+    assert!(
+        block.mer_db > 8.0,
+        "a fixture call measured {} dB MER",
+        block.mer_db
+    );
+}
+
+#[tokio::test]
+async fn an_analog_channel_never_pretends_to_have_symbols() {
+    let iq = testgen::dv::dmr::transmission(&testgen::dv::dmr::Call::default(), AUDIO_DEVICE_RATE);
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(dir.path(), "nfm_no_symbols", iq, AUDIO_DEVICE_RATE);
+
+    let ds = engine.create_device_set(&device).unwrap();
+    let ch = engine
+        .add_channel(
+            ds,
+            0,
+            ChannelSettings {
+                offset_hz: 0.0,
+                squelch_db: None,
+                squelch_auto_db: None,
+                params: ChannelParams::Nfm(NfmParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .unwrap();
+
+    let mut rx = engine.subscribe_symbols(ds, ch).unwrap();
+    let got = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
+    engine.remove_device_set(ds).unwrap();
+    assert!(got.is_err(), "an FM channel published a symbol block");
 }

@@ -12,7 +12,7 @@ use sdrmm_wire::{
 };
 
 use super::{
-    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params,
+    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, tap_c4fm,
     vocoder::{AMBE_3600_INTERLEAVE, MbeDecoder, half_rate_code_vectors},
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -70,6 +70,7 @@ pub struct NxdnChannel {
     decoder: Decoder,
     bandwidth: NxdnBandwidth,
     input_rate: f64,
+    baud: f64,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&NxdnParams, ChannelError> {
@@ -107,6 +108,7 @@ impl ChannelRx for NxdnChannel {
             decoder: Decoder::new(),
             bandwidth: p.bandwidth,
             input_rate: ctx.input_rate,
+            baud,
         })
     }
 
@@ -115,6 +117,7 @@ impl ChannelRx for NxdnChannel {
         if p.bandwidth != self.bandwidth {
             let (baud, deviation, _) = shape(p.bandwidth);
             self.demod = c4fm_demod(&c4fm_params(self.input_rate, baud, deviation, RRC_ALPHA));
+            self.baud = baud;
             self.decoder.reset();
             self.bandwidth = p.bandwidth;
         }
@@ -129,6 +132,7 @@ impl ChannelRx for NxdnChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
+        tap_c4fm(out, &self.demod, &self.symbols, self.baud, self.input_rate);
         for &symbol in &self.symbols {
             self.decoder.push(symbol, out);
         }

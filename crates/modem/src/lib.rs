@@ -8,6 +8,7 @@ pub mod ofdm;
 pub mod orthogonal;
 pub mod ppm;
 pub mod pulse;
+pub mod quality;
 pub mod soft;
 pub mod spread;
 pub mod symbolcode;

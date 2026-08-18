@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   decodeAudio,
   decodeSpectrum,
+  decodeSymbols,
   decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
   FRAME_KIND_SPECTRUM,
+  FRAME_KIND_SYMBOLS,
   FRAME_KIND_VIDEO_GRAY,
   FRAME_KIND_VIDEO_RGB,
   frameKind,
@@ -164,5 +166,68 @@ describe("decodeVideo", () => {
     const wrongVersion = videoBuffer(2, 2, new Uint8Array(4));
     new DataView(wrongVersion).setUint8(0, PROTOCOL_VERSION + 1);
     expect(decodeVideo(wrongVersion)).toBeNull();
+  });
+});
+
+function symbolBuffer(
+  reference: readonly number[],
+  symbols: readonly number[],
+  plane = 0,
+): ArrayBuffer {
+  const buffer = new ArrayBuffer(39 + (reference.length + symbols.length) * 4);
+  const view = new DataView(buffer);
+  view.setUint8(0, PROTOCOL_VERSION);
+  view.setUint8(1, FRAME_KIND_SYMBOLS);
+  view.setUint16(2, 300, true);
+  view.setUint32(4, 9, true);
+  view.setBigUint64(8, 4096n, true);
+  view.setUint8(16, plane);
+  view.setFloat32(17, 4800, true);
+  view.setFloat32(21, 0.125, true);
+  view.setFloat32(25, 18.06, true);
+  view.setFloat32(29, 2.5, true);
+  view.setFloat32(33, -12, true);
+  view.setUint16(37, reference.length, true);
+  [...reference, ...symbols].forEach((value, i) => {
+    view.setFloat32(39 + i * 4, value, true);
+  });
+  return buffer;
+}
+
+describe("decodeSymbols", () => {
+  it("splits the reference from the cloud that follows it", () => {
+    const frame = decodeSymbols(symbolBuffer([1, 3, -1, -3], [1, -1, 3, 3, -3], 1));
+    expect(frame?.streamId).toBe(300);
+    expect(frame?.seq).toBe(9);
+    expect(frame?.timestamp).toBe(4096n);
+    expect(frame?.plane).toBe("level");
+    expect(frame?.symbolRate).toBe(4800);
+    expect(frame?.margin).toBe(2.5);
+    expect(frame?.freqErrorHz).toBe(-12);
+    expect(Array.from(frame?.reference ?? [])).toEqual([1, 3, -1, -3]);
+    expect(Array.from(frame?.symbols ?? [])).toEqual([1, -1, 3, 3, -3]);
+  });
+
+  it("reads a complex plane as such", () => {
+    const frame = decodeSymbols(symbolBuffer([1, 0, -1, 0], [0.9, 0.1], 0));
+    expect(frame?.plane).toBe("complex");
+  });
+
+  it("refuses a plane it cannot draw", () => {
+    expect(decodeSymbols(symbolBuffer([1], [1], 7))).toBeNull();
+  });
+
+  it("refuses a frame whose reference does not fit the payload", () => {
+    const buffer = symbolBuffer([1, 3, -1, -3], [1, -1], 1);
+    new DataView(buffer).setUint16(37, 400, true);
+    expect(decodeSymbols(buffer)).toBeNull();
+  });
+
+  it("refuses other kinds, short buffers and wrong versions", () => {
+    expect(decodeSymbols(audioBuffer(new Uint8Array(8)))).toBeNull();
+    expect(decodeSymbols(new ArrayBuffer(20))).toBeNull();
+    const wrongVersion = symbolBuffer([1], [1]);
+    new DataView(wrongVersion).setUint8(0, PROTOCOL_VERSION + 1);
+    expect(decodeSymbols(wrongVersion)).toBeNull();
   });
 });

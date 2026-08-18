@@ -131,3 +131,108 @@ export function samplesPerSymbol(sampleRate: number, symbolRate: number): number
   }
   return sampleRate / symbolRate;
 }
+
+export function symbolPhase(samples: Float32Array, period: number): number {
+  const count = samples.length >> 1;
+  if (!(period >= 2) || count < period) {
+    return 0;
+  }
+  const step = (2 * Math.PI) / period;
+  let re = 0;
+  let im = 0;
+  for (let i = 0; i < count; i++) {
+    const a = samples[i * 2] ?? 0;
+    const b = samples[i * 2 + 1] ?? 0;
+    const power = a * a + b * b;
+    const angle = step * i;
+    re += power * Math.cos(angle);
+    im += power * Math.sin(angle);
+  }
+  if (re === 0 && im === 0) {
+    return 0;
+  }
+  const turns = Math.atan2(im, re) / (2 * Math.PI);
+  const offset = (turns - Math.floor(turns)) * period;
+  return Math.min(Math.floor(offset), Math.ceil(period) - 1);
+}
+
+export const HISTOGRAM_BINS = 96;
+
+export function symbolHistogram(
+  values: Float32Array,
+  stride: number,
+  scale: number,
+  bins = HISTOGRAM_BINS,
+): Float32Array {
+  const out = new Float32Array(bins);
+  const span = scale > 0 ? scale : 1;
+  let peak = 0;
+  for (let i = 0; i < values.length; i += stride) {
+    const unit = ((values[i] ?? 0) / span + 1) / 2;
+    if (unit < 0 || unit > 1) {
+      continue;
+    }
+    const at = Math.min(bins - 1, Math.floor(unit * bins));
+    const next = (out[at] ?? 0) + 1;
+    out[at] = next;
+    if (next > peak) {
+      peak = next;
+    }
+  }
+  if (peak > 0) {
+    for (let i = 0; i < bins; i++) {
+      out[i] = (out[i] ?? 0) / peak;
+    }
+  }
+  return out;
+}
+
+export class Trend {
+  private readonly values: Float32Array;
+  private at = 0;
+  private filled = 0;
+
+  constructor(readonly capacity: number) {
+    this.values = new Float32Array(capacity);
+  }
+
+  push(value: number): void {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    this.values[this.at] = value;
+    this.at = (this.at + 1) % this.capacity;
+    this.filled = Math.min(this.filled + 1, this.capacity);
+  }
+
+  get length(): number {
+    return this.filled;
+  }
+
+  sample(index: number): number {
+    if (index < 0 || index >= this.filled) {
+      return 0;
+    }
+    const from = (this.at - this.filled + this.capacity) % this.capacity;
+    return this.values[(from + index) % this.capacity] ?? 0;
+  }
+
+  range(): { min: number; max: number } {
+    if (this.filled === 0) {
+      return { min: 0, max: 1 };
+    }
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < this.filled; i++) {
+      const value = this.sample(i);
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    return min === max ? { min: min - 1, max: max + 1 } : { min, max };
+  }
+
+  clear(): void {
+    this.at = 0;
+    this.filled = 0;
+  }
+}

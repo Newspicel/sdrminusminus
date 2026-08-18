@@ -1,4 +1,4 @@
-import type { AudioFrame, IqFrame, SpectrumFrame, VideoFrame } from "./frame";
+import type { AudioFrame, IqFrame, SpectrumFrame, SymbolFrame, VideoFrame } from "./frame";
 import type { ServerEvent } from "./types";
 
 export interface SocketEvents {
@@ -7,6 +7,7 @@ export interface SocketEvents {
   audio: AudioFrame;
   spectrum: SpectrumFrame;
   iq: IqFrame;
+  symbols: SymbolFrame;
   video: VideoFrame;
 }
 
@@ -23,6 +24,7 @@ export class ListenerRegistry {
     audio: new Set(),
     spectrum: new Set(),
     iq: new Set(),
+    symbols: new Set(),
     video: new Set(),
   };
 

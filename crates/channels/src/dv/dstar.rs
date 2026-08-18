@@ -11,7 +11,7 @@ use sdrmm_wire::{
     DvFrameKind, DvMode,
 };
 
-use super::{INPUT_RATE_HZ, vocoder::DstarVocoder};
+use super::{INPUT_RATE_HZ, tap_symbols, vocoder::DstarVocoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 pub(crate) const BAUD: f64 = 4_800.0;
@@ -117,6 +117,14 @@ impl ChannelRx for DstarChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.soft.clear();
         self.demod.process(iq, &mut self.soft);
+        tap_symbols(
+            out,
+            &self.demod,
+            &self.soft,
+            &self.slicer,
+            BAUD,
+            INPUT_RATE_HZ,
+        );
         for &symbol in &self.soft {
             self.decoder.push(self.slicer.slice(symbol) == 1, out);
         }

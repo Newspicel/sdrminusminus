@@ -26,7 +26,7 @@ use sdrmm_modem::{
 use sdrmm_wire::NxdnBandwidth;
 pub use ysf::YsfChannel;
 
-use crate::ChannelFilter;
+use crate::{ChannelFilter, ChannelOutputs};
 
 pub(crate) const INPUT_RATE_HZ: f64 = 48_000.0;
 
@@ -51,6 +51,36 @@ pub(crate) fn c4fm_params(input_rate: f64, baud: f64, deviation_hz: f64, alpha: 
 
 pub(crate) fn c4fm_demod(params: &CpmParams) -> CpmDemod {
     CpmDemod::new(params, params.freq_pulse(), TIMING_BW_BURST)
+}
+
+pub(crate) fn tap_symbols(
+    out: &mut ChannelOutputs,
+    demod: &CpmDemod,
+    symbols: &[f32],
+    mapping: &Mapping,
+    baud: f64,
+    input_rate: f64,
+) {
+    out.symbols.levels(
+        symbols,
+        demod.settled(),
+        mapping,
+        baud,
+        demod.frequency_error_cycles_per_sample() * input_rate,
+    );
+}
+
+pub(crate) fn tap_c4fm(
+    out: &mut ChannelOutputs,
+    demod: &CpmDemod,
+    symbols: &[f32],
+    baud: f64,
+    input_rate: f64,
+) {
+    if !out.symbols.wanted() {
+        return;
+    }
+    tap_symbols(out, demod, symbols, &dibit_mapping(), baud, input_rate);
 }
 
 fn window_hook() -> KnownSymbols {

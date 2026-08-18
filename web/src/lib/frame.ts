@@ -4,6 +4,7 @@ export const FRAME_KIND_AUDIO_OPUS = 1;
 export const FRAME_KIND_IQ_F32 = 2;
 export const FRAME_KIND_VIDEO_GRAY = 3;
 export const FRAME_KIND_VIDEO_RGB = 4;
+export const FRAME_KIND_SYMBOLS = 5;
 const HEADER_LEN = 16;
 
 export function frameKind(buffer: ArrayBuffer): number | null {
@@ -142,4 +143,62 @@ export function decodeIq(buffer: ArrayBuffer): IqFrame | null {
     samples[i] = view.getFloat32(HEADER_LEN + 12 + i * 4, true);
   }
   return { streamId, seq, timestamp, sampleRate, centerHz, samples };
+}
+
+export type SymbolPlane = "complex" | "level";
+
+export interface SymbolFrame {
+  streamId: number;
+  seq: number;
+  timestamp: bigint;
+  plane: SymbolPlane;
+  symbolRate: number;
+  evm: number;
+  merDb: number;
+  margin: number;
+  freqErrorHz: number;
+  reference: Float32Array;
+  symbols: Float32Array;
+}
+
+const SYMBOL_BODY = 1 + 4 * 5 + 2;
+
+export function decodeSymbols(buffer: ArrayBuffer): SymbolFrame | null {
+  if (buffer.byteLength < HEADER_LEN + SYMBOL_BODY) {
+    return null;
+  }
+  const view = new DataView(buffer);
+  if (view.getUint8(0) !== PROTOCOL_VERSION || view.getUint8(1) !== FRAME_KIND_SYMBOLS) {
+    return null;
+  }
+  const plane = view.getUint8(16);
+  if (plane !== 0 && plane !== 1) {
+    return null;
+  }
+  const referenceLen = view.getUint16(37, true);
+  const at = HEADER_LEN + SYMBOL_BODY;
+  const floats = Math.floor((buffer.byteLength - at) / 4);
+  if (floats < referenceLen) {
+    return null;
+  }
+  const read = (count: number, from: number): Float32Array => {
+    const out = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      out[i] = view.getFloat32(from + i * 4, true);
+    }
+    return out;
+  };
+  return {
+    streamId: view.getUint16(2, true),
+    seq: view.getUint32(4, true),
+    timestamp: view.getBigUint64(8, true),
+    plane: plane === 0 ? "complex" : "level",
+    symbolRate: view.getFloat32(17, true),
+    evm: view.getFloat32(21, true),
+    merDb: view.getFloat32(25, true),
+    margin: view.getFloat32(29, true),
+    freqErrorHz: view.getFloat32(33, true),
+    reference: read(referenceLen, at),
+    symbols: read(floats - referenceLen, at + referenceLen * 4),
+  };
 }

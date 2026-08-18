@@ -3,10 +3,12 @@ import {
   decodeAudio,
   decodeIq,
   decodeSpectrum,
+  decodeSymbols,
   decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
   FRAME_KIND_IQ_F32,
   FRAME_KIND_SPECTRUM,
+  FRAME_KIND_SYMBOLS,
   FRAME_KIND_VIDEO_GRAY,
   FRAME_KIND_VIDEO_RGB,
   frameKind,
@@ -136,6 +138,9 @@ export class SdrSocket {
         break;
       case FRAME_KIND_IQ_F32:
         this.emitFrame("iq", decodeIq(buffer));
+        break;
+      case FRAME_KIND_SYMBOLS:
+        this.emitFrame("symbols", decodeSymbols(buffer));
         break;
       case FRAME_KIND_VIDEO_GRAY:
       case FRAME_KIND_VIDEO_RGB:

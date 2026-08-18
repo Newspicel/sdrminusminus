@@ -121,6 +121,13 @@ impl ChannelRx for PskChannel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
+        let baud = self.baud.rate();
+        out.symbols.linear(
+            &self.symbols,
+            self.demod.params().constellation(),
+            baud,
+            self.demod.carrier_freq_cycles_per_symbol() * baud,
+        );
         self.products.clear();
         self.differential.process(&self.symbols, &mut self.products);
         for product in &self.products {

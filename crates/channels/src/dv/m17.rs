@@ -11,7 +11,9 @@ use sdrmm_wire::{
     M17Params,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, vocoder::Codec2Decoder};
+use super::{
+    INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, tap_c4fm, vocoder::Codec2Decoder,
+};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 pub(crate) const BAUD: f64 = 4_800.0;
@@ -121,6 +123,7 @@ impl ChannelRx for M17Channel {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.symbols.clear();
         self.demod.process(iq, &mut self.symbols);
+        tap_c4fm(out, &self.demod, &self.symbols, BAUD, INPUT_RATE_HZ);
         for &symbol in &self.symbols {
             self.decoder.push(symbol, out);
         }

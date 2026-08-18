@@ -32,6 +32,7 @@ mod selcall;
 mod ssb;
 mod sstv;
 mod subghz;
+pub mod symbols;
 pub mod tone_squelch;
 mod tx;
 mod vdl2;
@@ -88,6 +89,7 @@ pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
 pub use sstv::SstvChannel;
 pub use subghz::SubghzChannel;
+pub use symbols::SymbolTap;
 pub use vdl2::Vdl2Channel;
 pub use vor::VorChannel;
 pub use weak_signal::{Ft4Channel, Ft8Channel, WsprChannel};
@@ -276,7 +278,7 @@ pub struct ChannelOutputs {
     pub events: Vec<DecoderEvent>,
     pub video: Vec<VideoPicture>,
     pub images: Vec<DecodedImage>,
-    pub iq_tap: Vec<Complex<f32>>,
+    pub symbols: SymbolTap,
 }
 
 impl ChannelOutputs {
@@ -286,7 +288,7 @@ impl ChannelOutputs {
         self.events.clear();
         self.video.clear();
         self.images.clear();
-        self.iq_tap.clear();
+        self.symbols.clear();
     }
 }
 
