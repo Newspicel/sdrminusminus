@@ -9,6 +9,7 @@ import { patchNode } from "../graph";
 import { ChannelPlanTable } from "./ChannelPlanTable";
 import {
   adoptable,
+  awaitingControlChannel,
   channelPlanRows,
   DMR_TRUNK_PROTOCOLS,
   dmrTrunkGuidance,
@@ -34,6 +35,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
   const onIq = (workspace.graph.edges ?? []).some(
     (edge) => edge.to.node === node.id && edge.to.port === "iq",
   );
+  const awaiting = awaitingControlChannel(onIq, node.data.control_hz);
   const protocol = node.data.protocol ?? "auto";
   const discovery = node.data.discovery ?? { enabled: false, ranges: [], max_probes: 0 };
   const channelMap = node.data.channel_map ?? [];
@@ -64,7 +66,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
           ? `${status?.carriers ?? 0} carrier${status?.carriers === 1 ? "" : "s"} · ${status?.followers.length ?? 0} following`
           : undefined
       }
-      live={sources.length > 0 || onIq}
+      live={sources.length > 0 || (onIq && !awaiting)}
     >
       <FaceBody>
         <Settings className="border-b border-line p-2">
@@ -84,17 +86,24 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
             />
           </SettingRow>
           {onIq && (
-            <SettingRow label="Control" title="Where the control channel sits, in MHz">
-              <Input
-                aria-label="Control channel"
-                className={FIELD}
-                defaultValue={
-                  node.data.control_hz == null ? "" : (node.data.control_hz / 1e6).toString()
-                }
-                placeholder="451.0125"
-                onBlur={(event) => edit({ control_hz: parseControlHz(event.target.value) })}
-              />
-            </SettingRow>
+            <>
+              <SettingRow label="Control" title="Where the control channel sits, in MHz">
+                <Input
+                  aria-label="Control channel"
+                  className={FIELD}
+                  defaultValue={
+                    node.data.control_hz == null ? "" : (node.data.control_hz / 1e6).toString()
+                  }
+                  placeholder="451.0125"
+                  onBlur={(event) => edit({ control_hz: parseControlHz(event.target.value) })}
+                />
+              </SettingRow>
+              {awaiting && (
+                <p role="alert" className="col-span-2 text-xs text-warning">
+                  The radio stays untuned until you name the control channel.
+                </p>
+              )}
+            </>
           )}
         </Settings>
         {followsTierThree(protocol, status?.detected ?? null) && (

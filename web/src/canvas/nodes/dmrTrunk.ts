@@ -139,6 +139,13 @@ export function parseControlHz(text: string): number | undefined {
   return Math.round(value * 1e6);
 }
 
+export function awaitingControlChannel(
+  onIq: boolean,
+  controlHz: number | null | undefined,
+): boolean {
+  return onIq && controlHz == null;
+}
+
 export function trunkChannelSourceLabel(source: TrunkChannelSource): string {
   switch (source) {
     case "announced":

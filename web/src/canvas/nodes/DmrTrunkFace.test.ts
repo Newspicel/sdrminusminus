@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TrunkChannel } from "../../lib/types";
 import {
   adoptable,
+  awaitingControlChannel,
   channelPlanRows,
   DMR_TRUNK_PROTOCOLS,
   dmrTrunkGuidance,
@@ -209,5 +210,12 @@ describe("the control channel field", () => {
     expect(parseControlHz("")).toBeUndefined();
     expect(parseControlHz("abc")).toBeUndefined();
     expect(parseControlHz("-451")).toBeUndefined();
+  });
+
+  it("says a radio waits for it instead of failing quietly", () => {
+    expect(awaitingControlChannel(true, null)).toBe(true);
+    expect(awaitingControlChannel(true, undefined)).toBe(true);
+    expect(awaitingControlChannel(true, 451_012_500)).toBe(false);
+    expect(awaitingControlChannel(false, null)).toBe(false);
   });
 });

@@ -332,6 +332,23 @@ mod tests {
     }
 
     #[test]
+    fn a_radio_can_be_wired_before_the_control_channel_is_named() {
+        let store = Store::open(None).expect("in-memory store");
+        let mut registry = DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, None);
+        trunk_on_a_radio(&store, &engine, None);
+
+        let (systems, _) = resolve(&store, &engine);
+
+        assert_eq!(systems.len(), 1);
+        assert!(
+            systems[0].radio.is_none(),
+            "a system tuned a radio without knowing where the control channel sits"
+        );
+    }
+
+    #[test]
     fn a_system_whose_radio_never_opened_waits_instead_of_guessing() {
         let store = Store::open(None).expect("in-memory store");
         let engine = Engine::with_registry(DeviceRegistry::new(), None);

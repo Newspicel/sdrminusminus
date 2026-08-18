@@ -977,10 +977,6 @@ impl PatchGraph {
                     if !only_dmr {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
-                    let on_iq = self.sources_of(&node.id, "iq").next().is_some();
-                    if on_iq && settings.control_hz.is_none() {
-                        return Err(PatchError::NodeSettings(node.id.clone()));
-                    }
                 }
                 NodeBody::ChatOutput(settings) if !settings.target.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
@@ -1518,7 +1514,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dmr_trunk_system_on_its_own_radio_needs_a_control_frequency() {
+    fn a_dmr_trunk_system_takes_its_own_radio_before_a_control_frequency() {
         let wired = |control_hz| {
             PatchGraph {
                 nodes: vec![
@@ -1537,10 +1533,11 @@ mod tests {
         };
 
         wired(Some(451_000_000)).expect("a control channel anyone could tune");
+        wired(None).expect("the wire comes first, the control channel is named after it");
         assert_eq!(
-            wired(None),
+            wired(Some(0)),
             Err(PatchError::NodeSettings("system".to_owned())),
-            "a system on its own radio was left without a control frequency"
+            "a control channel at nowhere was accepted"
         );
     }
 
