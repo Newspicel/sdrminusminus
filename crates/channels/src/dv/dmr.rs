@@ -1787,6 +1787,97 @@ mod tests {
         );
     }
 
+    fn on_air_csbk(fid: u8, opcode: u8, body: &[(usize, usize, u64)]) -> Vec<DvFrame> {
+        let mut head = [false; 80];
+        put(&mut head, 2, 6, u64::from(opcode));
+        put(&mut head, 8, 8, u64::from(fid));
+        for (at, width, value) in body {
+            put(&mut head, *at, *width, *value);
+        }
+        let iq = tx::csbk_bits(3, &head, INPUT_RATE_HZ);
+        decode(&mut channel(DmrSlots::Both), &iq)
+    }
+
+    fn control_frame(fid: u8, opcode: u8, body: &[(usize, usize, u64)]) -> DvFrame {
+        on_air_csbk(fid, opcode, body)
+            .into_iter()
+            .find(|frame| frame.kind == DvFrameKind::Control)
+            .expect("a control frame off the air")
+    }
+
+    #[test]
+    fn a_capacity_max_channel_update_survives_the_whole_chain() {
+        let frame = control_frame(0x10, 33, &[(16, 12, 811), (32, 24, 9_001), (56, 24, 9_002)]);
+
+        assert_eq!(frame.trunk_protocol, Some(DvTrunkProtocol::TierThree));
+        assert_eq!(frame.channel, Some(811));
+        assert_eq!(frame.crc_verified, Some(true));
+        assert_eq!(frame.slot_activity.len(), 2);
+        assert_eq!(frame.slot_activity[0].destination, Some(9_001));
+        assert_eq!(frame.slot_activity[0].logical_channel, Some(811));
+        assert_eq!(frame.slot_activity[1].slot, 2);
+        assert_eq!(frame.slot_activity[1].destination, Some(9_002));
+    }
+
+    #[test]
+    fn an_adjacent_site_announcement_survives_the_whole_chain() {
+        let frame = control_frame(
+            0,
+            40,
+            &[
+                (16, 5, 6),
+                (21, 2, 2),
+                (23, 4, 12),
+                (27, 8, 200),
+                (68, 12, 811),
+            ],
+        );
+
+        assert_eq!(frame.opcode.as_deref(), Some("broadcast, adjacent site"));
+        assert_eq!(frame.channel, Some(811));
+        assert_eq!(frame.network_id, Some(12));
+        assert_eq!(frame.site_id, Some(200));
+    }
+
+    #[test]
+    fn a_data_channel_grant_reaches_the_trunk_follower_as_a_grant() {
+        let frame = control_frame(0, 52, &[(16, 12, 37), (32, 24, 9_001), (56, 24, 4_001)]);
+
+        assert_eq!(frame.trunk_protocol, Some(DvTrunkProtocol::TierThree));
+        assert_eq!(frame.channel, Some(37));
+        assert_eq!(frame.slot, Some(1));
+        assert_eq!(frame.destination, Some(9_001));
+        assert_eq!(frame.source, Some(4_001));
+        assert_eq!(frame.data.as_deref(), Some("data call"));
+    }
+
+    #[test]
+    fn opcode_56_means_outbound_activation_until_a_tier_three_csbk_arrives() {
+        let alone = control_frame(0, 56, &[(16, 12, 37)]);
+        assert_eq!(alone.opcode.as_deref(), Some("BS outbound activation"));
+        assert_eq!(alone.channel, None);
+
+        let mut decoder = channel(DmrSlots::Both);
+        let mut head = [false; 80];
+        put(&mut head, 2, 6, 25);
+        decode(&mut decoder, &tx::csbk_bits(3, &head, INPUT_RATE_HZ));
+
+        let mut later = [false; 80];
+        put(&mut later, 2, 6, 56);
+        put(&mut later, 16, 12, 37);
+        let frames = decode(&mut decoder, &tx::csbk_bits(3, &later, INPUT_RATE_HZ));
+        let grant = frames
+            .iter()
+            .find(|frame| frame.kind == DvFrameKind::Control)
+            .expect("a control frame");
+
+        assert_eq!(
+            grant.opcode.as_deref(),
+            Some("talkgroup data channel grant, multiple items")
+        );
+        assert_eq!(grant.channel, Some(37));
+    }
+
     #[test]
     fn an_off_air_capacity_max_aloha_reads_as_its_site_announced_itself() {
         let bytes = [

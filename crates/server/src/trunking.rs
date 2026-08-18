@@ -85,6 +85,7 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
         return (Vec::new(), Recording::default());
     };
     let saved = store.workspace_state(workspace.info.id).unwrap_or_default();
+    let live_trunks = engine.trunk_systems();
     let graph = &workspace.snapshot.graph;
     let state = engine.snapshot();
     let live: HashMap<String, (u32, u32)> = crate::workspace::bind(graph, &state)
@@ -114,7 +115,7 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
                         .collect(),
                     discovery: settings.discovery.clone(),
                     channel_map: settings.channel_map.clone(),
-                    learned: learned_for(&saved, &node.id, engine),
+                    learned: learned_for(&saved, &node.id, &live_trunks),
                     radio: own_radio(graph, &node.id, settings, &devices),
                 });
                 if settings.record_calls {
@@ -140,14 +141,13 @@ fn resolve(store: &Store, engine: &Engine) -> (Vec<TrunkSystem>, Recording) {
 /// What the search already worked out for the site this system is sitting on. Keyed by colour
 /// code because neighbouring sites of one system reuse logical channel numbers on their own
 /// frequencies, so the plan learned at one site would place calls on the wrong one at the next.
-fn learned_for(
+pub(crate) fn learned_for(
     saved: &sdrmm_wire::WorkspaceState,
     node: &str,
-    engine: &Engine,
+    systems: &[sdrmm_wire::TrunkSystemStatus],
 ) -> Vec<sdrmm_wire::DmrChannelEntry> {
-    let color_code = engine
-        .trunk_systems()
-        .into_iter()
+    let color_code = systems
+        .iter()
         .find(|system| system.node == node)
         .and_then(|system| system.color_code);
     saved

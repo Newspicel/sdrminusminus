@@ -267,6 +267,15 @@ pub(crate) fn csbk_with_fid(
     payload.extend(bits(0, 16));
     payload.extend(bits(u64::from(destination), 24));
     payload.extend(bits(u64::from(source), 24));
+    csbk_bits(color_code, &payload, rate)
+}
+
+/// A CSBK whose body the caller lays out itself, for the opcodes that carry something other than
+/// a pair of addresses. `head` is the 80 bits before the checksum.
+#[must_use]
+pub(crate) fn csbk_bits(color_code: u8, head: &[bool], rate: f64) -> Vec<Complex<f32>> {
+    let mut payload = head.to_vec();
+    payload.resize(80, false);
     let crc = !crc16_msb(0x1021, 0, &pack(&payload)) ^ 0xA5A5;
     payload.extend(bits(u64::from(crc), 16));
 

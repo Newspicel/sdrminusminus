@@ -1490,6 +1490,42 @@ mod tests {
     }
 
     #[test]
+    fn a_data_call_is_followed_like_any_other() {
+        let engine = engine();
+        let (device_set, channel, center_hz) = control_channel(&engine);
+        let carrier = (device_set, channel);
+        let traffic_hz = center_hz as u64 + 25_000;
+        let mut follower = searching_follower(
+            &engine,
+            DmrTrunkProtocol::TierThree,
+            carrier,
+            DmrDiscovery::default(),
+            vec![DmrChannelEntry {
+                lcn: LOGICAL_CHANNEL,
+                freq_hz: traffic_hz,
+            }],
+        );
+
+        follower.observe(&record(
+            carrier,
+            DvFrame {
+                trunk_protocol: Some(DvTrunkProtocol::TierThree),
+                crc_verified: Some(true),
+                channel: Some(LOGICAL_CHANNEL),
+                slot: Some(1),
+                destination: Some(9_999),
+                source: Some(9_998),
+                data: Some("data call".to_owned()),
+                ..DvFrame::new(DvMode::Dmr, DvFrameKind::Control)
+            },
+        ));
+
+        let status = status(&follower);
+        assert_eq!(status.followers.len(), 1, "a data call went unfollowed");
+        assert_eq!(status.followers[0].freq_hz, traffic_hz);
+    }
+
+    #[test]
     fn a_capacity_max_channel_update_follows_every_busy_timeslot() {
         let engine = engine();
         let (device_set, channel, center_hz) = control_channel(&engine);

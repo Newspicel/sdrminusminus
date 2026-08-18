@@ -153,7 +153,7 @@ pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
         .clone();
     let captured = capture(graph, &state.engine.snapshot(), &unrestored);
     stored.merge(captured);
-    stored.merge_trunks(learned_trunks(&state.engine));
+    stored.merge_trunks(learned_trunks(&state.engine.trunk_systems()));
     let recoverable = state.store.history_nodes(active.info.id)?;
     stored.retain_nodes(|node| graph.node(node).is_some() || recoverable.contains(node));
     state.store.put_workspace_state(active.info.id, &stored)
@@ -162,16 +162,15 @@ pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
 /// The channel plans the trunk search confirmed for itself, so a restart does not start the hunt
 /// over. Only what a call actually answered is kept: an announced frequency comes back on its own
 /// and a guess from the band plan is not a measurement.
-fn learned_trunks(engine: &sdrmm_engine::Engine) -> Vec<sdrmm_wire::WorkspaceTrunk> {
-    engine
-        .trunk_systems()
-        .into_iter()
+fn learned_trunks(systems: &[sdrmm_wire::TrunkSystemStatus]) -> Vec<sdrmm_wire::WorkspaceTrunk> {
+    systems
+        .iter()
         .map(|system| sdrmm_wire::WorkspaceTrunk {
-            node: system.node,
+            node: system.node.clone(),
             color_code: system.color_code,
             channels: system
                 .channel_map
-                .into_iter()
+                .iter()
                 .filter(|channel| channel.source == sdrmm_wire::TrunkChannelSource::Learned)
                 .map(|channel| sdrmm_wire::DmrChannelEntry {
                     lcn: channel.logical_channel,
@@ -357,7 +356,10 @@ pub(crate) fn channel_settings(
 #[cfg(test)]
 mod tests {
     use sdrmm_device::{DeviceDriver, DeviceError, DeviceRegistry, SdrDevice};
-    use sdrmm_wire::{DeviceInfo, DeviceNode, DeviceRef, PatchNode, Position, WorkspaceSnapshot};
+    use sdrmm_wire::{
+        DeviceInfo, DeviceNode, DeviceRef, PatchNode, Position, TrunkChannelSource,
+        TrunkSystemStatus, WorkspaceSnapshot,
+    };
 
     use super::*;
 
@@ -505,5 +507,96 @@ mod tests {
         let engine = engine_with_named_driver();
         adopt_named_devices(&engine, &store);
         assert!(engine.probe_devices().is_empty());
+    }
+
+    fn status(
+        node: &str,
+        color_code: Option<u8>,
+        map: &[(u16, u64, TrunkChannelSource)],
+    ) -> TrunkSystemStatus {
+        TrunkSystemStatus {
+            node: node.to_owned(),
+            detected: None,
+            carriers: 1,
+            followers: Vec::new(),
+            problems: Vec::new(),
+            channel_map: map
+                .iter()
+                .map(
+                    |(logical_channel, freq_hz, source)| sdrmm_wire::TrunkChannel {
+                        logical_channel: *logical_channel,
+                        freq_hz: *freq_hz,
+                        source: *source,
+                        confidence: 100,
+                    },
+                )
+                .collect(),
+            probes: Vec::new(),
+            searching: 0,
+            color_code,
+        }
+    }
+
+    #[test]
+    fn only_the_frequencies_the_search_confirmed_are_written_down() {
+        let systems = vec![status(
+            "sys",
+            Some(10),
+            &[
+                (17, 451_012_500, TrunkChannelSource::Learned),
+                (18, 451_025_000, TrunkChannelSource::Announced),
+                (19, 451_037_500, TrunkChannelSource::Manual),
+                (20, 451_050_000, TrunkChannelSource::Predicted),
+            ],
+        )];
+
+        let saved = learned_trunks(&systems);
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].color_code, Some(10));
+        assert_eq!(
+            saved[0].channels,
+            vec![sdrmm_wire::DmrChannelEntry {
+                lcn: 17,
+                freq_hz: 451_012_500,
+            }],
+            "a guess or an announcement was kept as though it had been measured"
+        );
+    }
+
+    #[test]
+    fn a_learned_plan_survives_a_restart_and_comes_back_to_the_same_site() {
+        let mut state = sdrmm_wire::WorkspaceState::new();
+        state.merge_trunks(learned_trunks(&[status(
+            "sys",
+            Some(10),
+            &[(17, 451_012_500, TrunkChannelSource::Learned)],
+        )]));
+
+        let same_site =
+            crate::trunking::learned_for(&state, "sys", &[status("sys", Some(10), &[])]);
+        assert_eq!(same_site.len(), 1);
+        assert_eq!(same_site[0].freq_hz, 451_012_500);
+
+        let other_site =
+            crate::trunking::learned_for(&state, "sys", &[status("sys", Some(3), &[])]);
+        assert!(
+            other_site.is_empty(),
+            "a plan learned at one site was handed to another"
+        );
+    }
+
+    #[test]
+    fn a_site_that_has_not_named_itself_yet_reads_nothing_back() {
+        let mut state = sdrmm_wire::WorkspaceState::new();
+        state.merge_trunks(learned_trunks(&[status(
+            "sys",
+            Some(10),
+            &[(17, 451_012_500, TrunkChannelSource::Learned)],
+        )]));
+
+        assert!(
+            crate::trunking::learned_for(&state, "sys", &[status("sys", None, &[])]).is_empty()
+        );
     }
 }
