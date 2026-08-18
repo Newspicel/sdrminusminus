@@ -1,5 +1,6 @@
 pub mod agc;
 pub mod bits;
+pub mod compander;
 pub mod ddc;
 pub mod decim;
 pub mod fec;
@@ -26,6 +27,7 @@ pub use bits::{
     Descrambler, DifferentialDecoder, HdlcDeframer, NrziDecoder, Scrambler, SyncDetector, bits_be,
     hamming_distance, manchester_decode, pack_lsb, pack_msb, reverse_byte,
 };
+pub use compander::Compander;
 pub use ddc::{Ddc, DdcError, flat_bandwidth_hz, resamplable_bandwidth_hz};
 pub use decim::{Decimator, RealDecimator};
 pub use fec::{

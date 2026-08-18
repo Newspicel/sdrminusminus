@@ -2708,6 +2708,7 @@ export interface components {
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
+            compander?: boolean;
             /** Format: double */
             ctcss_hz?: number | null;
             /** Format: int32 */

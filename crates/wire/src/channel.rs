@@ -111,6 +111,8 @@ pub struct NfmParams {
     pub scrambler_mode: NfmScramblerMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inversion_hz: Option<f64>,
+    #[serde(default)]
+    pub compander: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -136,6 +138,7 @@ impl Default for NfmParams {
             dcs_code: None,
             scrambler_mode: NfmScramblerMode::default(),
             inversion_hz: None,
+            compander: false,
         }
     }
 }

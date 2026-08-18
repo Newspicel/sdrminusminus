@@ -299,6 +299,7 @@ mod contract_tests {
                 dcs_code: None,
                 scrambler_mode: NfmScramblerMode::default(),
                 inversion_hz: None,
+                compander: false,
             })
         );
         let ssb: ChannelParams = serde_json::from_str(r#"{"type":"ssb","settings":{}}"#).unwrap();

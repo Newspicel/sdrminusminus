@@ -1,7 +1,7 @@
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, Highpass, RealDecimator, design_lowpass};
+use sdrmm_dsp::{Compander, Decimator, Highpass, RealDecimator, design_lowpass};
 use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NfmParams, NfmScramblerMode,
@@ -20,6 +20,9 @@ use crate::{
 };
 
 const VOICE_CUTOFF_HZ: f64 = 3_400.0;
+const COMPANDER_REFERENCE_RMS: f32 = 0.25;
+const COMPANDER_RANGE_DB: f32 = 40.0;
+const COMPANDER_HEADROOM_DB: f32 = 9.0;
 const AUDIO_TAPS: usize = 129;
 const CHANNEL_TAPS: usize = 129;
 
@@ -39,6 +42,57 @@ pub struct NfmChannel {
     demod_buf: Vec<f32>,
     tone: Option<Tone>,
     scrambler: Option<Scrambler>,
+    expander: Option<Expander>,
+}
+
+struct Expander {
+    subaudible_cut: Option<Highpass>,
+    key: Vec<f32>,
+    compander: Compander,
+}
+
+impl Expander {
+    fn new(p: &NfmParams) -> Self {
+        Self {
+            subaudible_cut: subaudible_cut(p),
+            key: Vec::new(),
+            compander: Compander::expander(
+                DESCRIPTOR.input_rate_hz,
+                COMPANDER_REFERENCE_RMS,
+                COMPANDER_RANGE_DB,
+                COMPANDER_HEADROOM_DB,
+            ),
+        }
+    }
+
+    fn configure(&mut self, p: &NfmParams) {
+        if self.subaudible_cut.is_some() != (p.tone_mode == NfmToneMode::Off) {
+            self.subaudible_cut = subaudible_cut(p);
+        }
+    }
+
+    fn reset(&mut self) {
+        if let Some(cut) = &mut self.subaudible_cut {
+            cut.reset();
+        }
+        self.compander.reset();
+    }
+
+    fn step(&mut self, audio: &mut [f32]) {
+        let Some(cut) = &mut self.subaudible_cut else {
+            self.compander.process(audio);
+            return;
+        };
+        self.key.clear();
+        self.key.extend_from_slice(audio);
+        cut.process(&mut self.key);
+        self.compander.process_keyed(audio, &self.key);
+    }
+}
+
+fn subaudible_cut(p: &NfmParams) -> Option<Highpass> {
+    (p.tone_mode == NfmToneMode::Off)
+        .then(|| Highpass::new(DESCRIPTOR.input_rate_hz, AUDIO_CORNER_HZ))
 }
 
 struct Scrambler {
@@ -277,6 +331,7 @@ impl ChannelRx for NfmChannel {
             demod_buf: Vec::new(),
             tone: (p.tone_mode != NfmToneMode::Off).then(|| Tone::new(p)),
             scrambler: (p.scrambler_mode != NfmScramblerMode::Off).then(|| Scrambler::new(p)),
+            expander: p.compander.then(|| Expander::new(p)),
         })
     }
 
@@ -294,6 +349,11 @@ impl ChannelRx for NfmChannel {
             (Some(scrambler), _) => scrambler.configure(p),
             (none, _) => *none = Some(Scrambler::new(p)),
         }
+        match (&mut self.expander, p.compander) {
+            (_, false) => self.expander = None,
+            (Some(expander), true) => expander.configure(p),
+            (none, true) => *none = Some(Expander::new(p)),
+        }
         Ok(())
     }
 
@@ -303,6 +363,9 @@ impl ChannelRx for NfmChannel {
         }
         if let Some(scrambler) = &mut self.scrambler {
             scrambler.reset();
+        }
+        if let Some(expander) = &mut self.expander {
+            expander.reset();
         }
     }
 
@@ -318,6 +381,9 @@ impl ChannelRx for NfmChannel {
         }
         if let Some(scrambler) = &mut self.scrambler {
             scrambler.step(&mut self.demod_buf, out);
+        }
+        if let Some(expander) = &mut self.expander {
+            expander.step(&mut self.demod_buf);
         }
         self.audio_lp.process(&self.demod_buf, &mut out.audio_pcm);
         clamp_full_scale(&mut out.audio_pcm);
@@ -335,10 +401,22 @@ pub struct NfmTx {
     deviation_hz: f64,
     queue: TxQueue<f32>,
     audio_lp: RealDecimator,
+    compressor: Option<Compander>,
     inverter: Option<VoiceInverter>,
     filtered: Vec<f32>,
     burst: Burst,
     phase: f64,
+}
+
+fn tx_compressor(p: &NfmParams, rate: f64) -> Option<Compander> {
+    p.compander.then(|| {
+        Compander::compressor(
+            rate,
+            COMPANDER_REFERENCE_RMS,
+            COMPANDER_RANGE_DB,
+            COMPANDER_HEADROOM_DB,
+        )
+    })
 }
 
 fn tx_inverter(p: &NfmParams, rate: f64) -> Option<VoiceInverter> {
@@ -366,6 +444,7 @@ impl ChannelTx for NfmTx {
             deviation_hz: deviation_hz(p),
             queue: TxQueue::new(DESCRIPTOR.type_id.as_str(), f64::from(AUDIO_RATE)),
             audio_lp: audio_lowpass(),
+            compressor: tx_compressor(p, f64::from(AUDIO_RATE)),
             inverter: tx_inverter(p, f64::from(AUDIO_RATE)),
             filtered: Vec::new(),
             burst: Burst::new(ctx.input_rate),
@@ -378,6 +457,7 @@ impl ChannelTx for NfmTx {
         check_bandwidth(p)?;
         check_scrambler(p)?;
         self.deviation_hz = deviation_hz(p);
+        self.compressor = tx_compressor(p, f64::from(AUDIO_RATE));
         self.inverter = tx_inverter(p, f64::from(AUDIO_RATE));
         Ok(())
     }
@@ -390,6 +470,9 @@ impl ChannelTx for NfmTx {
         };
         self.queue.accept(pcm.len())?;
         self.audio_lp.process(&pcm, &mut self.filtered);
+        if let Some(compressor) = &mut self.compressor {
+            compressor.process(&mut self.filtered);
+        }
         if let Some(inverter) = &mut self.inverter {
             inverter.process(&mut self.filtered);
         }
@@ -922,6 +1005,128 @@ mod tests {
         let (freq, ratio) = dominant_tone(&audio[8_000..20_000], RATE);
         assert!((995.0..1_005.0).contains(&freq), "received {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest {ratio}");
+    }
+
+    fn compander_params(compander: bool) -> NfmParams {
+        NfmParams {
+            compander,
+            ..NfmParams::default()
+        }
+    }
+
+    fn level_db(audio: &[f32]) -> f32 {
+        20.0 * (rms(&audio[audio.len() / 2..]) / COMPANDER_REFERENCE_RMS).log10()
+    }
+
+    fn heard_over_the_air(tx: NfmParams, rx: NfmParams, amplitude: f32) -> f32 {
+        let mut transmitter = NfmTx::new(ctx(), settings(ChannelParams::Nfm(tx))).unwrap();
+        transmitter
+            .submit(TxPayload::Audio(tone_audio(
+                1_000.0, amplitude, RATE, 96_000,
+            )))
+            .unwrap();
+        let iq = burst(&mut transmitter);
+        let mut receiver = NfmChannel::new(ctx(), settings(ChannelParams::Nfm(rx))).unwrap();
+        level_db(&run_ragged(&mut receiver, &iq))
+    }
+
+    const QUIET: f32 = 0.028;
+    const SOFT: f32 = 0.1;
+    const LOUD: f32 = 0.354;
+
+    fn voice_level_db(audio: &[f32]) -> f32 {
+        let mut correlator = sdrmm_dsp::ToneCorrelator::new(RATE, 1_000.0, (RATE * 0.1) as usize);
+        let peak = audio[audio.len() / 2..]
+            .iter()
+            .map(|&s| correlator.push(s))
+            .fold(0.0, f32::max);
+        20.0 * peak.log10()
+    }
+
+    #[test]
+    fn a_compandered_link_hands_back_the_level_that_went_into_it() {
+        for amplitude in [QUIET, 0.1, LOUD] {
+            let sent =
+                20.0 * (amplitude / std::f32::consts::SQRT_2 / COMPANDER_REFERENCE_RMS).log10();
+            let heard =
+                heard_over_the_air(compander_params(true), compander_params(true), amplitude);
+            assert!(
+                (heard - sent).abs() < 2.0,
+                "sent {sent:.2} dB, heard {heard:.2} dB"
+            );
+        }
+    }
+
+    #[test]
+    fn the_expander_gives_back_the_dynamic_range_the_compressor_took_away() {
+        let squeezed = heard_over_the_air(compander_params(true), compander_params(false), LOUD)
+            - heard_over_the_air(compander_params(true), compander_params(false), QUIET);
+        let restored = heard_over_the_air(compander_params(true), compander_params(true), LOUD)
+            - heard_over_the_air(compander_params(true), compander_params(true), QUIET);
+        let sent = 20.0 * (LOUD / QUIET).log10();
+        assert!(
+            (squeezed - sent / 2.0).abs() < 2.0,
+            "{sent:.2} dB went over the air as {squeezed:.2} dB"
+        );
+        assert!(
+            (restored - sent).abs() < 2.5,
+            "{sent:.2} dB came back as {restored:.2} dB"
+        );
+    }
+
+    #[test]
+    fn a_compandered_link_lifts_a_quiet_voice_out_of_the_channel_noise() {
+        let tone_to_noise = |compander: bool| {
+            let params = compander_params(compander);
+            let mut tx = NfmTx::new(ctx(), settings(ChannelParams::Nfm(params.clone()))).unwrap();
+            tx.submit(TxPayload::Audio(tone_audio(1_000.0, QUIET, RATE, 96_000)))
+                .unwrap();
+            let mut iq = burst(&mut tx);
+            let noise = complex_noise(0x2f11_9c04, 0.03, iq.len());
+            for (slot, hiss) in iq.iter_mut().zip(&noise) {
+                *slot += hiss;
+            }
+            let mut rx = NfmChannel::new(ctx(), settings(ChannelParams::Nfm(params))).unwrap();
+            let audio = run_ragged(&mut rx, &iq);
+            dominant_tone(&audio[audio.len() / 2..], RATE).1
+        };
+        let plain = tone_to_noise(false);
+        let compandered = tone_to_noise(true);
+        assert!(
+            compandered > 4.0 * plain,
+            "tone-to-noise {plain:.1} against {compandered:.1}"
+        );
+    }
+
+    #[test]
+    fn a_subaudible_tone_does_not_hold_the_expander_up() {
+        let voice = tone_audio(1_000.0, SOFT, RATE, TONE_LEN);
+        let level = |audio: &[f32]| {
+            let mut chan =
+                NfmChannel::new(ctx(), settings(ChannelParams::Nfm(compander_params(true))))
+                    .unwrap();
+            voice_level_db(&run_ragged(
+                &mut chan,
+                &fm_modulate(audio, DEVIATION_HZ, RATE),
+            ))
+        };
+        let alone = level(&voice);
+        let under_a_tone = level(&mix(&ctcss_audio(88.5, SUBAUDIBLE, RATE, TONE_LEN), &voice));
+        assert!(
+            (under_a_tone - alone).abs() < 1.5,
+            "the tone moved a {alone:.2} dB voice to {under_a_tone:.2} dB"
+        );
+    }
+
+    #[test]
+    fn switching_the_compander_off_leaves_the_audio_as_it_was() {
+        let iq = fm_iq(RATE, 1_000.0, DEVIATION_HZ, 48_000);
+        let plain = run_ragged(&mut channel(), &iq);
+        let mut chan =
+            NfmChannel::new(ctx(), settings(ChannelParams::Nfm(compander_params(true)))).unwrap();
+        chan.apply(settings(ChannelParams::Nfm(compander_params(false))))
+            .unwrap();
+        assert_eq!(run_ragged(&mut chan, &iq), plain);
     }
 
     const fn ctx() -> ChannelCtx {

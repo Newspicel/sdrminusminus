@@ -141,6 +141,15 @@ NFM adds tone squelch:
 - **CTCSS** opens only for a selected standard tone.
 - **DCS** opens only for a selected standard code.
 
+**Compander** expands the audio 2:1 about a fixed reference, undoing the 2:1 compression that
+commercial and trunked NFM gear applies before it transmits. Every decibel a quiet passage sat
+below the reference on the air is turned back into two, which puts the hiss between syllables back
+down where the transmitter's compressor found it. Turn it on only for a link that is actually
+compandered: on plain NFM it widens the dynamic range that was never narrowed, so quiet speech
+falls away. The same switch compresses on transmit, so two channels set the same way are a matched
+pair. Expansion stops 20 dB below the reference, and the sub-audible tone is kept out of the level
+the expander follows whether or not tone squelch is in use.
+
 ## Audio processing
 
 Every channel that produces audio has the same processing chain in its **Audio** block. All of it

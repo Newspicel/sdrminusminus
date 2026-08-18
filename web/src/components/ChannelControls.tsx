@@ -370,6 +370,11 @@ function ModeControls({
               <span className="legend">Hz</span>
             </SettingRow>
           )}
+          <Toggle
+            label="Compander"
+            checked={params.settings.compander ?? false}
+            onChange={(compander) => set({ ...params.settings, compander })}
+          />
         </>
       );
     }

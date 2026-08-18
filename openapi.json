@@ -9944,6 +9944,9 @@
             "type": "number",
             "format": "double"
           },
+          "compander": {
+            "type": "boolean"
+          },
           "ctcss_hz": {
             "type": [
               "number",
