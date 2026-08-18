@@ -34,7 +34,10 @@ struct Cli {
 enum Cmd {
     Codegen,
     Licenses,
-    Dev,
+    Dev {
+        #[arg(long)]
+        watch: bool,
+    },
     Check,
     Test,
     Audit,
@@ -101,7 +104,7 @@ fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Codegen => codegen(&root()),
         Cmd::Licenses => licenses::run(&root(), PNPM),
-        Cmd::Dev => dev(&root()),
+        Cmd::Dev { watch } => dev(&root(), watch),
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
         Cmd::Audit => audit(&root()),
@@ -181,7 +184,7 @@ fn codegen(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn dev(root: &Path) -> Result<()> {
+fn dev(root: &Path, watch: bool) -> Result<()> {
     ensure_web_deps(root)?;
     #[cfg(unix)]
     let _interrupt_handler = InterruptHandler::install()?;
@@ -195,9 +198,35 @@ fn dev(root: &Path) -> Result<()> {
         .spawn()
         .context("spawn vite dev server (is pnpm installed?)")?;
 
-    let result = watch_rust_server(root, &mut vite);
+    let result = if watch {
+        watch_rust_server(root, &mut vite)
+    } else {
+        run_rust_server(root, &mut vite)
+    };
 
     kill_process_tree(&mut vite);
+    result
+}
+
+fn run_rust_server(root: &Path, vite: &mut Child) -> Result<()> {
+    let mut server = spawn_rust_server(root)?;
+    let result = (|| -> Result<()> {
+        loop {
+            if dev_interrupted() {
+                return Ok(());
+            }
+            if let Some(status) = vite.try_wait().context("poll Vite dev server")? {
+                bail!("Vite dev server exited with {status}");
+            }
+            if let Some(status) = server.try_wait().context("poll Rust server")? {
+                ensure!(status.success(), "Rust server exited with {status}");
+                return Ok(());
+            }
+            std::thread::sleep(DEV_POLL_INTERVAL);
+        }
+    })();
+
+    kill_process_tree(&mut server);
     result
 }
 
@@ -397,6 +426,15 @@ mod dev_tests {
 #[cfg(test)]
 mod dev_command_tests {
     use super::*;
+
+    #[test]
+    fn dev_watches_backend_only_with_the_flag() {
+        let plain = Cli::try_parse_from(["xtask", "dev"]).expect("parse dev");
+        assert!(matches!(plain.cmd, Cmd::Dev { watch: false }));
+
+        let watching = Cli::try_parse_from(["xtask", "dev", "--watch"]).expect("parse dev --watch");
+        assert!(matches!(watching.cmd, Cmd::Dev { watch: true }));
+    }
 
     #[test]
     fn rust_server_command_enables_development_cors() {
