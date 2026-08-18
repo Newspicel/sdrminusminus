@@ -65,22 +65,8 @@ If something is shipped, then remove it.
 
 ## 5. Decoders & protocols
 
-### Digital voice
+### Data, text & paging
 
-- YSF callsigns — the signalling layer below its voice framing
-- Hardware AMBE dongle/server support
-
-### Aviation & marine
-
-- VOR, VOR localizer (multi-VOR fix), ILS, DSC
-- Inmarsat STD-C / AERO
-- VDL Mode 2; HFDL; Iridium bursts
-
-### Data, text & paging®
-
-- FLEX and further pager formats, ERMES
-- CW skimmer — every CW signal in the passband at once; the general case is the wideband
-  skimmer (§3)
 - Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
 
 ### Sub-GHz, ISM & IoT
@@ -107,16 +93,10 @@ If something is shipped, then remove it.
 - The multiplex and media layers above the shipped DAB, DATV and DRM acquisition —
   DAB FIC/MSC and DAB+ audio, DVB-S/S2 FEC + MPEG-TS and video, DRM FAC/SDC/MSC and audio
 
-### Proof against the air
-
-- Off-air proof — Tetrapol, STANAG modem ID, GSM downlink and OsmocomBB-style
-  monitoring are specification-proven only, and no sub-GHz remote decoder has yet been tested
-  against a real transmitter
-
 ## 6. Transmit & legitimate security research
 
 - Signal generator / arbitrary waveform + IQ playback-to-air
-- Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
+- Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use
 - Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
 - Interference / jam-susceptibility testing into a contained link
 - Flood / spam / malformed-broadcast testing at a DUT over a contained link
