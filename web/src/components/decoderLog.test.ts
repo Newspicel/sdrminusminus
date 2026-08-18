@@ -518,6 +518,37 @@ describe("wave-2 summaries", () => {
     expect(eventStation(sensor)).toBe("LaCrosse-TX141THBv2 2A");
   });
 
+  it("leads a tyre sensor with its pressure and a weather mast with its wind", () => {
+    const tyre: DecoderEvent = {
+      kind: "subghz",
+      data: {
+        modulation: "fsk",
+        encoding: "pcm",
+        bits: 64,
+        data: "",
+        short_us: 52,
+        repeats: 1,
+        reading: { model: "Toyota", id: 0x1a, pressure_kpa: 231, temperature_c: 18 },
+      },
+    };
+    expect(eventSummary(tyre)).toContain("231 kPa");
+
+    const mast: DecoderEvent = {
+      kind: "subghz",
+      data: {
+        modulation: "ook",
+        encoding: "pwm",
+        bits: 64,
+        data: "",
+        short_us: 500,
+        repeats: 1,
+        reading: { model: "WS2032", id: 7, wind_avg_kmh: 12.5, wind_dir_deg: 270, rain_mm: 3.2 },
+      },
+    };
+    expect(eventSummary(mast)).toContain("wind 12.5 km/h");
+    expect(eventSummary(mast)).toContain("rain 3.2 mm");
+  });
+
   it("gives the new kinds the names operators use for them", () => {
     expect(kindLabel("navtex")).toBe("NAVTEX");
     expect(kindLabel("acars")).toBe("ACARS");

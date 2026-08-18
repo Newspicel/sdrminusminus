@@ -10,19 +10,35 @@ export function hex2(value: number): string {
   return value.toString(16).toUpperCase().padStart(2, "0");
 }
 
-export function sensorFacts(reading: {
+export type SensorReading = {
   model: string;
   id: number;
   channel?: number | null;
   temperature_c?: number | null;
   humidity_pct?: number | null;
-}): (string | null)[] {
+  moisture_pct?: number | null;
+  pressure_kpa?: number | null;
+  wind_avg_kmh?: number | null;
+  wind_max_kmh?: number | null;
+  wind_dir_deg?: number | null;
+  rain_mm?: number | null;
+  power_w?: number | null;
+  energy_kwh?: number | null;
+};
+
+export function sensorFacts(reading: SensorReading): (string | null)[] {
   return [
     reading.model,
     `id ${hex2(reading.id)}`,
     reading.channel == null ? null : `ch ${reading.channel}`,
+    reading.pressure_kpa == null ? null : `${reading.pressure_kpa.toFixed(0)} kPa`,
     reading.temperature_c == null ? null : `${reading.temperature_c.toFixed(1)} °C`,
     reading.humidity_pct == null ? null : `${reading.humidity_pct.toFixed(0)} %`,
+    reading.moisture_pct == null ? null : `soil ${reading.moisture_pct.toFixed(0)} %`,
+    reading.wind_avg_kmh == null ? null : `wind ${reading.wind_avg_kmh.toFixed(1)} km/h`,
+    reading.wind_dir_deg == null ? null : `from ${reading.wind_dir_deg.toFixed(0)}°`,
+    reading.rain_mm == null ? null : `rain ${reading.rain_mm.toFixed(1)} mm`,
+    reading.power_w == null ? null : `${reading.power_w.toFixed(0)} W`,
   ];
 }
 

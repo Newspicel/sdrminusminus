@@ -12812,6 +12812,13 @@
             "format": "int32",
             "minimum": 0
           },
+          "energy_kwh": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "humidity_pct": {
             "type": [
               "number",
@@ -12827,7 +12834,56 @@
           "model": {
             "type": "string"
           },
+          "moisture_pct": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "power_w": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "pressure_kpa": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "rain_mm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "temperature_c": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "wind_avg_kmh": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "wind_dir_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "wind_max_kmh": {
             "type": [
               "number",
               "null"

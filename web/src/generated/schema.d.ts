@@ -3469,12 +3469,28 @@ export interface components {
             /** Format: int32 */
             channel?: number | null;
             /** Format: double */
+            energy_kwh?: number | null;
+            /** Format: double */
             humidity_pct?: number | null;
             /** Format: int32 */
             id: number;
             model: string;
             /** Format: double */
+            moisture_pct?: number | null;
+            /** Format: double */
+            power_w?: number | null;
+            /** Format: double */
+            pressure_kpa?: number | null;
+            /** Format: double */
+            rain_mm?: number | null;
+            /** Format: double */
             temperature_c?: number | null;
+            /** Format: double */
+            wind_avg_kmh?: number | null;
+            /** Format: double */
+            wind_dir_deg?: number | null;
+            /** Format: double */
+            wind_max_kmh?: number | null;
         };
         TemplateInfo: {
             /** Format: double */

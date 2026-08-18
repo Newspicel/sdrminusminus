@@ -299,6 +299,22 @@ pub struct SubghzReading {
     pub temperature_c: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub humidity_pct: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moisture_pct: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pressure_kpa: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_avg_kmh: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_max_kmh: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_dir_deg: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rain_mm: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_w: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_kwh: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]

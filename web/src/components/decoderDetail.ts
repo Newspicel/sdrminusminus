@@ -223,6 +223,32 @@ const DETAIL: {
         "Humidity",
         f.reading?.humidity_pct == null ? undefined : `${f.reading.humidity_pct.toFixed(0)} %`,
       ],
+      [
+        "Soil moisture",
+        f.reading?.moisture_pct == null ? undefined : `${f.reading.moisture_pct.toFixed(0)} %`,
+      ],
+      [
+        "Tyre pressure",
+        f.reading?.pressure_kpa == null ? undefined : `${f.reading.pressure_kpa.toFixed(0)} kPa`,
+      ],
+      [
+        "Wind average",
+        f.reading?.wind_avg_kmh == null ? undefined : `${f.reading.wind_avg_kmh.toFixed(1)} km/h`,
+      ],
+      [
+        "Wind gust",
+        f.reading?.wind_max_kmh == null ? undefined : `${f.reading.wind_max_kmh.toFixed(1)} km/h`,
+      ],
+      [
+        "Wind direction",
+        f.reading?.wind_dir_deg == null ? undefined : `${f.reading.wind_dir_deg.toFixed(0)}\u00b0`,
+      ],
+      ["Rain", f.reading?.rain_mm == null ? undefined : `${f.reading.rain_mm.toFixed(1)} mm`],
+      ["Power", f.reading?.power_w == null ? undefined : `${f.reading.power_w.toFixed(0)} W`],
+      [
+        "Energy",
+        f.reading?.energy_kwh == null ? undefined : `${f.reading.energy_kwh.toFixed(2)} kWh`,
+      ],
       ["Battery", flag(f.reading?.battery_ok)],
       ["Modulation", f.modulation],
       ["Encoding", f.encoding],

@@ -45,6 +45,7 @@ pub(super) fn nexus(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x80 != 0),
         temperature_c: Some(temperature_c),
         humidity_pct: (humidity != 0).then(|| f64::from(humidity)),
+        ..SubghzReading::default()
     })
 }
 
@@ -61,6 +62,7 @@ pub(super) fn acurite_609txc(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x80 == 0),
         temperature_c: Some(temperature_c),
         humidity_pct: Some(f64::from(b[3])),
+        ..SubghzReading::default()
     })
 }
 
@@ -82,6 +84,7 @@ pub(super) fn acurite_606tx(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x80 != 0),
         temperature_c: Some(temperature_c),
         humidity_pct: None,
+        ..SubghzReading::default()
     })
 }
 
@@ -103,6 +106,7 @@ pub(super) fn lacrosse_tx141th_bv2(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x80 == 0),
         temperature_c: Some(temperature_c),
         humidity_pct: Some(f64::from(b[3])),
+        ..SubghzReading::default()
     })
 }
 
@@ -124,6 +128,7 @@ pub(super) fn prologue(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x08 != 0),
         temperature_c: Some(temperature_c),
         humidity_pct,
+        ..SubghzReading::default()
     })
 }
 
@@ -149,6 +154,7 @@ pub(super) fn infactory(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x04 == 0),
         temperature_c: Some(temperature_c),
         humidity_pct: Some(humidity),
+        ..SubghzReading::default()
     })
 }
 
@@ -177,6 +183,7 @@ pub(super) fn fineoffset_wh2(b: &Payload) -> Option<SubghzReading> {
         battery_ok: None,
         temperature_c: Some(temperature_c),
         humidity_pct: Some(humidity),
+        ..SubghzReading::default()
     })
 }
 
@@ -200,6 +207,7 @@ pub(super) fn ambientweather_f007th(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[2] & 0x80 == 0),
         temperature_c: Some(temperature_c),
         humidity_pct: Some(humidity),
+        ..SubghzReading::default()
     })
 }
 
@@ -227,6 +235,7 @@ pub(super) fn ambientweather_wh31e(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[2] & 0x04 == 0),
         temperature_c: Some(temperature_c),
         humidity_pct: Some(humidity),
+        ..SubghzReading::default()
     })
 }
 
@@ -253,6 +262,7 @@ pub(super) fn wt450(b: &Payload) -> Option<SubghzReading> {
         battery_ok: Some(b[1] & 0x08 == 0),
         temperature_c: Some(temperature_c),
         humidity_pct: Some(humidity),
+        ..SubghzReading::default()
     })
 }
 
