@@ -174,6 +174,27 @@ pub fn manchester(bits: &[bool], half_cell_us: u32, repeats: u32, rate: f64) -> 
 }
 
 #[must_use]
+pub fn fsk_nrz(bits: &[bool], bit_us: u32, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
+    let baud = 1e6 / f64::from(bit_us);
+    let sps = rate / baud;
+    let symbols: Vec<u8> = bits.iter().map(|&bit| u8::from(bit)).collect();
+    let mut modulator = CpmMod::new(CpmParams::from_deviation(
+        Mapping::new(vec![-1.0, 1.0]),
+        deviation_hz,
+        baud,
+        pulse::rect(sps, Norm::Area),
+        sps,
+    ));
+    let mut burst = Vec::new();
+    modulator.modulate(&symbols, &mut burst);
+    shift(&mut burst, CARRIER_OFFSET_HZ, rate);
+    let mut iq = silence((LEAD_IN_S * rate) as usize);
+    iq.extend(burst);
+    iq.extend(silence((TAIL_S * rate) as usize));
+    iq
+}
+
+#[must_use]
 pub fn pwm_fsk(frame: &Pwm, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let one = pwm_timings(frame);
     let mut symbols = Vec::new();

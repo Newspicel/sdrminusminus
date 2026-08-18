@@ -12677,9 +12677,11 @@
       "SubghzEncoding": {
         "type": "string",
         "enum": [
+          "pcm",
           "pwm",
           "ppm",
           "manchester",
+          "dmc",
           "raw"
         ]
       },

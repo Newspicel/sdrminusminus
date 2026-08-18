@@ -507,7 +507,7 @@ fn default_subghz_bandwidth_hz() -> f64 {
 }
 
 fn default_subghz_min_pulse_us() -> u32 {
-    80
+    30
 }
 
 fn default_subghz_frame_gap_us() -> u32 {

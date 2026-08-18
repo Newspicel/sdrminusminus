@@ -278,9 +278,11 @@ pub struct AcarsMessage {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubghzEncoding {
+    Pcm,
     Pwm,
     Ppm,
     Manchester,
+    Dmc,
     #[default]
     Raw,
 }

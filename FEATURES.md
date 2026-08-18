@@ -72,10 +72,14 @@ If something is shipped, then remove it.
 ### Sub-GHz, ISM & IoT
 
 - Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§6)
-- Protocol library beyond the first three sensors — Nexus-T/TH, Acurite 609TXC and LaCrosse
-  TX141TH-Bv2 read as named temperature/humidity readings; TPMS, meters and the rest of the
-  weather-station families are payload layouts to add to the same table
-- ISM sensor suite (rtl_433-style); escape hatch is a UDP sink into the rtl_433 binary
+- More of the ISM sensor library. Five pulse slicers (PCM, PPM, PWM, Manchester, differential
+  Manchester) and ten devices are in, which is the framing rtl_433 uses for ~94% of its
+  catalogue; what is left is payload layouts on the same table — TPMS, meters, the wind and rain
+  message types, and the remaining weather-station families. Three slicers are unported
+  (PIWM, OSV1, RZI/NRZS) because only a handful of devices use them
+- Escape hatch for the long tail: a UDP or TCP sink into the rtl_433 binary. The IQ export
+  already speaks `cu8`, which is rtl_433's native sample format; what is missing is the transport
+  glue and a way to fold its output back into the decoder log
 - ChirpChat / LoRa, Meshtastic, MeshCore
 - End-of-Train (EOT) telemetry
 - LoRaWAN frame parsing

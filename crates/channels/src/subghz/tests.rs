@@ -4,7 +4,9 @@ use super::*;
 use crate::{
     testgen::{
         self,
-        subghz::{Ppm, Pwm, PwmBurst, keyed, manchester, ppm_timings, pwm, pwm_burst_timings},
+        subghz::{
+            Ppm, Pwm, PwmBurst, fsk_nrz, keyed, manchester, ppm_timings, pwm, pwm_burst_timings,
+        },
     },
     testutil::{complex_noise, settings},
 };
@@ -402,4 +404,133 @@ fn a_sensor_heard_in_two_bursts_reports_every_repeat_it_carried() {
         frames[0].reading.as_ref().map(|r| r.temperature_c),
         Some(Some(21.3))
     );
+}
+
+fn ppm_burst(payload: &[u8], count: usize, short: u32, long: u32, sync: u32, repeats: u32) -> Ppm {
+    Ppm {
+        bits: payload_bits(payload, count),
+        pulse_us: 500,
+        short_gap_us: short,
+        long_gap_us: long,
+        sync_gap_us: sync,
+        repeats,
+    }
+}
+
+#[test]
+fn reads_an_acurite_606_off_its_wider_pulse_position_burst() {
+    let burst = ppm_burst(&[0x7B, 0x80, 0xBB, 0x76], 32, 2_000, 4_000, 9_000, 6);
+    let frames = decode(SubghzParams::default(), &keyed(&ppm_timings(&burst), RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Acurite-606TX");
+    assert_eq!(reading.temperature_c, Some(18.7));
+    assert_eq!(reading.channel, Some(1));
+}
+
+#[test]
+fn reads_a_prologue_sensor_that_shares_its_timing_with_the_acurite() {
+    let burst = ppm_burst(&[0x9C, 0x79, 0x0E, 0xA3, 0x70], 36, 2_000, 4_000, 9_000, 5);
+    let frames = decode(SubghzParams::default(), &keyed(&ppm_timings(&burst), RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Prologue-TH");
+    assert_eq!(reading.temperature_c, Some(23.4));
+    assert_eq!(reading.humidity_pct, Some(55.0));
+}
+
+#[test]
+fn reads_an_infactory_sensor_through_the_tolerance_its_spec_asks_for() {
+    let burst = ppm_burst(&[0x0F, 0x80, 0x65, 0x06, 0x23], 40, 2_000, 4_000, 16_000, 6);
+    let frames = decode(SubghzParams::default(), &keyed(&ppm_timings(&burst), RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "inFactory-TH");
+    assert_eq!(reading.temperature_c, Some(22.0));
+    assert_eq!(reading.humidity_pct, Some(62.0));
+}
+
+#[test]
+fn reads_a_fine_offset_sensor_off_its_pulse_widths() {
+    let bits = payload_bits(&[0xFF, 0x45, 0xA0, 0xC3, 0x49, 0xEB], 48);
+    let mut timings = Vec::new();
+    for &bit in &bits {
+        timings.push(if bit { 544 } else { 1_524 });
+        timings.push(1_036);
+    }
+    timings.pop();
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "FineOffset-WH2");
+    assert_eq!(reading.temperature_c, Some(19.5));
+    assert_eq!(reading.humidity_pct, Some(73.0));
+}
+
+#[test]
+fn reads_a_wt450_off_its_differential_manchester_symbols() {
+    let bits = payload_bits(&[0xC3, 0x42, 0xD4, 0x78, 0x50], 36);
+    let mut timings = Vec::new();
+    for &bit in &bits {
+        if bit {
+            timings.push(976);
+            timings.push(976);
+        } else {
+            timings.push(1_952);
+        }
+    }
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "WT450-TH");
+    assert_eq!(reading.temperature_c, Some(21.5));
+    assert_eq!(reading.humidity_pct, Some(45.0));
+}
+
+#[test]
+fn reads_an_f007th_off_a_manchester_carrier() {
+    let mut bits = vec![true];
+    bits.extend(payload_bits(&[0x14, 0x50], 12));
+    bits.extend(payload_bits(&[0x45, 0x93, 0x24, 0x41, 0x30, 0x6F], 48));
+    let frames = decode(SubghzParams::default(), &manchester(&bits, 500, 3, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "AmbientWeather-F007TH");
+    assert_eq!(reading.temperature_c, Some(20.5));
+    assert_eq!(reading.humidity_pct, Some(48.0));
+    assert_eq!(reading.channel, Some(3));
+}
+
+#[test]
+fn reads_a_wh31e_off_a_frequency_shift_keyed_carrier() {
+    let mut bits = [true, false].repeat(24);
+    bits.extend(payload_bits(
+        &[0x2D, 0xD4, 0x30, 0xC3, 0x82, 0x73, 0x33, 0xD0, 0xEB],
+        72,
+    ));
+    let p = SubghzParams {
+        modulation: SubghzModulation::Fsk,
+        ..SubghzParams::default()
+    };
+    let frames = decode(p, &fsk_nrz(&bits, 56, 40_000.0, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "AmbientWeather-WH31E");
+    assert_eq!(reading.temperature_c, Some(22.7));
+    assert_eq!(reading.humidity_pct, Some(51.0));
+    assert_eq!(reading.channel, Some(1));
 }

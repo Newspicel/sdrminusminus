@@ -72,6 +72,39 @@ pub fn crc8_msb(poly: u8, init: u8, data: &[u8]) -> u8 {
 }
 
 #[must_use]
+pub fn crc4_msb(poly: u8, init: u8, data: &[u8]) -> u8 {
+    let remainder = data.iter().fold(init << 4, |crc, &byte| {
+        (0..8).fold(crc ^ byte, |acc, _| {
+            if acc & 0x80 == 0 {
+                acc << 1
+            } else {
+                (acc << 1) ^ (poly << 4)
+            }
+        })
+    });
+    remainder >> 4
+}
+
+#[must_use]
+pub fn lfsr_digest8(poly: u8, key: u8, data: &[u8]) -> u8 {
+    let mut key = key;
+    let mut sum = 0u8;
+    for &byte in data {
+        for bit in (0..8).rev() {
+            if byte >> bit & 1 == 1 {
+                sum ^= key;
+            }
+            key = if key & 1 == 0 {
+                key >> 1
+            } else {
+                (key >> 1) ^ poly
+            };
+        }
+    }
+    sum
+}
+
+#[must_use]
 pub fn lfsr_digest8_reflect(poly: u8, key: u8, data: &[u8]) -> u8 {
     let mut key = key;
     let mut sum = 0u8;
@@ -665,6 +698,42 @@ mod tests {
         assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[0x00]), 0x00);
         assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[0x01]), 0xF4);
         assert_eq!(lfsr_digest8_reflect(0x31, 0xF4, &[0x80]), 0x23);
+    }
+
+    #[test]
+    fn a_forward_lfsr_digest_of_one_set_bit_is_the_key_it_started_from() {
+        assert_eq!(lfsr_digest8(0x98, 0x3E, &[]), 0x00);
+        assert_eq!(lfsr_digest8(0x98, 0x3E, &[0x80]), 0x3E);
+        assert_eq!(lfsr_digest8(0x98, 0xF1, &[0x7B, 0x80, 0xBB]), 0x76);
+        assert_eq!(
+            lfsr_digest8(0x98, 0x3E, &[0x45, 0x93, 0x24, 0x41, 0x30]),
+            0x0B
+        );
+    }
+
+    #[test]
+    fn a_forward_lfsr_digest_is_linear_over_the_message_bits() {
+        let left = [0x7Bu8, 0x80, 0xBB];
+        let right = [0x2Eu8, 0x2F, 0x84];
+        let mixed: Vec<u8> = left.iter().zip(right).map(|(&a, b)| a ^ b).collect();
+        assert_eq!(
+            lfsr_digest8(0x98, 0xF1, &mixed),
+            lfsr_digest8(0x98, 0xF1, &left) ^ lfsr_digest8(0x98, 0xF1, &right)
+        );
+    }
+
+    #[test]
+    fn crc4_leaves_a_zero_message_at_its_starting_value() {
+        assert_eq!(crc4_msb(0x13, 0x0, &[0x00; 4]), 0x0);
+        assert_eq!(crc4_msb(0x13, 0x0, &[0x01]), 0x3);
+        assert_eq!(crc4_msb(0x13, 0x0, &[0x0F, 0x30, 0x65, 0x06]), 0xA);
+    }
+
+    #[test]
+    fn crc4_never_returns_more_than_the_four_bits_it_names() {
+        for byte in 0..=u8::MAX {
+            assert!(crc4_msb(0x13, 0x0, &[byte]) <= 0x0F);
+        }
     }
 
     #[test]

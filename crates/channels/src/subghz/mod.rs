@@ -1,4 +1,5 @@
 mod sensors;
+mod slicer;
 
 #[cfg(test)]
 mod tests;

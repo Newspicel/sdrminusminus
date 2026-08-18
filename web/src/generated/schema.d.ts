@@ -3434,7 +3434,7 @@ export interface components {
             stream: number;
         };
         /** @enum {string} */
-        SubghzEncoding: "pwm" | "ppm" | "manchester" | "raw";
+        SubghzEncoding: "pcm" | "pwm" | "ppm" | "manchester" | "dmc" | "raw";
         SubghzFrame: {
             /** Format: int32 */
             address?: number | null;

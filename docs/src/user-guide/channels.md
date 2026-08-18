@@ -39,7 +39,7 @@ list.
 | Marine | AIS, NAVTEX, Digital Selective Calling, Inmarsat STD-C / EGC | fixture-only |
 | Amateur data and HF | APRS / AX.25, RTTY, PSK (31, 63, 125, 250 baud), Morse (CW), CW skimmer, FT8, FT4, WSPR | fixture-only |
 | Paging and telemetry | POCSAG | tested on air |
-| Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors (Nexus-T/TH, Acurite 609TXC, LaCrosse TX141TH-Bv2), radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
+| Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
 | Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
 | Utility | Signal identifier, Iridium bursts | fixture-only |
@@ -81,9 +81,29 @@ Mode 2, HFDL, Inmarsat Classic Aero, Inmarsat STD-C and Digital Selective Callin
 from the [xng](https://github.com/airframesio/xng) project, which are exercised against real
 traffic upstream; the label describes this integration, not that work.
 
-The ISM sensor payload layouts, their validation heuristics, and the LFSR digest the LaCrosse
-sensor checksums with follow [rtl_433](https://github.com/merbanan/rtl_433) (GPL-2.0-or-later),
-which documents the pulse timings and field positions each of these sensors transmits.
+## ISM sensors
+
+A Sub-GHz channel reads named sensor payloads as well as raw frames. Ten devices are recognised
+across five pulse codings:
+
+| Coding | Devices |
+|---|---|
+| Pulse position | Nexus-T/TH, Acurite 609TXC, Acurite 606TX, Prologue-TH, inFactory-TH |
+| Pulse width | LaCrosse TX141TH-Bv2, Fine Offset WH2 |
+| Manchester | Ambient Weather F007TH |
+| Pulse code (FSK) | Ambient Weather WH31E |
+| Differential Manchester | WT450-TH |
+
+Each device is matched on its own pulse timings, then accepted only if its checksum, digest or
+parity closes, so an unrecognised burst still falls through to the raw timing view rather than
+being reported as a reading. FSK sensors clock at 55-58 µs a bit, which is finer than the
+default minimum pulse width the channel debounces at; the default is set low enough to admit
+them.
+
+The pulse slicers, ISM sensor payload layouts, their validation heuristics, and the CRC and LFSR
+digest routines those layouts check with follow [rtl_433](https://github.com/merbanan/rtl_433)
+(GPL-2.0-or-later), which documents the pulse timings and field positions each of these sensors
+transmits.
 
 The wideband digital channels are **acquisition only**. They report waveform lock, SNR, frequency
 error, and the configured symbol rate where one applies. They do not decode DAB FIC/MSC, DVB
