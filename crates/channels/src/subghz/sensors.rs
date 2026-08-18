@@ -570,6 +570,25 @@ mod tests {
     }
 
     #[test]
+    fn the_table_offers_an_ambiguous_frame_to_its_strongest_check_first() {
+        let mut frame = [0u8; PAYLOAD_BYTES];
+        frame[..5].copy_from_slice(&[0x96, 0x10, 0x00, 0x86, 0x00]);
+        let claimed: Vec<String> = SENSORS
+            .iter()
+            .filter_map(|device| (device.read)(&frame).map(|reading| reading.model))
+            .collect();
+        assert!(
+            claimed.len() > 1,
+            "this frame is only interesting while more than one sensor accepts it: {claimed:?}"
+        );
+        assert_eq!(
+            claimed.first().map(String::as_str),
+            Some("Springfield-Soil"),
+            "a folded parity must outrank a bare type nibble: {claimed:?}"
+        );
+    }
+
+    #[test]
     fn a_burst_of_the_wrong_length_matches_no_sensor_in_the_table() {
         let edges: Vec<u32> = std::iter::repeat_n([500, 1_000], 20).flatten().collect();
         assert!(identify(&edges).is_none());
