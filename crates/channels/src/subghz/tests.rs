@@ -534,3 +534,117 @@ fn reads_a_wh31e_off_a_frequency_shift_keyed_carrier() {
     assert_eq!(reading.humidity_pct, Some(51.0));
     assert_eq!(reading.channel, Some(1));
 }
+
+fn pwm_row(bits: &[bool], short_us: u32, long_us: u32) -> Vec<u32> {
+    let mut timings = Vec::new();
+    for &bit in bits {
+        let (pulse, gap) = if bit {
+            (short_us, long_us)
+        } else {
+            (long_us, short_us)
+        };
+        timings.push(pulse);
+        timings.push(gap);
+    }
+    timings.pop();
+    timings
+}
+
+#[test]
+fn reads_a_rubicson_rather_than_the_nexus_it_shares_a_layout_with() {
+    let burst = ppm_burst(&[0xB4, 0x80, 0xA8, 0xFA, 0xA0], 36, 1_000, 2_000, 4_000, 8);
+    let frames = decode(SubghzParams::default(), &keyed(&ppm_timings(&burst), RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Rubicson-Temperature");
+    assert_eq!(reading.temperature_c, Some(16.8));
+}
+
+#[test]
+fn reads_a_kedsum_past_the_two_lead_in_bits_of_its_row() {
+    let mut bits = vec![false, false];
+    bits.extend(payload_bits(&[0x3C, 0x90, 0x56, 0xE3, 0x02], 40));
+    let mut timings = Vec::new();
+    for _ in 0..5 {
+        for &bit in &bits {
+            timings.push(500);
+            timings.push(if bit { 4_000 } else { 2_000 });
+        }
+        timings.push(500);
+        timings.push(6_000);
+    }
+    timings.pop();
+    let frames = decode(SubghzParams::default(), &keyed(&timings, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Kedsum-TH");
+    assert_eq!(reading.temperature_c, Some(22.0));
+    assert_eq!(reading.humidity_pct, Some(62.0));
+}
+
+#[test]
+fn reads_a_springfield_soil_probe() {
+    let burst = ppm_burst(&[0x66, 0x10, 0xC2, 0x69, 0x00], 36, 2_000, 4_000, 6_000, 4);
+    let frames = decode(SubghzParams::default(), &keyed(&ppm_timings(&burst), RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Springfield-Soil");
+    assert_eq!(reading.moisture_pct, Some(60.0));
+    assert_eq!(reading.temperature_c, Some(19.4));
+}
+
+#[test]
+fn reads_an_auriol_whose_bits_arrive_the_other_way_up() {
+    let bits: Vec<bool> = payload_bits(&[0x91, 0x26, 0x00, 0xF1, 0xB6], 40)
+        .iter()
+        .map(|&bit| !bit)
+        .collect();
+    let frames = decode(
+        SubghzParams::default(),
+        &keyed(&pwm_row(&bits, 252, 612), RATE),
+    );
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Auriol-HG02832");
+    assert_eq!(reading.temperature_c, Some(24.1));
+    assert_eq!(reading.humidity_pct, Some(38.0));
+}
+
+#[test]
+fn reads_a_wt0124_pool_thermometer() {
+    let bits = payload_bits(&[0x55, 0xCA, 0x99, 0x20, 0x26, 0xFF, 0x00], 49);
+    let frames = decode(
+        SubghzParams::default(),
+        &keyed(&pwm_row(&bits, 680, 1_850), RATE),
+    );
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "WT0124-Pool");
+    assert_eq!(reading.temperature_c, Some(26.5));
+}
+
+#[test]
+fn reads_an_opus_soil_probe() {
+    let bits = payload_bits(&[0xFF, 0x51, 0x2F, 0x3D, 0x00, 0xBD], 48);
+    let frames = decode(
+        SubghzParams::default(),
+        &keyed(&pwm_row(&bits, 544, 932), RATE),
+    );
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "Opus-XT300");
+    assert_eq!(reading.moisture_pct, Some(47.0));
+    assert_eq!(reading.temperature_c, Some(21.0));
+}

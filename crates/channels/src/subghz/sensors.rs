@@ -17,6 +17,7 @@ enum Layout {
     Row {
         min_bits: usize,
         max_bits: usize,
+        skip_bits: usize,
     },
     After {
         sync: u32,
@@ -48,7 +49,31 @@ const fn ppm(
 }
 
 const fn row(min_bits: usize, max_bits: usize) -> Layout {
-    Layout::Row { min_bits, max_bits }
+    Layout::Row {
+        min_bits,
+        max_bits,
+        skip_bits: 0,
+    }
+}
+
+const fn pwm(
+    short_us: u32,
+    long_us: u32,
+    sync_us: u32,
+    gap_us: u32,
+    reset_us: u32,
+    tolerance_us: u32,
+) -> Framing {
+    Framing {
+        coding: Coding::Pwm {
+            short_us,
+            long_us,
+            sync_us,
+        },
+        gap_us,
+        reset_us,
+        tolerance_us,
+    }
 }
 
 const SENSORS: &[Device] = &[
@@ -148,6 +173,46 @@ const SENSORS: &[Device] = &[
         read: payload::acurite_606tx,
     },
     Device {
+        framing: pwm(252, 612, 860, 750, 62_990, 0),
+        layout: row(40, 40),
+        invert: true,
+        read: payload::auriol_hg02832,
+    },
+    Device {
+        framing: pwm(680, 1_850, 10_000, 4_000, 30_000, 0),
+        layout: row(49, 49),
+        invert: false,
+        read: payload::wt0124,
+    },
+    Device {
+        framing: pwm(544, 932, 0, 10_000, 31_000, 0),
+        layout: row(48, 48),
+        invert: false,
+        read: payload::opus_xt300,
+    },
+    Device {
+        framing: ppm(2_000, 4_000, 4_400, 9_400, 0),
+        layout: Layout::Row {
+            min_bits: 42,
+            max_bits: 42,
+            skip_bits: 2,
+        },
+        invert: false,
+        read: payload::kedsum,
+    },
+    Device {
+        framing: ppm(1_000, 2_000, 3_000, 4_800, 0),
+        layout: row(36, 38),
+        invert: false,
+        read: payload::rubicson,
+    },
+    Device {
+        framing: ppm(2_000, 4_000, 5_000, 9_200, 0),
+        layout: row(36, 37),
+        invert: false,
+        read: payload::springfield,
+    },
+    Device {
         framing: ppm(1_000, 2_000, 3_000, 5_000, 0),
         layout: row(36, 37),
         invert: false,
@@ -222,9 +287,13 @@ fn matches_sync(row: &[bool], start: usize, sync: u32, sync_bits: usize) -> bool
 
 fn found_rows(row: &[bool], device: &Device) -> Vec<Vec<bool>> {
     match device.layout {
-        Layout::Row { min_bits, max_bits } => {
+        Layout::Row {
+            min_bits,
+            max_bits,
+            skip_bits,
+        } => {
             if (min_bits..=max_bits).contains(&row.len()) {
-                vec![row[..min_bits].to_vec()]
+                vec![row[skip_bits..min_bits].to_vec()]
             } else {
                 Vec::new()
             }

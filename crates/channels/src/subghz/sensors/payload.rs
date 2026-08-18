@@ -266,6 +266,155 @@ pub(super) fn wt450(b: &Payload) -> Option<SubghzReading> {
     })
 }
 
+pub(super) fn rubicson(b: &Payload) -> Option<SubghzReading> {
+    if b[3] & 0xF0 != 0xF0 {
+        return None;
+    }
+    let checked = [
+        b[0],
+        b[1],
+        b[2],
+        b[3] & 0xF0,
+        (b[3] & 0x0F) << 4 | (b[4] & 0xF0) >> 4,
+    ];
+    if crc8_msb(0x31, 0x6C, &checked) != 0 {
+        return None;
+    }
+    let temperature_c = f64::from(signed_12(u16::from(b[1] & 0x0F) << 8 | u16::from(b[2]))) / 10.0;
+    if !plausible(temperature_c, None) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Rubicson-Temperature".to_owned(),
+        id: u32::from(b[0]),
+        channel: Some(((b[1] & 0x30) >> 4) + 1),
+        battery_ok: Some(b[1] & 0x80 != 0),
+        temperature_c: Some(temperature_c),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn kedsum(b: &Payload) -> Option<SubghzReading> {
+    if crc4_msb(0x3, 0, &b[..4]) ^ (b[4] >> 4) != b[4] & 0x0F {
+        return None;
+    }
+    let raw = u32::from(b[2] & 0x0F) << 8 | u32::from(b[2] & 0xF0) | u32::from(b[1] & 0x0F);
+    let temperature_c = (f64::from(raw) - 1_220.0) / 18.0;
+    let humidity = f64::from((b[3] & 0x0F) << 4 | (b[3] & 0xF0) >> 4);
+    if !plausible(temperature_c, Some(humidity)) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Kedsum-TH".to_owned(),
+        id: u32::from(b[0]),
+        channel: Some(((b[1] & 0x30) >> 4) + 1),
+        battery_ok: Some(b[1] >> 6 == 2),
+        temperature_c: Some(temperature_c),
+        humidity_pct: Some(humidity),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn springfield(b: &Payload) -> Option<SubghzReading> {
+    let head =
+        u32::from(b[0]) << 24 | u32::from(b[1]) << 16 | u32::from(b[2]) << 8 | u32::from(b[3]);
+    if head == 0 || head == u32::MAX {
+        return None;
+    }
+    let folded = b[..4].iter().fold(0u8, |acc, &byte| acc ^ byte);
+    if (folded >> 4) ^ (folded & 0x0F) != 0 {
+        return None;
+    }
+    let temperature_c = f64::from(signed_12(u16::from(b[1] & 0x0F) << 8 | u16::from(b[2]))) / 10.0;
+    let moisture = f64::from((b[3] >> 4) * 10);
+    if !(-30.0..=70.0).contains(&temperature_c) || moisture > 100.0 {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Springfield-Soil".to_owned(),
+        id: u32::from(b[0]),
+        channel: Some(((b[1] >> 4) & 0x03) + 1),
+        battery_ok: Some(b[1] & 0x80 == 0),
+        temperature_c: Some(temperature_c),
+        moisture_pct: Some(moisture),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn auriol_hg02832(b: &Payload) -> Option<SubghzReading> {
+    let folded = b[0] ^ b[1] ^ b[2] ^ b[3];
+    if crc8_msb(0x31, 0x53, &[folded]) ^ b[4] != 0 {
+        return None;
+    }
+    let temperature_c = f64::from(signed_12(u16::from(b[2] & 0x0F) << 8 | u16::from(b[3]))) / 10.0;
+    let humidity = f64::from(b[1]);
+    if !plausible(temperature_c, Some(humidity)) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Auriol-HG02832".to_owned(),
+        id: u32::from(b[0]),
+        channel: Some(((b[2] & 0x30) >> 4) + 1),
+        battery_ok: Some(b[2] & 0x80 == 0),
+        temperature_c: Some(temperature_c),
+        humidity_pct: Some(humidity),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn wt0124(b: &Payload) -> Option<SubghzReading> {
+    if b[0] >> 4 != 0x5 {
+        return None;
+    }
+    if b[..4].iter().fold(0u8, |acc, &byte| acc ^ byte) != b[4] {
+        return None;
+    }
+    let mut sum = b[..4].iter().fold(0u32, |acc, &byte| acc + u32::from(byte));
+    sum += sum >> 8;
+    sum += u32::from(b[4]);
+    if (sum & 0xFF) as u8 != b[5] {
+        return None;
+    }
+    let raw = u32::from(b[1] & 0x0F) << 8 | u32::from(b[2]);
+    let temperature_c = (f64::from(raw) - 2_448.0) / 10.0;
+    if !plausible(temperature_c, None) {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "WT0124-Pool".to_owned(),
+        id: u32::from((b[0] & 0x0F) << 4 | (b[1] & 0x0F)),
+        channel: Some((b[3] >> 4) & 0x03),
+        temperature_c: Some(temperature_c),
+        ..SubghzReading::default()
+    })
+}
+
+pub(super) fn opus_xt300(b: &Payload) -> Option<SubghzReading> {
+    if b[0] != 0xFF {
+        return None;
+    }
+    let sum = b[1..5]
+        .iter()
+        .fold(0u32, |acc, &byte| acc + u32::from(byte))
+        & 0xFF;
+    if sum == 0 || sum as u8 != b[5] {
+        return None;
+    }
+    let temperature_c = f64::from(i16::from(b[3]) - 40);
+    let moisture = f64::from(b[2]);
+    if temperature_c > 100.0 || moisture > 101.0 {
+        return None;
+    }
+    Some(SubghzReading {
+        model: "Opus-XT300".to_owned(),
+        id: 0,
+        channel: Some(b[1] & 0x03),
+        temperature_c: Some(temperature_c),
+        moisture_pct: Some(moisture),
+        ..SubghzReading::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,6 +670,133 @@ mod tests {
     fn wh31e_rejects_a_payload_whose_trailing_sum_is_wrong() {
         assert!(
             ambientweather_wh31e(&payload(&[0x30, 0xC3, 0x82, 0x73, 0x33, 0xD0, 0xEC])).is_none()
+        );
+    }
+
+    #[test]
+    fn a_rubicson_payload_reads_back_the_values_it_was_built_from() {
+        let reading = rubicson(&payload(&[0xB4, 0x80, 0xA8, 0xFA, 0xA0])).expect("valid Rubicson");
+        assert_eq!(reading.model, "Rubicson-Temperature");
+        assert_eq!(reading.id, 0xB4);
+        assert_eq!(reading.channel, Some(1));
+        assert_eq!(reading.battery_ok, Some(true));
+        assert_eq!(reading.temperature_c, Some(16.8));
+    }
+
+    #[test]
+    fn a_rubicson_reads_a_deep_frost_and_its_third_channel() {
+        let reading = rubicson(&payload(&[0x7E, 0x2F, 0x2B, 0xFB, 0x30])).expect("valid Rubicson");
+        assert_eq!(reading.temperature_c, Some(-21.3));
+        assert_eq!(reading.channel, Some(3));
+        assert_eq!(reading.battery_ok, Some(false));
+    }
+
+    #[test]
+    fn rubicson_rejects_every_single_bit_flip_in_its_payload() {
+        let clean = [0xB4u8, 0x80, 0xA8, 0xFA, 0xA0];
+        for bit in 0..36 {
+            let mut damaged = clean;
+            damaged[bit / 8] ^= 0x80 >> (bit % 8);
+            assert!(
+                rubicson(&payload(&damaged)).is_none(),
+                "bit {bit} slipped through"
+            );
+        }
+    }
+
+    #[test]
+    fn a_kedsum_payload_reads_back_the_values_it_was_built_from() {
+        let reading = kedsum(&payload(&[0x3C, 0x90, 0x56, 0xE3, 0x02])).expect("valid Kedsum");
+        assert_eq!(reading.model, "Kedsum-TH");
+        assert_eq!(reading.id, 0x3C);
+        assert_eq!(reading.channel, Some(2));
+        assert_eq!(reading.battery_ok, Some(true));
+        assert_eq!(reading.temperature_c, Some(22.0));
+        assert_eq!(reading.humidity_pct, Some(62.0));
+    }
+
+    #[test]
+    fn kedsum_rejects_a_payload_whose_crc_nibble_is_wrong() {
+        assert!(kedsum(&payload(&[0x3C, 0x90, 0x56, 0xE3, 0x03])).is_none());
+    }
+
+    #[test]
+    fn a_springfield_payload_reports_soil_moisture_beside_temperature() {
+        let reading =
+            springfield(&payload(&[0x66, 0x10, 0xC2, 0x69, 0x00])).expect("valid Springfield");
+        assert_eq!(reading.model, "Springfield-Soil");
+        assert_eq!(reading.temperature_c, Some(19.4));
+        assert_eq!(reading.moisture_pct, Some(60.0));
+        assert_eq!(reading.humidity_pct, None);
+        assert_eq!(reading.channel, Some(2));
+    }
+
+    #[test]
+    fn springfield_rejects_a_payload_whose_folded_parity_does_not_close() {
+        assert!(springfield(&payload(&[0x66, 0x10, 0xC2, 0x68, 0x00])).is_none());
+    }
+
+    #[test]
+    fn an_auriol_payload_reads_back_the_values_it_was_built_from() {
+        let reading =
+            auriol_hg02832(&payload(&[0x91, 0x26, 0x00, 0xF1, 0xB6])).expect("valid Auriol");
+        assert_eq!(reading.model, "Auriol-HG02832");
+        assert_eq!(reading.id, 0x91);
+        assert_eq!(reading.channel, Some(1));
+        assert_eq!(reading.temperature_c, Some(24.1));
+        assert_eq!(reading.humidity_pct, Some(38.0));
+    }
+
+    #[test]
+    fn auriol_rejects_every_single_bit_flip_in_its_payload() {
+        let clean = [0x91u8, 0x26, 0x00, 0xF1, 0xB6];
+        for bit in 0..40 {
+            let mut damaged = clean;
+            damaged[bit / 8] ^= 0x80 >> (bit % 8);
+            assert!(
+                auriol_hg02832(&payload(&damaged)).is_none(),
+                "bit {bit} slipped through"
+            );
+        }
+    }
+
+    #[test]
+    fn a_wt0124_payload_passes_both_of_the_checks_it_carries() {
+        let reading =
+            wt0124(&payload(&[0x55, 0xCA, 0x99, 0x20, 0x26, 0xFF, 0x00])).expect("valid WT0124");
+        assert_eq!(reading.model, "WT0124-Pool");
+        assert_eq!(reading.id, 0x5A);
+        assert_eq!(reading.channel, Some(2));
+        assert_eq!(reading.temperature_c, Some(26.5));
+    }
+
+    #[test]
+    fn wt0124_rejects_a_payload_that_passes_the_xor_but_not_the_sum() {
+        assert!(wt0124(&payload(&[0x55, 0xCA, 0x99, 0x20, 0x26, 0xFE, 0x00])).is_none());
+    }
+
+    #[test]
+    fn an_opus_payload_reports_soil_moisture_and_a_whole_degree() {
+        let reading =
+            opus_xt300(&payload(&[0xFF, 0x51, 0x2F, 0x3D, 0x00, 0xBD])).expect("valid Opus XT300");
+        assert_eq!(reading.model, "Opus-XT300");
+        assert_eq!(reading.temperature_c, Some(21.0));
+        assert_eq!(reading.moisture_pct, Some(47.0));
+        assert_eq!(reading.channel, Some(1));
+    }
+
+    #[test]
+    fn opus_rejects_a_payload_whose_running_sum_is_wrong() {
+        assert!(opus_xt300(&payload(&[0xFF, 0x51, 0x2F, 0x3D, 0x00, 0xBE])).is_none());
+    }
+
+    #[test]
+    fn the_rubicson_family_is_not_read_as_the_nexus_it_shares_a_layout_with() {
+        let frame = payload(&[0xB4, 0x80, 0xA8, 0xFA, 0xA0]);
+        assert!(rubicson(&frame).is_some());
+        assert!(
+            nexus(&frame).is_none(),
+            "Nexus must defer to the family whose CRC closes"
         );
     }
 
