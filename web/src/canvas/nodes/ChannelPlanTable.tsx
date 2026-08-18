@@ -1,3 +1,4 @@
+import { Button } from "../../components/BaseControls";
 import { BTN_SM, TABLE_CELL, TABLE_HEAD } from "../../components/controls";
 import type { DmrChannelEntry, TrunkChannel } from "../../lib/types";
 import {
@@ -30,9 +31,9 @@ export function ChannelPlanTable({
       <div className="flex items-center justify-between gap-2 px-2 pt-2">
         <span className="legend">Channel plan</span>
         {found.length > 0 && (
-          <button type="button" className={BTN_SM} onClick={() => onChange([...entries, ...found])}>
+          <Button type="button" className={BTN_SM} onClick={() => onChange([...entries, ...found])}>
             Keep {found.length} found
-          </button>
+          </Button>
         )}
       </div>
       <div className="max-h-48 overflow-y-auto">
@@ -70,14 +71,14 @@ export function ChannelPlanTable({
                 </td>
                 <td className={`${TABLE_CELL} text-right`}>
                   {channel.source === "manual" && (
-                    <button
+                    <Button
                       type="button"
                       className={BTN_SM}
                       aria-label={`Forget channel ${channel.logical_channel}`}
                       onClick={() => onChange(withoutChannel(entries, channel.logical_channel))}
                     >
                       Forget
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
