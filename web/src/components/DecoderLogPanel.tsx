@@ -189,22 +189,27 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
               </colgroup>
               <thead className="sticky top-0 bg-panel">
                 <tr className="border-b border-line">
-                  {LOG_COLUMNS.map((column) => (
-                    <th
-                      key={column.key}
-                      className={`${TABLE_HEAD} relative ${
-                        column.key === "freq" ? "text-right" : ""
-                      }`}
-                    >
-                      <span className="block truncate">{column.label}</span>
-                      <ColumnHandle
-                        label={column.label}
-                        width={widths[column.key]}
-                        onResize={(px) => setWidths((w) => resizeColumn(w, column.key, px))}
-                        onCommit={commit}
-                      />
-                    </th>
-                  ))}
+                  {LOG_COLUMNS.map((column, index) => {
+                    const last = index === LOG_COLUMNS.length - 1;
+                    return (
+                      <th
+                        key={column.key}
+                        className={`${TABLE_HEAD} relative ${last ? "" : "border-r border-line"} ${
+                          column.key === "freq" ? "text-right" : ""
+                        }`}
+                      >
+                        <span className="block truncate">{column.label}</span>
+                        {!last && (
+                          <ColumnHandle
+                            label={column.label}
+                            width={widths[column.key]}
+                            onResize={(px) => setWidths((w) => resizeColumn(w, column.key, px))}
+                            onCommit={commit}
+                          />
+                        )}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -302,17 +307,19 @@ function ColumnHandle({
   onCommit: () => void;
 }) {
   const drag = useRef<{ x: number; width: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
   return (
     <span
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize ${label} column`}
       tabIndex={0}
-      className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+      className="group absolute inset-y-0 -right-[5px] z-10 flex w-[9px] cursor-col-resize touch-none justify-center focus-visible:outline-none"
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
         drag.current = { x: event.clientX, width };
+        setDragging(true);
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
@@ -330,6 +337,7 @@ function ColumnHandle({
       }}
       onLostPointerCapture={() => {
         drag.current = null;
+        setDragging(false);
       }}
       onKeyDown={(event) => {
         const step =
@@ -340,7 +348,13 @@ function ColumnHandle({
           onCommit();
         }
       }}
-    />
+    >
+      <span
+        className={`w-[3px] transition-colors group-hover:bg-accent group-focus-visible:bg-accent ${
+          dragging ? "bg-accent" : "bg-transparent"
+        }`}
+      />
+    </span>
   );
 }
 

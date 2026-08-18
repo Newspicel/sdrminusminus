@@ -81,7 +81,7 @@ export const LOG_COLUMNS = [
   { key: "kind", label: "Kind", width: 96 },
   { key: "freq", label: "Frequency", width: 116 },
   { key: "station", label: "Station", width: 152 },
-  { key: "summary", label: "Summary", width: 320 },
+  { key: "summary", label: "Summary", width: 180 },
 ] as const;
 
 export type LogColumnKey = (typeof LOG_COLUMNS)[number]["key"];
