@@ -173,6 +173,9 @@ pub(super) fn bring_up(
 
     let mut attached: Option<Vec<DeviceInfo>> = None;
     for node in snapshot.graph.device_nodes() {
+        if snapshot.graph.array_holding(&node.id).is_some() {
+            continue;
+        }
         let Some(reference) = node.body.device_ref(&node.id) else {
             continue;
         };

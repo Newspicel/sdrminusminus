@@ -44,6 +44,24 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
     }
 }
 
+/// The device ids of the radios wired into an array, in lane order. A member the patch names but
+/// that carries no radio yet simply is not there, which is what keeps a half-drawn array from
+/// opening as a smaller one.
+#[must_use]
+pub(crate) fn array_member_ids(graph: &PatchGraph, node: &str) -> Vec<String> {
+    graph
+        .array_members(node)
+        .iter()
+        .filter_map(|member| {
+            let body = &graph.node(member)?.body;
+            let reference = body.device_ref(member)?;
+            reference
+                .key
+                .map(|key| format!("{}:{key}", reference.backend))
+        })
+        .collect()
+}
+
 /// Puts the arrays the patch draws in front of the driver that opens them, so a bank of radios is
 /// set up by wiring it rather than by describing it somewhere else.
 pub(crate) fn describe_arrays(engine: &Engine, graph: &PatchGraph) {
@@ -51,7 +69,11 @@ pub(crate) fn describe_arrays(engine: &Engine, graph: &PatchGraph) {
         .nodes
         .iter()
         .filter_map(|node| match &node.body {
-            NodeBody::Array(array) => Some(array.definition(&node.id, node.label.as_deref())),
+            NodeBody::Array(array) => Some(array.definition(
+                &node.id,
+                node.label.as_deref(),
+                array_member_ids(graph, &node.id),
+            )),
             _ => None,
         })
         .filter(sdrmm_wire::ArrayDefinition::valid)
@@ -63,6 +85,9 @@ pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(St
     let mut bound = Vec::new();
     let mut claimed: Vec<u32> = Vec::new();
     for node in graph.device_nodes() {
+        if graph.array_holding(&node.id).is_some() {
+            continue;
+        }
         let Some(reference) = node.body.device_ref(&node.id) else {
             continue;
         };

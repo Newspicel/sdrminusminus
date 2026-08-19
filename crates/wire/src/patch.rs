@@ -457,11 +457,12 @@ impl Default for HuntNode {
 ///
 /// Nothing here is discovered: which radios belong together, and whether their clock alone is
 /// shared or their synthesizer too, is a fact about the bench that only the operator knows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct ArrayNode {
-    /// Member device ids, in the order their lanes are numbered.
-    pub members: Vec<String>,
+    /// How many radios are wired in. The node always draws one more input than that, so there is
+    /// somewhere to put the next one.
+    pub members: u32,
     pub coherence: Coherence,
     pub shared_tuning: bool,
 }
@@ -469,7 +470,7 @@ pub struct ArrayNode {
 impl Default for ArrayNode {
     fn default() -> Self {
         Self {
-            members: Vec::new(),
+            members: 0,
             coherence: Coherence::TimeSync,
             shared_tuning: true,
         }
@@ -477,18 +478,30 @@ impl Default for ArrayNode {
 }
 
 impl ArrayNode {
-    /// The composite this node describes. Its key comes from the node itself, so an array is set
-    /// up by drawing it rather than by naming it somewhere else.
+    /// The composite this node describes, given the radios wired into it. Its key comes from the
+    /// node itself, so an array is set up by drawing it rather than by naming it somewhere else.
     #[must_use]
-    pub fn definition(&self, node_id: &str, label: Option<&str>) -> ArrayDefinition {
+    pub fn definition(
+        &self,
+        node_id: &str,
+        label: Option<&str>,
+        members: Vec<String>,
+    ) -> ArrayDefinition {
         ArrayDefinition {
-            key: node_id.replace(':', "-"),
+            key: array_key(node_id),
             label: label.unwrap_or("Array").to_owned(),
-            members: self.members.clone(),
+            members,
             coherence: self.coherence,
             shared_tuning: self.shared_tuning,
         }
     }
+}
+
+/// A node name made safe to use as a device key, so the array a patch draws is the array the
+/// driver opens without anything in between deciding what it is called.
+#[must_use]
+pub fn array_key(node_id: &str) -> String {
+    node_id.replace(':', "-")
 }
 
 /// A direction finder bound to every lane of one coherent radio.
@@ -618,10 +631,10 @@ impl NodeBody {
     pub fn device_ref(&self, node_id: &str) -> Option<DeviceRef> {
         match self {
             Self::Device(device) => device.device.clone(),
-            Self::Array(array) => (!array.members.is_empty()).then(|| DeviceRef {
+            Self::Array(array) => (array.members > 0).then(|| DeviceRef {
                 backend: crate::device::ARRAY_DRIVER_ID.to_owned(),
                 serial: None,
-                key: Some(array.definition(node_id, None).key),
+                key: Some(array_key(node_id)),
             }),
             _ => None,
         }
@@ -633,6 +646,7 @@ impl NodeBody {
         match self {
             Self::Df(df) => spread_lanes(specs, df.settings.geometry.count()),
             Self::Combiner(combiner) => spread_lanes(specs, combiner.settings.lanes),
+            Self::Array(array) => spread_array(specs, array.members),
             _ => specs,
         }
     }
@@ -680,6 +694,31 @@ fn spread_lanes(specs: Vec<PortSpec>, lanes: u32) -> Vec<PortSpec> {
     out
 }
 
+/// An array draws one input more than it has radios, so the next one has somewhere to go, and one
+/// output per radio it already has.
+fn spread_array(specs: Vec<PortSpec>, members: u32) -> Vec<PortSpec> {
+    let mut out = Vec::new();
+    for spec in specs {
+        if spec.repeat != PortRepeat::PerRxStream {
+            out.push(spec);
+            continue;
+        }
+        let lanes = match spec.direction {
+            PortDirection::In => members.saturating_add(1),
+            PortDirection::Out => members,
+        }
+        .min(MAX_STREAMS);
+        for lane in 0..lanes {
+            out.push(PortSpec {
+                name: stream_port(&spec.name, lane),
+                repeat: PortRepeat::Once,
+                ..spec.clone()
+            });
+        }
+    }
+    out
+}
+
 fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortCondition::{
         Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, ChannelNeedsPosition,
@@ -699,7 +738,9 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
         "array" => vec![
-            PortSpec::new(Control, In, false, Always),
+            PortSpec::new(Iq, In, false, Always)
+                .repeated(PortRepeat::PerRxStream)
+                .noted("one radio per input, in the order their antennas sit in the array"),
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
@@ -1031,6 +1072,39 @@ impl PatchGraph {
         self.nodes
             .iter()
             .filter(|node| matches!(node.body, NodeBody::Device(_) | NodeBody::Array(_)))
+    }
+
+    /// The radios wired into an array, in the order of the ports they arrive on, which is the
+    /// order their lanes are numbered.
+    #[must_use]
+    pub fn array_members(&self, node: &str) -> Vec<&str> {
+        let Some(PatchNode {
+            body: NodeBody::Array(array),
+            ..
+        }) = self.node(node)
+        else {
+            return Vec::new();
+        };
+        (0..array.members.saturating_add(1))
+            .filter_map(|element| {
+                let port = stream_port("iq", element);
+                self.edges
+                    .iter()
+                    .find(|edge| edge.to.node == node && edge.to.port == port)
+                    .map(|edge| edge.from.node.as_str())
+            })
+            .collect()
+    }
+
+    /// The array a radio belongs to, if one has taken it. A radio in an array is tuned by the
+    /// array and opened by it, so nothing else may claim it at the same time.
+    #[must_use]
+    pub fn array_holding(&self, device_node: &str) -> Option<&str> {
+        self.nodes
+            .iter()
+            .filter(|node| matches!(node.body, NodeBody::Array(_)))
+            .find(|array| self.array_members(&array.id).contains(&device_node))
+            .map(|array| array.id.as_str())
     }
 
     pub fn sources_of<'a>(&'a self, node: &'a str, port: &'a str) -> impl Iterator<Item = &'a str> {

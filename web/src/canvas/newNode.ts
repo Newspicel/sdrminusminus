@@ -32,7 +32,7 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
     case "device":
       return { kind, data: {} };
     case "array":
-      return { kind, data: { members: [], coherence: "time_sync", shared_tuning: true } };
+      return { kind, data: { members: 0, coherence: "time_sync", shared_tuning: true } };
     case "gps":
       return { kind, data: { source: seed.source ?? { type: "device" } } };
     case "signal_map":

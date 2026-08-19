@@ -4141,12 +4141,11 @@
             "default": "time_sync"
           },
           "members": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Member device ids, in the order their lanes are numbered.",
-            "default": []
+            "type": "integer",
+            "format": "int32",
+            "description": "How many radios are wired in. The node always draws one more input than that, so there is\nsomewhere to put the next one.",
+            "default": 0,
+            "minimum": 0
           },
           "shared_tuning": {
             "type": "boolean",

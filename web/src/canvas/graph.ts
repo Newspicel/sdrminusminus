@@ -300,18 +300,43 @@ export function addNode(graph: PatchGraph, node: PatchNode): PatchGraph {
 }
 
 export function removeNode(graph: PatchGraph, id: string): PatchGraph {
-  return {
+  return settleArrays({
     nodes: graph.nodes.filter((node) => node.id !== id),
     edges: (graph.edges ?? []).filter((edge) => edge.from.node !== id && edge.to.node !== id),
-  };
+  });
 }
 
 export function addEdge(graph: PatchGraph, edge: PatchEdge): PatchGraph {
-  return { ...graph, edges: [...(graph.edges ?? []), edge] };
+  return settleArrays({ ...graph, edges: [...(graph.edges ?? []), edge] });
 }
 
 export function removeEdge(graph: PatchGraph, key: string): PatchGraph {
-  return { ...graph, edges: (graph.edges ?? []).filter((edge) => edgeKey(edge) !== key) };
+  return settleArrays({
+    ...graph,
+    edges: (graph.edges ?? []).filter((edge) => edgeKey(edge) !== key),
+  });
+}
+
+/// Keeps every array carrying one more input than it has radios, so wiring one in leaves a free
+/// port for the next and taking one out takes its port with it.
+export function settleArrays(graph: PatchGraph): PatchGraph {
+  let changed = false;
+  const nodes = graph.nodes.map((node) => {
+    if (node.kind !== "array") {
+      return node;
+    }
+    const highest = (graph.edges ?? [])
+      .filter((edge) => edge.to.node === node.id)
+      .map((edge) => portStream("iq", edge.to.port))
+      .reduce<number>((most, stream) => (stream === null ? most : Math.max(most, stream)), -1);
+    const members = Math.min(highest + 1, MAX_STREAMS);
+    if (members === node.data.members) {
+      return node;
+    }
+    changed = true;
+    return { ...node, data: { ...node.data, members } };
+  });
+  return changed ? { ...graph, nodes } : graph;
 }
 
 export function patchNode(

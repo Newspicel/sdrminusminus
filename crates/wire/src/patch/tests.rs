@@ -1619,11 +1619,12 @@ fn default_params_come_from_the_type_id() {
 #[test]
 fn an_array_node_describes_the_composite_it_draws() {
     let node = ArrayNode {
-        members: vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()],
+        members: 2,
         coherence: crate::device::Coherence::TimeSync,
         shared_tuning: true,
     };
-    let definition = node.definition("array:9f2c", Some("Roof pair"));
+    let members = vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()];
+    let definition = node.definition("array:9f2c", Some("Roof pair"), members);
     assert_eq!(definition.key, "array-9f2c");
     assert_eq!(definition.id(), "array:array-9f2c");
     assert_eq!(definition.label, "Roof pair");
@@ -1640,24 +1641,95 @@ fn an_array_node_describes_the_composite_it_draws() {
         NodeBody::Array(ArrayNode::default())
             .device_ref("array:9f2c")
             .is_none(),
-        "an array with no members has no radio to open"
+        "an array with nothing wired in has no radio to open"
     );
 }
 
 #[test]
+fn an_array_draws_one_more_input_than_it_has_radios() {
+    let ports = |members: u32| {
+        NodeBody::Array(ArrayNode {
+            members,
+            ..ArrayNode::default()
+        })
+        .ports()
+    };
+    let named = |members: u32, direction: PortDirection| {
+        ports(members)
+            .into_iter()
+            .filter(|port| port.direction == direction)
+            .map(|port| port.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(named(0, PortDirection::In), vec!["iq".to_owned()]);
+    assert!(named(0, PortDirection::Out).is_empty());
+    assert_eq!(
+        named(2, PortDirection::In),
+        vec!["iq".to_owned(), "iq2".to_owned(), "iq3".to_owned()]
+    );
+    assert_eq!(
+        named(2, PortDirection::Out),
+        vec!["iq".to_owned(), "iq2".to_owned()],
+        "one lane out per radio in"
+    );
+}
+
+#[test]
+fn the_wires_say_which_radios_are_in_an_array_and_in_what_order() {
+    let mut graph = PatchGraph {
+        nodes: vec![
+            node("one", NodeBody::Device(DeviceNode::default())),
+            node("two", NodeBody::Device(DeviceNode::default())),
+            node(
+                "bench",
+                NodeBody::Array(ArrayNode {
+                    members: 2,
+                    ..ArrayNode::default()
+                }),
+            ),
+        ],
+        edges: vec![
+            edge(("two", "iq"), ("bench", "iq2")),
+            edge(("one", "iq"), ("bench", "iq")),
+        ],
+    };
+    assert_eq!(graph.array_members("bench"), vec!["one", "two"]);
+    assert_eq!(graph.array_holding("two"), Some("bench"));
+    assert_eq!(graph.array_holding("bench"), None);
+
+    graph.edges.retain(|wire| wire.from.node != "one");
+    assert_eq!(
+        graph.array_members("bench"),
+        vec!["two"],
+        "a radio taken out leaves the rest where they were wired"
+    );
+    assert_eq!(graph.array_holding("one"), None);
+}
+
+#[test]
 fn an_array_with_one_radio_in_it_is_not_an_array() {
-    let node = ArrayNode {
-        members: vec!["rtlsdr:0001".to_owned()],
+    let alone = ArrayNode {
+        members: 1,
         ..ArrayNode::default()
     };
-    assert!(!node.definition("array:9f2c", None).valid());
+    assert!(
+        !alone
+            .definition("array:9f2c", None, vec!["rtlsdr:0001".to_owned()])
+            .valid()
+    );
     let apart = ArrayNode {
-        members: vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()],
+        members: 2,
         coherence: crate::device::Coherence::None,
         shared_tuning: true,
     };
     assert!(
-        !apart.definition("array:9f2c", None).valid(),
+        !apart
+            .definition(
+                "array:9f2c",
+                None,
+                vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()]
+            )
+            .valid(),
         "radios that share no clock are a bank of receivers, not an array"
     );
 }

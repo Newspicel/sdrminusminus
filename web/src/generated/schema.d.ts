@@ -1259,10 +1259,12 @@ export interface components {
             /** @default time_sync */
             coherence: components["schemas"]["Coherence"];
             /**
-             * @description Member device ids, in the order their lanes are numbered.
-             * @default []
+             * Format: int32
+             * @description How many radios are wired in. The node always draws one more input than that, so there is
+             *     somewhere to put the next one.
+             * @default 0
              */
-            members: string[];
+            members: number;
             /** @default true */
             shared_tuning: boolean;
         };

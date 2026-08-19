@@ -222,6 +222,8 @@ async fn guidance_from_one_place_asks_the_operator_to_drive_across_the_bearing()
     );
 }
 
+/// A bank drawn the way an operator draws it: a device node per radio, each wired into one of the
+/// array's inputs in the order its antenna sits in the array.
 fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
     let mut snapshot = WorkspaceSnapshot::starter();
     snapshot.graph.nodes.retain(|node| node.id != "device");
@@ -229,7 +231,7 @@ fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
     snapshot.graph.nodes.push(PatchNode {
         id: "bench".to_owned(),
         body: NodeBody::Array(sdrmm_wire::ArrayNode {
-            members: members.iter().map(|member| (*member).to_owned()).collect(),
+            members: members.len() as u32,
             coherence: sdrmm_wire::Coherence::TimeSync,
             shared_tuning: true,
         }),
@@ -237,6 +239,33 @@ fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
         size: None,
         label: Some("Bench pair".to_owned()),
     });
+    for (element, member) in members.iter().enumerate() {
+        let (backend, key) = member.split_once(':').expect("a device id");
+        let id = format!("radio{element}");
+        snapshot.graph.nodes.push(PatchNode {
+            id: id.clone(),
+            body: NodeBody::Device(sdrmm_wire::DeviceNode {
+                device: Some(sdrmm_wire::DeviceRef {
+                    backend: backend.to_owned(),
+                    serial: None,
+                    key: Some(key.to_owned()),
+                }),
+            }),
+            position: Position { x: 0.0, y: 300.0 },
+            size: None,
+            label: None,
+        });
+        snapshot.graph.edges.push(PatchEdge {
+            from: PortRef {
+                node: id,
+                port: "iq".to_owned(),
+            },
+            to: PortRef {
+                node: "bench".to_owned(),
+                port: stream_port("iq", element as u32),
+            },
+        });
+    }
     snapshot
 }
 
@@ -271,4 +300,25 @@ async fn an_array_of_one_radio_opens_nothing() {
     apply(&app, workspace).await;
     assert!(state.engine.arrays().all().is_empty());
     assert!(state.engine.snapshot().device_sets.is_empty());
+}
+
+#[tokio::test]
+async fn a_radio_in_an_array_is_not_opened_a_second_time_on_its_own() {
+    let (app, state) = test_router_with_state();
+    let snapshot = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert_eq!(
+        report
+            .bound
+            .iter()
+            .map(|bound| bound.node.as_str())
+            .collect::<Vec<_>>(),
+        vec!["bench"],
+        "the array holds the radios; nothing else opens them"
+    );
+    let live = state.engine.snapshot();
+    assert_eq!(live.device_sets.len(), 1);
+    assert_eq!(live.device_sets[0].device.id(), "array:bench");
 }
