@@ -247,7 +247,9 @@ function PortHandle({ port, label, offset }: { port: PortSpec; label: string; of
 
 export function FaceBody({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
   return (
-    <div className={`flex min-h-0 flex-1 flex-col ${scroll ? "overflow-y-auto" : ""}`}>
+    <div
+      className={`flex min-h-0 flex-1 flex-col overflow-x-hidden ${scroll ? "overflow-y-auto" : ""}`}
+    >
       {children}
     </div>
   );

@@ -25,7 +25,7 @@ export function OffsetStepper({
   const limitKhz = limitHz === null ? undefined : limitHz / 1000;
   const step = (hz: number): void => onOffset(clampOffsetHz(offsetHz + hz, limitHz));
   return (
-    <span className="flex items-center gap-1">
+    <span className="flex min-w-0 flex-wrap items-center gap-1">
       {DOWN_HZ.map((hz) => (
         <StepButton key={hz} hz={hz} onStep={step} />
       ))}

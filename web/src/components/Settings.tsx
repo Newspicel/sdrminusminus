@@ -22,7 +22,7 @@ export function SettingRow({
       <span className="legend wrap-anywhere" title={title}>
         {label}
       </span>
-      <span className="flex min-w-0 items-center gap-2">{children}</span>
+      <span className="flex min-w-0 flex-wrap items-center gap-2">{children}</span>
     </div>
   );
 }
