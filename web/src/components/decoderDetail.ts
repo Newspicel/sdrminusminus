@@ -417,6 +417,33 @@ const DETAIL: {
     ]),
     body: null,
   }),
+  df: (b) => ({
+    fields: fields([
+      ["Station", b.station_id],
+      ["Bearing", `${b.bearing_deg.toFixed(2)}°`],
+      ["Confidence", `${Math.round(b.confidence * 100)}%`],
+      ["Seen from", position(b.lat, b.lon)],
+    ]),
+    body: null,
+  }),
+  df_fix: (e) => ({
+    fields: fields([
+      ["Position", position(e.lat, e.lon)],
+      ["Uncertainty", `${Math.round(e.ellipse_major_m)} × ${Math.round(e.ellipse_minor_m)} m`],
+      ["Ellipse bearing", `${e.ellipse_bearing_deg.toFixed(1)}°`],
+      ["Bearings used", String(e.samples)],
+    ]),
+    body: null,
+  }),
+  radar: (d) => ({
+    fields: fields([
+      ["Range bin", String(d.range_bin)],
+      ["Bistatic range", `${d.range_km.toFixed(2)} km`],
+      ["Doppler", `${signed(d.doppler_hz, 1)} Hz`],
+      ["SNR", `${d.snr_db.toFixed(1)} dB`],
+    ]),
+    body: null,
+  }),
   ils: (i) => ({
     fields: fields([
       ["Component", i.component === "localizer" ? "localizer" : "glideslope"],

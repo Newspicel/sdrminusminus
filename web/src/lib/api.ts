@@ -20,6 +20,7 @@ import type {
   DecoderLogResponse,
   DeviceSettings,
   DevicesResponse,
+  DfFusionState,
   DoctorReport,
   ExportFormat,
   HuntSettings,
@@ -569,6 +570,30 @@ export function toolRunQuery(request: ToolRequest | null) {
     staleTime: Number.POSITIVE_INFINITY,
     placeholderData: keepPreviousData,
   });
+}
+
+export async function calibrateCoherent(node: string): Promise<void> {
+  unwrap(
+    await client.POST("/api/coherent/{node}/calibrate", {
+      params: { path: { node } },
+    }),
+  );
+}
+
+export async function fusionState(node: string): Promise<DfFusionState> {
+  return unwrap(
+    await client.GET("/api/coherent/{node}/fusion", {
+      params: { path: { node } },
+    }),
+  );
+}
+
+export async function resetFusion(node: string): Promise<void> {
+  unwrap(
+    await client.DELETE("/api/coherent/{node}/fusion", {
+      params: { path: { node } },
+    }),
+  );
 }
 
 export async function runTool(request: ToolRequest): Promise<ToolResponse> {

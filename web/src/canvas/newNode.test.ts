@@ -24,6 +24,8 @@ const EVERY_KIND: Record<NodeKind, true> = {
   network_export: true,
   export: true,
   scanner: true,
+  df: true,
+  passive_radar: true,
   hunt: true,
 };
 

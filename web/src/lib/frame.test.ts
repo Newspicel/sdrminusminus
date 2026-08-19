@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeAudio,
+  decodeRangeDoppler,
   decodeSpectrum,
   decodeSymbols,
   decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
+  FRAME_KIND_RANGE_DOPPLER,
   FRAME_KIND_SPECTRUM,
   FRAME_KIND_SYMBOLS,
   FRAME_KIND_VIDEO_GRAY,
@@ -229,5 +231,48 @@ describe("decodeSymbols", () => {
     const wrongVersion = symbolBuffer([1], [1]);
     new DataView(wrongVersion).setUint8(0, PROTOCOL_VERSION + 1);
     expect(decodeSymbols(wrongVersion)).toBeNull();
+  });
+});
+
+describe("decodeRangeDoppler", () => {
+  function encode(ranges: number, dopplers: number, cells: number[]): ArrayBuffer {
+    const buffer = new ArrayBuffer(36 + cells.length);
+    const view = new DataView(buffer);
+    view.setUint8(0, PROTOCOL_VERSION);
+    view.setUint8(1, FRAME_KIND_RANGE_DOPPLER);
+    view.setUint16(2, 9, true);
+    view.setUint32(4, 3, true);
+    view.setBigUint64(8, 4096n, true);
+    view.setUint16(16, ranges, true);
+    view.setUint16(18, dopplers, true);
+    view.setFloat32(20, 0.5, true);
+    view.setFloat32(24, 4.25, true);
+    view.setFloat32(28, -60, true);
+    view.setFloat32(32, 0, true);
+    new Uint8Array(buffer, 36).set(cells);
+    return buffer;
+  }
+
+  it("reads the shape back out of a surface frame", () => {
+    const frame = decodeRangeDoppler(encode(4, 3, [...Array(12).keys()]));
+    expect(frame).not.toBeNull();
+    expect(frame?.streamId).toBe(9);
+    expect(frame?.ranges).toBe(4);
+    expect(frame?.dopplers).toBe(3);
+    expect(frame?.rangeStepUs).toBe(0.5);
+    expect(frame?.dopplerStepHz).toBe(4.25);
+    expect(frame?.dbMin).toBe(-60);
+    expect([...(frame?.cells ?? [])]).toEqual([...Array(12).keys()]);
+  });
+
+  it("refuses a frame that is shorter than the shape it declares", () => {
+    const buffer = encode(4, 3, [1, 2, 3]);
+    expect(decodeRangeDoppler(buffer)).toBeNull();
+  });
+
+  it("refuses a frame of another kind", () => {
+    const buffer = encode(2, 1, [1, 2]);
+    new DataView(buffer).setUint8(1, FRAME_KIND_SPECTRUM);
+    expect(decodeRangeDoppler(buffer)).toBeNull();
   });
 });

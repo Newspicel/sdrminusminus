@@ -2,11 +2,13 @@ import { withToken } from "./auth";
 import {
   decodeAudio,
   decodeIq,
+  decodeRangeDoppler,
   decodeSpectrum,
   decodeSymbols,
   decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
   FRAME_KIND_IQ_F32,
+  FRAME_KIND_RANGE_DOPPLER,
   FRAME_KIND_SPECTRUM,
   FRAME_KIND_SYMBOLS,
   FRAME_KIND_VIDEO_GRAY,
@@ -141,6 +143,9 @@ export class SdrSocket {
         break;
       case FRAME_KIND_SYMBOLS:
         this.emitFrame("symbols", decodeSymbols(buffer));
+        break;
+      case FRAME_KIND_RANGE_DOPPLER:
+        this.emitFrame("surface", decodeRangeDoppler(buffer));
         break;
       case FRAME_KIND_VIDEO_GRAY:
       case FRAME_KIND_VIDEO_RGB:

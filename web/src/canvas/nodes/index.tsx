@@ -4,6 +4,7 @@ import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { ChannelFace } from "./ChannelFace";
 import { DeviceFace } from "./DeviceFace";
+import { DfFace } from "./DfFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
 import { EventFilterFace } from "./EventFilterFace";
 import { EventOutputFace } from "./EventOutputFace";
@@ -11,6 +12,7 @@ import { GpsFace } from "./GpsFace";
 import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
 import { PropagationFace } from "./PropagationFace";
+import { RangeDopplerFace } from "./RangeDopplerFace";
 import { ScopeFace } from "./ScopeFace";
 import { SignalMapFace } from "./SignalMapFace";
 import {
@@ -63,6 +65,8 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
   hunt: mount(HuntFace),
+  df: mount(DfFace),
+  passive_radar: mount(RangeDopplerFace),
 };
 
 export const FACES: Record<NodeKind, Face> = {
@@ -88,4 +92,6 @@ export const FACES: Record<NodeKind, Face> = {
   export: ExportFace,
   scanner: ScannerFace,
   hunt: HuntFace,
+  df: DfFace,
+  passive_radar: RangeDopplerFace,
 };

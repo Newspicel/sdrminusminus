@@ -293,7 +293,11 @@ function stationId(event: DecoderEvent): string | null {
     case "vdl2":
     case "hfdl":
     case "iridium":
+    case "df_fix":
+    case "radar":
       return null;
+    case "df":
+      return event.data.station_id ?? null;
   }
 }
 

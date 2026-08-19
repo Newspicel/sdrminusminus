@@ -218,6 +218,26 @@ describe("eventDetail", () => {
           confidence: 0.9,
         },
       },
+      df: {
+        kind: "df",
+        data: { bearing_deg: 137.5, confidence: 0.8, station_id: "north" },
+      },
+      df_fix: {
+        kind: "df_fix",
+        data: {
+          lat: 51.5,
+          lon: 7.0,
+          ellipse_major_m: 320,
+          ellipse_minor_m: 180,
+          ellipse_bearing_deg: 45,
+          converged: true,
+          samples: 12,
+        },
+      },
+      radar: {
+        kind: "radar",
+        data: { range_bin: 60, range_km: 18.2, doppler_hz: 120, snr_db: 19.1 },
+      },
       ils: {
         kind: "ils",
         data: {

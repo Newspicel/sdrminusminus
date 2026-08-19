@@ -272,6 +272,31 @@ export function eventSummary(event: DecoderEvent): string {
         `${Math.round(reading.confidence * 100)}%`,
       ]);
     }
+    case "df": {
+      const bearing = event.data;
+      return join([
+        bearing.station_id ?? null,
+        `${bearing.bearing_deg.toFixed(1)}° bearing`,
+        `${Math.round(bearing.confidence * 100)}%`,
+      ]);
+    }
+    case "df_fix": {
+      const fix = event.data;
+      return join([
+        `${fix.lat.toFixed(5)}, ${fix.lon.toFixed(5)}`,
+        `±${Math.round(fix.ellipse_major_m)} m`,
+        `${fix.samples} bearings`,
+      ]);
+    }
+    case "radar": {
+      const hit = event.data;
+      return join([
+        `range bin ${hit.range_bin}`,
+        `${hit.range_km.toFixed(1)} km`,
+        `${hit.doppler_hz >= 0 ? "+" : ""}${hit.doppler_hz.toFixed(1)} Hz`,
+        `${hit.snr_db.toFixed(1)} dB`,
+      ]);
+    }
     case "ils": {
       const reading = event.data;
       return join([
@@ -343,6 +368,11 @@ export function eventStation(event: DecoderEvent): string | null {
       return `GPS-${event.data.prn}`;
     case "vor":
       return event.data.station ?? null;
+    case "df":
+      return event.data.station_id ?? null;
+    case "df_fix":
+    case "radar":
+      return null;
     case "dsc":
     case "inmarsat_stdc":
     case "inmarsat_aero":

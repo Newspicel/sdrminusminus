@@ -1,6 +1,8 @@
 import { DEFAULT_HUNT_SETTINGS } from "../components/hunt";
 import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
 import type { NodeBody, NodeKind, PositionSource } from "../lib/types";
+import { DEFAULT_DF_PARAMS } from "./nodes/df";
+import { DEFAULT_RADAR_PARAMS } from "./nodes/radar";
 
 export interface NewNodeSeed {
   channelType?: string;
@@ -62,6 +64,10 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
     case "event_output":
       return { kind, data: { target: { service: "webhook", url: "", format: "json" } } };
+    case "df":
+      return { kind, data: { settings: DEFAULT_DF_PARAMS } };
+    case "passive_radar":
+      return { kind, data: { settings: DEFAULT_RADAR_PARAMS } };
     default:
       return { kind } as NodeBody;
   }

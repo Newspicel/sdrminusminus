@@ -15,12 +15,14 @@ import {
 } from "./api";
 import { audioEngine } from "./audio/useChannelAudio";
 import { useDecodedStore } from "./decoded";
+import { useDfStore } from "./df";
 import { useHuntStore } from "./hunt";
 import { iqHub } from "./iq";
 import { useLevelStore } from "./levels";
 import { usePositionStore } from "./position";
 import { useScannerStore } from "./scanner";
 import { spectrumHub } from "./spectrum";
+import { surfaceHub } from "./surface";
 import { symbolHub } from "./symbols";
 import { pushToast } from "./toasts";
 import type {
@@ -84,10 +86,12 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     s.on("event", useHuntStore.getState().observe);
     s.on("event", usePositionStore.getState().observe);
     s.on("event", useLevelStore.getState().observe);
+    s.on("event", useDfStore.getState().observe);
     spectrumHub.attach(s);
     iqHub.attach(s);
     symbolHub.attach(s);
     videoHub.attach(s);
+    surfaceHub.attach(s);
     audioEngine.attach(s);
     setSocket(s);
     s.connect();
@@ -96,6 +100,7 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
       iqHub.detach();
       symbolHub.detach();
       videoHub.detach();
+      surfaceHub.detach();
       audioEngine.detach();
       s.close();
     };

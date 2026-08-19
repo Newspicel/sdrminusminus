@@ -5,6 +5,7 @@ export const FRAME_KIND_IQ_F32 = 2;
 export const FRAME_KIND_VIDEO_GRAY = 3;
 export const FRAME_KIND_VIDEO_RGB = 4;
 export const FRAME_KIND_SYMBOLS = 5;
+export const FRAME_KIND_RANGE_DOPPLER = 6;
 const HEADER_LEN = 16;
 
 export function frameKind(buffer: ArrayBuffer): number | null {
@@ -50,6 +51,54 @@ export function decodeSpectrum(buffer: ArrayBuffer): SpectrumFrame | null {
   }
   const bins = new Uint8Array(buffer, 38, n);
   return { streamId, seq, timestamp, centerHz, spanHz, dbMin, dbMax, bins };
+}
+
+export interface RangeDopplerFrame {
+  streamId: number;
+  seq: number;
+  timestamp: bigint;
+  ranges: number;
+  dopplers: number;
+  rangeStepUs: number;
+  dopplerStepHz: number;
+  dbMin: number;
+  dbMax: number;
+  cells: Uint8Array;
+}
+
+export function decodeRangeDoppler(buffer: ArrayBuffer): RangeDopplerFrame | null {
+  if (buffer.byteLength < HEADER_LEN + 20) {
+    return null;
+  }
+  const view = new DataView(buffer);
+  if (view.getUint8(0) !== PROTOCOL_VERSION || view.getUint8(1) !== FRAME_KIND_RANGE_DOPPLER) {
+    return null;
+  }
+  const streamId = view.getUint16(2, true);
+  const seq = view.getUint32(4, true);
+  const timestamp = view.getBigUint64(8, true);
+  const ranges = view.getUint16(16, true);
+  const dopplers = view.getUint16(18, true);
+  const rangeStepUs = view.getFloat32(20, true);
+  const dopplerStepHz = view.getFloat32(24, true);
+  const dbMin = view.getFloat32(28, true);
+  const dbMax = view.getFloat32(32, true);
+  const cells = ranges * dopplers;
+  if (cells === 0 || buffer.byteLength < 36 + cells) {
+    return null;
+  }
+  return {
+    streamId,
+    seq,
+    timestamp,
+    ranges,
+    dopplers,
+    rangeStepUs,
+    dopplerStepHz,
+    dbMin,
+    dbMax,
+    cells: new Uint8Array(buffer, 36, cells),
+  };
 }
 
 export interface AudioFrame {

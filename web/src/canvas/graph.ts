@@ -259,6 +259,8 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   export: { w: 320 },
   scanner: { w: 400 },
   hunt: { w: 340 },
+  df: { w: 400 },
+  passive_radar: { w: 520, h: 420 },
 };
 
 export function isResizable(kind: NodeKind): boolean {
@@ -274,6 +276,7 @@ const RESIZE_FLOOR: Partial<Record<NodeKind, { w: number; h: number }>> = {
   decoder_log: { w: 360, h: 200 },
   dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
+  passive_radar: { w: 380, h: 300 },
 };
 
 export const HEADER_PX = 26;

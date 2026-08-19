@@ -27,8 +27,10 @@ import {
 } from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
+import { useDfStore } from "../../lib/df";
+import { dfOverlay, dfSourcesOf } from "../../lib/dfOverlay";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
-import { positionSourcesOf } from "../../lib/position";
+import { positionSourcesOf, usePositionStore } from "../../lib/position";
 import { pushToast } from "../../lib/toasts";
 import type {
   AudioRecordingStatus,
@@ -225,33 +227,31 @@ export function MapFace({ node }: { node: PatchNode }) {
   const wired = useWiredKinds(inputs);
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
+  const finders = dfSourcesOf(workspace.graph, node.id);
   const empty = useFaceEmptyText(
     node.id,
     "events",
     "Wire decoder events or a GPS position in to plot them.",
   );
+  const anything = kinds.length > 0 || positions.length > 0 || finders.length > 0;
   return (
     <NodeShell
       node={node}
       title="Map"
       category="display"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={kinds.length > 0 || positions.length > 0}
+      live={anything}
     >
       <FaceBody scroll={false}>
         {inputs.length === 0 && positions.length === 0 ? (
           <FaceEmpty>{empty}</FaceEmpty>
-        ) : kinds.length === 0 ? (
-          positions.length === 0 ? (
-            <FaceEmpty>
-              Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to
-              be drawn.
-            </FaceEmpty>
-          ) : (
-            <Plot kinds={kinds} positionNodes={positions} />
-          )
+        ) : anything ? (
+          <Plot kinds={kinds} positionNodes={positions} finders={finders} />
         ) : (
-          <Plot kinds={kinds} positionNodes={positions} />
+          <FaceEmpty>
+            Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to be
+            drawn.
+          </FaceEmpty>
         )}
       </FaceBody>
     </NodeShell>
@@ -261,14 +261,27 @@ export function MapFace({ node }: { node: PatchNode }) {
 function Plot({
   kinds,
   positionNodes,
+  finders,
 }: {
   kinds: readonly MapKind[];
   positionNodes: readonly string[];
+  finders: readonly string[];
 }) {
+  const byNode = useDfStore((store) => store.byNode);
+  const here = usePositionStore((store) =>
+    positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
+  );
+  const df = dfOverlay(
+    finders,
+    byNode,
+    Date.now(),
+    here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
+  );
   return (
     <MapPanel
       kinds={kinds}
       positionNodes={positionNodes}
+      df={df}
       active={useFaceActive()}
       className="h-full min-h-0 w-full flex-1"
     />

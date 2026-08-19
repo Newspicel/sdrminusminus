@@ -1,4 +1,11 @@
-import type { AudioFrame, IqFrame, SpectrumFrame, SymbolFrame, VideoFrame } from "./frame";
+import type {
+  AudioFrame,
+  IqFrame,
+  RangeDopplerFrame,
+  SpectrumFrame,
+  SymbolFrame,
+  VideoFrame,
+} from "./frame";
 import type { ServerEvent } from "./types";
 
 export interface SocketEvents {
@@ -9,6 +16,7 @@ export interface SocketEvents {
   iq: IqFrame;
   symbols: SymbolFrame;
   video: VideoFrame;
+  surface: RangeDopplerFrame;
 }
 
 export type SocketEventKind = keyof SocketEvents;
@@ -26,6 +34,7 @@ export class ListenerRegistry {
     iq: new Set(),
     symbols: new Set(),
     video: new Set(),
+    surface: new Set(),
   };
 
   on<K extends SocketEventKind>(kind: K, listener: Listener<K>): Unsubscribe {
