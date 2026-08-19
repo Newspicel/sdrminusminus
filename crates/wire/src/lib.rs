@@ -106,15 +106,16 @@ pub use propagation::{
     MIN_REFLECTION_HEIGHT_KM, PropagationNode,
 };
 pub use rest::{
-    ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse, AuthInfo,
-    Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest, ChannelTypesResponse,
-    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
-    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
-    DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage, ExportFormat,
-    LogScope, MAX_LOG_SOURCES, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION,
-    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
-    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
-    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
+    AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest,
+    ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest, CreateChannelRequest,
+    CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
+    DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage,
+    ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN,
+    MAX_RECORDING_TAGS, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction,
+    PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
+    RecordingAnnotation, RecordingDownloadQuery, RecordingFormat, RecordingInfo,
+    RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,
@@ -228,6 +229,70 @@ mod contract_tests {
         assert_eq!(json["stream"], 0);
         let json = serde_json::to_value(&recording).unwrap();
         assert_eq!(json["stream"], 0);
+    }
+
+    #[test]
+    fn an_annotation_normalizes_to_trimmed_unique_tags_and_a_note_or_nothing() {
+        let annotation = RecordingAnnotation {
+            tags: vec![
+                "  airband ".to_owned(),
+                "AIRBAND".to_owned(),
+                String::new(),
+                "tower".to_owned(),
+            ],
+            note: Some("  EDDF ground  ".to_owned()),
+        };
+        let normalized = annotation.normalized().unwrap();
+        assert_eq!(normalized.tags, ["airband", "tower"]);
+        assert_eq!(normalized.note.as_deref(), Some("EDDF ground"));
+
+        let blank = RecordingAnnotation {
+            tags: vec!["   ".to_owned()],
+            note: Some("  ".to_owned()),
+        };
+        assert_eq!(blank.normalized().unwrap(), RecordingAnnotation::default());
+    }
+
+    #[test]
+    fn an_oversized_annotation_is_refused_rather_than_truncated() {
+        let long_tag = RecordingAnnotation {
+            tags: vec!["t".repeat(MAX_RECORDING_TAG_LEN + 1)],
+            note: None,
+        };
+        assert_eq!(
+            long_tag.normalized(),
+            Err(AnnotationError::TagLen(MAX_RECORDING_TAG_LEN + 1))
+        );
+
+        let many = RecordingAnnotation {
+            tags: (0..=MAX_RECORDING_TAGS).map(|i| format!("t{i}")).collect(),
+            note: None,
+        };
+        assert_eq!(
+            many.normalized(),
+            Err(AnnotationError::TagCount(MAX_RECORDING_TAGS + 1))
+        );
+
+        let long_note = RecordingAnnotation {
+            tags: Vec::new(),
+            note: Some("n".repeat(MAX_RECORDING_NOTE_LEN + 1)),
+        };
+        assert_eq!(
+            long_note.normalized(),
+            Err(AnnotationError::NoteLen(MAX_RECORDING_NOTE_LEN + 1))
+        );
+    }
+
+    #[test]
+    fn a_recording_without_an_annotation_deserializes() {
+        let info: RecordingInfo = serde_json::from_str(
+            r#"{"id":1,"file":"rec","device_id":"virtual:file:/rec","device_label":"hw",
+                "center_hz":1.0,"sample_rate":2.0,"samples":3,"bytes":24,"duration_s":1.5,
+                "created_at":"2026-08-09T12:00:00Z"}"#,
+        )
+        .unwrap();
+        assert!(info.tags.is_empty());
+        assert_eq!(info.note, None);
     }
 
     #[test]

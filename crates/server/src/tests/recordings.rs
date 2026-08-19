@@ -315,6 +315,76 @@ async fn recordings_list_reconciles_planted_files_and_prunes_vanished_ones() {
 }
 
 #[tokio::test]
+async fn an_annotation_lands_in_the_sigmf_metadata_and_survives_a_reconcile() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let app = recording_router(dir.path());
+    let rec = recorded(&app).await;
+    assert!(rec.tags.is_empty());
+    assert_eq!(rec.note, None);
+
+    let (status, body) = annotate(
+        &app,
+        rec.id,
+        r#"{"tags":["  Airband ","airband","tower"],"note":"  EDDF ground  "}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let annotated: sdrmm_wire::RecordingInfo = serde_json::from_slice(&body).expect("json");
+    assert_eq!(annotated.tags, ["Airband", "tower"]);
+    assert_eq!(annotated.note.as_deref(), Some("EDDF ground"));
+    assert_eq!(annotated.id, rec.id);
+    assert_eq!(annotated.samples, rec.samples);
+
+    let meta = sdrmm_recorder::SigmfReader::open(&dir.path().join(&rec.file))
+        .expect("reopen")
+        .meta()
+        .clone();
+    assert_eq!(meta.global.tags, ["Airband", "tower"]);
+    assert_eq!(meta.global.description.as_deref(), Some("EDDF ground"));
+
+    let listed = list_recordings(&app).await;
+    assert_eq!(listed[0].tags, ["Airband", "tower"]);
+    assert_eq!(listed[0].note.as_deref(), Some("EDDF ground"));
+
+    let (status, _) = annotate(&app, rec.id, r#"{"tags":[],"note":null}"#).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = list_recordings(&app).await;
+    assert!(listed[0].tags.is_empty());
+    assert_eq!(listed[0].note, None);
+}
+
+#[tokio::test]
+async fn annotation_error_mapping_over_http() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let app = recording_router(dir.path());
+    let rec = recorded(&app).await;
+
+    let (status, body) = annotate(&app, 9_999, r#"{"tags":["x"]}"#).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+    let many = (0..=sdrmm_wire::MAX_RECORDING_TAGS)
+        .map(|i| format!("\"t{i}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let (status, body) = annotate(&app, rec.id, &format!(r#"{{"tags":[{many}]}}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+    let long = "n".repeat(sdrmm_wire::MAX_RECORDING_NOTE_LEN + 1);
+    let (status, _) = annotate(&app, rec.id, &format!(r#"{{"note":"{long}"}}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = annotate(&app, rec.id, r#"{"tags":"airband"}"#).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    std::fs::remove_file(sdrmm_recorder::meta_path(&dir.path().join(&rec.file)))
+        .expect("remove meta");
+    let (status, _) = annotate(&app, rec.id, r#"{"tags":["x"]}"#).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn record_error_mapping_over_http() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let app = recording_router(dir.path());

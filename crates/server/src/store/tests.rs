@@ -124,6 +124,8 @@ fn recording_row(stem: &str, samples: u64) -> RecordingRow {
         sample_rate: 2_048_000.0,
         samples,
         bytes: samples * 8,
+        tags: Vec::new(),
+        note: None,
     }
 }
 
@@ -181,6 +183,28 @@ fn recording_index_upsert_list_prune_roundtrip() {
         .expect("upsert");
     store.prune_recordings(&[]).expect("prune all");
     assert!(store.list_recordings(dir).expect("list").is_empty());
+}
+
+#[test]
+fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
+    let store = Store::open(None).expect("open");
+    let dir = Path::new("/tmp/recs");
+    let annotated = RecordingRow {
+        tags: vec!["airband".to_string(), "tower".to_string()],
+        note: Some("EDDF ground".to_string()),
+        ..recording_row("rec_1_a", 48_000)
+    };
+    store.upsert_recording(&annotated).expect("upsert");
+    let listed = store.list_recordings(dir).expect("list");
+    assert_eq!(listed[0].tags, ["airband", "tower"]);
+    assert_eq!(listed[0].note.as_deref(), Some("EDDF ground"));
+
+    store
+        .upsert_recording(&recording_row("rec_1_a", 48_000))
+        .expect("upsert");
+    let listed = store.list_recordings(dir).expect("list");
+    assert!(listed[0].tags.is_empty());
+    assert_eq!(listed[0].note, None);
 }
 
 fn adsb(icao: &str, callsign: &str) -> DecoderEvent {

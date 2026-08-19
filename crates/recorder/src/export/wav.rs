@@ -270,6 +270,8 @@ mod tests {
                 sample_rate: Some(20_000_000.0),
                 recorder: None,
                 hw: None,
+                description: None,
+                tags: Vec::new(),
                 rx_stream: None,
             },
             captures: vec![crate::SigmfCapture {
@@ -298,6 +300,8 @@ mod tests {
                 sample_rate: Some(20_000_000.0),
                 recorder: None,
                 hw: None,
+                description: None,
+                tags: Vec::new(),
                 rx_stream: None,
             },
             captures: Vec::new(),

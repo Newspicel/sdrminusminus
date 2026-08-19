@@ -9,15 +9,12 @@ If something is shipped, then remove it.
 
 ## 2. Engine — many radios, arrays and cross-cutting DSP
 
-- RX-888 / Mk2 native driver — 16-bit direct sampling over USB 3, no SoapySDR module, so the
-  whole shortwave spectrum arrives as one stream for the channelizer to split. The `usb-stream`
-  crate already carries the bulk-transfer path; what the device adds is FX3 firmware upload at
-  open, an ADC clock the rest of the stack currently assumes is a tuner, and a sample rate high
-  enough that the spectrum tap needs to decimate before it ever reaches a scope
-- `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output (so support for e.g. KrakenSDR)
+- More Native Drivers: RX-888 / Mk2 native driver
+- `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output (so support for e.g. KrakenSDR, dragensdr, and any other multi-channel SDR with a shared reference clock)
 - Generic synced bank — any N receivers on a shared reference clock
-- Network coherent source — aligned multi-lane IQ from another sdr-- node or a DAQ
-- Direction finding (MUSIC/ESPRIT) with bearings on the map; multi-station triangulation
+- Direction finding (MUSIC/ESPRIT) with bearings on the map
+  - with driving arround and automatic navigation like krakensdr
+  - with multi-station triangulation
 - Passive radar (range-Doppler)
 - Beamforming, diversity combine, and noise cancelling against a reference antenna
 - Neural noise reduction on the listen path — an opt-in per-channel stage behind the OM-LSA
@@ -45,49 +42,32 @@ If something is shipped, then remove it.
 
 ## 4. Recording, replay & measurement
 
-- Inspectrum-style offline IQ viewer in the browser
-- Annotated recordings; recording scheduler + unattended satellite-pass automation
-- Wideband recording + offline re-channelization
-- Session/replay sharing as one openable bundle
+- recording scheduler + unattended satellite-pass automation
 - Demod analyzer
 - Noise figure; PER tester; SID monitor
+- export to rtl_433 tcp/udp, beast adsb, etc.
 
 ## 5. Decoders & protocols
 
-### Data, text & paging
-
-- Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
-
-### Sub-GHz, ISM & IoT
-
-- Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§6)
-- More of the ISM sensor library. Five pulse slicers (PCM, PPM, PWM, Manchester, differential
-  Manchester), two row recodes and 22 devices are in, which is the framing rtl_433 uses for ~94%
-  of its catalogue; what is left is payload layouts on the same table — more of the TPMS and
-  meter families, the multi-message weather stations (Hideki, Oregon Scientific), and anything
-  whose shortest pulse falls under the ~30 µs the channel can debounce to. Three slicers are
-  unported (PIWM, OSV1, RZI/NRZS) because only a handful of devices use them
-- Escape hatch for the long tail: a UDP or TCP sink into the rtl_433 binary. The IQ export
-  already speaks `cu8`, which is rtl_433's native sample format; what is missing is the transport
-  glue and a way to fold its output back into the decoder log
-- ChirpChat / LoRa, Meshtastic, MeshCore
-- End-of-Train (EOT) telemetry
-- LoRaWAN frame parsing
-- BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
-
-### Weather, satellite & imaging
-
+- Tetrapol
+- STANAG modem ID
+- GSM downlink analysis
+- OsmocomBB-style monitoring
+- TETRA
 - NOAA APT; Meteor M-2 LRPT
 - Radiosonde (RS41 …) + map/log feature, DFM, M10/M20, iMet
 - HF WEFAX — the DSP is the easy half; the picture store SSTV shipped already holds a picture that
   takes minutes to arrive, so what is left is the decoder and the mode's own line geometry
 - APRS weather aggregation
 
-### Broadcast & wideband digital
+### Sub-GHz, ISM & IoT
 
-- TETRA
-- The multiplex and media layers above the shipped DAB, DATV and DRM acquisition —
-  DAB FIC/MSC and DAB+ audio, DVB-S/S2 FEC + MPEG-TS and video, DRM FAC/SDC/MSC and audio
+- Rolling-code analysis
+- More of the ISM sensor library like rtl_433 
+- ChirpChat / LoRa, Meshtastic, MeshCore
+- End-of-Train (EOT) telemetry
+- LoRaWAN frame parsing
+- BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
 
 ## 6. Transmit & legitimate security research
 
@@ -98,7 +78,6 @@ If something is shipped, then remove it.
 - Flood / spam / malformed-broadcast testing at a DUT over a contained link
 - Targeted protocol fuzzing
 - Bench loopback — TX into your own RX to validate decoders (note: this is the point at which the graph's no-cycle proof stops being sufficient)
-- Offline frame workbench — dissect, mutate, re-analyze captured frames; encoding identification
 - Simple PTT
 - Beam-steering CW modulator (TX MIMO)
 
@@ -114,8 +93,6 @@ If something is shipped, then remove it.
 
 ## 8. API, automation & access
 
-- Scripting recipes on the existing REST + MCP surface (scanner bots, "ping me when this callsign appears")
 - Alerting/notifications — rule engine on decoder events → desktop, push, webhook
-- Plugin SDK via WASM
-- Multi-user roles; remote fleet management across several Pi nodes
+- Plugin SDK via WASM?
 - Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps

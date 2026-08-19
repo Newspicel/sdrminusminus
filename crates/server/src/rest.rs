@@ -25,12 +25,12 @@ use sdrmm_wire::{
     NetworkExportAction, NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
     OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
     PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus,
-    RecordingsResponse, ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus,
-    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
-    TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse,
-    ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo,
-    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
+    RecordingInfo, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
+    ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent, StateScope, StateSnapshot,
+    TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus,
+    ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
+    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -284,6 +284,8 @@ pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Resu
             sample_rate,
             samples,
             bytes: samples * sdrmm_recorder::BYTES_PER_SAMPLE,
+            tags: meta.global.tags.clone(),
+            note: meta.global.description.clone(),
         })?;
         kept.push(name.to_string());
     }
@@ -352,6 +354,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(control_playback))
         .routes(routes!(list_recordings))
         .routes(routes!(delete_recording))
+        .routes(routes!(annotate_recording))
         .routes(routes!(download_recording))
         .routes(routes!(list_decoder_log, clear_decoder_log))
         .routes(routes!(export_decoder_log))

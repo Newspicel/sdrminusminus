@@ -708,6 +708,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recordings/{id}/annotation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["annotate_recording"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recordings/{id}/download": {
         parameters: {
             query?: never;
@@ -3221,6 +3237,10 @@ export interface components {
         };
         /** @enum {string} */
         RecordAction: "start" | "stop";
+        RecordingAnnotation: {
+            note?: string | null;
+            tags?: string[];
+        };
         /** @enum {string} */
         RecordingFormat: "sigmf" | "wav";
         RecordingInfo: {
@@ -3236,10 +3256,12 @@ export interface components {
             file: string;
             /** Format: int64 */
             id: number;
+            note?: string | null;
             /** Format: double */
             sample_rate: number;
             /** Format: int64 */
             samples: number;
+            tags?: string[];
         };
         RecordingsResponse: {
             recordings: components["schemas"]["RecordingInfo"][];
@@ -5707,6 +5729,60 @@ export interface operations {
             };
             /** @description Recording not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    annotate_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Recording id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordingAnnotation"];
+            };
+        };
+        responses: {
+            /** @description The annotated recording. Tags and note replace what the recording carried; both live in its SigMF metadata, so they travel with a downloaded archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingInfo"];
+                };
+            };
+            /** @description More tags, a longer tag or a longer note than a recording holds */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

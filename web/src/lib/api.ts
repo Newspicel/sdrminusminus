@@ -37,7 +37,9 @@ import type {
   PlaybackStatus,
   PresetInfo,
   RecordAction,
+  RecordingAnnotation,
   RecordingFormat,
+  RecordingInfo,
   RecordingStatus,
   RecordingsResponse,
   ScannerStatus,
@@ -401,6 +403,18 @@ export async function controlPlayback(
 export function recordingDownloadUrl(id: number, format: RecordingFormat): string {
   const path = `/api/recordings/${id}/download`;
   return withToken(format === "sigmf" ? path : `${path}?format=${format}`);
+}
+
+export async function annotateRecording(
+  id: number,
+  annotation: RecordingAnnotation,
+): Promise<RecordingInfo> {
+  return unwrap(
+    await client.PUT("/api/recordings/{id}/annotation", {
+      params: { path: { id } },
+      body: annotation,
+    }),
+  );
 }
 
 export async function deleteRecording(id: number): Promise<void> {

@@ -1,4 +1,7 @@
-import type { DeviceSet, RecordingFormat, RecordingStatus } from "../lib/types";
+import type { DeviceSet, RecordingFormat, RecordingInfo, RecordingStatus } from "../lib/types";
+
+export const MAX_RECORDING_TAGS = 32;
+export const MAX_RECORDING_TAG_LEN = 48;
 
 export const downloadFormats: ReadonlyArray<{
   format: RecordingFormat;
@@ -38,6 +41,30 @@ export function recordingElapsedS(
   }
   const started = Date.parse(status.started_at);
   return Number.isNaN(started) ? 0 : Math.max(0, (nowMs - started) / 1000);
+}
+
+export function parseTags(input: string): string[] {
+  const tags: string[] = [];
+  for (const raw of input.split(",")) {
+    const tag = raw.trim().slice(0, MAX_RECORDING_TAG_LEN);
+    if (tag !== "" && !tags.some((kept) => kept.toLowerCase() === tag.toLowerCase())) {
+      tags.push(tag);
+    }
+  }
+  return tags.slice(0, MAX_RECORDING_TAGS);
+}
+
+export function formatTags(tags: readonly string[]): string {
+  return tags.join(", ");
+}
+
+export function matchesRecordingSearch(recording: RecordingInfo, search: string): boolean {
+  const needle = search.trim().toLowerCase();
+  if (needle === "") {
+    return true;
+  }
+  const haystack = [recording.file, recording.note ?? "", ...(recording.tags ?? [])];
+  return haystack.some((field) => field.toLowerCase().includes(needle));
 }
 
 export function formatDuration(seconds: number): string {

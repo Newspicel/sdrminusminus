@@ -63,6 +63,14 @@ pub struct SigmfGlobal {
     #[serde(rename = "core:hw", default, skip_serializing_if = "Option::is_none")]
     pub hw: Option<String>,
     #[serde(
+        rename = "core:description",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub description: Option<String>,
+    #[serde(rename = "sdrmm:tags", default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(
         rename = "sdrmm:rx_stream",
         default,
         skip_serializing_if = "Option::is_none"
@@ -174,6 +182,8 @@ impl SigmfWriter {
                 sample_rate: Some(sample_rate),
                 recorder: Some(RECORDER_NAME.to_string()),
                 hw: Some(hw.to_string()),
+                description: None,
+                tags: Vec::new(),
                 rx_stream: None,
             },
             captures: vec![SigmfCapture {
@@ -331,6 +341,16 @@ fn write_meta_synced(mut file: File, meta: &SigmfMeta) -> Result<(), SigmfError>
     Ok(())
 }
 
+pub fn annotate(stem: &Path, tags: &[String], note: Option<&str>) -> Result<SigmfMeta, SigmfError> {
+    let mut meta = read_meta(stem)?;
+    meta.global.tags = tags.to_vec();
+    meta.global.description = note.map(str::to_owned);
+    let tmp = tmp_meta_path(stem);
+    write_meta_synced(File::create(&tmp)?, &meta)?;
+    fs::rename(&tmp, meta_path(stem))?;
+    Ok(meta)
+}
+
 #[derive(Debug)]
 pub struct SigmfReader {
     meta: SigmfMeta,
@@ -474,6 +494,59 @@ mod tests {
         assert_eq!(reader.meta(), &meta);
         assert_eq!(reader.total_samples(), 10_000);
         assert_bits_eq(&tone, &read_all(&mut reader));
+    }
+
+    #[test]
+    fn annotation_survives_a_reopen_and_replaces_what_was_there() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("annotated");
+        let mut writer = SigmfWriter::create(&stem, 48_000.0, 7_100_000.0, "hw").unwrap();
+        writer.write_block(&samples(64)).unwrap();
+        let meta = writer.finalize().unwrap();
+        assert!(meta.global.tags.is_empty());
+        assert_eq!(meta.global.description, None);
+
+        let tags = vec!["airband".to_owned(), "tower".to_owned()];
+        annotate(&stem, &tags, Some("EDDF ground, 12:04 local")).unwrap();
+        let reopened = SigmfReader::open(&stem).unwrap();
+        assert_eq!(reopened.meta().global.tags, tags);
+        assert_eq!(
+            reopened.meta().global.description.as_deref(),
+            Some("EDDF ground, 12:04 local")
+        );
+        assert_eq!(reopened.total_samples(), 64);
+
+        annotate(&stem, &[], None).unwrap();
+        let cleared = read_meta(&stem).unwrap();
+        assert!(cleared.global.tags.is_empty());
+        assert_eq!(cleared.global.description, None);
+        assert!(!tmp_meta_path(&stem).exists());
+    }
+
+    #[test]
+    fn annotating_a_stem_that_is_not_there_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let err = annotate(&dir.path().join("absent"), &[], None).unwrap_err();
+        assert!(
+            matches!(&err, SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn tags_and_note_use_the_sigmf_global_keys() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("keyed");
+        SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw")
+            .unwrap()
+            .finalize()
+            .unwrap();
+        annotate(&stem, &["ism".to_owned()], Some("bench run")).unwrap();
+
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(meta_path(&stem)).unwrap()).unwrap();
+        assert_eq!(raw["global"]["sdrmm:tags"][0], "ism");
+        assert_eq!(raw["global"]["core:description"], "bench run");
     }
 
     #[test]
@@ -711,6 +784,8 @@ mod tests {
                 sample_rate: Some(2_400_000.0),
                 recorder: Some("sdr--".to_string()),
                 hw: None,
+                description: None,
+                tags: Vec::new(),
                 rx_stream: None,
             },
             captures: vec![SigmfCapture {

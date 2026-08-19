@@ -27,6 +27,72 @@ pub(super) async fn list_recordings(
 }
 
 #[utoipa::path(
+    put, path = "/api/recordings/{id}/annotation",
+    params(("id" = i64, Path, description = "Recording id")),
+    request_body = RecordingAnnotation,
+    responses(
+        (
+            status = 200,
+            description = "The annotated recording. Tags and note replace what the recording \
+                           carried; both live in its SigMF metadata, so they travel with a \
+                           downloaded archive",
+            body = RecordingInfo,
+        ),
+        (
+            status = 400,
+            description = "More tags, a longer tag or a longer note than a recording holds",
+            body = ApiError,
+        ),
+        (status = 404, description = "Recording not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+pub(super) async fn annotate_recording(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(annotation): Json<RecordingAnnotation>,
+) -> Result<Json<RecordingInfo>, AppError> {
+    let annotation = annotation
+        .normalized()
+        .map_err(|err| AppError::bad_request(err.to_string()))?;
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let gate = state.recordings_gate.clone();
+    let info = tokio::task::spawn_blocking(move || -> Result<RecordingInfo, AppError> {
+        let _gate = lock_gate(&gate);
+        let name = store.recording_stem(id)?;
+        let dir = engine
+            .recordings_dir()
+            .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
+        sdrmm_recorder::annotate(
+            &dir.join(&name),
+            &annotation.tags,
+            annotation.note.as_deref(),
+        )
+        .map_err(|err| annotate_error(id, err))?;
+        reconcile_recordings(dir, &store)?;
+        let info = store
+            .list_recordings(dir)?
+            .into_iter()
+            .find(|recording| recording.id == id)
+            .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
+        engine.emit_scope(StateScope::Recordings);
+        Ok(info)
+    })
+    .await??;
+    Ok(Json(info))
+}
+
+fn annotate_error(id: i64, err: sdrmm_recorder::SigmfError) -> AppError {
+    match err {
+        sdrmm_recorder::SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+            AppError::not_found(format!("recording {id} not found"))
+        }
+        other => AppError::internal(format!("annotate recording {id}: {other}")),
+    }
+}
+
+#[utoipa::path(
     get, path = "/api/recordings/{id}/download",
     params(("id" = i64, Path, description = "Recording id"), RecordingDownloadQuery),
     responses(

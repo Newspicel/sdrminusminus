@@ -88,6 +88,18 @@ The container fixes this path at `/data/recordings`, so persist `/data` with a v
 reconciles the database index with valid SigMF pairs on disk when listing recordings; the files
 remain the source of truth.
 
+## Tags and notes
+
+Open **Library → Recordings** and press **Annotate** on a capture to give it tags and a note —
+what was on the air, and what to remember about it. Tags are comma separated; a repeat of one
+already on the recording is folded into the first spelling.
+
+Both live in the recording's own `.sigmf-meta`, as `core:description` and `sdrmm:tags`, not only
+in the server's index. An annotated capture keeps its tags when it is downloaded as a SigMF
+archive, when the database is thrown away and rebuilt from the files, and when it is read by
+another tool. The search box above the library filters on file name, tags and note together, and
+clicking a tag searches for it.
+
 ## Download and export
 
 Open **Library → Recordings** to inspect captures. A recording can be downloaded as:

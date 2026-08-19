@@ -199,6 +199,13 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE workspace_history ADD COLUMN state TEXT;
     ALTER TABLE workspace_history ADD COLUMN node TEXT;
     ",
+    "
+    -- What an operator wrote on a recording. Mirrored here from the SigMF metadata, which is
+    -- where it is stored: the pair on disk is the truth every reconcile re-reads, so an
+    -- annotation travels with a downloaded archive and survives this database being thrown away.
+    ALTER TABLE recordings ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE recordings ADD COLUMN note TEXT;
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -236,6 +243,8 @@ pub struct RecordingRow {
     pub sample_rate: f64,
     pub samples: u64,
     pub bytes: u64,
+    pub tags: Vec<String>,
+    pub note: Option<String>,
 }
 
 pub struct LogOrigin<'a> {
@@ -361,11 +370,11 @@ impl Store {
     pub fn upsert_recording(&self, row: &RecordingRow) -> Result<(), StoreError> {
         self.lock().execute(
             "INSERT INTO recordings (stem, created_at, device_label, center_hz, sample_rate, \
-             samples, bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             samples, bytes, tags, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
              ON CONFLICT(stem) DO UPDATE SET created_at = excluded.created_at, \
              device_label = excluded.device_label, center_hz = excluded.center_hz, \
              sample_rate = excluded.sample_rate, samples = excluded.samples, \
-             bytes = excluded.bytes",
+             bytes = excluded.bytes, tags = excluded.tags, note = excluded.note",
             params![
                 row.stem,
                 row.created_at,
@@ -373,7 +382,9 @@ impl Store {
                 row.center_hz,
                 row.sample_rate,
                 row.samples as i64,
-                row.bytes as i64
+                row.bytes as i64,
+                serde_json::to_string(&row.tags)?,
+                row.note
             ],
         )?;
         Ok(())
@@ -382,8 +393,8 @@ impl Store {
     pub fn list_recordings(&self, dir: &Path) -> Result<Vec<RecordingInfo>, StoreError> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes \
-             FROM recordings ORDER BY id",
+            "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes, \
+             tags, note FROM recordings ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
             let stem: String = row.get(1)?;
@@ -404,6 +415,14 @@ impl Store {
                 } else {
                     0.0
                 },
+                tags: serde_json::from_str(&row.get::<_, String>(8)?).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        8,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?,
+                note: row.get(9)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)

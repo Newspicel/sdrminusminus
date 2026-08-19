@@ -220,6 +220,16 @@ async fn list_recordings(app: &Router) -> Vec<sdrmm_wire::RecordingInfo> {
         .recordings
 }
 
+async fn annotate(app: &Router, id: i64, body: &str) -> (StatusCode, Bytes) {
+    request(
+        app.clone(),
+        "PUT",
+        &format!("/api/recordings/{id}/annotation"),
+        Some(body),
+    )
+    .await
+}
+
 async fn wait_for_recorded_samples(app: &Router, ds: u32, min: u64) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

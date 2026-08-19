@@ -53,6 +53,7 @@ export type EventOutputTarget = components["schemas"]["EventOutputTarget"];
 export type PlaybackStatus = components["schemas"]["PlaybackStatus"];
 export type PlaybackAction = components["schemas"]["PlaybackAction"];
 export type RecordingInfo = components["schemas"]["RecordingInfo"];
+export type RecordingAnnotation = components["schemas"]["RecordingAnnotation"];
 export type RecordingsResponse = components["schemas"]["RecordingsResponse"];
 export type VoiceCall = components["schemas"]["VoiceCall"];
 export type DvTrunkProtocol = components["schemas"]["DvTrunkProtocol"];

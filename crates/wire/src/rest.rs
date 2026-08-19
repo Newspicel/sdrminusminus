@@ -177,6 +177,87 @@ pub struct RecordingInfo {
     pub bytes: u64,
     pub duration_s: f64,
     pub created_at: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+pub const MAX_RECORDING_TAGS: usize = 32;
+pub const MAX_RECORDING_TAG_LEN: usize = 48;
+pub const MAX_RECORDING_NOTE_LEN: usize = 4_000;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RecordingAnnotation {
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnnotationError {
+    TagCount(usize),
+    TagLen(usize),
+    NoteLen(usize),
+}
+
+impl std::fmt::Display for AnnotationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TagCount(n) => {
+                write!(
+                    f,
+                    "{n} tags is more than the {MAX_RECORDING_TAGS} a recording holds"
+                )
+            }
+            Self::TagLen(n) => write!(
+                f,
+                "a {n}-character tag is longer than the {MAX_RECORDING_TAG_LEN} a tag holds"
+            ),
+            Self::NoteLen(n) => write!(
+                f,
+                "a {n}-character note is longer than the {MAX_RECORDING_NOTE_LEN} a note holds"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AnnotationError {}
+
+impl RecordingAnnotation {
+    pub fn normalized(&self) -> Result<Self, AnnotationError> {
+        let mut tags: Vec<String> = Vec::new();
+        for tag in &self.tags {
+            let tag = tag.trim();
+            if tag.is_empty() {
+                continue;
+            }
+            if tag.chars().count() > MAX_RECORDING_TAG_LEN {
+                return Err(AnnotationError::TagLen(tag.chars().count()));
+            }
+            if !tags.iter().any(|kept| kept.eq_ignore_ascii_case(tag)) {
+                tags.push(tag.to_owned());
+            }
+        }
+        if tags.len() > MAX_RECORDING_TAGS {
+            return Err(AnnotationError::TagCount(tags.len()));
+        }
+        let note = self
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty());
+        if let Some(note) = note
+            && note.chars().count() > MAX_RECORDING_NOTE_LEN
+        {
+            return Err(AnnotationError::NoteLen(note.chars().count()));
+        }
+        Ok(Self {
+            tags,
+            note: note.map(str::to_owned),
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

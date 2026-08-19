@@ -2195,6 +2195,75 @@
         }
       }
     },
+    "/api/recordings/{id}/annotation": {
+      "put": {
+        "operationId": "annotate_recording",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Recording id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingAnnotation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The annotated recording. Tags and note replace what the recording carried; both live in its SigMF metadata, so they travel with a downloaded archive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "More tags, a longer tag or a longer note than a recording holds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/recordings/{id}/download": {
       "get": {
         "operationId": "download_recording",
@@ -11832,6 +11901,23 @@
           }
         }
       },
+      "RecordingAnnotation": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "RecordingFormat": {
         "type": "string",
         "enum": [
@@ -11883,6 +11969,12 @@
             "type": "integer",
             "format": "int64"
           },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "sample_rate": {
             "type": "number",
             "format": "double"
@@ -11891,6 +11983,12 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
