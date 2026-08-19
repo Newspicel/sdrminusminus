@@ -15,6 +15,7 @@ pub const FIC_SYMBOLS: std::ops::Range<usize> = 1..4;
 pub const MSC_SYMBOLS: std::ops::Range<usize> = 4..SYMBOLS;
 pub const SYMBOL_BITS: usize = 2 * CARRIERS;
 
+#[cfg(any(test, feature = "test-signals"))]
 const PHASE_STEPS: [(i16, i16, u8, u8); 48] = [
     (-768, -737, 0, 1),
     (-736, -705, 1, 2),
@@ -66,6 +67,7 @@ const PHASE_STEPS: [(i16, i16, u8, u8); 48] = [
     (737, 768, 1, 1),
 ];
 
+#[cfg(any(test, feature = "test-signals"))]
 const H: [[u8; 32]; 4] = [
     [
         0, 2, 0, 0, 0, 0, 1, 1, 2, 0, 0, 0, 2, 2, 1, 1, 0, 2, 0, 0, 0, 0, 1, 1, 2, 0, 0, 0, 2, 2,
@@ -85,6 +87,7 @@ const H: [[u8; 32]; 4] = [
     ],
 ];
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn reference_phase(carrier: i16) -> Option<f32> {
     let &(low, _, table, offset) = PHASE_STEPS
@@ -94,6 +97,7 @@ pub fn reference_phase(carrier: i16) -> Option<f32> {
     Some(PI / 2.0 * f32::from(H[usize::from(table)][step] + offset))
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn reference_symbol() -> Vec<Complex<f32>> {
     let mut bins = vec![Complex::new(0.0, 0.0); USEFUL];
@@ -218,6 +222,7 @@ impl Default for SymbolDemod {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn map_symbol(bits: &[bool]) -> Vec<Complex<f32>> {
     let amplitude = std::f32::consts::FRAC_1_SQRT_2;

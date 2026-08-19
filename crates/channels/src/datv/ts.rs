@@ -4,9 +4,13 @@ use sdrmm_dsp::crc32_mpeg;
 
 use super::dvbs::{PACKET, SYNC};
 
+#[cfg(any(test, feature = "test-signals"))]
 pub const PROGRAM: u16 = 1;
+#[cfg(any(test, feature = "test-signals"))]
 pub const PMT_PID: u16 = 0x0100;
+#[cfg(any(test, feature = "test-signals"))]
 pub const VIDEO_PID: u16 = 0x0101;
+#[cfg(any(test, feature = "test-signals"))]
 pub const AUDIO_PID: u16 = 0x0102;
 
 const PAT_PID: u16 = 0x0000;
@@ -472,10 +476,12 @@ fn service_descriptor(descriptors: &[u8]) -> Option<(Option<String>, Option<Stri
     None
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub struct TsWriter {
     counters: BTreeMap<u16, u8>,
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl TsWriter {
     #[must_use]
     pub fn new() -> Self {
@@ -542,12 +548,14 @@ impl TsWriter {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl Default for TsWriter {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn null_packet() -> [u8; PACKET] {
     let mut packet = [0xFFu8; PACKET];
@@ -558,6 +566,7 @@ pub fn null_packet() -> [u8; PACKET] {
     packet
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn build_section(table: u8, id: u16, version: u8, body: &[u8]) -> Vec<u8> {
     let mut section = vec![table, 0, 0];
@@ -574,6 +583,7 @@ pub fn build_section(table: u8, id: u16, version: u8, body: &[u8]) -> Vec<u8> {
     section
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn pat() -> Vec<u8> {
     let mut body = Vec::new();
@@ -582,6 +592,7 @@ pub fn pat() -> Vec<u8> {
     build_section(PAT_TABLE, 1, 0, &body)
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn pmt() -> Vec<u8> {
     let mut body = Vec::new();
@@ -597,6 +608,7 @@ pub fn pmt() -> Vec<u8> {
     build_section(PMT_TABLE, PROGRAM, 0, &body)
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn sdt(provider: &str, name: &str) -> Vec<u8> {
     let mut body = vec![0x00, 0x01, 0xFF];

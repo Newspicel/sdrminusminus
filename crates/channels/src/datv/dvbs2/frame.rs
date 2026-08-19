@@ -85,6 +85,7 @@ impl ModCod {
             })
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub fn find(modulation: Modulation, rate: Rate) -> Option<Self> {
         CATALOGUE
@@ -139,6 +140,7 @@ fn column_order(modulation: Modulation, rate: Rate) -> &'static [usize] {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn interleave(coded: &[bool], modulation: Modulation, rate: Rate) -> Vec<bool> {
     let order = column_order(modulation, rate);
@@ -172,7 +174,7 @@ pub fn deinterleave(llrs: &[f32], modulation: Modulation, rate: Rate) -> Vec<f32
 }
 
 const QPSK_PHASES: [f32; 4] = [1.0, 7.0, 3.0, 5.0];
-const PSK8_PHASES: [f32; 8] = [1.0, 0.0, 4.0, 5.0, 2.0, 7.0, 6.0, 3.0];
+const PSK8_PHASES: [f32; 8] = [1.0, 0.0, 4.0, 5.0, 2.0, 7.0, 3.0, 6.0];
 
 const APSK16_ANGLES: [f32; 16] = [
     3.0, -3.0, 9.0, -9.0, 1.0, -1.0, 11.0, -11.0, 5.0, -5.0, 7.0, -7.0, 3.0, -3.0, 9.0, -9.0,
@@ -280,6 +282,7 @@ impl Constellation {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub fn modulate(bits: &[bool], constellation: &Constellation, out: &mut Vec<Complex<f32>>) {
     let width = constellation.bits();
     for chunk in bits.chunks_exact(width) {
@@ -451,6 +454,102 @@ mod tests {
         );
         assert!((thirty_two[1].0 / thirty_two[0].0 - 2.72).abs() < 1e-4);
         assert!((thirty_two[2].0 / thirty_two[0].0 - 4.87).abs() < 1e-4);
+    }
+
+    fn turned_to(point: Complex<f32>, angle: f32) -> bool {
+        let apart = (point.arg() - angle).abs();
+        apart.min((apart - std::f32::consts::TAU).abs()) < 1e-5
+    }
+
+    #[test]
+    fn neighbouring_points_differ_in_one_bit() {
+        for modulation in [Modulation::Qpsk, Modulation::Psk8] {
+            let constellation = Constellation::new(modulation, Rate::R3_4);
+            let mut order: Vec<usize> = (0..constellation.count()).collect();
+            order.sort_by(|&a, &b| {
+                constellation
+                    .point(a)
+                    .arg()
+                    .total_cmp(&constellation.point(b).arg())
+            });
+            for step in 0..order.len() {
+                let (here, next) = (order[step], order[(step + 1) % order.len()]);
+                assert_eq!(
+                    (here ^ next).count_ones(),
+                    1,
+                    "{modulation:?}: {here} and {next} are neighbours"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn each_label_lands_on_the_point_the_standard_gives_it() {
+        let quarter = std::f32::consts::FRAC_PI_4;
+        let twelfth = std::f32::consts::PI / 12.0;
+        let eighth = std::f32::consts::PI / 8.0;
+
+        let qpsk = Constellation::new(Modulation::Qpsk, Rate::R3_4);
+        for (label, turns) in [(0, 1.0), (1, -1.0), (2, 3.0), (3, -3.0)] {
+            assert!(
+                turned_to(qpsk.point(label), turns * quarter),
+                "QPSK label {label}"
+            );
+        }
+
+        let psk8 = Constellation::new(Modulation::Psk8, Rate::R3_4);
+        for (label, turns) in [(0, 1.0), (1, 0.0), (2, 4.0), (3, -3.0), (6, 3.0), (7, -2.0)] {
+            assert!(
+                turned_to(psk8.point(label), turns * quarter),
+                "8PSK label {label}"
+            );
+        }
+
+        let sixteen = Constellation::new(Modulation::Apsk16, Rate::R3_4);
+        let outer = sixteen.point(0).norm();
+        let inner = sixteen.point(12).norm();
+        assert!(inner < outer);
+        for (label, turns, ring) in [
+            (0usize, 3.0f32, outer),
+            (4, 1.0, outer),
+            (7, -11.0, outer),
+            (12, 3.0, inner),
+            (15, -9.0, inner),
+        ] {
+            let point = sixteen.point(label);
+            assert!(
+                turned_to(point, turns * twelfth),
+                "16APSK label {label} angle"
+            );
+            assert!(
+                (point.norm() - ring).abs() < 1e-5,
+                "16APSK label {label} ring"
+            );
+        }
+
+        let thirty_two = Constellation::new(Modulation::Apsk32, Rate::R3_4);
+        let (near, mid, far) = (
+            thirty_two.point(17).norm(),
+            thirty_two.point(0).norm(),
+            thirty_two.point(8).norm(),
+        );
+        assert!(near < mid && mid < far);
+        for (label, angle, ring) in [
+            (0usize, 2.0f32 * eighth, mid),
+            (8, eighth, far),
+            (16, twelfth, mid),
+            (17, 2.0 * eighth, near),
+            (24, 0.0, far),
+            (30, 8.0 * eighth, far),
+            (31, -6.0 * eighth, far),
+        ] {
+            let point = thirty_two.point(label);
+            assert!(turned_to(point, angle), "32APSK label {label} angle");
+            assert!(
+                (point.norm() - ring).abs() < 1e-5,
+                "32APSK label {label} ring"
+            );
+        }
     }
 
     #[test]

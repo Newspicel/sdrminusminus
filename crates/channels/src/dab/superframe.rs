@@ -235,11 +235,13 @@ impl SuperframeAssembler {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub struct SuperframeBuilder {
     reed_solomon: ReedSolomon,
     frame_bytes: usize,
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl SuperframeBuilder {
     #[must_use]
     pub fn new(frame_bytes: usize) -> Option<Self> {
@@ -297,6 +299,7 @@ impl SuperframeBuilder {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 fn write_unit(slot: &mut [u8], payload: &[u8]) {
     let end = slot.len();
     slot[..payload.len()].copy_from_slice(payload);
@@ -304,6 +307,7 @@ fn write_unit(slot: &mut [u8], payload: &[u8]) {
     slot[end - 2..].copy_from_slice(&crc.to_be_bytes());
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 const fn header_byte(format: AudioFormat) -> u8 {
     let mut byte = format.surround;
     if format.sample_rate_hz == 48_000 {
@@ -321,6 +325,7 @@ const fn header_byte(format: AudioFormat) -> u8 {
     byte
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 fn write_offsets(data: &mut [u8], format: AudioFormat, starts: &[usize]) {
     let units = format.access_units();
     if units >= 2

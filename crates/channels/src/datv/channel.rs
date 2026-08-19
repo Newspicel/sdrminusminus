@@ -654,6 +654,44 @@ mod tests {
     }
 
     #[test]
+    fn the_higher_order_constellations_keep_ahead_of_the_channel_rate() {
+        use crate::datv::dvbs2::{frame::Modulation, ldpc::Rate};
+
+        let iq = testgen::datv::dvbs2_mode(2, Modulation::Apsk32, Rate::R5_6, false, true);
+        let mut channel = second_generation();
+        let started = std::time::Instant::now();
+        let statuses = drive(&mut channel, &iq);
+        let elapsed = started.elapsed().as_secs_f64();
+        let seconds = iq.len() as f64 / INPUT_RATE_HZ;
+        assert!(
+            statuses.last().is_some_and(|status| status.frames_ok > 0),
+            "no 32APSK frame decoded, so the timing proves nothing"
+        );
+        assert!(
+            elapsed < seconds,
+            "{seconds:.2} s of 32APSK took {elapsed:.2} s"
+        );
+    }
+
+    #[test]
+    fn a_very_low_signal_frame_keeps_ahead_of_the_channel_rate() {
+        let iq = testgen::datv::dvbs2_very_low(2, 0);
+        let mut channel = second_generation();
+        let started = std::time::Instant::now();
+        let statuses = drive(&mut channel, &iq);
+        let elapsed = started.elapsed().as_secs_f64();
+        let seconds = iq.len() as f64 / INPUT_RATE_HZ;
+        assert!(
+            statuses.last().is_some_and(|status| status.frames_ok > 0),
+            "no VL-SNR frame decoded, so the timing proves nothing"
+        );
+        assert!(
+            elapsed < seconds,
+            "{seconds:.2} s of VL-SNR took {elapsed:.2} s"
+        );
+    }
+
+    #[test]
     fn decoding_keeps_ahead_of_the_channel_rate() {
         let iq = testgen::datv::dvbs(2);
         let mut channel = channel(None);

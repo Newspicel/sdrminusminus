@@ -29,6 +29,7 @@ impl Frame {
         }
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub const fn correct_bits(self) -> usize {
         match self {
@@ -251,6 +252,7 @@ impl Ldpc {
         self.length - shape.shorten - shape.punctured
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     fn parity_of(&self, full: &[bool]) -> Vec<bool> {
         let parity_len = self.parity();
         let mut parity = vec![false; parity_len];
@@ -268,11 +270,13 @@ impl Ldpc {
         parity
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     pub fn encode(&self, information: &[bool], out: &mut Vec<bool>) {
         out.extend_from_slice(information);
         out.extend_from_slice(&self.parity_of(information));
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     pub fn encode_shaped(&self, information: &[bool], shape: Shape, out: &mut Vec<bool>) {
         let mut full = vec![false; shape.shorten];
         full.extend_from_slice(information);

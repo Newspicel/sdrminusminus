@@ -16,6 +16,7 @@ pub fn fib_crc_ok(fib: &[u8]) -> bool {
             == u16::from_be_bytes([fib[FIB_BYTES - 2], fib[FIB_BYTES - 1]])
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub fn append_fib_crc(fib: &mut Vec<u8>) {
     let crc = !crc16_msb(0x1021, 0xFFFF, fib);
     fib.extend_from_slice(&crc.to_be_bytes());
@@ -89,6 +90,7 @@ impl Default for FicDecoder {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub struct FicEncoder {
     protection: Protection,
     code: ConvCode,
@@ -96,6 +98,7 @@ pub struct FicEncoder {
     coded: Vec<bool>,
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl FicEncoder {
     #[must_use]
     pub fn new() -> Self {
@@ -124,6 +127,7 @@ impl FicEncoder {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl Default for FicEncoder {
     fn default() -> Self {
         Self::new()

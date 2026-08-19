@@ -9,6 +9,7 @@ pub const PACKET: usize = 188;
 pub const CODEWORD: usize = 204;
 pub const SYNC: u8 = 0x47;
 pub const INVERTED_SYNC: u8 = 0xB8;
+#[cfg(any(test, feature = "test-signals"))]
 pub const GROUP: usize = 8;
 pub const GENERATORS: [u16; 2] = [0o171, 0o133];
 
@@ -140,8 +141,10 @@ impl DelayBank {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub struct Interleaver(DelayBank);
 
+#[cfg(any(test, feature = "test-signals"))]
 impl Interleaver {
     #[must_use]
     pub fn new() -> Self {
@@ -153,6 +156,7 @@ impl Interleaver {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl Default for Interleaver {
     fn default() -> Self {
         Self::new()
@@ -169,11 +173,13 @@ impl Deinterleaver {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub struct Dispersal {
     prbs: Prbs,
     packets: usize,
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl Dispersal {
     #[must_use]
     pub fn new() -> Self {
@@ -196,6 +202,7 @@ impl Dispersal {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl Default for Dispersal {
     fn default() -> Self {
         Self::new()
@@ -565,8 +572,10 @@ impl DvbsDecoder {
     }
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 const SQRT_HALF: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
+#[cfg(any(test, feature = "test-signals"))]
 #[must_use]
 pub fn map_qpsk(first: bool, second: bool) -> Complex<f32> {
     Complex::new(
@@ -575,6 +584,7 @@ pub fn map_qpsk(first: bool, second: bool) -> Complex<f32> {
     )
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub struct DvbsEncoder {
     code: ConvCode,
     pattern: &'static [bool],
@@ -588,6 +598,7 @@ pub struct DvbsEncoder {
     codeword: Vec<u8>,
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 impl DvbsEncoder {
     #[must_use]
     pub fn new(rate: DatvCodeRate) -> Self {

@@ -3,6 +3,7 @@ use sdrmm_dsp::{DVB_DISPERSAL, Prbs};
 use crate::datv::dvbs::{PACKET, SYNC};
 
 pub const HEADER_BYTES: usize = 10;
+#[cfg(any(test, feature = "test-signals"))]
 pub const HEADER_BITS: usize = HEADER_BYTES * 8;
 pub const USER_PACKET_BITS: usize = PACKET * 8;
 const CRC_POLY: u8 = 0xD5;
@@ -27,6 +28,7 @@ impl StreamKind {
         }
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub const fn code(self) -> u8 {
         match self {
@@ -119,6 +121,7 @@ impl BaseBandHeader {
         })
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub fn bytes(self) -> [u8; HEADER_BYTES] {
         let mut out = [0u8; HEADER_BYTES];
@@ -151,6 +154,7 @@ pub fn pack(bits: &[bool]) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(any(test, feature = "test-signals"))]
 pub fn unpack(bytes: &[u8], out: &mut Vec<bool>) {
     for &byte in bytes {
         for shift in (0..8).rev() {
@@ -198,16 +202,19 @@ impl BaseBandFrame {
         Self { length }
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub const fn capacity(&self) -> usize {
         (self.length - HEADER_BITS) / USER_PACKET_BITS
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub const fn field_bytes(&self) -> usize {
         (self.length - HEADER_BITS) / 8
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     fn assemble(&self, header: BaseBandHeader, body: &[bool]) -> Vec<bool> {
         let mut bits = Vec::with_capacity(self.length);
         unpack(&header.bytes(), &mut bits);
@@ -217,6 +224,7 @@ impl BaseBandFrame {
         bits
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub fn build(&self, packets: &[[u8; PACKET]], carry: &mut u8) -> Option<Vec<bool>> {
         let count = packets.len().min(self.capacity());
@@ -238,6 +246,7 @@ impl BaseBandFrame {
         ))
     }
 
+    #[cfg(any(test, feature = "test-signals"))]
     #[must_use]
     pub fn encapsulate(&self, field: &[u8], isi: Option<u8>) -> Option<Vec<bool>> {
         if field.len() > self.field_bytes() {
