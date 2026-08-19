@@ -6,7 +6,8 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use num_complex::Complex;
 use sdrmm_dsp::{
     caf::{Caf, Surface},
-    cfar::{CfarParams, detect},
+    cfar::{CfarParams, cluster, detect},
+    combine::Combiner,
     covariance::Covariance,
     eca::{Eca, EcaParams},
     fft::FftPair,
@@ -194,6 +195,55 @@ fn cfar_surface(c: &mut Criterion) {
     group.finish();
 }
 
+fn combiner_weights(c: &mut Criterion) {
+    let lanes = lanes(4, 16_384);
+    let views: Vec<&[Complex<f32>]> = lanes.iter().map(Vec::as_slice).collect();
+    let mut covariance = Covariance::new(4);
+    covariance.set_forward_backward(false);
+    covariance.accumulate(&views);
+    let mut matrix = Vec::new();
+    covariance.matrix(&mut matrix);
+    let mut combiner = Combiner::new(4).expect("four lanes");
+    let mut weights = Vec::new();
+
+    let mut group = c.benchmark_group("combiner_weights");
+    group.bench_function("diversity", |b| {
+        b.iter(|| {
+            combiner.diversity(black_box(&matrix), &mut weights);
+            black_box(weights[0])
+        });
+    });
+    group.bench_function("cancel", |b| {
+        b.iter(|| {
+            combiner
+                .cancel(black_box(&matrix), &mut weights)
+                .expect("the auxiliary lanes carry power");
+            black_box(weights[0])
+        });
+    });
+    group.finish();
+}
+
+fn cfar_cluster(c: &mut Criterion) {
+    let detections: Vec<sdrmm_dsp::cfar::Detection> = (0..256)
+        .map(|index| sdrmm_dsp::cfar::Detection {
+            range_bin: index / 4,
+            doppler_bin: index % 8,
+            snr_db: (index % 17) as f32,
+        })
+        .collect();
+    let mut group = c.benchmark_group("cfar_cluster");
+    group.throughput(Throughput::Elements(detections.len() as u64));
+    group.bench_function("256_hits", |b| {
+        b.iter(|| {
+            let mut working = detections.clone();
+            cluster(&mut working);
+            black_box(working.len())
+        });
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     fft_4096,
@@ -202,6 +252,8 @@ criterion_group!(
     music_grid_360,
     eca_32_taps,
     caf_surface,
-    cfar_surface
+    cfar_surface,
+    cfar_cluster,
+    combiner_weights
 );
 criterion_main!(benches);
