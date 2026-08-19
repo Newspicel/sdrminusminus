@@ -748,6 +748,8 @@ pub enum DabMode {
 pub struct DabParams {
     #[serde(default)]
     pub mode: DabMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_id: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -762,12 +764,42 @@ fn default_datv_symbol_rate() -> f64 {
     333_000.0
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatvCodeRate {
+    #[default]
+    Auto,
+    Half,
+    TwoThirds,
+    ThreeQuarters,
+    FiveSixths,
+    SevenEighths,
+}
+
+impl DatvCodeRate {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Half => "1/2",
+            Self::TwoThirds => "2/3",
+            Self::ThreeQuarters => "3/4",
+            Self::FiveSixths => "5/6",
+            Self::SevenEighths => "7/8",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DatvParams {
     #[serde(default)]
     pub standard: DatvStandard,
     #[serde(default = "default_datv_symbol_rate")]
     pub symbol_rate: f64,
+    #[serde(default)]
+    pub code_rate: DatvCodeRate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<u16>,
 }
 
 impl Default for DatvParams {
@@ -775,6 +807,8 @@ impl Default for DatvParams {
         Self {
             standard: DatvStandard::default(),
             symbol_rate: default_datv_symbol_rate(),
+            code_rate: DatvCodeRate::default(),
+            program: None,
         }
     }
 }
@@ -798,6 +832,8 @@ pub struct DrmParams {
     pub mode: DrmMode,
     #[serde(default = "default_drm_bandwidth_hz")]
     pub bandwidth_hz: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<u8>,
 }
 
 impl Default for DrmParams {
@@ -805,6 +841,7 @@ impl Default for DrmParams {
         Self {
             mode: DrmMode::default(),
             bandwidth_hz: default_drm_bandwidth_hz(),
+            service: None,
         }
     }
 }

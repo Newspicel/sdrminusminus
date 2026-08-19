@@ -244,6 +244,7 @@ mod tests {
         let mut configured = settings();
         configured.params = ChannelParams::Dab(DabParams {
             mode: DabMode::DabPlus,
+            ..DabParams::default()
         });
         let mut channel = DabChannel::new(
             ChannelCtx {

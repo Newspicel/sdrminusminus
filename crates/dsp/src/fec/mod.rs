@@ -1,6 +1,9 @@
 pub mod block;
 pub mod bptc;
 pub mod conv;
+pub mod conv7;
+pub mod prbs;
+pub mod rs256;
 
 const CCITT_POLY_REFLECTED: u16 = 0x8408;
 
@@ -53,6 +56,22 @@ pub fn crc16_msb(poly: u16, init: u16, data: &[u8]) -> u16 {
             if msb {
                 crc ^= poly;
             }
+        }
+    }
+    crc
+}
+
+#[must_use]
+pub fn crc32_mpeg(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for &byte in data {
+        crc ^= u32::from(byte) << 24;
+        for _ in 0..8 {
+            crc = if crc & 0x8000_0000 != 0 {
+                crc << 1 ^ 0x04C1_1DB7
+            } else {
+                crc << 1
+            };
         }
     }
     crc

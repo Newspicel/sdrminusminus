@@ -36,7 +36,8 @@ pub use bandplan::{
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
-    ChannelSettings, CwSkimmerParams, DabMode, DabParams, DatvParams, DatvStandard, DmrParams,
+    ChannelSettings, CwSkimmerParams, DabMode, DabParams, DatvCodeRate, DatvParams,
+    DatvStandard, DmrParams,
     DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams, DstarParams, ErmesParams, FlexParams,
     FreeDvMode, FreeDvParams, GnssParams, HfdlParams, IdentParams, IlsComponent, IlsParams,
     InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
@@ -50,7 +51,8 @@ pub use channel::{
     YsfParams,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,
+    BroadcastStatus, BroadcastSystem,
     CwSkimmerSpot, DataLinkMessage, DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame,
     DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, ErmesMessage, FlexMessage, GnssFrame,
     IdentFeatures, IdentReport, IlsReading, Modulation, MorseText, NavtexMessage, PagerPayload,

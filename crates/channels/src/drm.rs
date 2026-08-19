@@ -309,7 +309,11 @@ mod tests {
             offset_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
-            params: ChannelParams::Drm(DrmParams { mode, bandwidth_hz }),
+            params: ChannelParams::Drm(DrmParams {
+                mode,
+                bandwidth_hz,
+                ..DrmParams::default()
+            }),
             audio: Default::default(),
         }
     }

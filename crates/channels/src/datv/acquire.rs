@@ -67,12 +67,12 @@ fn params(settings: &ChannelSettings) -> Result<DatvParams, ChannelError> {
     }
 }
 
-pub(crate) fn occupied_band(p: &DatvParams) -> (f64, f64) {
+pub fn occupied_band(p: &DatvParams) -> (f64, f64) {
     let half = (p.symbol_rate * 1.35 / 2.0).min(BANDWIDTH_HZ / 2.0);
     (-half, half)
 }
 
-pub(crate) fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
+pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
     let p = params(&ChannelSettings {
         offset_hz: 0.0,
         squelch_db: None,
@@ -215,6 +215,7 @@ mod tests {
             params: ChannelParams::Datv(DatvParams {
                 standard,
                 symbol_rate,
+                ..DatvParams::default()
             }),
             audio: Default::default(),
         }

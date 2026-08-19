@@ -682,6 +682,28 @@ impl BroadcastSystem {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastServiceKind {
+    #[default]
+    Audio,
+    Data,
+    Video,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct BroadcastService {
+    pub id: u32,
+    pub label: String,
+    pub kind: BroadcastServiceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitrate_kbps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub selected: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
     pub system: BroadcastSystem,
@@ -696,6 +718,22 @@ pub struct BroadcastStatus {
     pub service_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ensemble_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_rate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bit_error_rate: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitrate_kbps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub frames_ok: u32,
+    #[serde(default)]
+    pub frames_bad: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<BroadcastService>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -1157,8 +1195,26 @@ impl DecoderEvent {
                     parts.push(format!("{:.1} dB SNR", status.snr_db));
                     parts.push(format!("{:+.0} Hz", status.frequency_error_hz));
                 }
+                if let Some(label) = &status.ensemble_label {
+                    parts.push(label.clone());
+                }
                 if let Some(label) = &status.label {
                     parts.push(label.clone());
+                }
+                if let Some(rate) = &status.code_rate {
+                    parts.push(format!("FEC {rate}"));
+                }
+                if let Some(kbps) = status.bitrate_kbps {
+                    parts.push(format!("{kbps} kbps"));
+                }
+                if let Some(ber) = status.bit_error_rate {
+                    parts.push(format!("BER {ber:.1e}"));
+                }
+                if !status.services.is_empty() {
+                    parts.push(format!("{} services", status.services.len()));
+                }
+                if let Some(text) = &status.text {
+                    parts.push(text.clone());
                 }
                 parts.join(" · ")
             }
