@@ -113,7 +113,6 @@ pub struct CalParams {
     pub bandwidth_hz: f64,
     /// A continuous carrier that lets a time-synced array re-solve phase after every retune.
     /// Without one such an array reports `phase_unknown` and refuses to guess a bearing.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pilot_hz: Option<f64>,
     /// Whether the solution keeps being refined once it is good, rather than being frozen.
     pub track: bool,
@@ -234,11 +233,9 @@ pub struct DfParams {
     pub sources: u32,
     /// Where to point the summed beam. Unset follows whatever bearing the array found, which is
     /// the whole point of having both on one node.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub beam_bearing_deg: Option<f64>,
     /// What this receiver is called where its bearings are crossed with other receivers'. Unset
     /// falls back to the node's own name.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub station_id: Option<String>,
     pub cal: CalParams,
 }
@@ -418,7 +415,6 @@ pub struct PassiveRadarParams {
     pub doppler_span_hz: f64,
     pub eca: EcaParams,
     pub cfar: CfarParams,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub illuminator: Option<Illuminator>,
 }
 

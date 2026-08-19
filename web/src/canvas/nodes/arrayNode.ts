@@ -1,13 +1,5 @@
-import type { Coherence, DeviceRef, PatchGraph } from "../../lib/types";
+import type { DeviceRef, PatchGraph } from "../../lib/types";
 import { streamPort } from "../graph";
-
-export const TIER_NOTE: Record<Coherence, string> = {
-  none: "",
-  time_sync:
-    "Delay between elements is meaningful, so passive radar works. Every retune scrambles the phase between separate radios, so bearings need a pilot or an injected noise source for the calibration to solve against.",
-  phase_coherent:
-    "The radios share a synthesizer as well as a clock, so phase between elements survives a retune and bearings are meaningful.",
-};
 
 export interface ArrayMember {
   /// The device node feeding this element.

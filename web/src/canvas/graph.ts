@@ -15,6 +15,7 @@ import type {
   RackLayout,
   WorkspaceSnapshot,
 } from "../lib/types";
+import { elementCount } from "./nodes/df";
 
 export interface GraphContext {
   catalog: PatchCatalog;
@@ -45,8 +46,8 @@ export function rxStreamCount(capabilities: Capabilities | undefined): number {
   return clampStreams(capabilities?.rx_streams);
 }
 
-function clampStreams(declared: number | undefined): number {
-  return Math.min(Math.max(declared ?? 1, 1), MAX_STREAMS);
+function clampStreams(declared: number | undefined, floor = 1): number {
+  return Math.min(Math.max(declared ?? floor, floor), MAX_STREAMS);
 }
 
 export function portStream(base: string, name: string): number | null {
@@ -110,12 +111,39 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
           return false;
       }
     })
-    .flatMap((port) => expandStreams(port, node.id, graph.edges ?? [], capabilities));
+    .flatMap((port) => expandStreams(port, node, graph.edges ?? [], capabilities));
+}
+
+/// How many of a repeated port a node carries. A radio takes it from its hardware; a node whose
+/// shape is its own setting takes it from that, so changing the element count of an array or a
+/// direction finder moves its ports with it.
+function repeatCount(
+  node: PatchNode,
+  spec: PortSpec,
+  capabilities: Capabilities | undefined,
+): number {
+  switch (node.kind) {
+    case "df":
+      return clampStreams(
+        node.data.settings === undefined ? undefined : elementCount(node.data.settings.geometry),
+      );
+    case "combiner":
+      return clampStreams(node.data.settings?.lanes);
+    case "array":
+      return clampStreams(
+        spec.direction === "in" ? node.data.members + 1 : node.data.members,
+        spec.direction === "in" ? 1 : 0,
+      );
+    default:
+      return clampStreams(
+        spec.repeat === "per_rx_stream" ? capabilities?.rx_streams : capabilities?.tx_streams,
+      );
+  }
 }
 
 function expandStreams(
   spec: PortSpec,
-  node: string,
+  node: PatchNode,
   edges: readonly PatchEdge[],
   capabilities: Capabilities | undefined,
 ): PortSpec[] {
@@ -123,16 +151,14 @@ function expandStreams(
   if (repeat === "once") {
     return [spec];
   }
-  const count = clampStreams(
-    repeat === "per_rx_stream" ? capabilities?.rx_streams : capabilities?.tx_streams,
-  );
+  const count = repeatCount(node, spec, capabilities);
   const streams = new Set<number>();
   for (let stream = 0; stream < count; stream++) {
     streams.add(stream);
   }
   for (const edge of edges) {
     const end = spec.direction === "out" ? edge.from : edge.to;
-    const stream = end.node === node ? portStream(spec.name, end.port) : null;
+    const stream = end.node === node.id ? portStream(spec.name, end.port) : null;
     if (stream !== null) {
       streams.add(stream);
     }

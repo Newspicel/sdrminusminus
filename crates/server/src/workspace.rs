@@ -81,6 +81,28 @@ pub(crate) fn describe_arrays(engine: &Engine, graph: &PatchGraph) {
     engine.arrays().replace(definitions);
 }
 
+/// Closes a radio an array has taken, because the array opens it again as one of its own lanes
+/// and a device can only be open once. Tuning it apart from the array is what it stops being able
+/// to do; that is what belonging to an array means.
+pub(crate) fn release_array_members(engine: &Engine, graph: &PatchGraph) {
+    let live = engine.snapshot();
+    for node in graph.device_nodes() {
+        if graph.array_holding(&node.id).is_none() {
+            continue;
+        }
+        let Some(reference) = node.body.device_ref(&node.id) else {
+            continue;
+        };
+        for set in &live.device_sets {
+            if reference.matches(&set.device)
+                && let Err(error) = engine.remove_device_set(set.id)
+            {
+                tracing::warn!(%error, device = %set.device.id(), "could not free a radio for its array");
+            }
+        }
+    }
+}
+
 pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(String, u32)> {
     let mut bound = Vec::new();
     let mut claimed: Vec<u32> = Vec::new();

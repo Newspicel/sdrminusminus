@@ -322,3 +322,28 @@ async fn a_radio_in_an_array_is_not_opened_a_second_time_on_its_own() {
     assert_eq!(live.device_sets.len(), 1);
     assert_eq!(live.device_sets[0].device.id(), "array:bench");
 }
+
+#[tokio::test]
+async fn a_radio_an_array_takes_is_freed_from_its_own_device_set() {
+    let (app, state) = test_router_with_state();
+    let alone = virtual_snapshot("siggen", &[]);
+    let workspace = put_active_workspace(&app, &alone).await;
+    apply(&app, workspace).await;
+    assert_eq!(
+        state.engine.snapshot().device_sets.len(),
+        1,
+        "the radio opens on its own first"
+    );
+
+    let joined = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
+    let workspace = put_workspace_revision(&app, &joined, 2).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    let live = state.engine.snapshot();
+    assert_eq!(live.device_sets.len(), 1);
+    assert_eq!(
+        live.device_sets[0].device.id(),
+        "array:bench",
+        "the array holds the radio the device node had"
+    );
+}

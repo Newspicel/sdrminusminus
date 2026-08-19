@@ -847,11 +847,14 @@ pub struct PatchCatalog {
 impl PatchCatalog {
     #[must_use]
     pub fn build() -> Self {
+        // The catalog describes a kind, not one drawn node, so repeated ports stay repeated here:
+        // how many a node actually carries depends on its own settings and is worked out where
+        // that node is drawn.
         let entry = |body: &NodeBody, name: &str| NodeTypeInfo {
             kind: body.kind().to_owned(),
             name: name.to_owned(),
             category: body.category(),
-            ports: body.ports(),
+            ports: ports_for(body.kind()),
             needs_channel_type: matches!(body, NodeBody::Channel(_)),
         };
         Self {

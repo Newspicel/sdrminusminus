@@ -17,6 +17,7 @@ import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
+import { arrayHolding } from "./arrayNode";
 import {
   deviceDialId,
   faultSaid,
@@ -130,6 +131,26 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     onError: (error: Error) => pushToast(error.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
+
+  const array = arrayHolding(workspace.graph, node.id);
+  if (array !== null) {
+    return (
+      <NodeShell
+        node={node}
+        title={reference === null ? "Device" : refLabel(reference)}
+        category="source"
+        subtitle="in an array"
+        live={false}
+      >
+        <FaceBody>
+          <p className="p-3 text-ink-dim text-sm">
+            This radio is an element of <span className="text-ink">{array}</span>, which opens it
+            and tunes it. Unwire it to have it back.
+          </p>
+        </FaceBody>
+      </NodeShell>
+    );
+  }
 
   if (reference === null) {
     return (

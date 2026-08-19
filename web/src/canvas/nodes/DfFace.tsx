@@ -319,7 +319,7 @@ function DfSettings({
           options={BEAMS}
         />
       </SettingRow>
-      {settings.beam_bearing_deg !== null && (
+      {settings.beam_bearing_deg != null && (
         <SettingRow label="Azimuth">
           <NumberField
             label="Beam azimuth in degrees"

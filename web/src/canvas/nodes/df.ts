@@ -31,13 +31,13 @@ export function withCount(geometry: ArrayGeometry, count: number): ArrayGeometry
 
 export type BeamMode = "follow" | "fixed";
 
-export function beamMode(beamBearingDeg: number | null): BeamMode {
-  return beamBearingDeg === null ? "follow" : "fixed";
+export function beamMode(beamBearingDeg: number | null | undefined): BeamMode {
+  return beamBearingDeg == null ? "follow" : "fixed";
 }
 
 /// Pinning the beam starts from wherever it is pointing now, so the operator holds the direction
 /// the array just found instead of swinging the beam to north to begin aiming.
-export function beamAzimuth(mode: BeamMode, bearingDeg: number | null): number | null {
+export function beamAzimuth(mode: BeamMode, bearingDeg: number | null | undefined): number | null {
   if (mode === "follow") {
     return null;
   }

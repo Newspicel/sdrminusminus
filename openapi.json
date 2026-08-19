@@ -6888,6 +6888,7 @@
             ],
             "default": {
               "bandwidth_hz": 200000.0,
+              "pilot_hz": null,
               "source": "signal",
               "track": true
             }
@@ -8602,6 +8603,7 @@
             ],
             "default": {
               "bandwidth_hz": 200000.0,
+              "pilot_hz": null,
               "source": "signal",
               "track": true
             }

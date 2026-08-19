@@ -152,6 +152,7 @@ pub(super) fn bring_up(
     let engine = &app.engine;
     let mut report = PatchApplyReport::default();
     workspace::describe_arrays(engine, &snapshot.graph);
+    workspace::release_array_members(engine, &snapshot.graph);
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
 

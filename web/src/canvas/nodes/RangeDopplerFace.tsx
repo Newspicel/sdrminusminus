@@ -152,11 +152,11 @@ function RadarSettings({
       <SettingRow label="Transmitter">
         <Checkbox
           label="The transmitter's place is known"
-          checked={settings.illuminator !== null && settings.illuminator !== undefined}
+          checked={settings.illuminator != null}
           onChange={(known) => onChange({ illuminator: known ? DEFAULT_ILLUMINATOR : null })}
         />
       </SettingRow>
-      {settings.illuminator !== null && settings.illuminator !== undefined && (
+      {settings.illuminator != null && (
         <>
           <SettingRow label="Latitude">
             <NumberField

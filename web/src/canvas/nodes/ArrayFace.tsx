@@ -5,12 +5,12 @@ import { tuningRange } from "../../components/dial";
 import { FrequencyDial } from "../../components/FrequencyDial";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Select } from "../../components/Select";
-import { SettingNote, SettingRow, Settings } from "../../components/Settings";
+import { SettingRow, Settings } from "../../components/Settings";
 import type { ArrayNode, Coherence, PatchNode } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { arrayKey, arrayMembers, TIER_NOTE } from "./arrayNode";
+import { arrayKey, arrayMembers } from "./arrayNode";
 import { deviceDialId, refLabel, tuneDelta, tunerDials } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
@@ -45,15 +45,16 @@ export function ArrayFace({ node }: { node: PatchNode }) {
       node={node}
       title={node.label ?? "Array"}
       category="source"
-      subtitle={`${members.length} radios`}
+      subtitle={
+        set === undefined && members.length < 2
+          ? `${members.length} of 2 radios`
+          : `${members.length} elements`
+      }
       live={set !== undefined}
     >
       <FaceBody>
         {members.length === 0 && (
-          <FaceEmpty>
-            Wire a radio's IQ into an input. Each one becomes an element, in the order its antenna
-            sits in the array.
-          </FaceEmpty>
+          <FaceEmpty>Wire a radio into an input. Each one becomes an element.</FaceEmpty>
         )}
         {set !== undefined && (
           <div className="flex flex-col gap-1 border-line border-b p-2">
@@ -92,13 +93,6 @@ export function ArrayFace({ node }: { node: PatchNode }) {
               onChange={(shared_tuning) => update({ shared_tuning })}
             />
           </SettingRow>
-          <SettingNote>{TIER_NOTE[settings.coherence]}</SettingNote>
-          {members.length === 1 && (
-            <SettingNote>
-              An array needs two radios or more. Below that nothing is opened and the radio stays
-              free.
-            </SettingNote>
-          )}
         </Settings>
         {set !== undefined && <RadioSettings active={set} className="border-line border-t p-2" />}
       </FaceBody>

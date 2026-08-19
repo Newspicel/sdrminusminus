@@ -2012,6 +2012,7 @@ export interface components {
             /**
              * @default {
              *       "bandwidth_hz": 200000,
+             *       "pilot_hz": null,
              *       "source": "signal",
              *       "track": true
              *     }
@@ -2481,6 +2482,7 @@ export interface components {
             /**
              * @default {
              *       "bandwidth_hz": 200000,
+             *       "pilot_hz": null,
              *       "source": "signal",
              *       "track": true
              *     }

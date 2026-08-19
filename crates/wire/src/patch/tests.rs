@@ -693,7 +693,7 @@ fn the_only_type_level_cycle_is_the_guarded_event_transform() {
         .collect();
     assert_eq!(
         cycle,
-        vec!["event_filter", "df", "combiner", "triangulation"]
+        vec!["array", "event_filter", "df", "combiner", "triangulation"]
     );
 }
 
