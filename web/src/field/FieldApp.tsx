@@ -10,6 +10,7 @@ import { FoxHunt } from "./FoxHunt";
 import { fieldPath, type Mission, missionTargets, parseFieldPath } from "./missions";
 import { RadarWatch } from "./RadarWatch";
 import { useFullscreen, useWakeLock } from "./useFieldScreen";
+import { Button } from "../components/BaseControls";
 
 const MISSIONS: Mission[] = [
   {
@@ -75,17 +76,17 @@ export function FieldApp() {
         }}
       >
         <header className="flex items-center justify-between gap-2 border-line border-b px-3 py-2">
-          <button
+          <Button
             type="button"
             className="text-sm"
             onClick={() => go("/field")}
             disabled={route.mission === null}
           >
             {route.mission === null ? "Field mode" : "← Missions"}
-          </button>
-          <button type="button" className="text-xs text-ink-dim" onClick={toggle}>
+          </Button>
+          <Button type="button" className="text-xs text-ink-dim" onClick={toggle}>
             {full ? "Exit fullscreen" : "Fullscreen"}
-          </button>
+          </Button>
         </header>
         <main className="min-h-0 flex-1">
           {route.mission === null || route.node === null ? (
@@ -124,7 +125,7 @@ function Picker({ graph, onPick }: { graph: PatchGraph; onPick: (path: string) =
     <ul className="flex flex-col gap-2 p-3">
       {targets.map((target) => (
         <li key={`${target.mission.id}:${target.node}`}>
-          <button
+          <Button
             type="button"
             className="w-full rounded border border-line px-4 py-4 text-left"
             onClick={() => onPick(fieldPath(target.mission.id, target.node))}
@@ -133,7 +134,7 @@ function Picker({ graph, onPick }: { graph: PatchGraph; onPick: (path: string) =
               {target.mission.title} · {target.label}
             </span>
             <span className="block text-ink-dim text-xs">{target.mission.blurb}</span>
-          </button>
+          </Button>
         </li>
       ))}
     </ul>

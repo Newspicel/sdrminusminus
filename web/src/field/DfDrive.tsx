@@ -17,6 +17,7 @@ import {
   shouldAnnounce,
 } from "./nav";
 import { useVoice } from "./useFieldScreen";
+import { Button } from "../components/BaseControls";
 
 const SIZE = 200;
 const CENTRE = SIZE / 2;
@@ -150,14 +151,14 @@ export function DfDrive({
       <div className="flex items-center justify-between gap-2 px-3 pb-2">
         <div className="flex gap-1">
           {(["auto", "direct", "off"] as const).map((option) => (
-            <button
+            <Button
               key={option}
               type="button"
               onClick={() => setMode(option)}
               className={`rounded px-3 py-2 text-xs ${mode === option ? "bg-accent text-bg" : "border border-line"}`}
             >
               {option}
-            </button>
+            </Button>
           ))}
         </div>
         {target !== null && (

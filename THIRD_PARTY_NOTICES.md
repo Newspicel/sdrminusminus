@@ -40,6 +40,10 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 Resolved from platform packages at packaging time, so the exact versions and licenses are whatever each installer pinned. `packaging/soapy/stage-unix.sh` copies every one of their license texts and package manifests into `soapy/licenses` inside the bundle; that directory, not this row, is the authoritative record for a given release.
 
+**gr-dtv, gr-dvbs2rx, gr-dvbgse** — GPL-3.0-or-later
+
+DVB-S2 is specified by ETSI EN 302 307-1 and -2, and `crates/channels/src/datv` follows those documents. Three constant tables in it were transcribed from GNU Radio's gr-dtv rather than retyped from the standard's own pages: the LDPC parity accumulator addresses in `dvbs2/tables`, the APSK ring ratios and constellation point order, and the bit interleaver column order. The GSE reader in `dvbs2/gse.rs` was written against TS 102 606 with drmpeg's gr-dvbgse as a second reading, and the BCH block lengths were cross-checked against gr-dvbs2rx. All three are GPL-3.0-or-later, the same terms sdr-- distributes under, so no separate text accompanies them.
+
 **hackrf (libhackrf)** — GPL-2.0-or-later
 
 As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary.
@@ -817,11 +821,12 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
 
-## Hardware libraries (4)
+## Hardware libraries (5)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
+| [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |

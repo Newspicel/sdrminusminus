@@ -13,7 +13,7 @@ import {
 } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { RecordingAnnotation, RecordingInfo } from "../lib/types";
-import { Button, Form, Input } from "./BaseControls";
+import { Button, Form, Input, Textarea } from "./BaseControls";
 import { BTN, BTN_SM, CHIP, FIELD } from "./controls";
 import { formatMhz } from "./format";
 import {
@@ -188,7 +188,7 @@ function AnnotationForm({
         onChange={(e) => setTags(e.target.value)}
         aria-label={`Tags for ${recording.file}`}
       />
-      <textarea
+      <Textarea
         className={`${FIELD} h-auto min-h-14 resize-y py-1 leading-snug`}
         placeholder="What was on the air, and what to remember about it"
         value={note}

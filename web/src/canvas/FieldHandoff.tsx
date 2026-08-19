@@ -5,6 +5,7 @@ import { BTN_QUIET } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { aboutQuery } from "../lib/api";
 import { handoffOrigins, handoffUrl } from "./fieldLink";
+import { Button } from "../components/BaseControls";
 
 /// Hands the field client to a phone.
 ///
@@ -44,14 +45,14 @@ export function FieldHandoff() {
           {origins.length > 1 && (
             <div className="flex flex-wrap justify-center gap-1">
               {origins.map((candidate, index) => (
-                <button
+                <Button
                   key={candidate}
                   type="button"
                   className={`rounded px-2 py-1 text-[10px] ${index === pick ? "bg-accent text-bg" : "border border-line"}`}
                   onClick={() => setPick(index)}
                 >
                   {new URL(candidate).host}
-                </button>
+                </Button>
               ))}
             </div>
           )}

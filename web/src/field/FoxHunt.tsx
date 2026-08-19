@@ -7,6 +7,7 @@ import { positionSourcesOf } from "../lib/position";
 import { useSignalSurveyStore } from "../lib/signalSurvey";
 import type { ChannelLevel, PatchGraph } from "../lib/types";
 import type { MissionProps } from "./missions";
+import { Button } from "../components/BaseControls";
 
 const FLOOR_DB = -110;
 const CEILING_DB = -20;
@@ -78,13 +79,13 @@ export function FoxHunt({
         </div>
       </div>
       <div className="flex justify-center px-3 py-2">
-        <button
+        <Button
           type="button"
           onClick={() => setClicks((on) => !on)}
           className={`rounded px-4 py-3 text-sm ${clicks ? "bg-accent text-bg" : "border border-line"}`}
         >
           {clicks ? "Clicks on" : "Clicks off"}
-        </button>
+        </Button>
       </div>
       <div className="min-h-0 flex-1">
         <MapPanel
