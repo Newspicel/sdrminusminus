@@ -28,7 +28,13 @@ import {
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
 import { useDfStore } from "../../lib/df";
-import { dfOverlay, dfSourcesOf, radarSourcesOf } from "../../lib/dfOverlay";
+import {
+  crossingSourcesOf,
+  dfOverlay,
+  dfSourcesOf,
+  type RadarSource,
+  radarSourcesOf,
+} from "../../lib/dfOverlay";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
 import { pushToast } from "../../lib/toasts";
@@ -228,6 +234,7 @@ export function MapFace({ node }: { node: PatchNode }) {
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
   const finders = dfSourcesOf(workspace.graph, node.id);
+  const crossings = crossingSourcesOf(workspace.graph, node.id);
   const radars = radarSourcesOf(workspace.graph, node.id);
   const empty = useFaceEmptyText(
     node.id,
@@ -235,7 +242,11 @@ export function MapFace({ node }: { node: PatchNode }) {
     "Wire decoder events or a GPS position in to plot them.",
   );
   const anything =
-    kinds.length > 0 || positions.length > 0 || finders.length > 0 || radars.length > 0;
+    kinds.length > 0 ||
+    positions.length > 0 ||
+    finders.length > 0 ||
+    crossings.length > 0 ||
+    radars.length > 0;
   return (
     <NodeShell
       node={node}
@@ -248,7 +259,13 @@ export function MapFace({ node }: { node: PatchNode }) {
         {inputs.length === 0 && positions.length === 0 ? (
           <FaceEmpty>{empty}</FaceEmpty>
         ) : anything ? (
-          <Plot kinds={kinds} positionNodes={positions} finders={finders} radars={radars} />
+          <Plot
+            kinds={kinds}
+            positionNodes={positions}
+            finders={finders}
+            crossings={crossings}
+            radars={radars}
+          />
         ) : (
           <FaceEmpty>
             Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to be
@@ -264,23 +281,24 @@ function Plot({
   kinds,
   positionNodes,
   finders,
+  crossings,
   radars,
 }: {
   kinds: readonly MapKind[];
   positionNodes: readonly string[];
   finders: readonly string[];
-  radars: readonly { node: string; illuminator: { lat: number; lon: number } }[];
+  crossings: readonly string[];
+  radars: readonly RadarSource[];
 }) {
   const byNode = useDfStore((store) => store.byNode);
   const here = usePositionStore((store) =>
     positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
   );
   const df = dfOverlay(
-    finders,
+    { finders, crossings, radars },
     byNode,
     Date.now(),
     here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
-    radars,
   );
   return (
     <MapPanel

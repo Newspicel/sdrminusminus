@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{device::Coherence, position::PositionFix};
+use crate::device::Coherence;
 
 pub const MAX_ARRAY_ELEMENTS: u32 = 16;
 pub const MIN_ARRAY_ELEMENTS: u32 = 2;
@@ -182,8 +182,8 @@ pub struct DfParams {
     /// the whole point of having both on one node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beam_bearing_deg: Option<f64>,
-    /// What this receiver calls itself when its bearings leave the box, so a central grid can
-    /// tell one station's readings from another's.
+    /// What this receiver is called where its bearings are crossed with other receivers'. Unset
+    /// falls back to the node's own name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub station_id: Option<String>,
     pub cal: CalParams,
@@ -482,86 +482,6 @@ pub struct DfBearing {
     pub station_id: Option<String>,
 }
 
-/// A bearing another station measured, arriving over the same event output any decoder uses.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct BearingReport {
-    pub station_id: String,
-    pub lat: f64,
-    pub lon: f64,
-    pub bearing_deg: f64,
-    pub confidence: f32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time: Option<String>,
-}
-
-impl BearingReport {
-    #[must_use]
-    pub fn valid(&self) -> bool {
-        !self.station_id.is_empty()
-            && self.station_id.len() <= MAX_STATION_ID_LEN
-            && (-90.0..=90.0).contains(&self.lat)
-            && (-180.0..=180.0).contains(&self.lon)
-            && self.bearing_deg.is_finite()
-            && (0.0..=1.0).contains(&self.confidence)
-    }
-
-    #[must_use]
-    pub fn from_fix(
-        station_id: String,
-        fix: &PositionFix,
-        bearing_deg: f64,
-        confidence: f32,
-    ) -> Self {
-        Self {
-            station_id,
-            lat: fix.latitude,
-            lon: fix.longitude,
-            bearing_deg,
-            confidence,
-            time: Some(fix.time.clone()),
-        }
-    }
-}
-
-/// What a station's event output sends: the envelope every webhook, MQTT and Matrix delivery
-/// already carries, of which only the record matters here.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct RelayedBearing {
-    pub record: crate::decode::DecodedRecord,
-}
-
-/// How a bearing arrives at a central grid: written out as a report, or relayed by pointing a
-/// direction finder's existing event output at the ingest URL. Federation needs no new transport.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(untagged)]
-pub enum BearingSubmission {
-    Report(BearingReport),
-    Relayed(Box<RelayedBearing>),
-}
-
-impl BearingSubmission {
-    #[must_use]
-    pub fn into_report(self) -> Option<BearingReport> {
-        match self {
-            Self::Report(report) => Some(report),
-            Self::Relayed(relayed) => {
-                let at = relayed.record.at;
-                let crate::decode::DecoderEvent::Df(bearing) = relayed.record.event else {
-                    return None;
-                };
-                Some(BearingReport {
-                    station_id: bearing.station_id?,
-                    lat: bearing.lat?,
-                    lon: bearing.lon?,
-                    bearing_deg: f64::from(bearing.bearing_deg),
-                    confidence: bearing.confidence,
-                    time: Some(at),
-                })
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -687,33 +607,6 @@ mod tests {
                 lat: 51.0,
                 lon: 7.0,
                 freq_hz: 100e6
-            }
-            .valid()
-        );
-    }
-
-    #[test]
-    fn a_bearing_report_needs_a_station_and_a_place() {
-        let good = BearingReport {
-            station_id: "north".to_owned(),
-            lat: 51.0,
-            lon: 7.0,
-            bearing_deg: 137.0,
-            confidence: 0.8,
-            time: None,
-        };
-        assert!(good.valid());
-        assert!(
-            !BearingReport {
-                station_id: String::new(),
-                ..good.clone()
-            }
-            .valid()
-        );
-        assert!(
-            !BearingReport {
-                confidence: 2.0,
-                ..good
             }
             .valid()
         );

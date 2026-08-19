@@ -68,110 +68,6 @@
         }
       }
     },
-    "/api/arrays": {
-      "get": {
-        "operationId": "list_arrays",
-        "responses": {
-          "200": {
-            "description": "Every array the operator has described",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArraysResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/arrays/{key}": {
-      "put": {
-        "operationId": "put_array",
-        "parameters": [
-          {
-            "name": "key",
-            "in": "path",
-            "description": "The array's own key, which names its device id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArrayDefinition"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "The array is described and will be probed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArrayDefinition"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Not a usable array",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "operationId": "delete_array",
-        "parameters": [
-          {
-            "name": "key",
-            "in": "path",
-            "description": "The array's own key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The array is no longer described"
-          },
-          "404": {
-            "description": "No array of that name",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/audiorecordings": {
       "get": {
         "operationId": "list_audio_recordings",
@@ -2017,64 +1913,6 @@
           },
           "422": {
             "description": "Malformed request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/df/bearings": {
-      "post": {
-        "operationId": "ingest_bearing",
-        "parameters": [
-          {
-            "name": "node",
-            "in": "query",
-            "description": "Which direction finder's grid to feed",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BearingSubmission"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Where every station's bearings now cross",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DfFusionState"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The report is not a usable bearing",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No direction finder is running to fuse it into",
             "content": {
               "application/json": {
                 "schema": {
@@ -4194,38 +4032,6 @@
           "string"
         ]
       },
-      "ArrayDefinition": {
-        "type": "object",
-        "description": "A bank of separate radios the operator has wired to one clock and wants treated as one.\n\nNothing here is discovered: which radios belong together, and whether their clock alone is\nshared or their synthesizer too, is a fact about the bench that only the operator knows.",
-        "required": [
-          "key",
-          "label",
-          "members",
-          "coherence"
-        ],
-        "properties": {
-          "coherence": {
-            "$ref": "#/components/schemas/Coherence"
-          },
-          "key": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "members": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Member device ids, in the order their lanes are numbered."
-          },
-          "shared_tuning": {
-            "type": "boolean",
-            "description": "Whether every member is tuned together. A bank whose members can be tuned apart is a bank\nof receivers; only one tuned together is an array."
-          }
-        }
-      },
       "ArrayElement": {
         "type": "object",
         "required": [
@@ -4322,17 +4128,29 @@
         ],
         "description": "Where the elements are, in the terms an operator can measure with a tape."
       },
-      "ArraysResponse": {
+      "ArrayNode": {
         "type": "object",
-        "required": [
-          "arrays"
-        ],
+        "description": "A bank of separate radios the operator has wired to one clock, standing on the canvas as the\none radio they add up to.\n\nNothing here is discovered: which radios belong together, and whether their clock alone is\nshared or their synthesizer too, is a fact about the bench that only the operator knows.",
         "properties": {
-          "arrays": {
+          "coherence": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Coherence"
+              }
+            ],
+            "default": "time_sync"
+          },
+          "members": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ArrayDefinition"
-            }
+              "type": "string"
+            },
+            "description": "Member device ids, in the order their lanes are numbered.",
+            "default": []
+          },
+          "shared_tuning": {
+            "type": "boolean",
+            "default": true
           }
         }
       },
@@ -4893,55 +4711,6 @@
           "ism",
           "other"
         ]
-      },
-      "BearingReport": {
-        "type": "object",
-        "description": "A bearing another station measured, arriving over the same event output any decoder uses.",
-        "required": [
-          "station_id",
-          "lat",
-          "lon",
-          "bearing_deg",
-          "confidence"
-        ],
-        "properties": {
-          "bearing_deg": {
-            "type": "number",
-            "format": "double"
-          },
-          "confidence": {
-            "type": "number",
-            "format": "float"
-          },
-          "lat": {
-            "type": "number",
-            "format": "double"
-          },
-          "lon": {
-            "type": "number",
-            "format": "double"
-          },
-          "station_id": {
-            "type": "string"
-          },
-          "time": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "BearingSubmission": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/BearingReport"
-          },
-          {
-            "$ref": "#/components/schemas/RelayedBearing"
-          }
-        ],
-        "description": "How a bearing arrives at a central grid: written out as a report, or relayed by pointing a\ndirection finder's existing event output at the ingest URL. Federation needs no new transport."
       },
       "Bookmark": {
         "type": "object",
@@ -8808,7 +8577,7 @@
               "string",
               "null"
             ],
-            "description": "What this receiver calls itself when its bearings leave the box, so a central grid can\ntell one station's readings from another's.",
+            "description": "What this receiver is called where its bearings are crossed with other receivers'. Unset\nfalls back to the node's own name.",
             "default": null
           }
         }
@@ -11860,6 +11629,24 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/ArrayNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "array"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/GpsNode"
               },
               "kind": {
@@ -12218,6 +12005,20 @@
                 "type": "string",
                 "enum": [
                   "passive_radar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "triangulation"
                 ]
               }
             }
@@ -12898,6 +12699,38 @@
           },
           {
             "type": "object",
+            "description": "A place typed in rather than measured. A receiver that never moves has no reason to run a\nGPS, and everything downstream still wants to know where it stands.",
+            "required": [
+              "lat",
+              "lon",
+              "type"
+            ],
+            "properties": {
+              "altitude_m": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "lat": {
+                "type": "number",
+                "format": "double"
+              },
+              "lon": {
+                "type": "number",
+                "format": "double"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "fixed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "address",
               "type"
@@ -13528,18 +13361,6 @@
             "items": {
               "$ref": "#/components/schemas/RecordingInfo"
             }
-          }
-        }
-      },
-      "RelayedBearing": {
-        "type": "object",
-        "description": "What a station's event output sends: the envelope every webhook, MQTT and Matrix delivery\nalready carries, of which only the record matters here.",
-        "required": [
-          "record"
-        ],
-        "properties": {
-          "record": {
-            "$ref": "#/components/schemas/DecodedRecord"
           }
         }
       },

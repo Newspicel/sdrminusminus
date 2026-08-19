@@ -14,6 +14,25 @@ export function dfSourcesOf(graph: PatchGraph, node: string): string[] {
     .filter((id) => kinds.get(id) === "df");
 }
 
+/// Which triangulation nodes feed a display's events port. Bearings cross there, so that is where
+/// the estimate, its ellipse and the guidance come from.
+export function crossingSourcesOf(graph: PatchGraph, node: string): string[] {
+  const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));
+  return (graph.edges ?? [])
+    .filter((edge) => edge.to.node === node && edge.to.port === "events")
+    .map((edge) => edge.from.node)
+    .filter((id) => kinds.get(id) === "triangulation");
+}
+
+/// Where a finder's bearings are crossed: the triangulation nodes its events reach.
+export function crossingsFedBy(graph: PatchGraph, node: string): string[] {
+  const kinds = new Map(graph.nodes.map((entry) => [entry.id, entry.kind]));
+  return (graph.edges ?? [])
+    .filter((edge) => edge.from.node === node && edge.from.port === "events")
+    .map((edge) => edge.to.node)
+    .filter((id) => kinds.get(id) === "triangulation");
+}
+
 /// Which passive radars feed a display's events port, and where each one borrows its transmitter
 /// from. A radar with no illuminator written down has nothing to draw an ellipse around.
 export function radarSourcesOf(
@@ -35,23 +54,35 @@ export function radarSourcesOf(
     });
 }
 
-/// Everything the map draws for a set of direction finders: one ray per bearing anyone reported,
-/// and the fused estimate and guidance of whichever of them has got that far.
+export interface RadarSource {
+  node: string;
+  illuminator: { lat: number; lon: number };
+}
+
+export interface OverlaySources {
+  finders: readonly string[];
+  crossings?: readonly string[];
+  radars?: readonly RadarSource[];
+}
+
+/// Everything the map draws: one ray per bearing any finder reported, the estimate and guidance of
+/// wherever those bearings are crossed, and the ellipse each radar echo could have come off.
 export function dfOverlay(
-  nodes: readonly string[],
+  sources: OverlaySources,
   byNode: Readonly<Record<string, DfNodeState>>,
   now: number,
   from: { lat: number; lon: number } | null,
-  radars: readonly { node: string; illuminator: { lat: number; lon: number } }[] = [],
 ): DfOverlay | undefined {
-  if (nodes.length === 0 && radars.length === 0) {
+  const crossings = sources.crossings ?? [];
+  const radars = sources.radars ?? [];
+  if (sources.finders.length === 0 && crossings.length === 0 && radars.length === 0) {
     return undefined;
   }
   const rays: BearingRay[] = [];
   let estimate = null;
   let guidance = null;
   const stations = [];
-  for (const node of nodes) {
+  for (const node of sources.finders) {
     const state = byNode[node];
     if (state === undefined) {
       continue;
@@ -70,9 +101,12 @@ export function dfOverlay(
         ageMs: Math.max(0, now - sample.at),
       });
     }
-    estimate ??= state.fusion?.estimate ?? null;
-    guidance ??= state.fusion?.guidance ?? null;
-    stations.push(...(state.fusion?.stations ?? []));
+  }
+  for (const node of crossings) {
+    const fusion = byNode[node]?.fusion;
+    estimate ??= fusion?.estimate ?? null;
+    guidance ??= fusion?.guidance ?? null;
+    stations.push(...(fusion?.stations ?? []));
   }
   const bistatic: BistaticEchoes[] = [];
   for (const radar of radars) {

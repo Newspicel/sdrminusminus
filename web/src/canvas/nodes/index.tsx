@@ -2,6 +2,7 @@ import type { Node, NodeProps } from "@xyflow/react";
 import type { ComponentType } from "react";
 import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
+import { ArrayFace } from "./ArrayFace";
 import { ChannelFace } from "./ChannelFace";
 import { DeviceFace } from "./DeviceFace";
 import { DfFace } from "./DfFace";
@@ -29,6 +30,7 @@ import {
   VideoFace,
 } from "./SinkFaces";
 import { TimeMachineFace } from "./TimeMachineFace";
+import { TriangulationFace } from "./TriangulationFace";
 
 type Face = ComponentType<{ node: PatchNode }>;
 
@@ -44,6 +46,7 @@ function mount(Face: Face) {
 
 export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>>>> = {
   device: mount(DeviceFace),
+  array: mount(ArrayFace),
   gps: mount(GpsFace),
   channel: mount(ChannelFace),
   event_output: mount(EventOutputFace),
@@ -67,10 +70,12 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   hunt: mount(HuntFace),
   df: mount(DfFace),
   passive_radar: mount(RangeDopplerFace),
+  triangulation: mount(TriangulationFace),
 };
 
 export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
+  array: ArrayFace,
   gps: GpsFace,
   channel: ChannelFace,
   event_output: EventOutputFace,
@@ -94,4 +99,5 @@ export const FACES: Record<NodeKind, Face> = {
   hunt: HuntFace,
   df: DfFace,
   passive_radar: RangeDopplerFace,
+  triangulation: TriangulationFace,
 };

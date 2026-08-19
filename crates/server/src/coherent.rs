@@ -21,8 +21,18 @@ pub(crate) struct Binding {
     pub(crate) kind: &'static str,
     /// The GPS node whose fix says where this array is standing, when one is wired in.
     pub(crate) position_node: Option<String>,
-    /// What this receiver calls itself when a bearing of its own leaves for another grid.
+    /// What this receiver calls itself where its bearings are crossed with other receivers'.
     pub(crate) station_id: Option<String>,
+    /// The triangulation nodes this finder's bearings are wired into.
+    pub(crate) fusion_nodes: Vec<String>,
+}
+
+impl Binding {
+    /// The name this finder's bearings are filed under. A station that was never named is known
+    /// by the node drawing it, which is at least unique.
+    pub(crate) fn station(&self, node: &str) -> String {
+        self.station_id.clone().unwrap_or_else(|| node.to_owned())
+    }
 }
 
 /// The one place the patch's node names and the engine's coherent node ids are kept together.
@@ -102,6 +112,23 @@ pub(crate) fn wired_lanes(
         lanes.push(port_stream("iq", &edge.from.port)?);
     }
     device.map(|device| (device, lanes))
+}
+
+/// The triangulation nodes a finder's bearings are wired into, which is where they are crossed
+/// with whatever the other finders on the canvas are seeing.
+#[must_use]
+pub(crate) fn wired_crossings(graph: &PatchGraph, node: &str) -> Vec<String> {
+    graph
+        .edges
+        .iter()
+        .filter(|edge| edge.from.node == node && edge.from.port == "events")
+        .filter(|edge| {
+            graph
+                .node(&edge.to.node)
+                .is_some_and(|target| matches!(target.body, NodeBody::Triangulation))
+        })
+        .map(|edge| edge.to.node.clone())
+        .collect()
 }
 
 /// The channel node, if any, listening to a direction finder's beam.
@@ -202,6 +229,7 @@ pub(crate) fn apply(
             .iter()
             .find(|edge| edge.to.node == node.id && edge.to.port == "position")
             .map(|edge| edge.from.node.clone());
+        let fusion_nodes = wired_crossings(graph, &node.id);
         match state.coherent.binding(&node.id) {
             Some(existing) if existing.device_set == *device_set => {
                 if let Err(err) =
@@ -217,6 +245,7 @@ pub(crate) fn apply(
                     Binding {
                         position_node,
                         station_id,
+                        fusion_nodes,
                         ..existing
                     },
                 );
@@ -237,6 +266,7 @@ pub(crate) fn apply(
                                 kind,
                                 position_node,
                                 station_id,
+                                fusion_nodes,
                             },
                         );
                         start_pump(state, *device_set);
@@ -315,33 +345,42 @@ async fn pump(device_set: u32, mut updates: broadcast::Receiver<CoherentUpdate>,
             .as_deref()
             .and_then(|node| state.gps.fix(node))
             .or_else(|| state.gps.any_fix());
+        let at = format!("{:.9}", jiff::Timestamp::now());
+        let station = binding.station(&node);
         if reading.confidence > 0.0 {
             state.engine.publish_decoded(sdrmm_wire::DecodedRecord {
                 device_set,
                 channel: binding.id,
-                at: format!("{:.9}", jiff::Timestamp::now()),
+                at: at.clone(),
                 freq_hz: 0.0,
                 event: sdrmm_wire::DecoderEvent::Df(sdrmm_wire::DfBearing {
                     bearing_deg: reading.bearing_deg,
                     confidence: reading.confidence,
                     lat: fix.as_ref().map(|fix| fix.latitude),
                     lon: fix.as_ref().map(|fix| fix.longitude),
-                    station_id: binding.station_id.clone(),
+                    station_id: Some(station.clone()),
                 }),
             });
         }
-        if let Some(outcome) = state.fusion.observe(&node, &reading, fix.as_ref()) {
+        for crossing in &binding.fusion_nodes {
+            let Some(outcome) =
+                state
+                    .fusion
+                    .observe(crossing, &station, &reading, fix.as_ref(), &at)
+            else {
+                continue;
+            };
             if let Some(estimate) = outcome.first_fix {
                 state.engine.publish_decoded(sdrmm_wire::DecodedRecord {
                     device_set,
                     channel: binding.id,
-                    at: format!("{:.9}", jiff::Timestamp::now()),
+                    at: at.clone(),
                     freq_hz: 0.0,
                     event: sdrmm_wire::DecoderEvent::DfFix(estimate),
                 });
             }
             state.engine.emit_event(ServerEvent::DfFusionUpdate {
-                node: node.clone(),
+                node: crossing.clone(),
                 state: Box::new(outcome.state),
             });
         }

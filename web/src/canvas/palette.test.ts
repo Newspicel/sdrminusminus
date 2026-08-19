@@ -5,6 +5,7 @@ import { channelPicker, filterPalette, firstPaletteItem, paletteGroups } from ".
 const CATALOG: PatchCatalog = {
   nodes: [
     { kind: "device", name: "Device", category: "source", ports: [] },
+    { kind: "array", name: "Array", category: "source", ports: [] },
     { kind: "gps", name: "GPS position", category: "source", ports: [] },
     { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
     { kind: "scope", name: "Scope", category: "display", ports: [] },
@@ -50,7 +51,13 @@ describe("paletteGroups", () => {
     ]);
     expect(groups[2]?.items[0]?.id).toBe("channel:adsb");
     expect(groups[4]?.items.map((item) => item.id)).toContain("event_output");
-    expect(groups[0]?.items.map((item) => item.id)).toEqual(["device", "gps:gpsd", "gps:nmea"]);
+    expect(groups[0]?.items.map((item) => item.id)).toEqual([
+      "device",
+      "array",
+      "gps:fixed",
+      "gps:gpsd",
+      "gps:nmea",
+    ]);
   });
 
   it("offers device GPS only when this WebView exposes geolocation", () => {

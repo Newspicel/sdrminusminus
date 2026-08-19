@@ -6,7 +6,7 @@ use crate::{
     MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     coherent::{DfParams, PassiveRadarParams},
-    device::{Capabilities, DeviceInfo, Direction},
+    device::{ArrayDefinition, Capabilities, Coherence, DeviceInfo, Direction},
     filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
     propagation::PropagationNode,
@@ -452,6 +452,45 @@ impl Default for HuntNode {
     }
 }
 
+/// A bank of separate radios the operator has wired to one clock, standing on the canvas as the
+/// one radio they add up to.
+///
+/// Nothing here is discovered: which radios belong together, and whether their clock alone is
+/// shared or their synthesizer too, is a fact about the bench that only the operator knows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct ArrayNode {
+    /// Member device ids, in the order their lanes are numbered.
+    pub members: Vec<String>,
+    pub coherence: Coherence,
+    pub shared_tuning: bool,
+}
+
+impl Default for ArrayNode {
+    fn default() -> Self {
+        Self {
+            members: Vec::new(),
+            coherence: Coherence::TimeSync,
+            shared_tuning: true,
+        }
+    }
+}
+
+impl ArrayNode {
+    /// The composite this node describes. Its key comes from the node itself, so an array is set
+    /// up by drawing it rather than by naming it somewhere else.
+    #[must_use]
+    pub fn definition(&self, node_id: &str, label: Option<&str>) -> ArrayDefinition {
+        ArrayDefinition {
+            key: node_id.replace(':', "-"),
+            label: label.unwrap_or("Array").to_owned(),
+            members: self.members.clone(),
+            coherence: self.coherence,
+            shared_tuning: self.shared_tuning,
+        }
+    }
+}
+
 /// A direction finder bound to every lane of one coherent radio.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DfNode {
@@ -474,6 +513,7 @@ pub const DF_BEAM_PORT: &str = "beam";
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
     Device(DeviceNode),
+    Array(ArrayNode),
     Gps(GpsNode),
     Channel(ChannelNode),
     Scope,
@@ -497,6 +537,7 @@ pub enum NodeBody {
     Hunt(HuntNode),
     Df(DfNode),
     PassiveRadar(PassiveRadarNode),
+    Triangulation,
 }
 
 impl NodeBody {
@@ -527,13 +568,15 @@ impl NodeBody {
             Self::Hunt(_) => "hunt",
             Self::Df(_) => "df",
             Self::PassiveRadar(_) => "passive_radar",
+            Self::Array(_) => "array",
+            Self::Triangulation => "triangulation",
         }
     }
 
     #[must_use]
     pub const fn category(&self) -> NodeCategory {
         match self {
-            Self::Device(_) | Self::Gps(_) => NodeCategory::Source,
+            Self::Device(_) | Self::Array(_) | Self::Gps(_) => NodeCategory::Source,
             Self::Channel(_) | Self::Df(_) | Self::PassiveRadar(_) => NodeCategory::Channel,
             Self::Scope
             | Self::Map
@@ -542,9 +585,11 @@ impl NodeBody {
             | Self::Readout
             | Self::DecoderLog
             | Self::Video => NodeCategory::Display,
-            Self::Scanner | Self::Hunt(_) | Self::DmrTrunk(_) | Self::EventFilter(_) => {
-                NodeCategory::Feature
-            }
+            Self::Scanner
+            | Self::Hunt(_)
+            | Self::DmrTrunk(_)
+            | Self::EventFilter(_)
+            | Self::Triangulation => NodeCategory::Feature,
             Self::Speaker
             | Self::Recorder
             | Self::AudioRecorder
@@ -553,6 +598,21 @@ impl NodeBody {
             | Self::NetworkExport(_)
             | Self::EventOutput(_)
             | Self::Export => NodeCategory::Sink,
+        }
+    }
+
+    /// The radio a node opens, if it opens one. An array names itself, because the composite it
+    /// describes exists only as long as the node drawing it does.
+    #[must_use]
+    pub fn device_ref(&self, node_id: &str) -> Option<DeviceRef> {
+        match self {
+            Self::Device(device) => device.device.clone(),
+            Self::Array(array) => (!array.members.is_empty()).then(|| DeviceRef {
+                backend: crate::device::ARRAY_DRIVER_ID.to_owned(),
+                serial: None,
+                key: Some(array.definition(node_id, None).key),
+            }),
+            _ => None,
         }
     }
 
@@ -626,6 +686,10 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
                 ),
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
+        "array" => vec![
+            PortSpec::new(Control, In, false, Always),
+            PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
+        ],
         "gps" => vec![PortSpec::new(Position, Out, true, Always)],
         "channel" => vec![
             PortSpec::new(Iq, In, false, Always),
@@ -681,6 +745,11 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Events, In, true, Always),
             PortSpec::new(Events, Out, true, Always),
         ],
+        "triangulation" => vec![
+            PortSpec::new(Events, In, true, Always)
+                .noted("every direction finder whose bearings should be crossed together"),
+            PortSpec::new(Events, Out, true, Always),
+        ],
         "df" => vec![
             PortSpec::new(Iq, In, false, Always).repeated(PortRepeat::PerRxStream),
             PortSpec::new(Position, In, false, Always),
@@ -728,6 +797,7 @@ impl PatchCatalog {
         Self {
             nodes: vec![
                 entry(&NodeBody::Device(DeviceNode::default()), "Device"),
+                entry(&NodeBody::Array(ArrayNode::default()), "Array"),
                 entry(&NodeBody::Gps(GpsNode::default()), "GPS position"),
                 entry(
                     &NodeBody::Channel(ChannelNode {
@@ -781,6 +851,7 @@ impl PatchCatalog {
                     &NodeBody::PassiveRadar(PassiveRadarNode::default()),
                     "Passive radar",
                 ),
+                entry(&NodeBody::Triangulation, "Triangulation"),
             ],
         }
     }
@@ -939,7 +1010,7 @@ impl PatchGraph {
     pub fn device_nodes(&self) -> impl Iterator<Item = &PatchNode> {
         self.nodes
             .iter()
-            .filter(|node| matches!(node.body, NodeBody::Device(_)))
+            .filter(|node| matches!(node.body, NodeBody::Device(_) | NodeBody::Array(_)))
     }
 
     pub fn sources_of<'a>(&'a self, node: &'a str, port: &'a str) -> impl Iterator<Item = &'a str> {
@@ -1197,6 +1268,15 @@ impl PatchGraph {
 fn validate_gps_source(source: &PositionSource) -> Result<(), PatchError> {
     match source {
         PositionSource::Device => Ok(()),
+        PositionSource::Fixed { lat, lon, .. } => {
+            if (-90.0..=90.0).contains(lat) && (-180.0..=180.0).contains(lon) {
+                Ok(())
+            } else {
+                Err(PatchError::Gps(
+                    "a fixed position has to be on the globe".to_owned(),
+                ))
+            }
+        }
         PositionSource::Gpsd { address } => {
             if address.is_empty() || address.len() > MAX_POSITION_ENDPOINT_LEN {
                 Err(PatchError::Gps(

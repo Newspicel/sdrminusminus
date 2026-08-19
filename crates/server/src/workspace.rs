@@ -30,10 +30,10 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
             continue;
         };
         for node in detail.snapshot.graph.device_nodes() {
-            let NodeBody::Device(device) = &node.body else {
+            if matches!(node.body, NodeBody::Array(_)) {
                 continue;
-            };
-            let Some(reference) = device.device.as_ref().filter(|d| d.key.is_some()) else {
+            }
+            let Some(reference) = node.body.device_ref(&node.id) else {
                 continue;
             };
             let Some(key) = &reference.key else { continue };
@@ -44,16 +44,29 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
     }
 }
 
+/// Puts the arrays the patch draws in front of the driver that opens them, so a bank of radios is
+/// set up by wiring it rather than by describing it somewhere else.
+pub(crate) fn describe_arrays(engine: &Engine, graph: &PatchGraph) {
+    let definitions = graph
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.body {
+            NodeBody::Array(array) => Some(array.definition(&node.id, node.label.as_deref())),
+            _ => None,
+        })
+        .filter(sdrmm_wire::ArrayDefinition::valid)
+        .collect();
+    engine.arrays().replace(definitions);
+}
+
 pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(String, u32)> {
     let mut bound = Vec::new();
     let mut claimed: Vec<u32> = Vec::new();
     for node in graph.device_nodes() {
-        let NodeBody::Device(device) = &node.body else {
+        let Some(reference) = node.body.device_ref(&node.id) else {
             continue;
         };
-        let Some(reference) = &device.device else {
-            continue;
-        };
+        let reference = &reference;
         if let Some(set) = state
             .device_sets
             .iter()

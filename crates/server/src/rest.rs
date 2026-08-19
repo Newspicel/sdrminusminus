@@ -14,9 +14,8 @@ use sdrmm_recorder::{
 };
 use sdrmm_tools::ToolError;
 use sdrmm_wire::{
-    AboutResponse, ApiError, ApplyTemplateRequest, ArrayDefinition, ArraysResponse,
-    AudioRecordingInfo, AudioRecordingStatus, AudioRecordingsResponse, AuthInfo, BandPlan,
-    BandRegionMatch, BandRegionsResponse, BearingReport, BearingSubmission, Bookmark,
+    AboutResponse, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingStatus,
+    AudioRecordingsResponse, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse, Bookmark,
     CapturedImagesResponse, ChannelNetworkExportRequest, ChannelRecordRequest, ChannelSettings,
     ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
@@ -37,7 +36,6 @@ use sdrmm_wire::{
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-mod arrays;
 mod audio_recordings;
 mod capture;
 mod coherent;
@@ -50,8 +48,6 @@ mod recordings;
 mod scanning;
 mod workspaces;
 
-pub(crate) use arrays::reload as reload_arrays;
-use arrays::*;
 use audio_recordings::*;
 use capture::*;
 use coherent::*;
@@ -389,10 +385,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(run_tool))
         .routes(routes!(calibrate_coherent))
         .routes(routes!(get_fusion, reset_fusion))
-        .routes(routes!(ingest_bearing))
         .routes(routes!(get_route))
-        .routes(routes!(list_arrays))
-        .routes(routes!(put_array, delete_array))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
 }

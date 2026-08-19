@@ -151,6 +151,7 @@ pub(super) fn bring_up(
 ) -> Result<PatchApplyReport, AppError> {
     let engine = &app.engine;
     let mut report = PatchApplyReport::default();
+    workspace::describe_arrays(engine, &snapshot.graph);
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
 
@@ -172,12 +173,10 @@ pub(super) fn bring_up(
 
     let mut attached: Option<Vec<DeviceInfo>> = None;
     for node in snapshot.graph.device_nodes() {
-        let NodeBody::Device(device) = &node.body else {
+        let Some(reference) = node.body.device_ref(&node.id) else {
             continue;
         };
-        let Some(reference) = &device.device else {
-            continue;
-        };
+        let reference = &reference;
         if report.bound.iter().any(|bound| bound.node == node.id) {
             continue;
         }

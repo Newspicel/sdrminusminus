@@ -691,7 +691,7 @@ fn the_only_type_level_cycle_is_the_guarded_event_transform() {
         .filter(|&kind| reachable[kind][kind])
         .map(|kind| catalog.nodes[kind].kind.as_str())
         .collect();
-    assert_eq!(cycle, vec!["event_filter", "df"]);
+    assert_eq!(cycle, vec!["event_filter", "df", "triangulation"]);
 }
 
 #[test]
@@ -721,6 +721,7 @@ fn every_node_the_palette_offers_round_trips_and_validates_on_its_own() {
 fn default_body(kind: &str) -> NodeBody {
     match kind {
         "device" => NodeBody::Device(DeviceNode::default()),
+        "array" => NodeBody::Array(ArrayNode::default()),
         "gps" => NodeBody::Gps(GpsNode::default()),
         "channel" => NodeBody::Channel(ChannelNode {
             channel_type: "nfm".to_owned(),
@@ -747,6 +748,7 @@ fn default_body(kind: &str) -> NodeBody {
         "hunt" => NodeBody::Hunt(HuntNode::default()),
         "df" => NodeBody::Df(DfNode::default()),
         "passive_radar" => NodeBody::PassiveRadar(PassiveRadarNode::default()),
+        "triangulation" => NodeBody::Triangulation,
         other => panic!("the palette offers {other}, which this test does not build"),
     }
 }
@@ -1608,4 +1610,50 @@ fn default_params_come_from_the_type_id() {
     );
     assert_eq!(ChannelParams::default_for("wefax"), None);
     assert_eq!(ChannelSettings::default_for("wefax"), None);
+}
+
+#[test]
+fn an_array_node_describes_the_composite_it_draws() {
+    let node = ArrayNode {
+        members: vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()],
+        coherence: crate::device::Coherence::TimeSync,
+        shared_tuning: true,
+    };
+    let definition = node.definition("array:9f2c", Some("Roof pair"));
+    assert_eq!(definition.key, "array-9f2c");
+    assert_eq!(definition.id(), "array:array-9f2c");
+    assert_eq!(definition.label, "Roof pair");
+    assert!(definition.valid());
+
+    let body = NodeBody::Array(node);
+    assert_eq!(
+        body.device_ref("array:9f2c")
+            .and_then(|reference| reference.key),
+        Some("array-9f2c".to_owned()),
+        "an array opens itself as one radio"
+    );
+    assert!(
+        NodeBody::Array(ArrayNode::default())
+            .device_ref("array:9f2c")
+            .is_none(),
+        "an array with no members has no radio to open"
+    );
+}
+
+#[test]
+fn an_array_with_one_radio_in_it_is_not_an_array() {
+    let node = ArrayNode {
+        members: vec!["rtlsdr:0001".to_owned()],
+        ..ArrayNode::default()
+    };
+    assert!(!node.definition("array:9f2c", None).valid());
+    let apart = ArrayNode {
+        members: vec!["rtlsdr:0001".to_owned(), "rtlsdr:0002".to_owned()],
+        coherence: crate::device::Coherence::None,
+        shared_tuning: true,
+    };
+    assert!(
+        !apart.definition("array:9f2c", None).valid(),
+        "radios that share no clock are a bank of receivers, not an array"
+    );
 }

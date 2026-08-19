@@ -15,11 +15,19 @@ const fn default_nmea_update_interval_ms() -> u32 {
     DEFAULT_NMEA_UPDATE_INTERVAL_MS
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PositionSource {
     #[default]
     Device,
+    /// A place typed in rather than measured. A receiver that never moves has no reason to run a
+    /// GPS, and everything downstream still wants to know where it stands.
+    Fixed {
+        lat: f64,
+        lon: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        altitude_m: Option<f64>,
+    },
     Gpsd {
         address: String,
     },
@@ -31,7 +39,7 @@ pub enum PositionSource {
     },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GpsNode {
     #[serde(default)]
     pub source: PositionSource,

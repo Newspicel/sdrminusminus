@@ -3,7 +3,7 @@ import { COMPASS_MARKS, polarPoint } from "../canvas/nodes/df";
 import { MapPanel } from "../components/MapPanel";
 import { getRoute } from "../lib/api";
 import { useDfStore } from "../lib/df";
-import { dfOverlay } from "../lib/dfOverlay";
+import { crossingsFedBy, dfOverlay } from "../lib/dfOverlay";
 import { positionSourcesOf, usePositionStore } from "../lib/position";
 import type { PatchGraph, Route, RoutePoint } from "../lib/types";
 import type { MissionProps } from "./missions";
@@ -38,19 +38,21 @@ export function DfDrive({
     () => (fix === null ? null : { lat: fix.latitude, lon: fix.longitude }),
     [fix],
   );
-  const guidance = state?.fusion?.guidance ?? null;
+  const crossings = useMemo(() => crossingsFedBy(graph, node), [graph, node]);
+  const crossed = useDfStore((store) => store.byNode[crossings[0] ?? ""]);
+  const guidance = crossed?.fusion?.guidance ?? null;
   const target = useMemo(() => {
     if (guidance === null) {
       return null;
     }
     if (mode === "direct") {
-      const estimate = state?.fusion?.estimate;
+      const estimate = crossed?.fusion?.estimate;
       return estimate === undefined || estimate === null
         ? { lat: guidance.nav_target.lat, lon: guidance.nav_target.lon }
         : { lat: estimate.lat, lon: estimate.lon };
     }
     return { lat: guidance.nav_target.lat, lon: guidance.nav_target.lon };
-  }, [guidance, mode, state?.fusion?.estimate]);
+  }, [guidance, mode, crossed?.fusion?.estimate]);
 
   const [route, setRoute] = useState<Route | null>(null);
   const routeState = useRef<RouteState>({ route: null, target: null, mode: null });
@@ -95,7 +97,7 @@ export function DfDrive({
   }, [next, voice]);
 
   const overlay = dfOverlay(
-    [node],
+    { finders: [node], crossings },
     useDfStore((store) => store.byNode),
     Date.now(),
     here,

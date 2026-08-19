@@ -51,13 +51,12 @@ pub use channel::{
     YsfParams,
 };
 pub use coherent::{
-    ArrayElement, ArrayGeometry, BearingReport, BearingSubmission, CalParams, CalSource, CalState,
-    CfarParams, CoherentParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate,
-    DfFusionState, DfGuidance, DfParams, DfReading, DfStation, EcaParams, GuidanceMode,
-    Illuminator, LaneCal, MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ,
-    MAX_DF_REPORT_MS, MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS,
-    MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams,
-    RadarDetection, RelayedBearing,
+    ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
+    DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate, DfFusionState, DfGuidance, DfParams,
+    DfReading, DfStation, EcaParams, GuidanceMode, Illuminator, LaneCal, MAX_ARRAY_ELEMENTS,
+    MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ, MAX_DF_REPORT_MS, MAX_RANGE_BINS,
+    MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS, MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS,
+    NavTarget, NavTargetKind, PassiveRadarParams, RadarDetection,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,
@@ -96,16 +95,16 @@ pub use network::{
     NetworkTransport,
 };
 pub use patch::{
-    ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ,
-    DF_BEAM_PORT, DV_DECODER_KIND, DeviceNode, DeviceRef, DfNode, DmrChannelEntry, DmrDiscovery,
-    DmrSearchRange, DmrTrunkNode, DmrTrunkProtocol, MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL,
-    MAX_DMR_PROBES, MAX_DMR_SEARCH_CANDIDATES, MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES,
-    MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ,
-    NodeBody, NodeCategory, NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError,
-    PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat,
-    PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT,
-    RADAR_SURVEILLANCE_PORT, RackCell, RackLayout, RackSlot, SignalMapNode, Size, port_stream,
-    stream_port,
+    ArrayNode, ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ,
+    DEFAULT_SIGNAL_MAP_OFFSET_HZ, DF_BEAM_PORT, DV_DECODER_KIND, DeviceNode, DeviceRef, DfNode,
+    DmrChannelEntry, DmrDiscovery, DmrSearchRange, DmrTrunkNode, DmrTrunkProtocol,
+    MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES, MAX_DMR_SEARCH_CANDIDATES,
+    MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
+    MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ, NodeBody, NodeCategory,
+    NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode,
+    PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position,
+    RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT, RackCell, RackLayout,
+    RackSlot, SignalMapNode, Size, port_stream, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -119,17 +118,17 @@ pub use propagation::{
     MIN_REFLECTION_HEIGHT_KM, PropagationNode,
 };
 pub use rest::{
-    AnnotationError, ApiError, ApplyTemplateRequest, ArraysResponse, AudioRecordingInfo,
-    AudioRecordingsResponse, AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse,
-    ChannelRecordRequest, ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
-    EventAudio, EventImage, ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN,
-    MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind,
-    OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest,
-    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation,
-    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint,
-    RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
+    AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest,
+    ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest, CreateChannelRequest,
+    CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
+    DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage,
+    ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN,
+    MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport,
+    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
+    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
+    RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint, RouteRequest,
+    RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,

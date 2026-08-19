@@ -4,8 +4,8 @@ use std::{
 };
 
 use sdrmm_wire::{
-    BearingReport, DfEstimate, DfFusionState, DfGuidance, DfReading, DfStation, GuidanceMode,
-    NavTarget, NavTargetKind, PositionFix,
+    DfEstimate, DfFusionState, DfGuidance, DfReading, DfStation, GuidanceMode, NavTarget,
+    NavTargetKind, PositionFix,
 };
 
 pub(crate) const EARTH_RADIUS_M: f64 = 6_371_000.0;
@@ -287,8 +287,27 @@ struct NodeFusion {
     announced: bool,
 }
 
-/// One grid per direction-finding node, fed by that node's own bearings and by any station that
-/// posts one in.
+impl NodeFusion {
+    fn see(&mut self, station: &str, lat: f64, lon: f64, at: &str) {
+        let entry = self
+            .stations
+            .entry(station.to_owned())
+            .or_insert_with(|| DfStation {
+                station_id: station.to_owned(),
+                lat,
+                lon,
+                bearings: 0,
+                last_seen: at.to_owned(),
+            });
+        entry.lat = lat;
+        entry.lon = lon;
+        entry.bearings = entry.bearings.saturating_add(1);
+        entry.last_seen = at.to_owned();
+    }
+}
+
+/// One grid per triangulation node, fed by every direction finder wired into it. Bearings from
+/// one place say where a signal is *towards*; bearings from two places say where it *is*.
 #[derive(Default)]
 pub(crate) struct FusionHub {
     nodes: Mutex<HashMap<String, NodeFusion>>,
@@ -328,12 +347,14 @@ impl FusionHub {
         })
     }
 
-    /// Folds in a bearing this station measured.
+    /// Folds in a bearing one of the wired finders measured, from wherever it was standing.
     pub(crate) fn observe(
         &self,
         node: &str,
+        station: &str,
         reading: &DfReading,
         fix: Option<&PositionFix>,
+        at: &str,
     ) -> Option<FusionOutcome> {
         let fix = fix?;
         if reading.confidence <= 0.0 {
@@ -348,6 +369,7 @@ impl FusionHub {
             f64::from(reading.bearing_deg),
             reading.confidence,
         );
+        fusion.see(station, fix.latitude, fix.longitude, at);
         let estimate = fusion.grid.estimate();
         let guidance = guidance(fix, f64::from(reading.bearing_deg), estimate);
         fusion.guidance = Some(guidance);
@@ -372,40 +394,6 @@ impl FusionHub {
             first_fix,
         })
     }
-
-    /// Folds in a bearing another station posted. Its own position comes with it, which is the
-    /// whole point: two stations far apart cross where one driving around cannot.
-    pub(crate) fn ingest(&self, node: &str, report: &BearingReport, at: &str) -> DfFusionState {
-        let mut nodes = self.lock();
-        let fusion = nodes.entry(node.to_owned()).or_default();
-        fusion.grid.decay();
-        fusion.grid.paint(
-            report.lat,
-            report.lon,
-            report.bearing_deg,
-            report.confidence,
-        );
-        let station = fusion
-            .stations
-            .entry(report.station_id.clone())
-            .or_insert_with(|| DfStation {
-                station_id: report.station_id.clone(),
-                lat: report.lat,
-                lon: report.lon,
-                bearings: 0,
-                last_seen: at.to_owned(),
-            });
-        station.lat = report.lat;
-        station.lon = report.lon;
-        station.bearings = station.bearings.saturating_add(1);
-        station.last_seen = at.to_owned();
-        DfFusionState {
-            estimate: fusion.grid.estimate(),
-            guidance: fusion.guidance,
-            stations: fusion.stations.values().cloned().collect(),
-            samples: fusion.grid.samples(),
-        }
-    }
 }
 
 pub(crate) type SharedFusion = Arc<FusionHub>;
@@ -415,6 +403,7 @@ mod tests {
     use super::*;
 
     const HOME: (f64, f64) = (51.5, 7.0);
+    const AT: &str = "2026-01-01T00:00:01Z";
 
     fn fix(lat: f64, lon: f64, track_deg: Option<f64>) -> PositionFix {
         PositionFix {
@@ -489,9 +478,11 @@ mod tests {
         let bearing = bearing_between(HOME, target);
         let outcome = hub
             .observe(
-                "df",
+                "cross",
+                "north",
                 &reading(bearing as f32),
                 Some(&fix(HOME.0, HOME.1, Some(0.0))),
+                AT,
             )
             .expect("a fix is enough to guide");
         let guidance = outcome.state.guidance.expect("guidance");
@@ -531,28 +522,29 @@ mod tests {
         let target = destination(HOME.0, HOME.1, 45.0, 6_000.0);
         for _ in 0..4 {
             hub.observe(
-                "df",
+                "cross",
+                "north",
                 &reading(bearing_between(HOME, target) as f32),
                 Some(&fix(HOME.0, HOME.1, None)),
+                AT,
             );
         }
-        let alone = hub.state("df").expect("state").estimate.expect("estimate");
+        let alone = hub
+            .state("cross")
+            .expect("state")
+            .estimate
+            .expect("estimate");
         let away = destination(HOME.0, HOME.1, 135.0, 6_000.0);
         for _ in 0..4 {
-            hub.ingest(
-                "df",
-                &BearingReport {
-                    station_id: "east".to_owned(),
-                    lat: away.0,
-                    lon: away.1,
-                    bearing_deg: bearing_between(away, target),
-                    confidence: 0.9,
-                    time: None,
-                },
-                "2026-01-01T00:00:01Z",
+            hub.observe(
+                "cross",
+                "east",
+                &reading(bearing_between(away, target) as f32),
+                Some(&fix(away.0, away.1, None)),
+                AT,
             );
         }
-        let together = hub.state("df").expect("state");
+        let together = hub.state("cross").expect("state");
         let estimate = together.estimate.expect("estimate");
         assert!(
             estimate.ellipse_major_m < alone.ellipse_major_m / 2.0,
@@ -560,25 +552,45 @@ mod tests {
         );
         let error = distance_m((estimate.lat, estimate.lon), target);
         assert!(error < 700.0, "{error} m away: {estimate:?}");
-        assert_eq!(together.stations.len(), 1);
-        assert_eq!(together.stations[0].bearings, 4);
+        assert_eq!(together.stations.len(), 2, "both finders are named");
+        assert!(
+            together
+                .stations
+                .iter()
+                .all(|station| station.bearings == 4)
+        );
     }
 
     #[test]
     fn a_reset_clears_everything_the_grid_had_learned() {
         let hub = FusionHub::default();
-        hub.observe("df", &reading(45.0), Some(&fix(HOME.0, HOME.1, None)));
-        hub.observe("df", &reading(50.0), Some(&fix(HOME.0, HOME.1, None)));
-        assert!(hub.state("df").expect("state").samples >= 2);
-        hub.reset("df");
-        assert_eq!(hub.state("df").expect("state").samples, 0);
-        assert!(hub.state("df").expect("state").estimate.is_none());
+        hub.observe(
+            "cross",
+            "north",
+            &reading(45.0),
+            Some(&fix(HOME.0, HOME.1, None)),
+            AT,
+        );
+        hub.observe(
+            "cross",
+            "north",
+            &reading(50.0),
+            Some(&fix(HOME.0, HOME.1, None)),
+            AT,
+        );
+        assert!(hub.state("cross").expect("state").samples >= 2);
+        hub.reset("cross");
+        assert_eq!(hub.state("cross").expect("state").samples, 0);
+        assert!(hub.state("cross").expect("state").estimate.is_none());
     }
 
     #[test]
     fn a_bearing_with_no_position_changes_nothing() {
         let hub = FusionHub::default();
-        assert!(hub.observe("df", &reading(45.0), None).is_none());
-        assert!(hub.state("df").is_none());
+        assert!(
+            hub.observe("cross", "north", &reading(45.0), None, AT)
+                .is_none()
+        );
+        assert!(hub.state("cross").is_none());
     }
 }

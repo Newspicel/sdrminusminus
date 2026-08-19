@@ -6,10 +6,10 @@ use std::{
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
-    ArrayDefinition, Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry,
-    DecoderLogQuery, LogScope, PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest,
-    WorkspaceDetail, WorkspaceError, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot,
-    WorkspaceState, WorkspacesResponse,
+    Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, LogScope,
+    PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
+    WorkspaceError, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
+    WorkspacesResponse,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -207,13 +207,15 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE recordings ADD COLUMN note TEXT;
     ",
     "
-    -- Which separate radios the operator has wired to one clock. Nothing about this is
-    -- discoverable, and it outlives any one workspace: the bench does not change because a
-    -- different patch is open.
     CREATE TABLE arrays (
         key TEXT PRIMARY KEY,
         definition TEXT NOT NULL
     );
+    ",
+    "
+    -- An array is drawn on the canvas now, so the bank of radios lives in the patch that uses it
+    -- rather than in a table nothing else refers to.
+    DROP TABLE arrays;
     ",
 ];
 
@@ -364,39 +366,6 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
-    }
-
-    /// Every array the operator has described, in a stable order so lane numbering never moves
-    /// under a running patch.
-    pub fn list_arrays(&self) -> Result<Vec<ArrayDefinition>, StoreError> {
-        let conn = self.lock();
-        let mut stmt = conn.prepare("SELECT definition FROM arrays ORDER BY key")?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-        let mut out = Vec::new();
-        for row in rows {
-            match serde_json::from_str(&row?) {
-                Ok(definition) => out.push(definition),
-                Err(error) => tracing::warn!(%error, "a stored array definition could not be read"),
-            }
-        }
-        Ok(out)
-    }
-
-    pub fn put_array(&self, definition: &ArrayDefinition) -> Result<(), StoreError> {
-        let json = serde_json::to_string(definition)?;
-        self.lock().execute(
-            "INSERT INTO arrays (key, definition) VALUES (?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET definition = excluded.definition",
-            params![definition.key, json],
-        )?;
-        Ok(())
-    }
-
-    pub fn delete_array(&self, key: &str) -> Result<bool, StoreError> {
-        let deleted = self
-            .lock()
-            .execute("DELETE FROM arrays WHERE key = ?1", params![key])?;
-        Ok(deleted > 0)
     }
 
     pub fn delete_bookmark(&self, id: i64) -> Result<(), StoreError> {
@@ -1556,7 +1525,7 @@ fn normalize_timestamp(at: &str) -> Result<String, StoreError> {
     Ok(rfc3339(ts))
 }
 
-fn rfc3339(ts: jiff::Timestamp) -> String {
+pub(crate) fn rfc3339(ts: jiff::Timestamp) -> String {
     format!("{ts:.9}")
 }
 

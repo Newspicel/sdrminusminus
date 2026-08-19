@@ -39,7 +39,7 @@ struct PositionState {
     error: Option<String>,
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default, PartialEq)]
 struct GpsConfiguration {
     sources: HashMap<String, PositionSource>,
     routes: Vec<(String, String)>,
@@ -306,7 +306,7 @@ impl GpsHub {
                         )
                         .await;
                     }
-                    PositionSource::Device => {}
+                    PositionSource::Device | PositionSource::Fixed { .. } => {}
                 }
             });
             tasks.insert(
@@ -318,6 +318,16 @@ impl GpsHub {
             );
         }
         drop(tasks);
+        for (node, source) in &wanted {
+            if let PositionSource::Fixed {
+                lat,
+                lon,
+                altitude_m,
+            } = source
+            {
+                self.publish_state(state, node, Some(fixed_fix(*lat, *lon, *altitude_m)), None);
+            }
+        }
         self.route_current(state);
     }
 
@@ -432,6 +442,20 @@ fn validate_update(fix: Option<&PositionFix>, error: Option<&str>) -> Result<(),
         return Err("position error must not be empty".to_owned());
     }
     Ok(())
+}
+
+/// A place that was typed in rather than measured, stamped now so everything downstream treats it
+/// like any other fix.
+fn fixed_fix(lat: f64, lon: f64, altitude_m: Option<f64>) -> PositionFix {
+    PositionFix {
+        latitude: lat,
+        longitude: lon,
+        altitude_m,
+        accuracy_m: None,
+        speed_mps: None,
+        track_deg: None,
+        time: crate::store::rfc3339(jiff::Timestamp::now()),
+    }
 }
 
 fn position_event(node: &str, state: &PositionState) -> ServerEvent {
@@ -1058,6 +1082,39 @@ mod tests {
 
         assert_eq!(offered_ports(vec![monitor, board]).len(), 2);
         assert!(offered_ports(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn a_position_typed_in_stands_in_for_a_receiver_that_never_moves() {
+        let store = crate::Store::open(None).expect("store");
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "roof".to_owned(),
+            body: NodeBody::Gps(GpsNode {
+                source: PositionSource::Fixed {
+                    lat: 51.5,
+                    lon: 7.0,
+                    altitude_m: Some(120.0),
+                },
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        let workspace_id = store
+            .create_workspace("roof", &snapshot)
+            .expect("workspace");
+        store.activate_workspace(workspace_id).expect("activate");
+        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
+        app.gps.reconcile(&app);
+        let fix = app.gps.fix("roof").expect("a typed-in place is a fix");
+        assert!((fix.latitude - 51.5).abs() < 1e-9);
+        assert!((fix.longitude - 7.0).abs() < 1e-9);
+        assert_eq!(fix.altitude_m, Some(120.0));
+        assert!(
+            fix.track_deg.is_none(),
+            "a receiver that never moves has no course"
+        );
     }
 
     #[test]

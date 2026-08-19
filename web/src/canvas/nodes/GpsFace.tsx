@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "../../components/BaseControls";
 import { FIELD } from "../../components/controls";
+import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
 import { SettingNote, SettingRow, Settings } from "../../components/Settings";
@@ -99,9 +100,53 @@ function SourceSettings({
           />
         </SettingRow>
       );
+    case "fixed":
+      return <FixedSettings source={source} onChange={onChange} />;
     case "nmea":
       return <NmeaSettings source={source} onChange={onChange} />;
   }
+}
+
+/// A place typed in once. Everything downstream — direction finding, triangulation, geotagging —
+/// asks for a position the same way whether it moves or not.
+function FixedSettings({
+  source,
+  onChange,
+}: {
+  source: Extract<PositionSource, { type: "fixed" }>;
+  onChange: (source: PositionSource) => void;
+}) {
+  return (
+    <>
+      <SettingRow label="Latitude">
+        <NumberField
+          label="Latitude in degrees"
+          value={source.lat}
+          min={-90}
+          max={90}
+          step={0.00001}
+          onCommit={(lat) => onChange({ ...source, lat })}
+        />
+      </SettingRow>
+      <SettingRow label="Longitude">
+        <NumberField
+          label="Longitude in degrees"
+          value={source.lon}
+          min={-180}
+          max={180}
+          step={0.00001}
+          onCommit={(lon) => onChange({ ...source, lon })}
+        />
+      </SettingRow>
+      <SettingRow label="Grid">
+        <span className="font-mono text-sm">{gridLocator(source.lat, source.lon)}</span>
+      </SettingRow>
+      <SettingNote>
+        Read the place off the map and type it in. Nothing measures it, so it is exactly as right as
+        what you entered.
+      </SettingNote>
+    </>
+  );
 }
 
 function NmeaSettings({
@@ -179,6 +224,8 @@ function sourceName(source: PositionSource): string {
       return "device";
     case "gpsd":
       return "gpsd";
+    case "fixed":
+      return "fixed place";
     case "nmea":
       return "NMEA";
   }

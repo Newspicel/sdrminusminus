@@ -40,11 +40,11 @@ describe("dfSourcesOf", () => {
 
 describe("dfOverlay", () => {
   it("has nothing to draw with no finders wired in", () => {
-    expect(dfOverlay([], {}, 1_000, HERE)).toBeUndefined();
+    expect(dfOverlay({ finders: [] }, {}, 1_000, HERE)).toBeUndefined();
   });
 
   it("turns the trail into rays measured from where the station stood", () => {
-    const overlay = dfOverlay(["df"], { df: node() }, 3_000, HERE);
+    const overlay = dfOverlay({ finders: ["df"] }, { df: node() }, 3_000, HERE);
     expect(overlay?.rays).toEqual([
       { lat: HERE.lat, lon: HERE.lon, bearingDeg: 45, confidence: 0.8, ageMs: 2_000 },
     ]);
@@ -56,17 +56,17 @@ describe("dfOverlay", () => {
     const state = node({
       history: [{ bearingDeg: 90, confidence: 0.5, at: 1_000, lat: 52, lon: 8 }],
     });
-    expect(dfOverlay(["df"], { df: state }, 1_000, HERE)?.rays[0]).toMatchObject({
+    expect(dfOverlay({ finders: ["df"] }, { df: state }, 1_000, HERE)?.rays[0]).toMatchObject({
       lat: 52,
       lon: 8,
     });
   });
 
   it("drops a bearing that has nowhere to be drawn from", () => {
-    expect(dfOverlay(["df"], { df: node() }, 1_000, null)?.rays).toEqual([]);
+    expect(dfOverlay({ finders: ["df"] }, { df: node() }, 1_000, null)?.rays).toEqual([]);
   });
 
-  it("carries the fused estimate, guidance and stations through", () => {
+  it("takes the estimate, guidance and stations from where the bearings cross", () => {
     const state = node({
       fusion: {
         samples: 4,
@@ -88,10 +88,20 @@ describe("dfOverlay", () => {
         stations: [{ station_id: "east", lat: 51.4, lon: 7.4, bearings: 2, last_seen: "now" }],
       },
     });
-    const overlay = dfOverlay(["df"], { df: state }, 1_000, HERE);
+    const overlay = dfOverlay(
+      { finders: ["df"], crossings: ["cross"] },
+      { df: node(), cross: state },
+      1_000,
+      HERE,
+    );
     expect(overlay?.estimate?.converged).toBe(true);
     expect(overlay?.guidance?.mode).toBe("approach");
     expect(overlay?.stations).toHaveLength(1);
+    expect(overlay?.rays).toHaveLength(1);
+    expect(
+      dfOverlay({ finders: ["df"] }, { df: state }, 1_000, HERE)?.estimate,
+      "a finder alone crosses nothing",
+    ).toBeNull();
   });
 });
 
@@ -131,14 +141,16 @@ describe("dfOverlay echoes", () => {
   };
 
   it("hands the map one contour set per radar that has echoes", () => {
-    const overlay = dfOverlay([], detections, 1_000, HERE, radars);
+    const overlay = dfOverlay({ finders: [], radars }, detections, 1_000, HERE);
     expect(overlay?.bistatic).toEqual([
       { receiver: HERE, illuminator: radars[0]?.illuminator, rangesKm: [3.6, 9] },
     ]);
   });
 
   it("draws no ellipse until the receiver knows where it is", () => {
-    expect(dfOverlay([], detections, 1_000, null, radars)?.bistatic).toEqual([]);
-    expect(dfOverlay([], { radar: node() }, 1_000, HERE, radars)?.bistatic).toEqual([]);
+    expect(dfOverlay({ finders: [], radars }, detections, 1_000, null)?.bistatic).toEqual([]);
+    expect(dfOverlay({ finders: [], radars }, { radar: node() }, 1_000, HERE)?.bistatic).toEqual(
+      [],
+    );
   });
 });

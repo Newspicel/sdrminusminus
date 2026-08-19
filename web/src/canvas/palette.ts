@@ -42,6 +42,12 @@ export function paletteGroups(
       }
       sources?.push(
         {
+          id: "gps:fixed",
+          name: "Fixed place",
+          kind: "gps",
+          source: { type: "fixed", lat: 0, lon: 0 },
+        },
+        {
           id: "gps:gpsd",
           name: "GPSD",
           kind: "gps",

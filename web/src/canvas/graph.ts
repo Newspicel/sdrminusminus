@@ -238,6 +238,7 @@ export interface NodeSize {
 
 export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   device: { w: 380 },
+  array: { w: 380 },
   gps: { w: 360 },
   channel: { w: 440 },
   event_output: { w: 420 },
@@ -260,6 +261,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   scanner: { w: 400 },
   hunt: { w: 340 },
   df: { w: 400 },
+  triangulation: { w: 380 },
   passive_radar: { w: 520, h: 420 },
 };
 

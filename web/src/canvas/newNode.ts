@@ -21,6 +21,7 @@ const WITHOUT_DATA = new Set<NodeKind>([
   "baseband_recorder",
   "export",
   "scanner",
+  "triangulation",
 ]);
 
 export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
@@ -29,6 +30,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { channel_type: seed.channelType ?? "nfm", record_calls: false } };
     case "device":
       return { kind, data: {} };
+    case "array":
+      return { kind, data: { members: [], coherence: "time_sync", shared_tuning: true } };
     case "gps":
       return { kind, data: { source: seed.source ?? { type: "device" } } };
     case "signal_map":

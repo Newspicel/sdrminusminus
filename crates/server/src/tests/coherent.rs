@@ -107,122 +107,41 @@ async fn calibration_can_be_asked_for_by_node_name() {
 }
 
 #[tokio::test]
-async fn a_bearing_another_station_posts_is_fused_and_read_back() {
-    let (app, _state) = test_router_with_state();
-    staged_array(&app).await;
-    for bearing in [40.0f64, 45.0, 50.0] {
-        let report = format!(
-            r#"{{"station_id":"north","lat":51.5,"lon":7.0,"bearing_deg":{bearing},"confidence":0.9}}"#
-        );
-        let (status, body) = request(
-            app.clone(),
-            "POST",
-            "/api/df/bearings?node=df",
-            Some(&report),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    }
-    let (status, body) = request(app.clone(), "GET", "/api/coherent/df/fusion", None).await;
-    assert_eq!(status, StatusCode::OK);
-    let fused: DfFusionState = serde_json::from_slice(&body).expect("json");
-    assert_eq!(fused.samples, 3);
-    assert_eq!(fused.stations.len(), 1);
-    assert_eq!(fused.stations[0].bearings, 3);
-
-    let (status, _) = request(app.clone(), "DELETE", "/api/coherent/df/fusion", None).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    let (_, body) = request(app.clone(), "GET", "/api/coherent/df/fusion", None).await;
-    let cleared: DfFusionState = serde_json::from_slice(&body).expect("json");
-    assert_eq!(cleared.samples, 0);
+async fn a_finder_wired_to_a_triangulation_node_knows_where_to_cross_its_bearings() {
+    let (app, state) = test_router_with_state();
+    let mut snapshot = array_snapshot();
+    snapshot.graph.nodes.push(PatchNode {
+        id: "cross".to_owned(),
+        body: NodeBody::Triangulation,
+        position: Position { x: 900.0, y: 300.0 },
+        size: None,
+        label: None,
+    });
+    snapshot.graph.edges.push(PatchEdge {
+        from: PortRef {
+            node: "df".to_owned(),
+            port: "events".to_owned(),
+        },
+        to: PortRef {
+            node: "cross".to_owned(),
+            port: "events".to_owned(),
+        },
+    });
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    let binding = state.coherent.binding("df").expect("bound");
+    assert_eq!(binding.fusion_nodes, vec!["cross".to_owned()]);
+    assert_eq!(
+        binding.station("df"),
+        "df",
+        "an unnamed station is its node"
+    );
 }
 
 #[tokio::test]
-async fn a_webhook_from_another_receiver_lands_in_the_grid_as_it_arrives() {
-    let (app, _state) = test_router_with_state();
-    staged_array(&app).await;
-    let relayed = r#"{
-        "output": "webhook",
-        "kind": "df",
-        "text": "045.0°",
-        "record": {
-            "device_set": 0,
-            "channel": 1,
-            "at": "2026-08-19T10:00:00Z",
-            "freq_hz": 0.0,
-            "event": {
-                "kind": "df",
-                "data": {
-                    "bearing_deg": 45.0,
-                    "confidence": 0.9,
-                    "lat": 51.5,
-                    "lon": 7.0,
-                    "station_id": "north"
-                }
-            }
-        }
-    }"#;
-    let (status, body) = request(
-        app.clone(),
-        "POST",
-        "/api/df/bearings?node=df",
-        Some(relayed),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    let fused: DfFusionState = serde_json::from_slice(&body).expect("json");
-    assert_eq!(fused.stations.len(), 1);
-    assert_eq!(fused.stations[0].station_id, "north");
-    assert_eq!(fused.stations[0].bearings, 1);
-}
-
-#[tokio::test]
-async fn a_relayed_event_that_carries_no_place_is_refused() {
-    let (app, _state) = test_router_with_state();
-    staged_array(&app).await;
-    let relayed = r#"{
-        "record": {
-            "device_set": 0,
-            "channel": 1,
-            "at": "2026-08-19T10:00:00Z",
-            "freq_hz": 0.0,
-            "event": {
-                "kind": "df",
-                "data": { "bearing_deg": 45.0, "confidence": 0.9 }
-            }
-        }
-    }"#;
-    let (status, body) = request(
-        app.clone(),
-        "POST",
-        "/api/df/bearings?node=df",
-        Some(relayed),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    let error: ApiError = serde_json::from_slice(&body).expect("json");
-    assert!(error.error.contains("place"), "{error:?}");
-}
-
-#[tokio::test]
-async fn a_bearing_report_that_is_not_a_bearing_is_refused() {
-    let (app, _state) = test_router_with_state();
-    staged_array(&app).await;
-    let (status, body) = request(
-        app.clone(),
-        "POST",
-        "/api/df/bearings?node=df",
-        Some(r#"{"station_id":"","lat":51.5,"lon":7.0,"bearing_deg":40.0,"confidence":0.9}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    let error: ApiError = serde_json::from_slice(&body).expect("json");
-    assert!(error.error.contains("station"), "{error:?}");
-}
-
-#[tokio::test]
-async fn two_stations_far_apart_cross_where_the_transmitter_is() {
-    let (app, _state) = test_router_with_state();
+async fn two_finders_crossing_in_one_node_place_what_neither_could_alone() {
+    let (app, state) = test_router_with_state();
     staged_array(&app).await;
     let target = crate::df_fusion::destination(51.5, 7.0, 45.0, 6_000.0);
     for (station, from) in [
@@ -232,28 +151,43 @@ async fn two_stations_far_apart_cross_where_the_transmitter_is() {
             crate::df_fusion::destination(51.5, 7.0, 135.0, 6_000.0),
         ),
     ] {
-        let bearing = crate::df_fusion::bearing_between(from, target);
+        let bearing = crate::df_fusion::bearing_between(from, target) as f32;
         for _ in 0..4 {
-            let report = format!(
-                r#"{{"station_id":"{station}","lat":{},"lon":{},"bearing_deg":{bearing},"confidence":0.95}}"#,
-                from.0, from.1
+            state.fusion.observe(
+                "cross",
+                station,
+                &sdrmm_wire::DfReading {
+                    bearing_deg: bearing,
+                    confidence: 0.95,
+                    peak_to_floor_db: 20.0,
+                    pseudospectrum: vec![0; 360],
+                },
+                Some(&sdrmm_wire::PositionFix {
+                    latitude: from.0,
+                    longitude: from.1,
+                    altitude_m: None,
+                    accuracy_m: None,
+                    speed_mps: None,
+                    track_deg: None,
+                    time: "2026-01-01T00:00:00Z".to_owned(),
+                }),
+                "2026-01-01T00:00:00Z",
             );
-            let (status, _) = request(
-                app.clone(),
-                "POST",
-                "/api/df/bearings?node=df",
-                Some(&report),
-            )
-            .await;
-            assert_eq!(status, StatusCode::OK);
         }
     }
-    let (_, body) = request(app.clone(), "GET", "/api/coherent/df/fusion", None).await;
+    let (status, body) = request(app.clone(), "GET", "/api/coherent/cross/fusion", None).await;
+    assert_eq!(status, StatusCode::OK);
     let fused: DfFusionState = serde_json::from_slice(&body).expect("json");
     let estimate = fused.estimate.expect("two stations give an estimate");
     let error = crate::df_fusion::distance_m((estimate.lat, estimate.lon), target);
     assert!(error < 800.0, "{error} m away: {estimate:?}");
     assert_eq!(fused.stations.len(), 2);
+
+    let (status, _) = request(app.clone(), "DELETE", "/api/coherent/cross/fusion", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, body) = request(app.clone(), "GET", "/api/coherent/cross/fusion", None).await;
+    let cleared: DfFusionState = serde_json::from_slice(&body).expect("json");
+    assert_eq!(cleared.samples, 0);
 }
 
 #[tokio::test]
@@ -277,7 +211,7 @@ async fn guidance_from_one_place_asks_the_operator_to_drive_across_the_bearing()
     };
     let outcome = state
         .fusion
-        .observe("df", &reading, Some(&fix))
+        .observe("cross", "north", &reading, Some(&fix), &fix.time)
         .expect("a fix and a bearing are enough");
     let guidance = outcome.state.guidance.expect("guidance");
     assert_eq!(guidance.mode, GuidanceMode::Cross);
@@ -286,4 +220,55 @@ async fn guidance_from_one_place_asks_the_operator_to_drive_across_the_bearing()
         (guidance.heading_deg - 0.0).abs() < 1e-6 || (guidance.heading_deg - 180.0).abs() < 1e-6,
         "{guidance:?}"
     );
+}
+
+fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
+    let mut snapshot = WorkspaceSnapshot::starter();
+    snapshot.graph.nodes.retain(|node| node.id != "device");
+    snapshot.graph.edges.clear();
+    snapshot.graph.nodes.push(PatchNode {
+        id: "bench".to_owned(),
+        body: NodeBody::Array(sdrmm_wire::ArrayNode {
+            members: members.iter().map(|member| (*member).to_owned()).collect(),
+            coherence: sdrmm_wire::Coherence::TimeSync,
+            shared_tuning: true,
+        }),
+        position: Position { x: 100.0, y: 300.0 },
+        size: None,
+        label: Some("Bench pair".to_owned()),
+    });
+    snapshot
+}
+
+#[tokio::test]
+async fn an_array_drawn_on_the_canvas_opens_as_one_radio() {
+    let (app, state) = test_router_with_state();
+    let snapshot = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    let bound = report
+        .bound
+        .iter()
+        .find(|bound| bound.node == "bench")
+        .expect("the array is bound like any other radio");
+    let live = state.engine.snapshot();
+    let set = live
+        .device_sets
+        .iter()
+        .find(|set| set.id == bound.device_set)
+        .expect("a device set for the array");
+    assert_eq!(set.device.id(), "array:bench");
+    assert_eq!(set.capabilities.rx_streams, 2, "one lane per member");
+    assert_eq!(set.capabilities.coherence, sdrmm_wire::Coherence::TimeSync);
+}
+
+#[tokio::test]
+async fn an_array_of_one_radio_opens_nothing() {
+    let (app, state) = test_router_with_state();
+    let snapshot = array_node_snapshot(&["virtual:siggen"]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    apply(&app, workspace).await;
+    assert!(state.engine.arrays().all().is_empty());
+    assert!(state.engine.snapshot().device_sets.is_empty());
 }

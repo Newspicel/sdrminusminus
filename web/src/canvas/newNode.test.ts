@@ -4,6 +4,7 @@ import { carriesSettings, newNodeBody } from "./newNode";
 
 const EVERY_KIND: Record<NodeKind, true> = {
   device: true,
+  array: true,
   gps: true,
   channel: true,
   scope: true,
@@ -27,6 +28,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   df: true,
   passive_radar: true,
   hunt: true,
+  triangulation: true,
 };
 
 const KINDS = Object.keys(EVERY_KIND) as NodeKind[];

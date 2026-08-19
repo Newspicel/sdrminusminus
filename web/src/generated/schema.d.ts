@@ -36,38 +36,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/arrays": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_arrays"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/arrays/{key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["put_array"];
-        post?: never;
-        delete: operations["delete_array"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/audiorecordings": {
         parameters: {
             query?: never;
@@ -574,22 +542,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["time_machine_device_set"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/df/bearings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["ingest_bearing"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1270,24 +1222,6 @@ export interface components {
         };
         /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
-        /**
-         * @description A bank of separate radios the operator has wired to one clock and wants treated as one.
-         *
-         *     Nothing here is discovered: which radios belong together, and whether their clock alone is
-         *     shared or their synthesizer too, is a fact about the bench that only the operator knows.
-         */
-        ArrayDefinition: {
-            coherence: components["schemas"]["Coherence"];
-            key: string;
-            label: string;
-            /** @description Member device ids, in the order their lanes are numbered. */
-            members: string[];
-            /**
-             * @description Whether every member is tuned together. A bank whose members can be tuned apart is a bank
-             *     of receivers; only one tuned together is an array.
-             */
-            shared_tuning?: boolean;
-        };
         ArrayElement: {
             /** Format: double */
             x_m: number;
@@ -1314,8 +1248,23 @@ export interface components {
             kind: "explicit";
             positions: components["schemas"]["ArrayElement"][];
         };
-        ArraysResponse: {
-            arrays: components["schemas"]["ArrayDefinition"][];
+        /**
+         * @description A bank of separate radios the operator has wired to one clock, standing on the canvas as the
+         *     one radio they add up to.
+         *
+         *     Nothing here is discovered: which radios belong together, and whether their clock alone is
+         *     shared or their synthesizer too, is a fact about the bench that only the operator knows.
+         */
+        ArrayNode: {
+            /** @default time_sync */
+            coherence: components["schemas"]["Coherence"];
+            /**
+             * @description Member device ids, in the order their lanes are numbered.
+             * @default []
+             */
+            members: string[];
+            /** @default true */
+            shared_tuning: boolean;
         };
         Attribution: {
             license: string;
@@ -1462,24 +1411,6 @@ export interface components {
         };
         /** @enum {string} */
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
-        /** @description A bearing another station measured, arriving over the same event output any decoder uses. */
-        BearingReport: {
-            /** Format: double */
-            bearing_deg: number;
-            /** Format: float */
-            confidence: number;
-            /** Format: double */
-            lat: number;
-            /** Format: double */
-            lon: number;
-            station_id: string;
-            time?: string | null;
-        };
-        /**
-         * @description How a bearing arrives at a central grid: written out as a report, or relayed by pointing a
-         *     direction finder's existing event output at the ingest URL. Federation needs no new transport.
-         */
-        BearingSubmission: components["schemas"]["BearingReport"] | components["schemas"]["RelayedBearing"];
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -2537,8 +2468,8 @@ export interface components {
              */
             sources: number;
             /**
-             * @description What this receiver calls itself when its bearings leave the box, so a central grid can
-             *     tell one station's readings from another's.
+             * @description What this receiver is called where its bearings are crossed with other receivers'. Unset
+             *     falls back to the node's own name.
              * @default null
              */
             station_id: string | null;
@@ -3388,6 +3319,10 @@ export interface components {
             /** @enum {string} */
             kind: "device";
         } | {
+            data: components["schemas"]["ArrayNode"];
+            /** @enum {string} */
+            kind: "array";
+        } | {
             data: components["schemas"]["GpsNode"];
             /** @enum {string} */
             kind: "gps";
@@ -3468,6 +3403,9 @@ export interface components {
             data: components["schemas"]["PassiveRadarNode"];
             /** @enum {string} */
             kind: "passive_radar";
+        } | {
+            /** @enum {string} */
+            kind: "triangulation";
         };
         /** @enum {string} */
         NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
@@ -3674,6 +3612,15 @@ export interface components {
             /** @enum {string} */
             type: "device";
         } | {
+            /** Format: double */
+            altitude_m?: number | null;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /** @enum {string} */
+            type: "fixed";
+        } | {
             address: string;
             /** @enum {string} */
             type: "gpsd";
@@ -3859,13 +3806,6 @@ export interface components {
             action: components["schemas"]["RecordAction"];
             /** Format: int32 */
             stream?: number;
-        };
-        /**
-         * @description What a station's event output sends: the envelope every webhook, MQTT and Matrix delivery
-         *     already carries, of which only the record matters here.
-         */
-        RelayedBearing: {
-            record: components["schemas"]["DecodedRecord"];
         };
         Route: {
             /** Format: double */
@@ -4709,101 +4649,6 @@ export interface operations {
                 };
             };
             /** @description No component ships a text with that id */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    list_arrays: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Every array the operator has described */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArraysResponse"];
-                };
-            };
-        };
-    };
-    put_array: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The array's own key, which names its device id */
-                key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ArrayDefinition"];
-            };
-        };
-        responses: {
-            /** @description The array is described and will be probed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArrayDefinition"];
-                };
-            };
-            /** @description Not a usable array */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    delete_array: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The array's own key */
-                key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The array is no longer described */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description No array of that name */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6191,51 +6036,6 @@ export interface operations {
             };
             /** @description Malformed request body */
             422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    ingest_bearing: {
-        parameters: {
-            query?: {
-                /** @description Which direction finder's grid to feed */
-                node?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BearingSubmission"];
-            };
-        };
-        responses: {
-            /** @description Where every station's bearings now cross */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DfFusionState"];
-                };
-            };
-            /** @description The report is not a usable bearing */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description No direction finder is running to fuse it into */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
