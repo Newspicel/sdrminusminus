@@ -9,6 +9,7 @@ use crate::datv::{
     dvbs::{DvbsEncoder, PACKET},
     dvbs2::{
         frame::{ModCod, Modulation},
+        gse::{GsePdu, GseWriter},
         ldpc::Rate,
         receiver::Dvbs2Encoder,
     },
@@ -140,6 +141,40 @@ pub fn dvbs2_mode(
             .map(|_| multiplex.packet())
             .collect();
         encoder.frame(&packets, &mut symbols);
+    }
+    shape(&symbols)
+}
+
+#[must_use]
+pub fn datagram(protocol: u16, label: &[u8], len: usize, seed: u32) -> GsePdu {
+    GsePdu {
+        protocol,
+        label: label.to_vec(),
+        data: elementary(len, seed),
+    }
+}
+
+#[must_use]
+pub fn dvbs2_generic(seconds: usize, streams: &[u8]) -> Vec<Complex<f32>> {
+    let wanted = seconds * SYMBOL_RATE as usize;
+    let modcod = ModCod::find(Modulation::Apsk16, Rate::R3_4).expect("a catalogued mode");
+    let mut encoder = Dvbs2Encoder::new(modcod, false, true).expect("a supported mode");
+    let mut writer = GseWriter::new();
+    let mut symbols = Vec::with_capacity(wanted);
+    let mut round = 0u32;
+    while symbols.len() < wanted {
+        for &isi in streams {
+            let pdu = datagram(0x0800, &[0x02, isi, 0, 0, 0, round as u8], 1_200, round + 1);
+            let mut field = Vec::new();
+            if round.is_multiple_of(2) {
+                writer.fragmented(&pdu, 2, &mut field);
+            } else {
+                GseWriter::whole(&pdu, &mut field);
+            }
+            GseWriter::pad(&mut field, encoder.field_bytes());
+            encoder.generic(&field, Some(isi), &mut symbols);
+        }
+        round += 1;
     }
     shape(&symbols)
 }

@@ -1,9 +1,10 @@
 use num_complex::Complex;
 
 use super::{
-    bb::BaseBandFrame,
+    bb::{BaseBandFrame, StreamKind},
     bch::Bch,
     frame::{Constellation, ModCod, Modulation, deinterleave, demodulate, interleave, modulate},
+    gse::{Gse, GseMetrics, GsePdu},
     ldpc::{Ldpc, Rate},
     pl::{self, Scrambler, Signalling},
 };
@@ -18,8 +19,23 @@ const TRACK_GAIN: f32 = 0.02;
 pub struct Dvbs2Metrics {
     pub frames_ok: u32,
     pub frames_bad: u32,
+    pub frames_skipped: u32,
     pub corrected_bits: u32,
     pub iterations: u32,
+    pub gse: GseMetrics,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Dvbs2Output {
+    pub packets: Vec<[u8; PACKET]>,
+    pub pdus: Vec<GsePdu>,
+}
+
+impl Dvbs2Output {
+    pub fn clear(&mut self) {
+        self.packets.clear();
+        self.pdus.clear();
+    }
 }
 
 fn message_bits(modcod: ModCod, short: bool) -> usize {
@@ -92,12 +108,30 @@ impl Dvbs2Encoder {
         self.codec.baseband.capacity()
     }
 
+    #[must_use]
+    pub const fn field_bytes(&self) -> usize {
+        self.codec.baseband.field_bytes()
+    }
+
     pub fn frame(&mut self, packets: &[[u8; PACKET]], out: &mut Vec<Complex<f32>>) -> bool {
         let Some(baseband) = self.codec.baseband.build(packets, &mut self.carry) else {
             return false;
         };
+        self.emit(&baseband, out);
+        true
+    }
+
+    pub fn generic(&mut self, field: &[u8], isi: Option<u8>, out: &mut Vec<Complex<f32>>) -> bool {
+        let Some(baseband) = self.codec.baseband.encapsulate(field, isi) else {
+            return false;
+        };
+        self.emit(&baseband, out);
+        true
+    }
+
+    fn emit(&mut self, baseband: &[bool], out: &mut Vec<Complex<f32>>) {
         let mut protected = Vec::new();
-        self.codec.bch.encode(&baseband, &mut protected);
+        self.codec.bch.encode(baseband, &mut protected);
         self.coded.clear();
         self.codec.ldpc.encode(&protected, &mut self.coded);
         let interleaved = interleave(
@@ -122,7 +156,6 @@ impl Dvbs2Encoder {
         self.scrambler.scramble(&mut self.frame);
         pl::header(self.codec.signalling(self.pilots), out);
         out.extend_from_slice(&self.frame);
-        true
     }
 }
 
@@ -139,8 +172,13 @@ pub struct Dvbs2Decoder {
     searched: usize,
     frequency: f32,
     good: u32,
+    gse: Gse,
+    wanted: Option<u8>,
+    seen: Vec<u32>,
     pub metrics: Dvbs2Metrics,
     pub signalling: Option<Signalling>,
+    pub stream: Option<StreamKind>,
+    pub isi: Option<u8>,
 }
 
 impl Dvbs2Decoder {
@@ -159,8 +197,20 @@ impl Dvbs2Decoder {
             searched: 0,
             frequency: 0.0,
             good: 0,
+            gse: Gse::new(),
+            wanted: None,
+            seen: vec![0; 256],
             metrics: Dvbs2Metrics::default(),
             signalling: None,
+            stream: None,
+            isi: None,
+        }
+    }
+
+    pub fn select(&mut self, isi: Option<u8>) {
+        if self.wanted != isi {
+            self.wanted = isi;
+            self.gse.reset();
         }
     }
 
@@ -170,8 +220,22 @@ impl Dvbs2Decoder {
         self.searched = 0;
         self.frequency = 0.0;
         self.good = 0;
+        self.gse.reset();
+        self.seen.fill(0);
         self.metrics = Dvbs2Metrics::default();
         self.signalling = None;
+        self.stream = None;
+        self.isi = None;
+    }
+
+    #[must_use]
+    pub fn streams(&self) -> Vec<(u8, u32)> {
+        self.seen
+            .iter()
+            .enumerate()
+            .filter(|&(_, &frames)| frames > 0)
+            .map(|(isi, &frames)| (isi as u8, frames))
+            .collect()
     }
 
     #[must_use]
@@ -186,9 +250,9 @@ impl Dvbs2Decoder {
         self.frequency
     }
 
-    pub fn push(&mut self, symbols: &[Complex<f32>], packets: &mut Vec<[u8; PACKET]>) {
+    pub fn push(&mut self, symbols: &[Complex<f32>], out: &mut Dvbs2Output) {
         self.pending.extend_from_slice(symbols);
-        while self.step(packets) {}
+        while self.step(out) {}
         if self.pending.len() > 4 * (pl::HEADER + 360 * pl::SLOT) {
             let excess = self.pending.len() - 2 * (pl::HEADER + 360 * pl::SLOT);
             self.pending.drain(..excess);
@@ -206,7 +270,7 @@ impl Dvbs2Decoder {
         }
     }
 
-    fn step(&mut self, packets: &mut Vec<[u8; PACKET]>) -> bool {
+    fn step(&mut self, out: &mut Dvbs2Output) -> bool {
         while self.searched + pl::HEADER <= self.pending.len() {
             let at = self.searched;
             let guess = self.frequency;
@@ -240,7 +304,7 @@ impl Dvbs2Decoder {
                 guess,
                 fit.reference * Complex::from_polar(1.0, anchor),
             );
-            self.consume(signalling, modcod, slots, packets);
+            self.consume(signalling, modcod, slots, out);
             let gain = if self.good > 0 {
                 TRACK_GAIN
             } else {
@@ -294,7 +358,7 @@ impl Dvbs2Decoder {
         signalling: Signalling,
         modcod: ModCod,
         slots: usize,
-        packets: &mut Vec<[u8; PACKET]>,
+        out: &mut Dvbs2Output,
     ) {
         if self
             .codec
@@ -345,16 +409,30 @@ impl Dvbs2Decoder {
         };
         self.metrics.corrected_bits += corrected as u32;
         self.bits.truncate(codec.bch.message());
-        match codec.baseband.read(&self.bits) {
-            Some(found) => {
-                self.metrics.frames_ok += 1;
-                self.good = self.good.saturating_add(1);
-                packets.extend(found);
-            }
-            None => {
-                self.metrics.frames_bad += 1;
-                self.good = 0;
-            }
+        let Some(data) = codec.baseband.read(&self.bits) else {
+            self.metrics.frames_bad += 1;
+            self.good = 0;
+            return;
+        };
+        self.metrics.frames_ok += 1;
+        self.good = self.good.saturating_add(1);
+        self.stream = Some(data.header.kind);
+        self.isi = (!data.header.single).then_some(data.header.isi);
+        if !data.header.single {
+            self.seen[usize::from(data.header.isi)] += 1;
+        }
+        if self
+            .wanted
+            .is_some_and(|isi| !data.header.single && isi != data.header.isi)
+        {
+            self.metrics.frames_skipped += 1;
+            return;
+        }
+        if data.header.kind.is_encapsulated() {
+            self.gse.push(&data.field, &mut out.pdus);
+            self.metrics.gse = self.gse.metrics;
+        } else {
+            out.packets.extend(data.transport());
         }
     }
 }
@@ -410,11 +488,11 @@ mod tests {
             encoder.frame(chunk, &mut symbols);
         }
         let mut decoder = Dvbs2Decoder::new();
-        let mut received = Vec::new();
+        let mut received = Dvbs2Output::default();
         for block in symbols.chunks(4_096) {
             decoder.push(block, &mut received);
         }
-        (sent, received)
+        (sent, received.packets)
     }
 
     #[test]
@@ -481,7 +559,7 @@ mod tests {
         let mut symbols = Vec::new();
         encoder.frame(&transport(encoder.capacity(), 3), &mut symbols);
         let mut decoder = Dvbs2Decoder::new();
-        let mut received = Vec::new();
+        let mut received = Dvbs2Output::default();
         decoder.push(&symbols, &mut received);
         assert_eq!(
             decoder.signalling,
@@ -503,9 +581,9 @@ mod tests {
         let mut symbols = vec![Complex::new(0.01, -0.02); 137];
         encoder.frame(&sent, &mut symbols);
         let mut decoder = Dvbs2Decoder::new();
-        let mut received = Vec::new();
+        let mut received = Dvbs2Output::default();
         decoder.push(&symbols, &mut received);
-        assert_eq!(received, sent);
+        assert_eq!(received.packets, sent);
     }
 
     #[test]
@@ -521,9 +599,9 @@ mod tests {
                 .map(|&value| value * Complex::from_polar(1.0, turn))
                 .collect();
             let mut decoder = Dvbs2Decoder::new();
-            let mut received = Vec::new();
+            let mut received = Dvbs2Output::default();
             decoder.push(&turned, &mut received);
-            assert_eq!(received, sent, "turned by {turn} rad");
+            assert_eq!(received.packets, sent, "turned by {turn} rad");
         }
     }
 
@@ -551,12 +629,12 @@ mod tests {
                 })
                 .collect();
             let mut decoder = Dvbs2Decoder::new();
-            let mut received = Vec::new();
+            let mut received = Dvbs2Output::default();
             for block in turned.chunks(4_096) {
                 decoder.push(block, &mut received);
             }
             let label = format!("{modulation:?} {}", rate.label());
-            assert_tail(&sent, &received, 2 * encoder.capacity(), &label);
+            assert_tail(&sent, &received.packets, 2 * encoder.capacity(), &label);
             assert!(
                 (decoder.frequency_error() - offset).abs() < 1e-3,
                 "{label}: {}",
@@ -580,11 +658,129 @@ mod tests {
             .map(|(index, &value)| value * Complex::from_polar(1.0, 0.002 * index as f32))
             .collect();
         let mut decoder = Dvbs2Decoder::new();
-        let mut received = Vec::new();
+        let mut received = Dvbs2Output::default();
         for block in turned.chunks(4_096) {
             decoder.push(block, &mut received);
         }
-        assert_tail(&sent, &received, 3 * encoder.capacity(), "16APSK 2/3 short");
+        assert_tail(
+            &sent,
+            &received.packets,
+            3 * encoder.capacity(),
+            "16APSK 2/3 short",
+        );
+    }
+
+    fn drive(symbols: &[Complex<f32>], decoder: &mut Dvbs2Decoder, out: &mut Dvbs2Output) {
+        for block in symbols.chunks(4_096) {
+            decoder.push(block, out);
+        }
+    }
+
+    fn datagram(protocol: u16, label: &[u8], len: usize, seed: u32) -> GsePdu {
+        let mut state = seed | 1;
+        GsePdu {
+            protocol,
+            label: label.to_vec(),
+            data: (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    state as u8
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn an_encapsulated_stream_hands_over_whole_datagrams() {
+        use super::super::gse::GseWriter;
+
+        let modcod = ModCod::find(Modulation::Apsk16, Rate::R3_4).expect("16APSK 3/4");
+        let mut encoder = Dvbs2Encoder::new(modcod, false, true).expect("a supported mode");
+        let sent: Vec<GsePdu> = (0..6)
+            .map(|index| datagram(0x0800, &[1, 2, 3, 4, 5, index], 900 + index as usize, 41))
+            .collect();
+        let mut writer = GseWriter::new();
+        let mut symbols = Vec::new();
+        let mut field = Vec::new();
+        for pdu in &sent {
+            writer.fragmented(pdu, 3, &mut field);
+            GseWriter::pad(&mut field, encoder.field_bytes());
+            assert!(encoder.generic(&field, None, &mut symbols));
+            field.clear();
+        }
+        let mut decoder = Dvbs2Decoder::new();
+        let mut received = Dvbs2Output::default();
+        drive(&symbols, &mut decoder, &mut received);
+        assert_eq!(received.pdus, sent);
+        assert!(received.packets.is_empty());
+        assert_eq!(decoder.stream, Some(StreamKind::GenericContinuous));
+        assert_eq!(decoder.metrics.gse.crc_errors, 0);
+        assert_eq!(decoder.metrics.gse.pdus, sent.len() as u32);
+    }
+
+    #[test]
+    fn only_the_chosen_input_stream_is_handed_on() {
+        use super::super::gse::GseWriter;
+
+        let modcod = ModCod::find(Modulation::Qpsk, Rate::R3_4).expect("QPSK 3/4");
+        let mut encoder = Dvbs2Encoder::new(modcod, true, false).expect("a supported mode");
+        let mut symbols = Vec::new();
+        let mut wanted = Vec::new();
+        for round in 0..4u8 {
+            for isi in [7u8, 9] {
+                let pdu = datagram(0x86DD, &[isi, round, 0], 200, u32::from(round) + 1);
+                if isi == 7 {
+                    wanted.push(pdu.clone());
+                }
+                let mut field = Vec::new();
+                GseWriter::whole(&pdu, &mut field);
+                GseWriter::pad(&mut field, encoder.field_bytes());
+                assert!(encoder.generic(&field, Some(isi), &mut symbols));
+            }
+        }
+        let mut decoder = Dvbs2Decoder::new();
+        decoder.select(Some(7));
+        let mut received = Dvbs2Output::default();
+        drive(&symbols, &mut decoder, &mut received);
+        assert_eq!(received.pdus, wanted);
+        assert_eq!(decoder.metrics.frames_skipped, 4);
+        assert_eq!(decoder.isi, Some(9));
+
+        let mut all = Dvbs2Decoder::new();
+        let mut every = Dvbs2Output::default();
+        drive(&symbols, &mut all, &mut every);
+        assert_eq!(every.pdus.len(), 8);
+        assert_eq!(all.metrics.frames_skipped, 0);
+    }
+
+    #[test]
+    fn the_mode_may_change_from_one_frame_to_the_next() {
+        let modes = [
+            (Modulation::Qpsk, Rate::R1_2),
+            (Modulation::Apsk32, Rate::R3_4),
+            (Modulation::Psk8, Rate::R3_5),
+            (Modulation::Apsk16, Rate::R9_10),
+        ];
+        let mut symbols = Vec::new();
+        let mut sent = Vec::new();
+        let mut seed = 43u32;
+        for (modulation, rate) in modes {
+            let modcod = ModCod::find(modulation, rate).expect("a catalogued mode");
+            let mut encoder = Dvbs2Encoder::new(modcod, false, true).expect("a supported mode");
+            let packets = transport(encoder.capacity(), seed);
+            seed += 2;
+            assert!(encoder.frame(&packets, &mut symbols));
+            sent.extend(packets);
+        }
+        let mut decoder = Dvbs2Decoder::new();
+        let mut received = Dvbs2Output::default();
+        drive(&symbols, &mut decoder, &mut received);
+        assert_eq!(received.packets, sent);
+        assert_eq!(decoder.metrics.frames_ok, modes.len() as u32);
+        assert_eq!(decoder.metrics.frames_bad, 0);
+        assert_eq!(decoder.mode(), Some((Modulation::Apsk16, Rate::R9_10)));
     }
 
     #[test]
@@ -602,9 +798,9 @@ mod tests {
             })
             .collect();
         let mut decoder = Dvbs2Decoder::new();
-        let mut received = Vec::new();
+        let mut received = Dvbs2Output::default();
         decoder.push(&noise, &mut received);
-        assert!(received.is_empty());
+        assert!(received.packets.is_empty());
         assert_eq!(decoder.metrics.frames_ok, 0);
     }
 }

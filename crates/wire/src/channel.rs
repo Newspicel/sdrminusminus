@@ -800,6 +800,8 @@ pub struct DatvParams {
     pub code_rate: DatvCodeRate,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_stream: Option<u8>,
 }
 
 impl Default for DatvParams {
@@ -809,6 +811,7 @@ impl Default for DatvParams {
             symbol_rate: default_datv_symbol_rate(),
             code_rate: DatvCodeRate::default(),
             program: None,
+            input_stream: None,
         }
     }
 }

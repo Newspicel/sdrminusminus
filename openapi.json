@@ -7206,6 +7206,14 @@
           "code_rate": {
             "$ref": "#/components/schemas/DatvCodeRate"
           },
+          "input_stream": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "program": {
             "type": [
               "integer",

@@ -15,7 +15,11 @@ use sdrmm_wire::{
 use super::{
     acquire::{Acquired, Acquisition},
     dvbs::{DvbsDecoder, PACKET},
-    dvbs2::receiver::Dvbs2Decoder,
+    dvbs2::{
+        bb::StreamKind,
+        gse::protocol_name,
+        receiver::{Dvbs2Decoder, Dvbs2Output},
+    },
     ts::{PesUnit, TsDemux},
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -27,6 +31,7 @@ const MAX_SYMBOL_RATE: f64 = 1_000_000.0;
 const ROLL_OFF: f64 = 0.35;
 const SPS: usize = 4;
 const PULSE_SPAN: usize = 8;
+const MAX_PROTOCOLS: usize = 8;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "datv".to_owned(),
@@ -112,6 +117,8 @@ pub struct DatvChannel {
     resampled: Vec<Complex<f32>>,
     symbols: Vec<Complex<f32>>,
     packets: Vec<[u8; PACKET]>,
+    second_out: Dvbs2Output,
+    protocols: Vec<u16>,
     units: Vec<PesUnit>,
     last: Acquired,
     video_units: u64,
@@ -127,6 +134,8 @@ impl DatvChannel {
         self.second = Dvbs2Decoder::new();
         self.demux = TsDemux::new();
         self.demux.select(self.params.program);
+        self.second.select(self.params.input_stream);
+        self.protocols.clear();
         self.last = Acquired::default();
         self.video_units = 0;
         self.audio_units = 0;
@@ -165,7 +174,31 @@ impl DatvChannel {
         }
     }
 
+    fn encapsulated(&self) -> Option<StreamKind> {
+        self.second
+            .stream
+            .filter(|kind| self.params.standard == DatvStandard::DvbS2 && kind.is_encapsulated())
+    }
+
+    fn streams(&self) -> Vec<BroadcastService> {
+        self.second
+            .streams()
+            .into_iter()
+            .map(|(isi, _)| BroadcastService {
+                id: u32::from(isi),
+                label: format!("Stream {isi}"),
+                kind: BroadcastServiceKind::Data,
+                bitrate_kbps: None,
+                language: None,
+                selected: self.params.input_stream.is_none_or(|chosen| chosen == isi),
+            })
+            .collect()
+    }
+
     fn services(&self) -> Vec<BroadcastService> {
+        if self.encapsulated().is_some() {
+            return self.streams();
+        }
         let chosen = self.demux.program().map(|program| program.number);
         self.demux
             .programs()
@@ -196,6 +229,18 @@ impl DatvChannel {
     }
 
     fn text(&self) -> Option<String> {
+        if let Some(kind) = self.encapsulated() {
+            let parts: Vec<&'static str> = self
+                .protocols
+                .iter()
+                .map(|&protocol| protocol_name(protocol))
+                .collect();
+            return Some(if parts.is_empty() {
+                kind.label().to_owned()
+            } else {
+                format!("{} + {}", kind.label(), parts.join(" + "))
+            });
+        }
         let program = self.demux.program()?;
         let mut parts: Vec<&'static str> = program
             .streams
@@ -289,12 +334,15 @@ impl ChannelRx for DatvChannel {
             resampled: Vec::new(),
             symbols: Vec::new(),
             packets: Vec::new(),
+            second_out: Dvbs2Output::default(),
+            protocols: Vec::new(),
             units: Vec::new(),
             last: Acquired::default(),
             video_units: 0,
             audio_units: 0,
         };
         channel.demux.select(params.program);
+        channel.second.select(params.input_stream);
         Ok(channel)
     }
 
@@ -308,6 +356,7 @@ impl ChannelRx for DatvChannel {
             self.rebuild()?;
         } else {
             self.demux.select(wanted.program);
+            self.second.select(wanted.input_stream);
         }
         Ok(())
     }
@@ -319,6 +368,7 @@ impl ChannelRx for DatvChannel {
         self.decoder.reset();
         self.second.reset();
         self.demux.reset();
+        self.protocols.clear();
         self.video_units = 0;
         self.audio_units = 0;
     }
@@ -336,7 +386,21 @@ impl ChannelRx for DatvChannel {
         let symbols = std::mem::take(&mut self.symbols);
         match self.params.standard {
             DatvStandard::DvbS => self.decoder.push(&symbols, &mut self.packets),
-            DatvStandard::DvbS2 => self.second.push(&symbols, &mut self.packets),
+            DatvStandard::DvbS2 => {
+                let mut second = std::mem::take(&mut self.second_out);
+                second.clear();
+                self.second.push(&symbols, &mut second);
+                self.packets.extend_from_slice(&second.packets);
+                for pdu in &second.pdus {
+                    if !self.protocols.contains(&pdu.protocol)
+                        && self.protocols.len() < MAX_PROTOCOLS
+                    {
+                        self.protocols.push(pdu.protocol);
+                        self.protocols.sort_unstable();
+                    }
+                }
+                self.second_out = second;
+            }
         }
         self.symbols = symbols;
         self.units.clear();
@@ -370,6 +434,7 @@ mod tests {
                 symbol_rate: testgen::datv::SYMBOL_RATE,
                 code_rate: DatvCodeRate::ThreeQuarters,
                 program,
+                input_stream: None,
             }),
             audio: Default::default(),
         }
@@ -484,6 +549,60 @@ mod tests {
             assert_eq!(status.frames_bad, 0, "{label}: {status:?}");
             assert!(channel.video_units > 0, "{label} carried no video");
         }
+    }
+
+    #[test]
+    fn an_encapsulated_stream_is_named_and_its_input_streams_listed() {
+        let iq = testgen::datv::dvbs2_generic(3, &[4, 11]);
+        let mut channel = second_generation();
+        let statuses = drive(&mut channel, &iq);
+        let status = statuses.last().expect("a broadcast status");
+        assert_eq!(status.system, BroadcastSystem::DvbS2);
+        assert_eq!(status.text.as_deref(), Some("GSE + IPv4"));
+        assert_eq!(status.code_rate.as_deref(), Some("16APSK 3/4"));
+        assert!(status.frames_ok > 4, "{status:?}");
+        let ids: Vec<u32> = status.services.iter().map(|service| service.id).collect();
+        assert_eq!(ids, vec![4, 11]);
+        assert!(status.services.iter().all(|service| service.selected));
+        assert!(
+            status
+                .services
+                .iter()
+                .all(|service| service.kind == BroadcastServiceKind::Data)
+        );
+    }
+
+    #[test]
+    fn only_the_chosen_input_stream_is_read() {
+        let iq = testgen::datv::dvbs2_generic(3, &[4, 11]);
+        let mut channel = DatvChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            ChannelSettings {
+                offset_hz: 0.0,
+                squelch_db: None,
+                squelch_auto_db: None,
+                params: ChannelParams::Datv(DatvParams {
+                    standard: DatvStandard::DvbS2,
+                    symbol_rate: testgen::datv::SYMBOL_RATE,
+                    input_stream: Some(11),
+                    ..DatvParams::default()
+                }),
+                audio: Default::default(),
+            },
+        )
+        .expect("a DATV channel at the descriptor rate");
+        let statuses = drive(&mut channel, &iq);
+        let status = statuses.last().expect("a broadcast status");
+        let chosen: Vec<u32> = status
+            .services
+            .iter()
+            .filter(|service| service.selected)
+            .map(|service| service.id)
+            .collect();
+        assert_eq!(chosen, vec![11]);
+        assert!(channel.second.metrics.frames_skipped > 0);
     }
 
     #[test]

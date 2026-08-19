@@ -6,7 +6,52 @@ pub const HEADER_BYTES: usize = 10;
 pub const HEADER_BITS: usize = HEADER_BYTES * 8;
 pub const USER_PACKET_BITS: usize = PACKET * 8;
 const CRC_POLY: u8 = 0xD5;
-const TRANSPORT_STREAM: u8 = 0b11;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StreamKind {
+    GenericPacketized,
+    GenericContinuous,
+    HighEfficiency,
+    #[default]
+    Transport,
+}
+
+impl StreamKind {
+    #[must_use]
+    pub const fn from_code(code: u8) -> Self {
+        match code & 0b11 {
+            0b00 => Self::GenericPacketized,
+            0b01 => Self::GenericContinuous,
+            0b10 => Self::HighEfficiency,
+            _ => Self::Transport,
+        }
+    }
+
+    #[must_use]
+    pub const fn code(self) -> u8 {
+        match self {
+            Self::GenericPacketized => 0b00,
+            Self::GenericContinuous => 0b01,
+            Self::HighEfficiency => 0b10,
+            Self::Transport => 0b11,
+        }
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::GenericPacketized => "generic packets",
+            Self::GenericContinuous => "GSE",
+            Self::HighEfficiency => "GSE-HEM",
+            Self::Transport => "MPEG-TS",
+        }
+    }
+
+    #[must_use]
+    pub const fn is_encapsulated(self) -> bool {
+        matches!(self, Self::GenericContinuous | Self::HighEfficiency)
+    }
+}
 
 #[must_use]
 pub fn crc8(data: &[u8]) -> u8 {
@@ -26,11 +71,31 @@ pub fn crc8(data: &[u8]) -> u8 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BaseBandHeader {
+    pub kind: StreamKind,
+    pub single: bool,
+    pub constant: bool,
+    pub isi: u8,
     pub user_packet_bits: u16,
     pub data_field_bits: u16,
     pub sync: u8,
     pub sync_distance: u16,
     pub roll_off: u8,
+}
+
+impl Default for BaseBandHeader {
+    fn default() -> Self {
+        Self {
+            kind: StreamKind::Transport,
+            single: true,
+            constant: true,
+            isi: 0,
+            user_packet_bits: USER_PACKET_BITS as u16,
+            data_field_bits: 0,
+            sync: SYNC,
+            sync_distance: 0,
+            roll_off: 0,
+        }
+    }
 }
 
 impl BaseBandHeader {
@@ -40,10 +105,12 @@ impl BaseBandHeader {
         {
             return None;
         }
-        if bytes[0] >> 6 != TRANSPORT_STREAM {
-            return None;
-        }
+        let single = bytes[0] >> 5 & 1 == 1;
         Some(Self {
+            kind: StreamKind::from_code(bytes[0] >> 6),
+            single,
+            constant: bytes[0] >> 4 & 1 == 1,
+            isi: if single { 0 } else { bytes[1] },
             user_packet_bits: u16::from_be_bytes([bytes[2], bytes[3]]),
             data_field_bits: u16::from_be_bytes([bytes[4], bytes[5]]),
             sync: bytes[6],
@@ -55,7 +122,11 @@ impl BaseBandHeader {
     #[must_use]
     pub fn bytes(self) -> [u8; HEADER_BYTES] {
         let mut out = [0u8; HEADER_BYTES];
-        out[0] = TRANSPORT_STREAM << 6 | 0b11 << 4 | self.roll_off;
+        out[0] = self.kind.code() << 6
+            | u8::from(self.single) << 5
+            | u8::from(self.constant) << 4
+            | self.roll_off;
+        out[1] = if self.single { 0 } else { self.isi };
         out[2..4].copy_from_slice(&self.user_packet_bits.to_be_bytes());
         out[4..6].copy_from_slice(&self.data_field_bits.to_be_bytes());
         out[6] = self.sync;
@@ -88,6 +159,35 @@ pub fn unpack(bytes: &[u8], out: &mut Vec<bool>) {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BaseBandData {
+    pub header: BaseBandHeader,
+    pub field: Vec<u8>,
+}
+
+impl BaseBandData {
+    #[must_use]
+    pub fn transport(&self) -> Vec<[u8; PACKET]> {
+        if self.header.kind != StreamKind::Transport
+            || usize::from(self.header.user_packet_bits) != USER_PACKET_BITS
+            || self.header.sync != SYNC
+        {
+            return Vec::new();
+        }
+        let start = usize::from(self.header.sync_distance) / 8;
+        self.field[start.min(self.field.len())..]
+            .chunks(PACKET)
+            .filter(|chunk| chunk.len() == PACKET)
+            .map(|chunk| {
+                let mut packet = [0u8; PACKET];
+                packet.copy_from_slice(chunk);
+                packet[0] = SYNC;
+                packet
+            })
+            .collect()
+    }
+}
+
 pub struct BaseBandFrame {
     length: usize,
 }
@@ -104,32 +204,64 @@ impl BaseBandFrame {
     }
 
     #[must_use]
+    pub const fn field_bytes(&self) -> usize {
+        (self.length - HEADER_BITS) / 8
+    }
+
+    fn assemble(&self, header: BaseBandHeader, body: &[bool]) -> Vec<bool> {
+        let mut bits = Vec::with_capacity(self.length);
+        unpack(&header.bytes(), &mut bits);
+        bits.extend_from_slice(body);
+        bits.resize(self.length, false);
+        scramble(&mut bits);
+        bits
+    }
+
+    #[must_use]
     pub fn build(&self, packets: &[[u8; PACKET]], carry: &mut u8) -> Option<Vec<bool>> {
         let count = packets.len().min(self.capacity());
         if count == 0 {
             return None;
         }
-        let header = BaseBandHeader {
-            user_packet_bits: USER_PACKET_BITS as u16,
-            data_field_bits: (count * USER_PACKET_BITS) as u16,
-            sync: SYNC,
-            sync_distance: 0,
-            roll_off: 0,
-        };
-        let mut bits = Vec::with_capacity(self.length);
-        unpack(&header.bytes(), &mut bits);
+        let mut body = Vec::with_capacity(count * USER_PACKET_BITS);
         for packet in &packets[..count] {
-            unpack(&[*carry], &mut bits);
-            unpack(&packet[1..], &mut bits);
+            unpack(&[*carry], &mut body);
+            unpack(&packet[1..], &mut body);
             *carry = crc8(&packet[1..]);
         }
-        bits.resize(self.length, false);
-        scramble(&mut bits);
-        Some(bits)
+        Some(self.assemble(
+            BaseBandHeader {
+                data_field_bits: (count * USER_PACKET_BITS) as u16,
+                ..BaseBandHeader::default()
+            },
+            &body,
+        ))
     }
 
     #[must_use]
-    pub fn read(&self, bits: &[bool]) -> Option<Vec<[u8; PACKET]>> {
+    pub fn encapsulate(&self, field: &[u8], isi: Option<u8>) -> Option<Vec<bool>> {
+        if field.len() > self.field_bytes() {
+            return None;
+        }
+        let mut body = Vec::with_capacity(field.len() * 8);
+        unpack(field, &mut body);
+        Some(self.assemble(
+            BaseBandHeader {
+                kind: StreamKind::GenericContinuous,
+                single: isi.is_none(),
+                isi: isi.unwrap_or(0),
+                user_packet_bits: 0,
+                data_field_bits: (field.len() * 8) as u16,
+                sync: 0,
+                sync_distance: 0,
+                ..BaseBandHeader::default()
+            },
+            &body,
+        ))
+    }
+
+    #[must_use]
+    pub fn read(&self, bits: &[bool]) -> Option<BaseBandData> {
         if bits.len() < self.length {
             return None;
         }
@@ -137,26 +269,14 @@ impl BaseBandFrame {
         scramble(&mut frame);
         let bytes = pack(&frame);
         let header = BaseBandHeader::parse(&bytes)?;
-        if usize::from(header.user_packet_bits) != USER_PACKET_BITS || header.sync != SYNC {
+        let end = HEADER_BYTES + usize::from(header.data_field_bits).div_ceil(8);
+        if end > bytes.len() {
             return None;
         }
-        let start = HEADER_BYTES + usize::from(header.sync_distance) / 8;
-        let end = HEADER_BYTES + usize::from(header.data_field_bits) / 8;
-        if start > end || end > bytes.len() {
-            return None;
-        }
-        Some(
-            bytes[start..end]
-                .chunks(PACKET)
-                .filter(|chunk| chunk.len() == PACKET)
-                .map(|chunk| {
-                    let mut packet = [0u8; PACKET];
-                    packet.copy_from_slice(chunk);
-                    packet[0] = SYNC;
-                    packet
-                })
-                .collect(),
-        )
+        Some(BaseBandData {
+            header,
+            field: bytes[HEADER_BYTES..end].to_vec(),
+        })
     }
 }
 
@@ -186,17 +306,46 @@ mod tests {
     #[test]
     fn the_header_crc_covers_the_first_nine_bytes() {
         let header = BaseBandHeader {
-            user_packet_bits: 1_504,
             data_field_bits: 15_040,
-            sync: SYNC,
-            sync_distance: 0,
             roll_off: 1,
+            ..BaseBandHeader::default()
         };
         let bytes = header.bytes();
         assert_eq!(BaseBandHeader::parse(&bytes), Some(header));
         let mut damaged = bytes;
         damaged[4] ^= 0x01;
         assert!(BaseBandHeader::parse(&damaged).is_none());
+    }
+
+    #[test]
+    fn every_stream_kind_and_stream_identifier_survives_the_header() {
+        for kind in [
+            StreamKind::GenericPacketized,
+            StreamKind::GenericContinuous,
+            StreamKind::HighEfficiency,
+            StreamKind::Transport,
+        ] {
+            assert_eq!(StreamKind::from_code(kind.code()), kind);
+            for isi in [0u8, 1, 137, 255] {
+                for constant in [true, false] {
+                    let header = BaseBandHeader {
+                        kind,
+                        single: false,
+                        constant,
+                        isi,
+                        data_field_bits: 1_024,
+                        ..BaseBandHeader::default()
+                    };
+                    assert_eq!(BaseBandHeader::parse(&header.bytes()), Some(header));
+                }
+            }
+        }
+        let single = BaseBandHeader {
+            single: true,
+            isi: 0,
+            ..BaseBandHeader::default()
+        };
+        assert_eq!(BaseBandHeader::parse(&single.bytes()), Some(single));
     }
 
     #[test]
@@ -207,7 +356,8 @@ mod tests {
         let bits = frame.build(&packets, &mut carry).expect("a frame");
         assert_eq!(bits.len(), 32_208);
         let read = frame.read(&bits).expect("a readable frame");
-        assert_eq!(read, packets);
+        assert_eq!(read.header.kind, StreamKind::Transport);
+        assert_eq!(read.transport(), packets);
     }
 
     #[test]
@@ -217,7 +367,24 @@ mod tests {
         let packets = transport(4, 7);
         let mut carry = SYNC;
         let bits = frame.build(&packets, &mut carry).expect("a frame");
-        assert_eq!(frame.read(&bits).expect("a readable frame"), packets);
+        assert_eq!(
+            frame.read(&bits).expect("a readable frame").transport(),
+            packets
+        );
+    }
+
+    #[test]
+    fn an_encapsulated_field_comes_back_byte_for_byte() {
+        let frame = BaseBandFrame::new(32_208);
+        let field: Vec<u8> = (0..1_000).map(|index| (index * 7) as u8).collect();
+        let bits = frame.encapsulate(&field, Some(3)).expect("a frame");
+        let read = frame.read(&bits).expect("a readable frame");
+        assert_eq!(read.header.kind, StreamKind::GenericContinuous);
+        assert!(!read.header.single);
+        assert_eq!(read.header.isi, 3);
+        assert_eq!(read.field, field);
+        assert!(read.transport().is_empty());
+        assert!(frame.encapsulate(&vec![0; 10_000], None).is_none());
     }
 
     #[test]
@@ -227,7 +394,10 @@ mod tests {
         let mut carry = SYNC;
         let bits = frame.build(&packets, &mut carry).expect("a frame");
         assert_ne!(pack(&bits)[6], SYNC);
-        assert_eq!(frame.read(&bits).expect("a readable frame"), packets);
+        assert_eq!(
+            frame.read(&bits).expect("a readable frame").transport(),
+            packets
+        );
     }
 
     #[test]

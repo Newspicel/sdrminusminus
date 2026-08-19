@@ -2121,6 +2121,8 @@ export interface components {
         DatvParams: {
             code_rate?: components["schemas"]["DatvCodeRate"];
             /** Format: int32 */
+            input_stream?: number | null;
+            /** Format: int32 */
             program?: number | null;
             standard?: components["schemas"]["DatvStandard"];
             /** Format: double */

@@ -1144,7 +1144,7 @@ async fn a_dvb_s_transport_stream_reaches_the_decoded_stream() {
                 standard: DatvStandard::DvbS,
                 symbol_rate: testgen::datv::SYMBOL_RATE,
                 code_rate: testgen::datv::CODE_RATE,
-                program: None,
+                ..DatvParams::default()
             }),
             audio: Default::default(),
         },
