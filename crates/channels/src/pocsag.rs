@@ -35,6 +35,16 @@ const NUMERIC_ALPHABET: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', 'U', ' ', '-', ')', '(',
 ];
 const ALPHA_PADDING: [u8; 3] = [0x00, 0x03, 0x04];
+const GERMAN_ALPHABET: [(u8, char); 7] = [
+    (0x5B, 'Ä'),
+    (0x5C, 'Ö'),
+    (0x5D, 'Ü'),
+    (0x7B, 'ä'),
+    (0x7C, 'ö'),
+    (0x7D, 'ü'),
+    (0x7E, 'ß'),
+];
+const BRACKET_PAIRS: [(u8, u8); 2] = [(b'[', b']'), (b'{', b'}')];
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "pocsag".to_owned(),
@@ -273,13 +283,60 @@ fn character(bits: &[bool]) -> u8 {
 }
 
 fn alpha_text(bits: &[bool]) -> String {
-    bits.as_chunks::<ALPHA_BITS>()
+    let bytes: Vec<u8> = bits
+        .as_chunks::<ALPHA_BITS>()
         .0
         .iter()
         .map(|chunk| character(chunk))
         .take_while(|c| !ALPHA_PADDING.contains(c))
-        .map(char::from)
-        .collect()
+        .collect();
+    if reads_as_german(&bytes) {
+        bytes.iter().map(|&byte| german_letter(byte)).collect()
+    } else {
+        bytes.iter().copied().map(char::from).collect()
+    }
+}
+
+fn german_slot(byte: u8) -> bool {
+    GERMAN_ALPHABET.iter().any(|&(code, _)| code == byte)
+}
+
+fn german_letter(byte: u8) -> char {
+    GERMAN_ALPHABET
+        .iter()
+        .find(|&&(code, _)| code == byte)
+        .map_or(char::from(byte), |&(_, letter)| letter)
+}
+
+fn reads_as_german(bytes: &[u8]) -> bool {
+    if bracketed(bytes) {
+        return false;
+    }
+    let score: i32 = bytes
+        .iter()
+        .enumerate()
+        .filter(|&(_, &byte)| german_slot(byte))
+        .map(|(at, _)| if inside_a_word(bytes, at) { 1 } else { -1 })
+        .sum();
+    score > 0
+}
+
+fn inside_a_word(bytes: &[u8], at: usize) -> bool {
+    let before = at.checked_sub(1).map(|i| bytes[i]);
+    let after = bytes.get(at + 1).copied();
+    [before, after]
+        .into_iter()
+        .flatten()
+        .any(|byte| byte.is_ascii_lowercase())
+}
+
+fn bracketed(bytes: &[u8]) -> bool {
+    BRACKET_PAIRS.iter().any(|&(open, close)| {
+        bytes
+            .iter()
+            .position(|&byte| byte == open)
+            .is_some_and(|at| bytes[at + 1..].contains(&close))
+    })
 }
 
 fn numeric_text(bits: &[bool]) -> String {
@@ -539,6 +596,49 @@ mod tests {
         assert_eq!(messages[0].function, 2);
         assert_eq!(messages[0].payload, PocsagPayload::Tone);
         assert!(messages[0].text.is_empty());
+    }
+
+    fn alpha_page(text: &str) -> Page {
+        Page {
+            address: ALPHA_ADDRESS,
+            function: 3,
+            text: text.to_owned(),
+            numeric: false,
+        }
+    }
+
+    fn decoded(text: &str) -> String {
+        let mut chan = channel();
+        let messages = run(&mut chan, &burst(&[alpha_page(text)], 1_200));
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert_eq!(messages[0].payload, PocsagPayload::Alpha);
+        messages[0].text.clone()
+    }
+
+    #[test]
+    fn national_letters_inside_words_decode_as_umlauts() {
+        assert_eq!(decoded("Einsatz M}nchen"), "Einsatz München");
+        assert_eq!(decoded("Stra~e 7"), "Straße 7");
+        assert_eq!(decoded("[nderung 12:30"), "Änderung 12:30");
+        assert_eq!(
+            decoded("\\rtliche ]bung f}r \\lheizung"),
+            "Örtliche Übung für Ölheizung"
+        );
+        assert_eq!(decoded("gr|~er"), "größer");
+    }
+
+    #[test]
+    fn punctuation_that_is_not_a_letter_stays_ascii() {
+        for text in [
+            "[ALARM] TEST",
+            "Info [wichtig] jetzt",
+            "A|B|C",
+            "{100}",
+            "PUMPE ~ 42",
+            "GROSSE ~BUNG",
+        ] {
+            assert_eq!(decoded(text), text);
+        }
     }
 
     #[test]

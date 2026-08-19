@@ -126,6 +126,16 @@ with the decoded output it should produce — see
 [Build and test](../development/building.md) and the
 [contribution guide](https://github.com/Newspicel/sdrminusminus/blob/main/CONTRIBUTING.md).
 
+## Pager text
+
+POCSAG carries an alphanumeric page as seven-bit characters, and networks outside the English
+speaking world put their own letters where ASCII keeps brackets. German networks follow DIN 66003:
+`[`, `\` and `]` carry Ä, Ö and Ü, and `{`, `|`, `}` and `~` carry ä, ö, ü and ß. There is no
+setting for it. A page is read as German when those code points sit inside a word, next to a
+lowercase letter — `M}nchen`, `Stra~e` — and is left as plain ASCII otherwise, so a dispatch that
+really means `[ALARM]` keeps its brackets. A page written entirely in capitals offers nothing to
+judge by and stays ASCII.
+
 ## Sample rate and passband
 
 A channel's occupied band must fit inside its source device's current passband. If it does not,
