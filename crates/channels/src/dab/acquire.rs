@@ -54,11 +54,11 @@ fn params(settings: &ChannelSettings) -> Result<DabParams, ChannelError> {
     }
 }
 
-pub(crate) fn occupied_band() -> (f64, f64) {
+pub fn occupied_band() -> (f64, f64) {
     (-BANDWIDTH_HZ / 2.0, BANDWIDTH_HZ / 2.0)
 }
 
-pub(crate) fn channel_filter() -> ChannelFilter {
+pub fn channel_filter() -> ChannelFilter {
     ChannelFilter::Symmetric(Decimator::new(
         &design_lowpass(127, BANDWIDTH_HZ / 2.0 / INPUT_RATE_HZ),
         1,
