@@ -98,15 +98,20 @@ decoder or cross-layer workflow needs it.
 Some decoders carry constants that a specification dictates rather than a derivation produces:
 the DAB puncturing vectors and protection profiles (`crates/channels/src/dab/protection.rs`),
 the DAB phase-reference table (`crates/channels/src/dab/ofdm.rs`), the DVB-S puncturing
-patterns and Reed-Solomon parameters (`crates/channels/src/datv/dvbs.rs`).
+patterns and Reed-Solomon parameters (`crates/channels/src/datv/dvbs.rs`), and the DVB-S2 LDPC
+accumulator addresses (`crates/channels/src/datv/dvbs2/tables/`).
 
 Those values come from the published standards — ETSI EN 300 401 for DAB, ETSI TS 102 563 for
-DAB+, ETSI EN 300 421 for DVB-S, ETSI ES 201 980 for DRM — and were cross-checked against
-[welle.io](https://github.com/AlbrechtL/welle.io) (GPL-2.0-or-later), whose transcription of
-the same tables is the widely deployed reference. sdr-- is GPL-3.0-or-later, so that lineage is
-compatible; no code was copied, only the standards' constants were confirmed against it.
+DAB+, ETSI EN 300 421 for DVB-S, ETSI EN 302 307-1 for DVB-S2, ETSI ES 201 980 for DRM — and
+were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io) (GPL-2.0-or-later)
+and GNU Radio's [gr-dtv](https://github.com/gnuradio/gnuradio) (GPL-3.0-or-later), whose
+transcriptions of the same tables are the widely deployed references. sdr-- is
+GPL-3.0-or-later, so that lineage is compatible; no code was copied, only the standards'
+constants were confirmed against them. The DVB-S2 accumulator tables are the one case where
+the numbers were transformed mechanically rather than read, because there are 5 124 of them.
 
 Each such table is covered by a test that checks it against a property the standard states
 independently of the table itself — monotonic puncturing density, a generator polynomial that
-vanishes at every root, a published CRC check value — so a transcription slip fails the suite
-rather than the air.
+vanishes at every root, a published CRC check value, a parity-check matrix that annihilates
+every word its own encoder produces — so a transcription slip fails the suite rather than the
+air.

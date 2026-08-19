@@ -1132,12 +1132,7 @@ async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
 async fn a_dvb_s_transport_stream_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let device = plant(
-        dir.path(),
-        "dvb-s",
-        testgen::datv::dvbs(4),
-        2_000_000.0,
-    );
+    let device = plant(dir.path(), "dvb-s", testgen::datv::dvbs(4), 2_000_000.0);
     let record = decode_first(
         &engine,
         &device,

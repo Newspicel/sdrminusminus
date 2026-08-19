@@ -50,8 +50,13 @@ impl AudioFormat {
 
     #[must_use]
     pub const fn output_rate_hz(self) -> u32 {
+        self.sample_rate_hz
+    }
+
+    #[must_use]
+    pub const fn core_rate_hz(self) -> u32 {
         if self.spectral_band_replication {
-            self.sample_rate_hz * 2
+            self.sample_rate_hz / 2
         } else {
             self.sample_rate_hz
         }
@@ -385,7 +390,7 @@ mod tests {
             assert_eq!(header_byte(format), byte & 0x7F);
         }
         assert_eq!(format().codec(), "HE-AAC");
-        assert_eq!(format().output_rate_hz(), 96_000);
+        assert_eq!(format().output_rate_hz(), 48_000);
         assert_eq!(format().access_units(), 3);
     }
 

@@ -15,6 +15,7 @@ use sdrmm_wire::{
 use super::{
     acquire::{Acquired, Acquisition},
     dvbs::{DvbsDecoder, PACKET},
+    dvbs2::receiver::Dvbs2Decoder,
     ts::{PesUnit, TsDemux},
 };
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -102,6 +103,7 @@ pub struct DatvChannel {
     resampler: FracResampler,
     demod: LinearDemod,
     decoder: DvbsDecoder,
+    second: Dvbs2Decoder,
     demux: TsDemux,
     resampled: Vec<Complex<f32>>,
     symbols: Vec<Complex<f32>>,
@@ -118,16 +120,13 @@ impl DatvChannel {
         self.resampler = FracResampler::new(SPS as f64 * self.params.symbol_rate / INPUT_RATE_HZ);
         self.demod = demodulator()?;
         self.decoder = DvbsDecoder::new(self.params.code_rate, self.params.symbol_rate);
+        self.second = Dvbs2Decoder::new();
         self.demux = TsDemux::new();
         self.demux.select(self.params.program);
         self.last = Acquired::default();
         self.video_units = 0;
         self.audio_units = 0;
         Ok(())
-    }
-
-    fn transport(&self) -> bool {
-        self.params.standard == DatvStandard::DvbS
     }
 
     fn system(&self) -> BroadcastSystem {
@@ -203,11 +202,37 @@ impl DatvChannel {
         (!parts.is_empty()).then(|| parts.join(" + "))
     }
 
+    fn coding(&self) -> Option<String> {
+        match self.params.standard {
+            DatvStandard::DvbS => self
+                .decoder
+                .running()
+                .then(|| self.decoder.lock().map(|lock| lock.rate.label().to_owned()))
+                .flatten(),
+            DatvStandard::DvbS2 => self
+                .second
+                .mode()
+                .map(|(modulation, rate)| format!("{} {}", modulation.label(), rate.label())),
+        }
+    }
+
+    fn frames(&self) -> (u32, u32) {
+        match self.params.standard {
+            DatvStandard::DvbS => {
+                let metrics = self.decoder.metrics();
+                (metrics.packets_ok, metrics.packets_bad)
+            }
+            DatvStandard::DvbS2 => (
+                self.second.metrics.frames_ok,
+                self.second.metrics.frames_bad,
+            ),
+        }
+    }
+
     fn report(&mut self, acquired: Acquired, out: &mut ChannelOutputs) {
         self.last = acquired;
         let metrics = self.decoder.metrics();
         let program = self.demux.program();
-        let running = self.decoder.running();
         out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
             system: self.system(),
             locked: acquired.locked,
@@ -217,12 +242,12 @@ impl DatvChannel {
             service_id: program.map(|program| u32::from(program.number)),
             label: program.and_then(|program| program.name.clone()),
             ensemble_label: program.and_then(|program| program.provider.clone()),
-            code_rate: running
-                .then(|| self.decoder.lock().map(|lock| lock.rate.label().to_owned()))
+            code_rate: self.coding(),
+            bit_error_rate: (self.params.standard == DatvStandard::DvbS)
+                .then(|| metrics.byte_error_rate())
                 .flatten(),
-            bit_error_rate: metrics.byte_error_rate(),
-            frames_ok: metrics.packets_ok,
-            frames_bad: metrics.packets_bad,
+            frames_ok: self.frames().0,
+            frames_bad: self.frames().1,
             text: self.text(),
             services: self.services(),
             ..BroadcastStatus::default()
@@ -245,6 +270,7 @@ impl ChannelRx for DatvChannel {
             resampler: FracResampler::new(SPS as f64 * params.symbol_rate / INPUT_RATE_HZ),
             demod: demodulator()?,
             decoder: DvbsDecoder::new(params.code_rate, params.symbol_rate),
+            second: Dvbs2Decoder::new(),
             demux: TsDemux::new(),
             resampled: Vec::new(),
             symbols: Vec::new(),
@@ -277,6 +303,7 @@ impl ChannelRx for DatvChannel {
         self.resampler.reset();
         self.demod.reset();
         self.decoder.reset();
+        self.second.reset();
         self.demux.reset();
         self.video_units = 0;
         self.audio_units = 0;
@@ -286,24 +313,25 @@ impl ChannelRx for DatvChannel {
         let mut reports = std::mem::take(&mut self.reports);
         reports.clear();
         self.acquisition.push(iq, &mut reports);
-        if self.transport() {
-            self.resampler.process(iq, &mut self.resampled);
-            self.symbols.clear();
-            let resampled = std::mem::take(&mut self.resampled);
-            self.demod.process(&resampled, &mut self.symbols);
-            self.resampled = resampled;
-            self.packets.clear();
-            let symbols = std::mem::take(&mut self.symbols);
-            self.decoder.push(&symbols, &mut self.packets);
-            self.symbols = symbols;
-            self.units.clear();
-            let mut units = std::mem::take(&mut self.units);
-            for packet in &self.packets {
-                self.demux.push(packet, &mut units);
-            }
-            self.units = units;
-            self.count();
+        self.resampler.process(iq, &mut self.resampled);
+        self.symbols.clear();
+        let resampled = std::mem::take(&mut self.resampled);
+        self.demod.process(&resampled, &mut self.symbols);
+        self.resampled = resampled;
+        self.packets.clear();
+        let symbols = std::mem::take(&mut self.symbols);
+        match self.params.standard {
+            DatvStandard::DvbS => self.decoder.push(&symbols, &mut self.packets),
+            DatvStandard::DvbS2 => self.second.push(&symbols, &mut self.packets),
         }
+        self.symbols = symbols;
+        self.units.clear();
+        let mut units = std::mem::take(&mut self.units);
+        for packet in &self.packets {
+            self.demux.push(packet, &mut units);
+        }
+        self.units = units;
+        self.count();
         for acquired in &reports {
             self.report(*acquired, out);
         }
@@ -386,6 +414,36 @@ mod tests {
         let status = statuses.last().expect("a broadcast status");
         assert_eq!(status.text.as_deref(), Some("MPEG-2 video + MPEG-1 audio"));
         assert_eq!(status.services[0].kind, BroadcastServiceKind::Video);
+    }
+
+    #[test]
+    fn a_generated_second_generation_stream_reaches_the_program_table() {
+        let iq = testgen::datv::dvbs2(3);
+        let mut channel = DatvChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            ChannelSettings {
+                offset_hz: 0.0,
+                squelch_db: None,
+                squelch_auto_db: None,
+                params: ChannelParams::Datv(DatvParams {
+                    standard: DatvStandard::DvbS2,
+                    symbol_rate: testgen::datv::SYMBOL_RATE,
+                    ..DatvParams::default()
+                }),
+                audio: Default::default(),
+            },
+        )
+        .expect("a DATV channel at the descriptor rate");
+        let statuses = drive(&mut channel, &iq);
+        let status = statuses.last().expect("a broadcast status");
+        assert_eq!(status.system, BroadcastSystem::DvbS2);
+        assert_eq!(status.code_rate.as_deref(), Some("QPSK 3/4"));
+        assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+        assert!(status.frames_ok > 3, "{status:?}");
+        assert_eq!(status.frames_bad, 0, "{status:?}");
+        assert!(channel.video_units > 0, "no video access unit arrived");
     }
 
     #[test]

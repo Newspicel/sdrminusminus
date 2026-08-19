@@ -291,12 +291,17 @@ impl DabChannel {
             .as_ref()
             .and_then(|selection| self.ensemble.services.get(&selection.service));
         let text = self.last_format.as_ref().map(|units| {
-            format!(
-                "{} {} kHz {}ch",
-                units.format.codec(),
-                units.format.output_rate_hz() / 1_000,
-                units.format.channels()
-            )
+            let format = units.format;
+            let rates = if format.spectral_band_replication {
+                format!(
+                    "{}→{} kHz",
+                    format.core_rate_hz() / 1_000,
+                    format.output_rate_hz() / 1_000
+                )
+            } else {
+                format!("{} kHz", format.output_rate_hz() / 1_000)
+            };
+            format!("{} {rates} {}ch", format.codec(), format.channels())
         });
         out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
             system: self.system(),
@@ -470,7 +475,7 @@ mod tests {
         assert!(channel.units >= 3 * channel.superframes);
         let format = channel.last_format.as_ref().expect("an audio format");
         assert_eq!(format.format.codec(), "HE-AAC");
-        assert_eq!(format.format.output_rate_hz(), 96_000);
+        assert_eq!(format.format.output_rate_hz(), 48_000);
     }
 
     #[test]

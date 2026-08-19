@@ -7,6 +7,11 @@ use sdrmm_wire::DatvCodeRate;
 
 use crate::datv::{
     dvbs::{DvbsEncoder, PACKET},
+    dvbs2::{
+        frame::{ModCod, Modulation},
+        ldpc::Rate,
+        receiver::Dvbs2Encoder,
+    },
     ts::{TsWriter, pat, pmt, sdt},
 };
 
@@ -105,6 +110,25 @@ pub fn dvbs(seconds: usize) -> Vec<Complex<f32>> {
     let mut symbols = Vec::with_capacity(wanted);
     while symbols.len() < wanted {
         encoder.packet(&multiplex.packet(), &mut symbols);
+    }
+    shape(&symbols)
+}
+
+pub const S2_MODULATION: Modulation = Modulation::Qpsk;
+pub const S2_RATE: Rate = Rate::R3_4;
+
+#[must_use]
+pub fn dvbs2(seconds: usize) -> Vec<Complex<f32>> {
+    let wanted = seconds * SYMBOL_RATE as usize;
+    let modcod = ModCod::find(S2_MODULATION, S2_RATE).expect("a catalogued mode");
+    let mut encoder = Dvbs2Encoder::new(modcod, true, false).expect("a supported mode");
+    let mut multiplex = Multiplex::new();
+    let mut symbols = Vec::with_capacity(wanted);
+    while symbols.len() < wanted {
+        let packets: Vec<[u8; PACKET]> = (0..encoder.capacity())
+            .map(|_| multiplex.packet())
+            .collect();
+        encoder.frame(&packets, &mut symbols);
     }
     shape(&symbols)
 }
