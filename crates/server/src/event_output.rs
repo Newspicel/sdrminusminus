@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::body::Bytes;
 use reqwest::{Client, Response, Url, multipart};
-use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Outgoing, Packet, QoS, Transport};
+use rumqttc::{
+    AsyncClient, AsyncClientBuilder, Event, EventLoop, MqttOptions, Outgoing, Packet,
+    PublishOptions, Transport,
+};
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
     DecodedRecord, DecoderEvent, EventOutputTarget, NodeBody, ServerEvent, StateScope,
@@ -23,7 +26,7 @@ const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const MATRIX_HTML_FORMAT: &str = "org.matrix.custom.html";
 const MQTT_CAPACITY: usize = 8;
-const MQTT_KEEP_ALIVE: Duration = Duration::from_secs(30);
+const MQTT_KEEP_ALIVE_SECS: u16 = 30;
 const MQTT_DISCONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const MQTT_CLIENT_ID_LEN: usize = 23;
 const MQTT_PORT: u16 = 1_883;
@@ -483,10 +486,13 @@ struct MqttTarget<'a> {
 async fn send_mqtt(target: MqttTarget<'_>, message: &OutputMessage) -> Result<(), DeliveryError> {
     let payload = serde_json::to_vec(&message.payload)
         .map_err(|error| DeliveryError::Failed(format!("MQTT payload: {error}")))?;
-    let (client, mut eventloop) = AsyncClient::new(mqtt_options(&target)?, MQTT_CAPACITY);
+    let (client, mut eventloop) = AsyncClientBuilder::new(mqtt_options(&target)?)
+        .capacity(MQTT_CAPACITY)
+        .try_build()
+        .map_err(|error| DeliveryError::Failed(format!("MQTT client: {error}")))?;
     let acknowledged = tokio::time::timeout(REQUEST_TIMEOUT, async {
         client
-            .publish(target.topic, QoS::AtLeastOnce, false, payload)
+            .publish(target.topic, payload, PublishOptions::at_least_once())
             .await
             .map_err(|error| DeliveryError::Failed(format!("MQTT publish: {error}")))?;
         loop {
@@ -525,13 +531,15 @@ fn mqtt_options(target: &MqttTarget<'_>) -> Result<MqttOptions, DeliveryError> {
     let port = url
         .port()
         .unwrap_or(if secure { MQTTS_PORT } else { MQTT_PORT });
-    let mut options = MqttOptions::new(target.client_id, host, port);
-    options.set_keep_alive(MQTT_KEEP_ALIVE);
+    let mut options = MqttOptions::new(target.client_id, (host, port));
+    options.set_keep_alive(MQTT_KEEP_ALIVE_SECS);
     if secure {
-        options.set_transport(Transport::tls_with_default_config());
+        let transport = Transport::try_tls_with_default_config()
+            .map_err(|error| DeliveryError::Failed(format!("MQTT TLS: {error}")))?;
+        options.set_transport(transport);
     }
     if !target.username.is_empty() {
-        options.set_credentials(target.username, target.password);
+        options.set_credentials(target.username, target.password.to_owned());
     }
     Ok(options)
 }

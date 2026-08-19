@@ -52,7 +52,7 @@ As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothi
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
-## Rust crates (691)
+## Rust crates (692)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -74,6 +74,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [ash](https://github.com/ash-rs/ash) | 0.38.0+1.3.281 | MIT OR Apache-2.0 |
 | [async-compression](https://github.com/Nullus157/async-compression) | 0.4.43 | MIT OR Apache-2.0 |
 | [async-trait](https://github.com/dtolnay/async-trait) | 0.1.92 | MIT OR Apache-2.0 |
+| [async-tungstenite](https://github.com/sdroege/async-tungstenite) | 0.34.1 | MIT |
 | [atk](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [atk-sys](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [atomic-waker](https://github.com/smol-rs/atomic-waker) | 1.1.2 | Apache-2.0 OR MIT |
@@ -206,7 +207,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [find-msvc-tools](https://github.com/rust-lang/cc-rs) | 0.1.10 | MIT OR Apache-2.0 |
 | [fixedbitset](https://github.com/petgraph/fixedbitset) | 0.5.7 | MIT OR Apache-2.0 |
 | [flate2](https://github.com/rust-lang/flate2-rs) | 1.1.9 | MIT OR Apache-2.0 |
-| [flume](https://github.com/zesterer/flume) | 0.11.1 | Apache-2.0/MIT |
+| [flume](https://github.com/zesterer/flume) | 0.12.0 | Apache-2.0/MIT |
 | [fnv](https://github.com/servo/rust-fnv) | 1.0.7 | Apache-2.0 / MIT |
 | [foldhash](https://github.com/orlp/foldhash) | 0.2.0 | Zlib |
 | [foreign-types](https://github.com/sfackler/foreign-types) | 0.5.0 | MIT/Apache-2.0 |
@@ -340,6 +341,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [miniz_oxide](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | [mio](https://github.com/tokio-rs/mio) | 1.2.2 | MIT |
 | [mio-serial](https://github.com/berkowski/mio-serial) | 5.0.7 | MIT |
+| [mqttbytes-core-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [muda](https://github.com/tauri-apps/muda) | 0.19.3 | Apache-2.0 OR MIT |
 | [naga](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
 | [naga-types](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
@@ -450,7 +452,8 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [rmcp-macros](https://github.com/modelcontextprotocol/rust-sdk/) | 3.1.2 | Apache-2.0 |
 | rsqlite-vfs | 0.1.1 | MIT |
 | [rtrb](https://github.com/mgeier/rtrb) | 0.3.4 | MIT OR Apache-2.0 |
-| [rumqttc](https://github.com/bytebeamio/rumqtt) | 0.25.1 | Apache-2.0 |
+| [rumqttc-core-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
+| [rumqttc-v4-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [rusqlite](https://github.com/rusqlite/rusqlite) | 0.40.2 | MIT |
 | [rust-embed](https://pyrossh.dev/repos/rust-embed) | 8.12.0 | MIT |
 | [rust-embed-impl](https://pyrossh.dev/repos/rust-embed) | 8.12.0 | MIT |
@@ -462,11 +465,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [rustix](https://github.com/bytecodealliance/rustix) | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | [rustls](https://github.com/rustls/rustls) | 0.23.43 | Apache-2.0 OR ISC OR MIT |
 | [rustls-native-certs](https://github.com/rustls/rustls-native-certs) | 0.8.4 | Apache-2.0 OR ISC OR MIT |
-| [rustls-pemfile](https://github.com/rustls/pemfile) | 2.2.0 | Apache-2.0 OR ISC OR MIT |
 | [rustls-pki-types](https://github.com/rustls/pki-types) | 1.15.1 | MIT OR Apache-2.0 |
 | [rustls-platform-verifier](https://github.com/rustls/rustls-platform-verifier) | 0.7.0 | MIT OR Apache-2.0 |
 | [rustls-platform-verifier-android](https://github.com/rustls/rustls-platform-verifier) | 0.1.1 | MIT OR Apache-2.0 |
-| [rustls-webpki](https://github.com/rustls/webpki) | 0.102.8 | ISC |
 | [rustls-webpki](https://github.com/rustls/webpki) | 0.103.14 | ISC |
 | [rustversion](https://github.com/dtolnay/rustversion) | 1.0.23 | MIT OR Apache-2.0 |
 | [ryu](https://github.com/dtolnay/ryu) | 1.0.23 | Apache-2.0 OR BSL-1.0 |

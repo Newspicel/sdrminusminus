@@ -1006,8 +1006,8 @@ fn the_broker_url_takes_the_default_port_for_its_scheme() {
     ] {
         let options = mqtt_options(&target(broker_url)).expect("broker options");
         assert_eq!(
-            options.broker_address(),
-            ("broker.example".to_owned(), port),
+            options.broker().tcp_address(),
+            Some(("broker.example", port)),
             "{broker_url}"
         );
     }
