@@ -77,14 +77,24 @@ pub fn assert_no_alloc(label: &str, f: impl FnOnce()) {
     );
 }
 
+pub const TIMED_BATCHES: usize = 5;
+
 #[must_use]
 pub fn measure_throughput(iters: u64, samples_per_iter: u64, mut f: impl FnMut()) -> f64 {
-    let start = Instant::now();
     for _ in 0..iters {
         f();
     }
-    let elapsed = start.elapsed().as_secs_f64().max(1e-9);
-    (iters as f64) * (samples_per_iter as f64) / elapsed / 1e6
+    let samples = (iters as f64) * (samples_per_iter as f64);
+    let mut best = 0.0f64;
+    for _ in 0..TIMED_BATCHES {
+        let start = Instant::now();
+        for _ in 0..iters {
+            f();
+        }
+        let elapsed = start.elapsed().as_secs_f64().max(1e-9);
+        best = best.max(samples / elapsed / 1e6);
+    }
+    best
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

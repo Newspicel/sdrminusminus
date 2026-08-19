@@ -62,6 +62,8 @@ pub use audio_chain::{AudioChain, ClickProfile};
 pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
 pub use datv::DatvChannel;
+#[cfg(any(test, feature = "test-signals"))]
+pub use datv::dvbs2::{frame::Modulation as Dvbs2Modulation, ldpc::Rate as Dvbs2Rate};
 pub use drm::DrmChannel;
 pub use dsc::DscChannel;
 pub use dv::{
