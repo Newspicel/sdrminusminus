@@ -18,6 +18,7 @@ const SECTIONS: readonly { id: string; title: string }[] = [
   { id: "source", title: "Sources" },
   { id: "mode", title: "Modes" },
   { id: "decoder", title: "Decoders" },
+  { id: "channel", title: "Arrays" },
   { id: "display", title: "Displays" },
   { id: "sink", title: "Sinks" },
   { id: "feature", title: "Tools" },

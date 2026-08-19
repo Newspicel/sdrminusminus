@@ -12,6 +12,9 @@ const CATALOG: PatchCatalog = {
     { kind: "speaker", name: "Speaker", category: "sink", ports: [] },
     { kind: "event_output", name: "Event output", category: "sink", ports: [] },
     { kind: "scanner", name: "Scanner", category: "feature", ports: [] },
+    { kind: "df", name: "Direction finder", category: "channel", ports: [] },
+    { kind: "passive_radar", name: "Passive radar", category: "channel", ports: [] },
+    { kind: "combiner", name: "Combiner", category: "channel", ports: [] },
   ],
 };
 
@@ -42,6 +45,7 @@ describe("paletteGroups", () => {
       "Sources",
       "Modes",
       "Decoders",
+      "Arrays",
       "Displays",
       "Sinks",
       "Tools",
@@ -50,7 +54,8 @@ describe("paletteGroups", () => {
       { id: "channel:nfm", name: "NFM", kind: "channel", type: TYPES[0] },
     ]);
     expect(groups[2]?.items[0]?.id).toBe("channel:adsb");
-    expect(groups[4]?.items.map((item) => item.id)).toContain("event_output");
+    expect(groups[3]?.items.map((item) => item.id)).toEqual(["df", "passive_radar", "combiner"]);
+    expect(groups[5]?.items.map((item) => item.id)).toContain("event_output");
     expect(groups[0]?.items.map((item) => item.id)).toEqual([
       "device",
       "array",
@@ -123,5 +128,16 @@ describe("filterPalette", () => {
   it("matches names case-insensitively and drops emptied sections", () => {
     const hits = filterPalette(groups, "sc");
     expect(hits.map((group) => group.title)).toEqual(["Displays", "Tools"]);
+  });
+
+  it("offers every node the server describes, whatever its category", () => {
+    const offered = new Set(
+      paletteGroups(CATALOG, TYPES, true)
+        .flatMap((group) => group.items)
+        .map((item) => item.kind),
+    );
+    for (const entry of CATALOG.nodes) {
+      expect(offered.has(entry.kind), `${entry.kind} is not in the palette`).toBe(true);
+    }
   });
 });
