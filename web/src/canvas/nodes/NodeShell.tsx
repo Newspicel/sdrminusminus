@@ -78,6 +78,23 @@ function PortGlyph({ type }: { type: PortType }) {
   );
 }
 
+function PinGlyph({ pinned }: { pinned: boolean }) {
+  return (
+    <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3">
+      <rect
+        x="1.5"
+        y="1.5"
+        width="9"
+        height="9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1"
+      />
+      {pinned && <rect x="4" y="4" width="4" height="4" fill="currentColor" />}
+    </svg>
+  );
+}
+
 export interface NodeShellProps {
   node: PatchNode;
   title: string;
@@ -153,7 +170,7 @@ export function NodeShell({
                 }))
               }
             >
-              {pinned ? "▣" : "□"}
+              <PinGlyph pinned={pinned} />
             </Button>
             <Button
               type="button"
