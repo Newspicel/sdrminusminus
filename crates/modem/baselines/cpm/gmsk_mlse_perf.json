@@ -1,16 +1,23 @@
 [
   {
     "bench": "gmsk_bt03_mlse",
-    "msamples_per_s": 37.95097048240662,
-    "realtime_factor": 790.6452183834712,
+    "msamples_per_s": 34.75950224759077,
+    "realtime_factor": 724.1562968248076,
     "config": "GMSK BT=0.3 h=0.5, 10 sps, pulse-matched rx, CpmDemod + MlseDetector (16 trellis states)",
     "host": "aarch64-macos"
   },
   {
     "bench": "gmsk_bt05_mlse",
-    "msamples_per_s": 63.76203996072917,
-    "realtime_factor": 1328.375832515191,
+    "msamples_per_s": 59.389790294477464,
+    "realtime_factor": 1237.2872978016137,
     "config": "GMSK BT=0.5 h=0.5, 10 sps, pulse-matched rx, CpmDemod + MlseDetector (4 trellis states)",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1808.2793705539987,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

@@ -1,9 +1,16 @@
 [
   {
     "bench": "gmsk_bt05_demod",
-    "msamples_per_s": 98.82065925593511,
-    "realtime_factor": 2058.7637344986483,
+    "msamples_per_s": 95.8464121672533,
+    "realtime_factor": 1996.8002534844438,
     "config": "GMSK BT=0.5 h=0.5, 10 sps, pulse-matched rx, timing bw 0.015",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1871.8304139239092,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

@@ -1,9 +1,16 @@
 [
   {
     "bench": "mfsk4_filterbank_48k",
-    "msamples_per_s": 509.555112988861,
-    "realtime_factor": 10615.731520601272,
+    "msamples_per_s": 426.4914772727273,
+    "realtime_factor": 8885.239109848486,
     "config": "48 kHz, 4800 baud, 10 sps, M=4 orthogonal tone plan (spacing 1 cycle/symbol)",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1808.4742912579495,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

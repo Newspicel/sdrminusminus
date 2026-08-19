@@ -1,44 +1,51 @@
 [
   {
     "bench": "am_envelope_48k",
-    "msamples_per_s": 12.78766190433449,
-    "realtime_factor": 266.4096230069685,
+    "msamples_per_s": 11.045532829283367,
+    "realtime_factor": 230.11526727673683,
     "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, envelope detector",
     "host": "aarch64-macos"
   },
   {
     "bench": "am_synchronous_48k",
-    "msamples_per_s": 9.494012864213591,
-    "realtime_factor": 197.79193467111648,
+    "msamples_per_s": 8.298614751807827,
+    "realtime_factor": 172.88780732932975,
     "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, carrier PLL at 1e-3 cycles/sample",
     "host": "aarch64-macos"
   },
   {
     "bench": "ssb_filter_48k",
-    "msamples_per_s": 12.079377820621167,
-    "realtime_factor": 251.6537045962743,
+    "msamples_per_s": 10.371250311765774,
+    "realtime_factor": 216.0677148284536,
     "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, one-sided complex band filter + product detector",
     "host": "aarch64-macos"
   },
   {
     "bench": "nfm_discriminator_48k",
-    "msamples_per_s": 13.277438859841428,
-    "realtime_factor": 276.61330958002975,
+    "msamples_per_s": 11.228317026048655,
+    "realtime_factor": 233.92327137601364,
     "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, ±2500 Hz, quadrature discriminator",
     "host": "aarch64-macos"
   },
   {
     "bench": "wfm_discriminator_240k",
-    "msamples_per_s": 13.130673231832311,
-    "realtime_factor": 54.71113846596796,
+    "msamples_per_s": 11.163193218610857,
+    "realtime_factor": 46.51330507754523,
     "config": "240000 Hz, 15000 Hz message, ±75000 Hz, 129-tap filters, quadrature discriminator",
     "host": "aarch64-macos"
   },
   {
     "bench": "am_envelope_48k_acceptance",
-    "msamples_per_s": 1.0722331230408269,
-    "realtime_factor": 22.338190063350556,
+    "msamples_per_s": 0.8856279244201367,
+    "realtime_factor": 18.450581758752847,
     "config": "48000 Hz, 3000 Hz message, 1023-tap filters, envelope detector — the SINAD curves' own configuration",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1873.5729224457782,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

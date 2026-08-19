@@ -1,9 +1,16 @@
 [
   {
     "bench": "cpm_demod_m4_48k",
-    "msamples_per_s": 24.364545473644405,
-    "realtime_factor": 507.5946973675918,
+    "msamples_per_s": 20.548346618422613,
+    "realtime_factor": 428.0905545504711,
     "config": "48 kHz, 4800 baud, ETSI 4-level ±1944 Hz (h=0.27), RRC α=0.2 span 8, timing bw 0.015",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1874.130473637176,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

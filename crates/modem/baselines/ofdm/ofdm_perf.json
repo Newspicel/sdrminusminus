@@ -1,16 +1,23 @@
 [
   {
     "bench": "ofdm64_symbols_20m",
-    "msamples_per_s": 221.66802809945318,
-    "realtime_factor": 11.083401404972658,
+    "msamples_per_s": 194.14009729566067,
+    "realtime_factor": 9.707004864783034,
     "config": "64-point/16-prefix, 48+4 subcarriers, 64 data symbols, QPSK, 20 MHz, per-symbol path (long-training estimate held)",
     "host": "aarch64-macos"
   },
   {
     "bench": "ofdm64_frame_20m",
-    "msamples_per_s": 74.51963383650315,
-    "realtime_factor": 3.7259816918251576,
+    "msamples_per_s": 66.80588017494912,
+    "realtime_factor": 3.340294008747456,
     "config": "64-point/16-prefix, 48+4 subcarriers, 64 data symbols, QPSK, 20 MHz, whole frame including preamble search over 192 samples",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1874.0601335785432,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

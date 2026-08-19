@@ -1,37 +1,44 @@
 [
   {
     "bench": "gfdm_zf_20m",
-    "msamples_per_s": 32.26736444842287,
-    "realtime_factor": 1.6133682224211434,
+    "msamples_per_s": 28.94055275428042,
+    "realtime_factor": 1.447027637714021,
     "config": "16×5 block, roll-off 0.5, 8-sample prefix, 8 blocks, dense A⁻¹ per block",
     "host": "aarch64-macos"
   },
   {
     "bench": "gfdm_tx_20m",
-    "msamples_per_s": 31.883606719787142,
-    "realtime_factor": 1.5941803359893572,
+    "msamples_per_s": 28.981754462377133,
+    "realtime_factor": 1.4490877231188566,
     "config": "16×5 block, dense A per block — the transmitter pays exactly what the zero-forcing receiver does",
     "host": "aarch64-macos"
   },
   {
     "bench": "ufmc_20m",
-    "msamples_per_s": 476.3344574950575,
-    "realtime_factor": 23.816722874752877,
+    "msamples_per_s": 432.2955145118733,
+    "realtime_factor": 21.614775725593667,
     "config": "128-point transform, 4 subbands of 12, 33-tap prototype, 8 symbols, zero-pad-to-2N receiver",
     "host": "aarch64-macos"
   },
   {
     "bench": "fbmc_20m",
-    "msamples_per_s": 7.364495656373433,
-    "realtime_factor": 0.36822478281867166,
+    "msamples_per_s": 6.428976796023328,
+    "realtime_factor": 0.3214488398011664,
     "config": "64-subcarrier bank, 48 allocated, PHYDYAS K=4, 8 symbols, direct-form analysis bank",
     "host": "aarch64-macos"
   },
   {
     "bench": "otfs_precoder_20m",
-    "msamples_per_s": 726.077998929035,
-    "realtime_factor": 36.30389994645175,
+    "msamples_per_s": 656.0387534392383,
+    "realtime_factor": 32.801937671961916,
     "config": "48×16 delay–Doppler grid, ISFFT only — the carrier's own cost is the CP-OFDM row's",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "__calibration",
+    "msamples_per_s": 1808.6692539887883,
+    "realtime_factor": 0.0,
+    "config": "fixed reference kernel, scales the gate to the host's current speed",
     "host": "aarch64-macos"
   }
 ]

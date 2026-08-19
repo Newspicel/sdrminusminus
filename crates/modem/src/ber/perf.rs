@@ -97,6 +97,33 @@ pub fn measure_throughput(iters: u64, samples_per_iter: u64, mut f: impl FnMut()
     best
 }
 
+pub const CALIBRATION_BENCH: &str = "__calibration";
+
+#[must_use]
+pub fn calibrate() -> f64 {
+    const LEN: usize = 8_192;
+    let buffer: Vec<Complex<f32>> = (0..LEN)
+        .map(|index| {
+            let phase = index as f32 * 0.000_7;
+            Complex::new(phase.cos(), phase.sin())
+        })
+        .collect();
+    measure_throughput(256, LEN as u64, || {
+        let mut acc = [Complex::new(0.0f32, 0.0); 4];
+        for (index, value) in buffer.iter().enumerate() {
+            acc[index & 3] += value * value.conj() + *value;
+        }
+        std::hint::black_box(acc);
+    })
+}
+
+fn calibration_of(rows: &[PerfBaseline]) -> Option<f64> {
+    rows.iter()
+        .find(|row| row.bench == CALIBRATION_BENCH)
+        .map(|row| row.msamples_per_s)
+        .filter(|value| *value > 0.0)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PerfBaseline {
     pub bench: String,
@@ -112,7 +139,19 @@ pub fn host_id() -> String {
 }
 
 pub fn save_baselines(path: &Path, baselines: &[PerfBaseline]) -> std::io::Result<()> {
-    let mut json = serde_json::to_string_pretty(baselines).map_err(std::io::Error::other)?;
+    let mut rows: Vec<PerfBaseline> = baselines
+        .iter()
+        .filter(|row| row.bench != CALIBRATION_BENCH)
+        .cloned()
+        .collect();
+    rows.push(PerfBaseline {
+        bench: CALIBRATION_BENCH.into(),
+        msamples_per_s: calibrate(),
+        realtime_factor: 0.0,
+        config: "fixed reference kernel, scales the gate to the host's current speed".into(),
+        host: host_id(),
+    });
+    let mut json = serde_json::to_string_pretty(&rows).map_err(std::io::Error::other)?;
     json.push('\n');
     std::fs::write(path, json)
 }
@@ -136,21 +175,25 @@ pub fn compare_perf(
 ) -> Result<Vec<PerfChange>, Vec<PerfChange>> {
     let mut changes = Vec::new();
     let mut regressions = Vec::new();
+    let scale = calibration_of(committed).map_or(1.0, |recorded| calibrate() / recorded);
     for reference in committed {
+        if reference.bench == CALIBRATION_BENCH {
+            continue;
+        }
+        let expected = reference.msamples_per_s * scale;
         let found = measured
             .iter()
             .find(|m| m.bench == reference.bench && m.config == reference.config);
         let change = match found {
-            Some(m) if reference.msamples_per_s > 0.0 => PerfChange {
+            Some(m) if expected > 0.0 => PerfChange {
                 bench: reference.bench.clone(),
-                committed_msamples_per_s: reference.msamples_per_s,
+                committed_msamples_per_s: expected,
                 measured_msamples_per_s: m.msamples_per_s,
-                change_fraction: (m.msamples_per_s - reference.msamples_per_s)
-                    / reference.msamples_per_s,
+                change_fraction: (m.msamples_per_s - expected) / expected,
             },
             _ => PerfChange {
                 bench: reference.bench.clone(),
-                committed_msamples_per_s: reference.msamples_per_s,
+                committed_msamples_per_s: expected,
                 measured_msamples_per_s: 0.0,
                 change_fraction: -1.0,
             },
@@ -261,7 +304,12 @@ mod tests {
         save_baselines(&path, &committed).unwrap();
         let loaded = load_baselines(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
-        assert_eq!(loaded, committed);
+        let (calibration, rows): (Vec<PerfBaseline>, Vec<PerfBaseline>) = loaded
+            .into_iter()
+            .partition(|row| row.bench == CALIBRATION_BENCH);
+        assert_eq!(rows, committed);
+        assert_eq!(calibration.len(), 1);
+        assert!(calibration[0].msamples_per_s > 0.0);
     }
 
     #[test]
@@ -329,7 +377,7 @@ mod tests {
 
     const SYMBOL_SYNC_RATE_HZ: f64 = 8.0 * 4_800.0;
 
-    const RETIRED: [&str; 1] = ["fsk4_dmr_48k"];
+    const RETIRED: [&str; 2] = ["fsk4_dmr_48k", CALIBRATION_BENCH];
 
     fn measured_baselines() -> Vec<PerfBaseline> {
         let bpsk = shaped_bpsk_iq(4_096, 8.0, 0x0dd5);
