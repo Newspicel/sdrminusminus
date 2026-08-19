@@ -2,10 +2,10 @@ pub mod about;
 pub mod audio;
 pub mod bandplan;
 pub mod channel;
-pub mod chat;
 pub mod decode;
 pub mod device;
 pub mod doctor;
+pub mod event_output;
 pub mod filter;
 pub mod frame;
 pub mod hunt;
@@ -49,9 +49,6 @@ pub use channel::{
     SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
     YsfParams,
 };
-pub use chat::{
-    ChatOutputNode, ChatOutputTarget, MAX_CHAT_TOKEN_LEN, MAX_CHAT_URL_LEN, MAX_MATRIX_ROOM_ID_LEN,
-};
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastStatus, BroadcastSystem,
     CwSkimmerSpot, DataLinkMessage, DecodedRecord, DecoderEvent, DvChannelDefinition, DvFrame,
@@ -68,6 +65,10 @@ pub use device::{
     StreamScope, StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
+pub use event_output::{
+    EventOutputNode, EventOutputTarget, MAX_MATRIX_ROOM_ID_LEN, MAX_MQTT_TOPIC_LEN,
+    MAX_MQTT_USERNAME_LEN, MAX_OUTPUT_SECRET_LEN, MAX_OUTPUT_URL_LEN, WebhookFormat,
+};
 pub use filter::{
     DURATION_KINDS, EventFilterNode, MAX_FILTER_DURATION_MS, MAX_FILTER_IDS, MAX_FILTER_KINDS,
     MAX_FILTER_TEXT_LEN, POSITION_KINDS, VOICE_KINDS, predicates_for,

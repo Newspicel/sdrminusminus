@@ -5794,65 +5794,6 @@
           }
         }
       },
-      "ChatOutputNode": {
-        "type": "object",
-        "required": [
-          "target"
-        ],
-        "properties": {
-          "target": {
-            "$ref": "#/components/schemas/ChatOutputTarget"
-          }
-        }
-      },
-      "ChatOutputTarget": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "webhook_url",
-              "service"
-            ],
-            "properties": {
-              "service": {
-                "type": "string",
-                "enum": [
-                  "discord"
-                ]
-              },
-              "webhook_url": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "homeserver_url",
-              "room_id",
-              "access_token",
-              "service"
-            ],
-            "properties": {
-              "access_token": {
-                "type": "string"
-              },
-              "homeserver_url": {
-                "type": "string"
-              },
-              "room_id": {
-                "type": "string"
-              },
-              "service": {
-                "type": "string",
-                "enum": [
-                  "matrix"
-                ]
-              }
-            }
-          }
-        ]
-      },
       "CheckStatus": {
         "type": "string",
         "enum": [
@@ -8480,6 +8421,96 @@
           }
         }
       },
+      "EventOutputNode": {
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/EventOutputTarget"
+          }
+        }
+      },
+      "EventOutputTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "service"
+            ],
+            "properties": {
+              "format": {
+                "$ref": "#/components/schemas/WebhookFormat"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "webhook"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "homeserver_url",
+              "room_id",
+              "access_token",
+              "service"
+            ],
+            "properties": {
+              "access_token": {
+                "type": "string"
+              },
+              "homeserver_url": {
+                "type": "string"
+              },
+              "room_id": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "matrix"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "broker_url",
+              "topic",
+              "service"
+            ],
+            "properties": {
+              "broker_url": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "mqtt"
+                ]
+              },
+              "topic": {
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "ExportFormat": {
         "type": "string",
         "enum": [
@@ -10575,12 +10606,12 @@
             ],
             "properties": {
               "data": {
-                "$ref": "#/components/schemas/ChatOutputNode"
+                "$ref": "#/components/schemas/EventOutputNode"
               },
               "kind": {
                 "type": "string",
                 "enum": [
-                  "chat_output"
+                  "event_output"
                 ]
               }
             }
@@ -14277,6 +14308,13 @@
             "format": "double"
           }
         }
+      },
+      "WebhookFormat": {
+        "type": "string",
+        "enum": [
+          "json",
+          "discord"
+        ]
       },
       "WfmParams": {
         "type": "object",

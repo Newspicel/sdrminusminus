@@ -26,9 +26,9 @@ mod assets;
 mod auth;
 mod bandplan;
 mod calls;
-mod chat_output;
 mod decoderlog;
 pub mod doctor;
+mod event_output;
 mod events;
 mod gps;
 mod images;
@@ -226,16 +226,16 @@ fn start_background(state: &AppState) -> Background {
         let images = state.images.clone();
         spawn_task("sdrmm-images", move || images::run(engine, images))
     };
-    let chat_output = {
+    let event_output = {
         let engine = Arc::downgrade(&state.engine);
         let store = state.store.clone();
         let calls = state.calls.clone();
-        spawn_task("sdrmm-chat-output", move || {
-            chat_output::run(engine, store, calls)
+        spawn_task("sdrmm-event-output", move || {
+            event_output::run(engine, store, calls)
         })
     };
     Background {
-        tasks: vec![log, patch, calls, images, chat_output],
+        tasks: vec![log, patch, calls, images, event_output],
         detached: false,
     }
 }

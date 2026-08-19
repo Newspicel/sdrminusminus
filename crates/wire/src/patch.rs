@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    ChatOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN,
-    MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
+    EventOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS,
+    MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
     filter::EventFilterNode,
@@ -452,7 +452,7 @@ pub enum NodeBody {
     Readout,
     DecoderLog,
     DmrTrunk(DmrTrunkNode),
-    ChatOutput(ChatOutputNode),
+    EventOutput(EventOutputNode),
     EventFilter(EventFilterNode),
     Video,
     Recorder,
@@ -480,7 +480,7 @@ impl NodeBody {
             Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
             Self::DmrTrunk(_) => "dmr_trunk",
-            Self::ChatOutput(_) => "chat_output",
+            Self::EventOutput(_) => "event_output",
             Self::EventFilter(_) => "event_filter",
             Self::Video => "video",
             Self::Recorder => "recorder",
@@ -515,7 +515,7 @@ impl NodeBody {
             | Self::BasebandRecorder
             | Self::TimeMachine(_)
             | Self::NetworkExport(_)
-            | Self::ChatOutput(_)
+            | Self::EventOutput(_)
             | Self::Export => NodeCategory::Sink,
         }
     }
@@ -615,7 +615,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
                 .noted("the radio the control channel sits on; the system runs its own decoders"),
             PortSpec::new(Events, Out, true, Always),
         ],
-        "chat_output" => vec![PortSpec::new(Events, In, true, Always)],
+        "event_output" => vec![PortSpec::new(Events, In, true, Always)],
         "event_filter" => vec![
             PortSpec::new(Events, In, true, Always),
             PortSpec::new(Events, Out, true, Always),
@@ -682,8 +682,8 @@ impl PatchCatalog {
                     "Event filter",
                 ),
                 entry(
-                    &NodeBody::ChatOutput(ChatOutputNode::default()),
-                    "Discord / Matrix",
+                    &NodeBody::EventOutput(EventOutputNode::default()),
+                    "Event output",
                 ),
                 entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
@@ -991,7 +991,7 @@ impl PatchGraph {
                 NodeBody::DmrTrunk(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
-                NodeBody::ChatOutput(settings) if !settings.target.valid() => {
+                NodeBody::EventOutput(settings) if !settings.target.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 _ => {}

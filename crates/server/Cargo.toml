@@ -37,6 +37,7 @@ tower.workspace = true
 tower-http.workspace = true
 futures.workspace = true
 reqwest.workspace = true
+rumqttc.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 tokio-serial.workspace = true
 

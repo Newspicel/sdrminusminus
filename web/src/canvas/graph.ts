@@ -240,7 +240,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   device: { w: 380 },
   gps: { w: 360 },
   channel: { w: 440 },
-  chat_output: { w: 420 },
+  event_output: { w: 420 },
   event_filter: { w: 380 },
   scope: { w: 520, h: 360 },
   speaker: { w: 320 },

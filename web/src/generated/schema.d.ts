@@ -1637,20 +1637,6 @@ export interface components {
         ChannelTypesResponse: {
             types: components["schemas"]["ChannelDescriptor"][];
         };
-        ChatOutputNode: {
-            target: components["schemas"]["ChatOutputTarget"];
-        };
-        ChatOutputTarget: {
-            /** @enum {string} */
-            service: "discord";
-            webhook_url: string;
-        } | {
-            access_token: string;
-            homeserver_url: string;
-            room_id: string;
-            /** @enum {string} */
-            service: "matrix";
-        };
         /** @enum {string} */
         CheckStatus: "ok" | "warn" | "fail";
         ClickRemovalSettings: {
@@ -2315,6 +2301,28 @@ export interface components {
             media_type: string;
             url: string;
         };
+        EventOutputNode: {
+            target: components["schemas"]["EventOutputTarget"];
+        };
+        EventOutputTarget: {
+            format?: components["schemas"]["WebhookFormat"];
+            /** @enum {string} */
+            service: "webhook";
+            url: string;
+        } | {
+            access_token: string;
+            homeserver_url: string;
+            room_id: string;
+            /** @enum {string} */
+            service: "matrix";
+        } | {
+            broker_url: string;
+            password?: string;
+            /** @enum {string} */
+            service: "mqtt";
+            topic: string;
+            username?: string;
+        };
         /** @enum {string} */
         ExportFormat: "csv" | "json";
         ExtraSetting: {
@@ -2888,9 +2896,9 @@ export interface components {
             /** @enum {string} */
             kind: "dmr_trunk";
         } | {
-            data: components["schemas"]["ChatOutputNode"];
+            data: components["schemas"]["EventOutputNode"];
             /** @enum {string} */
-            kind: "chat_output";
+            kind: "event_output";
         } | {
             data: components["schemas"]["EventFilterNode"];
             /** @enum {string} */
@@ -3899,6 +3907,8 @@ export interface components {
             /** Format: double */
             variable_phase_deg: number;
         };
+        /** @enum {string} */
+        WebhookFormat: "json" | "discord";
         WfmParams: {
             /** Format: float */
             deemphasis_us?: number;

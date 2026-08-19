@@ -15,7 +15,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   decoder_log: true,
   dmr_trunk: true,
   event_filter: true,
-  chat_output: true,
+  event_output: true,
   video: true,
   recorder: true,
   audio_recorder: true,

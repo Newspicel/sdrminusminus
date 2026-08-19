@@ -1389,3 +1389,57 @@ fn decoder_log_surfaces_an_unparseable_event_blob() {
         Err(StoreError::Corrupt(_))
     ));
 }
+
+#[test]
+fn a_stored_discord_output_reopens_as_a_webhook_in_the_discord_format() {
+    let mut value = serde_json::to_value(WorkspaceSnapshot::starter()).expect("snapshot");
+    let nodes = value
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("nodes");
+    nodes.extend([
+        serde_json::json!({
+            "id": "discord",
+            "position": { "x": 0.0, "y": 0.0 },
+            "kind": "chat_output",
+            "data": { "target": {
+                "service": "discord",
+                "webhook_url": "https://discord.com/api/webhooks/1/token"
+            }}
+        }),
+        serde_json::json!({
+            "id": "matrix",
+            "position": { "x": 100.0, "y": 0.0 },
+            "kind": "chat_output",
+            "data": { "target": {
+                "service": "matrix",
+                "homeserver_url": "https://matrix.example",
+                "room_id": "!radio:matrix.example",
+                "access_token": "matrix-secret"
+            }}
+        }),
+    ]);
+
+    let migrated = parse_workspace_snapshot(&value.to_string()).expect("migrated");
+    migrated.validate().expect("valid");
+
+    let sdrmm_wire::NodeBody::EventOutput(discord) =
+        &migrated.graph.node("discord").expect("discord").body
+    else {
+        panic!("event output");
+    };
+    assert_eq!(
+        discord.target,
+        sdrmm_wire::EventOutputTarget::Webhook {
+            url: "https://discord.com/api/webhooks/1/token".to_owned(),
+            format: sdrmm_wire::WebhookFormat::Discord,
+        }
+    );
+    let sdrmm_wire::NodeBody::EventOutput(matrix) =
+        &migrated.graph.node("matrix").expect("matrix").body
+    else {
+        panic!("event output");
+    };
+    assert!(matrix.target.configured(), "a Matrix room keeps posting");
+}

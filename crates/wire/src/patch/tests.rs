@@ -168,23 +168,24 @@ fn an_event_filter_passes_events_through_and_bounds_its_lists() {
 }
 
 #[test]
-fn a_channel_can_reach_a_chat_output_through_a_filter() {
+fn a_channel_can_reach_an_event_output_through_a_filter() {
     let graph = PatchGraph {
         nodes: vec![
             recording_calls("dmr", "dmr", true),
             node("filter", NodeBody::EventFilter(EventFilterNode::default())),
             node(
-                "chat",
-                NodeBody::ChatOutput(ChatOutputNode {
-                    target: crate::ChatOutputTarget::Discord {
-                        webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+                "output",
+                NodeBody::EventOutput(EventOutputNode {
+                    target: crate::EventOutputTarget::Webhook {
+                        url: "https://discord.com/api/webhooks/1/token".to_owned(),
+                        format: crate::WebhookFormat::Discord,
                     },
                 }),
             ),
         ],
         edges: vec![
             edge(("dmr", "events"), ("filter", "events")),
-            edge(("filter", "events"), ("chat", "events")),
+            edge(("filter", "events"), ("output", "events")),
         ],
     };
     assert!(graph.validate_against(&descriptors()).is_ok());
@@ -391,12 +392,13 @@ fn a_dmr_trunk_system_refuses_a_channel_plan_it_cannot_use() {
 }
 
 #[test]
-fn a_chat_output_accepts_decoder_and_completed_call_events() {
+fn an_event_output_accepts_decoder_and_completed_call_events() {
     let output = node(
-        "chat",
-        NodeBody::ChatOutput(ChatOutputNode {
-            target: crate::ChatOutputTarget::Discord {
-                webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+        "output",
+        NodeBody::EventOutput(EventOutputNode {
+            target: crate::EventOutputTarget::Webhook {
+                url: "https://discord.com/api/webhooks/1/token".to_owned(),
+                format: crate::WebhookFormat::Discord,
             },
         }),
     );
@@ -405,13 +407,13 @@ fn a_chat_output_accepts_decoder_and_completed_call_events() {
             node("system", NodeBody::DmrTrunk(DmrTrunkNode::default())),
             output.clone(),
         ],
-        edges: vec![edge(("system", "events"), ("chat", "events"))],
+        edges: vec![edge(("system", "events"), ("output", "events"))],
     };
     calls.validate().expect("completed calls");
 
     let decoded = PatchGraph {
         nodes: vec![channel("carrier", "dmr"), output],
-        edges: vec![edge(("carrier", "events"), ("chat", "events"))],
+        edges: vec![edge(("carrier", "events"), ("output", "events"))],
     };
     decoded.validate().expect("decoded events");
 }
@@ -732,7 +734,7 @@ fn default_body(kind: &str) -> NodeBody {
         "decoder_log" => NodeBody::DecoderLog,
         "dmr_trunk" => NodeBody::DmrTrunk(DmrTrunkNode::default()),
         "event_filter" => NodeBody::EventFilter(EventFilterNode::default()),
-        "chat_output" => NodeBody::ChatOutput(ChatOutputNode::default()),
+        "event_output" => NodeBody::EventOutput(EventOutputNode::default()),
         "video" => NodeBody::Video,
         "recorder" => NodeBody::Recorder,
         "audio_recorder" => NodeBody::AudioRecorder,

@@ -1118,7 +1118,37 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     let mut value: serde_json::Value = serde_json::from_str(json)?;
     migrate_call_buffers(&mut value);
     migrate_trunk_carriers(&mut value);
+    migrate_event_outputs(&mut value);
     serde_json::from_value(value)
+}
+
+/// Discord and Matrix used to be the only sinks a decoder could feed. Discord is one shape of
+/// webhook now, so the node it lived on carries any HTTPS endpoint or an MQTT broker instead.
+fn migrate_event_outputs(snapshot: &mut serde_json::Value) {
+    let Some(nodes) = snapshot
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for node in nodes {
+        if node.get("kind").and_then(serde_json::Value::as_str) != Some("chat_output") {
+            continue;
+        }
+        node["kind"] = serde_json::Value::String("event_output".to_owned());
+        let Some(target) = node.get_mut("data").and_then(|data| data.get_mut("target")) else {
+            continue;
+        };
+        if target.get("service").and_then(serde_json::Value::as_str) != Some("discord") {
+            continue;
+        }
+        let url = target
+            .get("webhook_url")
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::String(String::new()));
+        *target = serde_json::json!({ "service": "webhook", "url": url, "format": "discord" });
+    }
 }
 
 /// A trunk system used to be fed by DMR decoders wired into it. It runs its own decoders now, so

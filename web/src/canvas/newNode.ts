@@ -60,8 +60,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { settings: DEFAULT_HUNT_SETTINGS, clicks: true } };
     case "time_machine":
       return { kind, data: { history_seconds: DEFAULT_HISTORY_SECONDS } };
-    case "chat_output":
-      return { kind, data: { target: { service: "discord", webhook_url: "" } } };
+    case "event_output":
+      return { kind, data: { target: { service: "webhook", url: "", format: "json" } } };
     default:
       return { kind } as NodeBody;
   }

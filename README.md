@@ -35,7 +35,7 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 - Scan frequency ranges, save workspaces, presets, and bookmarks, search regional band plans, and
   record IQ as SigMF, channel baseband, or audio for later playback.
 - Rewind the last seconds of live reception, stream IQ or baseband to other software over UDP or
-  TCP, and forward decoded traffic to Discord or Matrix.
+  TCP, and forward decoded traffic to any webhook, a Matrix room, or an MQTT broker.
 - Sweep an antenna with a NanoVNA, size a new one with the antenna calculator, and take station
   position from a GPS or NMEA source.
 - Automate the receiver through a typed REST API, WebSocket events, OpenAPI, or MCP.
