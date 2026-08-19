@@ -40,6 +40,30 @@ impl EcaParams {
     }
 }
 
+fn conj_dot(left: &[Complex<f32>], right: &[Complex<f32>]) -> Complex<f32> {
+    const LANES: usize = 4;
+    let mut re = [0.0f32; LANES];
+    let mut im = [0.0f32; LANES];
+    let len = left.len().min(right.len());
+    let (lead, lead_tail) = left[..len].as_chunks::<LANES>();
+    let (follow, follow_tail) = right[..len].as_chunks::<LANES>();
+    for (a, b) in lead.iter().zip(follow) {
+        for lane in 0..LANES {
+            re[lane] += a[lane].re * b[lane].re + a[lane].im * b[lane].im;
+            im[lane] += a[lane].re * b[lane].im - a[lane].im * b[lane].re;
+        }
+    }
+    let mut sum = Complex::new(
+        (re[0] + re[1]) + (re[2] + re[3]),
+        (im[0] + im[1]) + (im[2] + im[3]),
+    );
+    for (a, b) in lead_tail.iter().zip(follow_tail) {
+        sum.re += a.re * b.re + a.im * b.im;
+        sum.im += a.re * b.im - a.im * b.re;
+    }
+    sum
+}
+
 /// Extensive cancellation, batch flavour.
 ///
 /// The direct path from the illuminator arrives at the surveillance antenna tens of decibels
@@ -131,14 +155,15 @@ impl Eca {
         let order = self.params.order();
         let count = end - start;
         self.build_basis(reference, start, end);
+        let basis = &self.basis;
+        let gram = &mut self.gram;
         for row in 0..order {
+            let left = &basis[row * count..row * count + count];
             for col in row..order {
-                let mut sum = Complex::default();
-                for index in 0..count {
-                    sum += self.basis[row * count + index].conj() * self.basis[col * count + index];
-                }
-                self.gram[row * order + col] = sum;
-                self.gram[col * order + row] = sum.conj();
+                let right = &basis[col * count..col * count + count];
+                let sum = conj_dot(left, right);
+                gram[row * order + col] = sum;
+                gram[col * order + row] = sum.conj();
             }
         }
         let trace: f32 = (0..order).map(|i| self.gram[i * order + i].re).sum();
@@ -146,23 +171,23 @@ impl Eca {
         for i in 0..order {
             self.gram[i * order + i] += Complex::new(floor.max(f32::MIN_POSITIVE), 0.0);
         }
+        let observed = &surveillance[start..end];
         for row in 0..order {
-            let mut sum = Complex::default();
-            for index in 0..count {
-                sum += self.basis[row * count + index].conj() * surveillance[start + index];
-            }
-            self.cross[row] = sum;
+            let left = &self.basis[row * count..row * count + count];
+            self.cross[row] = conj_dot(left, observed);
         }
         if self.chol.factor(&self.gram).is_err() {
             return;
         }
         self.chol.solve(&mut self.cross);
-        for index in 0..count {
-            let mut estimate = Complex::default();
-            for row in 0..order {
-                estimate += self.cross[row] * self.basis[row * count + index];
+        let residual = &mut out[start..end];
+        residual.copy_from_slice(&surveillance[start..end]);
+        for row in 0..order {
+            let weight = self.cross[row];
+            let left = &self.basis[row * count..row * count + count];
+            for (slot, a) in residual.iter_mut().zip(left) {
+                *slot -= weight * a;
             }
-            out[start + index] = surveillance[start + index] - estimate;
         }
     }
 
@@ -171,7 +196,6 @@ impl Eca {
     fn build_basis(&mut self, reference: &[Complex<f32>], start: usize, end: usize) {
         let count = end - start;
         let order = self.params.order();
-        self.basis.clear();
         self.basis.resize(order * count, Complex::default());
         let bins = self.params.doppler_bins as isize;
         let resolution = self.sample_rate / count as f64;
@@ -179,15 +203,18 @@ impl Eca {
         for bin in -bins..=bins {
             let step = std::f64::consts::TAU * bin as f64 * resolution / self.sample_rate;
             for tap in 0..self.params.delay_taps {
-                for index in 0..count {
-                    let source = start + index;
-                    let value = if source >= tap {
-                        reference[source - tap]
-                    } else {
-                        Complex::default()
-                    };
-                    let phase = Complex::from_polar(1.0, (step * index as f64) as f32);
-                    self.basis[row * count + index] = value * phase;
+                let lead = tap.saturating_sub(start).min(count);
+                let target = &mut self.basis[row * count..row * count + count];
+                target[..lead].fill(Complex::default());
+                if bin == 0 {
+                    for (index, slot) in target.iter_mut().enumerate().skip(lead) {
+                        *slot = reference[start + index - tap];
+                    }
+                } else {
+                    for (index, slot) in target.iter_mut().enumerate().skip(lead) {
+                        let phase = Complex::from_polar(1.0, (step * index as f64) as f32);
+                        *slot = reference[start + index - tap] * phase;
+                    }
                 }
                 row += 1;
             }

@@ -41,6 +41,7 @@ pub struct Caf {
     dopplers: usize,
     sample_rate: f64,
     reference: Vec<Complex<f32>>,
+    observed: Vec<Complex<f32>>,
     work: Vec<Complex<f32>>,
 }
 
@@ -56,6 +57,7 @@ impl Caf {
             dopplers: dopplers.max(1),
             sample_rate,
             reference: vec![Complex::default(); size],
+            observed: vec![Complex::default(); size],
             work: vec![Complex::default(); size],
         }
     }
@@ -94,24 +96,41 @@ impl Caf {
         self.reference.resize(size, Complex::default());
         self.fft.forward(&mut self.reference);
 
+        self.observed.clear();
+        self.observed.extend(surveillance[..count].iter().copied());
+        self.observed.resize(size, Complex::default());
+        self.fft.forward(&mut self.observed);
+
         let step = self.doppler_step_hz() as f64;
         let centre = (self.dopplers as f64 - 1.0) / 2.0;
+        let bins_per_row = size as f64 / self.cpi.max(1) as f64;
+        let mask = size - 1;
         for row in 0..self.dopplers {
             let shift_hz = (row as f64 - centre) * step;
             let w = -std::f64::consts::TAU * shift_hz / self.sample_rate;
-            self.work.clear();
-            self.work.extend(
-                surveillance[..count]
-                    .iter()
-                    .enumerate()
-                    .map(|(index, value)| {
-                        value * Complex::from_polar(1.0, (w * index as f64) as f32)
-                    }),
-            );
-            self.work.resize(size, Complex::default());
-            self.fft.forward(&mut self.work);
-            for (bin, reference) in self.work.iter_mut().zip(&self.reference) {
-                *bin *= reference.conj();
+            let shift_bins = -(row as f64 - centre) * bins_per_row;
+            let whole = shift_bins.round();
+            if size.is_power_of_two() && (shift_bins - whole).abs() < 1e-9 {
+                let offset = (whole as i64).rem_euclid(size as i64) as usize;
+                for bin in 0..size {
+                    self.work[bin] =
+                        self.observed[(bin + size - offset) & mask] * self.reference[bin].conj();
+                }
+            } else {
+                self.work.clear();
+                self.work.extend(
+                    surveillance[..count]
+                        .iter()
+                        .enumerate()
+                        .map(|(index, value)| {
+                            value * Complex::from_polar(1.0, (w * index as f64) as f32)
+                        }),
+                );
+                self.work.resize(size, Complex::default());
+                self.fft.forward(&mut self.work);
+                for (bin, reference) in self.work.iter_mut().zip(&self.reference) {
+                    *bin *= reference.conj();
+                }
             }
             self.fft.inverse_scaled(&mut self.work);
             let base = row * self.ranges;
@@ -124,6 +143,51 @@ impl Caf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_spectral_shortcut_agrees_with_a_direct_correlation() {
+        const RATE: f64 = 48_000.0;
+        let (cpi, ranges, dopplers) = (256usize, 8usize, 5usize);
+        let mut state = 0x2B1Du32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state >> 8) as f32 / (1u32 << 23) as f32 - 1.0
+        };
+        let reference: Vec<Complex<f32>> = (0..cpi).map(|_| Complex::new(next(), next())).collect();
+        let surveillance: Vec<Complex<f32>> =
+            (0..cpi).map(|_| Complex::new(next(), next())).collect();
+
+        let mut caf = Caf::new(cpi, ranges, dopplers, RATE);
+        let mut surface = Surface::default();
+        caf.compute(&reference, &surveillance, &mut surface);
+
+        let step = f64::from(surface.doppler_step_hz);
+        let centre = (dopplers as f64 - 1.0) / 2.0;
+        for row in 0..dopplers {
+            let w = -std::f64::consts::TAU * (row as f64 - centre) * step / RATE;
+            let mixed: Vec<Complex<f32>> = surveillance
+                .iter()
+                .enumerate()
+                .map(|(index, value)| value * Complex::from_polar(1.0, (w * index as f64) as f32))
+                .collect();
+            for lag in 0..ranges {
+                let mut acc = Complex::default();
+                for (index, carrier) in reference.iter().enumerate() {
+                    if let Some(value) = mixed.get(index + lag) {
+                        acc += value * carrier.conj();
+                    }
+                }
+                let direct: f32 = acc.norm_sqr();
+                let taken = surface.at(row, lag);
+                assert!(
+                    (direct - taken).abs() <= 1e-3 * direct.max(1.0),
+                    "row {row} lag {lag}: direct {direct}, shortcut {taken}"
+                );
+            }
+        }
+    }
+
     use std::f32::consts::TAU;
 
     use super::*;
