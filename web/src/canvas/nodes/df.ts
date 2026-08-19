@@ -9,6 +9,7 @@ export const DEFAULT_DF_PARAMS: DfParams = {
   offset_hz: 0,
   bandwidth_hz: 20_000,
   sources: 1,
+  beam_bearing_deg: null,
   cal: { source: "signal", bandwidth_hz: 200_000, pilot_hz: null, track: true },
 };
 
@@ -25,6 +26,21 @@ export function geometryOf(kind: ArrayGeometry["kind"], current: ArrayGeometry):
 
 export function withCount(geometry: ArrayGeometry, count: number): ArrayGeometry {
   return geometry.kind === "explicit" ? geometry : { ...geometry, count };
+}
+
+export type BeamMode = "follow" | "fixed";
+
+export function beamMode(beamBearingDeg: number | null): BeamMode {
+  return beamBearingDeg === null ? "follow" : "fixed";
+}
+
+/// Pinning the beam starts from wherever it is pointing now, so the operator holds the direction
+/// the array just found instead of swinging the beam to north to begin aiming.
+export function beamAzimuth(mode: BeamMode, bearingDeg: number | null): number | null {
+  if (mode === "follow") {
+    return null;
+  }
+  return ((Math.round(bearingDeg ?? 0) % 360) + 360) % 360;
 }
 
 /// Compass bearings put zero at the top and run clockwise, which is the opposite of how a screen

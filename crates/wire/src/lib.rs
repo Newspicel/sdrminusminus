@@ -69,11 +69,11 @@ pub use decode::{
     WsprSpot,
 };
 pub use device::{
-    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, Coherence,
-    DcArtifact, DeviceInfo, DeviceSettings, Direction, DirectionalCapabilities, Duplex,
-    ExtraSetting, ExtraValue, GainStage, GainValue, MANAGED_LO_OFFSET_FRACTION,
-    MAX_LO_OFFSET_FRACTION, Range, StreamScope, StreamSettings, any_range_holds,
-    lo_offset_limit_hz, managed_lo_offset_hz,
+    ARRAY_DRIVER_ID, ArgumentInfo, ArgumentOption, ArgumentType, ArrayDefinition, Capabilities,
+    ChannelCapabilities, Coherence, DcArtifact, DeviceInfo, DeviceProfile, DeviceSettings,
+    Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue,
+    MANAGED_LO_OFFSET_FRACTION, MAX_ARRAY_KEY_LEN, MAX_ARRAY_MEMBERS, MAX_LO_OFFSET_FRACTION,
+    Range, StreamScope, StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use event_output::{
@@ -118,17 +118,17 @@ pub use propagation::{
     MIN_REFLECTION_HEIGHT_KM, PropagationNode,
 };
 pub use rest::{
-    AnnotationError, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingsResponse,
-    AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse, ChannelRecordRequest,
-    ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest, CreateChannelRequest,
-    CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
-    DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage,
-    ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN,
-    MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint, RouteRequest,
-    RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    AnnotationError, ApiError, ApplyTemplateRequest, ArraysResponse, AudioRecordingInfo,
+    AudioRecordingsResponse, AuthInfo, Bookmark, CapturedImage, CapturedImagesResponse,
+    ChannelRecordRequest, ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest,
+    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
+    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
+    EventAudio, EventImage, ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN,
+    MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind,
+    OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest,
+    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation,
+    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint,
+    RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,

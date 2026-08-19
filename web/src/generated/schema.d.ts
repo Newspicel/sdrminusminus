@@ -36,6 +36,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/arrays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_arrays"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/arrays/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_array"];
+        post?: never;
+        delete: operations["delete_array"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/audiorecordings": {
         parameters: {
             query?: never;
@@ -1238,6 +1270,24 @@ export interface components {
         };
         /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
+        /**
+         * @description A bank of separate radios the operator has wired to one clock and wants treated as one.
+         *
+         *     Nothing here is discovered: which radios belong together, and whether their clock alone is
+         *     shared or their synthesizer too, is a fact about the bench that only the operator knows.
+         */
+        ArrayDefinition: {
+            coherence: components["schemas"]["Coherence"];
+            key: string;
+            label: string;
+            /** @description Member device ids, in the order their lanes are numbered. */
+            members: string[];
+            /**
+             * @description Whether every member is tuned together. A bank whose members can be tuned apart is a bank
+             *     of receivers; only one tuned together is an array.
+             */
+            shared_tuning?: boolean;
+        };
         ArrayElement: {
             /** Format: double */
             x_m: number;
@@ -1263,6 +1313,9 @@ export interface components {
             /** @enum {string} */
             kind: "explicit";
             positions: components["schemas"]["ArrayElement"][];
+        };
+        ArraysResponse: {
+            arrays: components["schemas"]["ArrayDefinition"][];
         };
         Attribution: {
             license: string;
@@ -2438,6 +2491,13 @@ export interface components {
              * @default 20000
              */
             bandwidth_hz: number;
+            /**
+             * Format: double
+             * @description Where to point the summed beam. Unset follows whatever bearing the array found, which is
+             *     the whole point of having both on one node.
+             * @default null
+             */
+            beam_bearing_deg: number | null;
             /**
              * @default {
              *       "bandwidth_hz": 200000,
@@ -4631,6 +4691,101 @@ export interface operations {
                 };
             };
             /** @description No component ships a text with that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_arrays: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every array the operator has described */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArraysResponse"];
+                };
+            };
+        };
+    };
+    put_array: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The array's own key, which names its device id */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArrayDefinition"];
+            };
+        };
+        responses: {
+            /** @description The array is described and will be probed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrayDefinition"];
+                };
+            };
+            /** @description Not a usable array */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_array: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The array's own key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The array is no longer described */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No array of that name */
             404: {
                 headers: {
                     [name: string]: unknown;

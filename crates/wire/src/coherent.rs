@@ -178,6 +178,10 @@ pub struct DfParams {
     pub bandwidth_hz: f64,
     /// How many arrivals MUSIC should assume. One is right far more often than not.
     pub sources: u32,
+    /// Where to point the summed beam. Unset follows whatever bearing the array found, which is
+    /// the whole point of having both on one node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beam_bearing_deg: Option<f64>,
     pub cal: CalParams,
 }
 
@@ -190,6 +194,7 @@ impl Default for DfParams {
             offset_hz: 0.0,
             bandwidth_hz: 20_000.0,
             sources: 1,
+            beam_bearing_deg: None,
             cal: CalParams::default(),
         }
     }
@@ -204,6 +209,9 @@ impl DfParams {
             && self.offset_hz.abs() <= MAX_DF_OFFSET_HZ
             && (MIN_DF_BANDWIDTH_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&self.bandwidth_hz)
             && (1..self.geometry.count()).contains(&self.sources)
+            && self
+                .beam_bearing_deg
+                .is_none_or(|bearing| bearing.is_finite())
             && self.cal.valid()
     }
 }

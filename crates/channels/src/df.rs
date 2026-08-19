@@ -118,6 +118,20 @@ impl DfProcessor {
         self.center_hz + self.params.offset_hz
     }
 
+    /// The weights that point the array at a bearing: each lane rotated back by the delay the
+    /// wavefront would have reached it with, so the lanes add rather than cancel.
+    fn weights_for(&self, bearing_deg: f64) -> Vec<Complex<f32>> {
+        let aimed = self.params.beam_bearing_deg.unwrap_or(bearing_deg);
+        let point = ((aimed.rem_euclid(360.0) / self.grid.step_deg()).round() as usize)
+            % self.grid.points().max(1);
+        let scale = 1.0 / self.lanes as f32;
+        self.grid
+            .vector(point)
+            .iter()
+            .map(|value| value.conj() * scale)
+            .collect()
+    }
+
     fn report(&mut self, out: &mut CoherentOutputs) {
         self.covariance.matrix(&mut self.matrix);
         match self.params.algorithm {
@@ -149,6 +163,7 @@ impl DfProcessor {
             lon: None,
             station_id: None,
         }));
+        out.weights = Some(self.weights_for(f64::from(bearing_deg)));
         self.covariance.decay(CARRY_OVER);
     }
 }
@@ -263,6 +278,7 @@ mod tests {
             offset_hz: 25_000.0,
             bandwidth_hz: 20_000.0,
             sources: 1,
+            beam_bearing_deg: None,
             cal: CalParams::default(),
         })
     }

@@ -62,6 +62,12 @@ impl Aligner {
         f(&view[..lanes])
     }
 
+    /// Hands the beam ring to whoever is going to write into it, so the aligner keeps only what
+    /// it reads from.
+    pub(crate) fn take_beam(&mut self) -> Option<super::tap::BeamSink> {
+        self.taps.beam.take()
+    }
+
     pub(crate) fn release(mut self) -> CoherentTaps {
         self.taps.rewind();
         self.taps

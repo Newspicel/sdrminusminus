@@ -33,6 +33,7 @@ async function stageArray(page: Page): Promise<void> {
         offset_hz: 25_000,
         bandwidth_hz: 20_000,
         sources: 1,
+        beam_bearing_deg: null,
         cal: { source: "signal", bandwidth_hz: 200_000, pilot_hz: null, track: true },
       },
     },

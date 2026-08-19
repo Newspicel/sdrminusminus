@@ -56,6 +56,7 @@ pub use planning::FrontEndPlan;
 pub(crate) use planning::{channel_input_rate, descriptor_for, plan_front_end};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
+pub use sdrmm_device_array::ArrayCatalog;
 pub use symbols::{SYMBOL_BLOCKS_PER_SEC, SymbolBlock};
 pub use trunking::TrunkSystem;
 pub use video::{VideoPacket, VideoPicture};
@@ -84,6 +85,10 @@ const SDRPLAY_PRIORITY: u8 = 25;
 const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
+
+/// A composite the operator described by hand beats anything discovered, because it is the only
+/// thing that knows those radios belong together.
+const ARRAY_PRIORITY: u8 = 40;
 const EVENT_CHANNEL_CAP: usize = 256;
 const DECODED_QUEUE_CAP: usize = 4096;
 const DECODED_CHANNEL_CAP: usize = 1024;
@@ -115,6 +120,29 @@ pub fn builtin_registry_accelerated(
     recordings_dir: Option<PathBuf>,
     playback_speed: f64,
 ) -> DeviceRegistry {
+    builtin_registry_with(recordings_dir, playback_speed, &ArrayCatalog::new())
+}
+
+/// The built-in drivers plus a composite driver over them, so a bank of radios the operator has
+/// wired together opens like any other multi-lane radio.
+#[must_use]
+pub fn builtin_registry_with(
+    recordings_dir: Option<PathBuf>,
+    playback_speed: f64,
+    arrays: &ArrayCatalog,
+) -> DeviceRegistry {
+    let mut registry = single_registry(recordings_dir.clone(), playback_speed);
+    registry.register(
+        ARRAY_PRIORITY,
+        Box::new(sdrmm_device_array::ArrayDriver::new(
+            arrays.clone(),
+            std::sync::Arc::new(single_registry(recordings_dir, playback_speed)),
+        )),
+    );
+    registry
+}
+
+fn single_registry(recordings_dir: Option<PathBuf>, playback_speed: f64) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
     let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
@@ -610,6 +638,7 @@ impl Inner {
 
 pub struct Engine {
     registry: DeviceRegistry,
+    arrays: ArrayCatalog,
     inner: Mutex<Inner>,
     event_tx: broadcast::Sender<ServerEvent>,
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
@@ -630,12 +659,29 @@ pub struct Engine {
 impl Engine {
     #[must_use]
     pub fn new(recordings_dir: Option<PathBuf>) -> Arc<Self> {
-        let registry = builtin_registry(recordings_dir.clone());
-        Self::with_registry(registry, recordings_dir)
+        let arrays = ArrayCatalog::new();
+        let registry = builtin_registry_with(recordings_dir.clone(), 1.0, &arrays);
+        Self::with_arrays(registry, recordings_dir, arrays)
     }
 
     #[must_use]
     pub fn with_registry(registry: DeviceRegistry, recordings_dir: Option<PathBuf>) -> Arc<Self> {
+        Self::with_arrays(registry, recordings_dir, ArrayCatalog::new())
+    }
+
+    /// The arrays this engine's composite driver opens. Written by whoever the operator edits
+    /// them through, read by the driver on every probe.
+    #[must_use]
+    pub fn arrays(&self) -> &ArrayCatalog {
+        &self.arrays
+    }
+
+    #[must_use]
+    pub fn with_arrays(
+        registry: DeviceRegistry,
+        recordings_dir: Option<PathBuf>,
+        arrays: ArrayCatalog,
+    ) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
@@ -646,6 +692,7 @@ impl Engine {
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
             registry,
+            arrays,
             inner: Mutex::new(Inner::default()),
             event_tx,
             fault_tx,

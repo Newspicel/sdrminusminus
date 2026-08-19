@@ -539,6 +539,11 @@ pub struct ApiError {
     pub detail: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ArraysResponse {
+    pub arrays: Vec<crate::device::ArrayDefinition>,
+}
+
 /// Which online routing service the server proxies to.
 ///
 /// Both are OpenStreetMap-based and hand back a geometry that may be drawn on any map, which is

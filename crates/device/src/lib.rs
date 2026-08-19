@@ -130,6 +130,33 @@ impl RxSink {
             fatal_fn(err);
         }
     }
+
+    /// Moves this sink's fatal handler somewhere it can be reached from outside the push path.
+    ///
+    /// A composite device forwards samples through a closure that owns the sink, so nothing else
+    /// can reach the handler afterwards; the child that dies is not the one holding it.
+    #[must_use]
+    pub fn share_failure(&mut self) -> FatalHandle {
+        FatalHandle(Arc::new(Mutex::new(self.fatal_fn.take())))
+    }
+}
+
+/// A sink's fatal handler, held apart from the sink and callable once from anywhere.
+#[derive(Clone)]
+pub struct FatalHandle(Arc<Mutex<Option<FatalFn>>>);
+
+impl FatalHandle {
+    pub fn fail(&self, err: DeviceError) {
+        if let Some(fatal_fn) = lock(&self.0).take() {
+            fatal_fn(err);
+        }
+    }
+}
+
+impl std::fmt::Debug for FatalHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FatalHandle")
+    }
 }
 
 impl std::fmt::Debug for RxSink {

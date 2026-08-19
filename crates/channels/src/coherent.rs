@@ -41,6 +41,9 @@ pub struct CoherentOutputs {
     pub surface: Option<RangeDopplerSurface>,
     pub detections: Vec<RadarDetection>,
     pub events: Vec<DecoderEvent>,
+    /// What to multiply each lane by before summing them into the beam lane. A processor that
+    /// knows where the signal is can point the array at it; everything else leaves this alone.
+    pub weights: Option<Vec<Complex<f32>>>,
 }
 
 impl CoherentOutputs {
@@ -49,6 +52,7 @@ impl CoherentOutputs {
         self.surface = None;
         self.detections.clear();
         self.events.clear();
+        self.weights = None;
     }
 }
 

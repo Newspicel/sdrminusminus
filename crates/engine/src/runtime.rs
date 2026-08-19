@@ -622,14 +622,14 @@ impl Frontend {
 /// The capture callback runs before the thread it feeds exists, so the handle is published once
 /// the thread starts; until then `park_timeout` alone carries the loop.
 #[derive(Default)]
-struct Waker(OnceLock<std::thread::Thread>);
+pub(crate) struct Waker(OnceLock<std::thread::Thread>);
 
 impl Waker {
-    fn adopt_current(&self) {
+    pub(crate) fn adopt_current(&self) {
         let _ = self.0.set(std::thread::current());
     }
 
-    fn wake(&self) {
+    pub(crate) fn wake(&self) {
         if let Some(thread) = self.0.get() {
             thread.unpark();
         }
@@ -686,7 +686,6 @@ impl CaptureRuntime {
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
-        let spectrum_plan = SpectrumPlan::new(FFT_SIZE, lane_count);
         let per_stream = device.capabilities().per_stream;
         let Some(sample_rate) = settings.sample_rate else {
             return Err(DeviceError::Unsupported(
@@ -695,7 +694,7 @@ impl CaptureRuntime {
             ));
         };
         let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
-        let (mut lane_taps, coherent) = match device.capabilities().coherence {
+        let (mut lane_taps, mut coherent) = match device.capabilities().coherence {
             Coherence::None => (Vec::new(), None),
             _ if lane_count < 2 => (Vec::new(), None),
             _ => {
@@ -704,16 +703,20 @@ impl CaptureRuntime {
             }
         };
         lane_taps.reverse();
+        // The beam is one more lane of the same kind, so everything that already works on a lane
+        // works on the summed array without knowing where its samples came from.
+        let total_lanes = lane_count + usize::from(coherent.is_some());
+        let spectrum_plan = SpectrumPlan::new(FFT_SIZE, total_lanes);
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
-        let mut lanes: Vec<Lane> = Vec::with_capacity(lane_count);
+        let mut lanes: Vec<Lane> = Vec::with_capacity(total_lanes);
         let mut tails: Vec<(
             rtrb::Consumer<Complex<f32>>,
             mpsc::Receiver<DspCommand>,
             SpectrumAnalyzer,
         )> = Vec::with_capacity(lane_count);
         let ring = ring_capacity(sample_rate);
-        for stream in 0..lane_count {
+        for stream in 0..total_lanes {
             let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(ring);
             let overruns = Arc::new(AtomicU64::new(0));
             let stalled_us = Arc::new(AtomicU64::new(0));
@@ -722,33 +725,43 @@ impl CaptureRuntime {
             let wake = waker.clone();
             let fatal = fatal.clone();
             let mut lane_tap = lane_taps.pop();
-            sinks.push(RxSink::with_fatal_handler(
-                move |samples: &[Complex<f32>], index: u64| {
-                    if let Some(tap) = lane_tap.as_mut() {
-                        tap.push(samples, index);
-                    }
-                    let free = producer.slots();
-                    let take = free.min(samples.len());
-                    if take > 0
-                        && let Ok(chunk) = producer.write_chunk_uninit(take)
-                    {
-                        chunk.fill_from_iter(samples[..take].iter().copied());
-                    }
-                    if take < samples.len() {
-                        ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
-                    }
-                    wake.wake();
-                },
-                move |err| {
-                    if let Some(report) = fatal
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .take()
-                    {
-                        report(err);
-                    }
-                },
-            ));
+            if stream >= lane_count {
+                if let Some(taps) = coherent.as_mut() {
+                    taps.beam = Some(crate::coherent::BeamSink {
+                        producer,
+                        waker: waker.clone(),
+                        overruns: overruns.clone(),
+                    });
+                }
+            } else {
+                sinks.push(RxSink::with_fatal_handler(
+                    move |samples: &[Complex<f32>], index: u64| {
+                        if let Some(tap) = lane_tap.as_mut() {
+                            tap.push(samples, index);
+                        }
+                        let free = producer.slots();
+                        let take = free.min(samples.len());
+                        if take > 0
+                            && let Ok(chunk) = producer.write_chunk_uninit(take)
+                        {
+                            chunk.fill_from_iter(samples[..take].iter().copied());
+                        }
+                        if take < samples.len() {
+                            ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
+                        }
+                        wake.wake();
+                    },
+                    move |err| {
+                        if let Some(report) = fatal
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .take()
+                        {
+                            report(err);
+                        }
+                    },
+                ));
+            }
             let spectrum_tx = taps
                 .get(stream)
                 .cloned()

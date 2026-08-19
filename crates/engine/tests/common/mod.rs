@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use sdrmm_device_virtual::MOD_TONE_HZ;

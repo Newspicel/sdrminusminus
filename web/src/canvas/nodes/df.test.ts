@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ArrayGeometry, CalState } from "../../lib/types";
 import {
+  beamAzimuth,
+  beamMode,
   bearingLabel,
   CAL_VERDICT_TEXT,
   calVerdict,
@@ -118,5 +120,19 @@ describe("DEFAULT_DF_PARAMS", () => {
     expect(elementCount(DEFAULT_DF_PARAMS.geometry)).toBeGreaterThanOrEqual(2);
     expect(DEFAULT_DF_PARAMS.sources).toBeLessThan(elementCount(DEFAULT_DF_PARAMS.geometry));
     expect(DEFAULT_DF_PARAMS.report_ms).toBeGreaterThanOrEqual(100);
+  });
+});
+
+describe("beam steering", () => {
+  it("follows the bearing until the operator pins it", () => {
+    expect(beamMode(null)).toBe("follow");
+    expect(beamMode(0)).toBe("fixed");
+    expect(beamAzimuth("follow", 137)).toBeNull();
+  });
+
+  it("pins the beam where the array is already pointing", () => {
+    expect(beamAzimuth("fixed", 137.4)).toBe(137);
+    expect(beamAzimuth("fixed", 359.7)).toBe(0);
+    expect(beamAzimuth("fixed", null)).toBe(0);
   });
 });

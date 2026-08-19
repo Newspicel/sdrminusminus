@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod common;
+
 use std::{sync::Arc, time::Duration};
 
 use sdrmm_device::DeviceRegistry;
@@ -56,6 +58,7 @@ fn df_params(algorithm: DfAlgorithm) -> CoherentParams {
         offset_hz: array::WAVEFRONT_OFFSET_HZ,
         bandwidth_hz: 20_000.0,
         sources: 1,
+        beam_bearing_deg: None,
         cal: sdrmm_wire::CalParams::default(),
     })
 }
@@ -235,5 +238,146 @@ async fn a_radio_whose_lanes_share_nothing_refuses_a_coherent_node() {
         .add_coherent(ds, df_params(DfAlgorithm::Music), vec![0, 1, 2, 3])
         .expect_err("a non-coherent radio must be refused");
     assert!(error.is_bad_request(), "{error}");
+    engine.remove_device_set(ds).unwrap();
+}
+
+/// The lane the aggregator sums the array into: one past the antennas the radio actually has.
+fn beam_lane(engine: &Engine, ds: u32) -> u32 {
+    engine
+        .snapshot()
+        .device_sets
+        .iter()
+        .find(|set| set.id == ds)
+        .map_or(0, |set| set.capabilities.rx_streams)
+}
+
+/// How far one antenna's own marker stands above everything else on a lane.
+///
+/// A beam is not louder than an antenna — weights that add to one leave the wanted signal exactly
+/// where it was. What a beam does is change the balance between what the elements share and what
+/// they do not, and this is that balance: the marker belongs to one antenna alone, so the lower
+/// this reads, the more of what is left is the wavefront every element heard.
+async fn unshared_margin(engine: &Arc<Engine>, ds: u32, stream: u32) -> f64 {
+    let mut rx = engine.subscribe_spectrum(ds, stream).expect("a lane");
+    let mut margin = f64::NEG_INFINITY;
+    for _ in 0..24 {
+        let snapshot = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("a spectrum frame")
+            .expect("a frame");
+        let bins = snapshot.db.len();
+        let marker = sdrmm_device_virtual::stream_marker_offset_hz(0);
+        let bin = (marker / f64::from(snapshot.span_hz) + 0.5) * bins as f64;
+        let at = (bin.round() as usize).min(bins - 1);
+        let peak = snapshot.db[at.saturating_sub(4)..(at + 5).min(bins)]
+            .iter()
+            .fold(f32::NEG_INFINITY, |a, b| a.max(*b));
+        let mut sorted: Vec<f32> = snapshot.db.to_vec();
+        sorted.sort_by(f32::total_cmp);
+        margin = margin.max(f64::from(peak - sorted[bins / 2]));
+    }
+    margin
+}
+
+#[tokio::test]
+async fn the_beam_lane_carries_the_array_summed_towards_its_bearing() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine
+        .patch_device(
+            ds,
+            tuned(vec![
+                number(array::BEARING_SETTING, BEARING_DEG),
+                number(array::RADIUS_SETTING, 0.35),
+            ]),
+        )
+        .unwrap();
+    let beam = beam_lane(&engine, ds);
+    assert_eq!(beam, 4, "four antennas, then the beam");
+
+    let params = |aimed: Option<f64>| {
+        let CoherentParams::Df(df) = df_params(DfAlgorithm::Music) else {
+            unreachable!("df params")
+        };
+        CoherentParams::Df(DfParams {
+            beam_bearing_deg: aimed,
+            ..df
+        })
+    };
+
+    let node = engine
+        .add_coherent(ds, params(Some(BEARING_DEG)), vec![0, 1, 2, 3])
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("updates");
+    first_reading(&mut updates).await;
+    let lane = unshared_margin(&engine, ds, 0).await;
+    let aimed = unshared_margin(&engine, ds, beam).await;
+    assert!(
+        aimed < lane - 3.0,
+        "the beam must favour what the elements share: one antenna {lane:.1} dB, \
+         beam {aimed:.1} dB"
+    );
+
+    // A quarter turn off a four-element circle of this size is where its pattern goes to nothing,
+    // which is what makes the beam a beam rather than an average.
+    engine
+        .apply_coherent(ds, node, params(Some(BEARING_DEG + 90.0)), vec![0, 1, 2, 3])
+        .unwrap();
+    first_reading(&mut updates).await;
+    let away = unshared_margin(&engine, ds, beam).await;
+    assert!(
+        away > aimed + 6.0,
+        "steering into the null must throw the shared signal away: on target {aimed:.1} dB, \
+         null {away:.1} dB"
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_channel_on_the_beam_lane_hears_what_the_array_is_pointed_at() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine
+        .patch_device(
+            ds,
+            tuned(vec![
+                number(array::BEARING_SETTING, BEARING_DEG),
+                number(array::RADIUS_SETTING, 0.35),
+            ]),
+        )
+        .unwrap();
+    let beam = beam_lane(&engine, ds);
+    engine
+        .add_coherent(ds, df_params(DfAlgorithm::Music), vec![0, 1, 2, 3])
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("updates");
+    first_reading(&mut updates).await;
+
+    let channel = engine
+        .add_channel(
+            ds,
+            beam,
+            sdrmm_wire::ChannelSettings {
+                offset_hz: array::WAVEFRONT_OFFSET_HZ,
+                squelch_db: None,
+                squelch_auto_db: None,
+                params: sdrmm_wire::ChannelParams::Nfm(sdrmm_wire::NfmParams::default()),
+                audio: Default::default(),
+            },
+        )
+        .expect("a channel on the beam");
+    let mut audio = engine.subscribe_audio(ds, channel).expect("audio");
+    let decoded = common::settle_then_collect_second(&mut audio).await;
+    let heard = decoded
+        .iter()
+        .map(|plane| {
+            let power: f64 = plane.iter().map(|s| f64::from(*s) * f64::from(*s)).sum();
+            (power / plane.len().max(1) as f64).sqrt()
+        })
+        .fold(0.0f64, f64::max);
+    assert!(
+        heard > 1e-4,
+        "the beam lane fed a channel no audio at all: {heard}"
+    );
     engine.remove_device_set(ds).unwrap();
 }

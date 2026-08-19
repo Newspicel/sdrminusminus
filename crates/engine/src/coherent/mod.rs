@@ -22,7 +22,7 @@ pub(crate) use host::CoherentHost;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use host::CoherentSinks;
 pub use host::{CoherentUpdate, SurfaceUpdate};
-pub(crate) use tap::{CoherentTaps, lane_taps};
+pub(crate) use tap::{BeamSink, CoherentTaps, lane_taps};
 
 /// Backstop only: the aggregator has samples to chew on almost every pass.
 const IDLE_PARK: Duration = Duration::from_millis(5);
@@ -152,6 +152,48 @@ impl Drop for CoherentRuntime {
     }
 }
 
+/// Sums the lanes into one, pointed wherever the last steering said.
+///
+/// Nothing downstream knows: the beam arrives in an ordinary capture ring with an ordinary dsp
+/// thread on it, so a channel, a recorder or a spectrum subscription works on the array's
+/// combined output exactly as it works on one antenna.
+struct Beam {
+    sink: BeamSink,
+    weights: Vec<Complex<f32>>,
+    summed: Vec<Complex<f32>>,
+}
+
+impl Beam {
+    fn new(sink: BeamSink) -> Self {
+        Self {
+            sink,
+            weights: Vec::new(),
+            summed: Vec::new(),
+        }
+    }
+
+    fn steer(&mut self, weights: Vec<Complex<f32>>) {
+        self.weights = weights;
+    }
+
+    fn sum(&mut self, lanes: &[&[Complex<f32>]], count: usize) {
+        if self.weights.is_empty() || lanes.is_empty() {
+            return;
+        }
+        self.summed.clear();
+        self.summed.resize(count, Complex::new(0.0, 0.0));
+        for (lane, weight) in lanes.iter().zip(&self.weights) {
+            if *weight == Complex::new(0.0, 0.0) {
+                continue;
+            }
+            for (slot, sample) in self.summed.iter_mut().zip(lane.iter().take(count)) {
+                *slot += sample * weight;
+            }
+        }
+        self.sink.push(&self.summed);
+    }
+}
+
 fn aggregate(
     mut aligner: Aligner,
     mut calibrator: cal::Calibrator,
@@ -164,6 +206,7 @@ fn aggregate(
     let mut seen = 0u64;
     let mut center = center_hz;
     let sample_rate = aligner.sample_rate();
+    let mut beam = aligner.take_beam().map(Beam::new);
     while !stop.load(Ordering::Acquire) {
         drain_commands(
             commands,
@@ -195,8 +238,18 @@ fn aggregate(
                 host.process(lanes, ctx);
             }
         });
+        if let Some(beam) = beam.as_mut() {
+            for host in &mut sinks {
+                if let Some(weights) = host.take_weights() {
+                    beam.steer(weights);
+                }
+            }
+            calibrator.with_lanes(count, |lanes| beam.sum(lanes, count));
+        }
     }
-    aligner.release()
+    let mut taps = aligner.release();
+    taps.beam = beam.map(|beam| beam.sink);
+    taps
 }
 
 fn drain_commands(

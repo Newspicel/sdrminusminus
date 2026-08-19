@@ -148,6 +148,7 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Backg
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
     state.gps.reconcile(&state);
+    rest::reload_arrays(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()

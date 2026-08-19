@@ -4730,6 +4730,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-array"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-device-virtual",
+ "sdrmm-wire",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-hackrf"
 version = "0.0.0"
 dependencies = [
@@ -4828,6 +4839,7 @@ dependencies = [
  "rtrb",
  "sdrmm-channels",
  "sdrmm-device",
+ "sdrmm-device-array",
  "sdrmm-device-hackrf",
  "sdrmm-device-net",
  "sdrmm-device-rtlsdr",
@@ -4891,6 +4903,7 @@ dependencies = [
  "schemars 1.2.2",
  "sdrmm-channels",
  "sdrmm-device",
+ "sdrmm-device-array",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",

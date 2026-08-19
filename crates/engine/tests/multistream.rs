@@ -192,9 +192,10 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     let engine = engine();
     let ds = engine.create_device_set(ARRAY).unwrap();
 
-    let err = engine.add_channel(ds, 4, nfm(0.0, None)).unwrap_err();
+    // Four antennas and the beam the array sums them into, which is a lane like any other.
+    let err = engine.add_channel(ds, 5, nfm(0.0, None)).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
-    assert!(err.to_string().contains("4 rx streams"), "unhelpful: {err}");
+    assert!(err.to_string().contains("5 rx streams"), "unhelpful: {err}");
     assert!(
         engine.snapshot().device_sets[0].channels.is_empty(),
         "a refused add must not leave a channel behind"
@@ -203,9 +204,9 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     let err = engine.subscribe_spectrum(ds, 99).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
 
-    let err = engine.start_recording(ds, 4).unwrap_err();
+    let err = engine.start_recording(ds, 5).unwrap_err();
     assert!(err.is_bad_request(), "expected bad request, got {err}");
-    assert!(err.to_string().contains("4 rx streams"), "unhelpful: {err}");
+    assert!(err.to_string().contains("5 rx streams"), "unhelpful: {err}");
 
     let siggen = engine.create_device_set("virtual:siggen").unwrap();
     let err = engine.add_channel(siggen, 1, nfm(0.0, None)).unwrap_err();

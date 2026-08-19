@@ -59,6 +59,7 @@ pub(crate) struct CoherentHost {
     freq_hz: f64,
     since_state: f64,
     state_samples: f64,
+    weights: Option<Vec<Complex<f32>>>,
 }
 
 impl CoherentHost {
@@ -91,12 +92,38 @@ impl CoherentHost {
             freq_hz: ctx.center_hz,
             since_state: 0.0,
             state_samples: ctx.sample_rate * STATE_INTERVAL_S,
+            weights: None,
         }))
     }
 
     pub(crate) const fn node(&self) -> u32 {
         self.node
     }
+
+    /// The steering this processor last worked out, handed over once so the aggregator can point
+    /// the beam lane where the array is looking.
+    pub(crate) fn take_weights(&mut self) -> Option<Vec<Complex<f32>>> {
+        self.weights.take()
+    }
+}
+
+/// Puts a processor's per-element weights back in the radio's own lane order, because the
+/// aggregator sums lanes and the processor counts elements.
+fn reorder(weights: &[Complex<f32>], lanes: &[u32]) -> Vec<Complex<f32>> {
+    let mut out = vec![
+        Complex::new(0.0, 0.0);
+        lanes
+            .iter()
+            .map(|lane| *lane as usize + 1)
+            .max()
+            .unwrap_or(0)
+    ];
+    for (weight, lane) in weights.iter().zip(lanes) {
+        if let Some(slot) = out.get_mut(*lane as usize) {
+            *slot = *weight;
+        }
+    }
+    out
 }
 
 impl super::AlignedSink for CoherentHost {
@@ -139,6 +166,9 @@ impl super::AlignedSink for CoherentHost {
             || self.outputs.surface.is_some();
         if !has_report && self.outputs.events.is_empty() {
             return;
+        }
+        if let Some(weights) = self.outputs.weights.take() {
+            self.weights = Some(reorder(&weights, &self.lanes));
         }
         for event in self.outputs.events.drain(..) {
             self.sinks.decoded.publish(self.freq_hz, event);

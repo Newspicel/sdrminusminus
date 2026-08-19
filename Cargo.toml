@@ -6,6 +6,7 @@ members = [
     "crates/modem",
     "crates/device",
     "crates/device-virtual",
+    "crates/device-array",
     "crates/device-soapy",
     "crates/device-sdrplay",
     "crates/device-rtlsdr",
@@ -28,6 +29,7 @@ default-members = [
     "crates/modem",
     "crates/device",
     "crates/device-virtual",
+    "crates/device-array",
     "crates/device-soapy",
     "crates/device-sdrplay",
     "crates/device-rtlsdr",
@@ -58,6 +60,7 @@ sdrmm-dsp = { path = "crates/dsp" }
 sdrmm-modem = { path = "crates/modem" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
+sdrmm-device-array = { path = "crates/device-array" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-device-sdrplay = { path = "crates/device-sdrplay" }
 sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }

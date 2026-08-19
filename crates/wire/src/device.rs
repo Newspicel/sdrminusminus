@@ -476,6 +476,66 @@ impl Capabilities {
     }
 }
 
+pub const ARRAY_DRIVER_ID: &str = "array";
+pub const MAX_ARRAY_MEMBERS: usize = 16;
+pub const MAX_ARRAY_KEY_LEN: usize = 64;
+
+/// A bank of separate radios the operator has wired to one clock and wants treated as one.
+///
+/// Nothing here is discovered: which radios belong together, and whether their clock alone is
+/// shared or their synthesizer too, is a fact about the bench that only the operator knows.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ArrayDefinition {
+    pub key: String,
+    pub label: String,
+    /// Member device ids, in the order their lanes are numbered.
+    pub members: Vec<String>,
+    pub coherence: Coherence,
+    /// Whether every member is tuned together. A bank whose members can be tuned apart is a bank
+    /// of receivers; only one tuned together is an array.
+    #[serde(default = "yes")]
+    pub shared_tuning: bool,
+}
+
+const fn yes() -> bool {
+    true
+}
+
+impl ArrayDefinition {
+    #[must_use]
+    pub fn id(&self) -> String {
+        format!("{ARRAY_DRIVER_ID}:{}", self.key)
+    }
+
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        !self.key.is_empty()
+            && self.key.len() <= MAX_ARRAY_KEY_LEN
+            && self
+                .key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            && (2..=MAX_ARRAY_MEMBERS).contains(&self.members.len())
+            && self.members.iter().all(|member| member.contains(':'))
+            && {
+                let mut seen = self.members.clone();
+                seen.sort_unstable();
+                seen.dedup();
+                seen.len() == self.members.len()
+            }
+            && self.coherence != Coherence::None
+    }
+
+    #[must_use]
+    pub fn per_stream(&self) -> StreamScope {
+        StreamScope {
+            tuning: !self.shared_tuning,
+            gain: true,
+            antenna: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GainValue {
     pub stage: String,

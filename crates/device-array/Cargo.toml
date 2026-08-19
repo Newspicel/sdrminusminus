@@ -1,0 +1,20 @@
+[package]
+name = "sdrmm-device-array"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-device.workspace = true
+sdrmm-wire.workspace = true
+num-complex.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+sdrmm-device-virtual.workspace = true

@@ -5,8 +5,8 @@ use std::{
 
 use sdrmm_engine::{Engine, coherent::CoherentUpdate};
 use sdrmm_wire::{
-    CoherentParams, NodeBody, PatchGraph, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT,
-    ServerEvent, port_stream, stream_port,
+    CoherentParams, DF_BEAM_PORT, NodeBody, PatchGraph, RADAR_REFERENCE_PORT,
+    RADAR_SURVEILLANCE_PORT, ServerEvent, port_stream, stream_port,
 };
 use tokio::{sync::broadcast, task::JoinHandle};
 
@@ -100,6 +100,49 @@ pub(crate) fn wired_lanes(
         lanes.push(port_stream("iq", &edge.from.port)?);
     }
     device.map(|device| (device, lanes))
+}
+
+/// The channel node, if any, listening to a direction finder's beam.
+#[must_use]
+pub(crate) fn beam_listener(graph: &PatchGraph, node: &str) -> Option<String> {
+    graph
+        .edges
+        .iter()
+        .find(|edge| edge.from.node == node && edge.from.port == DF_BEAM_PORT)
+        .map(|edge| edge.to.node.clone())
+}
+
+/// Which channels are listening to a beam rather than to an antenna, and on which lane.
+///
+/// The aggregator writes the summed array one past the radio's own lanes, so a channel wired to
+/// the beam is an ordinary channel on an ordinary lane — it just is not a lane the radio has.
+#[must_use]
+pub(crate) fn beam_channels(
+    state: &crate::AppState,
+    graph: &PatchGraph,
+    snapshot: &sdrmm_wire::StateSnapshot,
+) -> Vec<(String, u32, u32)> {
+    let mut out = Vec::new();
+    for node in &graph.nodes {
+        if !matches!(node.body, NodeBody::Df(_)) {
+            continue;
+        }
+        let Some(listener) = beam_listener(graph, &node.id) else {
+            continue;
+        };
+        let Some(binding) = state.coherent.binding(&node.id) else {
+            continue;
+        };
+        let Some(set) = snapshot
+            .device_sets
+            .iter()
+            .find(|set| set.id == binding.device_set)
+        else {
+            continue;
+        };
+        out.push((listener, set.id, set.capabilities.rx_streams));
+    }
+    out
 }
 
 #[must_use]

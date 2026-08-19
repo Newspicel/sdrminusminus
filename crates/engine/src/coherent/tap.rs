@@ -165,6 +165,32 @@ impl LaneFeed {
     }
 }
 
+/// Where the summed array lands: an ordinary capture ring with an ordinary dsp thread on it, so
+/// every decoder, recorder and spectrum subscription works on the beam without knowing it is one.
+pub(crate) struct BeamSink {
+    pub(crate) producer: Producer<Complex<f32>>,
+    pub(crate) waker: Arc<crate::runtime::Waker>,
+    pub(crate) overruns: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl BeamSink {
+    pub(crate) fn push(&mut self, samples: &[Complex<f32>]) {
+        let take = self.producer.slots().min(samples.len());
+        if take > 0
+            && let Ok(chunk) = self.producer.write_chunk_uninit(take)
+        {
+            chunk.fill_from_iter(samples[..take].iter().copied());
+        }
+        if take < samples.len() {
+            self.overruns.fetch_add(
+                (samples.len() - take) as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        self.waker.wake();
+    }
+}
+
 /// Every lane's consumer end plus the switch that decides whether the capture callbacks write at
 /// all. Held by the capture runtime while nothing coherent is running, and lent to the aggregator
 /// for as long as one is.
@@ -172,6 +198,7 @@ pub(crate) struct CoherentTaps {
     pub(crate) feeds: Vec<LaneFeed>,
     pub(crate) armed: Arc<AtomicBool>,
     pub(crate) sample_rate: f64,
+    pub(crate) beam: Option<BeamSink>,
 }
 
 impl CoherentTaps {
@@ -219,6 +246,7 @@ pub(crate) fn lane_taps(lanes: usize, sample_rate: f64) -> (Vec<LaneTap>, Cohere
             feeds,
             armed,
             sample_rate,
+            beam: None,
         },
     )
 }

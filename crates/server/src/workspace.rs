@@ -66,6 +66,35 @@ pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(St
     bound
 }
 
+/// Channels wired to a direction finder's beam rather than to an antenna, which sit on the lane
+/// one past the radio's own.
+fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
+    let mut bound = Vec::new();
+    for node in &graph.nodes {
+        let NodeBody::Df(_) = &node.body else {
+            continue;
+        };
+        let from_device = graph
+            .edges
+            .iter()
+            .any(|edge| edge.to.node == node.id && edge.from.node == device_node);
+        if !from_device {
+            continue;
+        }
+        let Some(listener) = crate::coherent::beam_listener(graph, &node.id) else {
+            continue;
+        };
+        if let Some(channel) = set
+            .channels
+            .iter()
+            .find(|channel| channel.stream == set.capabilities.rx_streams)
+        {
+            bound.push((listener, channel.id));
+        }
+    }
+    bound
+}
+
 fn bind_channels(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
     let mut live: Vec<(u32, &str, u32)> = set
         .channels
@@ -89,6 +118,7 @@ fn bind_channels(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<
             bound.push((node.id.clone(), live.remove(at).0));
         }
     }
+    bound.extend(beam_bound(graph, device_node, set));
     bound
 }
 

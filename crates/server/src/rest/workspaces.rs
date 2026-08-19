@@ -272,6 +272,43 @@ pub(super) fn bring_up(
     for (node, reason) in crate::coherent::apply(app, &snapshot.graph, &bound) {
         report.refused.push(PatchRefusal { node, reason });
     }
+    let live = engine.snapshot();
+    for (node, device_set, stream) in crate::coherent::beam_channels(app, &snapshot.graph, &live) {
+        let Some(patch) = snapshot.graph.node(&node) else {
+            continue;
+        };
+        let NodeBody::Channel(channel) = &patch.body else {
+            continue;
+        };
+        let already = live
+            .device_sets
+            .iter()
+            .find(|set| set.id == device_set)
+            .is_some_and(|set| {
+                set.channels.iter().any(|existing| {
+                    existing.stream == stream
+                        && existing.settings.params.type_id() == channel.channel_type
+                })
+            });
+        if already {
+            continue;
+        }
+        let Some(settings) = workspace::channel_settings(&node, &channel.channel_type, saved)
+        else {
+            report.refused.push(PatchRefusal {
+                node: node.clone(),
+                reason: format!("this build has no channel type {:?}", channel.channel_type),
+            });
+            continue;
+        };
+        match engine.add_channel(device_set, stream, settings) {
+            Ok(_) => report.created += 1,
+            Err(err) => report.refused.push(PatchRefusal {
+                node,
+                reason: err.to_string(),
+            }),
+        }
+    }
     Ok(report)
 }
 

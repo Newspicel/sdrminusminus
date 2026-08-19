@@ -68,6 +68,110 @@
         }
       }
     },
+    "/api/arrays": {
+      "get": {
+        "operationId": "list_arrays",
+        "responses": {
+          "200": {
+            "description": "Every array the operator has described",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArraysResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/arrays/{key}": {
+      "put": {
+        "operationId": "put_array",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The array's own key, which names its device id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArrayDefinition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The array is described and will be probed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArrayDefinition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_array",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The array's own key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The array is no longer described"
+          },
+          "404": {
+            "description": "No array of that name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/audiorecordings": {
       "get": {
         "operationId": "list_audio_recordings",
@@ -4090,6 +4194,38 @@
           "string"
         ]
       },
+      "ArrayDefinition": {
+        "type": "object",
+        "description": "A bank of separate radios the operator has wired to one clock and wants treated as one.\n\nNothing here is discovered: which radios belong together, and whether their clock alone is\nshared or their synthesizer too, is a fact about the bench that only the operator knows.",
+        "required": [
+          "key",
+          "label",
+          "members",
+          "coherence"
+        ],
+        "properties": {
+          "coherence": {
+            "$ref": "#/components/schemas/Coherence"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member device ids, in the order their lanes are numbered."
+          },
+          "shared_tuning": {
+            "type": "boolean",
+            "description": "Whether every member is tuned together. A bank whose members can be tuned apart is a bank\nof receivers; only one tuned together is an array."
+          }
+        }
+      },
       "ArrayElement": {
         "type": "object",
         "required": [
@@ -4185,6 +4321,20 @@
           }
         ],
         "description": "Where the elements are, in the terms an operator can measure with a tape."
+      },
+      "ArraysResponse": {
+        "type": "object",
+        "required": [
+          "arrays"
+        ],
+        "properties": {
+          "arrays": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArrayDefinition"
+            }
+          }
+        }
       },
       "Attribution": {
         "type": "object",
@@ -8589,6 +8739,15 @@
             "type": "number",
             "format": "double",
             "default": 20000.0
+          },
+          "beam_bearing_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Where to point the summed beam. Unset follows whatever bearing the array found, which is\nthe whole point of having both on one node.",
+            "default": null
           },
           "cal": {
             "oneOf": [

@@ -32,6 +32,7 @@ sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
+sdrmm-device-array.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-device-sdrplay = { workspace = true, optional = true }
 sdrmm-device-rtlsdr = { workspace = true, optional = true }

@@ -11,6 +11,8 @@ import type { DfAlgorithm, DfParams, PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import {
+  beamAzimuth,
+  beamMode,
   bearingLabel,
   CAL_VERDICT_TEXT,
   COMPASS_MARKS,
@@ -34,6 +36,11 @@ const ALGORITHMS: Options<DfAlgorithm> = [
 const GEOMETRIES: Options<"uca" | "ula"> = [
   { value: "uca", label: "Circle" },
   { value: "ula", label: "Line" },
+];
+
+const BEAMS: Options<"follow" | "fixed"> = [
+  { value: "follow", label: "Follow bearing" },
+  { value: "fixed", label: "Fixed azimuth" },
 ];
 
 const SIZE = 220;
@@ -103,7 +110,11 @@ export function DfFace({ node }: { node: PatchNode }) {
             </Button>
           </div>
         )}
-        <DfSettings settings={settings} onChange={update} />
+        <DfSettings
+          settings={settings}
+          bearingDeg={bearing?.bearing_deg ?? null}
+          onChange={update}
+        />
       </FaceBody>
     </NodeShell>
   );
@@ -196,9 +207,11 @@ function LaneStrip({ cal }: { cal: { lanes: readonly { quality: number }[] } }) 
 
 function DfSettings({
   settings,
+  bearingDeg,
   onChange,
 }: {
   settings: DfParams;
+  bearingDeg: number | null;
   onChange: (next: Partial<DfParams>) => void;
 }) {
   return (
@@ -289,6 +302,26 @@ function DfSettings({
           onCommit={(report_ms) => onChange({ report_ms })}
         />
       </SettingRow>
+      <SettingRow label="Beam">
+        <Select
+          label="Where the beam output points"
+          value={beamMode(settings.beam_bearing_deg)}
+          onChange={(mode) => onChange({ beam_bearing_deg: beamAzimuth(mode, bearingDeg) })}
+          options={BEAMS}
+        />
+      </SettingRow>
+      {settings.beam_bearing_deg !== null && (
+        <SettingRow label="Azimuth">
+          <NumberField
+            label="Beam azimuth in degrees"
+            value={settings.beam_bearing_deg}
+            min={0}
+            max={359}
+            step={1}
+            onCommit={(beam_bearing_deg) => onChange({ beam_bearing_deg })}
+          />
+        </SettingRow>
+      )}
     </Settings>
   );
 }
