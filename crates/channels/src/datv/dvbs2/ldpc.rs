@@ -2,13 +2,68 @@ use super::tables;
 
 pub const GROUP: usize = 360;
 pub const NORMAL: usize = 64_800;
+pub const MEDIUM: usize = 32_400;
 pub const SHORT: usize = 16_200;
+const KNOWN: f32 = 32.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Frame {
+    Short,
+    Medium,
+    #[default]
+    Normal,
+}
+
+impl Frame {
+    #[must_use]
+    pub const fn of(short: bool) -> Self {
+        if short { Self::Short } else { Self::Normal }
+    }
+
+    #[must_use]
+    pub const fn length(self) -> usize {
+        match self {
+            Self::Short => SHORT,
+            Self::Medium => MEDIUM,
+            Self::Normal => NORMAL,
+        }
+    }
+
+    #[must_use]
+    pub const fn correct_bits(self) -> usize {
+        match self {
+            Self::Short => 14,
+            Self::Medium => 15,
+            Self::Normal => 16,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Shape {
+    pub shorten: usize,
+    pub period: usize,
+    pub punctured: usize,
+}
+
+impl Shape {
+    #[must_use]
+    pub const fn is_punctured(&self, parity: usize) -> bool {
+        self.period > 0
+            && parity.is_multiple_of(self.period)
+            && parity / self.period < self.punctured
+    }
+}
 const NORMALIZE: f32 = 0.75;
 const MAX_ITERATIONS: usize = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rate {
+    R1_5,
+    R2_9,
+    R11_45,
     R1_4,
+    R4_15,
     R1_3,
     R2_5,
     R1_2,
@@ -25,7 +80,11 @@ impl Rate {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::R1_5 => "1/5",
+            Self::R2_9 => "2/9",
+            Self::R11_45 => "11/45",
             Self::R1_4 => "1/4",
+            Self::R4_15 => "4/15",
             Self::R1_3 => "1/3",
             Self::R2_5 => "2/5",
             Self::R1_2 => "1/2",
@@ -40,16 +99,18 @@ impl Rate {
     }
 
     #[must_use]
-    pub fn information(self, short: bool) -> usize {
-        self.addresses(short)
+    pub fn information(self, frame: Frame) -> usize {
+        self.addresses(frame)
             .map_or(0, |addresses| addresses.len() * GROUP)
     }
 
     #[must_use]
-    pub fn addresses(self, short: bool) -> Option<&'static [&'static [u16]]> {
-        if short {
-            Some(match self {
+    pub fn addresses(self, frame: Frame) -> Option<&'static [&'static [u16]]> {
+        Some(match frame {
+            Frame::Short => match self {
+                Self::R11_45 => &tables::short::R11_45,
                 Self::R1_4 => &tables::short::R1_4,
+                Self::R4_15 => &tables::short::R4_15,
                 Self::R1_3 => &tables::short::R1_3,
                 Self::R2_5 => &tables::short::R2_5,
                 Self::R1_2 => &tables::short::R1_2,
@@ -59,10 +120,16 @@ impl Rate {
                 Self::R4_5 => &tables::short::R4_5,
                 Self::R5_6 => &tables::short::R5_6,
                 Self::R8_9 => &tables::short::R8_9,
-                Self::R9_10 => return None,
-            })
-        } else {
-            Some(match self {
+                Self::R1_5 | Self::R2_9 | Self::R9_10 => return None,
+            },
+            Frame::Medium => match self {
+                Self::R1_5 => &tables::medium::R1_5,
+                Self::R11_45 => &tables::medium::R11_45,
+                Self::R1_3 => &tables::medium::R1_3,
+                _ => return None,
+            },
+            Frame::Normal => match self {
+                Self::R2_9 => &tables::normal::R2_9,
                 Self::R1_4 => &tables::normal::R1_4,
                 Self::R1_3 => &tables::normal::R1_3,
                 Self::R2_5 => &tables::normal::R2_5,
@@ -74,8 +141,9 @@ impl Rate {
                 Self::R5_6 => &tables::normal::R5_6,
                 Self::R8_9 => &tables::normal::R8_9,
                 Self::R9_10 => &tables::normal::R9_10,
-            })
-        }
+                Self::R1_5 | Self::R11_45 | Self::R4_15 => return None,
+            },
+        })
     }
 }
 
@@ -123,9 +191,9 @@ pub struct Ldpc {
 
 impl Ldpc {
     #[must_use]
-    pub fn new(rate: Rate, short: bool) -> Option<Self> {
-        let length = if short { SHORT } else { NORMAL };
-        let addresses = rate.addresses(short)?;
+    pub fn new(rate: Rate, frame: Frame) -> Option<Self> {
+        let length = frame.length();
+        let addresses = rate.addresses(frame)?;
         let information = addresses.len() * GROUP;
         let parity = length - information;
         let step = parity / GROUP;
@@ -173,12 +241,22 @@ impl Ldpc {
         self.length - self.information
     }
 
-    pub fn encode(&self, information: &[bool], out: &mut Vec<bool>) {
+    #[must_use]
+    pub const fn message(&self, shape: Shape) -> usize {
+        self.information - shape.shorten
+    }
+
+    #[must_use]
+    pub const fn transmitted(&self, shape: Shape) -> usize {
+        self.length - shape.shorten - shape.punctured
+    }
+
+    fn parity_of(&self, full: &[bool]) -> Vec<bool> {
         let parity_len = self.parity();
         let mut parity = vec![false; parity_len];
         for (check, slot) in parity.iter_mut().enumerate() {
             for &variable in self.checks.row(check) {
-                if (variable as usize) < self.information && information[variable as usize] {
+                if (variable as usize) < self.information && full[variable as usize] {
                     *slot ^= true;
                 }
             }
@@ -187,8 +265,41 @@ impl Ldpc {
             let previous = parity[index - 1];
             parity[index] ^= previous;
         }
+        parity
+    }
+
+    pub fn encode(&self, information: &[bool], out: &mut Vec<bool>) {
         out.extend_from_slice(information);
-        out.extend_from_slice(&parity);
+        out.extend_from_slice(&self.parity_of(information));
+    }
+
+    pub fn encode_shaped(&self, information: &[bool], shape: Shape, out: &mut Vec<bool>) {
+        let mut full = vec![false; shape.shorten];
+        full.extend_from_slice(information);
+        full.resize(self.information, false);
+        let parity = self.parity_of(&full);
+        out.extend_from_slice(information);
+        for (index, &bit) in parity.iter().enumerate() {
+            if !shape.is_punctured(index) {
+                out.push(bit);
+            }
+        }
+    }
+
+    pub fn expand(&self, llrs: &[f32], shape: Shape, out: &mut Vec<f32>) {
+        out.clear();
+        out.resize(shape.shorten, KNOWN);
+        let split = self.message(shape);
+        out.extend_from_slice(&llrs[..split.min(llrs.len())]);
+        let mut cursor = split;
+        for index in 0..self.parity() {
+            if shape.is_punctured(index) {
+                out.push(0.0);
+            } else {
+                out.push(llrs.get(cursor).copied().unwrap_or(0.0));
+                cursor += 1;
+            }
+        }
     }
 
     fn satisfied(&self) -> bool {
@@ -320,29 +431,29 @@ mod tests {
         for (rate, information) in RATES.into_iter().zip([
             16_200, 21_600, 25_920, 32_400, 38_880, 43_200, 48_600, 51_840, 54_000, 57_600, 58_320,
         ]) {
-            let code = Ldpc::new(rate, false).unwrap_or_else(|| panic!("{rate:?} normal"));
+            let code = Ldpc::new(rate, Frame::Normal).unwrap_or_else(|| panic!("{rate:?} normal"));
             assert_eq!(code.length, NORMAL);
             assert_eq!(code.information, information, "{rate:?}");
-            assert_eq!(rate.information(false), information, "{rate:?}");
+            assert_eq!(rate.information(Frame::Normal), information, "{rate:?}");
             assert!(code.parity().is_multiple_of(GROUP));
         }
         for (rate, information) in RATES[..10].iter().zip([
             3_240, 5_400, 6_480, 7_200, 9_720, 10_800, 11_880, 12_600, 13_320, 14_400,
         ]) {
-            let code = Ldpc::new(*rate, true).unwrap_or_else(|| panic!("{rate:?} short"));
+            let code = Ldpc::new(*rate, Frame::Short).unwrap_or_else(|| panic!("{rate:?} short"));
             assert_eq!(code.length, SHORT);
             assert_eq!(code.information, information, "{rate:?}");
-            assert_eq!(rate.information(true), information, "{rate:?}");
+            assert_eq!(rate.information(Frame::Short), information, "{rate:?}");
         }
-        assert!(Ldpc::new(Rate::R9_10, true).is_none());
-        assert_eq!(Rate::R9_10.information(true), 0);
+        assert!(Ldpc::new(Rate::R9_10, Frame::Short).is_none());
+        assert_eq!(Rate::R9_10.information(Frame::Short), 0);
     }
 
     #[test]
     fn every_encoded_word_satisfies_its_parity_checks() {
-        for short in [true, false] {
+        for frame in [Frame::Short, Frame::Normal] {
             for rate in RATES {
-                let Some(code) = Ldpc::new(rate, short) else {
+                let Some(code) = Ldpc::new(rate, frame) else {
                     continue;
                 };
                 let information = message(code.information, 7);
@@ -351,7 +462,7 @@ mod tests {
                 assert_eq!(codeword.len(), code.length);
                 assert!(
                     syndrome_is_zero(&code, &codeword),
-                    "{rate:?} short={short} leaves a non-zero syndrome"
+                    "{rate:?} {frame:?} leaves a non-zero syndrome"
                 );
             }
         }
@@ -365,8 +476,96 @@ mod tests {
     }
 
     #[test]
+    fn every_very_low_rate_code_has_the_length_its_table_promises() {
+        for (rate, frame, information) in [
+            (Rate::R2_9, Frame::Normal, 14_400),
+            (Rate::R1_5, Frame::Medium, 6_480),
+            (Rate::R11_45, Frame::Medium, 7_920),
+            (Rate::R1_3, Frame::Medium, 10_800),
+            (Rate::R11_45, Frame::Short, 3_960),
+            (Rate::R4_15, Frame::Short, 4_320),
+        ] {
+            let code = Ldpc::new(rate, frame).unwrap_or_else(|| panic!("{rate:?} {frame:?}"));
+            assert_eq!(code.length, frame.length(), "{rate:?} {frame:?}");
+            assert_eq!(code.information, information, "{rate:?} {frame:?}");
+            assert!(code.parity().is_multiple_of(GROUP), "{rate:?} {frame:?}");
+            let message = message(information, 29);
+            let mut codeword = Vec::new();
+            code.encode(&message, &mut codeword);
+            assert!(syndrome_is_zero(&code, &codeword), "{rate:?} {frame:?}");
+        }
+        assert!(Ldpc::new(Rate::R2_9, Frame::Short).is_none());
+        assert!(Ldpc::new(Rate::R3_4, Frame::Medium).is_none());
+    }
+
+    #[test]
+    fn a_shortened_and_punctured_word_decodes_back_to_its_message() {
+        for (rate, frame, shape) in [
+            (
+                Rate::R2_9,
+                Frame::Normal,
+                Shape {
+                    shorten: 0,
+                    period: 15,
+                    punctured: 3_240,
+                },
+            ),
+            (
+                Rate::R1_5,
+                Frame::Medium,
+                Shape {
+                    shorten: 640,
+                    period: 25,
+                    punctured: 980,
+                },
+            ),
+            (
+                Rate::R1_4,
+                Frame::Short,
+                Shape {
+                    shorten: 560,
+                    period: 30,
+                    punctured: 250,
+                },
+            ),
+            (
+                Rate::R4_15,
+                Frame::Short,
+                Shape {
+                    shorten: 0,
+                    period: 8,
+                    punctured: 1_224,
+                },
+            ),
+        ] {
+            let mut code = Ldpc::new(rate, frame).expect("a code");
+            let information = message(code.message(shape), 31);
+            let mut codeword = Vec::new();
+            code.encode_shaped(&information, shape, &mut codeword);
+            assert_eq!(
+                codeword.len(),
+                code.transmitted(shape),
+                "{rate:?} {frame:?}"
+            );
+            let mut received = llrs(&codeword, 4.0);
+            for position in (0..received.len()).step_by(419) {
+                received[position] = -received[position];
+            }
+            let mut expanded = Vec::new();
+            code.expand(&received, shape, &mut expanded);
+            let mut out = Vec::new();
+            assert!(
+                code.decode(&expanded, &mut out).is_some(),
+                "{rate:?} {frame:?} did not converge"
+            );
+            assert_eq!(out[shape.shorten..], information, "{rate:?} {frame:?}");
+            assert!(out[..shape.shorten].iter().all(|&bit| !bit));
+        }
+    }
+
+    #[test]
     fn a_clean_codeword_decodes_without_an_iteration() {
-        let mut code = Ldpc::new(Rate::R1_2, true).expect("short 1/2");
+        let mut code = Ldpc::new(Rate::R1_2, Frame::Short).expect("short 1/2");
         let information = message(code.information, 11);
         let mut codeword = Vec::new();
         code.encode(&information, &mut codeword);
@@ -377,7 +576,7 @@ mod tests {
 
     #[test]
     fn scattered_errors_are_repaired() {
-        let mut code = Ldpc::new(Rate::R3_4, true).expect("short 3/4");
+        let mut code = Ldpc::new(Rate::R3_4, Frame::Short).expect("short 3/4");
         let information = message(code.information, 13);
         let mut codeword = Vec::new();
         code.encode(&information, &mut codeword);
@@ -394,7 +593,7 @@ mod tests {
     #[test]
     fn a_normal_frame_decodes_at_every_rate() {
         for rate in RATES {
-            let mut code = Ldpc::new(rate, false).expect("a normal code");
+            let mut code = Ldpc::new(rate, Frame::Normal).expect("a normal code");
             let information = message(code.information, 17);
             let mut codeword = Vec::new();
             code.encode(&information, &mut codeword);
@@ -413,7 +612,7 @@ mod tests {
 
     #[test]
     fn noise_does_not_converge_on_a_codeword() {
-        let mut code = Ldpc::new(Rate::R1_2, true).expect("short 1/2");
+        let mut code = Ldpc::new(Rate::R1_2, Frame::Short).expect("short 1/2");
         let mut state = 0x1357_9bdfu32;
         let received: Vec<f32> = (0..code.length)
             .map(|_| {

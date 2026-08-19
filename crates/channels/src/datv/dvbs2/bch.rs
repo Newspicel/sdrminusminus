@@ -1,4 +1,7 @@
+use super::ldpc::Frame;
+
 const NORMAL_POLY: u32 = 0x1_002D;
+const MEDIUM_POLY: u32 = 0x802D;
 const SHORT_POLY: u32 = 0x402B;
 
 pub struct Bch {
@@ -39,11 +42,11 @@ fn minimal_polynomial(exp: &[u16], log: &[u16], order: usize, power: usize) -> V
 
 impl Bch {
     #[must_use]
-    pub fn new(short: bool, correct: usize, message: usize) -> Self {
-        let (primitive, bits) = if short {
-            (SHORT_POLY, 14u32)
-        } else {
-            (NORMAL_POLY, 16u32)
+    pub fn new(frame: Frame, correct: usize, message: usize) -> Self {
+        let (primitive, bits) = match frame {
+            Frame::Short => (SHORT_POLY, 14u32),
+            Frame::Medium => (MEDIUM_POLY, 15u32),
+            Frame::Normal => (NORMAL_POLY, 16u32),
         };
         let size = 1usize << bits;
         let order = size - 1;
@@ -255,26 +258,27 @@ mod tests {
 
     #[test]
     fn the_field_matches_the_primitive_polynomial_the_standard_names() {
-        let normal = Bch::new(false, 8, 57_472);
+        let normal = Bch::new(Frame::Normal, 8, 57_472);
         assert_eq!(normal.power(16), 0x2D);
         assert_eq!(normal.power(0), 1);
-        let short = Bch::new(true, 12, 7_032);
+        let short = Bch::new(Frame::Short, 12, 7_032);
         assert_eq!(short.power(14), 0x2B);
     }
 
     #[test]
     fn every_documented_parity_length_comes_out_of_the_generator() {
-        for (short, correct, parity) in [
-            (false, 12usize, 192usize),
-            (false, 10, 160),
-            (false, 8, 128),
-            (true, 12, 168),
+        for (frame, correct, parity) in [
+            (Frame::Normal, 12usize, 192usize),
+            (Frame::Normal, 10, 160),
+            (Frame::Normal, 8, 128),
+            (Frame::Medium, 12, 180),
+            (Frame::Short, 12, 168),
         ] {
-            let code = Bch::new(short, correct, 1_000);
+            let code = Bch::new(frame, correct, 1_000);
             assert_eq!(
                 code.parity(),
                 parity,
-                "t={correct} short={short} gave {} parity bits",
+                "t={correct} {frame:?} gave {} parity bits",
                 code.parity()
             );
         }
@@ -282,7 +286,7 @@ mod tests {
 
     #[test]
     fn the_generator_vanishes_at_every_design_root() {
-        let code = Bch::new(false, 12, 32_208);
+        let code = Bch::new(Frame::Normal, 12, 32_208);
         for root in 1..=2 * 12usize {
             let mut sum = 0u16;
             let mut term = 1u16;
@@ -299,7 +303,7 @@ mod tests {
 
     #[test]
     fn a_single_error_is_located() {
-        let code = Bch::new(false, 12, 32_208);
+        let code = Bch::new(Frame::Normal, 12, 32_208);
         let mut word = Vec::new();
         code.encode(&message(code.message(), 21), &mut word);
         let clean = word.clone();
@@ -310,7 +314,7 @@ mod tests {
 
     #[test]
     fn a_clean_codeword_reports_no_errors() {
-        let code = Bch::new(false, 12, 32_208);
+        let code = Bch::new(Frame::Normal, 12, 32_208);
         let mut word = Vec::new();
         code.encode(&message(code.message(), 3), &mut word);
         assert_eq!(word.len(), 32_400);
@@ -319,12 +323,13 @@ mod tests {
 
     #[test]
     fn errors_up_to_the_design_distance_are_repaired() {
-        for (short, correct, message_bits) in [
-            (false, 12usize, 32_208usize),
-            (false, 8, 57_472),
-            (true, 12, 7_032),
+        for (frame, correct, message_bits) in [
+            (Frame::Normal, 12usize, 32_208usize),
+            (Frame::Normal, 8, 57_472),
+            (Frame::Medium, 12, 5_660),
+            (Frame::Short, 12, 7_032),
         ] {
-            let code = Bch::new(short, correct, message_bits);
+            let code = Bch::new(frame, correct, message_bits);
             let information = message(message_bits, 5);
             let mut word = Vec::new();
             code.encode(&information, &mut word);
@@ -339,7 +344,7 @@ mod tests {
 
     #[test]
     fn one_error_beyond_the_design_distance_is_refused() {
-        let code = Bch::new(false, 8, 57_472);
+        let code = Bch::new(Frame::Normal, 8, 57_472);
         let mut word = Vec::new();
         code.encode(&message(code.message(), 9), &mut word);
         for step in 0..9 {

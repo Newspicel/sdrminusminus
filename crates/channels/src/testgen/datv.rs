@@ -12,6 +12,7 @@ use crate::datv::{
         gse::{GsePdu, GseWriter},
         ldpc::Rate,
         receiver::Dvbs2Encoder,
+        vlsnr::{VlMode, VlSnrEncoder},
     },
     ts::{TsWriter, pat, pmt, sdt},
 };
@@ -43,6 +44,7 @@ pub struct Multiplex {
     writer: TsWriter,
     queued: std::collections::VecDeque<[u8; PACKET]>,
     emitted: usize,
+    tabled: usize,
     frame: u32,
 }
 
@@ -53,6 +55,7 @@ impl Multiplex {
             writer: TsWriter::new(),
             queued: std::collections::VecDeque::new(),
             emitted: 0,
+            tabled: 0,
             frame: 0,
         }
     }
@@ -60,7 +63,8 @@ impl Multiplex {
     pub fn packet(&mut self) -> [u8; PACKET] {
         if self.queued.is_empty() {
             let mut batch = Vec::new();
-            if self.emitted.is_multiple_of(TABLE_PERIOD) {
+            if self.emitted == 0 || self.emitted >= self.tabled + TABLE_PERIOD {
+                self.tabled = self.emitted;
                 self.writer.section(0x0000, &pat(), &mut batch);
                 self.writer.section(0x0100, &pmt(), &mut batch);
                 self.writer
@@ -171,6 +175,42 @@ pub fn dvbs2_generic(seconds: usize, streams: &[u8]) -> Vec<Complex<f32>> {
             } else {
                 GseWriter::whole(&pdu, &mut field);
             }
+            GseWriter::pad(&mut field, encoder.field_bytes());
+            encoder.generic(&field, Some(isi), &mut symbols);
+        }
+        round += 1;
+    }
+    shape(&symbols)
+}
+
+#[must_use]
+pub fn dvbs2_very_low(seconds: usize, header: u8) -> Vec<Complex<f32>> {
+    let wanted = seconds * SYMBOL_RATE as usize;
+    let mode = VlMode::from_header(header).expect("a catalogued VL-SNR mode");
+    let mut encoder = VlSnrEncoder::new(mode).expect("a supported mode");
+    let mut multiplex = Multiplex::new();
+    let mut symbols = Vec::with_capacity(wanted);
+    while symbols.len() < wanted {
+        let packets: Vec<[u8; PACKET]> = (0..encoder.capacity())
+            .map(|_| multiplex.packet())
+            .collect();
+        encoder.frame(&packets, &mut symbols);
+    }
+    shape(&symbols)
+}
+
+#[must_use]
+pub fn dvbs2_very_low_generic(seconds: usize, header: u8, streams: &[u8]) -> Vec<Complex<f32>> {
+    let wanted = seconds * SYMBOL_RATE as usize;
+    let mode = VlMode::from_header(header).expect("a catalogued VL-SNR mode");
+    let mut encoder = VlSnrEncoder::new(mode).expect("a supported mode");
+    let mut symbols = Vec::with_capacity(wanted);
+    let mut round = 0u32;
+    while symbols.len() < wanted {
+        for &isi in streams {
+            let pdu = datagram(0x86DD, &[0x02, isi, 0, 0, 0, round as u8], 120, round + 1);
+            let mut field = Vec::new();
+            GseWriter::whole(&pdu, &mut field);
             GseWriter::pad(&mut field, encoder.field_bytes());
             encoder.generic(&field, Some(isi), &mut symbols);
         }

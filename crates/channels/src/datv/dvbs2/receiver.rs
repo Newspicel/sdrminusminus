@@ -5,8 +5,9 @@ use super::{
     bch::Bch,
     frame::{Constellation, ModCod, Modulation, deinterleave, demodulate, interleave, modulate},
     gse::{Gse, GseMetrics, GsePdu},
-    ldpc::{Ldpc, Rate},
+    ldpc::{Frame, Ldpc, Rate},
     pl::{self, Scrambler, Signalling},
+    vlsnr::{self, Piece, VlMode, VlSnrCodec},
 };
 use crate::datv::dvbs::PACKET;
 
@@ -14,6 +15,7 @@ const LOCK_COHERENCE: f32 = 0.75;
 const NOISE: f32 = 0.25;
 const ACQUIRE_GAIN: f32 = 1.0;
 const TRACK_GAIN: f32 = 0.02;
+const VLSNR_CONFIDENCE: f32 = 0.5;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Dvbs2Metrics {
@@ -39,7 +41,7 @@ impl Dvbs2Output {
 }
 
 fn message_bits(modcod: ModCod, short: bool) -> usize {
-    let information = modcod.rate.information(short);
+    let information = modcod.rate.information(Frame::of(short));
     information.saturating_sub(modcod.correct(short) * if short { 14 } else { 16 })
 }
 
@@ -62,8 +64,8 @@ impl Codec {
         Some(Self {
             modcod,
             short,
-            ldpc: Ldpc::new(modcod.rate, short)?,
-            bch: Bch::new(short, modcod.correct(short), message),
+            ldpc: Ldpc::new(modcod.rate, Frame::of(short))?,
+            bch: Bch::new(Frame::of(short), modcod.correct(short), message),
             baseband: BaseBandFrame::new(message),
             constellation: Constellation::new(modcod.modulation, modcod.rate),
         })
@@ -175,6 +177,7 @@ pub struct Dvbs2Decoder {
     gse: Gse,
     wanted: Option<u8>,
     seen: Vec<u32>,
+    very_low: Option<VlSnrCodec>,
     pub metrics: Dvbs2Metrics,
     pub signalling: Option<Signalling>,
     pub stream: Option<StreamKind>,
@@ -200,6 +203,7 @@ impl Dvbs2Decoder {
             gse: Gse::new(),
             wanted: None,
             seen: vec![0; 256],
+            very_low: None,
             metrics: Dvbs2Metrics::default(),
             signalling: None,
             stream: None,
@@ -216,6 +220,7 @@ impl Dvbs2Decoder {
 
     pub fn reset(&mut self) {
         self.codec = None;
+        self.very_low = None;
         self.pending.clear();
         self.searched = 0;
         self.frequency = 0.0;
@@ -236,6 +241,11 @@ impl Dvbs2Decoder {
             .filter(|&(_, &frames)| frames > 0)
             .map(|(isi, &frames)| (isi as u8, frames))
             .collect()
+    }
+
+    #[must_use]
+    pub fn very_low_mode(&self) -> Option<VlMode> {
+        self.very_low.as_ref().map(|codec| codec.mode)
     }
 
     #[must_use]
@@ -287,12 +297,17 @@ impl Dvbs2Decoder {
                 self.searched += 1;
                 continue;
             };
-            let Some(modcod) = ModCod::from_index(signalling.modcod) else {
-                self.searched += 1;
-                continue;
+            let set = vlsnr::set_of(signalling);
+            let span = match (set, ModCod::from_index(signalling.modcod)) {
+                (Some(set), _) => vlsnr::frame_symbols(set),
+                (None, Some(modcod)) => {
+                    pl::frame_symbols(modcod.slots(signalling.short), signalling.pilots)
+                }
+                (None, None) => {
+                    self.searched += 1;
+                    continue;
+                }
             };
-            let slots = modcod.slots(signalling.short);
-            let span = pl::frame_symbols(slots, signalling.pilots);
             if at + span > self.pending.len() {
                 return false;
             }
@@ -304,7 +319,12 @@ impl Dvbs2Decoder {
                 guess,
                 fit.reference * Complex::from_polar(1.0, anchor),
             );
-            self.consume(signalling, modcod, slots, out);
+            match ModCod::from_index(signalling.modcod) {
+                Some(modcod) if set.is_none() => {
+                    self.consume(signalling, modcod, modcod.slots(signalling.short), out);
+                }
+                _ => self.consume_very_low(out),
+            }
             let gain = if self.good > 0 {
                 TRACK_GAIN
             } else {
@@ -318,24 +338,30 @@ impl Dvbs2Decoder {
         false
     }
 
+    fn anchor(&mut self, at: usize, len: usize) {
+        let Some(phase) = pl::pilot_phase(&self.frame[at..at + len]) else {
+            return;
+        };
+        let previous = self.anchors[self.anchors.len() - 1].1;
+        let turns = ((phase - previous) / std::f32::consts::TAU).round();
+        self.anchors.push((
+            pl::HEADER + at + len / 2,
+            phase - turns * std::f32::consts::TAU,
+        ));
+    }
+
     fn track_phase(&mut self, signalling: Signalling, slots: usize) {
         self.anchors.clear();
         self.anchors.push((pl::HEADER / 2, 0.0));
         if signalling.pilots {
             for block in 1..=pl::pilot_blocks(slots) {
-                let start = pl::pilot_block_start(block);
-                let Some(phase) = pl::pilot_phase(&self.frame[start..start + pl::PILOT_LENGTH])
-                else {
-                    continue;
-                };
-                let previous = self.anchors[self.anchors.len() - 1].1;
-                let turns = ((phase - previous) / std::f32::consts::TAU).round();
-                self.anchors.push((
-                    pl::HEADER + start + pl::PILOT_LENGTH / 2,
-                    phase - turns * std::f32::consts::TAU,
-                ));
+                self.anchor(pl::pilot_block_start(block), pl::PILOT_LENGTH);
             }
         }
+        self.interpolate();
+    }
+
+    fn interpolate(&mut self) {
         if self.anchors.len() < 2 {
             return;
         }
@@ -353,69 +379,78 @@ impl Dvbs2Decoder {
         }
     }
 
-    fn consume(
-        &mut self,
-        signalling: Signalling,
-        modcod: ModCod,
-        slots: usize,
-        out: &mut Dvbs2Output,
-    ) {
-        if self
-            .codec
-            .as_ref()
-            .is_none_or(|codec| codec.modcod != modcod || codec.short != signalling.short)
-        {
-            self.codec = Codec::new(modcod, signalling.short);
-        }
-        if self.codec.is_none() {
-            self.metrics.frames_bad += 1;
-            self.good = 0;
-            return;
-        }
+    fn consume_very_low(&mut self, out: &mut Dvbs2Output) {
         self.frame.clear();
         self.frame.extend_from_slice(&self.window[pl::HEADER..]);
-        self.scrambler.reset();
-        self.scrambler.descramble(&mut self.frame);
-        self.track_phase(signalling, slots);
-        self.payload.clear();
-        let mut cursor = 0;
-        for slot in 0..slots {
-            if signalling.pilots && slot > 0 && slot.is_multiple_of(pl::PILOT_PERIOD) {
-                cursor += pl::PILOT_LENGTH;
-            }
-            self.payload
-                .extend_from_slice(&self.frame[cursor..cursor + pl::SLOT]);
-            cursor += pl::SLOT;
+        let Some((index, confidence)) = vlsnr::read_header(&self.frame) else {
+            self.fail();
+            return;
+        };
+        if confidence < VLSNR_CONFIDENCE {
+            self.fail();
+            return;
         }
-        let Some(codec) = &mut self.codec else {
-            self.metrics.frames_bad += 1;
-            self.good = 0;
+        let Some(mode) = VlMode::from_header(index) else {
+            self.fail();
             return;
         };
-        self.llrs.clear();
-        demodulate(&self.payload, &codec.constellation, NOISE, &mut self.llrs);
-        let ordered = deinterleave(&self.llrs, modcod.modulation, modcod.rate);
-        self.bits.clear();
-        let Some(iterations) = codec.ldpc.decode(&ordered, &mut self.bits) else {
-            self.metrics.frames_bad += 1;
-            self.good = 0;
+        if self
+            .very_low
+            .as_ref()
+            .is_none_or(|codec| codec.mode != mode)
+        {
+            self.very_low = VlSnrCodec::new(mode);
+        }
+        let Some(codec) = &mut self.very_low else {
+            self.fail();
             return;
         };
-        self.metrics.iterations += iterations as u32;
-        let Some(corrected) = codec.bch.decode(&mut self.bits) else {
-            self.metrics.frames_bad += 1;
-            self.good = 0;
+        vlsnr::scramble(
+            &mut self.scrambler,
+            &codec.layout,
+            mode.carrier,
+            &mut self.frame,
+            false,
+        );
+        let layout = codec.layout.clone();
+        self.anchors.clear();
+        self.anchors.push((pl::HEADER / 2, 0.0));
+        let mut at = 0;
+        for piece in &layout {
+            if piece.is_pilot() {
+                self.anchor(at, piece.len());
+            }
+            at += piece.len();
+        }
+        self.interpolate();
+        self.payload.clear();
+        let mut at = 0;
+        for piece in &layout {
+            if let Piece::Payload(len) = piece {
+                self.payload.extend_from_slice(&self.frame[at..at + len]);
+            }
+            at += piece.len();
+        }
+        let Some(codec) = &mut self.very_low else {
+            self.fail();
             return;
         };
-        self.metrics.corrected_bits += corrected as u32;
-        self.bits.truncate(codec.bch.message());
-        let Some(data) = codec.baseband.read(&self.bits) else {
-            self.metrics.frames_bad += 1;
-            self.good = 0;
-            return;
-        };
-        self.metrics.frames_ok += 1;
-        self.good = self.good.saturating_add(1);
+        match codec.decode(&self.payload) {
+            Some(data) => {
+                self.metrics.frames_ok += 1;
+                self.good = self.good.saturating_add(1);
+                self.deliver(data, out);
+            }
+            None => self.fail(),
+        }
+    }
+
+    fn fail(&mut self) {
+        self.metrics.frames_bad += 1;
+        self.good = 0;
+    }
+
+    fn deliver(&mut self, data: super::bb::BaseBandData, out: &mut Dvbs2Output) {
         self.stream = Some(data.header.kind);
         self.isi = (!data.header.single).then_some(data.header.isi);
         if !data.header.single {
@@ -434,6 +469,67 @@ impl Dvbs2Decoder {
         } else {
             out.packets.extend(data.transport());
         }
+    }
+
+    fn consume(
+        &mut self,
+        signalling: Signalling,
+        modcod: ModCod,
+        slots: usize,
+        out: &mut Dvbs2Output,
+    ) {
+        if self
+            .codec
+            .as_ref()
+            .is_none_or(|codec| codec.modcod != modcod || codec.short != signalling.short)
+        {
+            self.codec = Codec::new(modcod, signalling.short);
+        }
+        if self.codec.is_none() {
+            self.fail();
+            return;
+        }
+        self.frame.clear();
+        self.frame.extend_from_slice(&self.window[pl::HEADER..]);
+        self.scrambler.reset();
+        self.scrambler.descramble(&mut self.frame);
+        self.track_phase(signalling, slots);
+        self.payload.clear();
+        let mut cursor = 0;
+        for slot in 0..slots {
+            if signalling.pilots && slot > 0 && slot.is_multiple_of(pl::PILOT_PERIOD) {
+                cursor += pl::PILOT_LENGTH;
+            }
+            self.payload
+                .extend_from_slice(&self.frame[cursor..cursor + pl::SLOT]);
+            cursor += pl::SLOT;
+        }
+        let Some(codec) = &mut self.codec else {
+            self.fail();
+            return;
+        };
+        self.llrs.clear();
+        demodulate(&self.payload, &codec.constellation, NOISE, &mut self.llrs);
+        let ordered = deinterleave(&self.llrs, modcod.modulation, modcod.rate);
+        self.bits.clear();
+        let Some(iterations) = codec.ldpc.decode(&ordered, &mut self.bits) else {
+            self.fail();
+            return;
+        };
+        self.metrics.iterations += iterations as u32;
+        let Some(corrected) = codec.bch.decode(&mut self.bits) else {
+            self.fail();
+            return;
+        };
+        self.metrics.corrected_bits += corrected as u32;
+        self.bits.truncate(codec.bch.message());
+        let Some(data) = codec.baseband.read(&self.bits) else {
+            self.fail();
+            return;
+        };
+        self.metrics.frames_ok += 1;
+        self.good = self.good.saturating_add(1);
+        self.deliver(data, out);
     }
 }
 
@@ -781,6 +877,99 @@ mod tests {
         assert_eq!(decoder.metrics.frames_ok, modes.len() as u32);
         assert_eq!(decoder.metrics.frames_bad, 0);
         assert_eq!(decoder.mode(), Some((Modulation::Apsk16, Rate::R9_10)));
+    }
+
+    #[test]
+    fn every_very_low_signal_mode_round_trips_through_the_whole_chain() {
+        use super::super::vlsnr::{CATALOGUE, VlSnrEncoder};
+
+        for mode in CATALOGUE {
+            let mut encoder = VlSnrEncoder::new(mode).unwrap_or_else(|| panic!("{}", mode.label));
+            let sent = transport(2 * encoder.capacity(), 47);
+            let mut symbols = Vec::new();
+            for chunk in sent.chunks(encoder.capacity()) {
+                assert!(encoder.frame(chunk, &mut symbols), "{}", mode.label);
+            }
+            let mut decoder = Dvbs2Decoder::new();
+            let mut received = Dvbs2Output::default();
+            drive(&symbols, &mut decoder, &mut received);
+            assert_eq!(received.packets, sent, "{}", mode.label);
+            assert_eq!(decoder.metrics.frames_bad, 0, "{}", mode.label);
+            assert_eq!(decoder.very_low_mode(), Some(mode), "{}", mode.label);
+            assert_eq!(decoder.mode(), None, "{}", mode.label);
+        }
+    }
+
+    #[test]
+    fn a_very_low_signal_frame_is_the_length_of_the_legacy_frame_it_hides_in() {
+        use super::super::vlsnr::{CATALOGUE, VlSet, VlSnrEncoder};
+
+        for mode in CATALOGUE {
+            let mut encoder = VlSnrEncoder::new(mode).expect("a supported mode");
+            let mut symbols = Vec::new();
+            encoder.frame(&transport(encoder.capacity(), 51), &mut symbols);
+            let legacy = match mode.set {
+                VlSet::One => {
+                    let modcod = ModCod::find(Modulation::Qpsk, Rate::R9_10).expect("QPSK 9/10");
+                    pl::frame_symbols(modcod.slots(false), true)
+                }
+                VlSet::Two => {
+                    let modcod =
+                        ModCod::find(Modulation::Apsk16, Rate::R9_10).expect("16APSK 9/10");
+                    pl::frame_symbols(modcod.slots(false), true)
+                }
+            };
+            assert_eq!(symbols.len(), legacy, "{}", mode.label);
+        }
+    }
+
+    #[test]
+    fn a_very_low_signal_stream_carries_a_generic_stream_too() {
+        use super::super::{
+            gse::GseWriter,
+            vlsnr::{VlMode, VlSnrEncoder},
+        };
+
+        let mode = VlMode::from_header(9).expect("BPSK 1/5 short");
+        let mut encoder = VlSnrEncoder::new(mode).expect("a supported mode");
+        let sent: Vec<GsePdu> = (0..3)
+            .map(|index| datagram(0x86DD, &[7, 7, index], 200 + index as usize, 53))
+            .collect();
+        let mut symbols = Vec::new();
+        for pdu in &sent {
+            let mut field = Vec::new();
+            GseWriter::whole(pdu, &mut field);
+            GseWriter::pad(&mut field, encoder.field_bytes());
+            assert!(encoder.generic(&field, Some(7), &mut symbols));
+        }
+        let mut decoder = Dvbs2Decoder::new();
+        let mut received = Dvbs2Output::default();
+        drive(&symbols, &mut decoder, &mut received);
+        assert_eq!(received.pdus, sent);
+        assert_eq!(decoder.isi, Some(7));
+        assert_eq!(decoder.metrics.frames_bad, 0);
+    }
+
+    #[test]
+    fn a_very_low_signal_frame_rides_out_a_carrier_offset() {
+        use super::super::vlsnr::{VlMode, VlSnrEncoder};
+
+        let mode = VlMode::from_header(11).expect("BPSK 1/3 short");
+        let mut encoder = VlSnrEncoder::new(mode).expect("a supported mode");
+        let sent = transport(3 * encoder.capacity(), 59);
+        let mut symbols = Vec::new();
+        for chunk in sent.chunks(encoder.capacity()) {
+            encoder.frame(chunk, &mut symbols);
+        }
+        let turned: Vec<Complex<f32>> = symbols
+            .iter()
+            .enumerate()
+            .map(|(index, &value)| value * Complex::from_polar(1.0, 1.7 + 0.003 * index as f32))
+            .collect();
+        let mut decoder = Dvbs2Decoder::new();
+        let mut received = Dvbs2Output::default();
+        drive(&turned, &mut decoder, &mut received);
+        assert_tail(&sent, &received.packets, 2 * encoder.capacity(), "BPSK 1/3");
     }
 
     #[test]

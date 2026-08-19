@@ -6,3 +6,4 @@ pub mod ldpc;
 pub mod pl;
 pub mod receiver;
 pub mod tables;
+pub mod vlsnr;

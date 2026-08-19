@@ -88,13 +88,29 @@ pub fn bpsk(index: usize, bit: bool) -> Complex<f32> {
     Complex::new(real, imaginary)
 }
 
+#[must_use]
+pub const fn extended(signalling: Signalling) -> bool {
+    signalling.code() & 0x80 != 0
+}
+
+#[must_use]
+pub fn plsc(index: usize, bit: bool, extended: bool) -> Complex<f32> {
+    let symbol = bpsk(index, bit);
+    if extended {
+        Complex::new(-symbol.im, symbol.re)
+    } else {
+        symbol
+    }
+}
+
 pub fn header(signalling: Signalling, out: &mut Vec<Complex<f32>>) {
     let coded = signalling_bits(signalling);
+    let jump = extended(signalling);
     for (index, &bit) in SOF.iter().enumerate() {
         out.push(bpsk(index, bit));
     }
     for (step, &bit) in coded.iter().enumerate() {
-        out.push(bpsk(SOF.len() + step, bit));
+        out.push(plsc(SOF.len() + step, bit, jump));
     }
 }
 
@@ -137,12 +153,13 @@ pub fn header_phase(symbols: &[Complex<f32>], signalling: Signalling) -> Option<
         return None;
     }
     let coded = signalling_bits(signalling);
+    let jump = extended(signalling);
     let mut sum = Complex::new(0.0f32, 0.0);
     for (index, &bit) in SOF.iter().enumerate() {
         sum += symbols[index] * bpsk(index, bit).conj();
     }
     for (step, &bit) in coded.iter().enumerate() {
-        sum += symbols[SOF.len() + step] * bpsk(SOF.len() + step, bit).conj();
+        sum += symbols[SOF.len() + step] * plsc(SOF.len() + step, bit, jump).conj();
     }
     (sum.norm() > 1e-12).then(|| sum.arg())
 }
@@ -153,12 +170,16 @@ pub fn read_signalling(symbols: &[Complex<f32>]) -> Option<Signalling> {
         return None;
     }
     let mut best = (f32::NEG_INFINITY, 0u8);
-    for code in 0..128u8 {
-        let candidate = signalling_bits(Signalling::from_code(code));
+    for code in 0..=255u8 {
+        let signalling = Signalling::from_code(code);
+        let candidate = signalling_bits(signalling);
+        let jump = extended(signalling);
         let score: f32 = candidate
             .iter()
             .enumerate()
-            .map(|(step, &bit)| (symbols[SOF.len() + step] * bpsk(SOF.len() + step, bit).conj()).re)
+            .map(|(step, &bit)| {
+                (symbols[SOF.len() + step] * plsc(SOF.len() + step, bit, jump).conj()).re
+            })
             .sum();
         if score > best.0 {
             best = (score, code);
@@ -242,7 +263,8 @@ impl Default for Scrambler {
     }
 }
 
-fn rotate(symbol: Complex<f32>, quarters: u8) -> Complex<f32> {
+#[must_use]
+pub fn rotate(symbol: Complex<f32>, quarters: u8) -> Complex<f32> {
     match quarters % 4 {
         0 => symbol,
         1 => Complex::new(-symbol.im, symbol.re),
@@ -289,6 +311,33 @@ mod tests {
             .iter()
             .fold(0u32, |word, &bit| word << 1 | u32::from(bit));
         assert_eq!(value, 0x018D_2E82);
+    }
+
+    #[test]
+    fn an_extended_header_carries_its_quarter_turn_after_the_sync_word() {
+        for code in [128u8, 129, 130, 131] {
+            let signalling = Signalling::from_code(code);
+            assert!(extended(signalling));
+            let mut symbols = Vec::new();
+            header(signalling, &mut symbols);
+            let plain = signalling_bits(signalling);
+            for (step, &bit) in plain.iter().enumerate() {
+                let turned = symbols[SOF.len() + step] * bpsk(SOF.len() + step, bit).conj();
+                assert!(
+                    (turned - Complex::new(0.0, 1.0)).norm() < 1e-5,
+                    "code {code}"
+                );
+            }
+            let fit = correlate_sof(&symbols).expect("a full sync word");
+            assert!(fit.coherence > 0.99);
+            assert_eq!(read_signalling(&symbols), Some(signalling), "code {code}");
+            assert!(header_phase(&symbols, signalling).expect("a phase").abs() < 1e-4);
+        }
+        let plain = Signalling::from_code(7 << 2 | 1);
+        assert!(!extended(plain));
+        let mut symbols = Vec::new();
+        header(plain, &mut symbols);
+        assert_eq!(read_signalling(&symbols), Some(plain));
     }
 
     #[test]

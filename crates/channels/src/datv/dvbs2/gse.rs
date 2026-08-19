@@ -317,7 +317,9 @@ impl GseWriter {
     }
 
     pub fn pad(field: &mut Vec<u8>, len: usize) {
-        field.resize(len, 0);
+        if field.len() < len {
+            field.resize(len, 0);
+        }
     }
 }
 

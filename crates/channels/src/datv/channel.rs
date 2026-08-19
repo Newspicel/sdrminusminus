@@ -258,10 +258,14 @@ impl DatvChannel {
                 .running()
                 .then(|| self.decoder.lock().map(|lock| lock.rate.label().to_owned()))
                 .flatten(),
-            DatvStandard::DvbS2 => self
-                .second
-                .mode()
-                .map(|(modulation, rate)| format!("{} {}", modulation.label(), rate.label())),
+            DatvStandard::DvbS2 => self.second.very_low_mode().map_or_else(
+                || {
+                    self.second.mode().map(|(modulation, rate)| {
+                        format!("{} {}", modulation.label(), rate.label())
+                    })
+                },
+                |mode| Some(format!("VL-SNR {}", mode.label)),
+            ),
         }
     }
 
@@ -544,9 +548,13 @@ mod tests {
             let status = statuses.last().expect("a broadcast status");
             assert_eq!(status.system, BroadcastSystem::DvbS2);
             assert_eq!(status.code_rate.as_deref(), Some(label));
-            assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
             assert!(status.frames_ok > 0, "{label}: {status:?}");
             assert_eq!(status.frames_bad, 0, "{label}: {status:?}");
+            assert_eq!(
+                status.label.as_deref(),
+                Some(testgen::datv::PROGRAM_NAME),
+                "{status:?}"
+            );
             assert!(channel.video_units > 0, "{label} carried no video");
         }
     }
@@ -603,6 +611,26 @@ mod tests {
             .collect();
         assert_eq!(chosen, vec![11]);
         assert!(channel.second.metrics.frames_skipped > 0);
+    }
+
+    #[test]
+    fn a_very_low_signal_stream_reaches_the_program_table() {
+        for (header, label) in [(9u8, "VL-SNR BPSK 1/5"), (0, "VL-SNR QPSK 2/9")] {
+            let iq = testgen::datv::dvbs2_very_low(8, header);
+            let mut channel = second_generation();
+            let statuses = drive(&mut channel, &iq);
+            let status = statuses.last().expect("a broadcast status");
+            assert_eq!(status.system, BroadcastSystem::DvbS2);
+            assert_eq!(status.code_rate.as_deref(), Some(label));
+            assert!(status.frames_ok > 0, "{label}: {status:?}");
+            assert_eq!(status.frames_bad, 0, "{label}: {status:?}");
+            assert_eq!(
+                status.label.as_deref(),
+                Some(testgen::datv::PROGRAM_NAME),
+                "{status:?}"
+            );
+            assert!(channel.video_units > 0, "{label} carried no video");
+        }
     }
 
     #[test]
