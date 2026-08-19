@@ -262,6 +262,7 @@ export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   hunt: { w: 340 },
   df: { w: 400 },
   triangulation: { w: 380 },
+  combiner: { w: 400 },
   passive_radar: { w: 520, h: 420 },
 };
 

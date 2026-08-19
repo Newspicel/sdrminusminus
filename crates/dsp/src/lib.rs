@@ -2,6 +2,7 @@ pub mod agc;
 pub mod bits;
 pub mod caf;
 pub mod cfar;
+pub mod combine;
 pub mod compander;
 pub mod covariance;
 pub mod ddc;

@@ -4,6 +4,7 @@ import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { ArrayFace } from "./ArrayFace";
 import { ChannelFace } from "./ChannelFace";
+import { CombinerFace } from "./CombinerFace";
 import { DeviceFace } from "./DeviceFace";
 import { DfFace } from "./DfFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
@@ -70,6 +71,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   hunt: mount(HuntFace),
   df: mount(DfFace),
   passive_radar: mount(RangeDopplerFace),
+  combiner: mount(CombinerFace),
   triangulation: mount(TriangulationFace),
 };
 
@@ -99,5 +101,6 @@ export const FACES: Record<NodeKind, Face> = {
   hunt: HuntFace,
   df: DfFace,
   passive_radar: RangeDopplerFace,
+  combiner: CombinerFace,
   triangulation: TriangulationFace,
 };

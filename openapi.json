@@ -6857,6 +6857,72 @@
           "phase_coherent"
         ]
       },
+      "CombineMode": {
+        "type": "string",
+        "enum": [
+          "diversity",
+          "cancel"
+        ]
+      },
+      "CombinerNode": {
+        "type": "object",
+        "description": "A bank of antennas added into one signal: either to hear better, or to stop hearing something.",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/CombinerParams"
+          }
+        }
+      },
+      "CombinerParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "default": 200000.0
+          },
+          "cal": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CalParams"
+              }
+            ],
+            "default": {
+              "bandwidth_hz": 200000.0,
+              "source": "signal",
+              "track": true
+            }
+          },
+          "lanes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many antennas are wired in. Lane zero is the one pointed at what you want.",
+            "default": 2,
+            "minimum": 0
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CombineMode"
+              }
+            ],
+            "default": "diversity"
+          },
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Where in the tuned span the signal of interest sits, and how much of it to take.",
+            "default": 0.0
+          },
+          "update_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How often the weights are solved again. A scene that changes wants this short; one that\ndoes not wants it long, because every solve is an estimate off a finite window.",
+            "default": 500,
+            "minimum": 0
+          }
+        }
+      },
       "ComponentSource": {
         "type": "string",
         "enum": [
@@ -12005,6 +12071,24 @@
                 "type": "string",
                 "enum": [
                   "passive_radar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CombinerNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "combiner"
                 ]
               }
             }

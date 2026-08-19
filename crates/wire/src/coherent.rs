@@ -140,6 +140,57 @@ impl CalParams {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CombineMode {
+    /// Add every antenna so the wanted signal reinforces and the noise does not.
+    #[default]
+    Diversity,
+    /// Keep the first antenna and subtract what the others hear, which is how a reference antenna
+    /// takes a local noise source out of a receiver that cannot be moved away from it.
+    Cancel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct CombinerParams {
+    pub mode: CombineMode,
+    /// How many antennas are wired in. Lane zero is the one pointed at what you want.
+    pub lanes: u32,
+    /// Where in the tuned span the signal of interest sits, and how much of it to take.
+    pub offset_hz: f64,
+    pub bandwidth_hz: f64,
+    /// How often the weights are solved again. A scene that changes wants this short; one that
+    /// does not wants it long, because every solve is an estimate off a finite window.
+    pub update_ms: u32,
+    pub cal: CalParams,
+}
+
+impl Default for CombinerParams {
+    fn default() -> Self {
+        Self {
+            mode: CombineMode::Diversity,
+            lanes: 2,
+            offset_hz: 0.0,
+            bandwidth_hz: 200_000.0,
+            update_ms: 500,
+            cal: CalParams::default(),
+        }
+    }
+}
+
+impl CombinerParams {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        (MIN_ARRAY_ELEMENTS..=MAX_ARRAY_ELEMENTS).contains(&self.lanes)
+            && self.offset_hz.is_finite()
+            && self.offset_hz.abs() <= MAX_DF_OFFSET_HZ
+            && (MIN_DF_BANDWIDTH_HZ..=MAX_DF_BANDWIDTH_HZ).contains(&self.bandwidth_hz)
+            && (MIN_DF_REPORT_MS..=MAX_DF_REPORT_MS).contains(&self.update_ms)
+            && self.cal.valid()
+    }
+}
+
 /// Which coherent processor a node runs, and how it is set up. The one place a coherent node's
 /// settings live, exactly as `ChannelParams` is for an ordinary channel.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -147,6 +198,7 @@ impl CalParams {
 pub enum CoherentParams {
     Df(DfParams),
     PassiveRadar(PassiveRadarParams),
+    Combiner(CombinerParams),
 }
 
 impl CoherentParams {
@@ -155,6 +207,7 @@ impl CoherentParams {
         match self {
             Self::Df(_) => "df",
             Self::PassiveRadar(_) => "passive_radar",
+            Self::Combiner(_) => "combiner",
         }
     }
 
@@ -163,6 +216,7 @@ impl CoherentParams {
         match self {
             Self::Df(params) => params.valid(),
             Self::PassiveRadar(params) => params.valid(),
+            Self::Combiner(params) => params.valid(),
         }
     }
 }

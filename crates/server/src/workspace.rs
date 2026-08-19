@@ -84,9 +84,9 @@ pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(St
 fn beam_bound(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<(String, u32)> {
     let mut bound = Vec::new();
     for node in &graph.nodes {
-        let NodeBody::Df(_) = &node.body else {
+        if !matches!(node.body, NodeBody::Df(_) | NodeBody::Combiner(_)) {
             continue;
-        };
+        }
         let from_device = graph
             .edges
             .iter()

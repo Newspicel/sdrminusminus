@@ -1996,6 +1996,48 @@ export interface components {
          */
         Coherence: "none" | "time_sync" | "phase_coherent";
         /** @enum {string} */
+        CombineMode: "diversity" | "cancel";
+        /** @description A bank of antennas added into one signal: either to hear better, or to stop hearing something. */
+        CombinerNode: {
+            settings?: components["schemas"]["CombinerParams"];
+        };
+        CombinerParams: {
+            /**
+             * Format: double
+             * @default 200000
+             */
+            bandwidth_hz: number;
+            /**
+             * @default {
+             *       "bandwidth_hz": 200000,
+             *       "source": "signal",
+             *       "track": true
+             *     }
+             */
+            cal: components["schemas"]["CalParams"];
+            /**
+             * Format: int32
+             * @description How many antennas are wired in. Lane zero is the one pointed at what you want.
+             * @default 2
+             */
+            lanes: number;
+            /** @default diversity */
+            mode: components["schemas"]["CombineMode"];
+            /**
+             * Format: double
+             * @description Where in the tuned span the signal of interest sits, and how much of it to take.
+             * @default 0
+             */
+            offset_hz: number;
+            /**
+             * Format: int32
+             * @description How often the weights are solved again. A scene that changes wants this short; one that
+             *     does not wants it long, because every solve is an estimate off a finite window.
+             * @default 500
+             */
+            update_ms: number;
+        };
+        /** @enum {string} */
         ComponentSource: "rust" | "web" | "native";
         CreateBookmarkRequest: {
             /** Format: double */
@@ -3403,6 +3445,10 @@ export interface components {
             data: components["schemas"]["PassiveRadarNode"];
             /** @enum {string} */
             kind: "passive_radar";
+        } | {
+            data: components["schemas"]["CombinerNode"];
+            /** @enum {string} */
+            kind: "combiner";
         } | {
             /** @enum {string} */
             kind: "triangulation";

@@ -1,6 +1,7 @@
 import { DEFAULT_HUNT_SETTINGS } from "../components/hunt";
 import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
 import type { NodeBody, NodeKind, PositionSource } from "../lib/types";
+import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
 import { DEFAULT_DF_PARAMS } from "./nodes/df";
 import { DEFAULT_RADAR_PARAMS } from "./nodes/radar";
 
@@ -71,6 +72,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { settings: DEFAULT_DF_PARAMS } };
     case "passive_radar":
       return { kind, data: { settings: DEFAULT_RADAR_PARAMS } };
+    case "combiner":
+      return { kind, data: { settings: DEFAULT_COMBINER_PARAMS } };
     default:
       return { kind } as NodeBody;
   }

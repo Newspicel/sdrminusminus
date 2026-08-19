@@ -382,3 +382,42 @@ async fn a_channel_on_the_beam_lane_hears_what_the_array_is_pointed_at() {
     );
     engine.remove_device_set(ds).unwrap();
 }
+
+#[tokio::test]
+async fn a_combiner_puts_the_beam_on_what_every_antenna_hears() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine
+        .patch_device(
+            ds,
+            tuned(vec![
+                number(array::BEARING_SETTING, BEARING_DEG),
+                number(array::RADIUS_SETTING, 0.35),
+            ]),
+        )
+        .unwrap();
+    let beam = beam_lane(&engine, ds);
+    engine
+        .add_coherent(
+            ds,
+            CoherentParams::Combiner(sdrmm_wire::CombinerParams {
+                mode: sdrmm_wire::CombineMode::Diversity,
+                lanes: 4,
+                offset_hz: array::WAVEFRONT_OFFSET_HZ,
+                bandwidth_hz: 20_000.0,
+                update_ms: 100,
+                cal: sdrmm_wire::CalParams::default(),
+            }),
+            vec![0, 1, 2, 3],
+        )
+        .unwrap();
+
+    let lane = unshared_margin(&engine, ds, 0).await;
+    let combined = unshared_margin(&engine, ds, beam).await;
+    assert!(
+        combined < lane - 3.0,
+        "the combiner adds what the antennas share and leaves what only one hears behind: \
+         one antenna {lane:.1} dB, combined {combined:.1} dB"
+    );
+    engine.remove_device_set(ds).unwrap();
+}

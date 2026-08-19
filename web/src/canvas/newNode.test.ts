@@ -29,6 +29,7 @@ const EVERY_KIND: Record<NodeKind, true> = {
   passive_radar: true,
   hunt: true,
   triangulation: true,
+  combiner: true,
 };
 
 const KINDS = Object.keys(EVERY_KIND) as NodeKind[];

@@ -164,7 +164,7 @@ impl super::AlignedSink for CoherentHost {
         let has_report = self.outputs.bearing.is_some()
             || !self.outputs.detections.is_empty()
             || self.outputs.surface.is_some();
-        if !has_report && self.outputs.events.is_empty() {
+        if !has_report && self.outputs.events.is_empty() && self.outputs.weights.is_none() {
             return;
         }
         if let Some(weights) = self.outputs.weights.take() {

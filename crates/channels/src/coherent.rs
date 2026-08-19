@@ -99,6 +99,10 @@ const REGISTRY: &[Registration] = &[
         descriptor: crate::passive_radar::PassiveRadarProcessor::descriptor,
         create: boxed::<crate::passive_radar::PassiveRadarProcessor>,
     },
+    Registration {
+        descriptor: crate::combiner::CombinerProcessor::descriptor,
+        create: boxed::<crate::combiner::CombinerProcessor>,
+    },
 ];
 
 #[must_use]
@@ -141,9 +145,9 @@ mod tests {
     #[test]
     fn coherent_descriptors_are_unique_and_complete() {
         let all = coherent_descriptors();
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.len(), 3);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id).collect();
-        assert_eq!(ids, HashSet::from(["df", "passive_radar"]));
+        assert_eq!(ids, HashSet::from(["df", "passive_radar", "combiner"]));
         for descriptor in &all {
             assert!(
                 !descriptor.name.is_empty(),
@@ -163,11 +167,13 @@ mod tests {
         for params in [
             CoherentParams::Df(sdrmm_wire::DfParams::default()),
             CoherentParams::PassiveRadar(sdrmm_wire::PassiveRadarParams::default()),
+            CoherentParams::Combiner(sdrmm_wire::CombinerParams::default()),
         ] {
             let descriptor =
                 coherent_descriptor(params.type_id()).expect("every params names a processor");
             let lanes = match &params {
                 CoherentParams::Df(df) => df.geometry.count() as usize,
+                CoherentParams::Combiner(combiner) => combiner.lanes as usize,
                 CoherentParams::PassiveRadar(_) => descriptor.min_lanes as usize,
             };
             let ctx = CoherentCtx {

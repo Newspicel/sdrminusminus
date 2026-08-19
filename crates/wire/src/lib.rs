@@ -52,11 +52,12 @@ pub use channel::{
 };
 pub use coherent::{
     ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
-    DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate, DfFusionState, DfGuidance, DfParams,
-    DfReading, DfStation, EcaParams, GuidanceMode, Illuminator, LaneCal, MAX_ARRAY_ELEMENTS,
-    MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ, MAX_DF_REPORT_MS, MAX_RANGE_BINS,
-    MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS, MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS,
-    NavTarget, NavTargetKind, PassiveRadarParams, RadarDetection,
+    CombineMode, CombinerParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate,
+    DfFusionState, DfGuidance, DfParams, DfReading, DfStation, EcaParams, GuidanceMode,
+    Illuminator, LaneCal, MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ,
+    MAX_DF_REPORT_MS, MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS,
+    MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams,
+    RadarDetection,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,
@@ -95,7 +96,7 @@ pub use network::{
     NetworkTransport,
 };
 pub use patch::{
-    ArrayNode, ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ,
+    ArrayNode, ChannelNode, CombinerNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ,
     DEFAULT_SIGNAL_MAP_OFFSET_HZ, DF_BEAM_PORT, DV_DECODER_KIND, DeviceNode, DeviceRef, DfNode,
     DmrChannelEntry, DmrDiscovery, DmrSearchRange, DmrTrunkNode, DmrTrunkProtocol,
     MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES, MAX_DMR_SEARCH_CANDIDATES,

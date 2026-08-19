@@ -5,7 +5,7 @@ use crate::{
     EventOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS,
     MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
-    coherent::{DfParams, PassiveRadarParams},
+    coherent::{CombinerParams, DfParams, PassiveRadarParams},
     device::{ArrayDefinition, Capabilities, Coherence, DeviceInfo, Direction},
     filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
@@ -505,6 +505,13 @@ pub struct PassiveRadarNode {
     pub settings: PassiveRadarParams,
 }
 
+/// A bank of antennas added into one signal: either to hear better, or to stop hearing something.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CombinerNode {
+    #[serde(default)]
+    pub settings: CombinerParams,
+}
+
 pub const RADAR_REFERENCE_PORT: &str = "ref";
 pub const RADAR_SURVEILLANCE_PORT: &str = "surv";
 pub const DF_BEAM_PORT: &str = "beam";
@@ -537,6 +544,7 @@ pub enum NodeBody {
     Hunt(HuntNode),
     Df(DfNode),
     PassiveRadar(PassiveRadarNode),
+    Combiner(CombinerNode),
     Triangulation,
 }
 
@@ -569,6 +577,7 @@ impl NodeBody {
             Self::Df(_) => "df",
             Self::PassiveRadar(_) => "passive_radar",
             Self::Array(_) => "array",
+            Self::Combiner(_) => "combiner",
             Self::Triangulation => "triangulation",
         }
     }
@@ -577,7 +586,9 @@ impl NodeBody {
     pub const fn category(&self) -> NodeCategory {
         match self {
             Self::Device(_) | Self::Array(_) | Self::Gps(_) => NodeCategory::Source,
-            Self::Channel(_) | Self::Df(_) | Self::PassiveRadar(_) => NodeCategory::Channel,
+            Self::Channel(_) | Self::Df(_) | Self::PassiveRadar(_) | Self::Combiner(_) => {
+                NodeCategory::Channel
+            }
             Self::Scope
             | Self::Map
             | Self::SignalMap(_)
@@ -621,6 +632,7 @@ impl NodeBody {
         let specs = ports_for(self.kind());
         match self {
             Self::Df(df) => spread_lanes(specs, df.settings.geometry.count()),
+            Self::Combiner(combiner) => spread_lanes(specs, combiner.settings.lanes),
             _ => specs,
         }
     }
@@ -757,6 +769,13 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::named(DF_BEAM_PORT, Iq, Out, true, Always)
                 .noted("the array summed towards the bearing it found, as one more radio lane"),
         ],
+        "combiner" => vec![
+            PortSpec::new(Iq, In, false, Always)
+                .repeated(PortRepeat::PerRxStream)
+                .noted("lane one is the antenna pointed at what you want"),
+            PortSpec::named(DF_BEAM_PORT, Iq, Out, true, Always)
+                .noted("the antennas added together, as one more radio lane"),
+        ],
         "passive_radar" => vec![
             PortSpec::named(RADAR_REFERENCE_PORT, Iq, In, false, Always)
                 .noted("the antenna pointed at the illuminator"),
@@ -851,6 +870,7 @@ impl PatchCatalog {
                     &NodeBody::PassiveRadar(PassiveRadarNode::default()),
                     "Passive radar",
                 ),
+                entry(&NodeBody::Combiner(CombinerNode::default()), "Combiner"),
                 entry(&NodeBody::Triangulation, "Triangulation"),
             ],
         }

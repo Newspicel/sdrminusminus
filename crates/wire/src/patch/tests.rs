@@ -691,7 +691,10 @@ fn the_only_type_level_cycle_is_the_guarded_event_transform() {
         .filter(|&kind| reachable[kind][kind])
         .map(|kind| catalog.nodes[kind].kind.as_str())
         .collect();
-    assert_eq!(cycle, vec!["event_filter", "df", "triangulation"]);
+    assert_eq!(
+        cycle,
+        vec!["event_filter", "df", "combiner", "triangulation"]
+    );
 }
 
 #[test]
@@ -748,6 +751,7 @@ fn default_body(kind: &str) -> NodeBody {
         "hunt" => NodeBody::Hunt(HuntNode::default()),
         "df" => NodeBody::Df(DfNode::default()),
         "passive_radar" => NodeBody::PassiveRadar(PassiveRadarNode::default()),
+        "combiner" => NodeBody::Combiner(CombinerNode::default()),
         "triangulation" => NodeBody::Triangulation,
         other => panic!("the palette offers {other}, which this test does not build"),
     }

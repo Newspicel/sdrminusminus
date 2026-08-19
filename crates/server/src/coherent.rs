@@ -92,6 +92,9 @@ pub(crate) fn wired_lanes(
         NodeBody::Df(df) => (0..df.settings.geometry.count())
             .map(|element| stream_port("iq", element))
             .collect(),
+        NodeBody::Combiner(combiner) => (0..combiner.settings.lanes)
+            .map(|element| stream_port("iq", element))
+            .collect(),
         NodeBody::PassiveRadar(_) => vec![
             RADAR_REFERENCE_PORT.to_owned(),
             RADAR_SURVEILLANCE_PORT.to_owned(),
@@ -153,7 +156,7 @@ pub(crate) fn beam_channels(
 ) -> Vec<(String, u32, u32)> {
     let mut out = Vec::new();
     for node in &graph.nodes {
-        if !matches!(node.body, NodeBody::Df(_)) {
+        if !matches!(node.body, NodeBody::Df(_) | NodeBody::Combiner(_)) {
             continue;
         }
         let Some(listener) = beam_listener(graph, &node.id) else {
@@ -178,6 +181,7 @@ pub(crate) fn beam_channels(
 pub(crate) fn settings_of(body: &NodeBody) -> Option<CoherentParams> {
     match body {
         NodeBody::Df(df) => Some(CoherentParams::Df(df.settings.clone())),
+        NodeBody::Combiner(combiner) => Some(CoherentParams::Combiner(combiner.settings)),
         NodeBody::PassiveRadar(radar) => Some(CoherentParams::PassiveRadar(radar.settings)),
         _ => None,
     }
@@ -218,6 +222,7 @@ pub(crate) fn apply(
         };
         let kind = match &node.body {
             NodeBody::Df(_) => "df",
+            NodeBody::Combiner(_) => "combiner",
             _ => "passive_radar",
         };
         let station_id = match &node.body {

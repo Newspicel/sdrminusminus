@@ -6,6 +6,7 @@ mod aprs;
 mod atv;
 pub mod audio_chain;
 pub mod coherent;
+mod combiner;
 mod cw_skimmer;
 mod dab;
 mod datv;

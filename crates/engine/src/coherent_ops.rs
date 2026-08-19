@@ -308,6 +308,7 @@ impl Engine {
 fn cal_of(params: &CoherentParams) -> CalParams {
     match params {
         CoherentParams::Df(df) => df.cal,
+        CoherentParams::Combiner(combiner) => combiner.cal,
         CoherentParams::PassiveRadar(_) => CalParams::default(),
     }
 }
