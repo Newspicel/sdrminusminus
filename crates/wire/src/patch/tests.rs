@@ -56,6 +56,7 @@ fn capabilities(duplex: Duplex, rx_streams: u32, tx_streams: u32) -> Capabilitie
         directional: None,
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
+        coherence: crate::device::Coherence::None,
     }
 }
 

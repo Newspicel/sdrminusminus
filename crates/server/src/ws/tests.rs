@@ -1059,6 +1059,7 @@ impl sdrmm_device::DeviceDriver for FaultingDriver {
                 directional: None,
                 dc_artifact: sdrmm_wire::DcArtifact::Operator,
                 hardware_sweep: false,
+                coherence: sdrmm_wire::Coherence::None,
             },
             settings: sdrmm_wire::DeviceSettings {
                 sample_rate: Some(2_048_000.0),

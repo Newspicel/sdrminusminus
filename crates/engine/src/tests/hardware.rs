@@ -163,7 +163,7 @@ fn measure(
     let recording = Arc::new(AtomicUsize::new(0));
     let sink_accumulator = accumulator.clone();
     let gate = recording.clone();
-    device.rx_start(vec![RxSink::new(move |samples| {
+    device.rx_start(vec![RxSink::new(move |samples, _| {
         if gate.load(Ordering::Acquire) == 1 {
             sink_accumulator
                 .lock()

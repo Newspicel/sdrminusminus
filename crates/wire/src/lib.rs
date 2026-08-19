@@ -60,10 +60,11 @@ pub use decode::{
     WsprSpot,
 };
 pub use device::{
-    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DcArtifact,
-    DeviceInfo, DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting,
-    ExtraValue, GainStage, GainValue, MANAGED_LO_OFFSET_FRACTION, MAX_LO_OFFSET_FRACTION, Range,
-    StreamScope, StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
+    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, Coherence,
+    DcArtifact, DeviceInfo, DeviceSettings, Direction, DirectionalCapabilities, Duplex,
+    ExtraSetting, ExtraValue, GainStage, GainValue, MANAGED_LO_OFFSET_FRACTION,
+    MAX_LO_OFFSET_FRACTION, Range, StreamScope, StreamSettings, any_range_holds,
+    lo_offset_limit_hz, managed_lo_offset_hz,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use event_output::{
@@ -674,6 +675,7 @@ mod contract_tests {
                 directional: None,
                 dc_artifact: DcArtifact::Operator,
                 hardware_sweep: false,
+                coherence: Coherence::None,
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,

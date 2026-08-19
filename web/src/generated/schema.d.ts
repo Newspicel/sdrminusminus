@@ -1358,6 +1358,7 @@ export interface components {
             /** @description Continuous analog filter widths, for hardware whose IF filter is not a discrete menu. */
             bandwidth_ranges?: components["schemas"]["Range"][];
             bandwidths: number[];
+            coherence?: components["schemas"]["Coherence"];
             /**
              * @description Whether the engine handles this front end's DC artifact itself. Managed hardware hides
              *     `dc_block` and `lo_offset_hz`, which it overrides.
@@ -1791,6 +1792,15 @@ export interface components {
             /** Format: int32 */
             clients: number;
         };
+        /**
+         * @description How much of the relationship between two of a radio's receive lanes survives calibration.
+         *
+         *     A shared clock alone fixes the sample rate, so a measured delay between lanes stays true; the
+         *     separate synthesizers still come up at an arbitrary phase after every retune. Only a shared
+         *     local oscillator makes inter-lane phase — and therefore a bearing — mean anything.
+         * @enum {string}
+         */
+        Coherence: "none" | "time_sync" | "phase_coherent";
         /** @enum {string} */
         ComponentSource: "rust" | "web" | "native";
         CreateBookmarkRequest: {

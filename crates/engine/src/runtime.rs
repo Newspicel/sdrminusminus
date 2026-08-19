@@ -20,8 +20,8 @@ use sdrmm_dsp::{
     Ddc, IqDcBlocker, LevelMeter, Nco, SpectrumAnalyzer as CpuSpectrumAnalyzer, Squelch,
 };
 use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, PositionFix,
-    StreamScope,
+    ChannelParams, ChannelSettings, Coherence, DecoderEvent, DeviceSettings, MAX_STREAMS,
+    PositionFix, StreamScope,
 };
 use tokio::sync::broadcast;
 
@@ -29,6 +29,7 @@ use crate::{
     FrontEndPlan,
     audio::{PcmBlock, PcmPayload},
     audio_recording::AudioRecorderTap,
+    coherent::CoherentTaps,
     iq::{IqBlock, IqTap},
     network_export::NetworkExportTap,
     recording::RecorderTap,
@@ -661,6 +662,7 @@ pub struct CaptureRuntime {
     lanes: Vec<Lane>,
     per_stream: StreamScope,
     sweeping: bool,
+    coherent: Option<CoherentTaps>,
     _awake: sdrmm_device::schedule::Awake,
 }
 
@@ -693,6 +695,15 @@ impl CaptureRuntime {
             ));
         };
         let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
+        let (mut lane_taps, coherent) = match device.capabilities().coherence {
+            Coherence::None => (Vec::new(), None),
+            _ if lane_count < 2 => (Vec::new(), None),
+            _ => {
+                let (taps, shared) = crate::coherent::lane_taps(lane_count, sample_rate);
+                (taps, Some(shared))
+            }
+        };
+        lane_taps.reverse();
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
         let mut lanes: Vec<Lane> = Vec::with_capacity(lane_count);
@@ -710,8 +721,12 @@ impl CaptureRuntime {
             let ov = overruns.clone();
             let wake = waker.clone();
             let fatal = fatal.clone();
+            let mut lane_tap = lane_taps.pop();
             sinks.push(RxSink::with_fatal_handler(
-                move |samples: &[Complex<f32>]| {
+                move |samples: &[Complex<f32>], index: u64| {
+                    if let Some(tap) = lane_tap.as_mut() {
+                        tap.push(samples, index);
+                    }
                     let free = producer.slots();
                     let take = free.min(samples.len());
                     if take > 0
@@ -767,6 +782,7 @@ impl CaptureRuntime {
             lanes,
             per_stream,
             sweeping: false,
+            coherent,
             _awake: sdrmm_device::schedule::stay_awake("a radio is streaming"),
         };
 
@@ -796,6 +812,23 @@ impl CaptureRuntime {
             }
         }
         Ok(runtime)
+    }
+
+    /// Lends the coherent taps out for as long as something is aggregating them, and takes them
+    /// back when it stops. A radio that is not phase- or time-locked never has any.
+    pub(crate) fn take_coherent(&mut self) -> Option<CoherentTaps> {
+        self.coherent.take()
+    }
+
+    pub(crate) fn return_coherent(&mut self, taps: Option<CoherentTaps>) {
+        if taps.is_some() {
+            self.coherent = taps;
+        }
+    }
+
+    #[must_use]
+    pub fn is_coherent(&self) -> bool {
+        self.coherent.is_some()
     }
 
     pub fn subscribe(&self, stream: u32) -> Option<broadcast::Receiver<SpectrumSnapshot>> {
@@ -949,6 +982,7 @@ impl CaptureRuntime {
             lanes,
             per_stream,
             sweeping: true,
+            coherent: None,
             _awake: sdrmm_device::schedule::stay_awake("a radio is sweeping"),
         })
     }

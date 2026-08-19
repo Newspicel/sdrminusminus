@@ -86,6 +86,7 @@ impl FilePlayback {
             directional: None,
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
+            coherence: sdrmm_wire::Coherence::None,
         };
         let settings = DeviceSettings {
             center_hz: Some(center_hz),
@@ -298,7 +299,7 @@ mod tests {
 
     fn start(dev: &mut FilePlayback) -> mpsc::Receiver<Vec<Complex<f32>>> {
         let (tx, rx) = mpsc::channel();
-        dev.rx_start(vec![RxSink::new(move |s| {
+        dev.rx_start(vec![RxSink::new(move |s, _| {
             let _ = tx.send(s.to_vec());
         })])
         .unwrap();
@@ -649,7 +650,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
         dev.rx_start(vec![RxSink::with_fatal_handler(
-            |_| {},
+            |_, _| {},
             move |err| {
                 let _ = tx.send(err);
             },

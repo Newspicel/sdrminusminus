@@ -83,6 +83,7 @@ pub(crate) fn capabilities() -> Capabilities {
         directional: None,
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: true,
+        coherence: sdrmm_wire::Coherence::None,
     }
 }
 

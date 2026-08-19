@@ -26,6 +26,7 @@ pub mod audio;
 pub mod audio_recording;
 mod capture_ops;
 mod channel_ops;
+pub mod coherent;
 mod device_ops;
 mod discovery;
 mod history;

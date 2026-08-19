@@ -193,7 +193,7 @@ fn open(driver: &SpyServerDriver, endpoint: &str) -> Result<Box<dyn SdrDevice>, 
 fn blocking_sink() -> (RxSink, mpsc::Receiver<Vec<Sample>>) {
     let (tx, rx) = mpsc::channel();
     (
-        RxSink::new(move |samples: &[Sample]| {
+        RxSink::new(move |samples: &[Sample], _| {
             let _ = tx.send(samples.to_vec());
         }),
         rx,

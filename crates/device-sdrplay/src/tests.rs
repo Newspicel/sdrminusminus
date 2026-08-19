@@ -104,7 +104,9 @@ fn settings_applied_before_streaming_reach_the_parameters_without_an_update_call
 fn settings_applied_while_streaming_are_pushed_with_the_matching_reason() {
     let api = Arc::new(FakeApi::rsp1a());
     let mut device = open(&api, "1234567890");
-    device.rx_start(vec![RxSink::new(|_| {})]).expect("start");
+    device
+        .rx_start(vec![RxSink::new(|_, _| {})])
+        .expect("start");
     device
         .apply(&DeviceSettings {
             center_hz: Some(145_500_000.0),
@@ -122,7 +124,9 @@ fn settings_applied_while_streaming_are_pushed_with_the_matching_reason() {
 fn a_setting_that_changes_nothing_is_not_pushed_to_the_hardware() {
     let api = Arc::new(FakeApi::rsp1a());
     let mut device = open(&api, "1234567890");
-    device.rx_start(vec![RxSink::new(|_| {})]).expect("start");
+    device
+        .rx_start(vec![RxSink::new(|_, _| {})])
+        .expect("start");
     let center = device.settings().center_hz;
     device
         .apply(&DeviceSettings {
@@ -140,7 +144,7 @@ fn samples_from_the_api_reach_the_sink() {
     let mut device = open(&api, "1234567890");
     let (tx, rx) = mpsc::channel();
     device
-        .rx_start(vec![RxSink::new(move |samples| {
+        .rx_start(vec![RxSink::new(move |samples, _| {
             tx.send(samples.len()).expect("receiver lives");
         })])
         .expect("start");
@@ -155,9 +159,11 @@ fn samples_from_the_api_reach_the_sink() {
 fn a_second_start_is_refused_while_one_runs() {
     let api = Arc::new(FakeApi::rsp1a());
     let mut device = open(&api, "1234567890");
-    device.rx_start(vec![RxSink::new(|_| {})]).expect("start");
+    device
+        .rx_start(vec![RxSink::new(|_, _| {})])
+        .expect("start");
     assert!(matches!(
-        device.rx_start(vec![RxSink::new(|_| {})]),
+        device.rx_start(vec![RxSink::new(|_, _| {})]),
         Err(DeviceError::AlreadyStreaming)
     ));
     device.rx_stop();
@@ -168,7 +174,7 @@ fn the_wrong_number_of_sinks_is_refused_before_the_hardware_is_touched() {
     let api = Arc::new(FakeApi::rsp1a());
     let mut device = open(&api, "1234567890");
     assert!(matches!(
-        device.rx_start(vec![RxSink::new(|_| {}), RxSink::new(|_| {})]),
+        device.rx_start(vec![RxSink::new(|_, _| {}), RxSink::new(|_, _| {})]),
         Err(DeviceError::Unsupported(_))
     ));
     assert!(!api.is_streaming());
@@ -181,7 +187,7 @@ fn an_unplugged_receiver_surfaces_through_the_fatal_handler() {
     let (tx, rx) = mpsc::channel();
     device
         .rx_start(vec![RxSink::with_fatal_handler(
-            |_| {},
+            |_, _| {},
             move |error| tx.send(error.to_string()).expect("receiver lives"),
         )])
         .expect("start");
@@ -235,8 +241,8 @@ fn a_dual_tuner_duo_streams_both_tuners_independently() {
     let (tx_b, rx_b) = mpsc::channel();
     device
         .rx_start(vec![
-            RxSink::new(move |samples| tx_a.send(samples.len()).expect("receiver lives")),
-            RxSink::new(move |samples| tx_b.send(samples.len()).expect("receiver lives")),
+            RxSink::new(move |samples, _| tx_a.send(samples.len()).expect("receiver lives")),
+            RxSink::new(move |samples, _| tx_b.send(samples.len()).expect("receiver lives")),
         ])
         .expect("start");
     api.emit(ffi::TUNER_A, &[(1, 1); 16]);
@@ -277,7 +283,9 @@ fn a_duo_slave_waits_for_its_master_before_streaming() {
         std::thread::sleep(Duration::from_millis(300));
         master.master_started();
     });
-    device.rx_start(vec![RxSink::new(|_| {})]).expect("start");
+    device
+        .rx_start(vec![RxSink::new(|_, _| {})])
+        .expect("start");
     started.join().expect("the master thread finishes");
     assert!(api.is_streaming());
     device.rx_stop();
@@ -291,7 +299,9 @@ fn a_duo_slave_uses_the_tuner_the_master_left_free() {
         ffi::TUNER_B,
     )]));
     let mut device = open(&api, "1809001DDD@SLV");
-    device.rx_start(vec![RxSink::new(|_| {})]).expect("start");
+    device
+        .rx_start(vec![RxSink::new(|_, _| {})])
+        .expect("start");
     device
         .apply(&DeviceSettings {
             center_hz: Some(50_000_000.0),

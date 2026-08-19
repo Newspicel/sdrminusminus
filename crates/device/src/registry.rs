@@ -219,6 +219,7 @@ mod tests {
                 directional: None,
                 dc_artifact: DcArtifact::Operator,
                 hardware_sweep: false,
+                coherence: sdrmm_wire::Coherence::None,
             })
         }
 

@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DcArtifact,
-    DeviceSettings, DirectionalCapabilities, Duplex, ExtraSetting, Range,
+    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, Coherence,
+    DcArtifact, DeviceSettings, DirectionalCapabilities, Duplex, ExtraSetting, Range,
 };
 use soapysdr::ArgType;
 
@@ -155,6 +155,7 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
     let tx_streams = u32::try_from(directional.tx.len()).unwrap_or(u32::MAX);
     let duplex = duplex(&directional.rx, &directional.tx);
     let extra = extra_settings_from_wire(&directional.device_settings);
+    let coherence = coherence(&directional, rx_streams);
     Capabilities {
         freq_ranges,
         sample_rates,
@@ -172,6 +173,38 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         directional: Some(directional),
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
+        coherence,
+    }
+}
+
+/// Hardware whose receive chains are known to share one synthesizer, not just one clock. Anything
+/// else with more than one channel on a single device shares a clock by construction, which makes
+/// a delay between its lanes meaningful and a phase between them not.
+const PHASE_COHERENT_HARDWARE: [&str; 3] = ["krakensdr", "kerberossdr", "rspduo"];
+
+fn coherence(directional: &DirectionalCapabilities, rx_streams: u32) -> Coherence {
+    if rx_streams < 2 {
+        return Coherence::None;
+    }
+    let named = directional
+        .hardware_info
+        .values()
+        .chain(
+            directional
+                .rx
+                .iter()
+                .flat_map(|channel| channel.info.values()),
+        )
+        .any(|value| {
+            let value = value.to_ascii_lowercase().replace([' ', '-', '_'], "");
+            PHASE_COHERENT_HARDWARE
+                .iter()
+                .any(|known| value.contains(known))
+        });
+    if named {
+        Coherence::PhaseCoherent
+    } else {
+        Coherence::TimeSync
     }
 }
 

@@ -628,6 +628,7 @@ mod tests {
             directional: None,
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
+            coherence: crate::device::Coherence::None,
         }
         .profile()
     }

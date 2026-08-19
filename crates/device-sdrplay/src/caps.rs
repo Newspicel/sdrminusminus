@@ -519,6 +519,7 @@ pub fn capabilities(model: Model, mode: Option<DuoMode>, band: Band) -> Capabili
         directional: None,
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
+        coherence: sdrmm_wire::Coherence::None,
     }
 }
 

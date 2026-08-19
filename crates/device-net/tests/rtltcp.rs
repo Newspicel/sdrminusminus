@@ -81,7 +81,7 @@ fn open(driver: &RtlTcpDriver, endpoint: &str) -> Result<Box<dyn SdrDevice>, Dev
 fn blocking_sink() -> (RxSink, mpsc::Receiver<Vec<Sample>>) {
     let (tx, rx) = mpsc::channel();
     (
-        RxSink::new(move |samples: &[Sample]| {
+        RxSink::new(move |samples: &[Sample], _| {
             let _ = tx.send(samples.to_vec());
         }),
         rx,

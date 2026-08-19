@@ -162,6 +162,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         directional: None,
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
+        coherence: sdrmm_wire::Coherence::None,
     }
 }
 

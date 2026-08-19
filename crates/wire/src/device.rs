@@ -425,6 +425,36 @@ pub struct Capabilities {
     /// each was taken at instead of a stream at one tuning.
     #[serde(default)]
     pub hardware_sweep: bool,
+    #[serde(default)]
+    pub coherence: Coherence,
+}
+
+/// How much of the relationship between two of a radio's receive lanes survives calibration.
+///
+/// A shared clock alone fixes the sample rate, so a measured delay between lanes stays true; the
+/// separate synthesizers still come up at an arbitrary phase after every retune. Only a shared
+/// local oscillator makes inter-lane phase — and therefore a bearing — mean anything.
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize, ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Coherence {
+    #[default]
+    None,
+    TimeSync,
+    PhaseCoherent,
+}
+
+impl Coherence {
+    #[must_use]
+    pub const fn has_time(self) -> bool {
+        matches!(self, Self::TimeSync | Self::PhaseCoherent)
+    }
+
+    #[must_use]
+    pub const fn has_phase(self) -> bool {
+        matches!(self, Self::PhaseCoherent)
+    }
 }
 
 const fn one_stream() -> u32 {
@@ -691,6 +721,7 @@ mod tests {
             directional: None,
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
+            coherence: Coherence::None,
         }
     }
 

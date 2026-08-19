@@ -4643,6 +4643,9 @@
               "format": "double"
             }
           },
+          "coherence": {
+            "$ref": "#/components/schemas/Coherence"
+          },
           "dc_artifact": {
             "$ref": "#/components/schemas/DcArtifact",
             "description": "Whether the engine handles this front end's DC artifact itself. Managed hardware hides\n`dc_block` and `lo_offset_hz`, which it overrides."
@@ -6386,6 +6389,15 @@
             "minimum": 0
           }
         }
+      },
+      "Coherence": {
+        "type": "string",
+        "description": "How much of the relationship between two of a radio's receive lanes survives calibration.\n\nA shared clock alone fixes the sample rate, so a measured delay between lanes stays true; the\nseparate synthesizers still come up at an arbitrary phase after every retune. Only a shared\nlocal oscillator makes inter-lane phase — and therefore a bearing — mean anything.",
+        "enum": [
+          "none",
+          "time_sync",
+          "phase_coherent"
+        ]
       },
       "ComponentSource": {
         "type": "string",

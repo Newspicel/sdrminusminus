@@ -250,17 +250,22 @@ fn drain<S: CaptureStream, C: SampleConverter>(
         match stream.next_block(config.poll) {
             Next::Block(block) => {
                 last_block = Instant::now();
-                for chunk in converter.convert(&block).chunks(chunk_size) {
-                    sink.push(chunk);
-                }
+                let samples = converter.convert(&block);
+                let per_transfer = samples.len() as u64;
                 let total = stream.dropped();
                 if total > *dropped {
+                    let lost = (total - *dropped) * per_transfer;
                     tracing::warn!(
                         radio = config.radio,
                         dropped = total,
+                        lost,
                         "transport dropped transfers"
                     );
+                    sink.dropped(lost);
                     *dropped = total;
+                }
+                for chunk in samples.chunks(chunk_size) {
+                    sink.push(chunk);
                 }
             }
             Next::Idle => {
@@ -479,7 +484,7 @@ mod tests {
         let (block_tx, block_rx) = mpsc::channel();
         let (fault_tx, fault_rx) = mpsc::channel();
         let sink = RxSink::with_fatal_handler(
-            move |samples: &[Sample]| {
+            move |samples: &[Sample], _index: u64| {
                 let _ = block_tx.send(samples.iter().map(|s| s.re).collect::<Vec<_>>());
             },
             move |err| {
@@ -663,7 +668,7 @@ mod tests {
                 .start(
                     radio.clone(),
                     OneSamplePerByte::default(),
-                    RxSink::new(|_| {}),
+                    RxSink::new(|_, _| {}),
                     config(),
                 )
                 .expect("start");
@@ -683,7 +688,7 @@ mod tests {
             .start(
                 radio.clone(),
                 OneSamplePerByte::default(),
-                RxSink::new(|_| {}),
+                RxSink::new(|_, _| {}),
                 config(),
             )
             .expect("start");
@@ -691,7 +696,7 @@ mod tests {
             capture.start(
                 radio.clone(),
                 OneSamplePerByte::default(),
-                RxSink::new(|_| {}),
+                RxSink::new(|_, _| {}),
                 config()
             ),
             Err(DeviceError::AlreadyStreaming)
@@ -704,7 +709,7 @@ mod tests {
             .start(
                 radio.clone(),
                 OneSamplePerByte::default(),
-                RxSink::new(|_| {}),
+                RxSink::new(|_, _| {}),
                 config(),
             )
             .expect("restart");
@@ -719,7 +724,7 @@ mod tests {
             .start(
                 radio.clone(),
                 OneSamplePerByte::default(),
-                RxSink::new(|_| {}),
+                RxSink::new(|_, _| {}),
                 config(),
             )
             .expect_err("arm refused");

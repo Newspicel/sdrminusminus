@@ -242,7 +242,7 @@ mod tests {
     fn samples_reach_the_sink_scaled_to_unit_range() {
         let (tx, rx) = mpsc::channel();
         let mut context = StreamContext::new(
-            vec![RxSink::new(move |samples| {
+            vec![RxSink::new(move |samples, _| {
                 tx.send(samples.to_vec()).unwrap()
             })],
             state(),
@@ -270,8 +270,8 @@ mod tests {
         let (tx_b, rx_b) = mpsc::channel();
         let mut context = StreamContext::new(
             vec![
-                RxSink::new(move |samples| tx_a.send(samples.len()).unwrap()),
-                RxSink::new(move |samples| tx_b.send(samples.len()).unwrap()),
+                RxSink::new(move |samples, _| tx_a.send(samples.len()).unwrap()),
+                RxSink::new(move |samples, _| tx_b.send(samples.len()).unwrap()),
             ],
             state(),
         );
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_stream_with_no_sink_for_that_tuner_is_ignored() {
-        let mut context = StreamContext::new(vec![RxSink::new(|_| {})], state());
+        let mut context = StreamContext::new(vec![RxSink::new(|_, _| {})], state());
         let mut xi = [1_i16; 4];
         let mut xq = [1_i16; 4];
         deliver(
@@ -304,7 +304,7 @@ mod tests {
     fn an_empty_or_null_block_is_dropped_without_a_push() {
         let (tx, rx) = mpsc::channel();
         let mut context =
-            StreamContext::new(vec![RxSink::new(move |_| tx.send(()).unwrap())], state());
+            StreamContext::new(vec![RxSink::new(move |_, _| tx.send(()).unwrap())], state());
         let pointer = std::ptr::from_mut(context.as_mut()).cast();
         let mut xi = [1_i16; 4];
         let mut xq = [1_i16; 4];
@@ -328,7 +328,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let mut context = StreamContext::new(
             vec![RxSink::with_fatal_handler(
-                |_| {},
+                |_, _| {},
                 move |error| tx.send(error.to_string()).unwrap(),
             )],
             state(),

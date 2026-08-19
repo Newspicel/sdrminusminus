@@ -77,36 +77,52 @@ pub fn check_stream_settings(
     Ok(())
 }
 
-type PushFn = Box<dyn FnMut(&[Sample]) + Send>;
+type PushFn = Box<dyn FnMut(&[Sample], u64) + Send>;
 type FatalFn = Box<dyn FnOnce(DeviceError) + Send>;
 
 pub struct RxSink {
     push_fn: PushFn,
     fatal_fn: Option<FatalFn>,
+    index: u64,
 }
 
 impl RxSink {
     #[must_use]
-    pub fn new(push_fn: impl FnMut(&[Sample]) + Send + 'static) -> Self {
+    pub fn new(push_fn: impl FnMut(&[Sample], u64) + Send + 'static) -> Self {
         Self {
             push_fn: Box::new(push_fn),
             fatal_fn: None,
+            index: 0,
         }
     }
 
     #[must_use]
     pub fn with_fatal_handler(
-        push_fn: impl FnMut(&[Sample]) + Send + 'static,
+        push_fn: impl FnMut(&[Sample], u64) + Send + 'static,
         fatal_fn: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Self {
         Self {
             push_fn: Box::new(push_fn),
             fatal_fn: Some(Box::new(fatal_fn)),
+            index: 0,
         }
     }
 
+    /// Hands over a block together with the index its first sample carries since `rx_start`.
     pub fn push(&mut self, samples: &[Sample]) {
-        (self.push_fn)(samples);
+        (self.push_fn)(samples, self.index);
+        self.index += samples.len() as u64;
+    }
+
+    /// Steps the index over samples the radio itself lost, so a device-side gap reaches the
+    /// engine as a jump rather than silently shortening the lane against its neighbours.
+    pub fn dropped(&mut self, samples: u64) {
+        self.index += samples;
+    }
+
+    #[must_use]
+    pub const fn index(&self) -> u64 {
+        self.index
     }
 
     pub fn fail(&mut self, err: DeviceError) {
@@ -308,7 +324,7 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();
         let mut sink = RxSink::with_fatal_handler(
-            |_| {},
+            |_, _| {},
             move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
             },
@@ -319,21 +335,51 @@ mod tests {
     }
 
     #[test]
+    fn every_block_carries_the_index_of_its_first_sample() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let mut sink = RxSink::new(move |samples: &[Sample], index| {
+            lock(&log).push((index, samples.len()));
+        });
+        let block = [Complex::new(0.0, 0.0); 8];
+        sink.push(&block);
+        sink.push(&block[..3]);
+        sink.push(&block);
+        assert_eq!(*lock(&seen), vec![(0, 8), (8, 3), (11, 8)]);
+        assert_eq!(sink.index(), 19);
+    }
+
+    #[test]
+    fn samples_the_radio_lost_step_the_index_without_a_push() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let mut sink = RxSink::new(move |samples: &[Sample], index| {
+            lock(&log).push((index, samples.len()));
+        });
+        let block = [Complex::new(0.0, 0.0); 4];
+        sink.push(&block);
+        sink.dropped(1_000);
+        sink.push(&block);
+        assert_eq!(*lock(&seen), vec![(0, 4), (1_004, 4)]);
+        assert_eq!(sink.index(), 1_008);
+    }
+
+    #[test]
     fn fail_without_handler_is_a_noop() {
-        let mut sink = RxSink::new(|_| {});
+        let mut sink = RxSink::new(|_, _| {});
         sink.fail(DeviceError::Io("dropped".into()));
     }
 
     #[test]
     fn single_rx_sink_takes_exactly_one() {
-        let mut sink = single_rx_sink(vec![RxSink::new(|_| {})]).expect("one sink");
+        let mut sink = single_rx_sink(vec![RxSink::new(|_, _| {})]).expect("one sink");
         sink.push(&[Complex::new(0.0, 0.0)]);
     }
 
     #[test]
     fn single_rx_sink_refuses_any_other_count() {
         for count in [0, 2, 5] {
-            let sinks: Vec<RxSink> = (0..count).map(|_| RxSink::new(|_| {})).collect();
+            let sinks: Vec<RxSink> = (0..count).map(|_| RxSink::new(|_, _| {})).collect();
             match single_rx_sink(sinks) {
                 Err(DeviceError::Unsupported(message)) => {
                     assert!(message.contains(&count.to_string()), "{message}");
@@ -361,6 +407,7 @@ mod tests {
             directional: None,
             dc_artifact: sdrmm_wire::DcArtifact::Operator,
             hardware_sweep: false,
+            coherence: sdrmm_wire::Coherence::None,
         }
     }
 

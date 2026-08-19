@@ -491,7 +491,11 @@ fn wired_device_set(
     bindings: &[workspace::DeviceBinding],
     node: &str,
 ) -> Option<u32> {
-    let device = graph.sources_of(node, "iq").next()?;
+    let device = graph
+        .edges
+        .iter()
+        .find(|edge| edge.to.node == node && sdrmm_wire::port_stream("iq", &edge.to.port).is_some())
+        .map(|edge| edge.from.node.as_str())?;
     bindings
         .iter()
         .find(|binding| binding.node == device)
