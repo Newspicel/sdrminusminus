@@ -1,23 +1,32 @@
 pub mod agc;
 pub mod bits;
+pub mod caf;
+pub mod cfar;
 pub mod compander;
+pub mod covariance;
 pub mod ddc;
 pub mod decim;
+pub mod eca;
 pub mod fec;
+pub mod fft;
 pub mod fir;
 pub mod firc;
 pub mod fm;
 pub mod iir;
 pub mod level;
+pub mod linalg;
+pub mod music;
 pub mod nco;
 pub mod noise;
 pub mod pll;
 pub mod resamp;
 pub mod spectrum;
 pub mod squelch;
+pub mod steering;
 pub mod sync;
 pub mod tone;
 pub mod window;
+pub mod xcorr;
 
 #[cfg(test)]
 mod testutil;

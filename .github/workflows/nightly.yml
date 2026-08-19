@@ -45,7 +45,9 @@ jobs:
       # stays buildable and runnable. The measured numbers gate above via the committed JSON
       # baselines; a shared runner's Criterion timings would be noise, so none are recorded.
       - name: benches stay runnable
-        run: cargo bench -p sdrmm-modem -- --test
+        run: |
+          cargo bench -p sdrmm-modem -- --test
+          cargo bench -p sdrmm-dsp -- --test
       # `xtask ber` writes its files even on FAIL — a failing curve is exactly the one worth
       # looking at, and without this it dies with the runner.
       - name: keep the measured curves

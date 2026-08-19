@@ -4691,6 +4691,7 @@ dependencies = [
 name = "sdrmm-dsp"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "num-complex",
  "rustfft",
  "thiserror 2.0.20",
