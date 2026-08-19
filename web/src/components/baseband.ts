@@ -1,3 +1,5 @@
+import type { SymbolFrame } from "../lib/frame";
+
 export const BASEBAND_GAIN = 0.22;
 export const BASEBAND_DECAY = 0.82;
 
@@ -235,4 +237,155 @@ export class Trend {
     this.at = 0;
     this.filled = 0;
   }
+}
+
+export interface SymbolState {
+  index: number;
+  bits: string;
+  i: number;
+  q: number;
+  count: number;
+  share: number;
+  mean: number;
+  sigma: number;
+  peak: number;
+}
+
+function planeWidth(block: SymbolFrame): number {
+  return block.plane === "complex" ? 2 : 1;
+}
+
+function axis(values: Float32Array, index: number, width: number, part: number): number {
+  if (part === 1 && width === 1) {
+    return 0;
+  }
+  return values[index * width + part] ?? 0;
+}
+
+function nearestPoint(
+  reference: Float32Array,
+  width: number,
+  points: number,
+  x: number,
+  y: number,
+): number {
+  let best = 0;
+  let closest = Number.POSITIVE_INFINITY;
+  for (let k = 0; k < points; k++) {
+    const dx = x - axis(reference, k, width, 0);
+    const dy = y - axis(reference, k, width, 1);
+    const distance = dx * dx + dy * dy;
+    if (distance < closest) {
+      closest = distance;
+      best = k;
+    }
+  }
+  return best;
+}
+
+function meanPower(values: Float32Array, width: number, count: number): number {
+  if (count === 0) {
+    return 0;
+  }
+  let sum = 0;
+  for (let k = 0; k < count; k++) {
+    const a = axis(values, k, width, 0);
+    const b = axis(values, k, width, 1);
+    sum += a * a + b * b;
+  }
+  return sum / count;
+}
+
+function fitScale(target: number, measured: number): number {
+  return measured > 0 && target > 0 ? Math.sqrt(target / measured) : 1;
+}
+
+export function symbolGain(block: SymbolFrame): number {
+  const width = planeWidth(block);
+  const points = Math.floor(block.reference.length / width);
+  const count = Math.floor(block.symbols.length / width);
+  if (points === 0 || count === 0) {
+    return 1;
+  }
+  const measured = meanPower(block.symbols, width, count);
+  const blind = fitScale(meanPower(block.reference, width, points), measured);
+  let decided = 0;
+  for (let n = 0; n < count; n++) {
+    const x = axis(block.symbols, n, width, 0) * blind;
+    const y = axis(block.symbols, n, width, 1) * blind;
+    const k = nearestPoint(block.reference, width, points, x, y);
+    const a = axis(block.reference, k, width, 0);
+    const b = axis(block.reference, k, width, 1);
+    decided += a * a + b * b;
+  }
+  return blind * fitScale(decided / count, measured * blind * blind);
+}
+
+export function decisionDistance(block: SymbolFrame): number {
+  const width = planeWidth(block);
+  const points = Math.floor(block.reference.length / width);
+  let closest = Number.POSITIVE_INFINITY;
+  for (let a = 0; a < points; a++) {
+    for (let b = a + 1; b < points; b++) {
+      const dx = axis(block.reference, a, width, 0) - axis(block.reference, b, width, 0);
+      const dy = axis(block.reference, a, width, 1) - axis(block.reference, b, width, 1);
+      const distance = Math.hypot(dx, dy);
+      if (distance > 0) {
+        closest = Math.min(closest, distance);
+      }
+    }
+  }
+  return Number.isFinite(closest) ? closest / 2 : 1;
+}
+
+export function stateBits(index: number, points: number): string {
+  const bits = Math.log2(points);
+  return Number.isInteger(bits) ? index.toString(2).padStart(bits, "0") : String(index);
+}
+
+export function symbolStates(block: SymbolFrame): SymbolState[] {
+  const width = planeWidth(block);
+  const points = Math.floor(block.reference.length / width);
+  if (points === 0) {
+    return [];
+  }
+  const count = Math.floor(block.symbols.length / width);
+  const gain = symbolGain(block);
+  const half = decisionDistance(block);
+  const counts = new Float64Array(points);
+  const sums = new Float64Array(points);
+  const squares = new Float64Array(points);
+  const peaks = new Float64Array(points);
+  for (let n = 0; n < count; n++) {
+    const x = axis(block.symbols, n, width, 0) * gain;
+    const y = axis(block.symbols, n, width, 1) * gain;
+    const k = nearestPoint(block.reference, width, points, x, y);
+    const dx = x - axis(block.reference, k, width, 0);
+    const dy = y - axis(block.reference, k, width, 1);
+    const error = (width === 2 ? Math.hypot(dx, dy) : dx) / half;
+    counts[k] = (counts[k] ?? 0) + 1;
+    sums[k] = (sums[k] ?? 0) + error;
+    squares[k] = (squares[k] ?? 0) + error * error;
+    if (Math.abs(error) > Math.abs(peaks[k] ?? 0)) {
+      peaks[k] = error;
+    }
+  }
+  const states: SymbolState[] = [];
+  for (let k = 0; k < points; k++) {
+    const hits = counts[k] ?? 0;
+    const mean = hits > 0 ? (sums[k] ?? 0) / hits : Number.NaN;
+    const variance = hits > 1 ? (squares[k] ?? 0) / hits - mean * mean : Number.NaN;
+    states.push({
+      index: k,
+      bits: stateBits(k, points),
+      i: axis(block.reference, k, width, 0),
+      q: axis(block.reference, k, width, 1),
+      count: hits,
+      share: count > 0 ? hits / count : 0,
+      mean,
+      sigma: Number.isNaN(variance) ? Number.NaN : Math.sqrt(Math.max(0, variance)),
+      peak: hits > 0 ? (peaks[k] ?? 0) : Number.NaN,
+    });
+  }
+  return width === 1 ? states.toSorted((a, b) => b.i - a.i) : states;
 }

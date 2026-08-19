@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { SymbolFrame } from "../lib/frame";
 import {
   addConstellation,
   addEye,
@@ -6,11 +7,15 @@ import {
   clearBasebandGrid,
   createBasebandGrid,
   decayBasebandGrid,
+  decisionDistance,
   eyeScale,
   peakMagnitude,
   samplesPerSymbol,
+  stateBits,
+  symbolGain,
   symbolHistogram,
   symbolPhase,
+  symbolStates,
   Trend,
 } from "./baseband";
 
@@ -317,5 +322,139 @@ describe("Trend", () => {
     trend.push(1);
     trend.clear();
     expect(trend.length).toBe(0);
+  });
+});
+
+function rail(symbols: number[], reference = [-3, -1, 1, 3]): SymbolFrame {
+  return {
+    streamId: 1,
+    seq: 0,
+    timestamp: 0n,
+    plane: "level",
+    symbolRate: 4800,
+    evm: 0,
+    merDb: 0,
+    margin: 0,
+    freqErrorHz: 0,
+    reference: Float32Array.from(reference),
+    symbols: Float32Array.from(symbols),
+  };
+}
+
+function cloud(symbols: number[]): SymbolFrame {
+  return {
+    ...rail([]),
+    plane: "complex",
+    reference: Float32Array.from([1, 1, -1, 1, -1, -1, 1, -1]),
+    symbols: Float32Array.from(symbols),
+  };
+}
+
+describe("decisionDistance", () => {
+  it("is half the gap between neighbouring levels", () => {
+    expect(decisionDistance(rail([]))).toBe(1);
+  });
+
+  it("is half the shortest hop across a cloud", () => {
+    expect(decisionDistance(cloud([]))).toBeCloseTo(1);
+  });
+
+  it("falls back to a unit when there is nothing to compare", () => {
+    expect(decisionDistance(rail([], [2]))).toBe(1);
+  });
+});
+
+describe("symbolGain", () => {
+  it("leaves a rail that already sits on its levels alone", () => {
+    expect(symbolGain(rail([-3, -1, 1, 3]))).toBeCloseTo(1);
+  });
+
+  it("lifts a rail that arrives at half amplitude", () => {
+    expect(symbolGain(rail([-1.5, -0.5, 0.5, 1.5]))).toBeCloseTo(2);
+  });
+
+  it("stays neutral when there is nothing to fit", () => {
+    expect(symbolGain(rail([]))).toBe(1);
+  });
+});
+
+describe("stateBits", () => {
+  it("names a state by the bits that select it", () => {
+    expect(stateBits(2, 4)).toBe("10");
+    expect(stateBits(5, 8)).toBe("101");
+  });
+
+  it("numbers a state the bits cannot name", () => {
+    expect(stateBits(2, 3)).toBe("2");
+  });
+});
+
+describe("symbolStates", () => {
+  it("reads every state dead on when the rail is clean", () => {
+    const states = symbolStates(rail([-3, -1, 1, 3]));
+    expect(states.map((state) => state.i)).toEqual([3, 1, -1, -3]);
+    expect(states.map((state) => state.bits)).toEqual(["11", "10", "01", "00"]);
+    for (const state of states) {
+      expect(state.count).toBe(1);
+      expect(state.share).toBeCloseTo(0.25);
+      expect(state.mean).toBeCloseTo(0);
+    }
+  });
+
+  it("ignores a gain the whole rail shares", () => {
+    const states = symbolStates(rail([-6, -2, 2, 6]));
+    for (const state of states) {
+      expect(state.mean).toBeCloseTo(0);
+    }
+  });
+
+  it("shows the outer states pulled in when the rail is compressed", () => {
+    const states = symbolStates(rail([2.4, -2.4, 1, -1, 2.4, -2.4, 1, -1]));
+    const outer = states.filter((state) => Math.abs(state.i) === 3);
+    const inner = states.filter((state) => Math.abs(state.i) === 1);
+    for (const state of outer) {
+      expect(Math.sign(state.mean)).toBe(-Math.sign(state.i));
+    }
+    for (const state of inner) {
+      expect(Math.sign(state.mean)).toBe(Math.sign(state.i));
+    }
+  });
+
+  it("measures the offset against the slice point", () => {
+    const states = symbolStates(rail([-3, -1, 1, 3.5, -3, -1, 1, 3.5]));
+    const top = states[0];
+    expect(top?.i).toBe(3);
+    expect(top?.mean).toBeGreaterThan(0.2);
+    expect(top?.mean).toBeLessThan(0.5);
+  });
+
+  it("spreads a state that wobbles and holds one that does not", () => {
+    const states = symbolStates(rail([-3, -1, 1, 3, -3, -1, 1.6, 3]));
+    const wobbly = states.find((state) => state.i === 1);
+    const steady = states.find((state) => state.i === 3);
+    expect(wobbly?.sigma).toBeGreaterThan(0);
+    expect(steady?.sigma).toBeCloseTo(0);
+    expect(Math.abs(wobbly?.peak ?? 0)).toBeGreaterThan(Math.abs(wobbly?.mean ?? 0));
+  });
+
+  it("keeps a state nothing ever landed on", () => {
+    const states = symbolStates(rail([-3, -1, 1, -3, -1, 1]));
+    const missing = states.find((state) => state.i === 3);
+    expect(missing?.count).toBe(0);
+    expect(missing?.share).toBe(0);
+    expect(Number.isNaN(missing?.mean ?? 0)).toBe(true);
+  });
+
+  it("measures a cloud by how far each point strays", () => {
+    const states = symbolStates(cloud([1, 1, -1, 1, -1, -1, 1, -1]));
+    expect(states).toHaveLength(4);
+    for (const state of states) {
+      expect(state.count).toBe(1);
+      expect(state.mean).toBeCloseTo(0);
+    }
+  });
+
+  it("has nothing to say without a reference", () => {
+    expect(symbolStates(rail([1, 2], []))).toEqual([]);
   });
 });

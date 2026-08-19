@@ -11,9 +11,11 @@ import {
   type EyeComponent,
   eyeScale,
   peakMagnitude,
+  type SymbolState,
   samplesPerSymbol,
   symbolHistogram,
   symbolPhase,
+  symbolStates,
   Trend,
 } from "../../components/baseband";
 import { plotButton, segment } from "../../components/controls";
@@ -29,13 +31,14 @@ import { symbolHub } from "../../lib/symbols";
 import { token } from "../../lib/tokens";
 import type { ChannelInfo } from "../../lib/types";
 import { drawPlot, GridBitmap } from "./scopePlot";
-import { drawHistogram, drawTrend } from "./symbolPlot";
+import { drawHistogram, drawStates, drawTrend, type PlotInset } from "./symbolPlot";
 
 export const BASEBAND_VIEWS = [
   "spectrum",
   "constellation",
   "eye",
   "levels",
+  "states",
   "quality",
   "drift",
 ] as const;
@@ -47,6 +50,8 @@ const SPECTRUM_RANGE_DB = 90;
 const MIN_SYMBOL_RATE = 1;
 const TREND_POINTS = 240;
 const SCATTER_VIEWS: readonly BasebandView[] = ["constellation", "eye"];
+const HEADER_INSET = 14;
+const CHROME_GAP = 6;
 
 export function BasebandView({
   deviceSet,
@@ -75,6 +80,8 @@ export function BasebandView({
   const marginRef = useRef(new Trend(TREND_POINTS));
   const driftRef = useRef(new Trend(TREND_POINTS));
 
+  const chromeRef = useRef<HTMLDivElement>(null);
+  const insetRef = useRef<PlotInset>({ top: HEADER_INSET, bottom: 0 });
   const gridRef = useRef<BasebandGrid | null>(null);
   const bitmapRef = useRef<GridBitmap | null>(null);
   const analyzerRef = useRef<SpectrumAnalyzer | null>(null);
@@ -157,6 +164,20 @@ export function BasebandView({
   }, [deviceSet, channel.id]);
 
   useEffect(() => {
+    const chrome = chromeRef.current;
+    if (chrome === null) {
+      return;
+    }
+    const measure = () => {
+      insetRef.current = { top: HEADER_INSET, bottom: chrome.offsetHeight + CHROME_GAP };
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(chrome);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     let raf = 0;
     const loop = () => {
       draw(
@@ -170,6 +191,7 @@ export function BasebandView({
         analyzerRef,
         dbRef,
         { mer: merRef.current, margin: marginRef.current, drift: driftRef.current },
+        insetRef.current,
       );
       raf = requestAnimationFrame(loop);
     };
@@ -189,6 +211,7 @@ export function BasebandView({
           {readout(view, frame, symbols, period)}
         </span>
         <div
+          ref={chromeRef}
           data-plot-chrome
           className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1 self-start rounded-[3px] bg-plot-bg/85 p-0.5"
         >
@@ -303,7 +326,7 @@ export function waiting(
   frame: IqFrame | null,
   block: SymbolFrame | null,
 ): string | null {
-  if (view === "quality" || view === "drift") {
+  if (view === "quality" || view === "drift" || view === "states") {
     return block === null ? "This channel's decoder does not report symbols." : null;
   }
   if (frame === null && block === null) {
@@ -366,6 +389,7 @@ function draw(
   analyzerRef: { current: SpectrumAnalyzer | null },
   dbRef: { current: Float32Array | null },
   trends: Trends,
+  inset: PlotInset,
 ): void {
   if (canvas === null) {
     return;
@@ -380,6 +404,7 @@ function draw(
       ],
       "per block",
       false,
+      inset,
     );
     return;
   }
@@ -389,11 +414,16 @@ function draw(
       [{ trend: trends.drift, colour: token("plot-trace"), label: "carrier" }],
       "Hz",
       true,
+      inset,
     );
     return;
   }
+  if (view === "states") {
+    drawStates(canvas, block === null ? [] : statesOf(block), block?.plane !== "complex", inset);
+    return;
+  }
   if (view === "levels") {
-    drawLevels(canvas, frame, block, settings);
+    drawLevels(canvas, frame, block, settings, inset);
     return;
   }
   if (frame === null) {
@@ -428,6 +458,7 @@ function drawLevels(
   frame: IqFrame | null,
   block: SymbolFrame | null,
   settings: { symbolRate: number },
+  inset: PlotInset,
 ): void {
   if (block !== null) {
     const scale = referenceScale(block);
@@ -437,6 +468,7 @@ function drawLevels(
       symbolHistogram(block.symbols, stride, scale),
       [...block.reference],
       scale,
+      inset,
     );
     return;
   }
@@ -445,7 +477,19 @@ function drawLevels(
   }
   const period = samplesPerSymbol(frame.sampleRate, settings.symbolRate);
   const rail = discriminator(frame.samples, period, symbolPhase(frame.samples, period));
-  drawHistogram(canvas, symbolHistogram(rail, 1, 1), [], 1);
+  drawHistogram(canvas, symbolHistogram(rail, 1, 1), [], 1, inset);
+}
+
+const stateCache = new WeakMap<SymbolFrame, SymbolState[]>();
+
+function statesOf(block: SymbolFrame): SymbolState[] {
+  const hit = stateCache.get(block);
+  if (hit !== undefined) {
+    return hit;
+  }
+  const states = symbolStates(block);
+  stateCache.set(block, states);
+  return states;
 }
 
 export function discriminator(samples: Float32Array, period: number, offset: number): Float32Array {

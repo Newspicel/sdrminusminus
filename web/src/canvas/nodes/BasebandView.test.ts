@@ -77,11 +77,13 @@ describe("waiting", () => {
   it("says a trend needs a decoder that reports symbols", () => {
     expect(waiting("quality", null, null)).toContain("does not report symbols");
     expect(waiting("drift", null, null)).toContain("does not report symbols");
+    expect(waiting("states", null, null)).toContain("does not report symbols");
   });
 
   it("clears once symbols arrive", () => {
     expect(waiting("quality", null, block())).toBeNull();
     expect(waiting("drift", null, block())).toBeNull();
+    expect(waiting("states", null, block())).toBeNull();
   });
 
   it("waits on the first burst for the views baseband can draw", () => {
@@ -138,7 +140,7 @@ describe("readout", () => {
   });
 
   it("shows the measurement on the views the symbols feed", () => {
-    for (const view of ["constellation", "levels", "quality", "drift"] as const) {
+    for (const view of ["constellation", "levels", "states", "quality", "drift"] as const) {
       expect(readout(view, burst, block(), 10)).toContain("EVM");
     }
   });
