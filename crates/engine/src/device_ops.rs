@@ -16,6 +16,17 @@ use crate::{
     sample_rate_of, teardown_set,
 };
 
+#[derive(Default)]
+struct SinkPoll {
+    grown: Vec<(u32, u64, u64)>,
+    recording: Vec<(u32, String)>,
+    audio: Vec<(u32, u32, String)>,
+    baseband: Vec<(u32, u32, String)>,
+    export: Vec<(u32, String)>,
+    history: Vec<(u32, String)>,
+    changed: Vec<u32>,
+}
+
 impl Engine {
     pub(crate) fn hotplug_tick(
         &self,
@@ -24,128 +35,135 @@ impl Engine {
         gate: &mut hotplug::ProbeGate,
         woken: bool,
     ) -> bool {
-        let (grown, rec_faults, audio_rec_faults, export_faults, sink_faults, changed) = {
-            let mut inner = self.lock();
-            let mut grown: Vec<(u32, u64, u64)> = Vec::new();
-            let mut rec_faults: Vec<(u32, String)> = Vec::new();
-            let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
-            let mut export_faults: Vec<(u32, String)> = Vec::new();
-            let mut baseband_faults: Vec<(u32, u32, String)> = Vec::new();
-            let mut history_faults: Vec<(u32, String)> = Vec::new();
-            let mut changed: Vec<u32> = Vec::new();
-            for (id, s) in inner.device_sets.iter_mut() {
-                let now = s.overruns_total();
-                let delta = now - s.overruns_seen;
-                s.overruns_seen = now;
-                let mut dirty = delta > 0;
-                if delta > 0 {
-                    grown.push((*id, delta, s.take_worst_stall_ms()));
+        self.report_sinks(self.poll_sinks());
+        self.probe_bus(known, missing_once, gate, woken)
+    }
+
+    fn poll_sinks(&self) -> SinkPoll {
+        let mut inner = self.lock();
+        let mut grown: Vec<(u32, u64, u64)> = Vec::new();
+        let mut rec_faults: Vec<(u32, String)> = Vec::new();
+        let mut audio_rec_faults: Vec<(u32, u32, String)> = Vec::new();
+        let mut export_faults: Vec<(u32, String)> = Vec::new();
+        let mut baseband_faults: Vec<(u32, u32, String)> = Vec::new();
+        let mut history_faults: Vec<(u32, String)> = Vec::new();
+        let mut changed: Vec<u32> = Vec::new();
+        for (id, s) in inner.device_sets.iter_mut() {
+            let now = s.overruns_total();
+            let delta = now - s.overruns_seen;
+            s.overruns_seen = now;
+            let mut dirty = delta > 0;
+            if delta > 0 {
+                grown.push((*id, delta, s.take_worst_stall_ms()));
+            }
+            if let Some(rec) = &mut s.recording {
+                let samples = rec.shared.samples();
+                if samples != rec.samples_seen {
+                    rec.samples_seen = samples;
+                    dirty = true;
                 }
-                if let Some(rec) = &mut s.recording {
-                    let samples = rec.shared.samples();
-                    if samples != rec.samples_seen {
-                        rec.samples_seen = samples;
-                        dirty = true;
-                    }
-                    if let Some(error) = rec.shared.error()
-                        && !rec.error_seen
-                    {
-                        rec.error_seen = true;
-                        rec_faults.push((*id, error));
-                        dirty = true;
-                    }
-                }
-                for (ch, recording) in &mut s.audio_recordings {
-                    let frames = recording.shared.frames();
-                    if frames != recording.frames_seen {
-                        recording.frames_seen = frames;
-                        dirty = true;
-                    }
-                    if let Some(error) = recording.shared.error()
-                        && !recording.error_seen
-                    {
-                        recording.error_seen = true;
-                        audio_rec_faults.push((*id, *ch, error));
-                        dirty = true;
-                    }
-                }
-                for (ch, recording) in &mut s.baseband_recordings {
-                    let samples = recording.shared.samples();
-                    if samples != recording.samples_seen {
-                        recording.samples_seen = samples;
-                        dirty = true;
-                    }
-                    if let Some(error) = recording.shared.error()
-                        && !recording.error_seen
-                    {
-                        recording.error_seen = true;
-                        baseband_faults.push((*id, *ch, error));
-                        dirty = true;
-                    }
-                }
-                for (ch, export) in &mut s.channel_exports {
-                    let samples = export.shared.samples();
-                    if samples != export.samples_seen {
-                        export.samples_seen = samples;
-                        dirty = true;
-                    }
-                    if let Some(error) = export.shared.error()
-                        && !export.error_seen
-                    {
-                        export.error_seen = true;
-                        baseband_faults.push((*id, *ch, error));
-                        dirty = true;
-                    }
-                }
-                if let Some(history) = &mut s.time_machine {
-                    let held = history.handle.shared().held();
-                    if held != history.held_seen {
-                        history.held_seen = held;
-                        dirty = true;
-                    }
-                    if let Some(error) = history.handle.shared().error()
-                        && !history.error_seen
-                    {
-                        history.error_seen = true;
-                        history_faults.push((*id, error));
-                        dirty = true;
-                    }
-                    if history.capture.is_some() && !history.handle.shared().capturing() {
-                        history.capture = None;
-                        dirty = true;
-                    }
-                }
-                if let Some(export) = &mut s.network_export {
-                    let samples = export.shared.samples();
-                    if samples != export.samples_seen {
-                        export.samples_seen = samples;
-                        dirty = true;
-                    }
-                    if let Some(error) = export.shared.error()
-                        && !export.error_seen
-                    {
-                        export.error_seen = true;
-                        export_faults.push((*id, error));
-                        dirty = true;
-                    }
-                }
-                if dirty {
-                    changed.push(*id);
+                if let Some(error) = rec.shared.error()
+                    && !rec.error_seen
+                {
+                    rec.error_seen = true;
+                    rec_faults.push((*id, error));
+                    dirty = true;
                 }
             }
-            if !changed.is_empty() {
-                inner.revision += 1;
+            for (ch, recording) in &mut s.audio_recordings {
+                let frames = recording.shared.frames();
+                if frames != recording.frames_seen {
+                    recording.frames_seen = frames;
+                    dirty = true;
+                }
+                if let Some(error) = recording.shared.error()
+                    && !recording.error_seen
+                {
+                    recording.error_seen = true;
+                    audio_rec_faults.push((*id, *ch, error));
+                    dirty = true;
+                }
             }
-            (
-                grown,
-                rec_faults,
-                audio_rec_faults,
-                export_faults,
-                (baseband_faults, history_faults),
-                changed,
-            )
-        };
-        for (ds, dropped, stalled_ms) in grown {
+            for (ch, recording) in &mut s.baseband_recordings {
+                let samples = recording.shared.samples();
+                if samples != recording.samples_seen {
+                    recording.samples_seen = samples;
+                    dirty = true;
+                }
+                if let Some(error) = recording.shared.error()
+                    && !recording.error_seen
+                {
+                    recording.error_seen = true;
+                    baseband_faults.push((*id, *ch, error));
+                    dirty = true;
+                }
+            }
+            for (ch, export) in &mut s.channel_exports {
+                let samples = export.shared.samples();
+                if samples != export.samples_seen {
+                    export.samples_seen = samples;
+                    dirty = true;
+                }
+                if let Some(error) = export.shared.error()
+                    && !export.error_seen
+                {
+                    export.error_seen = true;
+                    baseband_faults.push((*id, *ch, error));
+                    dirty = true;
+                }
+            }
+            if let Some(history) = &mut s.time_machine {
+                let held = history.handle.shared().held();
+                if held != history.held_seen {
+                    history.held_seen = held;
+                    dirty = true;
+                }
+                if let Some(error) = history.handle.shared().error()
+                    && !history.error_seen
+                {
+                    history.error_seen = true;
+                    history_faults.push((*id, error));
+                    dirty = true;
+                }
+                if history.capture.is_some() && !history.handle.shared().capturing() {
+                    history.capture = None;
+                    dirty = true;
+                }
+            }
+            if let Some(export) = &mut s.network_export {
+                let samples = export.shared.samples();
+                if samples != export.samples_seen {
+                    export.samples_seen = samples;
+                    dirty = true;
+                }
+                if let Some(error) = export.shared.error()
+                    && !export.error_seen
+                {
+                    export.error_seen = true;
+                    export_faults.push((*id, error));
+                    dirty = true;
+                }
+            }
+            if dirty {
+                changed.push(*id);
+            }
+        }
+        if !changed.is_empty() {
+            inner.revision += 1;
+        }
+        SinkPoll {
+            grown,
+            recording: rec_faults,
+            audio: audio_rec_faults,
+            baseband: baseband_faults,
+            export: export_faults,
+            history: history_faults,
+            changed,
+        }
+    }
+
+    fn report_sinks(&self, poll: SinkPoll) {
+        for (ds, dropped, stalled_ms) in poll.grown {
             tracing::warn!(
                 ds,
                 dropped,
@@ -153,28 +171,35 @@ impl Engine {
                 "capture ring overrun: device samples dropped while the dsp thread was held off"
             );
         }
-        for (ds, error) in rec_faults {
+        for (ds, error) in poll.recording {
             tracing::warn!(ds, error = %error, "recording fault");
         }
-        for (ds, channel, error) in audio_rec_faults {
+        for (ds, channel, error) in poll.audio {
             tracing::warn!(ds, channel, error = %error, "audio recording fault");
         }
-        for (ds, error) in export_faults {
+        for (ds, error) in poll.export {
             tracing::warn!(ds, error = %error, "network export fault");
         }
-        let (baseband_faults, history_faults) = sink_faults;
-        for (ds, channel, error) in baseband_faults {
+        for (ds, channel, error) in poll.baseband {
             tracing::warn!(ds, channel, error = %error, "channel baseband sink fault");
         }
-        for (ds, error) in history_faults {
+        for (ds, error) in poll.history {
             tracing::warn!(ds, error = %error, "time machine fault");
         }
-        for ds in changed {
+        for ds in poll.changed {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
         }
+    }
 
+    fn probe_bus(
+        &self,
+        known: &mut Option<Vec<String>>,
+        missing_once: &mut HashSet<u32>,
+        gate: &mut hotplug::ProbeGate,
+        woken: bool,
+    ) -> bool {
         let Some(reason) = gate.should_probe(sdrmm_device::usb::fingerprint(), woken) else {
             return false;
         };

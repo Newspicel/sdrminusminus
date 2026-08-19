@@ -1,14 +1,8 @@
 import {
   Background,
   BackgroundVariant,
-  type Connection,
   type Edge,
-  type EdgeChange,
-  type FinalConnectionState,
-  type IsValidConnection,
   type Node,
-  type NodeChange,
-  type OnBeforeDelete,
   ReactFlow,
   useEdgesState,
   useNodesState,
@@ -17,13 +11,10 @@ import {
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
-import { pushToast } from "../lib/toasts";
-import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
+import type { PatchGraph, PatchNode } from "../lib/types";
 import { useClipboard } from "./clipboard";
 import { useWorkspaceContext } from "./context";
 import {
-  addEdge,
-  connectionRefusal,
   edgeKey,
   edgeWarning,
   type GraphContext,
@@ -34,14 +25,12 @@ import {
   patchNode,
   pin,
   portOf,
-  pruneRack,
   removeEdge,
-  removeNode,
   sameGraph,
   unpin,
 } from "./graph";
+import { useConnections, useGraphChanges } from "./handlers";
 import { NODE_TYPES } from "./nodes";
-import { closeEngineObjects } from "./remove";
 import { focusNode } from "./selection";
 
 export interface FlowData extends Record<string, unknown> {
@@ -132,101 +121,14 @@ export function Canvas() {
     flowRef.current = nodes;
   });
 
-  const handleNodesChange = useCallback(
-    (changes: NodeChange<Node<FlowData>>[]) => {
-      onNodesChange(changes);
-      const selects = changes.filter((change) => change.type === "select");
-      if (selects.length > 0) {
-        workspace.select(selects.find((change) => change.selected)?.id ?? null);
-      }
-      for (const change of changes) {
-        if (change.type === "dimensions" && change.resizing === false) {
-          queueMicrotask(commitGeometry);
-        }
-        if (change.type === "remove") {
-          workspace.edit((snapshot) => {
-            const graph = removeNode(snapshot.graph, change.id);
-            return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
-          });
-        }
-      }
-    },
-    [onNodesChange, workspace, commitGeometry],
+  const { handleNodesChange, handleEdgesChange, onBeforeDelete } = useGraphChanges(
+    workspace,
+    onNodesChange,
+    onEdgesChange,
+    commitGeometry,
   );
 
-  const handleEdgesChange = useCallback(
-    (changes: EdgeChange<Edge>[]) => {
-      onEdgesChange(changes);
-      for (const change of changes) {
-        if (change.type === "remove") {
-          workspace.edit((snapshot) => ({
-            ...snapshot,
-            graph: removeEdge(snapshot.graph, change.id),
-          }));
-        }
-      }
-    },
-    [onEdgesChange, workspace],
-  );
-
-  const onBeforeDelete: OnBeforeDelete<Node<FlowData>, Edge> = useCallback(
-    async ({ nodes: doomed, edges: cut }) => {
-      try {
-        await closeEngineObjects(
-          workspace,
-          doomed.map((node) => node.id),
-        );
-      } catch (error) {
-        pushToast(error instanceof Error ? error.message : String(error));
-        return false;
-      }
-      return { nodes: doomed, edges: cut };
-    },
-    [workspace],
-  );
-
-  const refusal = useCallback(
-    (from: PortRef, to: PortRef): string | null =>
-      connectionRefusal(workspace.context, workspace.graph, from, to),
-    [workspace],
-  );
-
-  const isValidConnection: IsValidConnection = useCallback(
-    (connection) =>
-      refusal(
-        { node: connection.source, port: connection.sourceHandle ?? "" },
-        { node: connection.target, port: connection.targetHandle ?? "" },
-      ) === null,
-    [refusal],
-  );
-
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      const edge: PatchEdge = {
-        from: { node: connection.source, port: connection.sourceHandle ?? "" },
-        to: { node: connection.target, port: connection.targetHandle ?? "" },
-      };
-      workspace.edit((snapshot) => ({ ...snapshot, graph: addEdge(snapshot.graph, edge) }));
-      workspace.apply();
-    },
-    [workspace],
-  );
-
-  const onConnectEnd = useCallback(
-    (_event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
-      if (state.isValid !== false || state.fromHandle == null || state.toHandle == null) {
-        return;
-      }
-      const reason = refusal(
-        { node: state.fromHandle.nodeId, port: state.fromHandle.id ?? "" },
-        { node: state.toHandle.nodeId, port: state.toHandle.id ?? "" },
-      );
-      if (reason !== null) {
-        pushToast(reason);
-      }
-    },
-    [refusal],
-  );
+  const { isValidConnection, onConnect, onConnectEnd } = useConnections(workspace);
 
   const [menu, setMenu] = useState<Menu | null>(null);
   const openMenu = useCallback((event: React.MouseEvent, target: Menu["target"]) => {

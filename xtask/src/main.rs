@@ -1309,18 +1309,18 @@ fn aprs_burst() -> Vec<Complex<f32>> {
     testgen::burst(&mut tx)
 }
 
-fn decoder_fixtures() -> Vec<Fixture> {
+const NARROW: f64 = 240_000.0;
+const AUDIO: f64 = 48_000.0;
+
+fn at(mut iq: Vec<Complex<f32>>, offset: f64, rate: f64) -> Vec<Complex<f32>> {
+    sdrmm_channels::testgen::shift(&mut iq, offset, rate);
+    iq
+}
+
+fn pagers_fixtures(out: &mut Vec<Fixture>) {
     use sdrmm_channels::testgen;
 
-    const NARROW: f64 = 240_000.0;
-    const AUDIO: f64 = 48_000.0;
-
-    let at = |mut iq: Vec<Complex<f32>>, offset: f64, rate: f64| {
-        testgen::shift(&mut iq, offset, rate);
-        iq
-    };
-
-    let mut out = vec![Fixture {
+    out.push(Fixture {
         stem: "pocsag_1200_240k".to_string(),
         iq: at(
             testgen::pocsag::transmission(
@@ -1339,7 +1339,7 @@ fn decoder_fixtures() -> Vec<Fixture> {
         ),
         rate: NARROW,
         note: "pocsag channel at +50 kHz -> address 1234567 \"SDR-- FIXTURE\"".to_string(),
-    }];
+    });
 
     out.push(Fixture {
         stem: "flex_1600_2_240k".to_string(),
@@ -1381,6 +1381,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "ermes channel at -30 kHz -> address 234567 \"SDR-- ERMES FIXTURE\", urgent alert 5"
             .to_string(),
     });
+}
+
+fn tone_and_packet_fixtures(out: &mut Vec<Fixture>) {
+    use sdrmm_channels::testgen;
 
     out.push(Fixture {
         stem: "selcall_ccir1_48k".to_string(),
@@ -1450,6 +1454,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
         rate: AUDIO,
         note: "rtty channel at +5 kHz (45.45 baud, 170 Hz) -> \"CQ CQ DE DL1ABC K\"".to_string(),
     });
+}
+
+fn morse_fixtures(out: &mut Vec<Fixture>) {
+    use sdrmm_channels::testgen;
 
     out.push(Fixture {
         stem: "morse_20wpm_48k".to_string(),
@@ -1479,6 +1487,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "cw_skimmer channel -> simultaneous DL1AAA at -3.5 kHz/18 wpm and G4BBB at +4.2 kHz/27 wpm"
             .to_string(),
     });
+}
+
+fn aviation_and_timing_fixtures(out: &mut Vec<Fixture>) {
+    use sdrmm_channels::testgen;
 
     const ADSB_RATE: f64 = 2_000_000.0;
     let icao = 0x3C_6444;
@@ -1519,6 +1531,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "gnss channel -> GPS L1 C/A PRN 7, +1000 Hz Doppler, code phase 158.3 chips"
             .to_string(),
     });
+}
+
+fn broadcast_fixtures(out: &mut Vec<Fixture>) {
+    use sdrmm_channels::testgen;
 
     const RDS_RATE: f64 = 960_000.0;
     out.push(Fixture {
@@ -1595,6 +1611,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
         rate: AUDIO,
         note: "ysf channel at 0 Hz -> DL1ABC to ALL via DB0XYZ and DB0ABC".to_string(),
     });
+}
+
+fn wideband_fixtures(out: &mut Vec<Fixture>) {
+    use sdrmm_channels::testgen;
 
     const SUBGHZ_RATE: f64 = 500_000.0;
     out.push(Fixture {
@@ -1645,7 +1665,16 @@ fn decoder_fixtures() -> Vec<Fixture> {
         rate: SSTV_RATE,
         note: "sstv channel at +4 kHz -> Robot 36, eight colour bars white to black".to_string(),
     });
+}
 
+fn decoder_fixtures() -> Vec<Fixture> {
+    let mut out = Vec::new();
+    pagers_fixtures(&mut out);
+    tone_and_packet_fixtures(&mut out);
+    morse_fixtures(&mut out);
+    aviation_and_timing_fixtures(&mut out);
+    broadcast_fixtures(&mut out);
+    wideband_fixtures(&mut out);
     out
 }
 

@@ -67,6 +67,70 @@ function join(parts: readonly (string | null)[]): string {
   return parts.filter((p) => p !== null).join(" · ");
 }
 
+type EventData<K extends DecoderEvent["kind"]> = Extract<DecoderEvent, { kind: K }>["data"];
+
+function subghzSummary(f: EventData<"subghz">): string {
+  return join([
+    ...(f.reading == null
+      ? [f.bits === 0 ? `raw, ${(f.timings_us ?? []).length} edges` : `${f.bits} bit ${f.data}`]
+      : sensorFacts(f.reading)),
+    f.address == null ? null : `addr ${hex5(f.address)}`,
+    f.button == null ? null : `btn ${f.button.toString(16).toUpperCase()}`,
+    f.repeats > 1 ? `\u00d7${f.repeats}` : null,
+  ]);
+}
+
+function callSummary(c: EventData<"call">): string {
+  return join([
+    c.mode.toUpperCase(),
+    c.destination == null
+      ? null
+      : c.group_call === false
+        ? `radio ${c.destination}`
+        : `talkgroup ${c.destination}`,
+    c.source == null ? null : `from ${c.source}`,
+    c.slot == null ? null : `TS${c.slot}`,
+    `${(c.duration_ms / 1000).toFixed(1)} s`,
+    c.emergency ? "emergency" : null,
+    c.encrypted ? "encrypted" : null,
+  ]);
+}
+
+function dvSummary(f: EventData<"dv">): string {
+  return join([
+    dvMode(f),
+    dvNetwork(f) || null,
+    dvParties(f) || null,
+    f.via == null ? null : `via ${f.via}`,
+    f.opcode ?? null,
+    f.encrypted === true ? "encrypted" : null,
+    f.text ?? null,
+  ]);
+}
+
+function identSummary(r: EventData<"ident">): string {
+  const best = r.candidates?.[0];
+  return join([
+    modulationLabel(r),
+    r.modulation === "none" ? null : `${(r.bandwidth_hz / 1000).toFixed(1)} kHz`,
+    r.symbol_rate_hz == null ? null : `${Math.round(r.symbol_rate_hz)} Bd`,
+    r.deviation_hz == null ? null : `\u00b1${Math.round(r.deviation_hz)} Hz`,
+    best == null ? null : `${best.name} (${candidateScore(best)})`,
+  ]);
+}
+
+function broadcastSummary(status: EventData<"broadcast">): string {
+  return join([
+    broadcastSystem(status.system),
+    status.locked ? "locked" : "searching",
+    status.locked ? `${status.snr_db.toFixed(1)} dB SNR` : null,
+    status.locked
+      ? `${status.frequency_error_hz >= 0 ? "+" : ""}${status.frequency_error_hz.toFixed(0)} Hz`
+      : null,
+    status.label ?? null,
+  ]);
+}
+
 export function eventSummary(event: DecoderEvent): string {
   switch (event.kind) {
     case "rds": {
@@ -152,17 +216,8 @@ export function eventSummary(event: DecoderEvent): string {
       const text = a.text.replaceAll("\n", " ").trim();
       return join([a.registration, a.flight?.trim() ?? null, `[${a.label}]`, text || null]);
     }
-    case "subghz": {
-      const f = event.data;
-      return join([
-        ...(f.reading == null
-          ? [f.bits === 0 ? `raw, ${(f.timings_us ?? []).length} edges` : `${f.bits} bit ${f.data}`]
-          : sensorFacts(f.reading)),
-        f.address == null ? null : `addr ${hex5(f.address)}`,
-        f.button == null ? null : `btn ${f.button.toString(16).toUpperCase()}`,
-        f.repeats > 1 ? `\u00d7${f.repeats}` : null,
-      ]);
-    }
+    case "subghz":
+      return subghzSummary(event.data);
     case "scrambler": {
       const s = event.data;
       return s.inversion_hz == null
@@ -177,57 +232,14 @@ export function eventSummary(event: DecoderEvent): string {
       ]);
       return join([heard === "" ? "no tone" : heard, t.open ? "open" : "muted"]);
     }
-    case "call": {
-      const c = event.data;
-      return join([
-        c.mode.toUpperCase(),
-        c.destination == null
-          ? null
-          : c.group_call === false
-            ? `radio ${c.destination}`
-            : `talkgroup ${c.destination}`,
-        c.source == null ? null : `from ${c.source}`,
-        c.slot == null ? null : `TS${c.slot}`,
-        `${(c.duration_ms / 1000).toFixed(1)} s`,
-        c.emergency ? "emergency" : null,
-        c.encrypted ? "encrypted" : null,
-      ]);
-    }
-    case "dv": {
-      const f = event.data;
-      return join([
-        dvMode(f),
-        dvNetwork(f) || null,
-        dvParties(f) || null,
-        f.via == null ? null : `via ${f.via}`,
-        f.opcode ?? null,
-        f.encrypted === true ? "encrypted" : null,
-        f.text ?? null,
-      ]);
-    }
-    case "ident": {
-      const r = event.data;
-      const best = r.candidates?.[0];
-      return join([
-        modulationLabel(r),
-        r.modulation === "none" ? null : `${(r.bandwidth_hz / 1000).toFixed(1)} kHz`,
-        r.symbol_rate_hz == null ? null : `${Math.round(r.symbol_rate_hz)} Bd`,
-        r.deviation_hz == null ? null : `\u00b1${Math.round(r.deviation_hz)} Hz`,
-        best == null ? null : `${best.name} (${candidateScore(best)})`,
-      ]);
-    }
-    case "broadcast": {
-      const status = event.data;
-      return join([
-        broadcastSystem(status.system),
-        status.locked ? "locked" : "searching",
-        status.locked ? `${status.snr_db.toFixed(1)} dB SNR` : null,
-        status.locked
-          ? `${status.frequency_error_hz >= 0 ? "+" : ""}${status.frequency_error_hz.toFixed(0)} Hz`
-          : null,
-        status.label ?? null,
-      ]);
-    }
+    case "call":
+      return callSummary(event.data);
+    case "dv":
+      return dvSummary(event.data);
+    case "ident":
+      return identSummary(event.data);
+    case "broadcast":
+      return broadcastSummary(event.data);
     case "radio_clock": {
       const r = event.data;
       return join([r.standard.toUpperCase(), r.datetime, r.leap_warning ? "leap warning" : null]);

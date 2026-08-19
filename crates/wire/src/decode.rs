@@ -829,6 +829,180 @@ pub enum DecoderEvent {
     Iridium(DataLinkMessage),
 }
 
+fn rds_summary(r: &RdsUpdate) -> String {
+    let mut parts = Vec::new();
+    if let Some(pi) = &r.pi {
+        parts.push(format!("PI {pi}"));
+    }
+    if let Some(ps) = &r.ps {
+        parts.push(ps.clone());
+    }
+    if let Some(pty) = &r.pty_name {
+        parts.push(pty.clone());
+    }
+    if let Some(rt) = &r.radiotext {
+        parts.push(rt.clone());
+    }
+    parts.join(" · ")
+}
+
+fn tone_summary(t: &ToneSquelchStatus) -> String {
+    let mut parts = Vec::new();
+    if let Some(hz) = t.ctcss_hz {
+        parts.push(format!("CTCSS {hz:.1} Hz"));
+    }
+    if let Some(code) = t.dcs_code {
+        parts.push(format!("DCS {code:03}"));
+    }
+    if parts.is_empty() {
+        parts.push("no tone".to_owned());
+    }
+    parts.push(if t.open { "open" } else { "muted" }.to_owned());
+    parts.join(" · ")
+}
+
+fn subghz_summary(f: &SubghzFrame) -> String {
+    let mut parts = vec![if f.bits == 0 {
+        format!("raw, {} edges", f.timings_us.len())
+    } else {
+        format!("{} bit {}", f.bits, f.data)
+    }];
+    if let Some(address) = f.address {
+        parts.push(format!("addr {address:05X}"));
+    }
+    if let Some(button) = f.button {
+        parts.push(format!("btn {button:X}"));
+    }
+    if f.repeats > 1 {
+        parts.push(format!("×{}", f.repeats));
+    }
+    parts.join(" · ")
+}
+
+fn call_summary(c: &crate::rest::VoiceCall) -> String {
+    let mut parts = vec![c.mode.label().to_owned()];
+    parts.push(c.destination.map_or_else(
+        || "to unknown".to_owned(),
+        |id| match c.group_call {
+            Some(true) => format!("talkgroup {id}"),
+            Some(false) => format!("radio {id}"),
+            None => format!("to {id}"),
+        },
+    ));
+    parts.push(
+        c.source
+            .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
+    );
+    if let Some(slot) = c.slot {
+        parts.push(format!("TS{slot}"));
+    }
+    if let Some(cc) = c.color_code {
+        parts.push(format!("CC {cc}"));
+    }
+    parts.push(format!("{:.1} s", c.duration_ms as f64 / 1_000.0));
+    if c.emergency {
+        parts.push("emergency".to_owned());
+    }
+    if c.encrypted {
+        parts.push("encrypted".to_owned());
+    }
+    parts.join(" · ")
+}
+
+fn dv_summary(f: &DvFrame) -> String {
+    let mut parts = vec![f.mode.label().to_owned()];
+    if let Some(slot) = f.slot {
+        parts.push(format!("TS{slot}"));
+    }
+    if let Some(cc) = f.color_code {
+        parts.push(match f.mode {
+            DvMode::P25 => format!("NAC {cc:03X}"),
+            DvMode::Nxdn | DvMode::Dpmr => format!("RAN {cc}"),
+            _ => format!("CC {cc}"),
+        });
+    }
+    if let Some(parties) = f.parties() {
+        parts.push(parties);
+    }
+    if let Some(alias) = &f.talker_alias {
+        parts.push(alias.clone());
+    }
+    if let Some(vendor) = f.vendor {
+        parts.push(vendor.label().to_owned());
+    }
+    if let Some(via) = &f.via {
+        parts.push(format!("via {via}"));
+    }
+    if let Some(opcode) = &f.opcode {
+        parts.push(opcode.clone());
+    }
+    if f.encrypted == Some(true) {
+        parts.push(match (f.algorithm_id, f.key_id) {
+            (Some(algorithm), Some(key)) => {
+                format!("encrypted ALG {algorithm:02X} KID {key:04X}")
+            }
+            _ => "encrypted".to_owned(),
+        });
+    }
+    if let Some(text) = &f.text {
+        parts.push(text.clone());
+    }
+    parts.join(" · ")
+}
+
+fn ident_summary(r: &IdentReport) -> String {
+    let mut parts = vec![r.modulation.label().to_owned()];
+    if r.modulation.is_signal() {
+        parts.push(format!("{:.1} kHz", r.bandwidth_hz / 1_000.0));
+        if let Some(baud) = r.symbol_rate_hz {
+            parts.push(format!("{baud:.0} Bd"));
+        }
+        if let Some(deviation) = r.deviation_hz {
+            parts.push(format!("±{deviation:.0} Hz"));
+        }
+        parts.push(format!("{:.0} dB SNR", r.snr_db));
+    }
+    if let Some(best) = r.best() {
+        parts.push(if best.confirmed {
+            format!("{} (confirmed)", best.name)
+        } else {
+            format!("{} ({:.0}%)", best.name, best.score * 100.0)
+        });
+    }
+    parts.join(" · ")
+}
+
+fn gnss_summary(g: &GnssFrame) -> String {
+    let mut parts = vec![
+        format!("GPS PRN {}", g.prn),
+        format!("{:+.0} Hz", g.doppler_hz),
+        format!("{:.1} dB-Hz", g.cn0_db_hz),
+    ];
+    if let Some(id) = g.subframe {
+        parts.push(format!("subframe {id}"));
+    } else {
+        parts.push("acquired".to_owned());
+    }
+    if let Some(tow) = g.tow_seconds {
+        parts.push(format!("TOW {tow} s"));
+    }
+    parts.join(" · ")
+}
+
+fn data_link_summary(m: &DataLinkMessage) -> String {
+    let mut parts = vec![m.message_type.clone()];
+    if let Some(station) = &m.station {
+        parts.push(station.clone());
+    }
+    if let Some(text) = &m.text {
+        let text = text.replace('\n', " ");
+        if !text.trim().is_empty() {
+            parts.push(text.trim().to_owned());
+        }
+    }
+    parts.join(" · ")
+}
+
 impl DecoderEvent {
     #[must_use]
     pub fn kind(&self) -> &'static str {
@@ -874,22 +1048,7 @@ impl DecoderEvent {
     #[must_use]
     pub fn summary(&self) -> String {
         match self {
-            Self::Rds(r) => {
-                let mut parts = Vec::new();
-                if let Some(pi) = &r.pi {
-                    parts.push(format!("PI {pi}"));
-                }
-                if let Some(ps) = &r.ps {
-                    parts.push(ps.clone());
-                }
-                if let Some(pty) = &r.pty_name {
-                    parts.push(pty.clone());
-                }
-                if let Some(rt) = &r.radiotext {
-                    parts.push(rt.clone());
-                }
-                parts.join(" · ")
-            }
+            Self::Rds(r) => rds_summary(r),
             Self::Pocsag(p) => {
                 if p.text.is_empty() {
                     format!("{} ({})", p.address, p.function)
@@ -974,20 +1133,7 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
-            Self::Tone(t) => {
-                let mut parts = Vec::new();
-                if let Some(hz) = t.ctcss_hz {
-                    parts.push(format!("CTCSS {hz:.1} Hz"));
-                }
-                if let Some(code) = t.dcs_code {
-                    parts.push(format!("DCS {code:03}"));
-                }
-                if parts.is_empty() {
-                    parts.push("no tone".to_owned());
-                }
-                parts.push(if t.open { "open" } else { "muted" }.to_owned());
-                parts.join(" · ")
-            }
+            Self::Tone(t) => tone_summary(t),
             Self::Scrambler(s) => match s.inversion_hz {
                 Some(hz) => format!(
                     "inversion {hz:.0} Hz · {:.0}% confidence",
@@ -995,118 +1141,15 @@ impl DecoderEvent {
                 ),
                 None => "no inversion".to_owned(),
             },
-            Self::Subghz(f) => {
-                let mut parts = vec![if f.bits == 0 {
-                    format!("raw, {} edges", f.timings_us.len())
-                } else {
-                    format!("{} bit {}", f.bits, f.data)
-                }];
-                if let Some(address) = f.address {
-                    parts.push(format!("addr {address:05X}"));
-                }
-                if let Some(button) = f.button {
-                    parts.push(format!("btn {button:X}"));
-                }
-                if f.repeats > 1 {
-                    parts.push(format!("×{}", f.repeats));
-                }
-                parts.join(" · ")
-            }
-            Self::Call(c) => {
-                let mut parts = vec![c.mode.label().to_owned()];
-                parts.push(c.destination.map_or_else(
-                    || "to unknown".to_owned(),
-                    |id| match c.group_call {
-                        Some(true) => format!("talkgroup {id}"),
-                        Some(false) => format!("radio {id}"),
-                        None => format!("to {id}"),
-                    },
-                ));
-                parts.push(
-                    c.source
-                        .map_or_else(|| "from unknown".to_owned(), |id| format!("from {id}")),
-                );
-                if let Some(slot) = c.slot {
-                    parts.push(format!("TS{slot}"));
-                }
-                if let Some(cc) = c.color_code {
-                    parts.push(format!("CC {cc}"));
-                }
-                parts.push(format!("{:.1} s", c.duration_ms as f64 / 1_000.0));
-                if c.emergency {
-                    parts.push("emergency".to_owned());
-                }
-                if c.encrypted {
-                    parts.push("encrypted".to_owned());
-                }
-                parts.join(" · ")
-            }
-            Self::Dv(f) => {
-                let mut parts = vec![f.mode.label().to_owned()];
-                if let Some(slot) = f.slot {
-                    parts.push(format!("TS{slot}"));
-                }
-                if let Some(cc) = f.color_code {
-                    parts.push(match f.mode {
-                        DvMode::P25 => format!("NAC {cc:03X}"),
-                        DvMode::Nxdn | DvMode::Dpmr => format!("RAN {cc}"),
-                        _ => format!("CC {cc}"),
-                    });
-                }
-                if let Some(parties) = f.parties() {
-                    parts.push(parties);
-                }
-                if let Some(alias) = &f.talker_alias {
-                    parts.push(alias.clone());
-                }
-                if let Some(vendor) = f.vendor {
-                    parts.push(vendor.label().to_owned());
-                }
-                if let Some(via) = &f.via {
-                    parts.push(format!("via {via}"));
-                }
-                if let Some(opcode) = &f.opcode {
-                    parts.push(opcode.clone());
-                }
-                if f.encrypted == Some(true) {
-                    parts.push(match (f.algorithm_id, f.key_id) {
-                        (Some(algorithm), Some(key)) => {
-                            format!("encrypted ALG {algorithm:02X} KID {key:04X}")
-                        }
-                        _ => "encrypted".to_owned(),
-                    });
-                }
-                if let Some(text) = &f.text {
-                    parts.push(text.clone());
-                }
-                parts.join(" · ")
-            }
+            Self::Subghz(f) => subghz_summary(f),
+            Self::Call(c) => call_summary(c),
+            Self::Dv(f) => dv_summary(f),
             Self::Ft8(m) | Self::Ft4(m) => {
                 format!("{} · {:+.0} dB · {:.0} Hz", m.text, m.snr_db, m.audio_hz)
             }
             Self::Psk(t) => t.text.clone(),
             Self::Wspr(s) => format!("{} · {:+.0} dB · {:.0} Hz", s.text, s.snr_db, s.audio_hz),
-            Self::Ident(r) => {
-                let mut parts = vec![r.modulation.label().to_owned()];
-                if r.modulation.is_signal() {
-                    parts.push(format!("{:.1} kHz", r.bandwidth_hz / 1_000.0));
-                    if let Some(baud) = r.symbol_rate_hz {
-                        parts.push(format!("{baud:.0} Bd"));
-                    }
-                    if let Some(deviation) = r.deviation_hz {
-                        parts.push(format!("±{deviation:.0} Hz"));
-                    }
-                    parts.push(format!("{:.0} dB SNR", r.snr_db));
-                }
-                if let Some(best) = r.best() {
-                    parts.push(if best.confirmed {
-                        format!("{} (confirmed)", best.name)
-                    } else {
-                        format!("{} ({:.0}%)", best.name, best.score * 100.0)
-                    });
-                }
-                parts.join(" · ")
-            }
+            Self::Ident(r) => ident_summary(r),
             Self::Broadcast(status) => {
                 let mut parts = vec![status.system.label().to_owned()];
                 parts.push(if status.locked { "locked" } else { "searching" }.to_owned());
@@ -1129,22 +1172,7 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
-            Self::Gnss(g) => {
-                let mut parts = vec![
-                    format!("GPS PRN {}", g.prn),
-                    format!("{:+.0} Hz", g.doppler_hz),
-                    format!("{:.1} dB-Hz", g.cn0_db_hz),
-                ];
-                if let Some(id) = g.subframe {
-                    parts.push(format!("subframe {id}"));
-                } else {
-                    parts.push("acquired".to_owned());
-                }
-                if let Some(tow) = g.tow_seconds {
-                    parts.push(format!("TOW {tow} s"));
-                }
-                parts.join(" · ")
-            }
+            Self::Gnss(g) => gnss_summary(g),
             Self::Sstv(p) => {
                 let mut parts = vec![
                     p.mode.label().to_owned(),
@@ -1180,19 +1208,7 @@ impl DecoderEvent {
             | Self::InmarsatAero(m)
             | Self::Vdl2(m)
             | Self::Hfdl(m)
-            | Self::Iridium(m) => {
-                let mut parts = vec![m.message_type.clone()];
-                if let Some(station) = &m.station {
-                    parts.push(station.clone());
-                }
-                if let Some(text) = &m.text {
-                    let text = text.replace('\n', " ");
-                    if !text.trim().is_empty() {
-                        parts.push(text.trim().to_owned());
-                    }
-                }
-                parts.join(" · ")
-            }
+            | Self::Iridium(m) => data_link_summary(m),
         }
     }
 
