@@ -128,11 +128,13 @@ export function DfDrive({
       </div>
       <div className="px-3 pb-2 text-center">
         <p className="text-sm">
-          {guidance === null
-            ? "Drive until a bearing comes in."
-            : guidance.mode === "cross"
-              ? `Cross the bearing — steer ${Math.round(guidance.heading_deg)}°`
-              : `Close in — ${formatDistance(guidance.distance_m)} to run`}
+          {crossings.length === 0
+            ? "No guidance: wire this finder's events into a Triangulation node."
+            : guidance === null
+              ? "Drive until a bearing comes in."
+              : guidance.mode === "cross"
+                ? `Cross the bearing — steer ${Math.round(guidance.heading_deg)}°`
+                : `Close in — ${formatDistance(guidance.distance_m)} to run`}
         </p>
         {next !== null && (
           <p className="mt-1 font-medium text-base">
