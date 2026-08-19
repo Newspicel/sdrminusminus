@@ -170,12 +170,12 @@ describe("targetCollection", () => {
   });
 });
 
-describe("referencePositions", () => {
-  const ref = (ref_lat?: number | null, ref_lon?: number | null): ChannelParams => ({
-    type: "adsb",
-    settings: { ref_lat, ref_lon },
-  });
+const ref = (ref_lat?: number | null, ref_lon?: number | null): ChannelParams => ({
+  type: "adsb",
+  settings: { ref_lat, ref_lon },
+});
 
+describe("referencePositions", () => {
   it("reads only ADS-B references, in [lon, lat] order", () => {
     expect(referencePositions([ref(50.7, 6.1), { type: "nfm", settings: {} }])).toEqual([
       [6.1, 50.7],

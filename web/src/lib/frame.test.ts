@@ -234,25 +234,25 @@ describe("decodeSymbols", () => {
   });
 });
 
-describe("decodeRangeDoppler", () => {
-  function encode(ranges: number, dopplers: number, cells: number[]): ArrayBuffer {
-    const buffer = new ArrayBuffer(36 + cells.length);
-    const view = new DataView(buffer);
-    view.setUint8(0, PROTOCOL_VERSION);
-    view.setUint8(1, FRAME_KIND_RANGE_DOPPLER);
-    view.setUint16(2, 9, true);
-    view.setUint32(4, 3, true);
-    view.setBigUint64(8, 4096n, true);
-    view.setUint16(16, ranges, true);
-    view.setUint16(18, dopplers, true);
-    view.setFloat32(20, 0.5, true);
-    view.setFloat32(24, 4.25, true);
-    view.setFloat32(28, -60, true);
-    view.setFloat32(32, 0, true);
-    new Uint8Array(buffer, 36).set(cells);
-    return buffer;
-  }
+function encode(ranges: number, dopplers: number, cells: number[]): ArrayBuffer {
+  const buffer = new ArrayBuffer(36 + cells.length);
+  const view = new DataView(buffer);
+  view.setUint8(0, PROTOCOL_VERSION);
+  view.setUint8(1, FRAME_KIND_RANGE_DOPPLER);
+  view.setUint16(2, 9, true);
+  view.setUint32(4, 3, true);
+  view.setBigUint64(8, 4096n, true);
+  view.setUint16(16, ranges, true);
+  view.setUint16(18, dopplers, true);
+  view.setFloat32(20, 0.5, true);
+  view.setFloat32(24, 4.25, true);
+  view.setFloat32(28, -60, true);
+  view.setFloat32(32, 0, true);
+  new Uint8Array(buffer, 36).set(cells);
+  return buffer;
+}
 
+describe("decodeRangeDoppler", () => {
   it("reads the shape back out of a surface frame", () => {
     const frame = decodeRangeDoppler(encode(4, 3, [...Array(12).keys()]));
     expect(frame).not.toBeNull();

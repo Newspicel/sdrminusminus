@@ -59,7 +59,7 @@ export function useGraphChanges(
     [onEdgesChange, workspace],
   );
 
-  const onBeforeDelete: OnBeforeDelete<Node<FlowData>, Edge> = useCallback(
+  const onBeforeDelete: OnBeforeDelete<Node<FlowData>> = useCallback(
     async ({ nodes: doomed, edges: cut }) => {
       try {
         await closeEngineObjects(

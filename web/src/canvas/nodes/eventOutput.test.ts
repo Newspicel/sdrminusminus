@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { eventOutputConfigured, newOutputTarget } from "./eventOutput";
 
+const matrix = (access_token: string) =>
+  eventOutputConfigured({
+    service: "matrix",
+    homeserver_url: "https://matrix.example",
+    room_id: "!radio:matrix.example",
+    access_token,
+  });
+
+const mqtt = (broker_url: string, topic: string) =>
+  eventOutputConfigured({ service: "mqtt", broker_url, topic, username: "", password: "" });
+
 describe("event output configuration", () => {
   it("needs a webhook endpoint", () => {
     expect(eventOutputConfigured({ service: "webhook", url: "", format: "json" })).toBe(false);
@@ -15,21 +26,12 @@ describe("event output configuration", () => {
   });
 
   it("needs all Matrix credentials", () => {
-    const matrix = (access_token: string) =>
-      eventOutputConfigured({
-        service: "matrix",
-        homeserver_url: "https://matrix.example",
-        room_id: "!radio:matrix.example",
-        access_token,
-      });
     expect(matrix("")).toBe(false);
     expect(matrix("   ")).toBe(false);
     expect(matrix("secret")).toBe(true);
   });
 
   it("needs an MQTT broker and a topic, but no credentials", () => {
-    const mqtt = (broker_url: string, topic: string) =>
-      eventOutputConfigured({ service: "mqtt", broker_url, topic, username: "", password: "" });
     expect(mqtt("", "sdrmm/events")).toBe(false);
     expect(mqtt("mqtts://broker.example", "  ")).toBe(false);
     expect(mqtt("mqtts://broker.example", "sdrmm/events")).toBe(true);

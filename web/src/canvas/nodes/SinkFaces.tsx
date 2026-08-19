@@ -115,7 +115,7 @@ function eventGate(inputs: readonly Input[], paths: readonly EventPath[]): Event
       }
     }
   }
-  return { kinds: [...kinds].sort(), bySource };
+  return { kinds: [...kinds].toSorted(), bySource };
 }
 
 export function SpeakerFace({ node }: { node: PatchNode }) {

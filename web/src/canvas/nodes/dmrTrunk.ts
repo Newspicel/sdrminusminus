@@ -202,7 +202,7 @@ export function channelPlanRows(
       });
     }
   }
-  return [...known.values()].sort((a, b) => a.logical_channel - b.logical_channel);
+  return [...known.values()].toSorted((a, b) => a.logical_channel - b.logical_channel);
 }
 
 export function withoutChannel(

@@ -560,7 +560,7 @@ describe("wave-2 summaries", () => {
 });
 
 describe("passesGate", () => {
-  const calls: DecoderEvent = {
+  const calls = {
     kind: "call",
     data: {
       id: 1,

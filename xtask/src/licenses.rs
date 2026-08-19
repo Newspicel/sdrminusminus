@@ -109,9 +109,11 @@ const NATIVE: &[Native] = &[
              accumulator addresses in `dvbs2/tables`, the APSK ring ratios and constellation \
              point order, and the bit interleaver column order. The GSE reader in `dvbs2/gse.rs` \
              was written against TS 102 606 with drmpeg's gr-dvbgse as a second reading, and the \
-             BCH block lengths were cross-checked against gr-dvbs2rx. All three are \
-             GPL-3.0-or-later, the same terms sdr-- distributes under, so no separate text \
-             accompanies them.",
+             BCH and VL-SNR block lengths were cross-checked against gr-dvbs2rx. The VL-SNR \
+             header sequence in `dvbs2/vlsnr.rs` is the standard's own, and reproduces gr-dtv's \
+             sixteen patterns exactly, which is how both readings are known to agree. All three \
+             sources are GPL-3.0-or-later, the same terms sdr-- distributes under, so no \
+             separate text accompanies them.",
         ),
         files: &[],
     },

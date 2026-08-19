@@ -242,7 +242,7 @@ function evictOldest(stations: Map<string, Station>): void {
   if (stations.size <= STATION_CAPACITY) {
     return;
   }
-  const byAge = [...stations.entries()].sort((a, b) => a[1].lastSeen - b[1].lastSeen);
+  const byAge = [...stations.entries()].toSorted((a, b) => a[1].lastSeen - b[1].lastSeen);
   for (const [id] of byAge.slice(0, stations.size - STATION_CAPACITY)) {
     stations.delete(id);
   }

@@ -824,7 +824,7 @@ function silhouette(
   px: number,
   starboard: readonly (readonly [number, number])[],
 ): void {
-  const outline = [...starboard, ...[...starboard].reverse().map(([x, y]) => [px - x, y] as const)];
+  const outline = [...starboard, ...starboard.toReversed().map(([x, y]) => [px - x, y] as const)];
   ctx.beginPath();
   outline.forEach(([x, y], index) => (index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
   ctx.closePath();

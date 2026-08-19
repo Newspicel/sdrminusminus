@@ -385,6 +385,8 @@ export function migrateSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot 
   return graph === snapshot.graph ? snapshot : { ...snapshot, graph };
 }
 
+const port = (reference: PortRef): string => `${reference.node}.${reference.port}`;
+
 function migrateGraph(graph: PatchGraph): PatchGraph {
   const scanners = new Set(
     graph.nodes.filter((node) => node.kind === "scanner").map((node) => node.id),
@@ -395,7 +397,6 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
   if (!edges.some(consumed)) {
     return graph;
   }
-  const port = (reference: PortRef): string => `${reference.node}.${reference.port}`;
   const owned = new Set(
     edges
       .filter((edge) => edge.from.port === "control")

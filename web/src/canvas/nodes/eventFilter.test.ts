@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChannelDescriptor, DecoderEvent, EventFilterNode } from "../../lib/types";
+import type { ChannelDescriptor, DecoderEvent } from "../../lib/types";
 import {
   filterSaid,
   formatIds,
@@ -16,7 +16,7 @@ import {
   toTriState,
 } from "./eventFilter";
 
-const call = (over: Partial<Record<string, unknown>> = {}): DecoderEvent =>
+const call = (over: Partial<Record<string, unknown>> = {}) =>
   ({
     kind: "call",
     data: {
@@ -39,8 +39,8 @@ const call = (over: Partial<Record<string, unknown>> = {}): DecoderEvent =>
     },
   }) as DecoderEvent;
 
-const voice: DecoderEvent = { kind: "dv", data: { mode: "dmr", kind: "voice" } } as DecoderEvent;
-const rtty: DecoderEvent = { kind: "rtty", data: { text: "CQ" } } as DecoderEvent;
+const voice = { kind: "dv", data: { mode: "dmr", kind: "voice" } } as DecoderEvent;
+const rtty = { kind: "rtty", data: { text: "CQ" } } as DecoderEvent;
 
 describe("parseIds", () => {
   it("takes commas, spaces and newlines alike", () => {
@@ -188,7 +188,7 @@ describe("parseWords", () => {
 
 describe("filterSaid", () => {
   it("says it passes everything when nothing is set", () => {
-    expect(filterSaid({} as EventFilterNode)).toBe("every event");
+    expect(filterSaid({})).toBe("every event");
   });
 
   it("names each predicate that is set", () => {
@@ -245,7 +245,7 @@ describe("passesFilter", () => {
   });
 });
 
-const adsbEvent = (icao: string, callsign?: string, fix = true): DecoderEvent =>
+const adsbEvent = (icao: string, callsign?: string, fix = true) =>
   ({
     kind: "adsb",
     data: {
@@ -291,9 +291,9 @@ describe("the generic predicates reach every kind", () => {
   });
 });
 
-describe("sectionsFor", () => {
-  const titles = (kinds: string[]) => sectionsFor(kinds).map((s) => s.title);
+const titles = (kinds: string[]) => sectionsFor(kinds).map((s) => s.title);
 
+describe("sectionsFor", () => {
   it("gives an aircraft wire only the sections that apply", () => {
     expect(titles(["adsb"])).toEqual(["Any event", "Position"]);
   });

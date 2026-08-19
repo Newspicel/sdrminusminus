@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Button } from "../components/BaseControls";
 import { Toasts } from "../components/Toasts";
 import { TokenGate } from "../components/TokenGate";
 import { aboutQuery, stateQuery, workspaceQuery, workspacesQuery } from "../lib/api";
@@ -10,7 +11,6 @@ import { FoxHunt } from "./FoxHunt";
 import { fieldPath, type Mission, missionTargets, parseFieldPath } from "./missions";
 import { RadarWatch } from "./RadarWatch";
 import { useFullscreen, useWakeLock } from "./useFieldScreen";
-import { Button } from "../components/BaseControls";
 
 const MISSIONS: Mission[] = [
   {

@@ -192,6 +192,8 @@ describe("JitterBuffer", () => {
   });
 
   it("still works when rebuilt from its own source, as the worklet rebuilds it", () => {
+    // oxlint-disable-next-line typescript/no-implied-eval -- rebuilding from source is the thing under test: it is how the worklet loads it
+    // oxlint-disable-next-line typescript/no-implied-eval -- rebuilding from source is the thing under test: it is how the worklet loads it
     const rebuild = new Function(`"use strict"; return (${JitterBuffer.toString()});`);
     const Rebuilt = rebuild() as typeof JitterBuffer;
 

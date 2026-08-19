@@ -75,7 +75,7 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
     case "combiner":
       return { kind, data: { settings: DEFAULT_COMBINER_PARAMS } };
     default:
-      return { kind } as NodeBody;
+      return { kind };
   }
 }
 

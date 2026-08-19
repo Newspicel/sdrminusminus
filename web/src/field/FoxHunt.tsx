@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "../components/BaseControls";
 import { formatHz } from "../components/format";
 import { MapPanel } from "../components/MapPanel";
 import { type Clicker, startClicker } from "../lib/geiger";
@@ -7,7 +8,6 @@ import { positionSourcesOf } from "../lib/position";
 import { useSignalSurveyStore } from "../lib/signalSurvey";
 import type { ChannelLevel, PatchGraph } from "../lib/types";
 import type { MissionProps } from "./missions";
-import { Button } from "../components/BaseControls";
 
 const FLOOR_DB = -110;
 const CEILING_DB = -20;

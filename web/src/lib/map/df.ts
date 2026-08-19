@@ -47,10 +47,10 @@ type Polygon = { type: "Polygon"; coordinates: [number, number][][] };
 export function destination(
   lat: number,
   lon: number,
-  bearingDeg: number,
+  degrees: number,
   distanceM: number,
 ): [number, number] {
-  const bearing = (bearingDeg * Math.PI) / 180;
+  const bearing = (degrees * Math.PI) / 180;
   const angular = distanceM / EARTH_RADIUS_M;
   const phi = (lat * Math.PI) / 180;
   const lambda = (lon * Math.PI) / 180;

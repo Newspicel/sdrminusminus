@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { renderSVG } from "uqr";
+import { Button } from "../components/BaseControls";
 import { BTN_QUIET } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { aboutQuery } from "../lib/api";
 import { handoffOrigins, handoffUrl } from "./fieldLink";
-import { Button } from "../components/BaseControls";
 
 /// Hands the field client to a phone.
 ///

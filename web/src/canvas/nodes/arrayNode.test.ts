@@ -3,7 +3,7 @@ import type { PatchGraph } from "../../lib/types";
 import { addEdge, removeEdge, settleArrays } from "../graph";
 import { arrayHolding, arrayMembers } from "./arrayNode";
 
-function graph(members: number, wires: [string, string][]): PatchGraph {
+function graph(count: number, wires: [string, string][]): PatchGraph {
   return {
     nodes: [
       {
@@ -21,7 +21,7 @@ function graph(members: number, wires: [string, string][]): PatchGraph {
       {
         id: "bench",
         kind: "array",
-        data: { members, coherence: "time_sync", shared_tuning: true },
+        data: { members: count, coherence: "time_sync", shared_tuning: true },
         position: { x: 0, y: 0 },
       },
     ],
@@ -59,9 +59,9 @@ describe("arrayHolding", () => {
 });
 
 /// What the node itself says it carries, which is what the ports are drawn from.
-function members(graph: PatchGraph): number {
-  const node = graph.nodes.find((candidate) => candidate.id === "bench");
-  return node?.kind === "array" ? node.data.members : -1;
+function members(patch: PatchGraph): number {
+  const found = patch.nodes.find((candidate) => candidate.id === "bench");
+  return found?.kind === "array" ? found.data.members : -1;
 }
 
 describe("settleArrays", () => {

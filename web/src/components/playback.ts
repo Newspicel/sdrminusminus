@@ -30,12 +30,13 @@ export function samplesToSeconds(samples: number, sampleRate: number): number {
   return sampleRate > 0 ? samples / sampleRate : 0;
 }
 
+const pad = (n: number): string => String(n).padStart(2, "0");
+
 export function formatClock(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   const h = Math.floor(whole / 3600);
   const m = Math.floor((whole % 3600) / 60);
   const s = whole % 60;
-  const pad = (n: number): string => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 

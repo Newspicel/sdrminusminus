@@ -173,10 +173,10 @@ function workspace(): PatchGraph {
 
 const port = (n: string, p: string) => ({ node: n, port: p });
 
-const bound = (node: string, radio: { rate?: number; tx?: boolean; rx?: number }) =>
+const bound = (id: string, radio: { rate?: number; tx?: boolean; rx?: number }) =>
   new Map([
     [
-      node,
+      id,
       {
         settings: { sample_rate: radio.rate },
         capabilities: { duplex: radio.tx === true ? "half" : "rx_only", rx_streams: radio.rx },

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMPASS_MARKS, polarPoint } from "../canvas/nodes/df";
+import { Button } from "../components/BaseControls";
 import { MapPanel } from "../components/MapPanel";
 import { getRoute } from "../lib/api";
 import { useDfStore } from "../lib/df";
@@ -17,7 +18,6 @@ import {
   shouldAnnounce,
 } from "./nav";
 import { useVoice } from "./useFieldScreen";
-import { Button } from "../components/BaseControls";
 
 const SIZE = 200;
 const CENTRE = SIZE / 2;

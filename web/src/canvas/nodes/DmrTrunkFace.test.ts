@@ -130,13 +130,13 @@ describe("DMR channel search", () => {
   });
 });
 
-describe("keeping what the search found", () => {
-  const channel = (
-    logical_channel: number,
-    freq_hz: number,
-    source: TrunkChannel["source"],
-  ): TrunkChannel => ({ logical_channel, freq_hz, source, confidence: 100 });
+const channel = (
+  logical_channel: number,
+  freq_hz: number,
+  source: TrunkChannel["source"],
+): TrunkChannel => ({ logical_channel, freq_hz, source, confidence: 100 });
 
+describe("keeping what the search found", () => {
   it("offers only the channels the search worked out for itself", () => {
     const map = [
       channel(17, 451_012_500, "learned"),
@@ -161,12 +161,6 @@ describe("keeping what the search found", () => {
 });
 
 describe("the channel plan table", () => {
-  const channel = (
-    logical_channel: number,
-    freq_hz: number,
-    source: TrunkChannel["source"],
-  ): TrunkChannel => ({ logical_channel, freq_hz, source, confidence: 100 });
-
   it("shows entered channels the server has not reported back yet", () => {
     const rows = channelPlanRows([], [{ lcn: 17, freq_hz: 451_012_500 }]);
 

@@ -87,17 +87,17 @@ describe("rejectToken", () => {
   });
 });
 
-describe("adoptTokenFromUrl", () => {
-  function fakeHistory(): { history: History; seen: string[] } {
-    const seen: string[] = [];
-    const history = {
-      replaceState: (_state: unknown, _title: string, url?: string | URL | null) => {
-        seen.push(String(url ?? ""));
-      },
-    } as unknown as History;
-    return { history, seen };
-  }
+function fakeHistory(): { history: History; seen: string[] } {
+  const seen: string[] = [];
+  const history = {
+    replaceState: (_state: unknown, _title: string, url?: string | URL | null) => {
+      seen.push(String(url ?? ""));
+    },
+  } as unknown as History;
+  return { history, seen };
+}
 
+describe("adoptTokenFromUrl", () => {
   it("keeps a token from the address bar and takes it back out of the address", () => {
     resetTokenCache();
     setToken(null);
