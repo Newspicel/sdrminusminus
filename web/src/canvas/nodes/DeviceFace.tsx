@@ -144,8 +144,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       >
         <FaceBody>
           <p className="p-3 text-ink-dim text-sm">
-            This radio is an element of <span className="text-ink">{array}</span>, which opens it
-            and tunes it. Unwire it to have it back.
+            Held by <span className="text-ink">{array}</span>. Unwire it to have it back.
           </p>
         </FaceBody>
       </NodeShell>

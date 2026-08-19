@@ -4,7 +4,7 @@ import { formatSignedKhz } from "../../components/format";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
-import { SettingNote, SettingRow, Settings } from "../../components/Settings";
+import { SettingRow, Settings } from "../../components/Settings";
 import { calibrateCoherent } from "../../lib/api";
 import { useDfStore } from "../../lib/df";
 import type { CombineMode, CombinerParams, PatchNode } from "../../lib/types";
@@ -66,7 +66,7 @@ export function CombinerFace({ node }: { node: PatchNode }) {
           </Button>
         </div>
         <Settings className="border-t border-line p-2">
-          <SettingRow label="Mode">
+          <SettingRow label="Mode" title={MODE_NOTE[settings.mode]}>
             <Select
               label="What the antennas are added for"
               value={settings.mode}
@@ -112,7 +112,6 @@ export function CombinerFace({ node }: { node: PatchNode }) {
               onCommit={(update_ms) => update({ update_ms })}
             />
           </SettingRow>
-          <SettingNote>{MODE_NOTE[settings.mode]}</SettingNote>
         </Settings>
       </FaceBody>
     </NodeShell>

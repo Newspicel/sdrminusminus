@@ -10,8 +10,6 @@ export const DEFAULT_COMBINER_PARAMS: CombinerParams = {
 };
 
 export const MODE_NOTE: Record<CombineMode, string> = {
-  diversity:
-    "Every antenna is turned into step and added, so the wanted signal reinforces and the noise does not. Two antennas are worth about 3 dB.",
-  cancel:
-    "The first antenna is kept and what the others hear is subtracted from it, which takes a local noise source out of a receiver you cannot move away from it. Point the others at the noise, not at the signal.",
+  diversity: "Every antenna turned into step and added: about 3 dB for two",
+  cancel: "The first antenna kept, what the others hear subtracted from it",
 };

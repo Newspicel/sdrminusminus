@@ -30,10 +30,7 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {finders === 0 ? (
-          <FaceEmpty>
-            Wire the events of two or more direction finders in. Bearings from one place point at a
-            signal; bearings from two places say where it is.
-          </FaceEmpty>
+          <FaceEmpty>Wire the events of two or more direction finders in.</FaceEmpty>
         ) : (
           <div className="flex flex-col gap-2 p-2">
             <Readout>

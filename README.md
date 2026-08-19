@@ -30,6 +30,13 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
   frequency-error diagnostics.
 - Receive SSTV in twelve scanning modes, watch each picture build up line by line, and keep every
   one that arrives in the server's picture store.
+- Take bearings on a coherent array — a receiver that came with several lanes, or separate radios
+  you wired to one clock — cross them from several stations, and drive to the transmitter with
+  turn-by-turn navigation on a phone.
+- Point the array's beam at what it found and listen to it, combine antennas for a few more dB, or
+  null a local noise source against a reference antenna.
+- Borrow a broadcast transmitter for passive radar: a range–Doppler surface, echoes followed from
+  one integration to the next, and the ellipse each one could have come off drawn on the map.
 - Display live spectrum and waterfall views, decoded readouts, position maps, band occupancy,
   logs, and ATV video.
 - Scan frequency ranges, save workspaces, presets, and bookmarks, search regional band plans, and

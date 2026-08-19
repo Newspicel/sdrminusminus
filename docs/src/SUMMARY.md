@@ -12,6 +12,10 @@
 
 - [Radios and hardware](hardware.md)
 - [Channels and decoding](user-guide/channels.md)
+- [Coherent arrays](user-guide/arrays.md)
+- [Direction finding](user-guide/direction-finding.md)
+- [Passive radar](user-guide/passive-radar.md)
+- [Field mode](user-guide/field-mode.md)
 - [Scanning](user-guide/scanning.md)
 - [Propagation map](user-guide/propagation.md)
 - [Recording and playback](user-guide/recording.md)

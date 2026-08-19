@@ -30,3 +30,5 @@
 ## Product
 - Beginner-friendly, expert-deep
 - Desktop-only, plus the field-mode remote head
+- Never long text on a node. A face carries controls and readouts; what a setting means belongs in
+  a title attribute or the docs, not in a paragraph on the canvas.

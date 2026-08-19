@@ -14,6 +14,7 @@ and work in every build, including the minimal one.
 | RTL-SDR | none |
 | HackRF | none |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | SDRplay API 3.15 or newer, see [SDRplay](#sdrplay) |
+| Dragon Labs CR-8 | the vendor CR-8 library, see [Dragon Labs CR-8](#dragon-labs-cr-8) |
 
 If a host SoapyRTLSDR, SoapyHackRF or SoapySDRPlay3 module is installed, it is skipped for these
 receivers so that one radio is never listed twice.
@@ -218,6 +219,28 @@ The interface to the vendor library is written in Rust from the public
 licence to use the information in it to design software that uses SDRplay receivers. No SDRplay
 source, header or binary is copied into this project or shipped with it, and the gain tables above
 come from the same document.
+
+## Dragon Labs CR-8
+
+The CR-8 is an eight-channel receiver whose lanes share a clock and a synthesizer, so it arrives
+as one radio with eight `phase_coherent` lanes: one Device node, `iq` through `iq8`, and no
+[Array node](user-guide/arrays.md). Everything above the device layer — calibration, direction
+finding, the beam, passive radar — works on it unchanged.
+
+Its vendor library is loaded at runtime and never linked, exactly like the SDRplay API. Without it
+installed, no CR-8 is found and nothing else is affected. `sdr-- doctor` says whether it loaded.
+
+| Setting | Behaviour |
+|---|---|
+| Frequency | All eight channels are tuned together, in one coherent call |
+| Sample rate | Fixed at 12.5 MS/s; any other rate is refused |
+| Gain | LNA, mixer and VGA, settable per channel |
+| Clock source | The on-board oscillator, or a 10 MHz reference on the external input |
+
+If the library is somewhere the loader will not look, point `SDRMM_DLCR_LIBRARY` at it.
+
+The tuning range sdr-- reports for the CR-8 is taken from the receiver's documentation rather than
+from its SDK, which carries no range at all.
 
 ## Before an unattended deployment
 

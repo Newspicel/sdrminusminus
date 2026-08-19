@@ -15,6 +15,9 @@ sdrmm [OPTIONS]
 | `--db <PATH>` | Platform data directory | SQLite database for workspaces, presets, bookmarks, recording index, and decoder log |
 | `--recordings-dir <PATH>` | Platform data directory | Directory containing SigMF recording pairs |
 | `--token <TOKEN>` | None | Require one shared bearer token for API, WebSocket, and MCP requests |
+| `--routing-backend <NAME>` | `open-route-service` | Which routing service field mode's turn-by-turn proxies to: `open-route-service` or `graph-hopper` |
+| `--routing-url <URL>` | The backend's own service | Base URL, for a self-hosted instance |
+| `--routing-key <KEY>` | None | API key for that service |
 | `--dev-cors` | Off | Allow a separate frontend development origin |
 | `--doctor` | Off | Print environment diagnostics and exit |
 | `--help` | | Show CLI help |
@@ -93,6 +96,19 @@ can expose it and receiver traffic to an observer. For access beyond a trusted L
 
 sdr-- has one shared privilege level. It does not currently provide per-user accounts or
 read-only roles, and every authenticated client can change the active receiver.
+
+## Turn-by-turn routing
+
+[Field mode](../user-guide/field-mode.md) can draw a driving route to whatever the direction
+finding is pointing at. Routes come from an online service, proxied through the server so the key
+stays here: it goes out in an `Authorization` header and never reaches the browser or a URL.
+
+Both supported backends are OpenStreetMap-based, so the geometry they return may be drawn on any
+map. `--routing-key` alone is enough for the hosted service; add `--routing-url` for a self-hosted
+one.
+
+Set none of it and nothing breaks: field mode falls back to heading guidance and the phone's own
+navigation app, and says which it is doing.
 
 ## Development CORS
 

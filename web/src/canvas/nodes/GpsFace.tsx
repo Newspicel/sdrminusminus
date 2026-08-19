@@ -141,10 +141,6 @@ function FixedSettings({
       <SettingRow label="Grid">
         <span className="font-mono text-sm">{gridLocator(source.lat, source.lon)}</span>
       </SettingRow>
-      <SettingNote>
-        Read the place off the map and type it in. Nothing measures it, so it is exactly as right as
-        what you entered.
-      </SettingNote>
     </>
   );
 }

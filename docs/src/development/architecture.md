@@ -29,6 +29,8 @@ React client.
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-net` | Direct `rtl_tcp` and SpyServer clients |
+| `sdrmm-device-cr8` | Dragon Labs CR-8 through the vendor SDK, loaded at runtime |
+| `sdrmm-device-array` | Separate radios framed as one multi-lane radio; counting only, no DSP |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
 | `sdrmm-recorder` | SigMF writing, reading, scanning, and export |
 | `sdrmm-engine` | Device supervision, channelization, scanning, streams, recording, and state snapshots |
@@ -62,6 +64,29 @@ workspace reconciliation, recording indexes, client subscriptions, and protocol 
 High-rate data uses binary WebSocket frames. Durable state stays behind REST, and WebSocket state
 events tell clients which query scope to refetch. Decoder events are typed JSON because their rate
 and structure suit it; audio is Opus-compressed before crossing to the browser.
+
+## Coherent processing
+
+An ordinary channel reads one lane. A coherent processor reads every lane of one radio at the same
+moment, which needs a path of its own beside the per-lane one.
+
+Every capture callback carries the index of its block's first sample, and a driver advances that
+index by what the hardware reports dropped, so a device-side gap reaches the engine as a jump
+rather than a silently shortened lane. When a coherent node is running, each lane also writes into
+a tap ring with an explicit record of the samples it could not keep. The aggregator takes the
+largest range every lane agrees on, discards up to the next common index when one of them lost
+samples, applies the per-lane delay and weight the calibration solved, and hands the aligned
+slices to the processors. It is subject to the same rules as `dsp_loop`: no locks, no allocation,
+no async.
+
+A processor may hand back a set of per-lane weights. The aggregator sums the lanes with them and
+writes the result into an ordinary capture ring one past the radio's own lanes, so a channel,
+recorder or spectrum subscription works on a beam without knowing it is one.
+
+A patch **Array** node is framing rather than processing: the radios wired into it are opened as
+one composite device by `sdrmm-device-array`, which numbers their lanes and fans settings back
+out. Nothing above the device layer can tell a bank of receivers from a radio that came with
+lanes of its own.
 
 ## Workspaces and live engine state
 
