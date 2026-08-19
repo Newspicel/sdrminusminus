@@ -123,17 +123,22 @@ decoder or cross-layer workflow needs it.
 Some decoders carry constants that a specification dictates rather than a derivation produces:
 the DAB puncturing vectors and protection profiles (`crates/channels/src/dab/protection.rs`),
 the DAB phase-reference table (`crates/channels/src/dab/ofdm.rs`), the DVB-S puncturing
-patterns and Reed-Solomon parameters (`crates/channels/src/datv/dvbs.rs`), and the DVB-S2 LDPC
-accumulator addresses (`crates/channels/src/datv/dvbs2/tables/`).
+patterns and Reed-Solomon parameters (`crates/channels/src/datv/dvbs.rs`), the DVB-S2 LDPC
+accumulator addresses (`crates/channels/src/datv/dvbs2/tables/`), and the VL-SNR header
+sequence (`crates/channels/src/datv/dvbs2/vlsnr.rs`).
 
 Those values come from the published standards — ETSI EN 300 401 for DAB, ETSI TS 102 563 for
-DAB+, ETSI EN 300 421 for DVB-S, ETSI EN 302 307-1 for DVB-S2, ETSI ES 201 980 for DRM — and
-were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io) (GPL-2.0-or-later)
-and GNU Radio's [gr-dtv](https://github.com/gnuradio/gnuradio) (GPL-3.0-or-later), whose
-transcriptions of the same tables are the widely deployed references. sdr-- is
-GPL-3.0-or-later, so that lineage is compatible; no code was copied, only the standards'
-constants were confirmed against them. The DVB-S2 accumulator tables are the one case where
-the numbers were transformed mechanically rather than read, because there are 5 124 of them.
+DAB+, ETSI EN 300 421 for DVB-S, ETSI EN 302 307-1 and -2 for DVB-S2 and S2X, ETSI TS 102 606
+for GSE, ETSI ES 201 980 for DRM — and were cross-checked against
+[welle.io](https://github.com/AlbrechtL/welle.io) (GPL-2.0-or-later) and GNU Radio's
+[gr-dtv](https://github.com/gnuradio/gnuradio) (GPL-3.0-or-later), whose transcriptions of the
+same tables are the widely deployed references. sdr-- is GPL-3.0-or-later, so that lineage is
+compatible; no code was copied, only the standards' constants were confirmed against them. The
+DVB-S2 accumulator tables are the one case where the numbers were transformed mechanically
+rather than read, because there are 7 378 of them. The VL-SNR header runs the other way: its
+896-bit seed and the Walsh-Hadamard rows that fold it into sixteen patterns were typed from the
+standard, and the patterns they generate match gr-dtv's transcription bit for bit, which is how
+two independent readings are known to agree.
 
 Each such table is covered by a test that checks it against a property the standard states
 independently of the table itself — monotonic puncturing density, a generator polynomial that
