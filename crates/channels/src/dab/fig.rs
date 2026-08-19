@@ -49,7 +49,7 @@ impl Ensemble {
         self.subchannels.clear();
     }
 
-    #[must_use]
+    
     pub fn playable(&self) -> impl Iterator<Item = (&Service, &SubChannel)> {
         self.services.values().filter_map(|service| {
             let id = service.subchannel?;
@@ -158,7 +158,7 @@ impl Ensemble {
     fn service_organization(&mut self, data: &[u8], long_ids: bool) {
         let identifier = if long_ids { 4 } else { 2 };
         let mut at = 0usize;
-        while at + identifier + 1 <= data.len() {
+        while at + identifier < data.len() {
             let id = if long_ids {
                 u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]])
             } else {
@@ -184,7 +184,11 @@ impl Ensemble {
                     0 => {
                         let kind = descriptor[0] & 0x3F;
                         service.subchannel = Some(descriptor[1] >> 2);
-                        service.audio = if kind == 63 { Audio::AacPlus } else { Audio::Mp2 };
+                        service.audio = if kind == 63 {
+                            Audio::AacPlus
+                        } else {
+                            Audio::Mp2
+                        };
                         service.data = false;
                     }
                     1 => {
@@ -225,8 +229,8 @@ impl Ensemble {
                         .label = text;
                 }
             }
-            5 => {
-                if data.len() >= 4 + LABEL_BYTES {
+            5
+                if data.len() >= 4 + LABEL_BYTES => {
                     let id = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
                     let text = label(&data[4..4 + LABEL_BYTES]);
                     self.services
@@ -237,7 +241,6 @@ impl Ensemble {
                         })
                         .label = text;
                 }
-            }
             _ => {}
         }
     }

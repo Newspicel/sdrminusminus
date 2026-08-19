@@ -222,7 +222,7 @@ impl TsDemux {
         Self::default()
     }
 
-    #[must_use]
+    
     pub fn programs(&self) -> impl Iterator<Item = &Program> {
         self.programs.values()
     }
@@ -359,7 +359,7 @@ impl TsDemux {
     fn apply_pat(&mut self, section: &[u8]) {
         let body = &section[8..section.len() - 4];
         self.pmt_pids.clear();
-        for entry in body.chunks_exact(4) {
+        for entry in body.as_chunks::<4>().0 {
             let number = u16::from_be_bytes([entry[0], entry[1]]);
             let pmt_pid = u16::from_be_bytes([entry[2] & 0x1F, entry[3]]);
             if number == 0 {
@@ -389,7 +389,10 @@ impl TsDemux {
         while at + 5 <= end {
             let kind = StreamKind::from_type(section[at]);
             let stream_pid = u16::from_be_bytes([section[at + 1] & 0x1F, section[at + 2]]);
-            let descriptors = usize::from(u16::from_be_bytes([section[at + 3] & 0x0F, section[at + 4]]));
+            let descriptors = usize::from(u16::from_be_bytes([
+                section[at + 3] & 0x0F,
+                section[at + 4],
+            ]));
             let next = at + 5 + descriptors;
             if next > end {
                 break;
@@ -416,7 +419,10 @@ impl TsDemux {
         let mut at = 11;
         while at + 5 <= end {
             let number = u16::from_be_bytes([section[at], section[at + 1]]);
-            let descriptors = usize::from(u16::from_be_bytes([section[at + 3] & 0x0F, section[at + 4]]));
+            let descriptors = usize::from(u16::from_be_bytes([
+                section[at + 3] & 0x0F,
+                section[at + 4],
+            ]));
             let next = at + 5 + descriptors;
             if next > end {
                 break;
@@ -518,7 +524,14 @@ impl TsWriter {
         self.payload(pid, &body, out);
     }
 
-    pub fn pes(&mut self, pid: u16, stream_id: u8, pts: u64, payload: &[u8], out: &mut Vec<[u8; PACKET]>) {
+    pub fn pes(
+        &mut self,
+        pid: u16,
+        stream_id: u8,
+        pts: u64,
+        payload: &[u8],
+        out: &mut Vec<[u8; PACKET]>,
+    ) {
         let mut unit = vec![0x00, 0x00, 0x01, stream_id, 0, 0, 0x80, 0x80, 5];
         unit.push(0x21 | (pts >> 29) as u8 & 0x0E);
         unit.extend_from_slice(&(((pts >> 15) as u16 & 0x7FFF) << 1 | 1).to_be_bytes());

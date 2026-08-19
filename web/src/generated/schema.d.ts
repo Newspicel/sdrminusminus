@@ -1312,20 +1312,44 @@ export interface components {
             label: string;
             mode?: string | null;
         };
+        BroadcastService: {
+            /** Format: int32 */
+            bitrate_kbps?: number | null;
+            /** Format: int32 */
+            id: number;
+            kind: components["schemas"]["BroadcastServiceKind"];
+            label: string;
+            language?: string | null;
+            selected?: boolean;
+        };
+        /** @enum {string} */
+        BroadcastServiceKind: "audio" | "data" | "video";
         BroadcastStatus: {
+            /** Format: float */
+            bit_error_rate?: number | null;
+            /** Format: int32 */
+            bitrate_kbps?: number | null;
+            code_rate?: string | null;
             /** Format: int32 */
             ensemble_id?: number | null;
+            ensemble_label?: string | null;
+            /** Format: int32 */
+            frames_bad?: number;
+            /** Format: int32 */
+            frames_ok?: number;
             /** Format: float */
             frequency_error_hz: number;
             label?: string | null;
             locked: boolean;
             /** Format: int32 */
             service_id?: number | null;
+            services?: components["schemas"]["BroadcastService"][];
             /** Format: float */
             snr_db: number;
             /** Format: double */
             symbol_rate?: number | null;
             system: components["schemas"]["BroadcastSystem"];
+            text?: string | null;
         };
         /** @enum {string} */
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
@@ -1822,6 +1846,8 @@ export interface components {
         DabMode: "auto" | "dab" | "dab_plus";
         DabParams: {
             mode?: components["schemas"]["DabMode"];
+            /** Format: int32 */
+            service_id?: number | null;
         };
         DataLinkMessage: {
             crc_ok: boolean;
@@ -1841,7 +1867,12 @@ export interface components {
             station?: string | null;
             text?: string | null;
         };
+        /** @enum {string} */
+        DatvCodeRate: "auto" | "half" | "two_thirds" | "three_quarters" | "five_sixths" | "seven_eighths";
         DatvParams: {
+            code_rate?: components["schemas"]["DatvCodeRate"];
+            /** Format: int32 */
+            program?: number | null;
             standard?: components["schemas"]["DatvStandard"];
             /** Format: double */
             symbol_rate?: number;
@@ -2194,6 +2225,8 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
             mode?: components["schemas"]["DrmMode"];
+            /** Format: int32 */
+            service?: number | null;
         };
         DscParams: Record<string, never>;
         DstarParams: Record<string, never>;

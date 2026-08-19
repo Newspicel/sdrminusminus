@@ -328,7 +328,9 @@ impl StreamViterbiK7 {
         let state = trace(&self.decisions[self.depth..], survivor, |_| {});
         self.pending.clear();
         let pending = &mut self.pending;
-        trace(&self.decisions[..self.depth], state, |bit| pending.push(bit));
+        trace(&self.decisions[..self.depth], state, |bit| {
+            pending.push(bit)
+        });
         out.extend(self.pending.iter().rev().copied());
         self.decisions.copy_within(self.depth.., 0);
         self.decisions.truncate(self.depth);
@@ -349,8 +351,10 @@ impl StreamViterbiK7 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::conv::{CONFIDENT, soft};
-    use super::*;
+    use super::{
+        super::conv::{CONFIDENT, soft},
+        *,
+    };
 
     const DVB_S: [u16; 2] = [0o171, 0o133];
     const DAB: [u16; 4] = [0o133, 0o171, 0o145, 0o133];
@@ -454,7 +458,11 @@ mod tests {
             depuncturer.process(chunk, &mut streamed);
         }
         assert_eq!(streamed, block[..streamed.len()]);
-        assert!(block[streamed.len()..].iter().all(|&value| value == ERASURE));
+        assert!(
+            block[streamed.len()..]
+                .iter()
+                .all(|&value| value == ERASURE)
+        );
     }
 
     #[test]

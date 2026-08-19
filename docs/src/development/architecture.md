@@ -92,3 +92,21 @@ the process indefinitely.
 
 Keep tests at the narrowest layer that proves a behavior, then add an end-to-end fixture when a
 decoder or cross-layer workflow needs it.
+
+## Standard tables and their provenance
+
+Some decoders carry constants that a specification dictates rather than a derivation produces:
+the DAB puncturing vectors and protection profiles (`crates/channels/src/dab/protection.rs`),
+the DAB phase-reference table (`crates/channels/src/dab/ofdm.rs`), the DVB-S puncturing
+patterns and Reed-Solomon parameters (`crates/channels/src/datv/dvbs.rs`).
+
+Those values come from the published standards — ETSI EN 300 401 for DAB, ETSI TS 102 563 for
+DAB+, ETSI EN 300 421 for DVB-S, ETSI ES 201 980 for DRM — and were cross-checked against
+[welle.io](https://github.com/AlbrechtL/welle.io) (GPL-2.0-or-later), whose transcription of
+the same tables is the widely deployed reference. sdr-- is GPL-3.0-or-later, so that lineage is
+compatible; no code was copied, only the standards' constants were confirmed against it.
+
+Each such table is covered by a test that checks it against a property the standard states
+independently of the table itself — monotonic puncturing density, a generator polynomial that
+vanishes at every root, a published CRC check value — so a transcription slip fails the suite
+rather than the air.

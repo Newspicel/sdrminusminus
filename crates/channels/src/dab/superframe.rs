@@ -68,7 +68,10 @@ impl AudioFormat {
 
     #[must_use]
     pub const fn access_units(self) -> usize {
-        match (self.sample_rate_hz == 48_000, self.spectral_band_replication) {
+        match (
+            self.sample_rate_hz == 48_000,
+            self.spectral_band_replication,
+        ) {
             (true, true) => 3,
             (true, false) => 6,
             (false, true) => 2,
@@ -77,7 +80,10 @@ impl AudioFormat {
     }
 
     const fn first_unit(self) -> usize {
-        match (self.sample_rate_hz == 48_000, self.spectral_band_replication) {
+        match (
+            self.sample_rate_hz == 48_000,
+            self.spectral_band_replication,
+        ) {
             (true, true) => 6,
             (true, false) => 11,
             (false, true) => 5,
@@ -323,15 +329,21 @@ const fn header_byte(format: AudioFormat) -> u8 {
 
 fn write_offsets(data: &mut [u8], format: AudioFormat, starts: &[usize]) {
     let units = format.access_units();
-    if units >= 2 && let Some(&start) = starts.get(1) {
+    if units >= 2
+        && let Some(&start) = starts.get(1)
+    {
         data[3] = (start >> 4) as u8;
         data[4] = ((start & 0x0F) << 4) as u8;
     }
-    if units >= 3 && let Some(&start) = starts.get(2) {
+    if units >= 3
+        && let Some(&start) = starts.get(2)
+    {
         data[4] |= (start >> 8) as u8 & 0x0F;
         data[5] = start as u8;
     }
-    if units >= 4 && let Some(&start) = starts.get(3) {
+    if units >= 4
+        && let Some(&start) = starts.get(3)
+    {
         data[6] = (start >> 4) as u8;
         data[7] = ((start & 0x0F) << 4) as u8;
     }

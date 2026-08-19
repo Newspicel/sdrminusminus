@@ -1,6 +1,4 @@
-use sdrmm_dsp::{
-    ConvCode, DAB_DISPERSAL, Prbs, Soft, ViterbiK7, crc16_msb, pack_msb, soft,
-};
+use sdrmm_dsp::{ConvCode, DAB_DISPERSAL, Prbs, Soft, ViterbiK7, crc16_msb, pack_msb, soft};
 
 use super::protection::Protection;
 
@@ -71,7 +69,7 @@ impl FicDecoder {
         self.bits.truncate(GROUP_BITS);
         let mut prbs = Prbs::new(DAB_DISPERSAL);
         prbs.apply_bits(&mut self.bits);
-        for chunk in self.bits.chunks_exact(FIB_BITS) {
+        for chunk in self.bits.as_chunks::<FIB_BITS>().0 {
             let bytes = pack_msb(chunk);
             let mut fib = [0u8; FIB_BYTES];
             fib.copy_from_slice(&bytes);
@@ -142,7 +140,9 @@ mod tests {
     use super::*;
 
     fn fib(seed: u8) -> [u8; FIB_BYTES] {
-        let mut body: Vec<u8> = (0..30u8).map(|index| index.wrapping_mul(7).wrapping_add(seed)).collect();
+        let mut body: Vec<u8> = (0..30u8)
+            .map(|index| index.wrapping_mul(7).wrapping_add(seed))
+            .collect();
         append_fib_crc(&mut body);
         let mut fib = [0u8; FIB_BYTES];
         fib.copy_from_slice(&body);

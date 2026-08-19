@@ -4453,6 +4453,52 @@
           }
         }
       },
+      "BroadcastService": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "kind"
+        ],
+        "properties": {
+          "bitrate_kbps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BroadcastServiceKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BroadcastServiceKind": {
+        "type": "string",
+        "enum": [
+          "audio",
+          "data",
+          "video"
+        ]
+      },
       "BroadcastStatus": {
         "type": "object",
         "required": [
@@ -4462,11 +4508,48 @@
           "frequency_error_hz"
         ],
         "properties": {
+          "bit_error_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "bitrate_kbps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "code_rate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ensemble_id": {
             "type": [
               "integer",
               "null"
             ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "ensemble_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frames_bad": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "frames_ok": {
+            "type": "integer",
             "format": "int32",
             "minimum": 0
           },
@@ -4491,6 +4574,12 @@
             "format": "int32",
             "minimum": 0
           },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BroadcastService"
+            }
+          },
           "snr_db": {
             "type": "number",
             "format": "float"
@@ -4504,6 +4593,12 @@
           },
           "system": {
             "$ref": "#/components/schemas/BroadcastSystem"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -6476,6 +6571,14 @@
         "properties": {
           "mode": {
             "$ref": "#/components/schemas/DabMode"
+          },
+          "service_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -6550,9 +6653,31 @@
           }
         }
       },
+      "DatvCodeRate": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "half",
+          "two_thirds",
+          "three_quarters",
+          "five_sixths",
+          "seven_eighths"
+        ]
+      },
       "DatvParams": {
         "type": "object",
         "properties": {
+          "code_rate": {
+            "$ref": "#/components/schemas/DatvCodeRate"
+          },
+          "program": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "standard": {
             "$ref": "#/components/schemas/DatvStandard"
           },
@@ -7967,6 +8092,14 @@
           },
           "mode": {
             "$ref": "#/components/schemas/DrmMode"
+          },
+          "service": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

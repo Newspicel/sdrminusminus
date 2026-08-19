@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::{
-    CONFIDENT, ConvCode, DVB_DISPERSAL, DVB_PRIMITIVE, Depuncturer, Prbs, ReedSolomon, Soft,
-    ERASURE, StreamViterbiK7, ViterbiK7,
+    CONFIDENT, ConvCode, DVB_DISPERSAL, DVB_PRIMITIVE, Depuncturer, ERASURE, Prbs, ReedSolomon,
+    Soft, StreamViterbiK7, ViterbiK7,
 };
 use sdrmm_wire::DatvCodeRate;
 
@@ -62,8 +62,7 @@ pub fn puncture_phases(rate: DatvCodeRate) -> Vec<PuncturePhase> {
     pattern
         .iter()
         .enumerate()
-        .filter_map(|(index, &kept)| {
-            kept.then(|| PuncturePhase {
+        .filter(|&(_index, &kept)| kept).map(|(index, &_kept)| PuncturePhase {
                 pattern: pattern[index..]
                     .iter()
                     .chain(&pattern[..index])
@@ -71,7 +70,6 @@ pub fn puncture_phases(rate: DatvCodeRate) -> Vec<PuncturePhase> {
                     .collect(),
                 prefix: index % 2,
             })
-        })
         .collect()
 }
 
@@ -110,7 +108,9 @@ struct DelayBank {
 impl DelayBank {
     fn new(depth: impl Fn(usize) -> usize) -> Self {
         Self {
-            lines: (0..BRANCHES).map(|branch| vec![0u8; depth(branch)]).collect(),
+            lines: (0..BRANCHES)
+                .map(|branch| vec![0u8; depth(branch)])
+                .collect(),
             at: vec![0; BRANCHES],
             branch: 0,
         }
@@ -490,7 +490,8 @@ impl DvbsDecoder {
         self.soften(lock.rotation);
         self.symbols.clear();
         self.mother.clear();
-        self.mother.resize(std::mem::take(&mut self.prefix), ERASURE);
+        self.mother
+            .resize(std::mem::take(&mut self.prefix), ERASURE);
         let received = std::mem::take(&mut self.received);
         self.depuncturer.process(&received, &mut self.mother);
         self.received = received;
@@ -662,9 +663,10 @@ mod tests {
 
     #[test]
     fn every_puncture_pattern_has_the_rate_it_names() {
-        for (rate, (inputs, kept)) in RATES
-            .into_iter()
-            .zip([(1usize, 2usize), (2, 3), (3, 4), (5, 6), (7, 8)])
+        for (rate, (inputs, kept)) in
+            RATES
+                .into_iter()
+                .zip([(1usize, 2usize), (2, 3), (3, 4), (5, 6), (7, 8)])
         {
             let pattern = puncturing(rate);
             assert_eq!(pattern.len(), 2 * inputs, "{rate:?}");
@@ -681,7 +683,9 @@ mod tests {
     fn the_interleaver_and_deinterleaver_restore_the_byte_order() {
         let mut interleaver = Interleaver::new();
         let mut deinterleaver = Deinterleaver::new();
-        let source: Vec<u8> = (0..CODEWORD * 20).map(|index| (index % 251) as u8).collect();
+        let source: Vec<u8> = (0..CODEWORD * 20)
+            .map(|index| (index % 251) as u8)
+            .collect();
         let restored: Vec<u8> = source
             .iter()
             .map(|&byte| deinterleaver.0.push(interleaver.push(byte)))
@@ -700,7 +704,11 @@ mod tests {
             dispersal.scramble(&mut scrambled);
             assert_eq!(
                 scrambled[0],
-                if index % GROUP == 0 { INVERTED_SYNC } else { SYNC }
+                if index % GROUP == 0 {
+                    INVERTED_SYNC
+                } else {
+                    SYNC
+                }
             );
             assert!(derandomizer.apply(&mut scrambled));
             assert_eq!(scrambled, *packet);
@@ -722,7 +730,10 @@ mod tests {
         assert_eq!(sync_offset(&flipped), Some((7, true)));
     }
 
-    fn round_trip(rate: DatvCodeRate, requested: DatvCodeRate) -> (Vec<[u8; PACKET]>, Vec<[u8; PACKET]>) {
+    fn round_trip(
+        rate: DatvCodeRate,
+        requested: DatvCodeRate,
+    ) -> (Vec<[u8; PACKET]>, Vec<[u8; PACKET]>) {
         let sent = transport(220, 11);
         let mut encoder = DvbsEncoder::new(rate);
         let mut symbols = Vec::new();
@@ -757,7 +768,11 @@ mod tests {
                 .iter()
                 .position(|packet| packet[..4] == received[0][..4])
                 .unwrap_or_else(|| panic!("{rate:?} decoded a packet nothing sent"));
-            assert_eq!(received[..], sent[start..start + received.len()], "{rate:?}");
+            assert_eq!(
+                received[..],
+                sent[start..start + received.len()],
+                "{rate:?}"
+            );
         }
     }
 
@@ -780,12 +795,18 @@ mod tests {
         for rotation in 0..4u8 {
             let turned: Vec<Complex<f32>> = symbols
                 .iter()
-                .map(|&symbol| symbol * Complex::from_polar(1.0, rotation as f32 * std::f32::consts::FRAC_PI_2))
+                .map(|&symbol| {
+                    symbol * Complex::from_polar(1.0, rotation as f32 * std::f32::consts::FRAC_PI_2)
+                })
                 .collect();
             let mut decoder = DvbsDecoder::new(DatvCodeRate::ThreeQuarters, 250_000.0);
             let mut received = Vec::new();
             decoder.push(&turned, &mut received);
-            assert!(received.len() > 50, "rotation {rotation}: {} packets", received.len());
+            assert!(
+                received.len() > 50,
+                "rotation {rotation}: {} packets",
+                received.len()
+            );
             let start = sent
                 .iter()
                 .position(|packet| packet[..4] == received[0][..4])

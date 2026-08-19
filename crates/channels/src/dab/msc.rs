@@ -185,9 +185,10 @@ pub fn subchannel_range(start_cu: u16, size_cu: u16) -> Option<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_dsp::soft;
+
     use super::*;
     use crate::dab::protection::Eep;
-    use sdrmm_dsp::soft;
 
     fn payload(len: usize, seed: u32) -> Vec<u8> {
         let mut state = seed | 1;
@@ -207,7 +208,11 @@ mod tests {
         let mut interleaver = TimeInterleaver::new(fragment);
         let mut deinterleaver = TimeDeinterleaver::new(fragment);
         let frames: Vec<Vec<bool>> = (0..40)
-            .map(|frame| (0..fragment).map(|index| (index + frame) % 3 == 0).collect())
+            .map(|frame| {
+                (0..fragment)
+                    .map(|index| (index + frame) % 3 == 0)
+                    .collect()
+            })
             .collect();
         let mut restored = Vec::new();
         for (index, frame) in frames.iter().enumerate() {
