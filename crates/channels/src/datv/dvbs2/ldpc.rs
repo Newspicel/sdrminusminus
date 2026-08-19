@@ -8,6 +8,9 @@ const MAX_ITERATIONS: usize = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rate {
+    R1_4,
+    R1_3,
+    R2_5,
     R1_2,
     R3_5,
     R2_3,
@@ -22,6 +25,9 @@ impl Rate {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::R1_4 => "1/4",
+            Self::R1_3 => "1/3",
+            Self::R2_5 => "2/5",
             Self::R1_2 => "1/2",
             Self::R3_5 => "3/5",
             Self::R2_3 => "2/3",
@@ -34,9 +40,18 @@ impl Rate {
     }
 
     #[must_use]
+    pub fn information(self, short: bool) -> usize {
+        self.addresses(short)
+            .map_or(0, |addresses| addresses.len() * GROUP)
+    }
+
+    #[must_use]
     pub fn addresses(self, short: bool) -> Option<&'static [&'static [u16]]> {
         if short {
             Some(match self {
+                Self::R1_4 => &tables::short::R1_4,
+                Self::R1_3 => &tables::short::R1_3,
+                Self::R2_5 => &tables::short::R2_5,
                 Self::R1_2 => &tables::short::R1_2,
                 Self::R3_5 => &tables::short::R3_5,
                 Self::R2_3 => &tables::short::R2_3,
@@ -48,6 +63,9 @@ impl Rate {
             })
         } else {
             Some(match self {
+                Self::R1_4 => &tables::normal::R1_4,
+                Self::R1_3 => &tables::normal::R1_3,
+                Self::R2_5 => &tables::normal::R2_5,
                 Self::R1_2 => &tables::normal::R1_2,
                 Self::R3_5 => &tables::normal::R3_5,
                 Self::R2_3 => &tables::normal::R2_3,
@@ -259,7 +277,10 @@ impl Ldpc {
 mod tests {
     use super::*;
 
-    const RATES: [Rate; 8] = [
+    const RATES: [Rate; 11] = [
+        Rate::R1_4,
+        Rate::R1_3,
+        Rate::R2_5,
         Rate::R1_2,
         Rate::R3_5,
         Rate::R2_3,
@@ -297,22 +318,24 @@ mod tests {
     #[test]
     fn every_code_has_the_length_its_rate_promises() {
         for (rate, information) in RATES.into_iter().zip([
-            32_400, 38_880, 43_200, 48_600, 51_840, 54_000, 57_600, 58_320,
+            16_200, 21_600, 25_920, 32_400, 38_880, 43_200, 48_600, 51_840, 54_000, 57_600, 58_320,
         ]) {
             let code = Ldpc::new(rate, false).unwrap_or_else(|| panic!("{rate:?} normal"));
             assert_eq!(code.length, NORMAL);
             assert_eq!(code.information, information, "{rate:?}");
+            assert_eq!(rate.information(false), information, "{rate:?}");
             assert!(code.parity().is_multiple_of(GROUP));
         }
-        for (rate, information) in RATES[..7]
-            .iter()
-            .zip([7_200, 9_720, 10_800, 11_880, 12_600, 13_320, 14_400])
-        {
+        for (rate, information) in RATES[..10].iter().zip([
+            3_240, 5_400, 6_480, 7_200, 9_720, 10_800, 11_880, 12_600, 13_320, 14_400,
+        ]) {
             let code = Ldpc::new(*rate, true).unwrap_or_else(|| panic!("{rate:?} short"));
             assert_eq!(code.length, SHORT);
             assert_eq!(code.information, information, "{rate:?}");
+            assert_eq!(rate.information(true), information, "{rate:?}");
         }
         assert!(Ldpc::new(Rate::R9_10, true).is_none());
+        assert_eq!(Rate::R9_10.information(true), 0);
     }
 
     #[test]

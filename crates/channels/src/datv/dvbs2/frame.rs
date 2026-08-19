@@ -2,10 +2,14 @@ use num_complex::Complex;
 
 use super::ldpc::{NORMAL, Rate, SHORT};
 
+pub const MAX_POINTS: usize = 32;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Modulation {
     Qpsk,
     Psk8,
+    Apsk16,
+    Apsk32,
 }
 
 impl Modulation {
@@ -14,6 +18,8 @@ impl Modulation {
         match self {
             Self::Qpsk => 2,
             Self::Psk8 => 3,
+            Self::Apsk16 => 4,
+            Self::Apsk32 => 5,
         }
     }
 
@@ -22,6 +28,8 @@ impl Modulation {
         match self {
             Self::Qpsk => "QPSK",
             Self::Psk8 => "8PSK",
+            Self::Apsk16 => "16APSK",
+            Self::Apsk32 => "32APSK",
         }
     }
 }
@@ -33,7 +41,10 @@ pub struct ModCod {
     pub rate: Rate,
 }
 
-const CATALOGUE: [(u8, Modulation, Rate); 14] = [
+const CATALOGUE: [(u8, Modulation, Rate); 28] = [
+    (1, Modulation::Qpsk, Rate::R1_4),
+    (2, Modulation::Qpsk, Rate::R1_3),
+    (3, Modulation::Qpsk, Rate::R2_5),
     (4, Modulation::Qpsk, Rate::R1_2),
     (5, Modulation::Qpsk, Rate::R3_5),
     (6, Modulation::Qpsk, Rate::R2_3),
@@ -42,12 +53,23 @@ const CATALOGUE: [(u8, Modulation, Rate); 14] = [
     (9, Modulation::Qpsk, Rate::R5_6),
     (10, Modulation::Qpsk, Rate::R8_9),
     (11, Modulation::Qpsk, Rate::R9_10),
+    (12, Modulation::Psk8, Rate::R3_5),
     (13, Modulation::Psk8, Rate::R2_3),
     (14, Modulation::Psk8, Rate::R3_4),
     (15, Modulation::Psk8, Rate::R5_6),
     (16, Modulation::Psk8, Rate::R8_9),
     (17, Modulation::Psk8, Rate::R9_10),
-    (12, Modulation::Psk8, Rate::R3_5),
+    (18, Modulation::Apsk16, Rate::R2_3),
+    (19, Modulation::Apsk16, Rate::R3_4),
+    (20, Modulation::Apsk16, Rate::R4_5),
+    (21, Modulation::Apsk16, Rate::R5_6),
+    (22, Modulation::Apsk16, Rate::R8_9),
+    (23, Modulation::Apsk16, Rate::R9_10),
+    (24, Modulation::Apsk32, Rate::R3_4),
+    (25, Modulation::Apsk32, Rate::R4_5),
+    (26, Modulation::Apsk32, Rate::R5_6),
+    (27, Modulation::Apsk32, Rate::R8_9),
+    (28, Modulation::Apsk32, Rate::R9_10),
 ];
 
 impl ModCod {
@@ -56,7 +78,6 @@ impl ModCod {
         CATALOGUE
             .iter()
             .find(|&&(catalogued, ..)| catalogued == index)
-            .filter(|&&(catalogued, ..)| catalogued != 12)
             .map(|&(index, modulation, rate)| Self {
                 index,
                 modulation,
@@ -68,8 +89,8 @@ impl ModCod {
     pub fn find(modulation: Modulation, rate: Rate) -> Option<Self> {
         CATALOGUE
             .iter()
-            .find(|&&(index, catalogued, catalogued_rate)| {
-                index != 12 && catalogued == modulation && catalogued_rate == rate
+            .find(|&&(_, catalogued, catalogued_rate)| {
+                catalogued == modulation && catalogued_rate == rate
             })
             .map(|&(index, modulation, rate)| Self {
                 index,
@@ -108,94 +129,185 @@ impl ModCod {
 }
 
 #[must_use]
-pub fn interleave(coded: &[bool], modulation: Modulation) -> Vec<bool> {
-    let columns = modulation.bits();
-    if columns < 3 {
+fn column_order(modulation: Modulation, rate: Rate) -> &'static [usize] {
+    match (modulation, rate) {
+        (Modulation::Qpsk, _) => &[],
+        (Modulation::Psk8, Rate::R3_5) => &[2, 1, 0],
+        (Modulation::Psk8, _) => &[0, 1, 2],
+        (Modulation::Apsk16, _) => &[0, 1, 2, 3],
+        (Modulation::Apsk32, _) => &[0, 1, 2, 3, 4],
+    }
+}
+
+#[must_use]
+pub fn interleave(coded: &[bool], modulation: Modulation, rate: Rate) -> Vec<bool> {
+    let order = column_order(modulation, rate);
+    if order.is_empty() {
         return coded.to_vec();
     }
-    let rows = coded.len() / columns;
+    let rows = coded.len() / order.len();
     let mut out = vec![false; coded.len()];
     for row in 0..rows {
-        for column in 0..columns {
-            out[row * columns + column] = coded[column * rows + row];
+        for (position, &column) in order.iter().enumerate() {
+            out[row * order.len() + position] = coded[column * rows + row];
         }
     }
     out
 }
 
 #[must_use]
-pub fn deinterleave(llrs: &[f32], modulation: Modulation) -> Vec<f32> {
-    let columns = modulation.bits();
-    if columns < 3 {
+pub fn deinterleave(llrs: &[f32], modulation: Modulation, rate: Rate) -> Vec<f32> {
+    let order = column_order(modulation, rate);
+    if order.is_empty() {
         return llrs.to_vec();
     }
-    let rows = llrs.len() / columns;
+    let rows = llrs.len() / order.len();
     let mut out = vec![0.0; llrs.len()];
     for row in 0..rows {
-        for column in 0..columns {
-            out[column * rows + row] = llrs[row * columns + column];
+        for (position, &column) in order.iter().enumerate() {
+            out[column * rows + row] = llrs[row * order.len() + position];
         }
     }
     out
 }
 
-const QPSK: [Complex<f32>; 4] = [
-    Complex::new(
-        std::f32::consts::FRAC_1_SQRT_2,
-        std::f32::consts::FRAC_1_SQRT_2,
-    ),
-    Complex::new(
-        std::f32::consts::FRAC_1_SQRT_2,
-        -std::f32::consts::FRAC_1_SQRT_2,
-    ),
-    Complex::new(
-        -std::f32::consts::FRAC_1_SQRT_2,
-        std::f32::consts::FRAC_1_SQRT_2,
-    ),
-    Complex::new(
-        -std::f32::consts::FRAC_1_SQRT_2,
-        -std::f32::consts::FRAC_1_SQRT_2,
-    ),
+const QPSK_PHASES: [f32; 4] = [1.0, 7.0, 3.0, 5.0];
+const PSK8_PHASES: [f32; 8] = [1.0, 0.0, 4.0, 5.0, 2.0, 7.0, 6.0, 3.0];
+
+const APSK16_ANGLES: [f32; 16] = [
+    3.0, -3.0, 9.0, -9.0, 1.0, -1.0, 11.0, -11.0, 5.0, -5.0, 7.0, -7.0, 3.0, -3.0, 9.0, -9.0,
+];
+const APSK16_RINGS: [u8; 16] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0];
+
+const APSK32_ANGLES: [f32; 32] = [
+    6.0, 10.0, -6.0, -10.0, 18.0, 14.0, -18.0, -14.0, 3.0, 9.0, -6.0, -12.0, 18.0, 12.0, -21.0,
+    -15.0, 2.0, 6.0, -2.0, -6.0, 22.0, 18.0, -22.0, -18.0, 0.0, 6.0, -3.0, -9.0, 21.0, 15.0, 24.0,
+    -18.0,
+];
+const APSK32_RINGS: [u8; 32] = [
+    1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 1, 0, 1, 0, 1, 0, 2, 2, 2, 2, 2, 2, 2, 2,
 ];
 
-const PSK8_PHASES: [u8; 8] = [1, 0, 4, 5, 2, 7, 6, 3];
+fn apsk16_radii(rate: Rate) -> [f32; 2] {
+    let gamma = match rate {
+        Rate::R2_3 => 3.15,
+        Rate::R3_4 => 2.85,
+        Rate::R4_5 => 2.75,
+        Rate::R5_6 => 2.70,
+        Rate::R8_9 => 2.60,
+        _ => 2.57,
+    };
+    let outer = 1.0f32;
+    let inner = outer / gamma;
+    let scale = (4.0 / (inner * inner + 3.0 * outer * outer)).sqrt();
+    [inner * scale, outer * scale]
+}
 
-#[must_use]
-pub fn point(modulation: Modulation, label: usize) -> Complex<f32> {
-    match modulation {
-        Modulation::Qpsk => QPSK[label & 3],
-        Modulation::Psk8 => Complex::from_polar(
-            1.0,
-            f32::from(PSK8_PHASES[label & 7]) * std::f32::consts::FRAC_PI_4,
-        ),
+fn apsk32_radii(rate: Rate) -> [f32; 3] {
+    let (middle, outer) = match rate {
+        Rate::R3_4 => (2.84, 5.27),
+        Rate::R4_5 => (2.72, 4.87),
+        Rate::R5_6 => (2.64, 4.64),
+        Rate::R8_9 => (2.54, 4.33),
+        _ => (2.53, 4.30),
+    };
+    let far = 1.0f32;
+    let inner = far / outer;
+    let mid = inner * middle;
+    let scale = (8.0 / (inner * inner + 3.0 * mid * mid + 4.0 * far * far)).sqrt();
+    [inner * scale, mid * scale, far * scale]
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Constellation {
+    points: [Complex<f32>; MAX_POINTS],
+    bits: usize,
+}
+
+impl Constellation {
+    #[must_use]
+    pub fn new(modulation: Modulation, rate: Rate) -> Self {
+        let mut points = [Complex::new(0.0, 0.0); MAX_POINTS];
+        let bits = modulation.bits();
+        match modulation {
+            Modulation::Qpsk => {
+                for (label, slot) in points.iter_mut().take(4).enumerate() {
+                    *slot =
+                        Complex::from_polar(1.0, QPSK_PHASES[label] * std::f32::consts::FRAC_PI_4);
+                }
+            }
+            Modulation::Psk8 => {
+                for (label, slot) in points.iter_mut().take(8).enumerate() {
+                    *slot =
+                        Complex::from_polar(1.0, PSK8_PHASES[label] * std::f32::consts::FRAC_PI_4);
+                }
+            }
+            Modulation::Apsk16 => {
+                let radii = apsk16_radii(rate);
+                for (label, slot) in points.iter_mut().take(16).enumerate() {
+                    *slot = Complex::from_polar(
+                        radii[usize::from(APSK16_RINGS[label])],
+                        APSK16_ANGLES[label] * std::f32::consts::PI / 12.0,
+                    );
+                }
+            }
+            Modulation::Apsk32 => {
+                let radii = apsk32_radii(rate);
+                for (label, slot) in points.iter_mut().take(32).enumerate() {
+                    *slot = Complex::from_polar(
+                        radii[usize::from(APSK32_RINGS[label])],
+                        APSK32_ANGLES[label] * std::f32::consts::PI / 24.0,
+                    );
+                }
+            }
+        }
+        Self { points, bits }
+    }
+
+    #[must_use]
+    pub const fn bits(&self) -> usize {
+        self.bits
+    }
+
+    #[must_use]
+    pub const fn count(&self) -> usize {
+        1 << self.bits
+    }
+
+    #[must_use]
+    pub fn point(&self, label: usize) -> Complex<f32> {
+        self.points[label & (self.count() - 1)]
     }
 }
 
-pub fn modulate(bits: &[bool], modulation: Modulation, out: &mut Vec<Complex<f32>>) {
-    let width = modulation.bits();
+pub fn modulate(bits: &[bool], constellation: &Constellation, out: &mut Vec<Complex<f32>>) {
+    let width = constellation.bits();
     for chunk in bits.chunks_exact(width) {
         let label = chunk
             .iter()
             .fold(0usize, |value, &bit| value << 1 | usize::from(bit));
-        out.push(point(modulation, label));
+        out.push(constellation.point(label));
     }
 }
 
 pub fn demodulate(
     symbols: &[Complex<f32>],
-    modulation: Modulation,
+    constellation: &Constellation,
     noise: f32,
     out: &mut Vec<f32>,
 ) {
-    let width = modulation.bits();
-    let count = 1usize << width;
+    let width = constellation.bits();
+    let count = constellation.count();
     let scale = 1.0 / noise.max(1e-6);
+    let mut metrics = [f32::NEG_INFINITY; MAX_POINTS];
     for &symbol in symbols {
+        for (label, metric) in metrics.iter_mut().take(count).enumerate() {
+            *metric = -(symbol - constellation.point(label)).norm_sqr() * scale;
+        }
         for bit in 0..width {
             let mut zero = f32::NEG_INFINITY;
             let mut one = f32::NEG_INFINITY;
-            for label in 0..count {
-                let metric = -(symbol - point(modulation, label)).norm_sqr() * scale;
+            for (label, &metric) in metrics.iter().take(count).enumerate() {
                 if label >> (width - 1 - bit) & 1 == 0 {
                     zero = zero.max(metric);
                 } else {
@@ -211,27 +323,29 @@ pub fn demodulate(
 mod tests {
     use super::*;
 
+    const MODULATIONS: [Modulation; 4] = [
+        Modulation::Qpsk,
+        Modulation::Psk8,
+        Modulation::Apsk16,
+        Modulation::Apsk32,
+    ];
+
     #[test]
     fn every_catalogued_mode_round_trips_through_its_index() {
         for &(index, modulation, rate) in &CATALOGUE {
-            let Some(modcod) = ModCod::from_index(index) else {
-                assert_eq!(index, 12, "only 8PSK 3/5 is left out");
-                continue;
-            };
+            let modcod = ModCod::from_index(index).expect("a catalogued index");
             assert_eq!(modcod.modulation, modulation);
             assert_eq!(modcod.rate, rate);
             assert_eq!(ModCod::find(modulation, rate), Some(modcod));
         }
         assert!(ModCod::from_index(0).is_none());
-        assert!(ModCod::from_index(18).is_none());
+        assert!(ModCod::from_index(29).is_none());
     }
 
     #[test]
     fn a_frame_is_a_whole_number_of_slots() {
         for &(index, ..) in &CATALOGUE {
-            let Some(modcod) = ModCod::from_index(index) else {
-                continue;
-            };
+            let modcod = ModCod::from_index(index).expect("a catalogued index");
             for short in [true, false] {
                 assert!(
                     modcod.symbols(short).is_multiple_of(90),
@@ -244,46 +358,113 @@ mod tests {
 
     #[test]
     fn the_bit_interleaver_is_reversible() {
-        for modulation in [Modulation::Qpsk, Modulation::Psk8] {
+        for &(_, modulation, rate) in &CATALOGUE {
             let coded: Vec<bool> = (0..NORMAL).map(|index| index % 5 == 0).collect();
-            let sent = interleave(&coded, modulation);
+            let sent = interleave(&coded, modulation, rate);
             let llrs: Vec<f32> = sent
                 .iter()
                 .map(|&bit| if bit { -1.0 } else { 1.0 })
                 .collect();
-            let restored = deinterleave(&llrs, modulation);
+            let restored = deinterleave(&llrs, modulation, rate);
             let bits: Vec<bool> = restored.iter().map(|&value| value < 0.0).collect();
-            assert_eq!(bits, coded, "{modulation:?}");
+            assert_eq!(bits, coded, "{modulation:?} {}", rate.label());
         }
     }
 
     #[test]
-    fn every_constellation_point_is_unit_energy_and_distinct() {
-        for modulation in [Modulation::Qpsk, Modulation::Psk8] {
-            let points: Vec<Complex<f32>> = (0..1 << modulation.bits())
-                .map(|label| point(modulation, label))
+    fn only_eight_psk_at_three_fifths_twists_its_columns() {
+        for &(_, modulation, rate) in &CATALOGUE {
+            let order = column_order(modulation, rate);
+            let twisted = order.iter().enumerate().any(|(at, &column)| at != column);
+            assert_eq!(
+                twisted,
+                modulation == Modulation::Psk8 && rate == Rate::R3_5,
+                "{modulation:?} {}",
+                rate.label()
+            );
+        }
+        let coded: Vec<bool> = (0..SHORT).map(|index| index % 3 == 0).collect();
+        let rows = SHORT / 3;
+        let sent = interleave(&coded, Modulation::Psk8, Rate::R3_5);
+        assert_eq!(sent[0], coded[2 * rows]);
+        assert_eq!(sent[1], coded[rows]);
+        assert_eq!(sent[2], coded[0]);
+    }
+
+    #[test]
+    fn every_constellation_carries_unit_average_energy_with_distinct_points() {
+        for &(_, modulation, rate) in &CATALOGUE {
+            let constellation = Constellation::new(modulation, rate);
+            let points: Vec<Complex<f32>> = (0..constellation.count())
+                .map(|label| constellation.point(label))
                 .collect();
-            for value in &points {
-                assert!((value.norm() - 1.0).abs() < 1e-6, "{modulation:?}");
-            }
+            let energy: f32 = points
+                .iter()
+                .map(num_complex::Complex::norm_sqr)
+                .sum::<f32>()
+                / points.len() as f32;
+            assert!(
+                (energy - 1.0).abs() < 1e-5,
+                "{modulation:?} {}: {energy}",
+                rate.label()
+            );
             for (index, first) in points.iter().enumerate() {
                 for second in &points[index + 1..] {
-                    assert!((first - second).norm() > 0.5, "{modulation:?}");
+                    assert!(
+                        (first - second).norm() > 0.1,
+                        "{modulation:?} {} has coincident points",
+                        rate.label()
+                    );
                 }
             }
         }
     }
 
+    fn rings(constellation: &Constellation) -> Vec<(f32, usize)> {
+        let mut radii: Vec<f32> = (0..constellation.count())
+            .map(|label| constellation.point(label).norm())
+            .collect();
+        radii.sort_by(f32::total_cmp);
+        let mut out: Vec<(f32, usize)> = Vec::new();
+        for radius in radii {
+            match out.last_mut() {
+                Some(ring) if (ring.0 - radius).abs() < 1e-4 => ring.1 += 1,
+                _ => out.push((radius, 1)),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_rings_hold_the_counts_the_standard_names() {
+        let sixteen = rings(&Constellation::new(Modulation::Apsk16, Rate::R3_4));
+        assert_eq!(
+            sixteen.iter().map(|ring| ring.1).collect::<Vec<_>>(),
+            [4, 12]
+        );
+        assert!((sixteen[1].0 / sixteen[0].0 - 2.85).abs() < 1e-4);
+
+        let thirty_two = rings(&Constellation::new(Modulation::Apsk32, Rate::R4_5));
+        assert_eq!(
+            thirty_two.iter().map(|ring| ring.1).collect::<Vec<_>>(),
+            [4, 12, 16]
+        );
+        assert!((thirty_two[1].0 / thirty_two[0].0 - 2.72).abs() < 1e-4);
+        assert!((thirty_two[2].0 / thirty_two[0].0 - 4.87).abs() < 1e-4);
+    }
+
     #[test]
     fn clean_symbols_demodulate_back_to_their_bits() {
-        for modulation in [Modulation::Qpsk, Modulation::Psk8] {
+        for modulation in MODULATIONS {
+            let rate = Rate::R3_4;
+            let constellation = Constellation::new(modulation, rate);
             let bits: Vec<bool> = (0..3 * 8 * modulation.bits())
                 .map(|index| index % 3 == 0 || index % 7 == 1)
                 .collect();
             let mut symbols = Vec::new();
-            modulate(&bits, modulation, &mut symbols);
+            modulate(&bits, &constellation, &mut symbols);
             let mut llrs = Vec::new();
-            demodulate(&symbols, modulation, 0.1, &mut llrs);
+            demodulate(&symbols, &constellation, 0.05, &mut llrs);
             let decoded: Vec<bool> = llrs.iter().map(|&value| value < 0.0).collect();
             assert_eq!(decoded, bits, "{modulation:?}");
         }

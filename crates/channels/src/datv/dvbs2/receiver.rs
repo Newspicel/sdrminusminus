@@ -3,7 +3,7 @@ use num_complex::Complex;
 use super::{
     bb::BaseBandFrame,
     bch::Bch,
-    frame::{ModCod, Modulation, deinterleave, demodulate, interleave, modulate},
+    frame::{Constellation, ModCod, Modulation, deinterleave, demodulate, interleave, modulate},
     ldpc::{Ldpc, Rate},
     pl::{self, Scrambler, Signalling},
 };
@@ -21,29 +21,7 @@ pub struct Dvbs2Metrics {
 }
 
 fn message_bits(modcod: ModCod, short: bool) -> usize {
-    let information: usize = if short {
-        match modcod.rate {
-            Rate::R1_2 => 7_200,
-            Rate::R3_5 => 9_720,
-            Rate::R2_3 => 10_800,
-            Rate::R3_4 => 11_880,
-            Rate::R4_5 => 12_600,
-            Rate::R5_6 => 13_320,
-            Rate::R8_9 => 14_400,
-            Rate::R9_10 => 0,
-        }
-    } else {
-        match modcod.rate {
-            Rate::R1_2 => 32_400,
-            Rate::R3_5 => 38_880,
-            Rate::R2_3 => 43_200,
-            Rate::R3_4 => 48_600,
-            Rate::R4_5 => 51_840,
-            Rate::R5_6 => 54_000,
-            Rate::R8_9 => 57_600,
-            Rate::R9_10 => 58_320,
-        }
-    };
+    let information = modcod.rate.information(short);
     information.saturating_sub(modcod.correct(short) * if short { 14 } else { 16 })
 }
 
@@ -53,6 +31,7 @@ pub struct Codec {
     pub ldpc: Ldpc,
     pub bch: Bch,
     pub baseband: BaseBandFrame,
+    pub constellation: Constellation,
 }
 
 impl Codec {
@@ -68,6 +47,7 @@ impl Codec {
             ldpc: Ldpc::new(modcod.rate, short)?,
             bch: Bch::new(short, modcod.correct(short), message),
             baseband: BaseBandFrame::new(message),
+            constellation: Constellation::new(modcod.modulation, modcod.rate),
         })
     }
 
@@ -116,13 +96,13 @@ impl Dvbs2Encoder {
         self.codec.bch.encode(&baseband, &mut protected);
         self.coded.clear();
         self.codec.ldpc.encode(&protected, &mut self.coded);
-        let interleaved = interleave(&self.coded, self.codec.modcod.modulation);
-        self.payload.clear();
-        modulate(
-            &interleaved,
+        let interleaved = interleave(
+            &self.coded,
             self.codec.modcod.modulation,
-            &mut self.payload,
+            self.codec.modcod.rate,
         );
+        self.payload.clear();
+        modulate(&interleaved, &self.codec.constellation, &mut self.payload);
         self.scrambler.reset();
         self.scrambler.scramble(&mut self.payload);
         pl::header(self.codec.signalling(self.pilots), out);
@@ -258,8 +238,8 @@ impl Dvbs2Decoder {
         self.scrambler.reset();
         self.scrambler.descramble(&mut self.payload);
         self.llrs.clear();
-        demodulate(&self.payload, modcod.modulation, NOISE, &mut self.llrs);
-        let ordered = deinterleave(&self.llrs, modcod.modulation);
+        demodulate(&self.payload, &codec.constellation, NOISE, &mut self.llrs);
+        let ordered = deinterleave(&self.llrs, modcod.modulation, modcod.rate);
         self.bits.clear();
         let Some(iterations) = codec.ldpc.decode(&ordered, &mut self.bits) else {
             self.metrics.frames_bad += 1;
@@ -346,15 +326,45 @@ mod tests {
     }
 
     #[test]
-    fn every_supported_mode_round_trips() {
-        for modulation in [Modulation::Qpsk, Modulation::Psk8] {
-            for rate in [Rate::R2_3, Rate::R3_4, Rate::R5_6, Rate::R8_9] {
-                let Some(modcod) = ModCod::find(modulation, rate) else {
+    fn every_catalogued_mode_round_trips() {
+        for index in 1..=28u8 {
+            let modcod = ModCod::from_index(index).expect("a catalogued index");
+            for short in [false, true] {
+                if Codec::new(modcod, short).is_none() {
+                    assert!(short && modcod.rate == Rate::R9_10);
                     continue;
-                };
-                let (sent, received) = round_trip(modcod, false, false);
-                assert_eq!(received, sent, "{modulation:?} {}", rate.label());
+                }
+                let (sent, received) = round_trip(modcod, short, false);
+                assert_eq!(
+                    received,
+                    sent,
+                    "modcod {index}: {:?} {} short={short}",
+                    modcod.modulation,
+                    modcod.rate.label()
+                );
             }
+        }
+    }
+
+    #[test]
+    fn the_twisted_interleaver_survives_the_whole_chain() {
+        let modcod = ModCod::find(Modulation::Psk8, Rate::R3_5).expect("8PSK 3/5");
+        assert_eq!(modcod.index, 12);
+        let (sent, received) = round_trip(modcod, false, true);
+        assert_eq!(received, sent);
+    }
+
+    #[test]
+    fn the_higher_order_constellations_carry_their_frames() {
+        for (modulation, rate) in [
+            (Modulation::Apsk16, Rate::R2_3),
+            (Modulation::Apsk16, Rate::R9_10),
+            (Modulation::Apsk32, Rate::R3_4),
+            (Modulation::Apsk32, Rate::R9_10),
+        ] {
+            let modcod = ModCod::find(modulation, rate).expect("a catalogued mode");
+            let (sent, received) = round_trip(modcod, false, true);
+            assert_eq!(received, sent, "{modulation:?} {}", rate.label());
         }
     }
 
