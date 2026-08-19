@@ -23,6 +23,8 @@ pub fn report(
     }
     #[cfg(all(feature = "sdrplay", not(test)))]
     checks.push(sdrplay_check(&sdrmm_device_sdrplay::runtime_info()));
+    #[cfg(all(feature = "cr8", not(test)))]
+    checks.push(cr8_check(sdrmm_device_cr8::load_error()));
     checks.push(devices);
     checks.extend(usb_checks());
     checks.push(path_check(
@@ -159,6 +161,27 @@ fn sdrplay_check(info: &sdrmm_device_sdrplay::RuntimeInfo) -> DoctorCheck {
              hardware and is not part of this package. Install it from \
              https://www.sdrplay.com/downloads/ and make sure its service is running. Without \
              it nothing else is affected — only RSP receivers stay invisible."
+                .to_string()
+        }),
+    }
+}
+
+#[cfg(feature = "cr8")]
+fn cr8_check(error: Option<String>) -> DoctorCheck {
+    DoctorCheck {
+        id: "cr8.library".to_string(),
+        name: "Dragon Labs CR-8 SDK".to_string(),
+        status: if error.is_none() {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Warn
+        },
+        detail: error.clone().unwrap_or_else(|| "loaded".to_string()),
+        hint: error.is_some().then(|| {
+            "The CR-8 needs its vendor library, which ships with the receiver and is not part of \
+             this package. Put libdlcr where the loader can find it, or point \
+             SDRMM_DLCR_LIBRARY at it. Nothing else is affected — only CR-8 receivers stay \
+             invisible."
                 .to_string()
         }),
     }
@@ -624,6 +647,21 @@ mod tests {
         assert_eq!(check.status, CheckStatus::Warn);
         assert!(check.detail.contains("(none)"));
         assert!(check.hint.is_some_and(|hint| hint.contains("RTL-SDR")));
+    }
+
+    #[cfg(feature = "cr8")]
+    #[test]
+    fn a_missing_cr8_library_warns_and_says_where_it_comes_from() {
+        let check = cr8_check(Some("libdlcr.so could not be loaded".to_string()));
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("libdlcr"));
+        assert!(
+            check
+                .hint
+                .unwrap_or_default()
+                .contains("SDRMM_DLCR_LIBRARY")
+        );
+        assert_eq!(cr8_check(None).status, CheckStatus::Ok);
     }
 
     #[cfg(feature = "sdrplay")]

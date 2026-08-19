@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChannelDescriptor, PatchCatalog } from "../lib/types";
+import type { ChannelDescriptor, NodeKind, PatchCatalog } from "../lib/types";
 import { channelPicker, filterPalette, firstPaletteItem, paletteGroups } from "./palette";
 
 const CATALOG: PatchCatalog = {
@@ -137,7 +137,7 @@ describe("filterPalette", () => {
         .map((item) => item.kind),
     );
     for (const entry of CATALOG.nodes) {
-      expect(offered.has(entry.kind), `${entry.kind} is not in the palette`).toBe(true);
+      expect(offered.has(entry.kind as NodeKind), `${entry.kind} is not in the palette`).toBe(true);
     }
   });
 });

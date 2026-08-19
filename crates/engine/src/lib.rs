@@ -158,6 +158,11 @@ fn single_registry(recordings_dir: Option<PathBuf>, playback_speed: f64) -> Devi
         SDRPLAY_PRIORITY,
         Box::new(sdrmm_device_sdrplay::SdrplayDriver::new()),
     );
+    #[cfg(feature = "cr8")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_cr8::Cr8Driver::new()),
+    );
     #[cfg(feature = "rtlsdr")]
     registry.register(
         NATIVE_PRIORITY,

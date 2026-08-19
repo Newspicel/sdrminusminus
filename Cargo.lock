@@ -4741,6 +4741,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-cr8"
+version = "0.0.0"
+dependencies = [
+ "libloading 0.8.9",
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-hackrf"
 version = "0.0.0"
 dependencies = [
@@ -4840,6 +4852,7 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-device",
  "sdrmm-device-array",
+ "sdrmm-device-cr8",
  "sdrmm-device-hackrf",
  "sdrmm-device-net",
  "sdrmm-device-rtlsdr",
@@ -4904,6 +4917,7 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-device",
  "sdrmm-device-array",
+ "sdrmm-device-cr8",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",
