@@ -140,6 +140,8 @@ pub struct SymbolDemod {
     previous: Vec<Complex<f32>>,
     current: Vec<Complex<f32>>,
     have_reference: bool,
+    signal: f64,
+    noise: f64,
 }
 
 impl SymbolDemod {
@@ -153,11 +155,23 @@ impl SymbolDemod {
             previous: vec![Complex::new(0.0, 0.0); USEFUL],
             current: vec![Complex::new(0.0, 0.0); USEFUL],
             have_reference: false,
+            signal: 0.0,
+            noise: 0.0,
         }
     }
 
     pub fn reset(&mut self) {
         self.have_reference = false;
+        self.signal = 0.0;
+        self.noise = 0.0;
+    }
+
+    #[must_use]
+    pub fn snr_db(&self) -> f32 {
+        if self.noise <= 0.0 || self.signal <= 0.0 {
+            return 0.0;
+        }
+        (10.0 * (self.signal / self.noise).log10()).clamp(0.0, 40.0) as f32
     }
 
     #[must_use]
@@ -192,9 +206,12 @@ impl SymbolDemod {
         let start = out.len();
         out.resize(start + SYMBOL_BITS, 0);
         for (index, &bin) in self.bins.iter().enumerate() {
-            let product = self.current[bin] * self.previous[bin].conj();
-            out[start + index] = clamp(-product.re * scale);
-            out[start + CARRIERS + index] = clamp(-product.im * scale);
+            let product = self.current[bin] * self.previous[bin].conj() * scale;
+            let ideal = Complex::new(product.re.signum(), product.im.signum());
+            self.signal += f64::from(ideal.norm_sqr());
+            self.noise += f64::from((product - ideal).norm_sqr());
+            out[start + index] = clamp(-product.re);
+            out[start + CARRIERS + index] = clamp(-product.im);
         }
         true
     }

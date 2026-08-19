@@ -222,7 +222,6 @@ impl TsDemux {
         Self::default()
     }
 
-    
     pub fn programs(&self) -> impl Iterator<Item = &Program> {
         self.programs.values()
     }

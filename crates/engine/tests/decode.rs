@@ -1092,35 +1092,13 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
     );
 }
 
-fn dab_mode_i_acquisition_frame() -> Vec<Complex<f32>> {
-    const USEFUL: usize = 2_048;
-    const GUARD: usize = 504;
-    let mut state = 0x5a17_91e3u32;
-    let useful: Vec<_> = (0..USEFUL)
-        .map(|_| {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            Complex::from_polar(
-                0.8,
-                state as f32 * (std::f32::consts::TAU / u32::MAX as f32),
-            )
-        })
-        .collect();
-    let mut iq = vec![Complex::new(0.8, 0.0); 20_000];
-    iq.extend(vec![Complex::new(0.0001, 0.0); 2_656]);
-    iq.extend_from_slice(&useful[USEFUL - GUARD..]);
-    iq.extend_from_slice(&useful);
-    iq
-}
-
 #[tokio::test]
-async fn dab_mode_i_lock_survives_a_recorded_virtual_device_and_ddc() {
+async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
     const DEVICE_RATE: f64 = 2_400_000.0;
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    let iq = testgen::resample(&dab_mode_i_acquisition_frame(), 2_048_000.0, DEVICE_RATE);
-    let device = plant(dir.path(), "dab-mode-i", iq, DEVICE_RATE);
+    let iq = testgen::resample(&testgen::dab::ensemble(16), 2_048_000.0, DEVICE_RATE);
+    let device = plant(dir.path(), "dab-ensemble", iq, DEVICE_RATE);
     let record = decode_first(
         &engine,
         &device,
@@ -1131,12 +1109,19 @@ async fn dab_mode_i_lock_survives_a_recorded_virtual_device_and_ddc() {
             params: ChannelParams::Dab(DabParams::default()),
             audio: Default::default(),
         },
-        |event| matches!(event, DecoderEvent::Broadcast(status) if status.system == BroadcastSystem::Dab && status.locked),
+        |event| matches!(event, DecoderEvent::Broadcast(status) if status.locked && !status.services.is_empty()),
     )
     .await;
     let DecoderEvent::Broadcast(status) = record.event else {
         unreachable!("filtered above")
     };
+    assert_eq!(
+        status.ensemble_label.as_deref(),
+        Some(testgen::dab::ENSEMBLE_LABEL)
+    );
+    assert_eq!(status.ensemble_id, Some(u32::from(testgen::dab::ENSEMBLE_ID)));
+    assert_eq!(status.services.len(), 2, "{status:?}");
+    assert_eq!(status.services[0].label, "Rust FM");
     assert!(status.snr_db > 10.0, "{status:?}");
 }
 
@@ -1169,6 +1154,7 @@ async fn datv_qpsk_lock_reaches_the_decoded_stream() {
             params: ChannelParams::Datv(DatvParams {
                 standard: DatvStandard::DvbS2,
                 symbol_rate: 250_000.0,
+                ..DatvParams::default()
             }),
             audio: Default::default(),
         },
@@ -1249,6 +1235,7 @@ async fn drm30_lock_reaches_the_decoded_stream() {
             params: ChannelParams::Drm(DrmParams {
                 mode: DrmMode::Drm30,
                 bandwidth_hz: 10_000.0,
+                ..DrmParams::default()
             }),
             audio: Default::default(),
         },

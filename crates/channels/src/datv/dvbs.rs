@@ -62,14 +62,15 @@ pub fn puncture_phases(rate: DatvCodeRate) -> Vec<PuncturePhase> {
     pattern
         .iter()
         .enumerate()
-        .filter(|&(_index, &kept)| kept).map(|(index, &_kept)| PuncturePhase {
-                pattern: pattern[index..]
-                    .iter()
-                    .chain(&pattern[..index])
-                    .copied()
-                    .collect(),
-                prefix: index % 2,
-            })
+        .filter(|&(_index, &kept)| kept)
+        .map(|(index, &_kept)| PuncturePhase {
+            pattern: pattern[index..]
+                .iter()
+                .chain(&pattern[..index])
+                .copied()
+                .collect(),
+            prefix: index % 2,
+        })
         .collect()
 }
 

@@ -35,7 +35,7 @@ impl TimeDeinterleaver {
 
     #[must_use]
     pub fn ready(&self) -> bool {
-        self.filled >= DEPTH
+        self.filled > DEPTH
     }
 
     pub fn push(&mut self, fragment: &[Soft], out: &mut Vec<Soft>) -> bool {

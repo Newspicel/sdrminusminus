@@ -2,6 +2,7 @@ pub mod acars;
 pub mod adsb;
 pub mod ais;
 pub mod atv;
+pub mod dab;
 pub mod dv;
 pub mod ermes;
 pub mod flex;

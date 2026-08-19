@@ -49,7 +49,6 @@ impl Ensemble {
         self.subchannels.clear();
     }
 
-    
     pub fn playable(&self) -> impl Iterator<Item = (&Service, &SubChannel)> {
         self.services.values().filter_map(|service| {
             let id = service.subchannel?;
@@ -229,18 +228,17 @@ impl Ensemble {
                         .label = text;
                 }
             }
-            5
-                if data.len() >= 4 + LABEL_BYTES => {
-                    let id = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-                    let text = label(&data[4..4 + LABEL_BYTES]);
-                    self.services
-                        .entry(id)
-                        .or_insert_with(|| Service {
-                            id,
-                            ..Service::default()
-                        })
-                        .label = text;
-                }
+            5 if data.len() >= 4 + LABEL_BYTES => {
+                let id = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+                let text = label(&data[4..4 + LABEL_BYTES]);
+                self.services
+                    .entry(id)
+                    .or_insert_with(|| Service {
+                        id,
+                        ..Service::default()
+                    })
+                    .label = text;
+            }
             _ => {}
         }
     }
