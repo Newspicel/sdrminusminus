@@ -98,7 +98,7 @@ async function capture(page: Page, name: string, settleSeconds: number): Promise
 
 function siggenPatch(): WorkspaceSnapshot {
   return {
-    version: 2,
+    version: 3,
     graph: {
       nodes: [
         node("dev", { kind: "device", data: { device: SIGGEN } }, { x: 0, y: 0, w: 380, h: 420 }),
@@ -154,7 +154,7 @@ test("aircraft on the map", async ({ page }) => {
   await page.goto("/");
   const device = await recording(page, "adsb_squitters_2m");
   await stage(page, "Aircraft (ADS-B)", {
-    version: 2,
+    version: 3,
     graph: {
       nodes: [
         node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 420 }),
@@ -193,7 +193,7 @@ test("an SSTV picture in the readout", async ({ page }) => {
   await page.goto("/");
   const device = await recording(page, "sstv_robot36_48k");
   await stage(page, "SSTV", {
-    version: 2,
+    version: 3,
     graph: {
       nodes: [
         node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 420 }),
@@ -227,7 +227,7 @@ test("decoded pager traffic", async ({ page }) => {
   await page.goto("/");
   const device = await recording(page, "pocsag_1200_240k");
   await stage(page, "Pagers (POCSAG)", {
-    version: 2,
+    version: 3,
     graph: {
       nodes: [
         node("dev", { kind: "device", data: { device } }, { x: 0, y: 0, w: 380, h: 420 }),

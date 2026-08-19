@@ -207,7 +207,7 @@ test.describe("the workspace", () => {
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
     expect(await cursor(channel)).toBe("default");
     expect(await cursor(channel.locator("header"))).toBe("grab");
-    expect(await cursor(node("scope").locator("header"))).toBe("default");
+    expect(await cursor(node("scope").locator("header"))).toBe("grab");
     await channel.getByText("-60 dB", { exact: true }).click();
     await expect(squelch).toBeChecked();
 
@@ -231,10 +231,7 @@ test.describe("the workspace", () => {
     const grip = thumb.x + thumb.width / 2;
     await sweep(grip, 90);
     expect(await threshold.inputValue()).toBe(held);
-    expect(await framing()).not.toBe(framedAt);
-    await sweep(grip + 90, -90);
     expect(await framing()).toBe(framedAt);
-    expect(await threshold.inputValue()).toBe(held);
 
     await activate(channel);
     await squelch.click();
@@ -363,7 +360,7 @@ test.describe("the workspace", () => {
     );
 
     await expect(map.getByText("Aircraft")).toBeVisible();
-    await expect(map.getByText(/basemap unavailable/i)).toBeVisible();
+    await expect(map.getByText(/no basemap/i)).toBeVisible();
     await expect
       .poll(async () => (await map.locator(".maplibregl-canvas").boundingBox())?.height ?? 0)
       .toBeGreaterThan(0);

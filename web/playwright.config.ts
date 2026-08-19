@@ -7,12 +7,17 @@ export default defineConfig({
   testDir: "./e2e",
   testIgnore: "screenshots.spec.ts",
   retries: 0,
+  workers: 1,
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "chromium", use: devices["Desktop Chrome"], testIgnore: "field.spec.ts" },
+    {
+      name: "chromium",
+      use: devices["Desktop Chrome"],
+      testIgnore: ["screenshots.spec.ts", "field.spec.ts"],
+    },
     { name: "mobile", use: devices["Pixel 7"], testMatch: "field.spec.ts" },
   ],
   webServer: {
