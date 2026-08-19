@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_RADAR_PARAMS } from "../canvas/nodes/radar";
 import type { DfNodeState } from "./df";
-import { BEARING_MAX_AGE_MS, dfOverlay, dfSourcesOf } from "./dfOverlay";
+import { BEARING_MAX_AGE_MS, dfOverlay, dfSourcesOf, radarSourcesOf } from "./dfOverlay";
 import type { PatchGraph } from "./types";
 
 const HERE = { lat: 51.5, lon: 7.0 };
@@ -91,5 +92,53 @@ describe("dfOverlay", () => {
     expect(overlay?.estimate?.converged).toBe(true);
     expect(overlay?.guidance?.mode).toBe("approach");
     expect(overlay?.stations).toHaveLength(1);
+  });
+});
+
+function radarGraph(illuminator: { lat: number; lon: number; freq_hz: number } | null): PatchGraph {
+  return {
+    nodes: [
+      {
+        id: "radar",
+        kind: "passive_radar",
+        data: { settings: { ...DEFAULT_RADAR_PARAMS, illuminator } },
+        position: { x: 0, y: 0 },
+      },
+      { id: "map", kind: "map", position: { x: 0, y: 0 } },
+    ],
+    edges: [{ from: { node: "radar", port: "events" }, to: { node: "map", port: "events" } }],
+  };
+}
+
+describe("radarSourcesOf", () => {
+  it("takes only the radars that say where they borrow their transmitter from", () => {
+    const found = radarSourcesOf(radarGraph({ lat: 51.5, lon: 7.3, freq_hz: 100e6 }), "map");
+    expect(found).toEqual([{ node: "radar", illuminator: { lat: 51.5, lon: 7.3 } }]);
+    expect(radarSourcesOf(radarGraph(null), "map")).toEqual([]);
+  });
+});
+
+describe("dfOverlay echoes", () => {
+  const radars = [{ node: "radar", illuminator: { lat: 51.5, lon: 7.3 } }];
+  const detections = {
+    radar: {
+      ...node(),
+      detections: [
+        { range_bin: 12, range_km: 3.6, doppler_hz: 40, snr_db: 12 },
+        { range_bin: 30, range_km: 9, doppler_hz: -20, snr_db: 9 },
+      ],
+    },
+  };
+
+  it("hands the map one contour set per radar that has echoes", () => {
+    const overlay = dfOverlay([], detections, 1_000, HERE, radars);
+    expect(overlay?.bistatic).toEqual([
+      { receiver: HERE, illuminator: radars[0]?.illuminator, rangesKm: [3.6, 9] },
+    ]);
+  });
+
+  it("draws no ellipse until the receiver knows where it is", () => {
+    expect(dfOverlay([], detections, 1_000, null, radars)?.bistatic).toEqual([]);
+    expect(dfOverlay([], { radar: node() }, 1_000, HERE, radars)?.bistatic).toEqual([]);
   });
 });
