@@ -119,9 +119,20 @@ pub const S2_RATE: Rate = Rate::R3_4;
 
 #[must_use]
 pub fn dvbs2(seconds: usize) -> Vec<Complex<f32>> {
+    dvbs2_mode(seconds, S2_MODULATION, S2_RATE, true, false)
+}
+
+#[must_use]
+pub fn dvbs2_mode(
+    seconds: usize,
+    modulation: Modulation,
+    rate: Rate,
+    short: bool,
+    pilots: bool,
+) -> Vec<Complex<f32>> {
     let wanted = seconds * SYMBOL_RATE as usize;
-    let modcod = ModCod::find(S2_MODULATION, S2_RATE).expect("a catalogued mode");
-    let mut encoder = Dvbs2Encoder::new(modcod, true, false).expect("a supported mode");
+    let modcod = ModCod::find(modulation, rate).expect("a catalogued mode");
+    let mut encoder = Dvbs2Encoder::new(modcod, short, pilots).expect("a supported mode");
     let mut multiplex = Multiplex::new();
     let mut symbols = Vec::with_capacity(wanted);
     while symbols.len() < wanted {

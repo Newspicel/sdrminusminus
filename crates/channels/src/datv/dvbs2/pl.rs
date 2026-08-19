@@ -98,35 +98,88 @@ pub fn header(signalling: Signalling, out: &mut Vec<Complex<f32>>) {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SofFit {
+    pub coherence: f32,
+    pub rotation: f32,
+    pub reference: Complex<f32>,
+}
+
 #[must_use]
-pub fn correlate_header(symbols: &[Complex<f32>]) -> Option<(f32, Signalling, Complex<f32>)> {
+pub fn correlate_sof(symbols: &[Complex<f32>]) -> Option<SofFit> {
+    if symbols.len() < SOF.len() {
+        return None;
+    }
+    let mut stripped = [Complex::new(0.0f32, 0.0); SOF.len()];
+    let mut energy = 0.0f32;
+    for (index, &bit) in SOF.iter().enumerate() {
+        stripped[index] = symbols[index] * bpsk(index, bit).conj();
+        energy += symbols[index].norm_sqr();
+    }
+    let lag = stripped
+        .windows(2)
+        .fold(Complex::new(0.0f32, 0.0), |sum, pair| {
+            sum + pair[1] * pair[0].conj()
+        });
+    let sum = stripped
+        .iter()
+        .fold(Complex::new(0.0f32, 0.0), |sum, &value| sum + value);
+    Some(SofFit {
+        coherence: sum.norm() / energy.max(1e-12).sqrt() / (SOF.len() as f32).sqrt(),
+        rotation: if lag.norm() > 1e-12 { lag.arg() } else { 0.0 },
+        reference: sum / sum.norm().max(1e-12),
+    })
+}
+
+#[must_use]
+pub fn header_phase(symbols: &[Complex<f32>], signalling: Signalling) -> Option<f32> {
     if symbols.len() < HEADER {
         return None;
     }
+    let coded = signalling_bits(signalling);
     let mut sum = Complex::new(0.0f32, 0.0);
-    let mut energy = 0.0f32;
     for (index, &bit) in SOF.iter().enumerate() {
         sum += symbols[index] * bpsk(index, bit).conj();
-        energy += symbols[index].norm_sqr();
     }
-    let coherence = sum.norm() / energy.max(1e-12).sqrt() / (SOF.len() as f32).sqrt();
-    let reference = sum / sum.norm().max(1e-12);
+    for (step, &bit) in coded.iter().enumerate() {
+        sum += symbols[SOF.len() + step] * bpsk(SOF.len() + step, bit).conj();
+    }
+    (sum.norm() > 1e-12).then(|| sum.arg())
+}
+
+#[must_use]
+pub fn read_signalling(symbols: &[Complex<f32>]) -> Option<Signalling> {
+    if symbols.len() < HEADER {
+        return None;
+    }
     let mut best = (f32::NEG_INFINITY, 0u8);
     for code in 0..128u8 {
         let candidate = signalling_bits(Signalling::from_code(code));
         let score: f32 = candidate
             .iter()
             .enumerate()
-            .map(|(step, &bit)| {
-                let expected = bpsk(SOF.len() + step, bit) * reference;
-                (symbols[SOF.len() + step] * expected.conj()).re
-            })
+            .map(|(step, &bit)| (symbols[SOF.len() + step] * bpsk(SOF.len() + step, bit).conj()).re)
             .sum();
         if score > best.0 {
             best = (score, code);
         }
     }
-    Some((coherence, Signalling::from_code(best.1), reference))
+    Some(Signalling::from_code(best.1))
+}
+
+#[must_use]
+pub fn pilot_phase(block: &[Complex<f32>]) -> Option<f32> {
+    let sum = block
+        .iter()
+        .fold(Complex::new(0.0f32, 0.0), |sum, &symbol| {
+            sum + symbol * pilot_symbol().conj()
+        });
+    (sum.norm() > 1e-12).then(|| sum.arg())
+}
+
+#[must_use]
+pub fn pilot_block_start(index: usize) -> usize {
+    index * (PILOT_PERIOD * SLOT + PILOT_LENGTH) - PILOT_LENGTH
 }
 
 pub struct Scrambler {
@@ -267,9 +320,10 @@ mod tests {
                     let mut symbols = Vec::new();
                     header(signalling, &mut symbols);
                     assert_eq!(symbols.len(), HEADER);
-                    let (coherence, read, _) = correlate_header(&symbols).expect("a full header");
-                    assert!(coherence > 0.99, "{coherence}");
-                    assert_eq!(read, signalling);
+                    let fit = correlate_sof(&symbols).expect("a full sync word");
+                    assert!(fit.coherence > 0.99, "{}", fit.coherence);
+                    assert!(fit.rotation.abs() < 1e-4);
+                    assert_eq!(read_signalling(&symbols), Some(signalling));
                 }
             }
         }
@@ -289,10 +343,18 @@ mod tests {
                 .iter()
                 .map(|&value| rotate(value, quarters))
                 .collect();
-            let (coherence, read, reference) = correlate_header(&turned).expect("a full header");
-            assert!((reference.norm() - 1.0).abs() < 1e-3);
-            assert!(coherence > 0.99, "turn {quarters}: {coherence}");
-            assert_eq!(read, signalling, "turn {quarters}");
+            let fit = correlate_sof(&turned).expect("a full sync word");
+            assert!((fit.reference.norm() - 1.0).abs() < 1e-3);
+            assert!(fit.coherence > 0.99, "turn {quarters}: {}", fit.coherence);
+            let aligned: Vec<Complex<f32>> = turned
+                .iter()
+                .map(|&value| value * fit.reference.conj())
+                .collect();
+            assert_eq!(
+                read_signalling(&aligned),
+                Some(signalling),
+                "turn {quarters}"
+            );
         }
     }
 
@@ -310,8 +372,8 @@ mod tests {
                 )
             })
             .collect();
-        let (coherence, ..) = correlate_header(&noise).expect("a full block");
-        assert!(coherence < 0.6, "{coherence}");
+        let fit = correlate_sof(&noise).expect("a full block");
+        assert!(fit.coherence < 0.6, "{}", fit.coherence);
     }
 
     #[test]
@@ -331,6 +393,64 @@ mod tests {
         for (restored, source) in symbols.iter().zip(&original) {
             assert!((restored - source).norm() < 1e-5);
         }
+    }
+
+    #[test]
+    fn a_carrier_offset_is_measured_off_the_sync_word() {
+        let signalling = Signalling {
+            modcod: 18,
+            short: false,
+            pilots: true,
+        };
+        let mut symbols = Vec::new();
+        header(signalling, &mut symbols);
+        for offset in [-0.02f32, -0.005, 0.0, 0.005, 0.02] {
+            let turned: Vec<Complex<f32>> = symbols
+                .iter()
+                .enumerate()
+                .map(|(index, &value)| value * Complex::from_polar(1.0, offset * index as f32))
+                .collect();
+            let fit = correlate_sof(&turned).expect("a full sync word");
+            assert!((fit.rotation - offset).abs() < 1e-4, "{offset}");
+            assert!(fit.coherence > 0.95, "{offset}: {}", fit.coherence);
+            let aligned: Vec<Complex<f32>> = turned
+                .iter()
+                .enumerate()
+                .map(|(index, &value)| {
+                    value
+                        * Complex::from_polar(1.0, -fit.rotation * index as f32)
+                        * fit.reference.conj()
+                })
+                .collect();
+            assert_eq!(read_signalling(&aligned), Some(signalling), "{offset}");
+        }
+    }
+
+    #[test]
+    fn the_whole_header_anchors_the_phase_once_the_signalling_is_known() {
+        let signalling = Signalling {
+            modcod: 24,
+            short: false,
+            pilots: true,
+        };
+        let mut symbols = Vec::new();
+        header(signalling, &mut symbols);
+        assert!(header_phase(&symbols, signalling).expect("a phase").abs() < 1e-4);
+        for turn in [-2.0f32, -0.4, 0.4, 2.0] {
+            let turned: Vec<Complex<f32>> = symbols
+                .iter()
+                .map(|&value| value * Complex::from_polar(1.0, turn))
+                .collect();
+            let phase = header_phase(&turned, signalling).expect("a phase");
+            assert!((phase - turn).abs() < 1e-4, "{turn}: {phase}");
+        }
+    }
+
+    #[test]
+    fn a_pilot_block_starts_after_every_sixteen_slots_of_data() {
+        assert_eq!(pilot_block_start(1), 16 * SLOT);
+        assert_eq!(pilot_block_start(2), 32 * SLOT + PILOT_LENGTH);
+        assert_eq!(pilot_block_start(3), 48 * SLOT + 2 * PILOT_LENGTH);
     }
 
     #[test]

@@ -80,19 +80,23 @@ pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
     )))
 }
 
-fn demodulator() -> Result<LinearDemod, ChannelError> {
+fn demodulator(standard: DatvStandard) -> Result<LinearDemod, ChannelError> {
     let constellation = tables::psk_rotated(4, std::f64::consts::FRAC_PI_4)
         .map_err(|error| ChannelError::InvalidSettings(format!("QPSK table: {error}")))?;
     let pulse = pulse::root_raised_cosine(SPS as f64, ROLL_OFF, PULSE_SPAN, Norm::Energy);
     let params = LinearParams::new(constellation, pulse.clone(), SPS)
         .map_err(|error| ChannelError::InvalidSettings(format!("DATV waveform: {error}")))?;
-    let carrier =
-        CarrierLoop::new(PhaseDetector::MthPower { m: 4 }, 0.002).with_frequency_aid(0.005);
+    let carrier = match standard {
+        DatvStandard::DvbS => Some(
+            CarrierLoop::new(PhaseDetector::MthPower { m: 4 }, 0.002).with_frequency_aid(0.005),
+        ),
+        DatvStandard::DvbS2 => None,
+    };
     Ok(LinearDemod::new(
         &params,
         &pulse,
         LinearTiming::CONTINUOUS,
-        Some(carrier),
+        carrier,
     ))
 }
 
@@ -118,7 +122,7 @@ impl DatvChannel {
     fn rebuild(&mut self) -> Result<(), ChannelError> {
         self.acquisition = Acquisition::new(self.params.symbol_rate, INPUT_RATE_HZ);
         self.resampler = FracResampler::new(SPS as f64 * self.params.symbol_rate / INPUT_RATE_HZ);
-        self.demod = demodulator()?;
+        self.demod = demodulator(self.params.standard)?;
         self.decoder = DvbsDecoder::new(self.params.code_rate, self.params.symbol_rate);
         self.second = Dvbs2Decoder::new();
         self.demux = TsDemux::new();
@@ -229,6 +233,16 @@ impl DatvChannel {
         }
     }
 
+    fn frequency_error_hz(&self, acquired: Acquired) -> f32 {
+        match self.params.standard {
+            DatvStandard::DvbS => acquired.frequency_error_hz,
+            DatvStandard::DvbS2 => {
+                self.second.frequency_error() * self.params.symbol_rate as f32
+                    / std::f32::consts::TAU
+            }
+        }
+    }
+
     fn report(&mut self, acquired: Acquired, out: &mut ChannelOutputs) {
         self.last = acquired;
         let metrics = self.decoder.metrics();
@@ -237,7 +251,7 @@ impl DatvChannel {
             system: self.system(),
             locked: acquired.locked,
             snr_db: acquired.snr_db,
-            frequency_error_hz: acquired.frequency_error_hz,
+            frequency_error_hz: self.frequency_error_hz(acquired),
             symbol_rate: Some(self.params.symbol_rate),
             service_id: program.map(|program| u32::from(program.number)),
             label: program.and_then(|program| program.name.clone()),
@@ -268,7 +282,7 @@ impl ChannelRx for DatvChannel {
             acquisition: Acquisition::new(params.symbol_rate, INPUT_RATE_HZ),
             reports: Vec::new(),
             resampler: FracResampler::new(SPS as f64 * params.symbol_rate / INPUT_RATE_HZ),
-            demod: demodulator()?,
+            demod: demodulator(params.standard)?,
             decoder: DvbsDecoder::new(params.code_rate, params.symbol_rate),
             second: Dvbs2Decoder::new(),
             demux: TsDemux::new(),
@@ -416,10 +430,8 @@ mod tests {
         assert_eq!(status.services[0].kind, BroadcastServiceKind::Video);
     }
 
-    #[test]
-    fn a_generated_second_generation_stream_reaches_the_program_table() {
-        let iq = testgen::datv::dvbs2(3);
-        let mut channel = DatvChannel::new(
+    fn second_generation() -> DatvChannel {
+        DatvChannel::new(
             ChannelCtx {
                 input_rate: INPUT_RATE_HZ,
             },
@@ -435,7 +447,13 @@ mod tests {
                 audio: Default::default(),
             },
         )
-        .expect("a DATV channel at the descriptor rate");
+        .expect("a DATV channel at the descriptor rate")
+    }
+
+    #[test]
+    fn a_generated_second_generation_stream_reaches_the_program_table() {
+        let iq = testgen::datv::dvbs2(3);
+        let mut channel = second_generation();
         let statuses = drive(&mut channel, &iq);
         let status = statuses.last().expect("a broadcast status");
         assert_eq!(status.system, BroadcastSystem::DvbS2);
@@ -444,6 +462,28 @@ mod tests {
         assert!(status.frames_ok > 3, "{status:?}");
         assert_eq!(status.frames_bad, 0, "{status:?}");
         assert!(channel.video_units > 0, "no video access unit arrived");
+    }
+
+    #[test]
+    fn the_higher_order_constellations_reach_the_program_table() {
+        use crate::datv::dvbs2::{frame::Modulation, ldpc::Rate};
+
+        for (modulation, rate, label) in [
+            (Modulation::Psk8, Rate::R3_5, "8PSK 3/5"),
+            (Modulation::Apsk16, Rate::R3_4, "16APSK 3/4"),
+            (Modulation::Apsk32, Rate::R5_6, "32APSK 5/6"),
+        ] {
+            let iq = testgen::datv::dvbs2_mode(3, modulation, rate, false, true);
+            let mut channel = second_generation();
+            let statuses = drive(&mut channel, &iq);
+            let status = statuses.last().expect("a broadcast status");
+            assert_eq!(status.system, BroadcastSystem::DvbS2);
+            assert_eq!(status.code_rate.as_deref(), Some(label));
+            assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+            assert!(status.frames_ok > 0, "{label}: {status:?}");
+            assert_eq!(status.frames_bad, 0, "{label}: {status:?}");
+            assert!(channel.video_units > 0, "{label} carried no video");
+        }
     }
 
     #[test]
