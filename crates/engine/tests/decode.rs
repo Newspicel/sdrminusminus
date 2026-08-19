@@ -1119,10 +1119,50 @@ async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
         status.ensemble_label.as_deref(),
         Some(testgen::dab::ENSEMBLE_LABEL)
     );
-    assert_eq!(status.ensemble_id, Some(u32::from(testgen::dab::ENSEMBLE_ID)));
+    assert_eq!(
+        status.ensemble_id,
+        Some(u32::from(testgen::dab::ENSEMBLE_ID))
+    );
     assert_eq!(status.services.len(), 2, "{status:?}");
     assert_eq!(status.services[0].label, "Rust FM");
     assert!(status.snr_db > 10.0, "{status:?}");
+}
+
+#[tokio::test]
+async fn a_dvb_s_transport_stream_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(
+        dir.path(),
+        "dvb-s",
+        testgen::datv::dvbs(4),
+        2_000_000.0,
+    );
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Datv(DatvParams {
+                standard: DatvStandard::DvbS,
+                symbol_rate: testgen::datv::SYMBOL_RATE,
+                code_rate: testgen::datv::CODE_RATE,
+                program: None,
+            }),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Broadcast(status) if !status.services.is_empty()),
+    )
+    .await;
+    let DecoderEvent::Broadcast(status) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(status.system, BroadcastSystem::DvbS);
+    assert_eq!(status.label.as_deref(), Some(testgen::datv::PROGRAM_NAME));
+    assert_eq!(status.code_rate.as_deref(), Some("3/4"));
+    assert!(status.frames_ok > 20, "{status:?}");
 }
 
 fn datv_qpsk_fixture() -> Vec<Complex<f32>> {

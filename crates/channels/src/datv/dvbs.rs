@@ -183,11 +183,6 @@ impl Dispersal {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.prbs.reset();
-        self.packets = 0;
-    }
-
     pub fn scramble(&mut self, packet: &mut [u8; PACKET]) {
         if self.packets == 0 {
             self.prbs.reset();

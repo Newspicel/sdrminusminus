@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -6,7 +8,7 @@ use rustfft::{Fft, FftPlanner};
 use crate::dab::{
     fic::{FIB_BYTES, FIBS_PER_BLOCK, FicEncoder, append_fib_crc},
     msc::{CIF_BITS, SubChannelEncoder, subchannel_range},
-    ofdm::{CARRIERS, GUARD, NULL, SYMBOL_BITS, SYMBOLS, USEFUL, interleaving, reference_symbol},
+    ofdm::{GUARD, NULL, SYMBOL_BITS, SYMBOLS, USEFUL, interleaving, reference_symbol},
     protection::{Eep, Protection},
     superframe::{AudioFormat, SuperframeBuilder},
 };
@@ -270,10 +272,7 @@ pub fn ensemble(frames: usize) -> Vec<Complex<f32>> {
             place(&mut cif, TALK_START_CU, TALK_SIZE_CU, &fragment);
             bits.extend_from_slice(&cif);
         }
-        let symbols: Vec<Vec<bool>> = bits
-            .chunks_exact(SYMBOL_BITS)
-            .map(<[bool]>::to_vec)
-            .collect();
+        let symbols: Vec<Vec<bool>> = bits.chunks(SYMBOL_BITS).map(<[bool]>::to_vec).collect();
         modulator.frame(&symbols, &mut iq);
     }
     iq
@@ -298,7 +297,7 @@ mod tests {
 
     #[test]
     fn the_carrier_count_matches_the_transmission_mode() {
-        assert_eq!(interleaving().len(), CARRIERS);
-        assert_eq!(SYMBOL_BITS, 2 * CARRIERS);
+        assert_eq!(interleaving().len(), crate::dab::ofdm::CARRIERS);
+        assert_eq!(SYMBOL_BITS, 2 * crate::dab::ofdm::CARRIERS);
     }
 }

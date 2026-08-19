@@ -25,14 +25,6 @@ impl TimeDeinterleaver {
         }
     }
 
-    pub fn reset(&mut self) {
-        for line in &mut self.lines {
-            line.fill(0);
-        }
-        self.at = 0;
-        self.filled = 0;
-    }
-
     #[must_use]
     pub fn ready(&self) -> bool {
         self.filled > DEPTH
@@ -103,15 +95,6 @@ impl SubChannelDecoder {
             mother: Vec::new(),
             bits: Vec::new(),
         }
-    }
-
-    #[must_use]
-    pub const fn protection(&self) -> &Protection {
-        &self.protection
-    }
-
-    pub fn reset(&mut self) {
-        self.deinterleaver.reset();
     }
 
     pub fn frame(&mut self, fragment: &[Soft], out: &mut Vec<u8>) -> bool {

@@ -4,6 +4,11 @@ use sdrmm_dsp::crc32_mpeg;
 
 use super::dvbs::{PACKET, SYNC};
 
+pub const PROGRAM: u16 = 1;
+pub const PMT_PID: u16 = 0x0100;
+pub const VIDEO_PID: u16 = 0x0101;
+pub const AUDIO_PID: u16 = 0x0102;
+
 const PAT_PID: u16 = 0x0000;
 const SDT_PID: u16 = 0x0011;
 const NULL_PID: u16 = 0x1FFF;
@@ -209,7 +214,6 @@ pub struct TsDemux {
     programs: BTreeMap<u16, Program>,
     pmt_pids: BTreeMap<u16, u16>,
     selected: Option<u16>,
-    pcr: Option<u64>,
     continuity: BTreeMap<u16, u8>,
     pub discontinuities: u32,
     pub packets: u64,
@@ -224,11 +228,6 @@ impl TsDemux {
 
     pub fn programs(&self) -> impl Iterator<Item = &Program> {
         self.programs.values()
-    }
-
-    #[must_use]
-    pub const fn pcr(&self) -> Option<u64> {
-        self.pcr
     }
 
     pub fn select(&mut self, program: Option<u16>) {
@@ -256,7 +255,6 @@ impl TsDemux {
         self.pes.clear();
         self.programs.clear();
         self.pmt_pids.clear();
-        self.pcr = None;
         self.continuity.clear();
         self.discontinuities = 0;
         self.packets = 0;
@@ -283,9 +281,6 @@ impl TsDemux {
             if 5 + length > PACKET {
                 return;
             }
-            if length > 0 {
-                self.read_pcr(&packet[5..5 + length]);
-            }
             offset = 5 + length;
         }
         if !has_payload || scrambled || offset >= PACKET {
@@ -308,20 +303,6 @@ impl TsDemux {
         {
             self.discontinuities += 1;
         }
-    }
-
-    fn read_pcr(&mut self, adaptation: &[u8]) {
-        if adaptation.first().is_none_or(|&flags| flags & 0x10 == 0) || adaptation.len() < 7 {
-            return;
-        }
-        let base = u64::from(u32::from_be_bytes([
-            adaptation[1],
-            adaptation[2],
-            adaptation[3],
-            adaptation[4],
-        ])) << 1
-            | u64::from(adaptation[5] >> 7);
-        self.pcr = Some(base);
     }
 
     fn is_section_pid(&self, pid: u16) -> bool {
@@ -456,18 +437,6 @@ impl TsDemux {
         }
         buffer.data.extend_from_slice(payload);
     }
-
-    pub fn flush(&mut self, units: &mut Vec<PesUnit>) {
-        for (&pid, buffer) in &mut self.pes {
-            if buffer.active
-                && let Some(unit) = parse_pes(pid, &buffer.data)
-            {
-                units.push(unit);
-            }
-            buffer.data.clear();
-            buffer.active = false;
-        }
-    }
 }
 
 fn language_descriptor(descriptors: &[u8]) -> Option<String> {
@@ -541,15 +510,6 @@ impl TsWriter {
         self.payload(pid, &unit, out);
     }
 
-    pub fn null(&mut self, out: &mut Vec<[u8; PACKET]>) {
-        let mut packet = [0xFFu8; PACKET];
-        packet[0] = SYNC;
-        packet[1] = 0x1F;
-        packet[2] = 0xFF;
-        packet[3] = 0x10;
-        out.push(packet);
-    }
-
     fn payload(&mut self, pid: u16, body: &[u8], out: &mut Vec<[u8; PACKET]>) {
         let mut at = 0usize;
         let mut start = true;
@@ -589,6 +549,16 @@ impl Default for TsWriter {
 }
 
 #[must_use]
+pub fn null_packet() -> [u8; PACKET] {
+    let mut packet = [0xFFu8; PACKET];
+    packet[0] = SYNC;
+    packet[1] = 0x1F;
+    packet[2] = 0xFF;
+    packet[3] = 0x10;
+    packet
+}
+
+#[must_use]
 pub fn build_section(table: u8, id: u16, version: u8, body: &[u8]) -> Vec<u8> {
     let mut section = vec![table, 0, 0];
     section.extend_from_slice(&id.to_be_bytes());
@@ -604,75 +574,74 @@ pub fn build_section(table: u8, id: u16, version: u8, body: &[u8]) -> Vec<u8> {
     section
 }
 
+#[must_use]
+pub fn pat() -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(&PROGRAM.to_be_bytes());
+    body.extend_from_slice(&(0xE000 | PMT_PID).to_be_bytes());
+    build_section(PAT_TABLE, 1, 0, &body)
+}
+
+#[must_use]
+pub fn pmt() -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(&(0xE000 | VIDEO_PID).to_be_bytes());
+    body.extend_from_slice(&0xF000u16.to_be_bytes());
+    body.extend_from_slice(&[0x02]);
+    body.extend_from_slice(&(0xE000 | VIDEO_PID).to_be_bytes());
+    body.extend_from_slice(&0xF000u16.to_be_bytes());
+    body.extend_from_slice(&[0x03]);
+    body.extend_from_slice(&(0xE000 | AUDIO_PID).to_be_bytes());
+    body.extend_from_slice(&0xF006u16.to_be_bytes());
+    body.extend_from_slice(&[0x0A, 0x04, b'e', b'n', b'g', 0x00]);
+    build_section(PMT_TABLE, PROGRAM, 0, &body)
+}
+
+#[must_use]
+pub fn sdt(provider: &str, name: &str) -> Vec<u8> {
+    let mut body = vec![0x00, 0x01, 0xFF];
+    body.extend_from_slice(&PROGRAM.to_be_bytes());
+    body.push(0x00);
+    let descriptor = {
+        let mut value = vec![0x48, 0, 0x01];
+        value.push(provider.len() as u8);
+        value.extend_from_slice(provider.as_bytes());
+        value.push(name.len() as u8);
+        value.extend_from_slice(name.as_bytes());
+        value[1] = (value.len() - 2) as u8;
+        value
+    };
+    body.push(0x80 | (descriptor.len() >> 8) as u8);
+    body.push(descriptor.len() as u8);
+    body.extend_from_slice(&descriptor);
+    let mut section = build_section(SDT_TABLE, 1, 0, &body);
+    section[1] |= 0x80;
+    let length = section.len() - 3;
+    section[1] = 0xF0 | (length >> 8) as u8;
+    section[2] = length as u8;
+    let crc = crc32_mpeg(&section[..section.len() - 4]);
+    let end = section.len() - 4;
+    section[end..].copy_from_slice(&crc.to_be_bytes());
+    section
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const PMT_PID: u16 = 0x0100;
-    const VIDEO_PID: u16 = 0x0101;
-    const AUDIO_PID: u16 = 0x0102;
-    const PROGRAM: u16 = 1;
-
-    fn pat() -> Vec<u8> {
-        let mut body = Vec::new();
-        body.extend_from_slice(&PROGRAM.to_be_bytes());
-        body.extend_from_slice(&(0xE000 | PMT_PID).to_be_bytes());
-        build_section(PAT_TABLE, 1, 0, &body)
-    }
-
-    fn pmt() -> Vec<u8> {
-        let mut body = Vec::new();
-        body.extend_from_slice(&(0xE000 | VIDEO_PID).to_be_bytes());
-        body.extend_from_slice(&0xF000u16.to_be_bytes());
-        body.extend_from_slice(&[0x02]);
-        body.extend_from_slice(&(0xE000 | VIDEO_PID).to_be_bytes());
-        body.extend_from_slice(&0xF000u16.to_be_bytes());
-        body.extend_from_slice(&[0x03]);
-        body.extend_from_slice(&(0xE000 | AUDIO_PID).to_be_bytes());
-        body.extend_from_slice(&0xF006u16.to_be_bytes());
-        body.extend_from_slice(&[0x0A, 0x04, b'e', b'n', b'g', 0x00]);
-        build_section(PMT_TABLE, PROGRAM, 0, &body)
-    }
-
-    fn sdt() -> Vec<u8> {
-        let mut body = vec![0x00, 0x01, 0xFF];
-        body.extend_from_slice(&PROGRAM.to_be_bytes());
-        body.push(0x00);
-        let descriptor = {
-            let mut value = vec![0x48, 0, 0x01];
-            value.push(3);
-            value.extend_from_slice(b"BBC");
-            value.push(5);
-            value.extend_from_slice(b"One  ");
-            value[1] = (value.len() - 2) as u8;
-            value
-        };
-        body.push(0x80 | (descriptor.len() >> 8) as u8);
-        body.push(descriptor.len() as u8);
-        body.extend_from_slice(&descriptor);
-        let mut section = build_section(SDT_TABLE, 1, 0, &body);
-        section[1] |= 0x80;
-        let length = section.len() - 3;
-        section[1] = 0xF0 | (length >> 8) as u8;
-        section[2] = length as u8;
-        let crc = crc32_mpeg(&section[..section.len() - 4]);
-        let end = section.len() - 4;
-        section[end..].copy_from_slice(&crc.to_be_bytes());
-        section
-    }
 
     fn multiplex(video: &[u8], audio: &[u8]) -> Vec<[u8; PACKET]> {
         let mut writer = TsWriter::new();
         let mut packets = Vec::new();
         writer.section(PAT_PID, &pat(), &mut packets);
         writer.section(PMT_PID, &pmt(), &mut packets);
-        writer.section(SDT_PID, &sdt(), &mut packets);
+        writer.section(SDT_PID, &sdt("BBC", "One"), &mut packets);
         writer.pes(VIDEO_PID, 0xE0, 90_000, video, &mut packets);
         writer.pes(AUDIO_PID, 0xC0, 90_000, audio, &mut packets);
         writer.section(PAT_PID, &pat(), &mut packets);
         writer.section(PMT_PID, &pmt(), &mut packets);
         writer.pes(VIDEO_PID, 0xE0, 93_600, video, &mut packets);
-        writer.null(&mut packets);
+        writer.pes(VIDEO_PID, 0xE0, 97_200, video, &mut packets);
+        packets.push(null_packet());
         packets
     }
 
@@ -718,7 +687,6 @@ mod tests {
         for packet in multiplex(&video, b"audio") {
             demux.push(&packet, &mut units);
         }
-        demux.flush(&mut units);
         let frames: Vec<&PesUnit> = units.iter().filter(|unit| unit.pid == VIDEO_PID).collect();
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].payload.len(), video.len());
@@ -766,12 +734,10 @@ mod tests {
 
     #[test]
     fn null_packets_are_ignored() {
-        let mut writer = TsWriter::new();
-        let mut packets = Vec::new();
-        writer.null(&mut packets);
         let mut demux = TsDemux::new();
         let mut units = Vec::new();
-        demux.push(&packets[0], &mut units);
+        demux.push(&null_packet(), &mut units);
         assert_eq!(demux.packets, 0);
+        assert!(units.is_empty());
     }
 }

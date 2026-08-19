@@ -1,29 +1,8 @@
-use std::{array, f32::consts::PI, sync::LazyLock};
+use std::{array, f32::consts::PI};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
-use sdrmm_wire::{
-    BroadcastStatus, BroadcastSystem, ChannelDescriptor, ChannelParams, ChannelSettings,
-    DatvParams, DatvStandard, DecoderEvent,
-};
 
-use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
-
-const INPUT_RATE_HZ: f64 = 2_000_000.0;
-const BANDWIDTH_HZ: f64 = 1_500_000.0;
-const MIN_SYMBOL_RATE: f64 = 100_000.0;
-const MAX_SYMBOL_RATE: f64 = 1_000_000.0;
 const PHASE_BINS: usize = 32;
-
-static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
-    type_id: "datv".to_owned(),
-    name: "DATV (DVB-S / S2) acquisition".to_owned(),
-    bandwidth_hz: BANDWIDTH_HZ,
-    input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
-    decoder_kind: Some("broadcast".to_owned()),
-    ..ChannelDescriptor::default()
-});
 
 #[derive(Clone, Copy, Default)]
 struct Bin {
@@ -39,69 +18,82 @@ struct Bin {
     octants: u8,
 }
 
-pub struct DatvChannel {
-    params: DatvParams,
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Acquired {
+    pub locked: bool,
+    pub snr_db: f32,
+    pub frequency_error_hz: f32,
+}
+
+pub struct Acquisition {
+    symbol_rate: f64,
+    input_rate: f64,
     phase: f64,
     bins: [Bin; PHASE_BINS],
     samples: usize,
 }
 
-fn params(settings: &ChannelSettings) -> Result<DatvParams, ChannelError> {
-    match settings.params {
-        ChannelParams::Datv(p) => {
-            if p.symbol_rate.is_finite()
-                && (MIN_SYMBOL_RATE..=MAX_SYMBOL_RATE).contains(&p.symbol_rate)
-            {
-                Ok(p)
-            } else {
-                Err(ChannelError::InvalidSettings(format!(
-                    "DATV symbol rate must be in [{MIN_SYMBOL_RATE}, {MAX_SYMBOL_RATE}] baud, got {}",
-                    p.symbol_rate
-                )))
-            }
+impl Acquisition {
+    #[must_use]
+    pub fn new(symbol_rate: f64, input_rate: f64) -> Self {
+        Self {
+            symbol_rate,
+            input_rate,
+            phase: 0.0,
+            bins: array::from_fn(|_| Bin::default()),
+            samples: 0,
         }
-        ref other => Err(ChannelError::InvalidSettings(format!(
-            "datv channel got {} params",
-            other.type_id()
-        ))),
     }
-}
 
-pub fn occupied_band(p: &DatvParams) -> (f64, f64) {
-    let half = (p.symbol_rate * 1.35 / 2.0).min(BANDWIDTH_HZ / 2.0);
-    (-half, half)
-}
+    pub fn reset(&mut self) {
+        self.phase = 0.0;
+        self.clear();
+    }
 
-pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
-    let p = params(&ChannelSettings {
-        offset_hz: 0.0,
-        squelch_db: None,
-        squelch_auto_db: None,
-        params: ChannelParams::Datv(*p),
-        audio: sdrmm_wire::AudioProcessing::default(),
-    })?;
-    let (_, half) = occupied_band(&p);
-    let pass = half.min(flat_bandwidth_hz(INPUT_RATE_HZ) / 2.0);
-    Ok(ChannelFilter::Symmetric(Decimator::new(
-        &design_lowpass(127, pass / INPUT_RATE_HZ),
-        1,
-    )))
-}
-
-impl DatvChannel {
-    fn clear_measurement(&mut self) {
+    fn clear(&mut self) {
         self.bins = array::from_fn(|_| Bin::default());
         self.samples = 0;
     }
 
-    fn system(&self) -> BroadcastSystem {
-        match self.params.standard {
-            DatvStandard::DvbS => BroadcastSystem::DvbS,
-            DatvStandard::DvbS2 => BroadcastSystem::DvbS2,
+    pub fn push(&mut self, iq: &[Complex<f32>], out: &mut Vec<Acquired>) {
+        let step = self.symbol_rate / self.input_rate;
+        for &sample in iq {
+            let norm = sample.norm();
+            if norm > 1e-6 && norm.is_finite() {
+                self.accumulate(sample / norm, sample.norm_sqr());
+            }
+            self.phase += step;
+            self.phase -= self.phase.floor();
+            self.samples += 1;
+            if self.samples >= self.input_rate as usize {
+                out.push(self.report());
+            }
         }
     }
 
-    fn report(&mut self, out: &mut ChannelOutputs) {
+    fn accumulate(&mut self, unit: Complex<f32>, power: f32) {
+        let index = ((self.phase * PHASE_BINS as f64) as usize).min(PHASE_BINS - 1);
+        let bin = &mut self.bins[index];
+        let fourth = unit * unit * unit * unit;
+        let eighth = fourth * fourth;
+        bin.fourth += fourth;
+        bin.eighth += eighth;
+        bin.carrier += unit;
+        if let Some(previous) = bin.previous_fourth {
+            bin.fourth_step += fourth * previous.conj();
+        }
+        if let Some(previous) = bin.previous_eighth {
+            bin.eighth_step += eighth * previous.conj();
+        }
+        bin.previous_fourth = Some(fourth);
+        bin.previous_eighth = Some(eighth);
+        bin.power += f64::from(power);
+        bin.count = bin.count.saturating_add(1);
+        let octant = ((unit.arg() + PI) * (4.0 / PI)).floor() as i32;
+        bin.octants |= 1 << octant.rem_euclid(8);
+    }
+
+    fn report(&mut self) -> Acquired {
         let (best_index, order, coherence) = self
             .bins
             .iter()
@@ -125,80 +117,12 @@ impl DatvChannel {
         } else {
             best.eighth_step
         };
-        let frequency_error_hz =
-            step.arg() * self.params.symbol_rate as f32 / (2.0 * PI * f32::from(order));
-        let snr_db = (-10.0 * (1.0 - coherence.clamp(0.0, 0.9999)).log10()).min(40.0);
-        out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
-            system: self.system(),
+        self.clear();
+        Acquired {
             locked,
-            snr_db,
-            frequency_error_hz,
-            symbol_rate: Some(self.params.symbol_rate),
-            ..BroadcastStatus::default()
-        }));
-        self.clear_measurement();
-    }
-}
-
-impl ChannelRx for DatvChannel {
-    fn descriptor() -> &'static ChannelDescriptor {
-        &DESCRIPTOR
-    }
-
-    fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
-        check_input_rate(ctx, &DESCRIPTOR)?;
-        Ok(Self {
-            params: params(&settings)?,
-            phase: 0.0,
-            bins: array::from_fn(|_| Bin::default()),
-            samples: 0,
-        })
-    }
-
-    fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
-        self.params = params(&settings)?;
-        self.phase = 0.0;
-        self.clear_measurement();
-        Ok(())
-    }
-
-    fn retuned(&mut self) {
-        self.phase = 0.0;
-        self.clear_measurement();
-    }
-
-    fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        let step = self.params.symbol_rate / INPUT_RATE_HZ;
-        for &sample in iq {
-            let norm = sample.norm();
-            if norm > 1e-6 && norm.is_finite() {
-                let unit = sample / norm;
-                let fourth = unit * unit * unit * unit;
-                let eighth = fourth * fourth;
-                let index = ((self.phase * PHASE_BINS as f64) as usize).min(PHASE_BINS - 1);
-                let bin = &mut self.bins[index];
-                bin.fourth += fourth;
-                bin.eighth += eighth;
-                bin.carrier += unit;
-                if let Some(previous) = bin.previous_fourth {
-                    bin.fourth_step += fourth * previous.conj();
-                }
-                if let Some(previous) = bin.previous_eighth {
-                    bin.eighth_step += eighth * previous.conj();
-                }
-                bin.previous_fourth = Some(fourth);
-                bin.previous_eighth = Some(eighth);
-                bin.power += f64::from(sample.norm_sqr());
-                bin.count = bin.count.saturating_add(1);
-                let octant = ((unit.arg() + PI) * (4.0 / PI)).floor() as i32;
-                bin.octants |= 1 << octant.rem_euclid(8);
-            }
-            self.phase += step;
-            self.phase -= self.phase.floor();
-            self.samples += 1;
-            if self.samples >= INPUT_RATE_HZ as usize {
-                self.report(out);
-            }
+            snr_db: (-10.0 * (1.0 - coherence.clamp(0.0, 0.9999)).log10()).min(40.0),
+            frequency_error_hz: step.arg() * self.symbol_rate as f32
+                / (2.0 * PI * f32::from(order)),
         }
     }
 }
@@ -207,117 +131,55 @@ impl ChannelRx for DatvChannel {
 mod tests {
     use super::*;
 
-    fn settings(symbol_rate: f64, standard: DatvStandard) -> ChannelSettings {
-        ChannelSettings {
-            offset_hz: 0.0,
-            squelch_db: None,
-            squelch_auto_db: None,
-            params: ChannelParams::Datv(DatvParams {
-                standard,
-                symbol_rate,
-                ..DatvParams::default()
-            }),
-            audio: Default::default(),
+    const INPUT_RATE_HZ: f64 = 2_000_000.0;
+
+    fn drive(iq: &[Complex<f32>], symbol_rate: f64) -> Acquired {
+        let mut acquisition = Acquisition::new(symbol_rate, INPUT_RATE_HZ);
+        let mut out = Vec::new();
+        for chunk in iq.chunks(997) {
+            acquisition.push(chunk, &mut out);
         }
+        out.pop().expect("a report after one second")
+    }
+
+    fn repeated(points: &[Complex<f32>], sps: usize) -> Vec<Complex<f32>> {
+        let mut iq = Vec::with_capacity(INPUT_RATE_HZ as usize);
+        for index in 0..(INPUT_RATE_HZ as usize / sps) {
+            iq.extend(std::iter::repeat_n(
+                points[(index * 13 + index / 7) % points.len()],
+                sps,
+            ));
+        }
+        iq
     }
 
     #[test]
-    fn qpsk_carrier_acquires_at_the_configured_symbol_rate() {
-        let symbol_rate = 250_000.0;
+    fn a_quadrature_carrier_acquires_at_the_configured_symbol_rate() {
         let points = [
             Complex::new(1.0, 1.0),
             Complex::new(-1.0, 1.0),
             Complex::new(-1.0, -1.0),
             Complex::new(1.0, -1.0),
         ];
-        let mut iq = Vec::with_capacity(INPUT_RATE_HZ as usize);
-        for i in 0..(INPUT_RATE_HZ as usize / 8) {
-            iq.extend(std::iter::repeat_n(points[(i * 13 + i / 7) % 4], 8));
-        }
-        for (standard, system) in [
-            (DatvStandard::DvbS, BroadcastSystem::DvbS),
-            (DatvStandard::DvbS2, BroadcastSystem::DvbS2),
-        ] {
-            let mut channel = DatvChannel::new(
-                ChannelCtx {
-                    input_rate: INPUT_RATE_HZ,
-                },
-                settings(symbol_rate, standard),
-            )
-            .unwrap();
-            let mut out = ChannelOutputs::default();
-            for chunk in iq.chunks(997) {
-                channel.process(chunk, &mut out);
-            }
-            let DecoderEvent::Broadcast(status) = out.events.last().unwrap() else {
-                panic!("wrong event")
-            };
-            assert!(status.locked, "{status:?}");
-            assert_eq!(status.system, system);
-        }
+        let report = drive(&repeated(&points, 8), 250_000.0);
+        assert!(report.locked, "{report:?}");
     }
 
     #[test]
-    fn eight_psk_carrier_acquires_for_dvb_s2() {
-        let symbol_rate = 250_000.0;
+    fn an_eight_phase_carrier_acquires() {
         let points: Vec<_> = (0..8)
-            .map(|i| Complex::from_polar(1.0, i as f32 * PI / 4.0))
+            .map(|index| Complex::from_polar(1.0, index as f32 * PI / 4.0))
             .collect();
-        let mut iq = Vec::with_capacity(INPUT_RATE_HZ as usize);
-        for i in 0..(INPUT_RATE_HZ as usize / 8) {
-            iq.extend(std::iter::repeat_n(points[(i * 13 + i / 7) % 8], 8));
-        }
-        let mut channel = DatvChannel::new(
-            ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
-            },
-            settings(symbol_rate, DatvStandard::DvbS2),
-        )
-        .unwrap();
-        let mut out = ChannelOutputs::default();
-        channel.process(&iq, &mut out);
-        let DecoderEvent::Broadcast(status) = out.events.last().unwrap() else {
-            panic!("wrong event")
-        };
-        assert!(status.locked, "{status:?}");
+        let report = drive(&repeated(&points, 8), 250_000.0);
+        assert!(report.locked, "{report:?}");
     }
 
     #[test]
-    fn a_single_unmodulated_carrier_is_not_datv() {
-        let mut channel = DatvChannel::new(
-            ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
-            },
-            settings(250_000.0, DatvStandard::DvbS),
-        )
-        .unwrap();
-        let mut out = ChannelOutputs::default();
-        channel.process(
+    fn a_single_unmodulated_carrier_is_not_a_transmission() {
+        let report = drive(
             &vec![Complex::new(1.0, 0.0); INPUT_RATE_HZ as usize],
-            &mut out,
+            250_000.0,
         );
-        let DecoderEvent::Broadcast(status) = out.events.last().unwrap() else {
-            panic!("wrong event")
-        };
-        assert!(!status.locked);
-    }
-
-    #[test]
-    fn acquisition_keeps_ahead_of_the_channel_rate() {
-        let mut channel = DatvChannel::new(
-            ChannelCtx {
-                input_rate: INPUT_RATE_HZ,
-            },
-            settings(250_000.0, DatvStandard::DvbS2),
-        )
-        .unwrap();
-        let iq = vec![Complex::new(1.0, 1.0); INPUT_RATE_HZ as usize];
-        let mut out = ChannelOutputs::default();
-        let started = std::time::Instant::now();
-        for block in iq.chunks(16_384) {
-            channel.process(block, &mut out);
-        }
-        let elapsed = started.elapsed().as_secs_f64();
-        assert!(elapsed < 1.0, "one second of DATV took {elapsed:.2} s");
+        assert!(!report.locked, "{report:?}");
     }
 }

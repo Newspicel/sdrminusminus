@@ -174,11 +174,6 @@ impl SymbolDemod {
         (10.0 * (self.signal / self.noise).log10()).clamp(0.0, 40.0) as f32
     }
 
-    #[must_use]
-    pub fn spectrum(&self) -> &[Complex<f32>] {
-        &self.current
-    }
-
     pub fn transform(&mut self, symbol: &[Complex<f32>]) {
         std::mem::swap(&mut self.previous, &mut self.current);
         self.scratch.clear();

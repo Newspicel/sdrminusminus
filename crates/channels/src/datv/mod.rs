@@ -1,5 +1,6 @@
 mod acquire;
+mod channel;
 pub mod dvbs;
 pub mod ts;
 
-pub use acquire::{DatvChannel, channel_filter, occupied_band};
+pub use channel::{DatvChannel, channel_filter, occupied_band};

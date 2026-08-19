@@ -146,17 +146,6 @@ impl SuperframeAssembler {
         })
     }
 
-    #[must_use]
-    pub const fn bitrate_kbps(&self) -> u32 {
-        (FRAMES * self.frame_bytes / CODEWORD * 8) as u32
-    }
-
-    pub fn reset(&mut self) {
-        self.raw.clear();
-        self.frames = 0;
-        self.synced = false;
-    }
-
     pub fn frame(&mut self, logical: &[u8]) -> Option<AccessUnits> {
         if logical.len() != self.frame_bytes {
             return None;
@@ -408,7 +397,6 @@ mod tests {
         let frames = builder.build(format(), &sent).expect("the units fit");
         assert_eq!(frames.len(), FRAMES);
         let mut assembler = SuperframeAssembler::new(frame_bytes).expect("96 kbps assembles");
-        assert_eq!(assembler.bitrate_kbps(), 96);
         let mut decoded = None;
         for frame in &frames {
             decoded = assembler.frame(frame).or(decoded);

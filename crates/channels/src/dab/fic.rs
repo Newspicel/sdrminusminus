@@ -1,4 +1,4 @@
-use sdrmm_dsp::{ConvCode, DAB_DISPERSAL, Prbs, Soft, ViterbiK7, crc16_msb, pack_msb, soft};
+use sdrmm_dsp::{ConvCode, DAB_DISPERSAL, Prbs, Soft, ViterbiK7, crc16_msb, pack_msb};
 
 use super::protection::Protection;
 
@@ -130,14 +130,13 @@ impl Default for FicEncoder {
     }
 }
 
-#[must_use]
-pub fn softs(bits: &[bool]) -> Vec<Soft> {
-    bits.iter().copied().map(soft).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn softs(bits: &[bool]) -> Vec<Soft> {
+        bits.iter().copied().map(sdrmm_dsp::soft).collect()
+    }
 
     fn fib(seed: u8) -> [u8; FIB_BYTES] {
         let mut body: Vec<u8> = (0..30u8)

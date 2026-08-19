@@ -12,7 +12,7 @@ use super::{
     fig::{Audio, Ensemble},
     msc::{CIF_BITS, SubChannelDecoder, subchannel_range},
     ofdm::{
-        FIC_SYMBOLS, FRAME, FrameSync, GUARD, MSC_SYMBOLS, NULL, SYMBOL, SYMBOL_BITS, SYMBOLS,
+        FIC_SYMBOLS, FRAME, FrameSync, GUARD, MSC_SYMBOLS, SYMBOL, SYMBOL_BITS, SYMBOLS,
         SymbolDemod, prefix_offset,
     },
     superframe::{AccessUnits, SuperframeAssembler},
@@ -60,7 +60,6 @@ pub fn channel_filter() -> ChannelFilter {
 
 struct Selection {
     service: u32,
-    subchannel: u8,
     start_cu: u16,
     size_cu: u16,
     decoder: SubChannelDecoder,
@@ -179,7 +178,7 @@ impl DabChannel {
         let end = (FIC_SYMBOLS.end - 1) * SYMBOL_BITS;
         self.fibs.clear();
         let mut fibs = std::mem::take(&mut self.fibs);
-        for block in self.symbols[start..end].chunks_exact(BLOCK_BITS) {
+        for block in self.symbols[start..end].chunks(BLOCK_BITS) {
             self.fic.block(block, &mut fibs);
         }
         for fib in &fibs {
@@ -203,7 +202,6 @@ impl DabChannel {
         let frame_bytes = subchannel.protection.frame_bits() / 8;
         self.selection = Some(Selection {
             service: service.id,
-            subchannel: subchannel.id,
             start_cu: subchannel.start_cu,
             size_cu: subchannel.size_cu,
             decoder: SubChannelDecoder::new(subchannel.protection.clone()),
@@ -315,6 +313,7 @@ impl DabChannel {
                 .as_ref()
                 .map(|selection| u32::from(selection.bitrate_kbps)),
             bit_error_rate: Some(1.0 - quality),
+            text,
             frames_ok: self.fic.blocks_ok,
             frames_bad: self.fic.blocks_bad,
             services: self.services(),
