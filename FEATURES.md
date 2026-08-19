@@ -41,6 +41,36 @@ If something is shipped, then remove it.
   takes minutes to arrive, so what is left is the decoder and the mode's own line geometry
 - APRS weather aggregation
 
+### Broadcast & wideband digital
+
+The multiplexes now decode: DAB down to CRC-checked DAB+ access units, DVB-S and DVB-S2 down to
+MPEG-TS packets and a program table. What is left above them is the media, and DRM's whole
+multiplex.
+
+- DAB+ audio — the superframe hands over HE-AAC v2 access units and nothing turns them into
+  sound. It needs an AAC-LC decoder over the 960-sample transform DAB+ uses, then SBR, then
+  parametric stereo. `symphonia-codec-aac` cannot stand in: it refuses any stream with SBR and
+  only handles 1024-sample frames. The same decoder is what DRM audio needs, so it is worth one
+  careful implementation rather than two
+- Classic DAB audio — MPEG-1 Layer II, which DVB's audio streams also want
+- DAB transmission modes II, III and IV; only Mode I is implemented, which is what is on the air
+  in Band III but not what a shortwave or satellite DAB feed would use
+- DAB data services — packet mode, MOT slideshow, and the DLS text riding in the PAD
+- DVB video — MPEG-2 and H.264. The transport stream is demultiplexed and the PES units come out
+  whole with their timestamps; nothing decodes them into pictures yet
+- DVB audio — MPEG-1 Layer II, AAC and AC-3 off the same PES units
+- DVB-S2 beyond QPSK and 8PSK — 16APSK and 32APSK, 8PSK at rate 3/5 (its bit interleaver twists
+  the columns and nothing else does), rates 1/4, 1/3 and 2/5, VL-SNR frames, GSE encapsulation,
+  and more than one input stream with adaptive coding
+- DRM's multiplex — FAC, SDC and MSC. The channel still only acquires: it reports lock, SNR and
+  frequency error off the cyclic prefix and reads nothing. It needs the per-mode cell mapping,
+  pilot-based channel estimation, the multilevel coding the MSC uses, and then the audio
+- Signal quality worth trusting on a real antenna. Every chain here is proven against a
+  transmitter written beside it, which catches structural mistakes but shares any misreading of a
+  standard. Sync and equalization are sized for that clean signal: DAB resynchronizes per frame
+  off the null with no timing loop, DVB-S2 takes its phase reference from the frame header alone,
+  and neither has met a fading channel
+
 ### Sub-GHz, ISM & IoT
 
 - Rolling-code analysis
