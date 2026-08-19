@@ -8,6 +8,7 @@ import { useSdrSocket } from "../lib/useSdrSocket";
 import { DfDrive } from "./DfDrive";
 import { FoxHunt } from "./FoxHunt";
 import { fieldPath, type Mission, missionTargets, parseFieldPath } from "./missions";
+import { RadarWatch } from "./RadarWatch";
 import { useFullscreen, useWakeLock } from "./useFieldScreen";
 
 const MISSIONS: Mission[] = [
@@ -23,6 +24,13 @@ const MISSIONS: Mission[] = [
     title: "DF drive",
     blurb: "A coherent array: live bearing, where to drive next, and the map underneath.",
     nodeKind: "df",
+    component: () => null,
+  },
+  {
+    id: "radar",
+    title: "Radar watch",
+    blurb: "The range–Doppler surface fullscreen, with whatever the tracker is following listed.",
+    nodeKind: "passive_radar",
     component: () => null,
   },
 ];
@@ -84,6 +92,8 @@ export function FieldApp() {
             <Picker graph={graph} onPick={go} />
           ) : route.mission === "df" ? (
             <DfDrive node={route.node} graph={graph} routing={about.data?.routing ?? false} />
+          ) : route.mission === "radar" ? (
+            <RadarWatch node={route.node} />
           ) : route.mission === "foxhunt" ? (
             <FoxHunt
               node={route.node}

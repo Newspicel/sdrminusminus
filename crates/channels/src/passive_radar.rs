@@ -3,6 +3,7 @@ use sdrmm_dsp::{
     caf::{Caf, Surface},
     cfar::{self, CfarParams},
     eca::{Eca, EcaParams},
+    track::{Tracker, TrackerParams},
 };
 use sdrmm_wire::{CoherentParams, DecoderEvent, PassiveRadarParams, RadarDetection};
 
@@ -38,6 +39,9 @@ pub struct PassiveRadarProcessor {
     surface: Surface,
     detections: Vec<cfar::Detection>,
     cells: Vec<u8>,
+    tracker: Tracker,
+    looks: Vec<(f32, f32)>,
+    named: Vec<Option<u32>>,
 }
 
 fn params_of(params: &CoherentParams) -> Result<&PassiveRadarParams, ChannelError> {
@@ -146,12 +150,22 @@ impl PassiveRadarProcessor {
             db_max: top,
             cells: std::mem::take(&mut self.cells),
         });
-        for hit in &self.detections {
+        cfar::cluster(&mut self.detections);
+        self.looks.clear();
+        self.looks.extend(self.detections.iter().map(|hit| {
+            (
+                hit.range_bin as f32,
+                self.surface.doppler_hz(hit.doppler_bin),
+            )
+        }));
+        self.tracker.update(&self.looks, &mut self.named);
+        for (hit, track_id) in self.detections.iter().zip(&self.named) {
             let detection = RadarDetection {
                 range_bin: hit.range_bin as u32,
                 range_km: hit.range_bin as f32 * self.surface.range_step_s * LIGHT_SPEED_KM_S,
                 doppler_hz: self.surface.doppler_hz(hit.doppler_bin),
                 snr_db: hit.snr_db,
+                track_id: *track_id,
             };
             out.detections.push(detection);
             out.events.push(DecoderEvent::Radar(detection));
@@ -181,6 +195,9 @@ impl CoherentRx for PassiveRadarProcessor {
             surface: Surface::default(),
             detections: Vec::new(),
             cells: Vec::new(),
+            tracker: Tracker::new(TrackerParams::default()),
+            looks: Vec::new(),
+            named: Vec::new(),
         })
     }
 
@@ -253,6 +270,14 @@ mod tests {
     }
 
     fn run(delay: usize, doppler_hz: f32, echo_gain: f32) -> CoherentOutputs {
+        looks(delay, doppler_hz, echo_gain, 1)
+            .pop()
+            .expect("one look")
+    }
+
+    /// Several integrations of the same scene, which is what the tracker needs before it will
+    /// call anything a target.
+    fn looks(delay: usize, doppler_hz: f32, echo_gain: f32, rounds: usize) -> Vec<CoherentOutputs> {
         let ctx = CoherentCtx {
             lanes: 2,
             sample_rate: RATE,
@@ -272,9 +297,13 @@ mod tests {
                     reference[index - delay] * Complex::from_polar(echo_gain, phase);
             }
         }
-        let mut out = CoherentOutputs::default();
-        processor.process(&[&reference, &surveillance], &mut out);
-        out
+        let mut all = Vec::with_capacity(rounds);
+        for _ in 0..rounds {
+            let mut out = CoherentOutputs::default();
+            processor.process(&[&reference, &surveillance], &mut out);
+            all.push(out);
+        }
+        all
     }
 
     #[test]
@@ -297,6 +326,33 @@ mod tests {
         let out = run(0, 0.0, 0.0);
         assert!(out.surface.is_some());
         assert!(out.detections.is_empty(), "{:?}", out.detections);
+    }
+
+    #[test]
+    fn an_echo_that_keeps_coming_back_is_given_a_name() {
+        let rounds = looks(40, 200.0, 0.05, 4);
+        let first = rounds.first().expect("a first look");
+        assert!(
+            first.detections.iter().all(|d| d.track_id.is_none()),
+            "one look decides nothing: {:?}",
+            first.detections
+        );
+        let echo = |out: &CoherentOutputs| {
+            out.detections
+                .iter()
+                .find(|d| d.range_bin == 40 && (d.doppler_hz - 200.0).abs() < 60.0)
+                .and_then(|d| d.track_id)
+        };
+        let named: Vec<Option<u32>> = rounds.iter().map(echo).collect();
+        let last = named.last().copied().flatten();
+        assert!(
+            last.is_some(),
+            "an echo that is there every time is a target: {named:?}"
+        );
+        assert!(
+            named[2..].iter().all(|id| *id == last),
+            "the same echo keeps the same name: {named:?}"
+        );
     }
 
     #[test]

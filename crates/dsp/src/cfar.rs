@@ -47,6 +47,26 @@ pub struct Detection {
     pub snr_db: f32,
 }
 
+/// Merges detections that touch into one, keeping the strongest cell of each.
+///
+/// One target lights several neighbouring cells, and reporting each of them is reporting one
+/// aircraft as four. Nothing here decides what a target is — it only refuses to count a single
+/// bright patch more than once.
+pub fn cluster(detections: &mut Vec<Detection>) {
+    detections.sort_by(|a, b| b.snr_db.total_cmp(&a.snr_db));
+    let mut kept: Vec<Detection> = Vec::with_capacity(detections.len());
+    for detection in detections.iter() {
+        let touching = kept.iter().any(|other| {
+            other.range_bin.abs_diff(detection.range_bin) <= 1
+                && other.doppler_bin.abs_diff(detection.doppler_bin) <= 1
+        });
+        if !touching {
+            kept.push(*detection);
+        }
+    }
+    *detections = kept;
+}
+
 /// Two-dimensional cell-averaging CFAR with a guard ring.
 ///
 /// The threshold at each cell is set from its own neighbourhood rather than from a global figure,
@@ -242,5 +262,39 @@ mod tests {
         }];
         detect(&[1.0; 16], 4, 4, &params, &mut detections);
         assert!(detections.is_empty());
+    }
+
+    #[test]
+    fn one_bright_patch_is_one_detection() {
+        let mut detections = vec![
+            Detection {
+                range_bin: 40,
+                doppler_bin: 6,
+                snr_db: 9.0,
+            },
+            Detection {
+                range_bin: 41,
+                doppler_bin: 6,
+                snr_db: 12.0,
+            },
+            Detection {
+                range_bin: 41,
+                doppler_bin: 7,
+                snr_db: 8.0,
+            },
+            Detection {
+                range_bin: 90,
+                doppler_bin: 20,
+                snr_db: 7.0,
+            },
+        ];
+        cluster(&mut detections);
+        assert_eq!(detections.len(), 2);
+        assert_eq!(
+            detections[0].range_bin, 41,
+            "the strongest cell speaks for the patch"
+        );
+        assert_eq!(detections[0].snr_db, 12.0);
+        assert_eq!(detections[1].range_bin, 90);
     }
 }

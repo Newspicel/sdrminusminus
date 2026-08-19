@@ -13108,6 +13108,15 @@
           "snr_db": {
             "type": "number",
             "format": "float"
+          },
+          "track_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Which target this echo belongs to, once it has been seen often enough to be one. An echo\nwith no track is a single look the tracker has not made up its mind about.",
+            "minimum": 0
           }
         }
       },

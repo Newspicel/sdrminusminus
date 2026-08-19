@@ -455,6 +455,10 @@ pub struct RadarDetection {
     pub range_km: f32,
     pub doppler_hz: f32,
     pub snr_db: f32,
+    /// Which target this echo belongs to, once it has been seen often enough to be one. An echo
+    /// with no track is a single look the tracker has not made up its mind about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_id: Option<u32>,
 }
 
 /// Where the fusion grid says the transmitter is, and how sure of itself it is.

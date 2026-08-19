@@ -43,11 +43,14 @@ export function RangeDopplerFace({ node }: { node: PatchNode }) {
       live={detections.length > 0}
     >
       <FaceBody scroll={false}>
-        <Surface node={node.id} />
+        <RangeDopplerView node={node.id} />
         <Readout>
           <ReadoutRow label="Detections">{String(detections.length)}</ReadoutRow>
           {detections.slice(0, 3).map((hit) => (
-            <ReadoutRow key={`${hit.range_bin}:${hit.doppler_hz}`} label={`Bin ${hit.range_bin}`}>
+            <ReadoutRow
+              key={`${hit.range_bin}:${hit.doppler_hz}`}
+              label={hit.track_id == null ? `Bin ${hit.range_bin}` : `Target ${hit.track_id}`}
+            >
               {hit.range_km.toFixed(2)} km · {hit.doppler_hz >= 0 ? "+" : ""}
               {hit.doppler_hz.toFixed(1)} Hz · {hit.snr_db.toFixed(1)} dB
             </ReadoutRow>
@@ -59,7 +62,8 @@ export function RangeDopplerFace({ node }: { node: PatchNode }) {
   );
 }
 
-function Surface({ node }: { node: string }) {
+/// The surface on its own, so the desktop face and the field mission draw the same picture.
+export function RangeDopplerView({ node }: { node: string }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const view = useRef<SurfaceView | null>(null);
   const frame = useRef<RangeDopplerFrame | null>(surfaceHub.latest(node));

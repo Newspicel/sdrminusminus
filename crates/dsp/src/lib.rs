@@ -26,6 +26,7 @@ pub mod squelch;
 pub mod steering;
 pub mod sync;
 pub mod tone;
+pub mod track;
 pub mod window;
 pub mod xcorr;
 

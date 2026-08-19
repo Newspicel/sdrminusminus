@@ -3760,6 +3760,12 @@ export interface components {
             range_km: number;
             /** Format: float */
             snr_db: number;
+            /**
+             * Format: int32
+             * @description Which target this echo belongs to, once it has been seen often enough to be one. An echo
+             *     with no track is a single look the tracker has not made up its mind about.
+             */
+            track_id?: number | null;
         };
         RadioClockFrame: {
             datetime: string;
