@@ -28,7 +28,7 @@ import {
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { SAMPLE_RATE as AUDIO_RATE_HZ } from "../../lib/audio/worklet";
 import { useDfStore } from "../../lib/df";
-import { dfOverlay, dfSourcesOf } from "../../lib/dfOverlay";
+import { dfOverlay, dfSourcesOf, radarSourcesOf } from "../../lib/dfOverlay";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf, usePositionStore } from "../../lib/position";
 import { pushToast } from "../../lib/toasts";
@@ -228,12 +228,14 @@ export function MapFace({ node }: { node: PatchNode }) {
   const kinds = mapKindsOf(wired);
   const positions = positionSourcesOf(workspace.graph, node.id);
   const finders = dfSourcesOf(workspace.graph, node.id);
+  const radars = radarSourcesOf(workspace.graph, node.id);
   const empty = useFaceEmptyText(
     node.id,
     "events",
     "Wire decoder events or a GPS position in to plot them.",
   );
-  const anything = kinds.length > 0 || positions.length > 0 || finders.length > 0;
+  const anything =
+    kinds.length > 0 || positions.length > 0 || finders.length > 0 || radars.length > 0;
   return (
     <NodeShell
       node={node}
@@ -246,7 +248,7 @@ export function MapFace({ node }: { node: PatchNode }) {
         {inputs.length === 0 && positions.length === 0 ? (
           <FaceEmpty>{empty}</FaceEmpty>
         ) : anything ? (
-          <Plot kinds={kinds} positionNodes={positions} finders={finders} />
+          <Plot kinds={kinds} positionNodes={positions} finders={finders} radars={radars} />
         ) : (
           <FaceEmpty>
             Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to be
@@ -262,10 +264,12 @@ function Plot({
   kinds,
   positionNodes,
   finders,
+  radars,
 }: {
   kinds: readonly MapKind[];
   positionNodes: readonly string[];
   finders: readonly string[];
+  radars: readonly { node: string; illuminator: { lat: number; lon: number } }[];
 }) {
   const byNode = useDfStore((store) => store.byNode);
   const here = usePositionStore((store) =>
@@ -276,6 +280,7 @@ function Plot({
     byNode,
     Date.now(),
     here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
+    radars,
   );
   return (
     <MapPanel

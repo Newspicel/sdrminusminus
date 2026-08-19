@@ -59,6 +59,7 @@ fn df_params(algorithm: DfAlgorithm) -> CoherentParams {
         bandwidth_hz: 20_000.0,
         sources: 1,
         beam_bearing_deg: None,
+        station_id: None,
         cal: sdrmm_wire::CalParams::default(),
     })
 }

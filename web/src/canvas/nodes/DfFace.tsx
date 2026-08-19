@@ -5,6 +5,7 @@ import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
+import { TextField } from "../../components/TextField";
 import { calibrateCoherent } from "../../lib/api";
 import { useDfStore } from "../../lib/df";
 import type { DfAlgorithm, DfParams, PatchNode } from "../../lib/types";
@@ -300,6 +301,14 @@ function DfSettings({
           max={10_000}
           step={100}
           onCommit={(report_ms) => onChange({ report_ms })}
+        />
+      </SettingRow>
+      <SettingRow label="Station">
+        <TextField
+          label="What this receiver calls itself when a bearing leaves it"
+          value={settings.station_id ?? ""}
+          placeholder="unnamed"
+          onCommit={(name) => onChange({ station_id: name === "" ? null : name })}
         />
       </SettingRow>
       <SettingRow label="Beam">

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { greatCircleKm } from "../propagation";
 import type { DfEstimate, DfGuidance } from "../types";
 import {
   type BearingRay,
+  bistaticCollection,
+  bistaticRing,
   destination,
   ellipseCollection,
   estimateCollection,
@@ -107,5 +110,40 @@ describe("navCollection", () => {
     expect(collection.features[0]?.properties.kind).toBe("cross");
     expect(navCollection(null, guidance).features).toHaveLength(0);
     expect(navCollection(HOME, null).features).toHaveLength(0);
+  });
+});
+
+describe("bistaticRing", () => {
+  const set = {
+    receiver: HOME,
+    illuminator: { lat: 51.5, lon: 7.3 },
+    rangesKm: [4],
+  };
+
+  it("puts every point where the echo's extra path adds up", () => {
+    const ring = bistaticRing(set, 4) ?? [];
+    expect(ring.length).toBeGreaterThan(8);
+    const baselineKm = greatCircleKm(
+      [set.receiver.lat, set.receiver.lon],
+      [set.illuminator.lat, set.illuminator.lon],
+    );
+    for (const [lon, lat] of ring) {
+      const total =
+        greatCircleKm([set.receiver.lat, set.receiver.lon], [lat, lon]) +
+        greatCircleKm([set.illuminator.lat, set.illuminator.lon], [lat, lon]);
+      expect(total).toBeCloseTo(baselineKm + 4, 1);
+    }
+  });
+
+  it("closes the ring and refuses an echo with no extra path", () => {
+    const ring = bistaticRing(set, 4) ?? [];
+    expect(ring[0]).toEqual(ring[ring.length - 1]);
+    expect(bistaticRing(set, 0)).toBeNull();
+  });
+
+  it("draws one contour per echo and nothing without a transmitter to borrow", () => {
+    expect(bistaticCollection([set]).features).toHaveLength(1);
+    expect(bistaticCollection([]).features).toHaveLength(0);
+    expect(bistaticCollection([{ ...set, rangesKm: [0] }]).features).toHaveLength(0);
   });
 });

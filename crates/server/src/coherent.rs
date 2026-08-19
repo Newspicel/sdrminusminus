@@ -21,6 +21,8 @@ pub(crate) struct Binding {
     pub(crate) kind: &'static str,
     /// The GPS node whose fix says where this array is standing, when one is wired in.
     pub(crate) position_node: Option<String>,
+    /// What this receiver calls itself when a bearing of its own leaves for another grid.
+    pub(crate) station_id: Option<String>,
 }
 
 /// The one place the patch's node names and the engine's coherent node ids are kept together.
@@ -191,6 +193,10 @@ pub(crate) fn apply(
             NodeBody::Df(_) => "df",
             _ => "passive_radar",
         };
+        let station_id = match &node.body {
+            NodeBody::Df(df) => df.settings.station_id.clone(),
+            _ => None,
+        };
         let position_node = graph
             .edges
             .iter()
@@ -204,7 +210,16 @@ pub(crate) fn apply(
                         .apply_coherent(*device_set, existing.id, params, lanes)
                 {
                     refused.push((node.id.clone(), err.to_string()));
+                    continue;
                 }
+                state.coherent.remember(
+                    node.id.clone(),
+                    Binding {
+                        position_node,
+                        station_id,
+                        ..existing
+                    },
+                );
             }
             existing => {
                 if let Some(existing) = existing {
@@ -221,6 +236,7 @@ pub(crate) fn apply(
                                 id,
                                 kind,
                                 position_node,
+                                station_id,
                             },
                         );
                         start_pump(state, *device_set);
@@ -299,6 +315,21 @@ async fn pump(device_set: u32, mut updates: broadcast::Receiver<CoherentUpdate>,
             .as_deref()
             .and_then(|node| state.gps.fix(node))
             .or_else(|| state.gps.any_fix());
+        if reading.confidence > 0.0 {
+            state.engine.publish_decoded(sdrmm_wire::DecodedRecord {
+                device_set,
+                channel: binding.id,
+                at: format!("{:.9}", jiff::Timestamp::now()),
+                freq_hz: 0.0,
+                event: sdrmm_wire::DecoderEvent::Df(sdrmm_wire::DfBearing {
+                    bearing_deg: reading.bearing_deg,
+                    confidence: reading.confidence,
+                    lat: fix.as_ref().map(|fix| fix.latitude),
+                    lon: fix.as_ref().map(|fix| fix.longitude),
+                    station_id: binding.station_id.clone(),
+                }),
+            });
+        }
         if let Some(outcome) = state.fusion.observe(&node, &reading, fix.as_ref()) {
             if let Some(estimate) = outcome.first_fix {
                 state.engine.publish_decoded(sdrmm_wire::DecodedRecord {

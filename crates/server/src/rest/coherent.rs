@@ -60,7 +60,7 @@ pub(super) async fn reset_fusion(
 
 #[utoipa::path(
     post, path = "/api/df/bearings",
-    request_body = BearingReport,
+    request_body = BearingSubmission,
     params(("node" = Option<String>, Query, description = "Which direction finder's grid to feed")),
     responses(
         (status = 200, description = "Where every station's bearings now cross", body = DfFusionState),
@@ -71,14 +71,17 @@ pub(super) async fn reset_fusion(
 pub(super) async fn ingest_bearing(
     State(state): State<AppState>,
     Query(query): Query<BearingQuery>,
-    Json(report): Json<BearingReport>,
+    Json(submission): Json<BearingSubmission>,
 ) -> Result<Json<DfFusionState>, AppError> {
-    if !report.valid() {
-        return Err(AppError::bad_request(
-            "a bearing report needs a station, a place on the globe and a confidence in 0..1"
-                .to_owned(),
-        ));
-    }
+    let report = submission
+        .into_report()
+        .filter(BearingReport::valid)
+        .ok_or_else(|| {
+            AppError::bad_request(
+                "a bearing report needs a station, a place on the globe and a confidence in 0..1"
+                    .to_owned(),
+            )
+        })?;
     let node = match query.node {
         Some(node) => node,
         None => state

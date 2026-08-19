@@ -6,8 +6,7 @@ use sdrmm_dsp::{
     steering::{Element, SteeringGrid, ula},
 };
 use sdrmm_wire::{
-    ArrayGeometry, CoherentParams, DF_SPECTRUM_POINTS, DecoderEvent, DfAlgorithm, DfBearing,
-    DfParams, DfReading,
+    ArrayGeometry, CoherentParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfParams, DfReading,
 };
 
 use crate::{
@@ -156,13 +155,6 @@ impl DfProcessor {
             peak_to_floor_db,
             pseudospectrum: self.quantized.clone(),
         });
-        out.events.push(DecoderEvent::Df(DfBearing {
-            bearing_deg,
-            confidence,
-            lat: None,
-            lon: None,
-            station_id: None,
-        }));
         out.weights = Some(self.weights_for(f64::from(bearing_deg)));
         self.covariance.decay(CARRY_OVER);
     }
@@ -279,6 +271,7 @@ mod tests {
             bandwidth_hz: 20_000.0,
             sources: 1,
             beam_bearing_deg: None,
+            station_id: None,
             cal: CalParams::default(),
         })
     }
@@ -348,30 +341,6 @@ mod tests {
             "read {}",
             reading.bearing_deg
         );
-    }
-
-    #[test]
-    fn a_reading_carries_an_event_with_the_same_bearing() {
-        let ctx = CoherentCtx {
-            lanes: 4,
-            sample_rate: RATE,
-            center_hz: CENTRE_HZ,
-        };
-        let mut processor = DfProcessor::new(ctx, &params(DfAlgorithm::Music)).expect("builds");
-        let mut out = CoherentOutputs::default();
-        for _ in 0..8 {
-            let block = wavefront(45.0, 32_768);
-            let view: Vec<&[Complex<f32>]> = block.iter().map(Vec::as_slice).collect();
-            out.reset();
-            processor.process(&view, &mut out);
-            if let (Some(reading), Some(DecoderEvent::Df(event))) =
-                (out.bearing.clone(), out.events.first())
-            {
-                assert!((reading.bearing_deg - event.bearing_deg).abs() < 1e-6);
-                return;
-            }
-        }
-        panic!("no event alongside the reading");
     }
 
     #[test]

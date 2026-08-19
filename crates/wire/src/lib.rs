@@ -51,12 +51,13 @@ pub use channel::{
     YsfParams,
 };
 pub use coherent::{
-    ArrayElement, ArrayGeometry, BearingReport, CalParams, CalSource, CalState, CfarParams,
-    CoherentParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate, DfFusionState,
-    DfGuidance, DfParams, DfReading, DfStation, EcaParams, GuidanceMode, Illuminator, LaneCal,
-    MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ, MAX_DF_REPORT_MS,
-    MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS, MIN_DF_BANDWIDTH_HZ,
-    MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams, RadarDetection,
+    ArrayElement, ArrayGeometry, BearingReport, BearingSubmission, CalParams, CalSource, CalState,
+    CfarParams, CoherentParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate,
+    DfFusionState, DfGuidance, DfParams, DfReading, DfStation, EcaParams, GuidanceMode,
+    Illuminator, LaneCal, MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ,
+    MAX_DF_REPORT_MS, MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS,
+    MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams,
+    RadarDetection, RelayedBearing,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,

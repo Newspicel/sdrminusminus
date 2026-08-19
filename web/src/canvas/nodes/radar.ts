@@ -1,4 +1,8 @@
-import type { PassiveRadarParams } from "../../lib/types";
+import type { Illuminator, PassiveRadarParams } from "../../lib/types";
+
+/// Where an operator starts from when they say the transmitter's place is known: nowhere in
+/// particular, so nothing is drawn on the map until they say where.
+export const DEFAULT_ILLUMINATOR: Illuminator = { lat: 0, lon: 0, freq_hz: 100e6 };
 
 export const DEFAULT_RADAR_PARAMS: PassiveRadarParams = {
   cpi_ms: 200,

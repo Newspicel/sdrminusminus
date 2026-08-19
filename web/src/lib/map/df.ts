@@ -1,4 +1,5 @@
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import { bearingDeg, greatCircleKm } from "../propagation";
 import type { DfEstimate, DfGuidance, DfStation } from "../types";
 
 export const DF_SOURCES = {
@@ -7,6 +8,7 @@ export const DF_SOURCES = {
   ellipse: "df-ellipse",
   stations: "df-stations",
   nav: "df-nav",
+  bistatic: "df-bistatic",
 } as const;
 
 export const DF_LAYERS = [
@@ -16,6 +18,7 @@ export const DF_LAYERS = [
   "df-estimate",
   "df-stations",
   "df-nav",
+  "df-bistatic",
 ] as const;
 
 const EARTH_RADIUS_M = 6_371_000;
@@ -152,6 +155,67 @@ export function stationCollection(
   };
 }
 
+export interface BistaticEchoes {
+  receiver: { lat: number; lon: number };
+  illuminator: { lat: number; lon: number };
+  rangesKm: readonly number[];
+}
+
+/// Everything one echo could have bounced off. A passive radar measures how much further the echo
+/// travelled than the direct path, which puts the reflector somewhere on the ellipse with the
+/// transmitter and the receiver at its foci — not on a bearing, and not at a point.
+export function bistaticRing(set: BistaticEchoes, rangeKm: number): [number, number][] | null {
+  const rangeM = rangeKm * 1_000;
+  if (!(rangeM > 0)) {
+    return null;
+  }
+  const from: [number, number] = [set.receiver.lat, set.receiver.lon];
+  const to: [number, number] = [set.illuminator.lat, set.illuminator.lon];
+  const baselineM = greatCircleKm(from, to) * 1_000;
+  const along = (baselineM + rangeM) / 2;
+  const across = Math.sqrt(rangeM * (rangeM + 2 * baselineM)) / 2;
+  const axis = bearingDeg(from, to);
+  const [centreLon, centreLat] = destination(from[0], from[1], axis, baselineM / 2);
+  const ring: [number, number][] = [];
+  for (let step = 0; step <= ELLIPSE_POINTS; step++) {
+    const angle = (step / ELLIPSE_POINTS) * Math.PI * 2;
+    const forward = along * Math.cos(angle);
+    const sideways = across * Math.sin(angle);
+    const radians = (axis * Math.PI) / 180;
+    const east = forward * Math.sin(radians) + sideways * Math.cos(radians);
+    const north = forward * Math.cos(radians) - sideways * Math.sin(radians);
+    ring.push(
+      destination(
+        centreLat,
+        centreLon,
+        (Math.atan2(east, north) * 180) / Math.PI,
+        Math.hypot(east, north),
+      ),
+    );
+  }
+  return ring;
+}
+
+export function bistaticCollection(
+  sets: readonly BistaticEchoes[],
+): Collection<Line, { rangeKm: number }> {
+  const features = [];
+  for (const set of sets) {
+    for (const rangeKm of set.rangesKm) {
+      const ring = bistaticRing(set, rangeKm);
+      if (ring === null) {
+        continue;
+      }
+      features.push({
+        type: "Feature" as const,
+        geometry: { type: "LineString" as const, coordinates: ring },
+        properties: { rangeKm },
+      });
+    }
+  }
+  return { type: "FeatureCollection", features };
+}
+
 export function navCollection(
   from: { lat: number; lon: number } | null,
   guidance: DfGuidance | null,
@@ -183,6 +247,7 @@ export interface DfOverlay {
   estimate: DfEstimate | null;
   guidance: DfGuidance | null;
   stations: readonly DfStation[];
+  bistatic: readonly BistaticEchoes[];
   from: { lat: number; lon: number } | null;
 }
 
@@ -226,6 +291,17 @@ export function installDfLayers(map: MapLibreMap, accent: string, enabled: boole
     type: "line",
     source: DF_SOURCES.ellipse,
     paint: { "line-color": accent, "line-width": 1, "line-opacity": 0.6 },
+  });
+  map.addLayer({
+    id: "df-bistatic",
+    type: "line",
+    source: DF_SOURCES.bistatic,
+    paint: {
+      "line-color": "#7fb2e0",
+      "line-width": 1,
+      "line-opacity": 0.7,
+      "line-dasharray": [3, 2],
+    },
   });
   map.addLayer({
     id: "df-nav",
@@ -274,6 +350,9 @@ export function drawDfOverlay(map: MapLibreMap, overlay: DfOverlay): void {
   void map
     .getSource<GeoJSONSource>(DF_SOURCES.stations)
     ?.setData(stationCollection(overlay.stations));
+  void map
+    .getSource<GeoJSONSource>(DF_SOURCES.bistatic)
+    ?.setData(bistaticCollection(overlay.bistatic));
   void map
     .getSource<GeoJSONSource>(DF_SOURCES.nav)
     ?.setData(navCollection(overlay.from, overlay.guidance));

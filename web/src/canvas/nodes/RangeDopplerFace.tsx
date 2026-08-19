@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Checkbox } from "../../components/Checkbox";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { SettingRow, Settings } from "../../components/Settings";
@@ -10,7 +11,7 @@ import type { PassiveRadarParams, PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
-import { DEFAULT_RADAR_PARAMS, dopplerAxisHz, rangeAxisKm } from "./radar";
+import { DEFAULT_ILLUMINATOR, DEFAULT_RADAR_PARAMS, dopplerAxisHz, rangeAxisKm } from "./radar";
 
 export function RangeDopplerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -144,6 +145,54 @@ function RadarSettings({
           onCommit={(max_range_bins) => onChange({ max_range_bins })}
         />
       </SettingRow>
+      <SettingRow label="Transmitter">
+        <Checkbox
+          label="The transmitter's place is known"
+          checked={settings.illuminator !== null && settings.illuminator !== undefined}
+          onChange={(known) => onChange({ illuminator: known ? DEFAULT_ILLUMINATOR : null })}
+        />
+      </SettingRow>
+      {settings.illuminator !== null && settings.illuminator !== undefined && (
+        <>
+          <SettingRow label="Latitude">
+            <NumberField
+              label="Transmitter latitude in degrees"
+              value={settings.illuminator.lat}
+              min={-90}
+              max={90}
+              step={0.0001}
+              onCommit={(lat) =>
+                onChange({ illuminator: { ...(settings.illuminator ?? DEFAULT_ILLUMINATOR), lat } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Longitude">
+            <NumberField
+              label="Transmitter longitude in degrees"
+              value={settings.illuminator.lon}
+              min={-180}
+              max={180}
+              step={0.0001}
+              onCommit={(lon) =>
+                onChange({ illuminator: { ...(settings.illuminator ?? DEFAULT_ILLUMINATOR), lon } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Frequency">
+            <NumberField
+              label="Transmitter frequency in hertz"
+              value={settings.illuminator.freq_hz}
+              min={1}
+              step={100_000}
+              onCommit={(freq_hz) =>
+                onChange({
+                  illuminator: { ...(settings.illuminator ?? DEFAULT_ILLUMINATOR), freq_hz },
+                })
+              }
+            />
+          </SettingRow>
+        </>
+      )}
       <SettingRow
         label="Doppler span"
         title={`${dopplerAxisHz(settings).toFixed(1)} Hz either side of zero`}

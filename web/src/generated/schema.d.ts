@@ -1475,6 +1475,11 @@ export interface components {
             station_id: string;
             time?: string | null;
         };
+        /**
+         * @description How a bearing arrives at a central grid: written out as a report, or relayed by pointing a
+         *     direction finder's existing event output at the ingest URL. Federation needs no new transport.
+         */
+        BearingSubmission: components["schemas"]["BearingReport"] | components["schemas"]["RelayedBearing"];
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -2531,6 +2536,12 @@ export interface components {
              * @default 1
              */
             sources: number;
+            /**
+             * @description What this receiver calls itself when its bearings leave the box, so a central grid can
+             *     tell one station's readings from another's.
+             * @default null
+             */
+            station_id: string | null;
         };
         /** @description One bearing, and the whole circle it was read off. */
         DfReading: {
@@ -3848,6 +3859,13 @@ export interface components {
             action: components["schemas"]["RecordAction"];
             /** Format: int32 */
             stream?: number;
+        };
+        /**
+         * @description What a station's event output sends: the envelope every webhook, MQTT and Matrix delivery
+         *     already carries, of which only the record matters here.
+         */
+        RelayedBearing: {
+            record: components["schemas"]["DecodedRecord"];
         };
         Route: {
             /** Format: double */
@@ -6194,7 +6212,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BearingReport"];
+                "application/json": components["schemas"]["BearingSubmission"];
             };
         };
         responses: {

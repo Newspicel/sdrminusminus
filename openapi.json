@@ -2046,7 +2046,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BearingReport"
+                "$ref": "#/components/schemas/BearingSubmission"
               }
             }
           },
@@ -4931,6 +4931,17 @@
             ]
           }
         }
+      },
+      "BearingSubmission": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BearingReport"
+          },
+          {
+            "$ref": "#/components/schemas/RelayedBearing"
+          }
+        ],
+        "description": "How a bearing arrives at a central grid: written out as a report, or relayed by pointing a\ndirection finder's existing event output at the ingest URL. Federation needs no new transport."
       },
       "Bookmark": {
         "type": "object",
@@ -8791,6 +8802,14 @@
             "description": "How many arrivals MUSIC should assume. One is right far more often than not.",
             "default": 1,
             "minimum": 0
+          },
+          "station_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What this receiver calls itself when its bearings leave the box, so a central grid can\ntell one station's readings from another's.",
+            "default": null
           }
         }
       },
@@ -13509,6 +13528,18 @@
             "items": {
               "$ref": "#/components/schemas/RecordingInfo"
             }
+          }
+        }
+      },
+      "RelayedBearing": {
+        "type": "object",
+        "description": "What a station's event output sends: the envelope every webhook, MQTT and Matrix delivery\nalready carries, of which only the record matters here.",
+        "required": [
+          "record"
+        ],
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/DecodedRecord"
           }
         }
       },

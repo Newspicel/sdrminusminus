@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
-import { Input } from "../../components/BaseControls";
-import { FIELD } from "../../components/controls";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
+import { TextField } from "../../components/TextField";
 import type { EventOutputTarget, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
@@ -95,13 +93,14 @@ function TargetFields({
   if (target.service === "webhook") {
     return (
       <>
-        <DraftField
-          label="Endpoint"
-          ariaLabel="Webhook URL"
-          value={target.url}
-          secret
-          onCommit={(url) => onEdit({ ...target, url })}
-        />
+        <SettingRow label="Endpoint">
+          <TextField
+            label="Webhook URL"
+            value={target.url}
+            secret
+            onCommit={(url) => onEdit({ ...target, url })}
+          />
+        </SettingRow>
         <SettingRow label="Format">
           <Select
             label="Webhook payload format"
@@ -116,97 +115,62 @@ function TargetFields({
   if (target.service === "matrix") {
     return (
       <>
-        <DraftField
-          label="Homeserver"
-          ariaLabel="Matrix homeserver URL"
-          value={target.homeserver_url}
-          onCommit={(homeserver_url) => onEdit({ ...target, homeserver_url })}
-        />
-        <DraftField
-          label="Room ID"
-          ariaLabel="Matrix room ID"
-          value={target.room_id}
-          onCommit={(room_id) => onEdit({ ...target, room_id })}
-        />
-        <DraftField
-          label="Access token"
-          ariaLabel="Matrix access token"
-          value={target.access_token}
-          secret
-          onCommit={(access_token) => onEdit({ ...target, access_token })}
-        />
+        <SettingRow label="Homeserver">
+          <TextField
+            label="Matrix homeserver URL"
+            value={target.homeserver_url}
+            onCommit={(homeserver_url) => onEdit({ ...target, homeserver_url })}
+          />
+        </SettingRow>
+        <SettingRow label="Room ID">
+          <TextField
+            label="Matrix room ID"
+            value={target.room_id}
+            onCommit={(room_id) => onEdit({ ...target, room_id })}
+          />
+        </SettingRow>
+        <SettingRow label="Access token">
+          <TextField
+            label="Matrix access token"
+            value={target.access_token}
+            secret
+            onCommit={(access_token) => onEdit({ ...target, access_token })}
+          />
+        </SettingRow>
       </>
     );
   }
   return (
     <>
-      <DraftField
-        label="Broker"
-        ariaLabel="MQTT broker URL"
-        value={target.broker_url}
-        onCommit={(broker_url) => onEdit({ ...target, broker_url })}
-      />
-      <DraftField
-        label="Topic"
-        ariaLabel="MQTT topic"
-        value={target.topic}
-        onCommit={(topic) => onEdit({ ...target, topic })}
-      />
-      <DraftField
-        label="Username"
-        ariaLabel="MQTT username"
-        value={target.username ?? ""}
-        onCommit={(username) => onEdit({ ...target, username })}
-      />
-      <DraftField
-        label="Password"
-        ariaLabel="MQTT password"
-        value={target.password ?? ""}
-        secret
-        onCommit={(password) => onEdit({ ...target, password })}
-      />
+      <SettingRow label="Broker">
+        <TextField
+          label="MQTT broker URL"
+          value={target.broker_url}
+          onCommit={(broker_url) => onEdit({ ...target, broker_url })}
+        />
+      </SettingRow>
+      <SettingRow label="Topic">
+        <TextField
+          label="MQTT topic"
+          value={target.topic}
+          onCommit={(topic) => onEdit({ ...target, topic })}
+        />
+      </SettingRow>
+      <SettingRow label="Username">
+        <TextField
+          label="MQTT username"
+          value={target.username ?? ""}
+          onCommit={(username) => onEdit({ ...target, username })}
+        />
+      </SettingRow>
+      <SettingRow label="Password">
+        <TextField
+          label="MQTT password"
+          value={target.password ?? ""}
+          secret
+          onCommit={(password) => onEdit({ ...target, password })}
+        />
+      </SettingRow>
     </>
-  );
-}
-
-function DraftField({
-  label,
-  ariaLabel,
-  value,
-  secret = false,
-  onCommit,
-}: {
-  label: string;
-  ariaLabel: string;
-  value: string;
-  secret?: boolean;
-  onCommit: (value: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => {
-    const next = draft.trim();
-    setDraft(next);
-    if (next !== value) {
-      onCommit(next);
-    }
-  };
-  return (
-    <SettingRow label={label}>
-      <Input
-        className={FIELD}
-        aria-label={ariaLabel}
-        type={secret ? "password" : "text"}
-        autoComplete="off"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </SettingRow>
   );
 }

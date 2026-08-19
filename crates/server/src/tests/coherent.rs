@@ -138,6 +138,73 @@ async fn a_bearing_another_station_posts_is_fused_and_read_back() {
 }
 
 #[tokio::test]
+async fn a_webhook_from_another_receiver_lands_in_the_grid_as_it_arrives() {
+    let (app, _state) = test_router_with_state();
+    staged_array(&app).await;
+    let relayed = r#"{
+        "output": "webhook",
+        "kind": "df",
+        "text": "045.0°",
+        "record": {
+            "device_set": 0,
+            "channel": 1,
+            "at": "2026-08-19T10:00:00Z",
+            "freq_hz": 0.0,
+            "event": {
+                "kind": "df",
+                "data": {
+                    "bearing_deg": 45.0,
+                    "confidence": 0.9,
+                    "lat": 51.5,
+                    "lon": 7.0,
+                    "station_id": "north"
+                }
+            }
+        }
+    }"#;
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/df/bearings?node=df",
+        Some(relayed),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let fused: DfFusionState = serde_json::from_slice(&body).expect("json");
+    assert_eq!(fused.stations.len(), 1);
+    assert_eq!(fused.stations[0].station_id, "north");
+    assert_eq!(fused.stations[0].bearings, 1);
+}
+
+#[tokio::test]
+async fn a_relayed_event_that_carries_no_place_is_refused() {
+    let (app, _state) = test_router_with_state();
+    staged_array(&app).await;
+    let relayed = r#"{
+        "record": {
+            "device_set": 0,
+            "channel": 1,
+            "at": "2026-08-19T10:00:00Z",
+            "freq_hz": 0.0,
+            "event": {
+                "kind": "df",
+                "data": { "bearing_deg": 45.0, "confidence": 0.9 }
+            }
+        }
+    }"#;
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/df/bearings?node=df",
+        Some(relayed),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let error: ApiError = serde_json::from_slice(&body).expect("json");
+    assert!(error.error.contains("place"), "{error:?}");
+}
+
+#[tokio::test]
 async fn a_bearing_report_that_is_not_a_bearing_is_refused() {
     let (app, _state) = test_router_with_state();
     staged_array(&app).await;

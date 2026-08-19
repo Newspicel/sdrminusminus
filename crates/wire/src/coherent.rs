@@ -182,6 +182,10 @@ pub struct DfParams {
     /// the whole point of having both on one node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beam_bearing_deg: Option<f64>,
+    /// What this receiver calls itself when its bearings leave the box, so a central grid can
+    /// tell one station's readings from another's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub station_id: Option<String>,
     pub cal: CalParams,
 }
 
@@ -195,6 +199,7 @@ impl Default for DfParams {
             bandwidth_hz: 20_000.0,
             sources: 1,
             beam_bearing_deg: None,
+            station_id: None,
             cal: CalParams::default(),
         }
     }
@@ -212,6 +217,10 @@ impl DfParams {
             && self
                 .beam_bearing_deg
                 .is_none_or(|bearing| bearing.is_finite())
+            && self
+                .station_id
+                .as_ref()
+                .is_none_or(|id| !id.is_empty() && id.len() <= MAX_STATION_ID_LEN)
             && self.cal.valid()
     }
 }
@@ -510,6 +519,45 @@ impl BearingReport {
             bearing_deg,
             confidence,
             time: Some(fix.time.clone()),
+        }
+    }
+}
+
+/// What a station's event output sends: the envelope every webhook, MQTT and Matrix delivery
+/// already carries, of which only the record matters here.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RelayedBearing {
+    pub record: crate::decode::DecodedRecord,
+}
+
+/// How a bearing arrives at a central grid: written out as a report, or relayed by pointing a
+/// direction finder's existing event output at the ingest URL. Federation needs no new transport.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum BearingSubmission {
+    Report(BearingReport),
+    Relayed(Box<RelayedBearing>),
+}
+
+impl BearingSubmission {
+    #[must_use]
+    pub fn into_report(self) -> Option<BearingReport> {
+        match self {
+            Self::Report(report) => Some(report),
+            Self::Relayed(relayed) => {
+                let at = relayed.record.at;
+                let crate::decode::DecoderEvent::Df(bearing) = relayed.record.event else {
+                    return None;
+                };
+                Some(BearingReport {
+                    station_id: bearing.station_id?,
+                    lat: bearing.lat?,
+                    lon: bearing.lon?,
+                    bearing_deg: f64::from(bearing.bearing_deg),
+                    confidence: bearing.confidence,
+                    time: Some(at),
+                })
+            }
         }
     }
 }

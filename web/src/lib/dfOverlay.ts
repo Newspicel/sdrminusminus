@@ -1,5 +1,5 @@
 import type { DfNodeState } from "./df";
-import type { BearingRay, DfOverlay } from "./map/df";
+import type { BearingRay, BistaticEchoes, DfOverlay } from "./map/df";
 import type { PatchGraph } from "./types";
 
 /// How long a bearing stays on the map before it fades out entirely.
@@ -14,6 +14,27 @@ export function dfSourcesOf(graph: PatchGraph, node: string): string[] {
     .filter((id) => kinds.get(id) === "df");
 }
 
+/// Which passive radars feed a display's events port, and where each one borrows its transmitter
+/// from. A radar with no illuminator written down has nothing to draw an ellipse around.
+export function radarSourcesOf(
+  graph: PatchGraph,
+  node: string,
+): { node: string; illuminator: { lat: number; lon: number } }[] {
+  const radars = new Map(
+    graph.nodes
+      .filter((entry) => entry.kind === "passive_radar")
+      .map((entry) => [entry.id, entry.data.settings?.illuminator ?? null]),
+  );
+  return (graph.edges ?? [])
+    .filter((edge) => edge.to.node === node && edge.to.port === "events")
+    .flatMap((edge) => {
+      const illuminator = radars.get(edge.from.node);
+      return illuminator === undefined || illuminator === null
+        ? []
+        : [{ node: edge.from.node, illuminator: { lat: illuminator.lat, lon: illuminator.lon } }];
+    });
+}
+
 /// Everything the map draws for a set of direction finders: one ray per bearing anyone reported,
 /// and the fused estimate and guidance of whichever of them has got that far.
 export function dfOverlay(
@@ -21,8 +42,9 @@ export function dfOverlay(
   byNode: Readonly<Record<string, DfNodeState>>,
   now: number,
   from: { lat: number; lon: number } | null,
+  radars: readonly { node: string; illuminator: { lat: number; lon: number } }[] = [],
 ): DfOverlay | undefined {
-  if (nodes.length === 0) {
+  if (nodes.length === 0 && radars.length === 0) {
     return undefined;
   }
   const rays: BearingRay[] = [];
@@ -52,5 +74,17 @@ export function dfOverlay(
     guidance ??= state.fusion?.guidance ?? null;
     stations.push(...(state.fusion?.stations ?? []));
   }
-  return { rays, maxAgeMs: BEARING_MAX_AGE_MS, estimate, guidance, stations, from };
+  const bistatic: BistaticEchoes[] = [];
+  for (const radar of radars) {
+    const ranges = byNode[radar.node]?.detections ?? [];
+    if (from === null || ranges.length === 0) {
+      continue;
+    }
+    bistatic.push({
+      receiver: from,
+      illuminator: radar.illuminator,
+      rangesKm: ranges.map((hit) => hit.range_km),
+    });
+  }
+  return { rays, maxAgeMs: BEARING_MAX_AGE_MS, estimate, guidance, stations, bistatic, from };
 }
