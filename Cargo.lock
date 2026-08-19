@@ -4719,6 +4719,7 @@ dependencies = [
  "sdrmm-dsp",
  "sdrmm-recorder",
  "sdrmm-wire",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",

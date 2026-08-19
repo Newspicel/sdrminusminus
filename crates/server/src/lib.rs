@@ -26,7 +26,9 @@ mod assets;
 mod auth;
 mod bandplan;
 mod calls;
+pub(crate) mod coherent;
 mod decoderlog;
+pub(crate) mod df_fusion;
 pub mod doctor;
 mod event_output;
 mod events;
@@ -70,6 +72,8 @@ pub(crate) struct AppState {
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
     pub(crate) gps: Arc<gps::GpsHub>,
+    pub(crate) coherent: Arc<coherent::CoherentHub>,
+    pub(crate) fusion: df_fusion::SharedFusion,
 }
 
 impl AppState {
@@ -92,6 +96,8 @@ impl AppState {
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
+            coherent: Arc::new(coherent::CoherentHub::default()),
+            fusion: Arc::new(df_fusion::FusionHub::default()),
         }
     }
 

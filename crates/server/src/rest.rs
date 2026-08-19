@@ -15,28 +15,30 @@ use sdrmm_recorder::{
 use sdrmm_tools::ToolError;
 use sdrmm_wire::{
     AboutResponse, ApiError, ApplyTemplateRequest, AudioRecordingInfo, AudioRecordingStatus,
-    AudioRecordingsResponse, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse, Bookmark,
-    CapturedImagesResponse, ChannelNetworkExportRequest, ChannelRecordRequest, ChannelSettings,
-    ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
-    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, HuntAction,
-    HuntRequest, HuntStatus, IonosondeReport, LicenseTextResponse, LocateQuery,
-    NetworkExportAction, NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
-    OccupancyReport, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog,
-    PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
-    RecordingInfo, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
-    ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent, StateScope, StateSnapshot,
-    TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus,
-    ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse,
-    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    AudioRecordingsResponse, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse,
+    BearingReport, Bookmark, CapturedImagesResponse, ChannelNetworkExportRequest,
+    ChannelRecordRequest, ChannelSettings, ChannelTypesResponse, ClientCommand, ClientsResponse,
+    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
+    CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState,
+    DoctorReport, ExportFormat, HuntAction, HuntRequest, HuntStatus, IonosondeReport,
+    LicenseTextResponse, LocateQuery, NetworkExportAction, NetworkExportRequest,
+    NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION,
+    PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus,
+    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation,
+    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingStatus, RecordingsResponse,
+    ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
+    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
+    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod audio_recordings;
 mod capture;
+mod coherent;
 mod decoderlog;
 mod devices;
 mod info;
@@ -48,6 +50,7 @@ mod workspaces;
 
 use audio_recordings::*;
 use capture::*;
+use coherent::*;
 use decoderlog::*;
 use devices::*;
 use info::*;
@@ -380,6 +383,9 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_doctor))
         .routes(routes!(list_tools))
         .routes(routes!(run_tool))
+        .routes(routes!(calibrate_coherent))
+        .routes(routes!(get_fusion, reset_fusion))
+        .routes(routes!(ingest_bearing))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
 }

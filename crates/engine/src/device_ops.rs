@@ -491,6 +491,7 @@ impl Engine {
                     overruns_seen: 0,
                     stalls,
                     playback,
+                    coherent: None,
                     runtime: Arc::new(Mutex::new(runtime)),
                 },
             );
@@ -684,13 +685,14 @@ impl Engine {
             runtime.apply(&hardware)?;
             runtime.device_settings(front_end.lo_offset_hz)
         };
-        let (settings, rate, rebuilds) = {
+        let (settings, rate, rebuilds, retuned) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let old_rate = sample_rate_of(&state.settings);
+            let old_center = state.settings.center_hz;
             let locked_by_export = state.network_export.is_some();
             let owner = if locked_by_export {
                 Some(("exporting", "stop the export first"))
@@ -773,11 +775,20 @@ impl Engine {
                     .collect()
             };
             state.front_end = front_end;
+            if let Some(coherence) = lock_runtime(&state.runtime).coherence() {
+                state.capabilities.coherence = coherence;
+            }
             let settings = state.settings.clone();
+            let retuned = settings.center_hz != old_center || rate != old_rate;
             inner.revision += 1;
-            (settings, rate, rebuilds)
+            (settings, rate, rebuilds, retuned)
         };
         lock_runtime(&runtime).set_meta(&settings, front_end);
+        self.notify_coherent_meta(
+            ds,
+            settings.center_hz.unwrap_or(crate::DEFAULT_CENTER_HZ),
+            retuned,
+        );
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);

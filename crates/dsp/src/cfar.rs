@@ -10,6 +10,10 @@ pub struct CfarParams {
     /// Detections below this margin are dropped whatever the statistics say, so a surface that is
     /// all noise cannot produce a wall of marks.
     pub min_snr_db: f32,
+    /// Doppler rows either side of zero that are never reported. Everything that is not moving
+    /// lands there — the direct path, the ground, and whatever the reference antenna also hears —
+    /// and reporting it would bury the targets in a ridge of clutter.
+    pub zero_doppler_guard: usize,
 }
 
 impl Default for CfarParams {
@@ -21,6 +25,7 @@ impl Default for CfarParams {
             train_doppler: 4,
             probability_false_alarm: 1e-4,
             min_snr_db: 6.0,
+            zero_doppler_guard: 1,
         }
     }
 }
@@ -63,7 +68,11 @@ pub fn detect(
     }
     let alpha = cells as f32 * (params.probability_false_alarm.powf(-1.0 / cells as f32) - 1.0);
     let floor = 10f32.powf(params.min_snr_db / 10.0);
+    let centre = (dopplers - 1) / 2;
     for doppler in 0..dopplers {
+        if doppler.abs_diff(centre) <= params.zero_doppler_guard {
+            continue;
+        }
         for range in 0..ranges {
             let cell = surface[doppler * ranges + range];
             let Some(noise) = neighbourhood(surface, ranges, dopplers, range, doppler, params)
@@ -145,9 +154,9 @@ mod tests {
 
     #[test]
     fn a_target_planted_in_noise_is_found_where_it_was_planted() {
-        let (ranges, dopplers) = (128, 32);
+        let (ranges, dopplers) = (128, 33);
         let mut surface = noisy_surface(ranges, dopplers, 0x5EED);
-        surface[17 * ranges + 40] = 60.0;
+        surface[22 * ranges + 40] = 60.0;
         let mut detections = Vec::new();
         detect(
             &surface,
@@ -159,7 +168,7 @@ mod tests {
         assert!(
             detections
                 .iter()
-                .any(|d| d.range_bin == 40 && d.doppler_bin == 17 && d.snr_db > 12.0),
+                .any(|d| d.range_bin == 40 && d.doppler_bin == 22 && d.snr_db > 12.0),
             "{detections:?}"
         );
     }
@@ -195,6 +204,28 @@ mod tests {
             &mut detections,
         );
         assert!(detections.is_empty(), "{detections:?}");
+    }
+
+    #[test]
+    fn everything_standing_still_is_left_out_of_the_answer() {
+        let (ranges, dopplers) = (128, 33);
+        let mut surface = noisy_surface(ranges, dopplers, 0x0FF1);
+        let centre = (dopplers - 1) / 2;
+        for range in 0..ranges {
+            surface[centre * ranges + range] = 200.0;
+        }
+        let mut detections = Vec::new();
+        detect(
+            &surface,
+            ranges,
+            dopplers,
+            &CfarParams::default(),
+            &mut detections,
+        );
+        assert!(
+            detections.iter().all(|d| d.doppler_bin != centre),
+            "a stationary ridge was reported: {detections:?}"
+        );
     }
 
     #[test]

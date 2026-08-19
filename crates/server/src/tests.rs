@@ -20,6 +20,7 @@ mod auth_mcp;
 mod calls;
 mod catalog;
 mod channel_capture;
+mod coherent;
 mod decoderlog;
 mod devices;
 mod openapi;
@@ -546,13 +547,21 @@ fn virtual_snapshot(key: &str, taps: &[(&str, &str, &str)]) -> sdrmm_wire::Works
 }
 
 async fn put_active_workspace(app: &Router, snapshot: &sdrmm_wire::WorkspaceSnapshot) -> i64 {
+    put_workspace_revision(app, snapshot, 1).await
+}
+
+async fn put_workspace_revision(
+    app: &Router,
+    snapshot: &sdrmm_wire::WorkspaceSnapshot,
+    revision: u64,
+) -> i64 {
     let workspace = workspaces(app).await.active.expect("seeded workspace");
     let (status, body) = request(
         app.clone(),
         "PUT",
         &format!("/api/workspaces/{workspace}"),
         Some(&format!(
-            r#"{{"revision":1,"snapshot":{}}}"#,
+            r#"{{"revision":{revision},"snapshot":{}}}"#,
             serde_json::to_string(snapshot).unwrap()
         )),
     )

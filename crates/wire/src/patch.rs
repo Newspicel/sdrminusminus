@@ -5,6 +5,7 @@ use crate::{
     EventOutputNode, GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS,
     MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
+    coherent::{DfParams, PassiveRadarParams},
     device::{Capabilities, DeviceInfo, Direction},
     filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
@@ -172,6 +173,19 @@ impl PortSpec {
     fn repeated(mut self, repeat: PortRepeat) -> Self {
         self.repeat = repeat;
         self
+    }
+
+    fn named(
+        name: &str,
+        port_type: PortType,
+        direction: PortDirection,
+        multi: bool,
+        condition: PortCondition,
+    ) -> Self {
+        Self {
+            name: name.to_owned(),
+            ..Self::new(port_type, direction, multi, condition)
+        }
     }
 
     #[must_use]
@@ -438,6 +452,24 @@ impl Default for HuntNode {
     }
 }
 
+/// A direction finder bound to every lane of one coherent radio.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DfNode {
+    #[serde(default)]
+    pub settings: DfParams,
+}
+
+/// A passive radar: one lane watching the illuminator, one watching the sky.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PassiveRadarNode {
+    #[serde(default)]
+    pub settings: PassiveRadarParams,
+}
+
+pub const RADAR_REFERENCE_PORT: &str = "ref";
+pub const RADAR_SURVEILLANCE_PORT: &str = "surv";
+pub const DF_BEAM_PORT: &str = "beam";
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
@@ -463,6 +495,8 @@ pub enum NodeBody {
     Export,
     Scanner,
     Hunt(HuntNode),
+    Df(DfNode),
+    PassiveRadar(PassiveRadarNode),
 }
 
 impl NodeBody {
@@ -491,6 +525,8 @@ impl NodeBody {
             Self::Export => "export",
             Self::Scanner => "scanner",
             Self::Hunt(_) => "hunt",
+            Self::Df(_) => "df",
+            Self::PassiveRadar(_) => "passive_radar",
         }
     }
 
@@ -498,7 +534,7 @@ impl NodeBody {
     pub const fn category(&self) -> NodeCategory {
         match self {
             Self::Device(_) | Self::Gps(_) => NodeCategory::Source,
-            Self::Channel(_) => NodeCategory::Channel,
+            Self::Channel(_) | Self::Df(_) | Self::PassiveRadar(_) => NodeCategory::Channel,
             Self::Scope
             | Self::Map
             | Self::SignalMap(_)
@@ -522,7 +558,11 @@ impl NodeBody {
 
     #[must_use]
     pub fn ports(&self) -> Vec<PortSpec> {
-        ports_for(self.kind())
+        let specs = ports_for(self.kind());
+        match self {
+            Self::Df(df) => spread_lanes(specs, df.settings.geometry.count()),
+            _ => specs,
+        }
     }
 
     #[must_use]
@@ -545,6 +585,27 @@ impl NodeBody {
         }
         ports
     }
+}
+
+/// Turns a per-lane port into one concrete port per element, because a direction finder's lane
+/// order is the array's element order and a wire that could land on any of them would lose it.
+fn spread_lanes(specs: Vec<PortSpec>, lanes: u32) -> Vec<PortSpec> {
+    let lanes = lanes.clamp(1, MAX_STREAMS);
+    let mut out = Vec::with_capacity(specs.len() + lanes as usize);
+    for spec in specs {
+        if spec.repeat != PortRepeat::PerRxStream {
+            out.push(spec);
+            continue;
+        }
+        for lane in 0..lanes {
+            out.push(PortSpec {
+                name: stream_port(&spec.name, lane),
+                repeat: PortRepeat::Once,
+                ..spec.clone()
+            });
+        }
+    }
+    out
 }
 
 fn ports_for(kind: &str) -> Vec<PortSpec> {
@@ -618,6 +679,21 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         "event_output" => vec![PortSpec::new(Events, In, true, Always)],
         "event_filter" => vec![
             PortSpec::new(Events, In, true, Always),
+            PortSpec::new(Events, Out, true, Always),
+        ],
+        "df" => vec![
+            PortSpec::new(Iq, In, false, Always).repeated(PortRepeat::PerRxStream),
+            PortSpec::new(Position, In, false, Always),
+            PortSpec::new(Events, Out, true, Always),
+            PortSpec::named(DF_BEAM_PORT, Iq, Out, true, Always)
+                .noted("the array summed towards the bearing it found, as one more radio lane"),
+        ],
+        "passive_radar" => vec![
+            PortSpec::named(RADAR_REFERENCE_PORT, Iq, In, false, Always)
+                .noted("the antenna pointed at the illuminator"),
+            PortSpec::named(RADAR_SURVEILLANCE_PORT, Iq, In, false, Always)
+                .noted("the antenna pointed at the sky the targets are in"),
+            PortSpec::new(Position, In, false, Always),
             PortSpec::new(Events, Out, true, Always),
         ],
         _ => Vec::new(),
@@ -700,6 +776,11 @@ impl PatchCatalog {
                 entry(&NodeBody::Export, "Export"),
                 entry(&NodeBody::Scanner, "Scanner"),
                 entry(&NodeBody::Hunt(HuntNode::default()), "Signal hunt"),
+                entry(&NodeBody::Df(DfNode::default()), "Direction finder"),
+                entry(
+                    &NodeBody::PassiveRadar(PassiveRadarNode::default()),
+                    "Passive radar",
+                ),
             ],
         }
     }
@@ -992,6 +1073,12 @@ impl PatchGraph {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::EventOutput(settings) if !settings.target.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
+                }
+                NodeBody::Df(df) if !df.settings.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
+                }
+                NodeBody::PassiveRadar(radar) if !radar.settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 _ => {}

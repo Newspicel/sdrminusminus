@@ -2,6 +2,7 @@ pub mod about;
 pub mod audio;
 pub mod bandplan;
 pub mod channel;
+pub mod coherent;
 pub mod decode;
 pub mod device;
 pub mod doctor;
@@ -49,6 +50,14 @@ pub use channel::{
     SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
     YsfParams,
 };
+pub use coherent::{
+    ArrayElement, ArrayGeometry, BearingReport, CalParams, CalSource, CalState, CfarParams,
+    CoherentParams, DF_SPECTRUM_POINTS, DfAlgorithm, DfBearing, DfEstimate, DfFusionState,
+    DfGuidance, DfParams, DfReading, DfStation, EcaParams, GuidanceMode, Illuminator, LaneCal,
+    MAX_ARRAY_ELEMENTS, MAX_ARRAY_EXTENT_M, MAX_CPI_MS, MAX_DF_BANDWIDTH_HZ, MAX_DF_REPORT_MS,
+    MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS, MIN_DF_BANDWIDTH_HZ,
+    MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams, RadarDetection,
+};
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,
     BroadcastStatus, BroadcastSystem, CwSkimmerSpot, DataLinkMessage, DecodedRecord, DecoderEvent,
@@ -76,8 +85,8 @@ pub use filter::{
     MAX_FILTER_TEXT_LEN, POSITION_KINDS, VOICE_KINDS, predicates_for,
 };
 pub use frame::{
-    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, SymbolFrame,
-    SymbolPlane, VideoData, VideoFrame,
+    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
+    SymbolFrame, SymbolPlane, VideoData, VideoFrame,
 };
 pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{
@@ -87,14 +96,15 @@ pub use network::{
 };
 pub use patch::{
     ChannelNode, DEFAULT_DMR_PROBES, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ,
-    DV_DECODER_KIND, DeviceNode, DeviceRef, DmrChannelEntry, DmrDiscovery, DmrSearchRange,
-    DmrTrunkNode, DmrTrunkProtocol, MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL, MAX_DMR_PROBES,
-    MAX_DMR_SEARCH_CANDIDATES, MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES,
+    DF_BEAM_PORT, DV_DECODER_KIND, DeviceNode, DeviceRef, DfNode, DmrChannelEntry, DmrDiscovery,
+    DmrSearchRange, DmrTrunkNode, DmrTrunkProtocol, MAX_DMR_CHANNEL_MAP, MAX_DMR_LOGICAL_CHANNEL,
+    MAX_DMR_PROBES, MAX_DMR_SEARCH_CANDIDATES, MAX_DMR_SEARCH_RANGES, MAX_EDGES, MAX_NODES,
     MAX_SIGNAL_MAP_BANDWIDTH_HZ, MAX_SIGNAL_MAP_OFFSET_HZ, MAX_STREAMS, MIN_DMR_SEARCH_STEP_HZ,
-    NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph,
-    PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType,
-    Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, SignalMapNode, Size,
-    port_stream, stream_port,
+    NodeBody, NodeCategory, NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError,
+    PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat,
+    PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT,
+    RADAR_SURVEILLANCE_PORT, RackCell, RackLayout, RackSlot, SignalMapNode, Size, port_stream,
+    stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,

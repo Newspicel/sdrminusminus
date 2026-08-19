@@ -13,10 +13,13 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{adaptive_db_window, decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket};
+use sdrmm_engine::{
+    AudioPacket, Engine, IqBlock, SpectrumSnapshot, SymbolBlock, VideoPacket,
+    coherent::SurfaceUpdate,
+};
 use sdrmm_wire::{
-    AudioFrame, ClientCommand, IqFrame, PositionFix, ServerEvent, SpectrumFrame, StateScope,
-    StreamKind, SymbolFrame, VideoData, VideoFrame,
+    AudioFrame, ClientCommand, IqFrame, PositionFix, RangeDopplerFrame, ServerEvent, SpectrumFrame,
+    StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -68,6 +71,7 @@ struct Session {
     video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     iq: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     symbols: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    surfaces: HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
     next_spectrum_id: u16,
     next_media_id: u16,
     last_position_publish: Option<Instant>,
@@ -84,6 +88,7 @@ impl Session {
             video: HashMap::new(),
             iq: HashMap::new(),
             symbols: HashMap::new(),
+            surfaces: HashMap::new(),
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
             last_position_publish: None,
@@ -143,6 +148,58 @@ impl Session {
             ClientCommand::PublishPosition { node, fix, error } => {
                 self.publish_position(node, fix, error).await;
             }
+            ClientCommand::SubscribeSurface { node } => self.subscribe_surface(node).await,
+            ClientCommand::UnsubscribeSurface { node } => self.unsubscribe_surface(&node).await,
+        }
+    }
+
+    async fn subscribe_surface(&mut self, node: String) {
+        let Some(binding) = self.state.coherent.binding(&node) else {
+            let err = ServerEvent::Error {
+                message: format!("no coherent node {node} is running"),
+            };
+            let _ = self.out.send(text_event(&err)).await;
+            return;
+        };
+        let Some(rx) = self.engine.subscribe_surfaces(binding.device_set) else {
+            let err = ServerEvent::Error {
+                message: format!("{node} produces no surface"),
+            };
+            let _ = self.out.send(text_event(&err)).await;
+            return;
+        };
+        self.unsubscribe_surface(&node).await;
+        let live = |id: u16| {
+            media_id_live(&self.audio, &self.video, &self.iq, &self.symbols, id)
+                || self.surfaces.values().any(|(sid, _)| *sid == id)
+        };
+        let Some(stream_id) =
+            alloc_stream_id(&mut self.next_media_id, MEDIA_ID_BASE..=u16::MAX, live)
+        else {
+            let err = ServerEvent::Error {
+                message: "no free media stream ids on this connection".to_string(),
+            };
+            let _ = self.out.send(text_event(&err)).await;
+            return;
+        };
+        let started = ServerEvent::SurfaceStreamStarted {
+            stream_id,
+            device_set: binding.device_set,
+            node: node.clone(),
+        };
+        let _ = self.out.send(text_event(&started)).await;
+        let task = spawn_surface(stream_id, binding.id, rx, self.out.clone());
+        self.surfaces.insert(node, (stream_id, task));
+    }
+
+    async fn unsubscribe_surface(&mut self, node: &str) {
+        if let Some((stream_id, task)) = self.surfaces.remove(node) {
+            task.abort();
+            let stopped = ServerEvent::StreamStopped {
+                stream_id,
+                kind: StreamKind::RangeDoppler,
+            };
+            let _ = self.out.send(text_event(&stopped)).await;
         }
     }
 
@@ -160,6 +217,9 @@ impl Session {
             task.abort();
         }
         for (_, (_, task)) in self.symbols {
+            task.abort();
+        }
+        for (_, (_, task)) in self.surfaces {
             task.abort();
         }
     }
@@ -921,6 +981,50 @@ fn spawn_iq(
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
                         kind: StreamKind::Iq,
+                    };
+                    let _ = out_tx.send(text_event(&stopped)).await;
+                    break;
+                }
+            }
+        }
+    })
+}
+
+/// One coherent node's range-Doppler surface, quantised upstream and sent as it comes.
+fn spawn_surface(
+    stream_id: u16,
+    node: u32,
+    mut rx: broadcast::Receiver<SurfaceUpdate>,
+    out_tx: mpsc::Sender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(update) if update.node != node => continue,
+                Ok(update) => {
+                    let surface = &update.surface;
+                    let frame = RangeDopplerFrame {
+                        stream_id,
+                        seq: update.seq,
+                        timestamp: u64::from(update.seq),
+                        ranges: surface.ranges.min(usize::from(u16::MAX)) as u16,
+                        dopplers: surface.dopplers.min(usize::from(u16::MAX)) as u16,
+                        range_step_us: surface.range_step_s * 1e6,
+                        doppler_step_hz: surface.doppler_step_hz,
+                        db_min: surface.db_min,
+                        db_max: surface.db_max,
+                        cells: &surface.cells,
+                    }
+                    .encode();
+                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => {
+                    let stopped = ServerEvent::StreamStopped {
+                        stream_id,
+                        kind: StreamKind::RangeDoppler,
                     };
                     let _ = out_tx.send(text_event(&stopped)).await;
                     break;

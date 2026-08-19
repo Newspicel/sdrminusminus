@@ -264,6 +264,14 @@ pub(super) fn bring_up(
             }
         }
     }
+    let bound: Vec<(String, u32)> = report
+        .bound
+        .iter()
+        .map(|binding| (binding.node.clone(), binding.device_set))
+        .collect();
+    for (node, reason) in crate::coherent::apply(app, &snapshot.graph, &bound) {
+        report.refused.push(PatchRefusal { node, reason });
+    }
     Ok(report)
 }
 

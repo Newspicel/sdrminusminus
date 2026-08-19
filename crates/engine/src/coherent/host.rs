@@ -1,0 +1,163 @@
+use std::sync::Arc;
+
+use num_complex::Complex;
+use sdrmm_channels::{
+    ChannelError,
+    coherent::{CoherentCtx, CoherentOutputs, CoherentRx, RangeDopplerSurface, create_coherent},
+};
+use sdrmm_wire::{CalState, CoherentParams, DfReading, RadarDetection};
+use tokio::sync::broadcast;
+
+use super::AlignedContext;
+use crate::runtime::DecodedSink;
+
+/// How often the calibration state goes out on its own, so an operator watching a solve settle
+/// sees it move even while nothing is being reported.
+const STATE_INTERVAL_S: f64 = 0.5;
+
+const MAX_LANES: usize = sdrmm_wire::MAX_STREAMS as usize;
+
+/// One coherent node's report: what it read, and what the calibration was doing when it read it.
+#[derive(Clone, Debug)]
+pub struct CoherentUpdate {
+    pub node: u32,
+    pub reading: Option<DfReading>,
+    pub detections: Vec<RadarDetection>,
+    pub cal: CalState,
+}
+
+/// A range–Doppler surface on its way to a subscriber, kept off the JSON path for the same reason
+/// spectrum frames are.
+#[derive(Clone, Debug)]
+pub struct SurfaceUpdate {
+    pub node: u32,
+    pub seq: u32,
+    pub surface: Arc<RangeDopplerSurface>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CoherentSinks {
+    pub(crate) updates: broadcast::Sender<CoherentUpdate>,
+    pub(crate) surfaces: broadcast::Sender<SurfaceUpdate>,
+    pub(crate) decoded: DecodedSink,
+}
+
+/// Everything one coherent node needs on the aggregator thread: the processor itself, somewhere
+/// to put what it produces, and the rule that keeps a phase-dependent processor from answering
+/// when the phase is not known.
+pub(crate) struct CoherentHost {
+    node: u32,
+    /// Which of the radio's lanes feeds each element, in element order. An array's elements are
+    /// numbered by where they stand, not by which coaxial run happened to reach which port.
+    lanes: Vec<u32>,
+    rx: Box<dyn CoherentRx>,
+    outputs: CoherentOutputs,
+    sinks: CoherentSinks,
+    needs_phase: bool,
+    center_hz: f64,
+    seq: u32,
+    freq_hz: f64,
+    since_state: f64,
+    state_samples: f64,
+}
+
+impl CoherentHost {
+    pub(crate) fn build(
+        node: u32,
+        ctx: CoherentCtx,
+        params: &CoherentParams,
+        sinks: CoherentSinks,
+        lanes: Vec<u32>,
+    ) -> Result<Box<Self>, ChannelError> {
+        let descriptor = sdrmm_channels::coherent::coherent_descriptor(params.type_id())
+            .ok_or_else(|| ChannelError::UnknownType(params.type_id().to_owned()))?;
+        if lanes.len() != ctx.lanes {
+            return Err(ChannelError::InvalidSettings(format!(
+                "{} elements were wired but the processor takes {}",
+                lanes.len(),
+                ctx.lanes
+            )));
+        }
+        let rx = create_coherent(ctx, params)?;
+        Ok(Box::new(Self {
+            node,
+            lanes,
+            rx,
+            outputs: CoherentOutputs::default(),
+            sinks,
+            needs_phase: descriptor.needs_phase,
+            center_hz: ctx.center_hz,
+            seq: 0,
+            freq_hz: ctx.center_hz,
+            since_state: 0.0,
+            state_samples: ctx.sample_rate * STATE_INTERVAL_S,
+        }))
+    }
+
+    pub(crate) const fn node(&self) -> u32 {
+        self.node
+    }
+}
+
+impl super::AlignedSink for CoherentHost {
+    fn process(&mut self, lanes: &[&[Complex<f32>]], ctx: AlignedContext<'_>) {
+        if ctx.center_hz != self.center_hz {
+            self.center_hz = ctx.center_hz;
+            self.freq_hz = ctx.center_hz;
+            self.rx.retuned(ctx.center_hz);
+        }
+        let count = lanes.first().map_or(0, |lane| lane.len()) as f64;
+        self.since_state += count;
+        let due = self.since_state >= self.state_samples;
+        if due {
+            self.since_state = 0.0;
+        }
+        if self.needs_phase && ctx.cal.phase_unknown {
+            if due {
+                let _ = self.sinks.updates.send(CoherentUpdate {
+                    node: self.node,
+                    reading: None,
+                    detections: Vec::new(),
+                    cal: ctx.cal.clone(),
+                });
+            }
+            return;
+        }
+        self.outputs.reset();
+        let mut ordered: [&[Complex<f32>]; MAX_LANES] = [&[]; MAX_LANES];
+        let mut count = 0;
+        for (slot, source) in ordered.iter_mut().zip(&self.lanes) {
+            let Some(lane) = lanes.get(*source as usize) else {
+                return;
+            };
+            *slot = lane;
+            count += 1;
+        }
+        self.rx.process(&ordered[..count], &mut self.outputs);
+        let has_report = self.outputs.bearing.is_some()
+            || !self.outputs.detections.is_empty()
+            || self.outputs.surface.is_some();
+        if !has_report && self.outputs.events.is_empty() {
+            return;
+        }
+        for event in self.outputs.events.drain(..) {
+            self.sinks.decoded.publish(self.freq_hz, event);
+        }
+        if let Some(surface) = self.outputs.surface.take() {
+            self.seq = self.seq.wrapping_add(1);
+            let _ = self.sinks.surfaces.send(SurfaceUpdate {
+                node: self.node,
+                seq: self.seq,
+                surface: Arc::new(surface),
+            });
+        }
+        if has_report {
+            let _ = self.sinks.updates.send(CoherentUpdate {
+                node: self.node,
+                reading: self.outputs.bearing.take(),
+                detections: std::mem::take(&mut self.outputs.detections),
+                cal: ctx.cal.clone(),
+            });
+        }
+    }
+}

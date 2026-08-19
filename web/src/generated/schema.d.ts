@@ -244,6 +244,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/coherent/{node}/calibrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["calibrate_coherent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/coherent/{node}/fusion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_fusion"];
+        put?: never;
+        post?: never;
+        delete: operations["reset_fusion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/decoderlog": {
         parameters: {
             query?: never;
@@ -510,6 +542,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["time_machine_device_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/df/bearings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ingest_bearing"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1158,6 +1206,32 @@ export interface components {
         };
         /** @enum {string} */
         ArgumentType: "bool" | "float" | "int" | "string";
+        ArrayElement: {
+            /** Format: double */
+            x_m: number;
+            /** Format: double */
+            y_m: number;
+        };
+        /** @description Where the elements are, in the terms an operator can measure with a tape. */
+        ArrayGeometry: {
+            /** Format: int32 */
+            count: number;
+            /** @enum {string} */
+            kind: "uca";
+            /** Format: double */
+            radius_m: number;
+        } | {
+            /** Format: int32 */
+            count: number;
+            /** @enum {string} */
+            kind: "ula";
+            /** Format: double */
+            spacing_m: number;
+        } | {
+            /** @enum {string} */
+            kind: "explicit";
+            positions: components["schemas"]["ArrayElement"][];
+        };
         Attribution: {
             license: string;
             name: string;
@@ -1303,6 +1377,19 @@ export interface components {
         };
         /** @enum {string} */
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
+        /** @description A bearing another station measured, arriving over the same event output any decoder uses. */
+        BearingReport: {
+            /** Format: double */
+            bearing_deg: number;
+            /** Format: float */
+            confidence: number;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            station_id: string;
+            time?: string | null;
+        };
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -1353,6 +1440,41 @@ export interface components {
         };
         /** @enum {string} */
         BroadcastSystem: "dab" | "dab_plus" | "dvb_s" | "dvb_s2" | "drm30" | "drm_plus";
+        CalParams: {
+            /**
+             * Format: double
+             * @description The width around the tuned centre the solve looks at.
+             * @default 200000
+             */
+            bandwidth_hz: number;
+            /**
+             * Format: double
+             * @description A continuous carrier that lets a time-synced array re-solve phase after every retune.
+             *     Without one such an array reports `phase_unknown` and refuses to guess a bearing.
+             * @default null
+             */
+            pilot_hz: number | null;
+            /** @default signal */
+            source: components["schemas"]["CalSource"];
+            /**
+             * @description Whether the solution keeps being refined once it is good, rather than being frozen.
+             * @default true
+             */
+            track: boolean;
+        };
+        /** @enum {string} */
+        CalSource: "signal" | "noise";
+        /** @description What the calibration currently knows, published whether or not it is good news. */
+        CalState: {
+            lanes: components["schemas"]["LaneCal"][];
+            /**
+             * @description Set when inter-lane phase cannot be trusted — a time-synced array with no pilot to
+             *     re-solve against. Everything that depends on phase stays off while it is set.
+             */
+            phase_unknown: boolean;
+            solved: boolean;
+            tier: components["schemas"]["Coherence"];
+        };
         Capabilities: {
             antennas: string[];
             /** @description Continuous analog filter widths, for hardware whose IF filter is not a discrete menu. */
@@ -1412,6 +1534,45 @@ export interface components {
         };
         CapturedImagesResponse: {
             images: components["schemas"]["CapturedImage"][];
+        };
+        CfarParams: {
+            /**
+             * Format: int32
+             * @default 1
+             */
+            guard_doppler: number;
+            /**
+             * Format: int32
+             * @default 2
+             */
+            guard_range: number;
+            /**
+             * Format: float
+             * @default 6
+             */
+            min_snr_db: number;
+            /**
+             * Format: float
+             * @default 0.00009999999747378752
+             */
+            probability_false_alarm: number;
+            /**
+             * Format: int32
+             * @default 4
+             */
+            train_doppler: number;
+            /**
+             * Format: int32
+             * @default 8
+             */
+            train_range: number;
+            /**
+             * Format: int32
+             * @description Doppler rows either side of zero that are never reported: the direct path and the ground
+             *     live there, and neither is a target.
+             * @default 1
+             */
+            zero_doppler_guard: number;
         };
         ChannelCapabilities: {
             antennas: string[];
@@ -1787,6 +1948,18 @@ export interface components {
             };
             /** @enum {string} */
             type: "PublishPosition";
+        } | {
+            data: {
+                node: string;
+            };
+            /** @enum {string} */
+            type: "SubscribeSurface";
+        } | {
+            data: {
+                node: string;
+            };
+            /** @enum {string} */
+            type: "UnsubscribeSurface";
         };
         ClientsResponse: {
             /** Format: int32 */
@@ -2049,6 +2222,18 @@ export interface components {
             data: components["schemas"]["DataLinkMessage"];
             /** @enum {string} */
             kind: "iridium";
+        } | {
+            data: components["schemas"]["DfBearing"];
+            /** @enum {string} */
+            kind: "df";
+        } | {
+            data: components["schemas"]["DfEstimate"];
+            /** @enum {string} */
+            kind: "df_fix";
+        } | {
+            data: components["schemas"]["RadarDetection"];
+            /** @enum {string} */
+            kind: "radar";
         };
         DecoderLogEntry: {
             at: string;
@@ -2159,6 +2344,122 @@ export interface components {
         };
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
+        };
+        /** @enum {string} */
+        DfAlgorithm: "correlative" | "music";
+        /**
+         * @description One bearing as an event, so it reaches the map, the log and every event output the same way a
+         *     decoded packet does — and so a remote station's webhook can post one straight into a
+         *     central fusion grid.
+         */
+        DfBearing: {
+            /** Format: float */
+            bearing_deg: number;
+            /** Format: float */
+            confidence: number;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            station_id?: string | null;
+        };
+        /** @description Where the fusion grid says the transmitter is, and how sure of itself it is. */
+        DfEstimate: {
+            converged: boolean;
+            /** Format: double */
+            ellipse_bearing_deg: number;
+            /** Format: double */
+            ellipse_major_m: number;
+            /** Format: double */
+            ellipse_minor_m: number;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            /** Format: int32 */
+            samples: number;
+        };
+        DfFusionState: {
+            estimate?: null | components["schemas"]["DfEstimate"];
+            guidance?: null | components["schemas"]["DfGuidance"];
+            /** Format: int32 */
+            samples: number;
+            stations?: components["schemas"]["DfStation"][];
+        };
+        DfGuidance: {
+            /** Format: double */
+            distance_m: number;
+            /** Format: double */
+            heading_deg: number;
+            mode: components["schemas"]["GuidanceMode"];
+            nav_target: components["schemas"]["NavTarget"];
+        };
+        /** @description A direction finder bound to every lane of one coherent radio. */
+        DfNode: {
+            settings?: components["schemas"]["DfParams"];
+        };
+        DfParams: {
+            /** @default correlative */
+            algorithm: components["schemas"]["DfAlgorithm"];
+            /**
+             * Format: double
+             * @default 20000
+             */
+            bandwidth_hz: number;
+            /**
+             * @default {
+             *       "bandwidth_hz": 200000,
+             *       "source": "signal",
+             *       "track": true
+             *     }
+             */
+            cal: components["schemas"]["CalParams"];
+            /**
+             * @default {
+             *       "count": 4,
+             *       "kind": "uca",
+             *       "radius_m": 0.35
+             *     }
+             */
+            geometry: components["schemas"]["ArrayGeometry"];
+            /**
+             * Format: double
+             * @description Where in the tuned span the signal of interest sits, and how much of it to take.
+             * @default 0
+             */
+            offset_hz: number;
+            /**
+             * Format: int32
+             * @default 500
+             */
+            report_ms: number;
+            /**
+             * Format: int32
+             * @description How many arrivals MUSIC should assume. One is right far more often than not.
+             * @default 1
+             */
+            sources: number;
+        };
+        /** @description One bearing, and the whole circle it was read off. */
+        DfReading: {
+            /** Format: float */
+            bearing_deg: number;
+            /** Format: float */
+            confidence: number;
+            /** Format: float */
+            peak_to_floor_db: number;
+            /** @description One byte per degree, full scale at the peak. */
+            pseudospectrum: number[];
+        };
+        DfStation: {
+            /** Format: int32 */
+            bearings: number;
+            last_seen: string;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+            station_id: string;
         };
         /** @enum {string} */
         Direction: "rx" | "tx";
@@ -2322,6 +2623,28 @@ export interface components {
         };
         /** @enum {string} */
         DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
+        EcaParams: {
+            /**
+             * Format: int32
+             * @default 16384
+             */
+            batch_samples: number;
+            /**
+             * Format: int32
+             * @default 32
+             */
+            delay_taps: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            doppler_bins: number;
+            /**
+             * Format: float
+             * @default 0.00009999999747378752
+             */
+            loading: number;
+        };
         ErmesMessage: {
             /** Format: int32 */
             alert: number;
@@ -2489,6 +2812,8 @@ export interface components {
             /** Format: int32 */
             radials?: number;
         };
+        /** @enum {string} */
+        GuidanceMode: "cross" | "approach";
         HfdlParams: Record<string, never>;
         /** @enum {string} */
         HuntAction: "start" | "stop";
@@ -2595,6 +2920,15 @@ export interface components {
             /** Format: double */
             symbol_rate_hz?: number | null;
         };
+        /** @description The transmitter being borrowed, so a bistatic range can be drawn on a map. */
+        Illuminator: {
+            /** Format: double */
+            freq_hz: number;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+        };
         /** @enum {string} */
         IlsComponent: "localizer" | "glideslope";
         IlsParams: {
@@ -2648,6 +2982,19 @@ export interface components {
         IridiumParams: Record<string, never>;
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
+        LaneCal: {
+            /** Format: float */
+            delay_samples: number;
+            /** Format: float */
+            gain_db: number;
+            /** Format: float */
+            phase_deg: number;
+            /**
+             * Format: float
+             * @description Magnitude-squared coherence against lane zero, in `0..=1`.
+             */
+            quality: number;
+        };
         LicenseTextResponse: {
             id: string;
             text: string;
@@ -2830,6 +3177,15 @@ export interface components {
             /** Format: int64 */
             stop_hz: number;
         };
+        NavTarget: {
+            kind: components["schemas"]["NavTargetKind"];
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+        };
+        /** @enum {string} */
+        NavTargetKind: "cross" | "target";
         NavtexMessage: {
             complete: boolean;
             /** Format: int32 */
@@ -2992,6 +3348,14 @@ export interface components {
             data: components["schemas"]["HuntNode"];
             /** @enum {string} */
             kind: "hunt";
+        } | {
+            data: components["schemas"]["DfNode"];
+            /** @enum {string} */
+            kind: "df";
+        } | {
+            data: components["schemas"]["PassiveRadarNode"];
+            /** @enum {string} */
+            kind: "passive_radar";
         };
         /** @enum {string} */
         NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
@@ -3037,6 +3401,50 @@ export interface components {
         P25Params: Record<string, never>;
         /** @enum {string} */
         PagerPayload: "tone" | "numeric" | "alpha" | "binary";
+        /** @description A passive radar: one lane watching the illuminator, one watching the sky. */
+        PassiveRadarNode: {
+            settings?: components["schemas"]["PassiveRadarParams"];
+        };
+        PassiveRadarParams: {
+            /**
+             * @default {
+             *       "guard_doppler": 1,
+             *       "guard_range": 2,
+             *       "min_snr_db": 6,
+             *       "probability_false_alarm": 0.00009999999747378752,
+             *       "train_doppler": 4,
+             *       "train_range": 8,
+             *       "zero_doppler_guard": 1
+             *     }
+             */
+            cfar: components["schemas"]["CfarParams"];
+            /**
+             * Format: int32
+             * @default 200
+             */
+            cpi_ms: number;
+            /**
+             * Format: double
+             * @default 200
+             */
+            doppler_span_hz: number;
+            /**
+             * @default {
+             *       "batch_samples": 16384,
+             *       "delay_taps": 32,
+             *       "doppler_bins": 0,
+             *       "loading": 0.00009999999747378752
+             *     }
+             */
+            eca: components["schemas"]["EcaParams"];
+            /** @default null */
+            illuminator: null | components["schemas"]["Illuminator"];
+            /**
+             * Format: int32
+             * @default 256
+             */
+            max_range_bins: number;
+        };
         PatchApplyReport: {
             absent?: string[];
             bound: components["schemas"]["PatchBinding"][];
@@ -3234,6 +3642,19 @@ export interface components {
         };
         RackSlot: components["schemas"]["RackCell"] & {
             node: string;
+        };
+        RadarDetection: {
+            /** Format: float */
+            doppler_hz: number;
+            /** Format: int32 */
+            range_bin: number;
+            /**
+             * Format: float
+             * @description Bistatic range in kilometres: how much further the echo travelled than the direct path.
+             */
+            range_km: number;
+            /** Format: float */
+            snr_db: number;
         };
         RadioClockFrame: {
             datetime: string;
@@ -3581,6 +4002,42 @@ export interface components {
             type: "PositionChanged";
         } | {
             data: {
+                /** Format: int32 */
+                device_set: number;
+                node: string;
+                /** Format: int32 */
+                stream_id: number;
+            };
+            /** @enum {string} */
+            type: "SurfaceStreamStarted";
+        } | {
+            data: {
+                cal: components["schemas"]["CalState"];
+                /** Format: int32 */
+                device_set: number;
+                node: string;
+                reading: components["schemas"]["DfReading"];
+            };
+            /** @enum {string} */
+            type: "DfUpdate";
+        } | {
+            data: {
+                node: string;
+                state: components["schemas"]["DfFusionState"];
+            };
+            /** @enum {string} */
+            type: "DfFusionUpdate";
+        } | {
+            data: {
+                detections: components["schemas"]["RadarDetection"][];
+                /** Format: int32 */
+                device_set: number;
+                node: string;
+            };
+            /** @enum {string} */
+            type: "RadarDetections";
+        } | {
+            data: {
                 message: string;
             };
             /** @enum {string} */
@@ -3676,7 +4133,7 @@ export interface components {
             trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
         };
         /** @enum {string} */
-        StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols";
+        StreamKind: "spectrum" | "audio" | "video" | "iq" | "symbols" | "range_doppler";
         StreamScope: {
             antenna?: boolean;
             gain?: boolean;
@@ -4491,6 +4948,98 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ClientsResponse"];
                 };
+            };
+        };
+    };
+    calibrate_coherent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Patch node id of the coherent processor */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calibration will be solved again from scratch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The radio cannot calibrate */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No coherent node of that name is running */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_fusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Patch node id of the direction finder */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the bearings so far say the transmitter is */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DfFusionState"];
+                };
+            };
+            /** @description Nothing has been fused for that node */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reset_fusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Patch node id of the direction finder */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The grid is empty again */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -5409,6 +5958,51 @@ export interface operations {
             };
             /** @description Malformed request body */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    ingest_bearing: {
+        parameters: {
+            query?: {
+                /** @description Which direction finder's grid to feed */
+                node?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BearingReport"];
+            };
+        };
+        responses: {
+            /** @description Where every station's bearings now cross */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DfFusionState"];
+                };
+            };
+            /** @description The report is not a usable bearing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No direction finder is running to fuse it into */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

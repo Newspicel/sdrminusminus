@@ -11,17 +11,17 @@ pub const ECHO_DELAY_SETTING: &str = "echo_delay_samples";
 pub const ECHO_DOPPLER_SETTING: &str = "echo_doppler_hz";
 pub const ECHO_GAIN_SETTING: &str = "echo_gain_db";
 
-/// Where the one signal every lane shares sits, clear of the per-lane markers at multiples of
-/// 50 kHz so a bearing and a lane identity can be read off the same capture.
+/// The one signal every lane shares fills the whole span, because that is what a real
+/// illuminator does and what gives an echo a range worth measuring. What is fixed is where a
+/// reader can look at it undisturbed: a window clear of the per-lane markers, which start at
+/// 50 kHz and go up in steps of the same.
 pub const WAVEFRONT_OFFSET_HZ: f64 = 25_000.0;
-pub const WAVEFRONT_DEVIATION_HZ: f64 = 3_000.0;
-pub const WAVEFRONT_TONE_HZ: f64 = 700.0;
+pub const WAVEFRONT_WINDOW_HZ: f64 = 6_000.0;
 const WAVEFRONT_AMP: f64 = 0.5;
+const WAVEFRONT_SEED: u64 = 0x5164_A15E_0000_0001;
 
 pub const MAX_ECHO_DELAY_SAMPLES: usize = 4_096;
 pub const MAX_ECHO_DOPPLER_HZ: f64 = 2_000.0;
-const HISTORY: usize = 8_192;
-const HISTORY_MASK: usize = HISTORY - 1;
 const LIGHT_SPEED_M_S: f64 = 299_792_458.0;
 
 /// The lane the echo lands on, so a surveillance/reference pair is a fixed property of the
@@ -229,11 +229,9 @@ pub fn scramble_phase(lane: usize, center_hz: f64) -> f64 {
 /// The one waveform every lane of the array sees, plus the delayed copy of it a passive-radar
 /// test needs on the surveillance lane.
 pub struct ArrayField {
-    carrier_phase: f64,
-    mod_phase: f64,
+    state: u64,
     doppler_phase: f64,
-    history: Vec<Complex<f64>>,
-    written: usize,
+    tail: Vec<Complex<f64>>,
 }
 
 impl Default for ArrayField {
@@ -246,31 +244,38 @@ impl ArrayField {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            carrier_phase: 0.0,
-            mod_phase: 0.0,
+            state: WAVEFRONT_SEED,
             doppler_phase: 0.0,
-            history: vec![Complex::new(0.0, 0.0); HISTORY],
-            written: 0,
+            tail: vec![Complex::new(0.0, 0.0); MAX_ECHO_DELAY_SAMPLES],
         }
     }
 
-    /// Renders the next `len` samples of the shared wavefront and keeps them for the echo.
-    pub fn fill(&mut self, out: &mut Vec<Complex<f64>>, len: usize, sample_rate: f64) {
+    /// Renders the next `len` samples of the shared wavefront.
+    pub fn fill(&mut self, out: &mut Vec<Complex<f64>>, len: usize, _sample_rate: f64) {
         out.clear();
         out.reserve(len);
-        let hz_to_w = TAU / sample_rate;
-        let mod_w = WAVEFRONT_TONE_HZ * hz_to_w;
         for _ in 0..len {
-            let instant_hz = WAVEFRONT_OFFSET_HZ + WAVEFRONT_DEVIATION_HZ * self.mod_phase.sin();
-            self.mod_phase += mod_w;
-            self.carrier_phase += instant_hz * hz_to_w;
-            let sample = Complex::from_polar(WAVEFRONT_AMP, self.carrier_phase);
-            self.history[self.written & HISTORY_MASK] = sample;
-            self.written += 1;
-            out.push(sample);
+            out.push(Complex::new(
+                self.next() * WAVEFRONT_AMP,
+                self.next() * WAVEFRONT_AMP,
+            ));
         }
-        self.mod_phase = self.mod_phase.rem_euclid(TAU);
-        self.carrier_phase = self.carrier_phase.rem_euclid(TAU);
+    }
+
+    fn next(&mut self) -> f64 {
+        self.state ^= self.state >> 12;
+        self.state ^= self.state << 25;
+        self.state ^= self.state >> 27;
+        let bits = (self.state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f64;
+        bits / (1u64 << 23) as f64 - 1.0
+    }
+
+    /// Keeps the end of the block the echo of the next one reaches back into.
+    pub fn commit(&mut self, common: &[Complex<f64>]) {
+        let keep = common.len().min(MAX_ECHO_DELAY_SAMPLES);
+        self.tail.rotate_left(keep);
+        let start = self.tail.len() - keep;
+        self.tail[start..].copy_from_slice(&common[common.len() - keep..]);
     }
 
     /// Adds this lane's share of the field to a block that already carries its own marker.
@@ -288,19 +293,18 @@ impl ArrayField {
             let field = sample * steer;
             *slot += Complex::new(field.re as f32, field.im as f32);
         }
-        if lane != ECHO_LANE || params.echo_delay == 0 || params.echo_delay >= HISTORY {
+        if lane != ECHO_LANE || params.echo_delay == 0 || params.echo_delay > MAX_ECHO_DELAY_SAMPLES
+        {
             return;
         }
         let gain = 10f64.powf(params.echo_gain_db / 20.0);
-        let base = self.written - common.len();
         let doppler_w = params.echo_doppler_hz * TAU / sample_rate;
         let mut doppler = self.doppler_phase;
         for (index, slot) in block.iter_mut().enumerate().take(common.len()) {
-            let source = base + index;
-            let echo = if source >= params.echo_delay {
-                self.history[(source - params.echo_delay) & HISTORY_MASK]
+            let echo = if index >= params.echo_delay {
+                common[index - params.echo_delay]
             } else {
-                Complex::new(0.0, 0.0)
+                self.tail[self.tail.len() + index - params.echo_delay]
             };
             let shifted = echo * Complex::from_polar(gain, doppler);
             doppler += doppler_w;

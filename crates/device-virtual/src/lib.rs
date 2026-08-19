@@ -626,6 +626,9 @@ impl SdrDevice for MarkerGen {
                     }
                     sink.push(&block);
                 }
+                if wavefront {
+                    field.commit(&common);
+                }
 
                 next += Duration::from_secs_f64(n as f64 / params.sample_rate);
                 let now = Instant::now();
@@ -1381,10 +1384,10 @@ mod tests {
         let a = bin(reference);
         let b = bin(lane);
         let bin_hz = rate / n as f64;
-        let low = ((array::WAVEFRONT_OFFSET_HZ - 2.0 * array::WAVEFRONT_DEVIATION_HZ) / bin_hz)
-            .floor() as usize;
-        let high = ((array::WAVEFRONT_OFFSET_HZ + 2.0 * array::WAVEFRONT_DEVIATION_HZ) / bin_hz)
-            .ceil() as usize;
+        let low = ((array::WAVEFRONT_OFFSET_HZ - 2.0 * array::WAVEFRONT_WINDOW_HZ) / bin_hz).floor()
+            as usize;
+        let high = ((array::WAVEFRONT_OFFSET_HZ + 2.0 * array::WAVEFRONT_WINDOW_HZ) / bin_hz).ceil()
+            as usize;
         (low..=high).map(|k| b[k] * a[k].conj()).collect()
     }
 

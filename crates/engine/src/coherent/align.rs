@@ -46,6 +46,7 @@ impl Aligner {
         self.index
     }
 
+    #[cfg(test)]
     pub(crate) fn lanes(&self) -> &[Vec<Complex<f32>>] {
         &self.lanes
     }

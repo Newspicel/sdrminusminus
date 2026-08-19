@@ -157,7 +157,7 @@ impl DecodedSink {
         Self::new(tx, image_tx, Arc::new(AtomicU64::new(0)), 0, 0)
     }
 
-    fn publish(&self, freq_hz: f64, event: DecoderEvent) {
+    pub(crate) fn publish(&self, freq_hz: f64, event: DecoderEvent) {
         let record = RawDecoded {
             device_set: self.device_set,
             channel: self.channel,
@@ -829,6 +829,15 @@ impl CaptureRuntime {
     #[must_use]
     pub fn is_coherent(&self) -> bool {
         self.coherent.is_some()
+    }
+
+    /// What the radio says about its lanes right now. Some front ends only settle this once they
+    /// have been configured, so it is read back rather than remembered from when it was opened.
+    #[must_use]
+    pub fn coherence(&self) -> Option<Coherence> {
+        self.device
+            .as_ref()
+            .map(|device| device.capabilities().coherence)
     }
 
     pub fn subscribe(&self, stream: u32) -> Option<broadcast::Receiver<SpectrumSnapshot>> {

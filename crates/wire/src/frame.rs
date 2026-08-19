@@ -11,6 +11,7 @@ pub enum FrameKind {
     VideoGray = 3,
     VideoRgb = 4,
     Symbols = 5,
+    RangeDoppler = 6,
 }
 
 impl FrameKind {
@@ -23,6 +24,7 @@ impl FrameKind {
             3 => Some(Self::VideoGray),
             4 => Some(Self::VideoRgb),
             5 => Some(Self::Symbols),
+            6 => Some(Self::RangeDoppler),
             _ => None,
         }
     }
@@ -186,6 +188,47 @@ impl SymbolFrame<'_> {
         for value in self.symbols {
             buf.extend_from_slice(&value.to_le_bytes());
         }
+        buf
+    }
+}
+
+/// A range–Doppler surface: one byte per cell over a stated dB window, laid out row by row from
+/// the most negative Doppler upwards, the same quantisation the spectrum already uses.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RangeDopplerFrame<'a> {
+    pub stream_id: u16,
+    pub seq: u32,
+    pub timestamp: u64,
+    pub ranges: u16,
+    pub dopplers: u16,
+    pub range_step_us: f32,
+    pub doppler_step_hz: f32,
+    pub db_min: f32,
+    pub db_max: f32,
+    pub cells: &'a [u8],
+}
+
+impl RangeDopplerFrame<'_> {
+    #[must_use]
+    pub fn encoded_len(&self) -> usize {
+        HEADER_LEN + 2 + 2 + 4 * 4 + self.cells.len()
+    }
+
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.encoded_len());
+        buf.push(PROTOCOL_VERSION);
+        buf.push(FrameKind::RangeDoppler as u8);
+        buf.extend_from_slice(&self.stream_id.to_le_bytes());
+        buf.extend_from_slice(&self.seq.to_le_bytes());
+        buf.extend_from_slice(&self.timestamp.to_le_bytes());
+        buf.extend_from_slice(&self.ranges.to_le_bytes());
+        buf.extend_from_slice(&self.dopplers.to_le_bytes());
+        buf.extend_from_slice(&self.range_step_us.to_le_bytes());
+        buf.extend_from_slice(&self.doppler_step_hz.to_le_bytes());
+        buf.extend_from_slice(&self.db_min.to_le_bytes());
+        buf.extend_from_slice(&self.db_max.to_le_bytes());
+        buf.extend_from_slice(self.cells);
         buf
     }
 }
@@ -495,5 +538,51 @@ mod tests {
         assert_eq!(kind, FrameKind::VideoRgb);
         assert_eq!(out.len(), usize::from(width) * usize::from(height) * 3);
         assert_eq!(out, rgb);
+    }
+
+    #[test]
+    fn a_range_doppler_surface_encodes_its_shape_ahead_of_its_cells() {
+        let cells: Vec<u8> = (0..24u8).collect();
+        let frame = RangeDopplerFrame {
+            stream_id: 9,
+            seq: 3,
+            timestamp: 4_096,
+            ranges: 8,
+            dopplers: 3,
+            range_step_us: 0.5,
+            doppler_step_hz: 4.25,
+            db_min: -60.0,
+            db_max: 0.0,
+            cells: &cells,
+        };
+        let buf = frame.encode();
+        assert_eq!(buf.len(), frame.encoded_len());
+        assert_eq!(buf[0], PROTOCOL_VERSION);
+        assert_eq!(FrameKind::from_u8(buf[1]), Some(FrameKind::RangeDoppler));
+        assert_eq!(u16::from_le_bytes([buf[2], buf[3]]), 9);
+        assert_eq!(u16::from_le_bytes([buf[16], buf[17]]), 8);
+        assert_eq!(u16::from_le_bytes([buf[18], buf[19]]), 3);
+        assert_eq!(f32::from_le_bytes(buf[20..24].try_into().unwrap()), 0.5);
+        assert_eq!(f32::from_le_bytes(buf[24..28].try_into().unwrap()), 4.25);
+        assert_eq!(f32::from_le_bytes(buf[28..32].try_into().unwrap()), -60.0);
+        assert_eq!(f32::from_le_bytes(buf[32..36].try_into().unwrap()), 0.0);
+        assert_eq!(&buf[36..], &cells[..]);
+    }
+
+    #[test]
+    fn every_frame_kind_survives_the_byte_it_is_written_as() {
+        for (byte, kind) in [
+            (0u8, FrameKind::Spectrum),
+            (1, FrameKind::AudioOpus),
+            (2, FrameKind::IqF32),
+            (3, FrameKind::VideoGray),
+            (4, FrameKind::VideoRgb),
+            (5, FrameKind::Symbols),
+            (6, FrameKind::RangeDoppler),
+        ] {
+            assert_eq!(FrameKind::from_u8(byte), Some(kind));
+            assert_eq!(kind as u8, byte);
+        }
+        assert_eq!(FrameKind::from_u8(7), None);
     }
 }

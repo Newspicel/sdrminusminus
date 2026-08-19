@@ -133,6 +133,24 @@ impl GpsHub {
         self.events.subscribe()
     }
 
+    /// The last fix a named source reported.
+    pub(crate) fn fix(&self, node: &str) -> Option<PositionFix> {
+        self.latest
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(node)
+            .and_then(|state| state.fix.clone())
+    }
+
+    /// Any fix at all, for consumers that only need to know where the station is standing.
+    pub(crate) fn any_fix(&self) -> Option<PositionFix> {
+        self.latest
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .find_map(|state| state.fix.clone())
+    }
+
     pub(crate) fn snapshot(&self) -> Vec<ServerEvent> {
         self.latest
             .lock()

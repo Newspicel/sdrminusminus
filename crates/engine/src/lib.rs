@@ -27,6 +27,7 @@ pub mod audio_recording;
 mod capture_ops;
 mod channel_ops;
 pub mod coherent;
+mod coherent_ops;
 mod device_ops;
 mod discovery;
 mod history;
@@ -179,6 +180,8 @@ pub enum EngineError {
     Scan(String),
     #[error("occupancy: {0}")]
     Occupancy(String),
+    #[error("coherent: {0}")]
+    Coherent(String),
 }
 
 impl EngineError {
@@ -200,6 +203,7 @@ impl EngineError {
                 | Self::Recording(_)
                 | Self::NetworkExport(_)
                 | Self::Scan(_)
+                | Self::Coherent(_)
                 | Self::StreamOutOfRange { .. }
         )
     }
@@ -442,6 +446,7 @@ struct DeviceSetState {
     overruns_seen: u64,
     stalls: Vec<Arc<AtomicU64>>,
     playback: Option<Arc<PlaybackShared>>,
+    coherent: Option<crate::coherent_ops::CoherentState>,
     runtime: Arc<Mutex<CaptureRuntime>>,
 }
 

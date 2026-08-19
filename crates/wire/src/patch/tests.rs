@@ -691,7 +691,7 @@ fn the_only_type_level_cycle_is_the_guarded_event_transform() {
         .filter(|&kind| reachable[kind][kind])
         .map(|kind| catalog.nodes[kind].kind.as_str())
         .collect();
-    assert_eq!(cycle, vec!["event_filter"]);
+    assert_eq!(cycle, vec!["event_filter", "df"]);
 }
 
 #[test]
@@ -745,6 +745,8 @@ fn default_body(kind: &str) -> NodeBody {
         "export" => NodeBody::Export,
         "scanner" => NodeBody::Scanner,
         "hunt" => NodeBody::Hunt(HuntNode::default()),
+        "df" => NodeBody::Df(DfNode::default()),
+        "passive_radar" => NodeBody::PassiveRadar(PassiveRadarNode::default()),
         other => panic!("the palette offers {other}, which this test does not build"),
     }
 }
@@ -1349,9 +1351,20 @@ fn the_rack_is_a_grid_with_no_two_faces_in_one_cell() {
 fn the_catalog_describes_every_node_kind_once() {
     let catalog = PatchCatalog::build();
     for node in &catalog.nodes {
-        for port in &node.ports {
-            assert_eq!(port.name, port.port_type.as_str());
-        }
+        let mut names: Vec<(PortDirection, &str)> = node
+            .ports
+            .iter()
+            .map(|port| (port.direction, port.name.as_str()))
+            .collect();
+        let total = names.len();
+        names.sort_unstable_by_key(|(direction, name)| (*direction as u8, *name));
+        names.dedup();
+        assert_eq!(names.len(), total, "{} names a port twice", node.kind);
+        assert!(
+            node.ports.iter().all(|port| !port.name.is_empty()),
+            "{} has an unnamed port",
+            node.kind
+        );
     }
     let mut kinds: Vec<&str> = catalog.nodes.iter().map(|n| n.kind.as_str()).collect();
     let total = kinds.len();

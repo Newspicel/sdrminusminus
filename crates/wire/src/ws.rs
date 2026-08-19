@@ -27,6 +27,7 @@ pub enum StreamKind {
     Video,
     Iq,
     Symbols,
+    RangeDoppler,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -95,6 +96,26 @@ pub enum ServerEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    SurfaceStreamStarted {
+        stream_id: u16,
+        device_set: u32,
+        node: String,
+    },
+    DfUpdate {
+        device_set: u32,
+        node: String,
+        reading: Box<crate::coherent::DfReading>,
+        cal: Box<crate::coherent::CalState>,
+    },
+    DfFusionUpdate {
+        node: String,
+        state: Box<crate::coherent::DfFusionState>,
+    },
+    RadarDetections {
+        device_set: u32,
+        node: String,
+        detections: Vec<crate::coherent::RadarDetection>,
+    },
     Error {
         message: String,
     },
@@ -153,5 +174,11 @@ pub enum ClientCommand {
         fix: Option<PositionFix>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+    },
+    SubscribeSurface {
+        node: String,
+    },
+    UnsubscribeSurface {
+        node: String,
     },
 }
