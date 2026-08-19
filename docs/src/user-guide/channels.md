@@ -111,10 +111,13 @@ digest routines those layouts check with follow [rtl_433](https://github.com/mer
 (GPL-2.0-or-later), which documents the pulse timings and field positions each of these sensors
 transmits.
 
-The wideband digital channels are **acquisition only**. They report waveform lock, SNR, frequency
-error, and the configured symbol rate where one applies. They do not decode DAB FIC/MSC, DVB
-transport streams, DRM FAC/SDC/MSC, programme audio, or DATV pictures. A missing service label
-means the multiplex layer was not decoded, not that the station has no name.
+The wideband digital channels stop below the media. DAB reads the FIC and the MSC and hands over
+CRC-checked DAB+ access units; DATV reads DVB-S and DVB-S2 down to transport packets and a
+programme table, or to whole datagrams where the carrier holds a generic stream instead. None of
+them produce sound or pictures: the audio and video codecs above them are not implemented. DRM is
+still acquisition only — it reports waveform lock, SNR and frequency error, and reads no FAC, SDC
+or MSC at all, so a missing service label there means the multiplex was not decoded rather than
+that the station has no name.
 
 The GNSS lab acquires GPS L1 C/A and reads NAV telemetry for study; it is not a positioning
 receiver. VOR and ILS report a radial and a difference in depth of modulation rather than decoding
