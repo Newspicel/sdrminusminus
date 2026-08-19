@@ -25,6 +25,7 @@ net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
 
 [dependencies]
+sdrmm-wire.workspace = true
 sdrmm-server.workspace = true
 sdrmm-engine.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }

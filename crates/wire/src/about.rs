@@ -42,6 +42,19 @@ pub struct AboutResponse {
     pub license_text: String,
     pub repository: String,
     pub components: Vec<Attribution>,
+    /// Every address on this machine a phone on the same network can reach the server at. An
+    /// operator browsing on localhost has an origin no other device can use, so the field-mode
+    /// handoff offers one of these instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lan_addresses: Vec<String>,
+    /// Whether a routing backend is configured, so the field client knows whether to ask for a
+    /// route at all or go straight to heading guidance.
+    #[serde(default)]
+    pub routing: bool,
+    /// Whether an operator has put a map archive next to the database, so the client can draw a
+    /// basemap with no internet at all.
+    #[serde(default)]
+    pub offline_basemap: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

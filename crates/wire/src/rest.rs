@@ -539,6 +539,80 @@ pub struct ApiError {
     pub detail: Option<String>,
 }
 
+/// Which online routing service the server proxies to.
+///
+/// Both are OpenStreetMap-based and hand back a geometry that may be drawn on any map, which is
+/// why neither of the big phone-vendor services can stand here: their terms forbid rendering a
+/// route anywhere but their own map.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingBackend {
+    #[default]
+    OpenRouteService,
+    GraphHopper,
+}
+
+pub const MAX_ROUTE_LEG_M: f64 = 500_000.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RoutePoint {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+impl RoutePoint {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        (-90.0..=90.0).contains(&self.lat) && (-180.0..=180.0).contains(&self.lon)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RouteRequest {
+    pub from: RoutePoint,
+    pub to: RoutePoint,
+}
+
+impl RouteRequest {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        self.from.valid() && self.to.valid()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ManeuverKind {
+    Depart,
+    Continue,
+    Left,
+    SlightLeft,
+    SharpLeft,
+    Right,
+    SlightRight,
+    SharpRight,
+    UTurn,
+    Roundabout,
+    Arrive,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Maneuver {
+    pub at: RoutePoint,
+    pub kind: ManeuverKind,
+    pub instruction: String,
+    pub distance_m: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Route {
+    /// The line to draw, in order, as latitude and longitude pairs.
+    pub polyline: Vec<RoutePoint>,
+    pub distance_m: f64,
+    pub duration_s: f64,
+    pub maneuvers: Vec<Maneuver>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

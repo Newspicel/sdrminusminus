@@ -124,10 +124,11 @@ pub use rest::{
     CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage,
     ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN,
-    MAX_RECORDING_TAGS, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction,
-    PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
-    RecordingAnnotation, RecordingDownloadQuery, RecordingFormat, RecordingInfo,
-    RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport,
+    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
+    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
+    RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint, RouteRequest,
+    RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,

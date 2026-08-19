@@ -43,6 +43,8 @@ import type {
   RecordingInfo,
   RecordingStatus,
   RecordingsResponse,
+  Route,
+  RouteRequest,
   ScannerStatus,
   ScanSessionStatus,
   ScanSettings,
@@ -594,6 +596,10 @@ export async function resetFusion(node: string): Promise<void> {
       params: { path: { node } },
     }),
   );
+}
+
+export async function getRoute(request: RouteRequest): Promise<Route> {
+  return unwrap(await client.POST("/api/routing/route", { body: request }));
 }
 
 export async function runTool(request: ToolRequest): Promise<ToolResponse> {

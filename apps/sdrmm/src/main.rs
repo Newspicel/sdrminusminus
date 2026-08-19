@@ -3,7 +3,23 @@ use std::{net::SocketAddr, path::PathBuf};
 use anyhow::Context;
 use clap::Parser;
 use sdrmm_engine::Engine;
-use sdrmm_server::{Config, ServerOptions, serve};
+use sdrmm_server::{Config, ServerOptions, routing::RoutingOptions, serve};
+use sdrmm_wire::RoutingBackend;
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum RoutingBackendArg {
+    OpenRouteService,
+    GraphHopper,
+}
+
+impl From<RoutingBackendArg> for RoutingBackend {
+    fn from(value: RoutingBackendArg) -> Self {
+        match value {
+            RoutingBackendArg::OpenRouteService => Self::OpenRouteService,
+            RoutingBackendArg::GraphHopper => Self::GraphHopper,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
@@ -20,6 +36,16 @@ struct Args {
     playback_speed: f64,
     #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    #[arg(
+        long,
+        env = "SDRMM_ROUTING_BACKEND",
+        default_value = "open-route-service"
+    )]
+    routing_backend: RoutingBackendArg,
+    #[arg(long, env = "SDRMM_ROUTING_URL")]
+    routing_url: Option<String>,
+    #[arg(long, env = "SDRMM_ROUTING_KEY", hide_env_values = true)]
+    routing_key: Option<String>,
     #[arg(long)]
     doctor: bool,
     #[arg(long)]
@@ -109,6 +135,11 @@ async fn main() -> anyhow::Result<()> {
         options: ServerOptions {
             dev_cors: args.dev_cors,
             token: args.token,
+            routing: RoutingOptions {
+                backend: args.routing_backend.into(),
+                base_url: args.routing_url,
+                key: args.routing_key,
+            },
         },
     };
 

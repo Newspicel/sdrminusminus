@@ -788,6 +788,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/routing/route": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["get_route"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanner": {
         parameters: {
             query?: never;
@@ -986,10 +1002,26 @@ export interface components {
     schemas: {
         AboutResponse: {
             components: components["schemas"]["Attribution"][];
+            /**
+             * @description Every address on this machine a phone on the same network can reach the server at. An
+             *     operator browsing on localhost has an origin no other device can use, so the field-mode
+             *     handoff offers one of these instead.
+             */
+            lan_addresses?: string[];
             license: string;
             license_text: string;
             name: string;
+            /**
+             * @description Whether an operator has put a map archive next to the database, so the client can draw a
+             *     basemap with no internet at all.
+             */
+            offline_basemap?: boolean;
             repository: string;
+            /**
+             * @description Whether a routing backend is configured, so the field client knows whether to ask for a
+             *     route at all or go straight to heading guidance.
+             */
+            routing?: boolean;
             version: string;
         };
         AcarsMessage: {
@@ -3000,6 +3032,15 @@ export interface components {
             text: string;
         };
         M17Params: Record<string, never>;
+        Maneuver: {
+            at: components["schemas"]["RoutePoint"];
+            /** Format: double */
+            distance_m: number;
+            instruction: string;
+            kind: components["schemas"]["ManeuverKind"];
+        };
+        /** @enum {string} */
+        ManeuverKind: "depart" | "continue" | "left" | "slight_left" | "sharp_left" | "right" | "slight_right" | "sharp_right" | "u_turn" | "roundabout" | "arrive";
         /** @enum {string} */
         Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "psk2" | "psk4" | "noise_like" | "unknown";
         MorseParams: {
@@ -3747,6 +3788,25 @@ export interface components {
             action: components["schemas"]["RecordAction"];
             /** Format: int32 */
             stream?: number;
+        };
+        Route: {
+            /** Format: double */
+            distance_m: number;
+            /** Format: double */
+            duration_s: number;
+            maneuvers: components["schemas"]["Maneuver"][];
+            /** @description The line to draw, in order, as latitude and longitude pairs. */
+            polyline: components["schemas"]["RoutePoint"][];
+        };
+        RoutePoint: {
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lon: number;
+        };
+        RouteRequest: {
+            from: components["schemas"]["RoutePoint"];
+            to: components["schemas"]["RoutePoint"];
         };
         RttyParams: {
             /** Format: double */
@@ -6464,6 +6524,57 @@ export interface operations {
             };
             /** @description Recording not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_route: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouteRequest"];
+            };
+        };
+        responses: {
+            /** @description A drivable route between the two points */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Route"];
+                };
+            };
+            /** @description Not a leg this build will ask for */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The routing service refused or could not be reached */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No routing backend is configured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

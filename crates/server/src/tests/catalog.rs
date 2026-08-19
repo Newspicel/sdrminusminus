@@ -274,6 +274,48 @@ async fn about_serves_the_notices_and_their_texts() {
 }
 
 #[tokio::test]
+async fn about_says_where_a_phone_could_reach_this_machine() {
+    let (status, body) = request(test_router(), "GET", "/api/about", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let about: sdrmm_wire::AboutResponse = serde_json::from_slice(&body).expect("json");
+    for address in &about.lan_addresses {
+        let parsed: std::net::IpAddr = address.parse().expect("a reachable address");
+        assert!(
+            !parsed.is_loopback(),
+            "{address} is this machine talking to itself"
+        );
+    }
+    assert!(
+        !about.routing,
+        "no routing backend is configured in a test router"
+    );
+    assert!(
+        !about.offline_basemap,
+        "no archive sits beside an in-memory store"
+    );
+}
+
+#[tokio::test]
+async fn an_absent_offline_basemap_is_a_plain_not_found() {
+    let (status, _) = request(test_router(), "GET", "/api/basemap.pmtiles", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_route_cannot_be_asked_for_without_a_backend() {
+    let (status, body) = request(
+        test_router(),
+        "POST",
+        "/api/routing/route",
+        Some(r#"{"from":{"lat":51.5,"lon":7.0},"to":{"lat":51.52,"lon":7.02}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let error: ApiError = serde_json::from_slice(&body).expect("json");
+    assert!(error.error.contains("routing"), "{error:?}");
+}
+
+#[tokio::test]
 async fn doctor_reports_the_running_configuration() {
     let (status, body) = request(test_router(), "GET", "/api/doctor", None).await;
     assert_eq!(status, StatusCode::OK);

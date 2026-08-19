@@ -11,6 +11,7 @@ async fn token_auth_gates_the_api_and_advertises_itself() {
         &ServerOptions {
             dev_cors: false,
             token: Some("s3cret".to_string()),
+            ..ServerOptions::default()
         },
     );
 
@@ -46,6 +47,7 @@ async fn mcp_is_mounted_and_shares_the_token_gate() {
         &ServerOptions {
             dev_cors: false,
             token: Some("s3cret".to_string()),
+            ..ServerOptions::default()
         },
     );
     let call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;

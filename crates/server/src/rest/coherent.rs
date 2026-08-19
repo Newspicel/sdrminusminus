@@ -109,3 +109,36 @@ pub(super) async fn ingest_bearing(
 pub(super) struct BearingQuery {
     pub(super) node: Option<String>,
 }
+
+#[utoipa::path(
+    post, path = "/api/routing/route",
+    request_body = RouteRequest,
+    responses(
+        (status = 200, description = "A drivable route between the two points", body = Route),
+        (status = 400, description = "Not a leg this build will ask for", body = ApiError),
+        (status = 502, description = "The routing service refused or could not be reached", body = ApiError),
+        (status = 503, description = "No routing backend is configured", body = ApiError),
+    ),
+)]
+pub(super) async fn get_route(
+    State(state): State<AppState>,
+    Json(request): Json<RouteRequest>,
+) -> Result<Json<Route>, AppError> {
+    crate::routing::route(&state.routing, &request)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            let status = match error {
+                crate::routing::RoutingError::NotConfigured => StatusCode::SERVICE_UNAVAILABLE,
+                crate::routing::RoutingError::BadRequest(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::BAD_GATEWAY,
+            };
+            AppError {
+                status,
+                body: ApiError {
+                    error: error.to_string(),
+                    detail: None,
+                },
+            }
+        })
+}

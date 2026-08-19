@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  adoptTokenFromUrl,
   getToken,
   onTokenRejected,
   rejectToken,
@@ -83,5 +84,37 @@ describe("rejectToken", () => {
     rejectToken();
     expect(notified).toBe(1);
     stop();
+  });
+});
+
+describe("adoptTokenFromUrl", () => {
+  function fakeHistory(): { history: History; seen: string[] } {
+    const seen: string[] = [];
+    const history = {
+      replaceState: (_state: unknown, _title: string, url?: string | URL | null) => {
+        seen.push(String(url ?? ""));
+      },
+    } as unknown as History;
+    return { history, seen };
+  }
+
+  it("keeps a token from the address bar and takes it back out of the address", () => {
+    resetTokenCache();
+    setToken(null);
+    const { history, seen } = fakeHistory();
+    const location = new URL("http://192.168.1.10:8080/field?token=s3cret&mission=df");
+    const adopted = adoptTokenFromUrl(location as unknown as Location, history);
+    expect(adopted).toBe("s3cret");
+    expect(getToken()).toBe("s3cret");
+    expect(seen).toEqual(["/field?mission=df"]);
+  });
+
+  it("leaves an address without a token alone", () => {
+    resetTokenCache();
+    setToken(null);
+    const { history, seen } = fakeHistory();
+    const location = new URL("http://localhost:8080/field");
+    expect(adoptTokenFromUrl(location as unknown as Location, history)).toBeNull();
+    expect(seen).toEqual([]);
   });
 });

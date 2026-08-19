@@ -228,8 +228,13 @@ pub(super) async fn run_tool(
         body = AboutResponse,
     )),
 )]
-pub(super) async fn get_about() -> Json<AboutResponse> {
-    Json(crate::notices::about())
+pub(super) async fn get_about(State(state): State<AppState>) -> Json<AboutResponse> {
+    Json(AboutResponse {
+        lan_addresses: crate::notices::lan_addresses(),
+        routing: state.routing.configured(),
+        offline_basemap: crate::basemap::basemap_path(&state).is_some(),
+        ..crate::notices::about()
+    })
 }
 
 #[utoipa::path(

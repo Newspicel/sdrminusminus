@@ -2482,6 +2482,63 @@
         }
       }
     },
+    "/api/routing/route": {
+      "post": {
+        "operationId": "get_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A drivable route between the two points",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Route"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a leg this build will ask for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The routing service refused or could not be reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No routing backend is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scanner": {
       "post": {
         "operationId": "scan_session",
@@ -3175,6 +3232,13 @@
               "$ref": "#/components/schemas/Attribution"
             }
           },
+          "lan_addresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every address on this machine a phone on the same network can reach the server at. An\noperator browsing on localhost has an origin no other device can use, so the field-mode\nhandoff offers one of these instead."
+          },
           "license": {
             "type": "string"
           },
@@ -3184,8 +3248,16 @@
           "name": {
             "type": "string"
           },
+          "offline_basemap": {
+            "type": "boolean",
+            "description": "Whether an operator has put a map archive next to the database, so the client can draw a\nbasemap with no internet at all."
+          },
           "repository": {
             "type": "string"
+          },
+          "routing": {
+            "type": "boolean",
+            "description": "Whether a routing backend is configured, so the field client knows whether to ask for a\nroute at all or go straight to heading guidance."
           },
           "version": {
             "type": "string"
@@ -10411,6 +10483,46 @@
       "M17Params": {
         "type": "object"
       },
+      "Maneuver": {
+        "type": "object",
+        "required": [
+          "at",
+          "kind",
+          "instruction",
+          "distance_m"
+        ],
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/RoutePoint"
+          },
+          "distance_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ManeuverKind"
+          }
+        }
+      },
+      "ManeuverKind": {
+        "type": "string",
+        "enum": [
+          "depart",
+          "continue",
+          "left",
+          "slight_left",
+          "sharp_left",
+          "right",
+          "slight_right",
+          "sharp_right",
+          "u_turn",
+          "roundabout",
+          "arrive"
+        ]
+      },
       "Modulation": {
         "type": "string",
         "enum": [
@@ -13238,6 +13350,70 @@
             "items": {
               "$ref": "#/components/schemas/RecordingInfo"
             }
+          }
+        }
+      },
+      "Route": {
+        "type": "object",
+        "required": [
+          "polyline",
+          "distance_m",
+          "duration_s",
+          "maneuvers"
+        ],
+        "properties": {
+          "distance_m": {
+            "type": "number",
+            "format": "double"
+          },
+          "duration_s": {
+            "type": "number",
+            "format": "double"
+          },
+          "maneuvers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Maneuver"
+            }
+          },
+          "polyline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoutePoint"
+            },
+            "description": "The line to draw, in order, as latitude and longitude pairs."
+          }
+        }
+      },
+      "RoutePoint": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RouteRequest": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/RoutePoint"
+          },
+          "to": {
+            "$ref": "#/components/schemas/RoutePoint"
           }
         }
       },

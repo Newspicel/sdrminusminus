@@ -29,4 +29,4 @@
 
 ## Product
 - Beginner-friendly, expert-deep
-- Desktop-only
+- Desktop-only, plus the field-mode remote head

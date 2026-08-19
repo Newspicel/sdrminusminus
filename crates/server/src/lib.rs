@@ -25,6 +25,7 @@ const DECODED_TEXT_CAP: usize = 1024;
 mod assets;
 mod auth;
 mod bandplan;
+mod basemap;
 mod calls;
 pub(crate) mod coherent;
 mod decoderlog;
@@ -38,6 +39,7 @@ mod ionosonde;
 mod mcp;
 pub mod notices;
 mod rest;
+pub mod routing;
 mod store;
 mod templates;
 mod tracks;
@@ -51,6 +53,7 @@ pub use store::{Store, StoreError};
 pub struct ServerOptions {
     pub dev_cors: bool,
     pub token: Option<String>,
+    pub routing: routing::RoutingOptions,
 }
 
 #[derive(Clone)]
@@ -74,6 +77,7 @@ pub(crate) struct AppState {
     pub(crate) gps: Arc<gps::GpsHub>,
     pub(crate) coherent: Arc<coherent::CoherentHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
+    pub(crate) routing: Arc<routing::RoutingOptions>,
 }
 
 impl AppState {
@@ -98,6 +102,7 @@ impl AppState {
             gps: Arc::new(gps::GpsHub::default()),
             coherent: Arc::new(coherent::CoherentHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
+            routing: Arc::new(routing::RoutingOptions::default()),
         }
     }
 
@@ -132,6 +137,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(options.token.as_deref());
+    state.routing = Arc::new(options.routing.clone());
     let (router, background) = router_with_state(state, options);
     background.detach();
     router
@@ -147,6 +153,10 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Backg
     let mut app = Router::new()
         .merge(api_router)
         .route("/api/ws", axum::routing::get(ws::handler))
+        .route(
+            "/api/basemap.pmtiles",
+            axum::routing::get(basemap::handler).head(basemap::handler),
+        )
         .merge(mcp::router(
             state.engine.clone(),
             state.store.clone(),

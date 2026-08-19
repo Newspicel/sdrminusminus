@@ -2,16 +2,23 @@ import { Button } from "./BaseControls";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   AttributionControl,
+  addProtocol,
   type GeoJSONSource,
   Map as MapLibreMap,
   type MapMouseEvent,
-  type MapOptions,
   NavigationControl,
   setWorkerUrl,
 } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import { Protocol } from "pmtiles";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDecodedStore } from "../lib/decoded";
+import {
+  type BasemapKind,
+  chooseBasemap,
+  fetchOnlineStyle,
+  hasOfflineBasemap,
+} from "../lib/map/basemap";
 import { type DfOverlay, drawDfOverlay, installDfLayers } from "../lib/map/df";
 import {
   AGE_OUT_INTERVAL_MS,
@@ -48,11 +55,17 @@ import { formatMhz } from "./format";
 
 setWorkerUrl(workerUrl);
 
-const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
-
-const BASEMAP_TIMEOUT_MS = 6_000;
-
 const HIT_SLOP_PX = 9;
+
+let pmtilesRegistered = false;
+
+function registerPmtiles(): void {
+  if (pmtilesRegistered) {
+    return;
+  }
+  pmtilesRegistered = true;
+  addProtocol("pmtiles", new Protocol().tile);
+}
 
 class CollapsedAttributionControl extends AttributionControl {
   override onAdd(map: MapLibreMap): HTMLElement {
@@ -63,7 +76,6 @@ class CollapsedAttributionControl extends AttributionControl {
   }
 }
 
-type MapStyle = Exclude<NonNullable<MapOptions["style"]>, string>;
 type Counts = Record<MapKind, number>;
 
 const EMPTY_COLLECTION: TargetCollection = { type: "FeatureCollection", features: [] };
@@ -121,7 +133,7 @@ export function MapPanel({
 
   const [counts, setCounts] = useState<Counts>(ZERO_COUNTS);
   const [detail, setDetail] = useState<TargetDetail | null>(null);
-  const [basemap, setBasemap] = useState<"pending" | "online" | "offline">("pending");
+  const [basemap, setBasemap] = useState<BasemapKind>("pending");
   const [positionCount, setPositionCount] = useState(0);
   const [signalCount, setSignalCount] = useState(0);
 
@@ -143,15 +155,22 @@ export function MapPanel({
     accentRef.current = themeColor(container, "--color-accent", "#76acfc");
 
     void (async () => {
-      const style = await fetchStyle();
+      const online = await fetchOnlineStyle();
+      const offline = online === null && (await hasOfflineBasemap());
       if (disposed) {
         return;
       }
-      setBasemap(style === null ? "offline" : "online");
+      const ink = themeColor(container, "--color-ink", "#e8e8ea");
+      const line = themeColor(container, "--color-line", "#2a2c31");
+      if (offline) {
+        registerPmtiles();
+      }
+      const chosen = chooseBasemap(online, offline, edge, ink, line);
+      setBasemap(chosen.kind);
 
       const map = new MapLibreMap({
         container,
-        style: style ?? offlineStyle(edge),
+        style: chosen.style,
         center: [0, 25],
         zoom: 1,
         attributionControl: false,
@@ -439,7 +458,12 @@ export function MapPanel({
         </div>
         {basemap === "offline" && (
           <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
-            basemap unavailable (offline)
+            offline basemap
+          </div>
+        )}
+        {basemap === "blank" && (
+          <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
+            no basemap (offline)
           </div>
         )}
       </div>
@@ -515,28 +539,6 @@ function hitTarget(map: MapLibreMap, event: MapMouseEvent): { kind: MapKind; id:
   const kind = hit === undefined ? undefined : LAYER_KIND.get(hit.layer.id);
   const id: unknown = hit?.properties.id;
   return kind === undefined || typeof id !== "string" ? null : { kind, id };
-}
-
-async function fetchStyle(): Promise<MapStyle | null> {
-  try {
-    const response = await fetch(BASEMAP_STYLE_URL, {
-      signal: AbortSignal.timeout(BASEMAP_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      return null;
-    }
-    return (await response.json()) as MapStyle;
-  } catch {
-    return null;
-  }
-}
-
-function offlineStyle(background: string): MapStyle {
-  return {
-    version: 8,
-    sources: {},
-    layers: [{ id: "backdrop", type: "background", paint: { "background-color": background } }],
-  };
 }
 
 function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]): void {

@@ -27,11 +27,11 @@ use sdrmm_wire::{
     PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus,
     PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation,
     RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingStatus, RecordingsResponse,
-    ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
-    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
-    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
-    WorkspaceState, WorkspacesResponse,
+    Route, RouteRequest, ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus,
+    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
+    TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse,
+    ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo,
+    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -386,6 +386,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(calibrate_coherent))
         .routes(routes!(get_fusion, reset_fusion))
         .routes(routes!(ingest_bearing))
+        .routes(routes!(get_route))
         .routes(routes!(get_about))
         .routes(routes!(get_license_text))
 }
