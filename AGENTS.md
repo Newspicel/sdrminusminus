@@ -17,6 +17,9 @@
   on `dsp` + `wire`; device backends are feature-gated; `server` is a library.
 - Adding a decoder should touch: one module in `channels`, one settings struct in `wire`,
   optionally one React panel. If it needs more, reconsider the design.
+- One job, one node. Never two nodes, or a node and a device kind, that do the same thing: a radio
+  is picked by a Device node and by nothing else. An abstraction over devices is a node wired to
+  Device nodes, never a second kind of device that opens radios of its own.
 - Hot DSP path: no locks, no allocation, no async. Settings via command queue, state via
    snapshot channels. Keep the control plane and DSP plane separated.
 - Errors: no `unwrap()`/`expect()` outside tests and startup. Use `Result` and the project's
