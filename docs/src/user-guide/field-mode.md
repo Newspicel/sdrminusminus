@@ -9,8 +9,8 @@ extra to install.
 
 ## Get it onto a phone
 
-The **Open field mode** button in the workspace bar shows a QR code. Point the phone's camera at
-it and it opens field mode already carrying the token.
+**Library ▸ Field** shows a QR code. Point the phone's camera at it and it opens field mode
+already carrying the token.
 
 If you are browsing on `localhost`, that address means nothing to a phone, so the QR offers one of
 this machine's LAN addresses instead. The token arrives in the URL and is stripped out of the

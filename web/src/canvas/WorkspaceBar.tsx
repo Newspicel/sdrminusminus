@@ -4,7 +4,6 @@ import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
 import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { FieldHandoff } from "./FieldHandoff";
 import { addNode, newNodeId } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
@@ -170,8 +169,6 @@ export function WorkspaceBar({
             />
           )}
         </Popover>
-        <Rule />
-        <FieldHandoff />
         <Rule />
         <ThemeControl />
         <Button

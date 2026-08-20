@@ -801,6 +801,14 @@ test.describe("the workspace", () => {
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
   });
 
+  test("hands the field client to a phone from the library", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Library" }).click();
+    await page.getByRole("tab", { name: "Field" }).click();
+    await expect(page.getByRole("img", { name: "Field mode QR code" })).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText(/\/field(\?|$)/)).toBeVisible();
+  });
+
   test("serves the mark to the tab and the top bar", async ({ page }) => {
     for (const [path, type] of [
       ["/icon.svg", "image/svg+xml"],
