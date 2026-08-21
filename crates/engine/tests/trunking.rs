@@ -119,3 +119,83 @@ async fn one_probe_follows_the_band_to_the_channel_a_grant_points_at() {
     assert_eq!(learned.logical_channel, LOGICAL_CHANNEL);
     assert_eq!(learned.freq_hz, TRAFFIC_HZ);
 }
+
+const REPEATER_HZ: u64 = 460_312_500;
+const REST_ONE: u8 = 3;
+const REST_TWO: u8 = 4;
+
+/// Both repeaters of a Capacity Plus system, saying the same thing at the same time the way they
+/// do on the air: the rest channel the system is parked on, and the move when it changes.
+fn capacity_plus_band(dir: &Path) -> String {
+    let mut announcement =
+        testgen::dv::dmr::capacity_plus_status(COLOR_CODE, REST_ONE, 8, DEVICE_RATE);
+    announcement.extend(testgen::dv::dmr::capacity_plus_status(
+        COLOR_CODE,
+        REST_TWO,
+        8,
+        DEVICE_RATE,
+    ));
+    let mut control = announcement.clone();
+    let mut repeater = announcement;
+    testgen::shift(&mut control, CONTROL_HZ as f64 - CENTER_HZ, DEVICE_RATE);
+    testgen::shift(&mut repeater, REPEATER_HZ as f64 - CENTER_HZ, DEVICE_RATE);
+    let mut iq: Vec<Complex<f32>> = control
+        .iter()
+        .zip(&repeater)
+        .map(|(control, repeater)| control + repeater)
+        .collect();
+    testgen::scale(&mut iq, 0.5);
+
+    let path = dir.join("dmr_capacity_plus_band");
+    let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "trunk fixture").unwrap();
+    writer.write_block(&iq).unwrap();
+    writer.finalize().unwrap();
+    format!("virtual:file:{}", path.display())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_search_finds_the_other_repeater_of_a_capacity_plus_system() {
+    let dir = TempDir::new().unwrap();
+    let device_id = capacity_plus_band(dir.path());
+    let engine = engine_for(dir.path());
+    let device_set = engine.create_device_set(&device_id).unwrap();
+
+    engine.configure_trunking(vec![TrunkSystem {
+        node: "trunk".to_owned(),
+        protocol: DmrTrunkProtocol::CapacityPlus,
+        discovery: DmrDiscovery {
+            enabled: true,
+            ranges: Vec::new(),
+            max_probes: 1,
+        },
+        channel_map: Vec::new(),
+        learned: Vec::new(),
+        radio: Some(TrunkRadio {
+            device_set,
+            stream: 0,
+            control_hz: CONTROL_HZ,
+            ignore_crc: false,
+        }),
+    }]);
+
+    let followed = tokio::time::timeout(FOUND_TIMEOUT, async {
+        loop {
+            let found = engine.trunk_systems().into_iter().any(|system| {
+                system
+                    .followers
+                    .iter()
+                    .any(|follower| follower.freq_hz == REPEATER_HZ)
+            });
+            if found {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+
+    assert!(
+        followed.is_ok(),
+        "the search never placed the system's other repeater"
+    );
+}

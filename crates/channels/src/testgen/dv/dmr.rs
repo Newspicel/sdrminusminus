@@ -320,6 +320,31 @@ pub fn tier_three_grant(
     iq
 }
 
+/// A Capacity Plus repeater saying which logical channel the system is resting on, repeated the
+/// way a real one keeps saying it. Every repeater of a system names the same one.
+#[must_use]
+pub fn capacity_plus_status(
+    color_code: u8,
+    rest_channel: u8,
+    repeats: usize,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    const CHANNEL_STATUS: u64 = 0x3E;
+    const MOTOROLA: u64 = 0x10;
+
+    let mut payload = vec![false; 80];
+    write(&mut payload, 2, 6, CHANNEL_STATUS);
+    write(&mut payload, 8, 8, MOTOROLA);
+    write(&mut payload, 16, 2, 3);
+    write(&mut payload, 20, 4, u64::from(rest_channel));
+
+    let mut iq = Vec::new();
+    for _ in 0..repeats {
+        iq.extend(csbk_bits(color_code, &payload, rate));
+    }
+    iq
+}
+
 /// A trellis-coded data burst, the payload a data call carries once its header is out of the way.
 #[must_use]
 pub fn rate_three_quarter_data(

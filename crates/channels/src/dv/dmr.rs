@@ -50,6 +50,13 @@ const DT_UNIFIED_SINGLE_BLOCK_DATA: u8 = 0xB;
 /// about one burst in thirty off the air, and a channel grant is a single burst.
 const MAX_UNVERIFIED_REPAIRS: u32 = 4;
 
+/// How many control blocks in a row have to arrive whole yet fail the checksum before the site is
+/// taken to be masking it. A restricted site folds a key the receiver does not hold into every
+/// control block's sum, so the arithmetic never agrees however clean the burst was; one such block
+/// is a bit error the parity happened to miss, but a run of them with nothing to repair is the
+/// site, and discarding those hides the whole system behind a setting nobody knew to turn on.
+const MASKED_SUM_RUN: u32 = 8;
+
 pub(crate) const TRELLIS_DIBITS: usize = 98;
 pub(crate) const TRELLIS_DATA_BITS: usize = 144;
 
@@ -244,6 +251,7 @@ struct Decoder {
     speaking: Option<usize>,
     speaking_hold: usize,
     tier_three: bool,
+    masked_sums: u32,
 }
 
 #[derive(Clone)]
@@ -301,6 +309,7 @@ impl Decoder {
             speaking: None,
             speaking_hold: 0,
             tier_three: false,
+            masked_sums: 0,
         }
     }
 
@@ -575,12 +584,28 @@ impl Decoder {
         pack_bytes(&payload[..80], &mut self.bytes);
         let expected = dmr_crc16(&self.bytes) ^ mask;
         let verified = expected == bits_to_u32(payload, 80, 16) as u16;
-        if !verified && !(self.params.ignore_crc && errors <= MAX_UNVERIFIED_REPAIRS) {
+        if !self.keep_unverified(verified, errors, MAX_UNVERIFIED_REPAIRS) {
             return None;
         }
         let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
         frame.crc_verified = Some(verified);
         Some(frame)
+    }
+
+    /// Decides whether a control block whose checksum did not come out is still worth reading, and
+    /// remembers what the site has been doing so the next one can be judged on that history.
+    fn keep_unverified(&mut self, verified: bool, errors: u32, repairs: u32) -> bool {
+        if verified {
+            self.masked_sums = 0;
+            return true;
+        }
+        if errors == 0 {
+            self.masked_sums = self.masked_sums.saturating_add(1);
+        }
+        if self.params.ignore_crc && errors <= repairs {
+            return true;
+        }
+        errors == 0 && self.masked_sums >= MASKED_SUM_RUN
     }
 
     fn link_control(
@@ -662,10 +687,7 @@ impl Decoder {
         let header = self.mbc_headers[index].take()?;
         let opcode = bits_to_u32(payload, 2, 6) as u8;
         let verified = valid_mbc_crc(payload);
-        if opcode != header.opcode
-            || !payload[0]
-            || (!verified && !(self.params.ignore_crc && errors == 0))
-        {
+        if opcode != header.opcode || !payload[0] || !self.keep_unverified(verified, errors, 0) {
             return None;
         }
         let mut frame = header.frame;
@@ -1091,12 +1113,9 @@ fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]
         (0x10, 33 | 34) => decode_capacity_max_update(frame, opcode, payload),
         (0x10, 0x3A | 0x3E) => {
             frame.rest_channel = Some(bits_to_u32(payload, 20, 4) as u16);
-            frame.data = Some(format!(
-                "fragment {}, transmitted TS {}, reserved {}",
-                bits_to_u32(payload, 16, 2),
-                u8::from(payload[18]) + 1,
-                u8::from(payload[19])
-            ));
+            if opcode == 0x3E {
+                decode_capacity_plus_status(frame, payload);
+            }
         }
         (0x10, 0x3B) => {
             let sites = (0..6)
@@ -1155,6 +1174,39 @@ fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]
         }
         _ => {}
     }
+}
+
+/// The repeater says which of its own two timeslots are carrying a call and who the call is for.
+/// The address is one field for both slots, so it is only attributed while a single slot is busy.
+fn decode_capacity_plus_status(frame: &mut DvFrame, payload: &[bool]) {
+    let busy: Vec<u8> = [(1, 26), (2, 27)]
+        .into_iter()
+        .filter(|(_, at)| payload[*at])
+        .map(|(slot, _)| slot)
+        .collect();
+    let destination = match bits_to_u32(payload, 28, 12) {
+        0 => None,
+        address if busy.len() == 1 => Some(address),
+        _ => None,
+    };
+    for slot in &busy {
+        frame.slot_activity.push(DvSlotActivity {
+            slot: *slot,
+            activity: "group voice".to_owned(),
+            destination_hash: None,
+            destination,
+            logical_channel: None,
+        });
+    }
+    frame.data = Some(match (busy.as_slice(), destination) {
+        ([], _) => "no call".to_owned(),
+        ([slot], Some(destination)) => format!("TS{slot} carrying TG {destination}"),
+        (slots, _) => slots
+            .iter()
+            .map(|slot| format!("TS{slot} busy"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    });
 }
 
 fn decode_capacity_max_update(frame: &mut DvFrame, opcode: u8, payload: &[bool]) {

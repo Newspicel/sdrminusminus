@@ -266,8 +266,7 @@ impl Follower {
         };
         if let Some(probe) = self.probes.get(&(record.device_set, record.channel)) {
             let (system_node, freq_hz) = (probe.system_node.clone(), probe.freq_hz);
-            self.prospect(&engine, &system_node, freq_hz, frame);
-            return false;
+            return self.prospect(&engine, &system_node, freq_hz, frame);
         }
         let Some(carrier) = self
             .carriers
@@ -281,6 +280,9 @@ impl Follower {
         }
         match self.protocol_of(&carrier.system_node, carrier.protocol) {
             Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt) => {
+                if let Some(prospector) = self.prospectors.get_mut(&carrier.system_node) {
+                    prospector.note_rest(frame.rest_channel);
+                }
                 self.provision_known_carrier(&engine, &carrier);
                 false
             }
@@ -298,16 +300,36 @@ impl Follower {
         self.publish();
     }
 
-    fn prospect(&mut self, engine: &Engine, system_node: &str, freq_hz: u64, frame: &DvFrame) {
+    /// Reports whether the burst asks for the plan to be redrawn before the next tick.
+    fn prospect(
+        &mut self,
+        engine: &Engine,
+        system_node: &str,
+        freq_hz: u64,
+        frame: &DvFrame,
+    ) -> bool {
         let Some(prospector) = self.prospectors.get_mut(system_node) else {
-            return;
+            return false;
         };
+        if prospector.shares_traffic() {
+            if !prospector.note_repeater(freq_hz, frame) {
+                return false;
+            }
+            tracing::info!(
+                node = system_node,
+                freq_hz,
+                "learned another repeater of a trunked system"
+            );
+            self.retire_probe(engine, system_node, freq_hz);
+            self.publish();
+            return true;
+        }
         let Some(found) = prospector.note_probe(freq_hz, frame, Instant::now()) else {
-            return;
+            return false;
         };
         if !found.confirmed {
             self.publish();
-            return;
+            return false;
         }
         tracing::info!(
             node = system_node,
@@ -337,6 +359,7 @@ impl Follower {
             );
         }
         self.publish();
+        false
     }
 
     fn retire_probe(&mut self, engine: &Engine, system_node: &str, freq_hz: u64) {
@@ -555,13 +578,13 @@ impl Follower {
             else {
                 continue;
             };
-            if self.protocol_of(&system.node, carrier.protocol) != Some(DvTrunkProtocol::TierThree)
-            {
+            let Some(protocol) = self.protocol_of(&system.node, carrier.protocol) else {
                 continue;
-            }
+            };
             let Some(prospector) = self.prospectors.get_mut(&system.node) else {
                 continue;
             };
+            prospector.set_protocol(Some(protocol));
             let Some(reach) = probe_reach(carrier) else {
                 continue;
             };
@@ -716,19 +739,25 @@ impl Follower {
         }
     }
 
-    /// Capacity Plus and XPT grant no frequency, so the plan is the traffic list.
+    /// Capacity Plus and XPT grant no frequency, so the plan is the traffic list: the carrier the
+    /// operator named, whatever they entered beside it, and whatever the search has since placed.
     fn repeaters_of(&self, carrier: &Carrier) -> Vec<u64> {
         let mut freqs = vec![carrier.freq_hz];
-        let Some(system) = self
+        let entries = self
             .systems
             .iter()
             .find(|system| system.node == carrier.system_node)
-        else {
-            return freqs;
-        };
-        for entry in &system.channel_map {
-            if !freqs.contains(&entry.freq_hz) {
-                freqs.push(entry.freq_hz);
+            .map(|system| system.channel_map.iter().map(|entry| entry.freq_hz))
+            .into_iter()
+            .flatten();
+        let found = self
+            .prospectors
+            .get(&carrier.system_node)
+            .map(Prospector::repeaters)
+            .unwrap_or_default();
+        for freq_hz in entries.chain(found) {
+            if !freqs.contains(&freq_hz) {
+                freqs.push(freq_hz);
             }
         }
         freqs

@@ -1,0 +1,24 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 48000.0,
+    "core:recorder": "sdr--",
+    "core:hw": "Nooelec NESDR SMArt v5",
+    "core:description": "Motorola Capacity Plus rest channel, colour code 5, down-converted to the channel rate from a 2.4 Msps capture centred on 460.802929 MHz. A talkgroup 101 call ends on timeslot 1 and the next one opens on timeslot 2, with the channel-status CSBKs naming the busy slot and the rest channel moving with them."
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 460800000.0,
+      "core:datetime": "2026-08-21T23:01:02.008558Z"
+    }
+  ],
+  "annotations": [
+    {
+      "core:comment": "off-air capture tm_3_20260821T200146Z at 460.800 MHz; source SHA-256 ec77d21734e86b22985719ce8d765adf2e87e1595f5303f7a6034159cb2cc24f; samples 2400000..8160000 at 2400000 Hz",
+      "core:sample_count": 115200,
+      "core:sample_start": 0
+    }
+  ]
+}

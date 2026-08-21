@@ -4,7 +4,8 @@ use std::{
 };
 
 use sdrmm_wire::{
-    DmrChannelEntry, DmrDiscovery, DvFrame, DvFrameKind, TrunkChannel, TrunkChannelSource,
+    DmrChannelEntry, DmrDiscovery, DvFrame, DvFrameKind, DvTrunkProtocol, TrunkChannel,
+    TrunkChannelSource,
 };
 
 use super::Heard;
@@ -42,6 +43,24 @@ const FIT_MINIMUM_POINTS: usize = 3;
 const FIT_STEP_GRANULARITY_HZ: i64 = 1_250;
 
 const FIT_TOLERANCE_HZ: i64 = 625;
+
+/// How many different rest channels a carrier has to have named, in step with the one the operator
+/// pointed the node at, before it is taken for another repeater of the same system. A repeater
+/// broadcasts nothing that names itself, so agreeing once means little - the numbers are small and
+/// a neighbouring system can sit on the same one. Agreeing again after the system moved its rest
+/// channel is what no unrelated system does.
+const REST_AGREEMENTS: usize = 2;
+
+/// How many bursts in a row may name a different rest channel before the agreement behind them is
+/// dropped. A system moves its rest channel between one burst and the next, so the two carriers
+/// disagree for a moment every time it happens.
+const REST_DISAGREEMENTS: u32 = 3;
+
+#[derive(Clone, Debug, Default)]
+struct Agreement {
+    rests: HashSet<u16>,
+    missed: u32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct BandPlan {
@@ -141,6 +160,10 @@ pub(crate) struct Prospector {
     probes: u8,
     enabled: bool,
     spanning: bool,
+    protocol: Option<DvTrunkProtocol>,
+    rest: Option<u16>,
+    agreement: HashMap<u64, Agreement>,
+    repeaters: HashSet<u64>,
 }
 
 impl Prospector {
@@ -163,6 +186,10 @@ impl Prospector {
             probes: 0,
             enabled: false,
             spanning: false,
+            protocol: None,
+            rest: None,
+            agreement: HashMap::new(),
+            repeaters: HashSet::new(),
         };
         prospector.configure(discovery, channel_map);
         prospector
@@ -239,6 +266,72 @@ impl Prospector {
         (lowest..=highest).contains(&freq_hz).then_some(freq_hz)
     }
 
+    pub(crate) fn set_protocol(&mut self, protocol: Option<DvTrunkProtocol>) {
+        if self.protocol == protocol {
+            return;
+        }
+        self.protocol = protocol;
+        self.rest = None;
+        self.agreement.clear();
+        self.repeaters.clear();
+    }
+
+    /// Whether every carrier the system runs is itself a traffic channel, so the search is looking
+    /// for the system's other repeaters rather than for the frequency behind a granted channel.
+    pub(crate) fn shares_traffic(&self) -> bool {
+        matches!(
+            self.protocol,
+            Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt)
+        )
+    }
+
+    /// The rest channel the carrier the operator named is announcing now.
+    pub(crate) fn note_rest(&mut self, rest: Option<u16>) {
+        if let Some(rest) = rest {
+            self.rest = Some(rest);
+        }
+    }
+
+    /// Reports whether a burst has just settled a candidate as another repeater of this system.
+    pub(crate) fn note_repeater(&mut self, freq_hz: u64, frame: &DvFrame) -> bool {
+        if !self.enabled || !self.shares_traffic() || self.repeaters.contains(&freq_hz) {
+            return false;
+        }
+        let (Some(rest), Some(heard)) = (self.rest, frame.rest_channel) else {
+            return false;
+        };
+        if frame.trunk_protocol.is_some_and(|protocol| {
+            !matches!(
+                protocol,
+                DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt
+            )
+        }) {
+            return false;
+        }
+        let agreement = self.agreement.entry(freq_hz).or_default();
+        if heard == rest {
+            agreement.rests.insert(rest);
+            agreement.missed = 0;
+        } else {
+            agreement.missed += 1;
+            if agreement.missed >= REST_DISAGREEMENTS {
+                *agreement = Agreement::default();
+            }
+        }
+        if agreement.rests.len() < REST_AGREEMENTS {
+            return false;
+        }
+        self.agreement.remove(&freq_hz);
+        self.repeaters.insert(freq_hz);
+        true
+    }
+
+    pub(crate) fn repeaters(&self) -> Vec<u64> {
+        let mut found: Vec<u64> = self.repeaters.iter().copied().collect();
+        found.sort_unstable();
+        found
+    }
+
     pub(crate) fn frequency_of(&self, logical_channel: u16) -> Option<u64> {
         self.manual
             .get(&logical_channel)
@@ -294,7 +387,7 @@ impl Prospector {
     /// Reports whether a candidate has just become loud enough, for long enough, to be worth
     /// interrupting the sweep for.
     pub(crate) fn note_carriers(&mut self, heard: &[Heard], now: Instant) -> bool {
-        if !self.enabled || self.wanted.is_empty() {
+        if !self.enabled || !self.hunting() {
             return false;
         }
         self.busy
@@ -528,7 +621,7 @@ impl Prospector {
         self.pending.retain(|grant| grant.expires > now);
         self.wanted
             .retain(|_, since| now.duration_since(*since) < SEARCH_IDLE);
-        if !self.enabled || self.wanted.is_empty() || self.candidates.is_empty() {
+        if !self.enabled || !self.hunting() || self.candidates.is_empty() {
             self.dwell.clear();
             self.busy.clear();
             return Vec::new();
@@ -630,9 +723,21 @@ impl Prospector {
 
     fn probeable(&self, freq_hz: u64, usable: &impl Fn(u64) -> bool) -> bool {
         !self.control.contains(&freq_hz)
+            && !self.repeaters.contains(&freq_hz)
             && !self.learned.values().any(|known| *known == freq_hz)
             && !self.manual.values().any(|known| *known == freq_hz)
             && usable(freq_hz)
+    }
+
+    /// Whether there is anything to search for: a system that grants channels only searches while
+    /// a grant is outstanding, and one whose repeaters are the plan searches whenever it has heard
+    /// the carrier name a rest channel to match against.
+    fn hunting(&self) -> bool {
+        if self.shares_traffic() {
+            self.rest.is_some()
+        } else {
+            !self.wanted.is_empty()
+        }
     }
 
     pub(crate) fn channel_map(&self) -> Vec<TrunkChannel> {
@@ -724,6 +829,105 @@ mod tests {
 
     fn prospector() -> Prospector {
         Prospector::new(&discovery(), &[])
+    }
+
+    fn capacity_plus() -> Prospector {
+        let mut prospector = Prospector::new(&discovery(), &[]);
+        prospector.set_protocol(Some(DvTrunkProtocol::CapacityPlus));
+        prospector
+    }
+
+    fn status(rest: u16) -> DvFrame {
+        DvFrame {
+            rest_channel: Some(rest),
+            trunk_protocol: Some(DvTrunkProtocol::CapacityPlus),
+            ..DvFrame::new(DvMode::Dmr, DvFrameKind::Control)
+        }
+    }
+
+    #[test]
+    fn a_carrier_that_moves_its_rest_channel_in_step_is_another_repeater() {
+        let mut prospector = capacity_plus();
+        prospector.note_rest(Some(3));
+        assert!(
+            !prospector.note_repeater(TRAFFIC_HZ, &status(3)),
+            "one rest channel in common settled a repeater"
+        );
+        prospector.note_rest(Some(4));
+
+        assert!(prospector.note_repeater(TRAFFIC_HZ, &status(4)));
+        assert_eq!(prospector.repeaters(), vec![TRAFFIC_HZ]);
+    }
+
+    #[test]
+    fn a_carrier_that_never_moves_is_never_adopted() {
+        let mut prospector = capacity_plus();
+        prospector.note_rest(Some(3));
+        for _ in 0..32 {
+            assert!(!prospector.note_repeater(TRAFFIC_HZ, &status(3)));
+        }
+        assert!(prospector.repeaters().is_empty());
+    }
+
+    #[test]
+    fn a_carrier_that_keeps_naming_a_rest_channel_of_its_own_loses_what_it_had() {
+        let mut prospector = capacity_plus();
+        prospector.note_rest(Some(3));
+        prospector.note_repeater(TRAFFIC_HZ, &status(3));
+        for _ in 0..REST_DISAGREEMENTS {
+            prospector.note_repeater(TRAFFIC_HZ, &status(9));
+        }
+        prospector.note_rest(Some(4));
+
+        assert!(!prospector.note_repeater(TRAFFIC_HZ, &status(4)));
+        assert!(prospector.repeaters().is_empty());
+    }
+
+    #[test]
+    fn a_moment_of_disagreement_while_the_system_moves_costs_nothing() {
+        let mut prospector = capacity_plus();
+        prospector.note_rest(Some(3));
+        prospector.note_repeater(TRAFFIC_HZ, &status(3));
+        prospector.note_repeater(TRAFFIC_HZ, &status(4));
+        prospector.note_rest(Some(4));
+
+        assert!(prospector.note_repeater(TRAFFIC_HZ, &status(4)));
+    }
+
+    #[test]
+    fn a_system_that_grants_channels_is_not_searched_for_repeaters() {
+        let mut prospector = prospector();
+        prospector.set_protocol(Some(DvTrunkProtocol::TierThree));
+        prospector.note_rest(Some(3));
+        prospector.note_repeater(TRAFFIC_HZ, &status(3));
+        prospector.note_rest(Some(4));
+
+        assert!(!prospector.note_repeater(TRAFFIC_HZ, &status(4)));
+        assert!(prospector.repeaters().is_empty());
+    }
+
+    #[test]
+    fn the_repeater_search_waits_until_the_carrier_names_a_rest_channel() {
+        let mut prospector = capacity_plus();
+        let now = Instant::now();
+        assert!(prospector.schedule(now, &[], |_| true).is_empty());
+
+        prospector.note_rest(Some(3));
+
+        assert!(!prospector.schedule(now, &[], |_| true).is_empty());
+    }
+
+    #[test]
+    fn a_repeater_already_found_is_not_probed_again() {
+        let mut prospector = capacity_plus();
+        prospector.note_rest(Some(3));
+        prospector.note_repeater(TRAFFIC_HZ, &status(3));
+        prospector.note_rest(Some(4));
+        assert!(prospector.note_repeater(TRAFFIC_HZ, &status(4)));
+
+        let chosen = prospector.schedule(Instant::now(), &[], |_| true);
+
+        assert!(!chosen.contains(&TRAFFIC_HZ), "{chosen:?}");
     }
 
     fn grant(logical_channel: u16, destination: u32, source: u32) -> DvFrame {

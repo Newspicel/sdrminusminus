@@ -781,6 +781,22 @@ fn tier_three_control_fixture() -> Vec<Complex<f32>> {
         .collect()
 }
 
+fn capacity_plus_fixture() -> Vec<Complex<f32>> {
+    const FIXTURE: &[u8] =
+        include_bytes!("../../../../../fixtures/dmr_capacity_plus_48k.sigmf-data");
+    FIXTURE
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|s| {
+            Complex::new(
+                f32::from_le_bytes([s[0], s[1], s[2], s[3]]),
+                f32::from_le_bytes([s[4], s[5], s[6], s[7]]),
+            )
+        })
+        .collect()
+}
+
 fn tolerant_channel() -> DmrChannel {
     DmrChannel::new(
         ChannelCtx {
@@ -885,6 +901,155 @@ fn decodes_a_recorded_tier_three_control_channel() {
     for frame in &frames {
         assert_eq!(frame.color_code.unwrap_or(10), 10);
     }
+}
+
+/// The site this fixture came off masks the checksum of every control block, so a receiver left on
+/// its defaults used to hear nothing at all from it.
+#[test]
+fn a_site_that_masks_its_checksums_is_read_without_being_asked_to_be() {
+    let iq = tier_three_control_fixture();
+    let mut chan = channel(DmrSlots::Both);
+    let mut filter = channel_filter();
+    let mut filtered = Vec::new();
+    filter.process(&iq, &mut filtered);
+    let frames = decode(&mut chan, &filtered);
+
+    let control: Vec<&DvFrame> = frames
+        .iter()
+        .filter(|frame| frame.opcode.as_deref() == Some("Capacity Max ALOHA"))
+        .collect();
+    assert!(
+        control.len() > 10,
+        "a strict receiver still heard nothing from the site: {frames:?}"
+    );
+    assert!(
+        control
+            .iter()
+            .all(|frame| frame.crc_verified == Some(false)),
+        "a masked block was passed off as verified"
+    );
+    for logical_channel in [22, 42] {
+        assert!(
+            frames
+                .iter()
+                .any(|frame| frame.channel == Some(logical_channel)),
+            "the grant for logical channel {logical_channel} never reached a strict receiver"
+        );
+    }
+}
+
+#[test]
+fn one_unsummed_block_is_dropped_and_a_run_of_them_is_read() {
+    let payload = [false; 96];
+    let mut decoder = Decoder::new(DmrParams::default());
+    for _ in 1..MASKED_SUM_RUN {
+        assert!(
+            decoder.checked_block(&payload, CSBK_MASK, 0).is_none(),
+            "a lone block with an unreadable sum was believed"
+        );
+    }
+    let frame = decoder
+        .checked_block(&payload, CSBK_MASK, 0)
+        .expect("a run of whole blocks the site sums its own way was thrown away");
+    assert_eq!(frame.crc_verified, Some(false));
+    assert!(
+        decoder.checked_block(&payload, CSBK_MASK, 1).is_none(),
+        "a block that needed repair was read on a masked site's evidence"
+    );
+}
+
+#[test]
+fn a_block_that_sums_up_starts_the_count_over() {
+    let mut payload = [false; 96];
+    let mut bytes = Vec::new();
+    pack_bytes(&payload[..80], &mut bytes);
+    put(
+        &mut payload,
+        80,
+        16,
+        u64::from(dmr_crc16(&bytes) ^ CSBK_MASK),
+    );
+    let mut decoder = Decoder::new(DmrParams::default());
+    let unsummed = [false; 96];
+    for _ in 1..MASKED_SUM_RUN {
+        assert!(decoder.checked_block(&unsummed, CSBK_MASK, 0).is_none());
+    }
+    assert_eq!(
+        decoder
+            .checked_block(&payload, CSBK_MASK, 0)
+            .unwrap()
+            .crc_verified,
+        Some(true)
+    );
+    assert!(
+        decoder.checked_block(&unsummed, CSBK_MASK, 0).is_none(),
+        "one healthy block did not clear the run behind it"
+    );
+}
+
+#[test]
+fn decodes_a_recorded_capacity_plus_rest_channel() {
+    let iq = capacity_plus_fixture();
+    let mut chan = channel(DmrSlots::Both);
+    let mut filter = channel_filter();
+    let mut filtered = Vec::new();
+    filter.process(&iq, &mut filtered);
+    let frames = decode(&mut chan, &filtered);
+
+    let status: Vec<&DvFrame> = frames
+        .iter()
+        .filter(|frame| frame.opcode.as_deref() == Some("Capacity Plus channel status"))
+        .collect();
+    assert!(
+        status.len() > 20,
+        "the rest channel was not read: {frames:?}"
+    );
+    for frame in &status {
+        assert_eq!(frame.color_code, Some(5));
+        assert_eq!(frame.trunk_protocol, Some(DvTrunkProtocol::CapacityPlus));
+        assert_eq!(frame.crc_verified, Some(true));
+    }
+
+    let busy: Vec<(u8, Option<u32>, Option<u16>)> = status
+        .iter()
+        .flat_map(|frame| {
+            frame
+                .slot_activity
+                .iter()
+                .map(|activity| (activity.slot, activity.destination, frame.rest_channel))
+        })
+        .collect();
+    assert!(
+        busy.contains(&(1, Some(101), Some(4))),
+        "the call on timeslot 1 was not announced: {busy:?}"
+    );
+    assert!(
+        busy.contains(&(2, Some(101), Some(3))),
+        "the call on timeslot 2 was not announced, nor the rest channel moving for it: {busy:?}"
+    );
+    assert!(
+        status
+            .iter()
+            .any(|frame| frame.slot_activity.is_empty() && frame.rest_channel == Some(4)),
+        "the gap between the two calls was never reported idle: {busy:?}"
+    );
+
+    let opening = frames
+        .iter()
+        .find(|frame| frame.opcode.as_deref() == Some("Capacity Plus voice channel user"))
+        .expect("the link control that opens the second call");
+    assert_eq!(opening.group_call, Some(true));
+    assert_eq!(opening.source, Some(3_728));
+    assert_eq!(opening.destination, Some(101));
+    assert_eq!(opening.rest_channel, Some(3));
+
+    assert!(
+        frames.iter().any(
+            |frame| frame.opcode.as_deref() == Some("Capacity Plus site Short LC")
+                && frame.rest_channel == Some(3)
+        ),
+        "the CACH never named the rest channel: {frames:?}"
+    );
 }
 
 #[test]
