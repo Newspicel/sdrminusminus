@@ -38,8 +38,11 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `dcf77_2026_2k` | 2 k | `radio_clock` / DCF77 @ 0 Hz | 2026-08-15 12:34 CET, valid parity |
 | `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
 
-Five pairs are **not** written by `cargo xtask fixtures` and are committed instead — two
-recorded off air and three frozen regression renders.
+Six pairs are **not** written by `cargo xtask fixtures` and are committed instead — three
+recorded off air and three frozen regression renders. `cargo xtask excerpt` cuts them: it reads a
+SigMF stem, a WAV, or a raw `cu8`/`cs8`/`cs16`/`cf32` capture, shifts and resamples through the
+same `Ddc` the engine feeds a channel with, and writes the window asked for with the source's
+SHA-256 in the annotation.
 
 | stem | rate | channel | expected |
 |---|---|---|---|
@@ -48,6 +51,7 @@ recorded off air and three frozen regression renders.
 | `freedv_1600_8k` | 8 k | `freedv` @ 0 Hz, USB | FreeDV 1600 sync and decoded Codec2 speech |
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
 | `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
+| `adsb_offair_2m` | 2 M | `adsb` @ 0 Hz | 17 Mode S replies from four aircraft — DF4/5/11/17/20/21, FL370 and squawk 5245 from 4D2256, a TC11 position and a TC19 velocity from 3FF91D |
 
 SSTV and ATV are the two whose output is a picture rather than a log line. ATV shows on the
 channel's own face; SSTV also lands in the picture store, so the decoder log gets one line per
@@ -104,6 +108,14 @@ device.
 - `nxdn_addressed_48k` (0.69 s, 260 KB): a frozen reference-modulator render containing a
   complete four-quarter SACCH message and FACCH call addressing. It is committed so the
   decoder test cannot regenerate the samples it is about to verify.
+- `adsb_offair_2m` (0.2 s, 3.1 MB): 1090 MHz Mode S off air over the Eifel, cut from a 2 Msps
+  RTL-SDR recording. It is committed because nothing generated reproduces what a real sky costs a
+  receiver — overlapping replies, real amplitude spread, and roll-call replies whose address only
+  exists because an all-call squitter arrived first. The 200 ms window is the densest one in the
+  recording that carries all six downlink formats and four aircraft; at 2 Msps that costs 3.1 MB,
+  which is why it is 200 ms and not a second. `adsb::tests::decodes_a_recorded_sky` reads it
+  directly, and `a_recorded_squitter_places_its_aircraft_against_the_receiver` checks the local
+  CPR solution against the position the whole recording solves globally.
 - `freedv_1600_8k` (3 s, 188 KB): the first three seconds of the FreeDV GUI project's
   `wav/ve9qrp_1600.wav` receive test, converted from signed 16-bit mono audio to normalized
   `cf32_le` with a zero quadrature component. The source file's SHA-256 is recorded in the SigMF

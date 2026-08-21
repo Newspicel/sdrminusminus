@@ -1518,4 +1518,110 @@ mod tests {
             );
         }
     }
+
+    fn off_air_recording() -> Vec<Complex<f32>> {
+        const FIXTURE: &[u8] = include_bytes!("../../../fixtures/adsb_offair_2m.sigmf-data");
+        FIXTURE
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|sample| {
+                Complex::new(
+                    f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                    f32::from_le_bytes([sample[4], sample[5], sample[6], sample[7]]),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn decodes_a_recorded_sky() {
+        let iq = off_air_recording();
+
+        let messages = feed(
+            &mut channel(AdsbParams::default()),
+            &iq,
+            &[997, 65_536, 4_096, 1],
+        );
+
+        assert_eq!(messages.len(), 17, "{messages:?}");
+        let seen: std::collections::BTreeSet<&str> =
+            messages.iter().map(|m| m.icao.as_str()).collect();
+        assert_eq!(
+            seen,
+            ["3C65CB", "3FF91D", "4D2256", "780561"]
+                .into_iter()
+                .collect(),
+            "{messages:?}"
+        );
+        let formats: std::collections::BTreeSet<u8> = messages.iter().map(|m| m.df).collect();
+        assert_eq!(
+            formats,
+            [4, 5, 11, 17, 20, 21].into_iter().collect(),
+            "{messages:?}"
+        );
+
+        let reply = |icao: &str, df: u8| {
+            messages
+                .iter()
+                .find(|m| m.icao == icao && m.df == df)
+                .unwrap_or_else(|| panic!("no DF{df} from {icao}: {messages:?}"))
+                .clone()
+        };
+        assert_eq!(reply("4D2256", 4).altitude_ft, Some(37_000));
+        assert_eq!(reply("4D2256", 20).altitude_ft, Some(37_000));
+        assert_eq!(reply("4D2256", 5).squawk.as_deref(), Some("5245"));
+        assert_eq!(reply("4D2256", 21).squawk.as_deref(), Some("5245"));
+        assert_eq!(reply("3C65CB", 20).altitude_ft, Some(38_000));
+        assert_eq!(reply("780561", 11).on_ground, Some(false));
+
+        let squitter = |type_code: u8| {
+            messages
+                .iter()
+                .find(|m| m.icao == "3FF91D" && m.type_code == Some(type_code))
+                .unwrap_or_else(|| panic!("no type {type_code} squitter: {messages:?}"))
+                .clone()
+        };
+        let position = squitter(11);
+        assert_eq!(position.altitude_ft, Some(4_775));
+        assert_eq!(position.lat, None, "one squitter cannot pair a position");
+        let velocity = squitter(19);
+        assert!(
+            (velocity.ground_speed_kt.unwrap_or_default() - 122.29).abs() < 0.01,
+            "{velocity:?}"
+        );
+        assert!(
+            (velocity.track_deg.unwrap_or_default() - 320.97).abs() < 0.01,
+            "{velocity:?}"
+        );
+        assert_eq!(velocity.vertical_rate_fpm, Some(-64));
+    }
+
+    #[test]
+    fn a_recorded_squitter_places_its_aircraft_against_the_receiver() {
+        let iq = off_air_recording();
+
+        let messages = feed(
+            &mut channel(AdsbParams {
+                ref_lat: Some(50.453_789),
+                ref_lon: Some(6.731_607),
+                ..AdsbParams::default()
+            }),
+            &iq,
+            &[4_096],
+        );
+
+        let position = messages
+            .iter()
+            .find(|m| m.icao == "3FF91D" && m.type_code == Some(11))
+            .unwrap_or_else(|| panic!("no airborne position: {messages:?}"));
+        let (lat, lon) = (
+            position.lat.unwrap_or_default(),
+            position.lon.unwrap_or_default(),
+        );
+        assert!(
+            (lat - 50.327_34).abs() < 1e-4 && (lon - 6.735_36).abs() < 1e-4,
+            "{position:?}"
+        );
+    }
 }
