@@ -143,8 +143,24 @@ const SENSORS: &[Device] = &[
             tolerance_us: 0,
         },
         layout: Layout::After {
-            sync: 0x0000_0145,
-            sync_bits: 12,
+            sync: 0x0000_0001,
+            sync_bits: 8,
+            bits: 48,
+            recode: Recode::None,
+        },
+        invert: false,
+        read: payload::ambientweather_f007th,
+    },
+    Device {
+        framing: Framing {
+            coding: Coding::Manchester { short_us: 500 },
+            gap_us: 0,
+            reset_us: 2_400,
+            tolerance_us: 0,
+        },
+        layout: Layout::After {
+            sync: 0x0000_00FD,
+            sync_bits: 8,
             bits: 48,
             recode: Recode::None,
         },

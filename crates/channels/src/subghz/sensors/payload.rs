@@ -188,7 +188,7 @@ pub(super) fn fineoffset_wh2(b: &Payload) -> Option<SubghzReading> {
 }
 
 pub(super) fn ambientweather_f007th(b: &Payload) -> Option<SubghzReading> {
-    if b[0] & 0x0F != 0x05 {
+    if b[0] & 0xF0 != 0x40 {
         return None;
     }
     if lfsr_digest8(0x98, 0x3E, &b[..5]) ^ 0x64 != b[5] {

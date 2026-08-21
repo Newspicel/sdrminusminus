@@ -499,8 +499,8 @@ fn reads_a_wt450_off_its_differential_manchester_symbols() {
 
 #[test]
 fn reads_an_f007th_off_a_manchester_carrier() {
-    let mut bits = vec![true];
-    bits.extend(payload_bits(&[0x14, 0x50], 12));
+    let mut bits = vec![false; 12];
+    bits.push(true);
     bits.extend(payload_bits(&[0x45, 0x93, 0x24, 0x41, 0x30, 0x6F], 48));
     let frames = decode(SubghzParams::default(), &manchester(&bits, 500, 3, RATE));
     let reading = frames
@@ -511,6 +511,43 @@ fn reads_an_f007th_off_a_manchester_carrier() {
     assert_eq!(reading.temperature_c, Some(20.5));
     assert_eq!(reading.humidity_pct, Some(48.0));
     assert_eq!(reading.channel, Some(3));
+}
+
+#[test]
+fn reads_an_f007th_whose_type_nibble_is_not_the_documented_five() {
+    let mut bits = vec![false; 12];
+    bits.push(true);
+    bits.extend(payload_bits(&[0x46, 0x03, 0x34, 0x61, 0x0F, 0x9C], 48));
+    let frames = decode(SubghzParams::default(), &manchester(&bits, 500, 3, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "AmbientWeather-F007TH");
+    assert_eq!(reading.id, 3);
+    assert_eq!(reading.channel, Some(4));
+    assert_eq!(reading.humidity_pct, Some(15.0));
+    assert!(
+        reading
+            .temperature_c
+            .is_some_and(|c| (c - 22.28).abs() < 0.01),
+        "{reading:?}"
+    );
+}
+
+#[test]
+fn reads_an_f007th_repeat_that_arrives_on_the_other_manchester_phase() {
+    let mut bits = vec![true; 12];
+    bits.extend([false, true]);
+    bits.extend(payload_bits(&[0x46, 0x03, 0x34, 0x61, 0x0F, 0x9C], 48));
+    let frames = decode(SubghzParams::default(), &manchester(&bits, 500, 3, RATE));
+    let reading = frames
+        .iter()
+        .find_map(|f| f.reading.as_ref())
+        .expect("a sensor reading");
+    assert_eq!(reading.model, "AmbientWeather-F007TH");
+    assert_eq!(reading.id, 3);
+    assert_eq!(reading.channel, Some(4));
 }
 
 #[test]

@@ -118,8 +118,8 @@ pub fn manchester_timings(bits: &[bool], half_cell_us: u32) -> Vec<u32> {
         }
     }
     out.push(run);
-    if !cells.first().copied().unwrap_or(true) {
-        out.remove(0);
+    if !cells.first().copied().unwrap_or(true) && out.len() >= 2 {
+        out.drain(..2);
     }
     out
 }
