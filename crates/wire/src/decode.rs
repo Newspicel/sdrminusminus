@@ -600,6 +600,10 @@ pub struct DvFrame {
     pub channel_definition: Option<DvChannelDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trunk_protocol: Option<DvTrunkProtocol>,
+    /// Whether the burst came from a trunked site's control channel rather than one of its
+    /// traffic channels, where the air interface says so outright.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_channel: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crc_verified: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

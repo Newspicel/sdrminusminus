@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TrunkChannel } from "../../lib/types";
+import type { TrunkChannel, TrunkSystemStatus } from "../../lib/types";
 import {
   adoptable,
   awaitingControlChannel,
@@ -15,6 +15,7 @@ import {
   planSummary,
   searchCandidates,
   searchSummary,
+  trunkChannelRoles,
   trunkProtocolLabel,
   usable,
   withChannel,
@@ -241,5 +242,56 @@ describe("the control channel field", () => {
     expect(controlChannelStalled(true, null, 0)).toBe(false);
     expect(controlChannelStalled(false, 451_012_500, 0)).toBe(false);
     expect(controlChannelStalled(true, 451_012_500, undefined)).toBe(false);
+  });
+});
+
+const system = (over: Partial<TrunkSystemStatus> = {}): TrunkSystemStatus => ({
+  node: "trunk",
+  carriers: 1,
+  followers: [],
+  problems: [],
+  ...over,
+});
+
+describe("the receivers a trunk system owns", () => {
+  it("names the control channel, the calls it follows and the frequencies it is searching", () => {
+    const roles = trunkChannelRoles(
+      [
+        system({
+          control: { device_set: 1, channel: 9, freq_hz: 460_137_500 },
+          followers: [
+            { device_set: 1, channel: 10, logical_channel: 22, slot: 2, freq_hz: 460_262_500 },
+          ],
+          probes: [{ device_set: 1, channel: 11, freq_hz: 460_512_500 }],
+        }),
+      ],
+      1,
+    );
+
+    expect([...roles]).toEqual([
+      [9, { node: "trunk", role: "control" }],
+      [10, { node: "trunk", role: "call" }],
+      [11, { node: "trunk", role: "search" }],
+    ]);
+  });
+
+  it("leaves the receivers another radio carries to that radio", () => {
+    const roles = trunkChannelRoles(
+      [
+        system({
+          control: { device_set: 1, channel: 9, freq_hz: 460_137_500 },
+          followers: [
+            { device_set: 2, channel: 3, logical_channel: 42, slot: 1, freq_hz: 460_513_000 },
+          ],
+        }),
+      ],
+      2,
+    );
+
+    expect([...roles]).toEqual([[3, { node: "trunk", role: "call" }]]);
+  });
+
+  it("claims nothing while the system has no receivers open", () => {
+    expect(trunkChannelRoles([system()], 1).size).toBe(0);
   });
 });

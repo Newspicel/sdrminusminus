@@ -28,6 +28,32 @@ fn put(bits: &mut [bool], at: usize, width: usize, value: u64) {
 }
 
 #[test]
+fn decodes_a_trellis_coded_data_block() {
+    let payload: [bool; 144] = std::array::from_fn(|index| (index * 7 + index / 5) % 3 == 0);
+    let iq = tx::rate_three_quarter_data(3, &payload, INPUT_RATE_HZ);
+
+    let frames = decode(&mut channel(DmrSlots::Both), &iq);
+
+    let block = frames
+        .iter()
+        .find(|frame| frame.opcode.as_deref() == Some("rate 3/4 data"))
+        .expect("a rate 3/4 data block");
+    assert_eq!(block.color_code, Some(3));
+    assert_eq!(block.data.as_deref(), Some(hex(&payload).as_str()));
+}
+
+fn hex(bits: &[bool]) -> String {
+    bits.chunks(4)
+        .map(|nibble| {
+            let value = nibble
+                .iter()
+                .fold(0u8, |acc, bit| acc << 1 | u8::from(*bit));
+            char::from_digit(u32::from(value), 16).unwrap_or('0')
+        })
+        .collect()
+}
+
+#[test]
 fn decodes_an_absolute_channel_definition_off_the_air() {
     let iq = tx::channel_definition(3, 811, 451_125_000, 456_250_000, INPUT_RATE_HZ);
     let frames = decode(&mut channel(DmrSlots::Both), &iq);
@@ -90,6 +116,23 @@ fn tier_three_grant_exposes_channel_slot_and_flags() {
     assert_eq!(frame.slot, Some(2));
     assert_eq!(frame.late_entry, Some(true));
     assert_eq!(frame.emergency, Some(true));
+}
+
+#[test]
+fn a_grant_names_the_timeslot_it_hands_out_not_the_one_it_arrived_on() {
+    let mut payload = vec![false; 80];
+    put(&mut payload, 2, 6, 0b110001);
+    put(&mut payload, 16, 12, 37);
+    payload[28] = true;
+    let iq = tx::csbk_bits(3, &payload, INPUT_RATE_HZ);
+
+    let frames = decode(&mut channel(DmrSlots::Both), &iq);
+
+    let grant = frames
+        .iter()
+        .find(|frame| frame.channel == Some(37))
+        .expect("a channel grant");
+    assert_eq!(grant.slot, Some(2));
 }
 
 #[test]
@@ -438,7 +481,7 @@ fn absolute_channel_definition_uses_125_hz_steps() {
 }
 
 #[test]
-fn ras_mode_marks_an_unverified_block_and_refuses_a_repaired_one() {
+fn ras_mode_marks_an_unverified_block_and_refuses_a_badly_repaired_one() {
     let payload = [false; 96];
     let mut strict = Decoder::new(DmrParams::default());
     assert!(strict.checked_block(&payload, CSBK_MASK, 0).is_none());
@@ -449,7 +492,16 @@ fn ras_mode_marks_an_unverified_block_and_refuses_a_repaired_one() {
     });
     let frame = ras.checked_block(&payload, CSBK_MASK, 0).expect("kept");
     assert_eq!(frame.crc_verified, Some(false));
-    assert!(ras.checked_block(&payload, CSBK_MASK, 1).is_none());
+    assert!(
+        ras.checked_block(&payload, CSBK_MASK, MAX_UNVERIFIED_REPAIRS)
+            .is_some(),
+        "a block the forward error correction read back was thrown away"
+    );
+    assert!(
+        ras.checked_block(&payload, CSBK_MASK, MAX_UNVERIFIED_REPAIRS + 1)
+            .is_none(),
+        "a block that needed more repair than the checks can cover was handed on"
+    );
 }
 
 fn encoded_tone_sockets() -> [[bool; 216]; 6] {
@@ -686,6 +738,128 @@ fn decodes_a_recorded_call() {
         rms > 0.001 && peak > 0.01,
         "off-air voice produced no signal: rms {rms}, peak {peak}, frames {frames:?}"
     );
+}
+
+fn tier_three_control_fixture() -> Vec<Complex<f32>> {
+    const FIXTURE: &[u8] =
+        include_bytes!("../../../../../fixtures/dmr_tier3_control_48k.sigmf-data");
+    FIXTURE
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|s| {
+            Complex::new(
+                f32::from_le_bytes([s[0], s[1], s[2], s[3]]),
+                f32::from_le_bytes([s[4], s[5], s[6], s[7]]),
+            )
+        })
+        .collect()
+}
+
+fn tolerant_channel() -> DmrChannel {
+    DmrChannel::new(
+        ChannelCtx {
+            input_rate: INPUT_RATE_HZ,
+        },
+        settings(ChannelParams::Dmr(DmrParams {
+            slots: DmrSlots::Both,
+            ignore_crc: true,
+        })),
+    )
+    .expect("dmr channel")
+}
+
+/// A control channel arrives as a receiver actually meets it: from a standing start, through the
+/// channel filter, in the fixed blocks a radio delivers.
+#[test]
+fn a_live_control_channel_decodes_in_the_blocks_a_radio_delivers() {
+    let iq = tier_three_control_fixture();
+    let mut chan = tolerant_channel();
+    let mut filter = channel_filter();
+    let mut filtered = Vec::new();
+    let mut out = ChannelOutputs::default();
+    let mut frames = Vec::new();
+    for block in iq.chunks(1_200) {
+        filter.process(block, &mut filtered);
+        out.reset();
+        chan.process(&filtered, &mut out);
+        for event in out.events.drain(..) {
+            if let DecoderEvent::Dv(frame) = event {
+                frames.push(frame);
+            }
+        }
+    }
+
+    assert!(
+        frames.len() > 50,
+        "a receiver that opened on a live carrier heard {} bursts",
+        frames.len()
+    );
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame.channel == Some(22) || frame.channel == Some(42)),
+        "no channel grant survived the cold start: {frames:?}"
+    );
+}
+
+#[test]
+fn decodes_a_recorded_tier_three_control_channel() {
+    let iq = tier_three_control_fixture();
+    let mut chan = DmrChannel::new(
+        ChannelCtx {
+            input_rate: INPUT_RATE_HZ,
+        },
+        settings(ChannelParams::Dmr(DmrParams {
+            slots: DmrSlots::Both,
+            ignore_crc: true,
+        })),
+    )
+    .expect("dmr channel");
+    let mut filter = channel_filter();
+    let mut filtered = Vec::new();
+    filter.process(&iq, &mut filtered);
+    let frames = decode(&mut chan, &filtered);
+
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame.control_channel == Some(true)
+                && frame.trunk_protocol == Some(DvTrunkProtocol::TierThree)),
+        "the CACH never named the site's control channel: {frames:?}"
+    );
+    assert!(
+        frames
+            .iter()
+            .filter(|frame| frame.opcode.as_deref() == Some("Capacity Max ALOHA"))
+            .count()
+            > 10,
+        "the site was not recognised as Capacity Max: {frames:?}"
+    );
+
+    let grants: Vec<(u16, u8, u32, u32)> = frames
+        .iter()
+        .filter(|frame| frame.data.as_deref() == Some("data call"))
+        .filter_map(|frame| {
+            Some((
+                frame.channel?,
+                frame.slot?,
+                frame.source?,
+                frame.destination?,
+            ))
+        })
+        .collect();
+    assert!(
+        grants.contains(&(22, 2, 9_995, 9_999)),
+        "the grant for logical channel 22 was lost: {grants:?}"
+    );
+    assert!(
+        grants.contains(&(42, 1, 9_999, 9_995)),
+        "the grant for logical channel 42 was lost: {grants:?}"
+    );
+    for frame in &frames {
+        assert_eq!(frame.color_code.unwrap_or(10), 10);
+    }
 }
 
 #[test]

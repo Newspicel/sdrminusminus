@@ -2,6 +2,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, crc16_msb, rs129_parity};
 
 use super::{bits, dibits, filler};
+use crate::dv::dmr::{TRELLIS_DATA_BITS, TRELLIS_DIBITS, TRELLIS_MAP, TRELLIS_NEXT, trellis_slot};
 
 const VOICE_SYNC: u64 = 0x5D57_7F77_57FF;
 const DATA_SYNC: u64 = 0xF7FD_D5DD_FD55;
@@ -15,6 +16,7 @@ const DT_TERMINATOR_WITH_LC: u8 = 0x2;
 const DT_CSBK: u8 = 0x3;
 const DT_MBC_HEADER: u8 = 0x4;
 const DT_MBC_CONTINUATION: u8 = 0x5;
+const DT_RATE_THREE_QUARTER_DATA: u8 = 0x8;
 
 const BAUD: f64 = 4_800.0;
 const DEVIATION_HZ: f64 = 1_944.0;
@@ -288,6 +290,92 @@ pub(crate) fn csbk_bits(color_code: u8, head: &[bool], rate: f64) -> Vec<Complex
         tx.burst(&data_burst(&call, DT_CSBK, &payload));
     }
     tx.modulate(rate)
+}
+
+/// A Tier III control channel handing out a logical channel, repeated the way a real site keeps
+/// announcing a call for as long as it runs.
+#[must_use]
+pub fn tier_three_grant(
+    color_code: u8,
+    logical_channel: u16,
+    slot: u8,
+    destination: u32,
+    source: u32,
+    repeats: usize,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    const TALKGROUP_VOICE_GRANT: u64 = 0b110001;
+
+    let mut payload = vec![false; 80];
+    write(&mut payload, 2, 6, TALKGROUP_VOICE_GRANT);
+    write(&mut payload, 16, 12, u64::from(logical_channel));
+    payload[28] = slot == 2;
+    write(&mut payload, 32, 24, u64::from(destination));
+    write(&mut payload, 56, 24, u64::from(source));
+
+    let mut iq = Vec::new();
+    for _ in 0..repeats {
+        iq.extend(csbk_bits(color_code, &payload, rate));
+    }
+    iq
+}
+
+/// A trellis-coded data burst, the payload a data call carries once its header is out of the way.
+#[must_use]
+pub fn rate_three_quarter_data(
+    color_code: u8,
+    payload: &[bool; TRELLIS_DATA_BITS],
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    let call = Call {
+        color_code,
+        ..Call::default()
+    };
+    let mut tx = Keyed::default();
+    for _ in 0..3 {
+        tx.burst(&trellis_burst(&call, payload));
+    }
+    tx.modulate(rate)
+}
+
+fn trellis_burst(call: &Call, payload: &[bool; TRELLIS_DATA_BITS]) -> Vec<bool> {
+    let coded = trellis_encode(payload);
+    let slot_type = CyclicCode::GOLAY_20_8
+        .encode(u32::from(call.color_code) << 4 | u32::from(DT_RATE_THREE_QUARTER_DATA));
+
+    let mut burst = coded[..98].to_vec();
+    burst.extend(bits(slot_type >> 10, 10));
+    burst.extend(bits(DATA_SYNC, 48));
+    burst.extend(bits(slot_type & 0x3FF, 10));
+    burst.extend(&coded[98..]);
+    burst
+}
+
+fn trellis_encode(payload: &[bool; TRELLIS_DATA_BITS]) -> Vec<bool> {
+    let mut points = [0u8; TRELLIS_DIBITS];
+    let mut state = 0usize;
+    let tribits = payload
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|chunk| {
+            usize::from(chunk[0]) << 2 | usize::from(chunk[1]) << 1 | usize::from(chunk[2])
+        })
+        .chain(std::iter::once(0));
+    for (step, tribit) in tribits.enumerate() {
+        let point = usize::from(TRELLIS_NEXT[state][tribit]);
+        points[step * 2] = TRELLIS_MAP[point][0];
+        points[step * 2 + 1] = TRELLIS_MAP[point][1];
+        state = tribit;
+    }
+
+    let mut air = vec![false; TRELLIS_DIBITS * 2];
+    for index in 0..TRELLIS_DIBITS {
+        let dibit = points[trellis_slot(index)];
+        air[index * 2] = dibit & 2 != 0;
+        air[index * 2 + 1] = dibit & 1 != 0;
+    }
+    air
 }
 
 #[must_use]

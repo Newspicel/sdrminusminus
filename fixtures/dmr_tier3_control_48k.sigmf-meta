@@ -1,0 +1,18 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 48000.0,
+    "core:recorder": "sdr--",
+    "core:hw": "Nooelec NESDR SMArt v5",
+    "core:description": "DMR Tier III control channel of a Motorola Capacity Max site, down-converted to the channel rate from a 2.4 Msps capture centred on 460.802929 MHz. Colour code 10, ALOHA on both timeslots, and the two channel grants that open the calls on logical channels 22 and 42."
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 460137500.0,
+      "core:datetime": "2026-08-20T18:22:56.020062Z"
+    }
+  ],
+  "annotations": []
+}

@@ -28,6 +28,18 @@ const FLOOR_SETTLE: f64 = 4.0;
 
 const CARRIER_RISE: f32 = 4.0;
 
+/// How much the received power may vary, as a fraction of its own mean squared, and still be
+/// read as a carrier rather than as noise.
+///
+/// Power alone cannot tell a carrier that has never stopped from the noise it is measured
+/// against, because the floor it would be compared to was measured on the carrier itself. How
+/// steady the power is can: noise out of a receiver is Rayleigh, so its power varies by about
+/// its own mean, while a constant-envelope transmission barely varies at all. Measured through
+/// this chain a live control channel sits near 0.001 and noise near 0.99, so the bar is set well
+/// clear of both. Real-valued input never reaches it - a tone's power still swings by half its
+/// mean - which leaves those front ends judged on power alone, as before.
+const STEADY_SPREAD: f32 = 0.25;
+
 const IMAGE_TAPS: usize = 127;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -66,6 +78,9 @@ pub struct CpmDemod {
     outer_region: f32,
     envelope: f32,
     floor: f32,
+    steady_level: f32,
+    mean: f32,
+    mean_square: f32,
     envelope_alpha: f32,
     floor_alpha: f32,
     settling: usize,
@@ -181,6 +196,9 @@ impl CpmDemod {
             outer_region: (level_max - params.mapping().min_spacing() / 2.0).max(0.0) / level_max,
             envelope: 0.0,
             floor: 0.0,
+            steady_level: 0.0,
+            mean: 0.0,
+            mean_square: 0.0,
             envelope_alpha: one_pole_coeff(sps, ENVELOPE_TAU_SYMBOLS),
             floor_alpha: one_pole_coeff(sps, FLOOR_TAU_SYMBOLS),
             settling: settle,
@@ -256,9 +274,21 @@ impl CpmDemod {
 
     fn gate_sample(&mut self, power: f32) {
         self.envelope += self.envelope_alpha * (power - self.envelope);
+        self.mean += self.floor_alpha * (power - self.mean);
+        self.mean_square += self.floor_alpha * (power * power - self.mean_square);
         self.settling = self.settling.saturating_sub(1);
-        let keyed = self.settling == 0 && self.envelope > self.floor * CARRIER_RISE;
-        if !keyed {
+        let spread = self.mean_square - self.mean * self.mean;
+        let steady = spread < STEADY_SPREAD * self.mean * self.mean;
+        let keyed = self.settling == 0 && (steady || self.envelope > self.floor * CARRIER_RISE);
+        if steady {
+            self.steady_level = self.mean;
+        }
+        if self.steady_level > 0.0 && self.mean * CARRIER_RISE < self.steady_level {
+            // The steady carrier the floor never got to see underneath has stopped, and what is
+            // left is the noise it was hiding.
+            self.floor = self.mean;
+            self.steady_level = 0.0;
+        } else if !keyed && !steady {
             self.floor += self.floor_alpha * (self.envelope - self.floor);
         }
         self.keyed = if keyed {
@@ -344,6 +374,9 @@ impl CpmDemod {
         self.idle_peak = self.level_max;
         self.envelope = 0.0;
         self.floor = 0.0;
+        self.steady_level = 0.0;
+        self.mean = 0.0;
+        self.mean_square = 0.0;
         self.settling = self.settle_samples;
         self.keyed = 0;
         self.demod_buf.clear();
@@ -437,6 +470,68 @@ mod tests {
         let quiet = noise(seed, len);
         let mut discard = Vec::new();
         demod.process(&quiet, &mut discard);
+    }
+
+    /// A trunked control channel is transmitting before the receiver is switched on and never
+    /// stops, so there is no quiet stretch to measure a noise floor against and no gap to recover
+    /// in. Judging that on power alone reads the carrier as its own floor and the gate never
+    /// opens again.
+    #[test]
+    fn a_carrier_that_never_stopped_keys_the_gate_from_a_cold_start() {
+        let params = four_level(1_944.0);
+        let mut demod = CpmDemod::new(&params, &rx_rrc(), TIMING_BW_BURST);
+        let iq = transmit(&params, &symbols(4_000, 0x5eed, 4));
+        let mut out = Vec::new();
+
+        demod.process(&iq, &mut out);
+
+        let opened = demod
+            .settled()
+            .iter()
+            .position(|&settled| settled)
+            .expect("the gate never opened on a carrier that was already running");
+        assert!(
+            opened < 600,
+            "the gate took {opened} symbols to open on a live carrier"
+        );
+    }
+
+    #[test]
+    fn noise_alone_never_keys_the_gate() {
+        let params = four_level(1_944.0);
+        let mut demod = CpmDemod::new(&params, &rx_rrc(), TIMING_BW_BURST);
+        let mut out = Vec::new();
+
+        demod.process(&noise(0x1157, 96_000), &mut out);
+
+        assert!(
+            demod.settled().iter().all(|&settled| !settled),
+            "noise on its own was taken for a carrier"
+        );
+    }
+
+    #[test]
+    fn a_carrier_that_stops_shuts_the_gate_and_reopens_it_when_it_returns() {
+        let params = four_level(1_944.0);
+        let mut demod = CpmDemod::new(&params, &rx_rrc(), TIMING_BW_BURST);
+        let iq = transmit(&params, &symbols(4_000, 0x5eed, 4));
+        let mut out = Vec::new();
+
+        demod.process(&iq, &mut out);
+        assert!(demod.settled().iter().any(|&settled| settled));
+
+        demod.process(&noise(0x2468, 96_000), &mut out);
+        demod.process(&noise(0x1359, 96_000), &mut out);
+        assert!(
+            demod.settled().iter().all(|&settled| !settled),
+            "the gate stayed open after the carrier went away"
+        );
+
+        demod.process(&iq, &mut out);
+        assert!(
+            demod.settled().iter().any(|&settled| settled),
+            "the gate never reopened when the carrier came back"
+        );
     }
 
     fn symbol_errors(got: &[u8], sent: &[u8], skip: usize) -> (usize, usize) {

@@ -2,7 +2,7 @@ mod carriers;
 mod prospect;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex, Weak, mpsc},
     time::{Duration, Instant},
 };
@@ -11,8 +11,8 @@ use prospect::Prospector;
 use sdrmm_wire::{
     AudioProcessing, ChannelParams, ChannelSettings, DecodedRecord, DecoderEvent, DmrChannelEntry,
     DmrDiscovery, DmrParams, DmrSlots, DmrTrunkProtocol, DvFrame, DvFrameKind, DvTrunkProtocol,
-    StateScope, TrunkChannel, TrunkChannelSource, TrunkFollower, TrunkProbe, TrunkProblem,
-    TrunkSystemStatus,
+    StateScope, TrunkChannel, TrunkChannelSource, TrunkControl, TrunkFollower, TrunkProbe,
+    TrunkProblem, TrunkSystemStatus,
 };
 
 use crate::Engine;
@@ -45,7 +45,14 @@ pub struct TrunkRadio {
 pub(crate) enum TrunkInput {
     Record(Box<DecodedRecord>),
     Configure(Vec<TrunkSystem>),
-    Carriers { device_set: u32, freq_hz: Vec<u64> },
+    Carriers { device_set: u32, heard: Vec<Heard> },
+}
+
+/// A signal the band is carrying: where it sits and how far it stands above the noise.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Heard {
+    pub freq_hz: u64,
+    pub level_db: f32,
 }
 
 #[derive(Clone)]
@@ -137,6 +144,7 @@ pub(crate) fn spawn(
         prospectors: HashMap::new(),
         probes: HashMap::new(),
         controls: HashMap::new(),
+        unreachable: HashSet::new(),
         watching: Vec::new(),
         tx,
     };
@@ -165,6 +173,7 @@ struct Follower {
     prospectors: HashMap<String, Prospector>,
     probes: HashMap<(u32, u32), Probe>,
     controls: HashMap<String, FollowerChannel>,
+    unreachable: HashSet<(u32, u32)>,
     watching: Vec<carriers::Watch>,
     tx: mpsc::Sender<TrunkInput>,
 }
@@ -174,22 +183,21 @@ impl Follower {
         let mut next_reconcile = Instant::now();
         loop {
             let wait = next_reconcile.saturating_duration_since(Instant::now());
-            match rx.recv_timeout(wait) {
+            let woke = match rx.recv_timeout(wait) {
                 Ok(TrunkInput::Record(record)) => self.observe(&record),
-                Ok(TrunkInput::Carriers {
-                    device_set,
-                    freq_hz,
-                }) => self.note_carriers(device_set, &freq_hz),
+                Ok(TrunkInput::Carriers { device_set, heard }) => {
+                    self.note_carriers(device_set, &heard)
+                }
                 Ok(TrunkInput::Configure(systems)) => {
                     self.systems = systems;
-                    self.reconcile();
-                    next_reconcile = Instant::now() + RECONCILE_INTERVAL;
+                    true
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.reconcile();
-                    next_reconcile = Instant::now() + RECONCILE_INTERVAL;
-                }
+                Err(mpsc::RecvTimeoutError::Timeout) => true,
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            };
+            if woke {
+                self.reconcile();
+                next_reconcile = Instant::now() + RECONCILE_INTERVAL;
             }
         }
     }
@@ -208,9 +216,9 @@ impl Follower {
             let Some(info) = set.channels.iter().find(|info| info.id == channel) else {
                 continue;
             };
-            let ChannelParams::Dmr(params) = &info.settings.params else {
+            if !matches!(info.settings.params, ChannelParams::Dmr(_)) {
                 continue;
-            };
+            }
             let Some(center_hz) = set.settings.center_hz else {
                 continue;
             };
@@ -228,7 +236,7 @@ impl Follower {
                     center_hz,
                     sample_rate: crate::sample_rate_of(&set.settings),
                     freq_hz: absolute.round() as u64,
-                    ignore_crc: params.ignore_crc,
+                    ignore_crc: system.radio.is_some_and(|radio| radio.ignore_crc),
                 },
             );
         }
@@ -248,37 +256,36 @@ impl Follower {
         }
     }
 
-    fn observe(&mut self, record: &DecodedRecord) {
+    /// Reports whether the burst asks for the plan to be redrawn before the next tick.
+    fn observe(&mut self, record: &DecodedRecord) -> bool {
         let Some(engine) = self.engine.upgrade() else {
-            return;
+            return false;
         };
         let DecoderEvent::Dv(frame) = &record.event else {
-            return;
+            return false;
         };
         if let Some(probe) = self.probes.get(&(record.device_set, record.channel)) {
             let (system_node, freq_hz) = (probe.system_node.clone(), probe.freq_hz);
             self.prospect(&engine, &system_node, freq_hz, frame);
-            return;
+            return false;
         }
         let Some(carrier) = self
             .carriers
             .get(&(record.device_set, record.channel))
             .cloned()
         else {
-            return;
+            return false;
         };
-        if frame.crc_verified == Some(false) {
-            return;
-        }
         if let Some(protocol) = frame.trunk_protocol {
             self.note_detection(&carrier.system_node, protocol);
         }
         match self.protocol_of(&carrier.system_node, carrier.protocol) {
             Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt) => {
                 self.provision_known_carrier(&engine, &carrier);
+                false
             }
             Some(DvTrunkProtocol::TierThree) => self.observe_tier_three(&engine, &carrier, frame),
-            None => {}
+            None => false,
         }
     }
 
@@ -358,7 +365,7 @@ impl Follower {
         }
     }
 
-    fn note_carriers(&mut self, device_set: u32, freq_hz: &[u64]) {
+    fn note_carriers(&mut self, device_set: u32, heard: &[Heard]) -> bool {
         let now = Instant::now();
         let listening: Vec<String> = self
             .carriers
@@ -366,11 +373,13 @@ impl Follower {
             .filter(|carrier| carrier.device_set == device_set)
             .map(|carrier| carrier.system_node.clone())
             .collect();
+        let mut woke = false;
         for node in listening {
             if let Some(prospector) = self.prospectors.get_mut(&node) {
-                prospector.note_carriers(freq_hz, now);
+                woke |= prospector.note_carriers(heard, now);
             }
         }
+        woke
     }
 
     fn watch_bands(&mut self, engine: &Arc<Engine>, live: &[Carrier]) {
@@ -445,7 +454,7 @@ impl Follower {
             };
             let params = ChannelParams::Dmr(DmrParams {
                 slots: DmrSlots::Both,
-                ignore_crc: radio.ignore_crc,
+                ignore_crc: true,
             });
             let settings = ChannelSettings {
                 offset_hz: radio.control_hz as f64 - center_hz,
@@ -481,6 +490,60 @@ impl Follower {
         }
     }
 
+    fn retune_drifted(&mut self, engine: &Engine) {
+        let state = engine.snapshot();
+        let receivers: Vec<(u32, u32, u64)> = self
+            .controls
+            .values()
+            .map(|control| (control.device_set, control.channel, control.freq_hz))
+            .chain(
+                self.followers
+                    .values()
+                    .map(|follower| (follower.device_set, follower.channel, follower.freq_hz)),
+            )
+            .chain(
+                self.probes
+                    .iter()
+                    .map(|((device_set, channel), probe)| (*device_set, *channel, probe.freq_hz)),
+            )
+            .collect();
+        for (device_set, channel, freq_hz) in receivers {
+            let Some(set) = state.device_sets.iter().find(|set| set.id == device_set) else {
+                continue;
+            };
+            let Some(center_hz) = set.settings.center_hz else {
+                continue;
+            };
+            let Some(info) = set.channels.iter().find(|info| info.id == channel) else {
+                continue;
+            };
+            let offset_hz = freq_hz as f64 - center_hz;
+            if (info.settings.offset_hz - offset_hz).abs() < 1.0 {
+                continue;
+            }
+            let settings = ChannelSettings {
+                offset_hz,
+                ..info.settings.clone()
+            };
+            match engine.patch_channel(device_set, channel, settings) {
+                Ok(()) => {
+                    self.unreachable.remove(&(device_set, channel));
+                }
+                Err(error) => {
+                    if self.unreachable.insert((device_set, channel)) {
+                        tracing::warn!(
+                            device_set,
+                            channel,
+                            freq_hz,
+                            %error,
+                            "could not follow the radio with a trunk receiver"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     fn search(&mut self, engine: &Engine, live: &[Carrier]) {
         let now = Instant::now();
         let mut wanted: Vec<(String, u64, Carrier)> = Vec::new();
@@ -502,6 +565,7 @@ impl Follower {
             let Some(reach) = probe_reach(carrier) else {
                 continue;
             };
+            prospector.cover(carrier.freq_hz, &reach);
             let taken: Vec<u64> = self
                 .followers
                 .iter()
@@ -545,7 +609,7 @@ impl Follower {
     fn open_probe(&mut self, engine: &Engine, system_node: &str, freq_hz: u64, carrier: &Carrier) {
         let params = ChannelParams::Dmr(DmrParams {
             slots: DmrSlots::Both,
-            ignore_crc: carrier.ignore_crc,
+            ignore_crc: true,
         });
         let settings = ChannelSettings {
             offset_hz: freq_hz as f64 - carrier.center_hz,
@@ -573,7 +637,7 @@ impl Follower {
         }
     }
 
-    fn observe_tier_three(&mut self, engine: &Engine, carrier: &Carrier, frame: &DvFrame) {
+    fn observe_tier_three(&mut self, engine: &Engine, carrier: &Carrier, frame: &DvFrame) -> bool {
         if let Some(color_code) = frame.color_code
             && let Ok(color_code) = u8::try_from(color_code)
             && let Some(prospector) = self.prospectors.get_mut(&carrier.system_node)
@@ -587,14 +651,16 @@ impl Follower {
             );
         }
         if frame.kind != DvFrameKind::Control {
-            return;
+            return false;
         }
+        let mut woke = false;
         for call in granted_calls(frame) {
-            self.follow_granted(engine, carrier, call);
+            woke |= self.follow_granted(engine, carrier, call);
         }
+        woke
     }
 
-    fn follow_granted(&mut self, engine: &Engine, carrier: &Carrier, call: GrantedCall) {
+    fn follow_granted(&mut self, engine: &Engine, carrier: &Carrier, call: GrantedCall) -> bool {
         let announced = self
             .definitions
             .get(&(carrier.system_node.clone(), call.logical_channel))
@@ -604,16 +670,18 @@ impl Follower {
                 .get(&carrier.system_node)
                 .and_then(|prospector| prospector.frequency_of(call.logical_channel))
         }) else {
-            if let Some(prospector) = self.prospectors.get_mut(&carrier.system_node) {
-                prospector.note_grant(
-                    call.logical_channel,
-                    call.slot,
-                    call.destination,
-                    call.source,
-                    Instant::now(),
-                );
-            }
-            return;
+            return self
+                .prospectors
+                .get_mut(&carrier.system_node)
+                .is_some_and(|prospector| {
+                    prospector.note_grant(
+                        call.logical_channel,
+                        call.slot,
+                        call.destination,
+                        call.source,
+                        Instant::now(),
+                    )
+                });
         };
         self.ensure_follower(
             engine,
@@ -628,6 +696,7 @@ impl Follower {
                 freq_hz,
             },
         );
+        false
     }
 
     fn provision_known_carrier(&mut self, engine: &Engine, carrier: &Carrier) {
@@ -804,6 +873,7 @@ impl Follower {
             return;
         };
         self.tune_control_channels(&engine);
+        self.retune_drifted(&engine);
         self.carriers = self.resolve_carriers(&engine);
         let live: Vec<Carrier> = self.carriers.values().cloned().collect();
         let known: Vec<(FollowerKey, u32, u32)> = self
@@ -917,6 +987,11 @@ impl Follower {
                 .values()
                 .filter(|carrier| carrier.system_node == system.node)
                 .count() as u32,
+            control: self.controls.get(&system.node).map(|control| TrunkControl {
+                device_set: control.device_set,
+                channel: control.channel,
+                freq_hz: control.freq_hz,
+            }),
             followers: self
                 .followers
                 .iter()
@@ -1053,7 +1128,7 @@ fn probe_reach(carrier: &Carrier) -> Option<std::ops::RangeInclusive<u64>> {
 mod tests {
     use sdrmm_device::DeviceRegistry;
     use sdrmm_device_virtual::VirtualDriver;
-    use sdrmm_wire::{DecoderEvent, DvChannelDefinition, DvMode};
+    use sdrmm_wire::{DecoderEvent, DeviceSettings, DvChannelDefinition, DvMode};
 
     use super::*;
 
@@ -1144,6 +1219,7 @@ mod tests {
             detected: HashMap::new(),
             prospectors: HashMap::new(),
             probes: HashMap::new(),
+            unreachable: HashSet::new(),
             watching: Vec::new(),
             tx: mpsc::channel().0,
         };
@@ -1267,18 +1343,21 @@ mod tests {
     }
 
     #[test]
-    fn an_unverified_grant_is_ignored() {
+    fn a_site_that_checksums_its_own_way_is_still_followed() {
         let engine = engine();
         let (device_set, channel, center_hz) = control_channel(&engine);
         let carrier = (device_set, channel);
         let mut follower = follower(&engine, DmrTrunkProtocol::TierThree, carrier);
+        let traffic = center_hz as u64 + 125_000;
 
-        follower.observe(&record(carrier, definition(center_hz as u64 + 125_000)));
+        follower.observe(&record(carrier, definition(traffic)));
         let mut unverified = grant(1);
         unverified.crc_verified = Some(false);
         follower.observe(&record(carrier, unverified));
 
-        assert_eq!(engine.snapshot().device_sets[0].channels.len(), 1);
+        let status = status(&follower);
+        assert_eq!(status.followers.len(), 1, "the grant was thrown away");
+        assert_eq!(status.followers[0].freq_hz, traffic);
     }
 
     #[test]
@@ -1490,6 +1569,7 @@ mod tests {
             prospectors: HashMap::new(),
             probes: HashMap::new(),
             controls: HashMap::new(),
+            unreachable: HashSet::new(),
             watching: Vec::new(),
             tx: mpsc::channel().0,
         };
@@ -1500,6 +1580,15 @@ mod tests {
         assert_eq!(set.channels.len(), 1, "no control receiver was opened");
         assert_eq!(set.channels[0].settings.offset_hz, 12_500.0);
         assert_eq!(status(&follower).carriers, 1);
+        assert_eq!(
+            status(&follower).control,
+            Some(TrunkControl {
+                device_set,
+                channel: set.channels[0].id,
+                freq_hz: control_hz,
+            }),
+            "the status did not name the control channel"
+        );
 
         follower.systems.clear();
         follower.reconcile();
@@ -1547,6 +1636,7 @@ mod tests {
             prospectors: HashMap::new(),
             probes: HashMap::new(),
             controls: HashMap::new(),
+            unreachable: HashSet::new(),
             watching: Vec::new(),
             tx: mpsc::channel().0,
         };
@@ -1560,6 +1650,70 @@ mod tests {
         assert_eq!(set.channels.len(), 1, "a second control receiver appeared");
         assert_eq!(set.channels[0].id, opened, "the receiver was rebuilt");
         assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
+    }
+
+    #[test]
+    fn retuning_the_radio_keeps_the_control_receiver_on_its_frequency() {
+        let engine = engine();
+        let device_set = engine
+            .create_device_set("virtual:siggen")
+            .expect("virtual device");
+        let center_hz = engine.snapshot().device_sets[0]
+            .settings
+            .center_hz
+            .expect("a tuned radio");
+        let control_hz = center_hz as u64 + 12_500;
+        let mut follower = Follower {
+            engine: Arc::downgrade(&engine),
+            status: Arc::new(Mutex::new(Vec::new())),
+            systems: vec![TrunkSystem {
+                node: "trunk".to_owned(),
+                protocol: DmrTrunkProtocol::TierThree,
+                discovery: DmrDiscovery::default(),
+                channel_map: Vec::new(),
+                learned: Vec::new(),
+                radio: Some(TrunkRadio {
+                    device_set,
+                    stream: 0,
+                    control_hz,
+                    ignore_crc: false,
+                }),
+            }],
+            carriers: HashMap::new(),
+            definitions: HashMap::new(),
+            followers: HashMap::new(),
+            problems: HashMap::new(),
+            detected: HashMap::new(),
+            prospectors: HashMap::new(),
+            probes: HashMap::new(),
+            controls: HashMap::new(),
+            unreachable: HashSet::new(),
+            watching: Vec::new(),
+            tx: mpsc::channel().0,
+        };
+        follower.reconcile();
+        let opened = engine.snapshot().device_sets[0].channels[0].id;
+
+        engine
+            .patch_device(
+                device_set,
+                DeviceSettings {
+                    center_hz: Some(center_hz + 100_000.0),
+                    ..DeviceSettings::default()
+                },
+            )
+            .expect("retune the radio");
+        follower.reconcile();
+
+        let set = engine.snapshot().device_sets.remove(0);
+        assert_eq!(set.channels.len(), 1, "a second control receiver appeared");
+        assert_eq!(set.channels[0].id, opened, "the receiver was rebuilt");
+        let center_hz = set.settings.center_hz.expect("a tuned radio");
+        assert_eq!(
+            center_hz + set.channels[0].settings.offset_hz,
+            control_hz as f64,
+            "the control receiver drifted with the radio"
+        );
     }
 
     #[test]
@@ -1890,10 +2044,9 @@ mod tests {
         let probe = status(&follower).probes[0];
 
         for _ in 0..2 {
-            follower.observe(&record(
-                (probe.device_set, probe.channel),
-                identified_grant(1),
-            ));
+            let mut announced = identified_grant(1);
+            announced.control_channel = Some(true);
+            follower.observe(&record((probe.device_set, probe.channel), announced));
         }
         follower.reconcile();
 

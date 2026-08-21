@@ -697,6 +697,7 @@ mod tests {
             node: node.to_owned(),
             detected: None,
             carriers: 1,
+            control: None,
             followers: Vec::new(),
             problems: Vec::new(),
             channel_map: map

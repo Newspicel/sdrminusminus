@@ -44,6 +44,15 @@ const DT_RATE_THREE_QUARTER_DATA: u8 = 0x8;
 const DT_RATE_ONE_DATA: u8 = 0xA;
 const DT_UNIFIED_SINGLE_BLOCK_DATA: u8 = 0xB;
 
+/// How much repair a block may have needed and still be handed on when its checksum cannot be
+/// trusted. Every row and column of the BPTC block still has to check out either way, which is a
+/// hundred parity bits of evidence. Insisting on an untouched block on top of that would drop
+/// about one burst in thirty off the air, and a channel grant is a single burst.
+const MAX_UNVERIFIED_REPAIRS: u32 = 4;
+
+pub(crate) const TRELLIS_DIBITS: usize = 98;
+pub(crate) const TRELLIS_DATA_BITS: usize = 144;
+
 const VOICE_LC_HEADER_MASK: [u8; 3] = [0x96, 0x96, 0x96];
 const TERMINATOR_LC_MASK: [u8; 3] = [0x99, 0x99, 0x99];
 const PI_HEADER_MASK: u16 = 0x6969;
@@ -556,7 +565,7 @@ impl Decoder {
             }
             _ => return None,
         };
-        frame.slot = slot;
+        frame.slot = frame.slot.or(slot);
         frame.color_code = Some(colour);
         frame.errors_corrected = errors;
         Some(frame)
@@ -566,7 +575,7 @@ impl Decoder {
         pack_bytes(&payload[..80], &mut self.bytes);
         let expected = dmr_crc16(&self.bytes) ^ mask;
         let verified = expected == bits_to_u32(payload, 80, 16) as u16;
-        if !verified && !(self.params.ignore_crc && errors == 0) {
+        if !verified && !(self.params.ignore_crc && errors <= MAX_UNVERIFIED_REPAIRS) {
             return None;
         }
         let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
@@ -920,6 +929,8 @@ fn decode_short_lc(bits: &[bool]) -> DvFrame {
             } else {
                 "Tier III payload-channel system parameters".to_owned()
             });
+            frame.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+            frame.control_channel = Some(slco == 2);
             frame.system_id = Some(bits_to_u32(bits, 6, 12) as u16);
             frame.data = Some(format!(
                 "network model {}, common slot counter {}",
@@ -1435,56 +1446,60 @@ fn hex_bits(bits: &[bool]) -> String {
     out
 }
 
-fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; 144]> {
-    const NEXT: [[u8; 8]; 8] = [
-        [0, 8, 4, 12, 2, 10, 6, 14],
-        [4, 12, 2, 10, 6, 14, 0, 8],
-        [1, 9, 5, 13, 3, 11, 7, 15],
-        [5, 13, 3, 11, 7, 15, 1, 9],
-        [3, 11, 7, 15, 1, 9, 5, 13],
-        [7, 15, 1, 9, 5, 13, 3, 11],
-        [2, 10, 6, 14, 0, 8, 4, 12],
-        [6, 14, 0, 8, 4, 12, 2, 10],
-    ];
-    const MAP: [[u8; 2]; 16] = [
-        [0, 2],
-        [2, 2],
-        [1, 3],
-        [3, 3],
-        [3, 2],
-        [1, 2],
-        [2, 3],
-        [0, 3],
-        [3, 1],
-        [1, 1],
-        [2, 0],
-        [0, 0],
-        [0, 1],
-        [2, 1],
-        [1, 0],
-        [3, 0],
-    ];
-    let mut air = Vec::with_capacity(98);
-    for pair in burst[..98]
+/// Where the dibit that travelled in air slot `index` belongs in the trellis sequence.
+pub(crate) fn trellis_slot(index: usize) -> usize {
+    let (offset, lane) = match index {
+        0..26 => (index, 0),
+        26..50 => (index - 26, 2),
+        50..74 => (index - 50, 4),
+        _ => (index - 74, 6),
+    };
+    offset / 2 * 8 + lane + offset % 2
+}
+
+pub(crate) const TRELLIS_NEXT: [[u8; 8]; 8] = [
+    [0, 8, 4, 12, 2, 10, 6, 14],
+    [4, 12, 2, 10, 6, 14, 0, 8],
+    [1, 9, 5, 13, 3, 11, 7, 15],
+    [5, 13, 3, 11, 7, 15, 1, 9],
+    [3, 11, 7, 15, 1, 9, 5, 13],
+    [7, 15, 1, 9, 5, 13, 3, 11],
+    [2, 10, 6, 14, 0, 8, 4, 12],
+    [6, 14, 0, 8, 4, 12, 2, 10],
+];
+
+pub(crate) const TRELLIS_MAP: [[u8; 2]; 16] = [
+    [0, 2],
+    [2, 2],
+    [1, 3],
+    [3, 3],
+    [3, 2],
+    [1, 2],
+    [2, 3],
+    [0, 3],
+    [3, 1],
+    [1, 1],
+    [2, 0],
+    [0, 0],
+    [0, 1],
+    [2, 1],
+    [1, 0],
+    [3, 0],
+];
+
+fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; TRELLIS_DATA_BITS]> {
+    if burst.len() < BURST_BITS {
+        return None;
+    }
+    let mut encoded = [0u8; TRELLIS_DIBITS];
+    for (index, pair) in burst[..98]
         .as_chunks::<2>()
         .0
         .iter()
-        .chain(burst[166..].as_chunks::<2>().0.iter())
+        .chain(burst[166..BURST_BITS].as_chunks::<2>().0.iter())
+        .enumerate()
     {
-        air.push(u8::from(pair[0]) << 1 | u8::from(pair[1]));
-    }
-    if air.len() != 98 {
-        return None;
-    }
-    let mut encoded = [0u8; 98];
-    for (i, value) in encoded.iter_mut().enumerate() {
-        let source = if i < 50 {
-            (i % 26) * 8 + i / 26
-        } else {
-            let j = i - 50;
-            (j % 24) * 8 + 4 + j / 24
-        };
-        *value = air[97 - source];
+        encoded[trellis_slot(index)] = u8::from(pair[0]) << 1 | u8::from(pair[1]);
     }
     let mut metric = [u16::MAX; 8];
     metric[0] = 0;
@@ -1497,9 +1512,9 @@ fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; 144]> {
                 continue;
             }
             for input in 0..8 {
-                let point = NEXT[state][input];
-                let distance = u16::from(MAP[usize::from(point)][0] != observed[0])
-                    + u16::from(MAP[usize::from(point)][1] != observed[1]);
+                let point = TRELLIS_NEXT[state][input];
+                let distance = u16::from(TRELLIS_MAP[usize::from(point)][0] != observed[0])
+                    + u16::from(TRELLIS_MAP[usize::from(point)][1] != observed[1]);
                 let candidate = cost + distance;
                 if candidate < next_metric[input] {
                     next_metric[input] = candidate;
@@ -1516,7 +1531,7 @@ fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; 144]> {
         tribits[step] = input;
         state = usize::from(previous);
     }
-    let mut out = [false; 144];
+    let mut out = [false; TRELLIS_DATA_BITS];
     for (chunk, &tribit) in out.as_chunks_mut::<3>().0.iter_mut().zip(&tribits[..48]) {
         chunk[0] = tribit & 4 != 0;
         chunk[1] = tribit & 2 != 0;

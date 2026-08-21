@@ -9095,6 +9095,13 @@
             "format": "int32",
             "minimum": 0
           },
+          "control_channel": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the burst came from a trunked site's control channel rather than one of its\ntraffic channels, where the air interface says so outright."
+          },
           "crc_verified": {
             "type": [
               "boolean",
@@ -15591,6 +15598,31 @@
           "predicted"
         ]
       },
+      "TrunkControl": {
+        "type": "object",
+        "required": [
+          "device_set",
+          "channel",
+          "freq_hz"
+        ],
+        "properties": {
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "TrunkFollower": {
         "type": "object",
         "required": [
@@ -15723,6 +15755,16 @@
             ],
             "format": "int32",
             "minimum": 0
+          },
+          "control": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrunkControl"
+              }
+            ]
           },
           "detected": {
             "oneOf": [

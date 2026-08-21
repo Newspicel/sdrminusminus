@@ -138,8 +138,8 @@ pub use scan::{
 };
 pub use state::{
     AudioRecordingStatus, ChannelLevel, DeviceFault, DeviceSet, DeviceSetStatus, PlaybackStatus,
-    RecordingStatus, StateSnapshot, TrunkChannel, TrunkChannelSource, TrunkFollower, TrunkProbe,
-    TrunkProblem, TrunkSystemStatus,
+    RecordingStatus, StateSnapshot, TrunkChannel, TrunkChannelSource, TrunkControl, TrunkFollower,
+    TrunkProbe, TrunkProblem, TrunkSystemStatus,
 };
 pub use timemachine::{
     DEFAULT_TIME_MACHINE_SECONDS, MAX_TIME_MACHINE_BYTES, MAX_TIME_MACHINE_SECONDS,

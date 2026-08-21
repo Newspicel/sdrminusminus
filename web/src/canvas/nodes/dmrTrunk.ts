@@ -5,6 +5,7 @@ import type {
   DvTrunkProtocol,
   TrunkChannel,
   TrunkChannelSource,
+  TrunkSystemStatus,
 } from "../../lib/types";
 
 export const MAX_SEARCH_RANGES = 8;
@@ -249,4 +250,34 @@ export function searchSummary(
     return `${candidates} frequencies ready.`;
   }
   return `Hunting ${searching} logical channel${searching === 1 ? "" : "s"} across ${candidates} frequencies with ${probes} receiver${probes === 1 ? "" : "s"}.`;
+}
+
+export type TrunkChannelRole = "control" | "call" | "search";
+
+export interface TrunkChannelOwner {
+  node: string;
+  role: TrunkChannelRole;
+}
+
+export function trunkChannelRoles(
+  trunks: readonly TrunkSystemStatus[],
+  deviceSet: number,
+): Map<number, TrunkChannelOwner> {
+  const owners = new Map<number, TrunkChannelOwner>();
+  for (const system of trunks) {
+    if (system.control != null && system.control.device_set === deviceSet) {
+      owners.set(system.control.channel, { node: system.node, role: "control" });
+    }
+    for (const follower of system.followers) {
+      if (follower.device_set === deviceSet) {
+        owners.set(follower.channel, { node: system.node, role: "call" });
+      }
+    }
+    for (const probe of system.probes ?? []) {
+      if (probe.device_set === deviceSet) {
+        owners.set(probe.channel, { node: system.node, role: "search" });
+      }
+    }
+  }
+  return owners;
 }

@@ -142,6 +142,10 @@ impl NodeMap {
                 self.map
                     .insert((follower.device_set, follower.channel), system.node.clone());
             }
+            if let Some(control) = &system.control {
+                self.map
+                    .insert((control.device_set, control.channel), system.node.clone());
+            }
         }
         self.workspace = Some(active.info.id);
         self.key = Some(key);

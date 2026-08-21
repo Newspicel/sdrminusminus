@@ -76,6 +76,7 @@ import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
 import { ChannelPicker } from "./ChannelPicker";
 import { tuneDelta } from "./deviceNode";
+import { type TrunkChannelOwner, trunkChannelRoles } from "./dmrTrunk";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
 import {
@@ -284,10 +285,16 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       }
     }
   }
+  const owners = trunkChannelRoles(workspace.trunks, set.id);
+  for (const [channel, owner] of owners) {
+    faces.set(channel, owner.node);
+  }
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
     workspaceChannel ?? (set.channels.some((channel) => channel.id === picked) ? picked : null);
+  const tunableChannel =
+    selectedChannel !== null && !owners.has(selectedChannel) ? selectedChannel : null;
 
   const selectChannel = (channel: number): void => {
     setPicked(channel);
@@ -299,25 +306,29 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
 
   const tuneCenter = (hz: number): void =>
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
-  const tuneChannel = (channel: number, offsetHz: number): void =>
+  const tuneChannel = (channel: number, offsetHz: number): void => {
+    if (owners.has(channel)) {
+      return;
+    }
     applyEdit(set.id, channel, { offset_hz: offsetHz });
+  };
 
   const tuneToBand = (hz: number, suggested: ChannelParams | null): void => {
     const params = suggested === null ? {} : { params: suggested };
-    if (selectedChannel === null) {
+    if (tunableChannel === null) {
       tuneCenter(hz);
       return;
     }
     if (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2) {
       tuneCenter(hz);
-      applyEdit(set.id, selectedChannel, { offset_hz: 0, ...params });
+      applyEdit(set.id, tunableChannel, { offset_hz: 0, ...params });
     } else {
-      applyEdit(set.id, selectedChannel, {
+      applyEdit(set.id, tunableChannel, {
         offset_hz: Math.round(hz - meta.centerHz),
         ...params,
       });
     }
-    const face = faces.get(selectedChannel);
+    const face = faces.get(tunableChannel);
     if (suggested === null || face === undefined) {
       return;
     }
@@ -336,8 +347,8 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   };
 
   const tuneTo = (pick: ScopePick): void => {
-    if (selectedChannel !== null) {
-      tuneChannel(selectedChannel, pick.offsetHz);
+    if (tunableChannel !== null) {
+      tuneChannel(tunableChannel, pick.offsetHz);
     } else {
       tuneCenter(pick.hz);
     }
@@ -657,6 +668,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     gesture.moved = true;
     const at = pointerFraction(event.clientX);
     if (gesture.channel !== null) {
+      if (owners.has(gesture.channel)) {
+        return;
+      }
       setPreview({
         channel: gesture.channel,
         offsetHz: Math.round(spanToOffset(viewToSpan(gesture.view, at), spanHz)),
@@ -717,8 +731,8 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       return;
     }
     const offsetHz = Math.round(spanToOffset(viewToSpan(gesture.view, gesture.at), meta.spanHz));
-    if (selectedChannel !== null) {
-      tuneChannel(selectedChannel, offsetHz);
+    if (tunableChannel !== null) {
+      tuneChannel(tunableChannel, offsetHz);
     } else {
       tuneCenter(meta.centerHz + offsetHz);
     }
@@ -730,7 +744,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const suggestedType = (hz: number): string =>
     channelTypeAt(
       plan === null ? null : suggestedAt(identify(plan, hz)),
-      set.channels.find((channel) => channel.id === selectedChannel),
+      set.channels.find((channel) => channel.id === tunableChannel),
     );
 
   const onContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
@@ -811,6 +825,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
           view={view}
           spanHz={meta.spanHz}
           selected={selectedChannel}
+          owners={owners}
           preview={preview}
           onSelect={selectChannel}
           widthPx={waterfall.width}
@@ -1030,6 +1045,7 @@ function Markers({
   view,
   spanHz,
   selected,
+  owners,
   preview,
   onSelect,
   widthPx,
@@ -1038,6 +1054,7 @@ function Markers({
   view: SpectrumView;
   spanHz: number;
   selected: number | null;
+  owners: ReadonlyMap<number, TrunkChannelOwner>;
   preview: { channel: number; offsetHz: number } | null;
   onSelect: (channel: number) => void;
   widthPx: number;
@@ -1052,7 +1069,7 @@ function Markers({
         offsetHz,
         id: channel.id,
         at: spanToView(view, offsetToSpan(offsetHz, spanHz)),
-        width: labelWidth(markerName(channel, offsetHz), widthPx),
+        width: labelWidth(markerName(channel, offsetHz, owners.get(channel.id)), widthPx),
       };
     })
     .filter((marker) => marker.at >= -0.02 && marker.at <= 1.02);
@@ -1069,6 +1086,7 @@ function Markers({
           <div key={anchor.channel.id}>
             {members.map(({ channel, offsetHz, at }) => {
               const active = channel.id === selected;
+              const owner = owners.get(channel.id);
               const bandwidth = bandwidthHz(channel.settings.params);
               return (
                 <Fragment key={channel.id}>
@@ -1089,13 +1107,15 @@ function Markers({
                   <Button
                     type="button"
                     data-marker={channel.id}
-                    className="pointer-events-auto absolute inset-y-0 w-6 -translate-x-1/2 cursor-ew-resize"
+                    className={`pointer-events-auto absolute inset-y-0 w-6 -translate-x-1/2 ${
+                      owner === undefined ? "cursor-ew-resize" : "cursor-pointer"
+                    }`}
                     style={{ left: `${at * 100}%` }}
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelect(channel.id);
                     }}
-                    aria-label={`${channel.settings.params.type} channel at ${formatSignedKhz(offsetHz)} — drag to tune`}
+                    aria-label={markerHint(channel, offsetHz, owner)}
                   />
                 </Fragment>
               );
@@ -1108,9 +1128,11 @@ function Markers({
               <MarkerLabel
                 active={shown.channel.id === selected}
                 channel={shown.channel.id}
+                owned={owners.has(shown.channel.id)}
+                title={markerHint(shown.channel, shown.offsetHz, owners.get(shown.channel.id))}
                 className={stacked ? "group-hover:hidden" : ""}
               >
-                {markerName(shown.channel, shown.offsetHz)}
+                {markerName(shown.channel, shown.offsetHz, owners.get(shown.channel.id))}
                 {stacked && <span className="ml-1 text-plot-ink-dim">×{members.length}</span>}
               </MarkerLabel>
               {stacked &&
@@ -1119,9 +1141,11 @@ function Markers({
                     key={channel.id}
                     active={channel.id === selected}
                     channel={channel.id}
+                    owned={owners.has(channel.id)}
+                    title={markerHint(channel, offsetHz, owners.get(channel.id))}
                     className="hidden group-hover:block"
                   >
-                    {markerName(channel, offsetHz)}
+                    {markerName(channel, offsetHz, owners.get(channel.id))}
                   </MarkerLabel>
                 ))}
             </div>
@@ -1190,28 +1214,50 @@ function Bookmarks({
   );
 }
 
-function markerName(channel: ChannelInfo, offsetHz: number): string {
-  return `${channel.settings.params.type.toUpperCase()} ${formatSignedKhz(offsetHz)}`;
+function markerName(
+  channel: ChannelInfo,
+  offsetHz: number,
+  owner: TrunkChannelOwner | undefined,
+): string {
+  const name = owner?.role ?? channel.settings.params.type;
+  return `${name.toUpperCase()} ${formatSignedKhz(offsetHz)}`;
+}
+
+function markerHint(
+  channel: ChannelInfo,
+  offsetHz: number,
+  owner: TrunkChannelOwner | undefined,
+): string {
+  const at = `at ${formatSignedKhz(offsetHz)}`;
+  if (owner === undefined) {
+    return `${channel.settings.params.type} channel ${at} — drag to tune`;
+  }
+  return `trunk ${owner.role} channel ${at} — the system it belongs to tunes it`;
 }
 
 function MarkerLabel({
   active,
   className,
   channel,
+  owned = false,
+  title,
   children,
 }: {
   active: boolean;
   className?: string;
   channel?: number;
+  owned?: boolean;
+  title?: string;
   children: ReactNode;
 }) {
   return (
     <span
       aria-hidden
       data-marker={channel}
+      title={title}
       className={`rounded-[2px] border px-1 py-px font-mono text-[10px] whitespace-nowrap tabular-nums ${
         active ? "border-accent bg-bg text-accent" : "border-line bg-bg/85 text-ink-dim"
-      } ${channel === undefined ? "" : "cursor-ew-resize"} ${className ?? ""}`}
+      } ${channel === undefined || owned ? "" : "cursor-ew-resize"} ${className ?? ""}`}
     >
       {children}
     </span>

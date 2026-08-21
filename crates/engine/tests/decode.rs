@@ -1026,7 +1026,9 @@ async fn ysf_callsigns_survive_a_recorded_virtual_device() {
             audio: Default::default(),
         },
         |event| {
-            matches!(event, DecoderEvent::Dv(frame) if frame.mode == DvMode::Ysf && frame.source_call.as_deref() == Some("DL1ABC"))
+            matches!(event, DecoderEvent::Dv(frame) if frame.mode == DvMode::Ysf
+                && frame.kind == DvFrameKind::Header
+                && frame.source_call.as_deref() == Some("DL1ABC"))
         },
     )
     .await;

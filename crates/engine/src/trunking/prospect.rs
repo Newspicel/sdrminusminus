@@ -4,9 +4,10 @@ use std::{
 };
 
 use sdrmm_wire::{
-    DmrChannelEntry, DmrDiscovery, DvFrame, DvFrameKind, DvTrunkProtocol, TrunkChannel,
-    TrunkChannelSource,
+    DmrChannelEntry, DmrDiscovery, DvFrame, DvFrameKind, TrunkChannel, TrunkChannelSource,
 };
+
+use super::Heard;
 
 const GRANT_WINDOW: Duration = Duration::from_secs(8);
 
@@ -28,7 +29,13 @@ const MAX_PENDING: usize = 64;
 
 const CARRIER_MEMORY: Duration = Duration::from_secs(5);
 
+/// How many snapshots in a row a candidate has to be loud in before the search believes it. One
+/// is a noise run; two is a transmitter.
+const CARRIER_SIGHTINGS: u32 = 2;
+
 const CARRIER_SNAP_HZ: u64 = 2_500;
+
+const RASTER_HZ: u64 = 12_500;
 
 const FIT_MINIMUM_POINTS: usize = 3;
 
@@ -90,6 +97,15 @@ impl BandPlan {
     }
 }
 
+/// A candidate the band is loud on: when the run of loudness started, when it was last seen, and
+/// how many snapshots have backed it up.
+#[derive(Clone, Copy, Debug)]
+struct Sighting {
+    seen: Instant,
+    count: u32,
+    level_db: f32,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct PendingGrant {
     logical_channel: u16,
@@ -116,12 +132,14 @@ pub(crate) struct Prospector {
     pending: Vec<PendingGrant>,
     wanted: HashMap<u16, Instant>,
     control: HashSet<u64>,
+    payload: HashSet<u64>,
     dwell: HashMap<u64, Instant>,
-    busy: HashMap<u64, Instant>,
+    busy: HashMap<u64, Sighting>,
     plan: Option<BandPlan>,
     color_code: Option<u8>,
     probes: u8,
     enabled: bool,
+    spanning: bool,
 }
 
 impl Prospector {
@@ -135,12 +153,14 @@ impl Prospector {
             pending: Vec::new(),
             wanted: HashMap::new(),
             control: HashSet::new(),
+            payload: HashSet::new(),
             dwell: HashMap::new(),
             busy: HashMap::new(),
             plan: None,
             color_code: None,
             probes: 0,
             enabled: false,
+            spanning: false,
         };
         prospector.configure(discovery, channel_map);
         prospector
@@ -153,6 +173,7 @@ impl Prospector {
             .collect();
         self.probes = discovery.probes();
         self.enabled = discovery.enabled && discovery.valid();
+        self.spanning = self.enabled && discovery.ranges.is_empty();
         let mut candidates: Vec<u64> = if self.enabled {
             discovery
                 .ranges
@@ -164,11 +185,34 @@ impl Prospector {
         };
         candidates.sort_unstable();
         candidates.dedup();
+        if !self.spanning {
+            self.adopt_candidates(candidates);
+        }
+        self.refit();
+    }
+
+    /// A search the operator turned on without naming a band covers everything the radio can
+    /// already hear, stepped off the control channel the site itself transmits on.
+    pub(crate) fn cover(&mut self, control_hz: u64, reach: &std::ops::RangeInclusive<u64>) {
+        if !self.spanning {
+            return;
+        }
+        let below = control_hz.saturating_sub(*reach.start()) / RASTER_HZ;
+        let above = reach.end().saturating_sub(control_hz) / RASTER_HZ;
+        let first = control_hz.saturating_sub(below * RASTER_HZ);
+        let candidates: Vec<u64> = (0..=below + above)
+            .map(|step| first + step * RASTER_HZ)
+            .filter(|freq_hz| reach.contains(freq_hz))
+            .take(sdrmm_wire::MAX_DMR_SEARCH_CANDIDATES)
+            .collect();
+        self.adopt_candidates(candidates);
+    }
+
+    fn adopt_candidates(&mut self, candidates: Vec<u64>) {
         if candidates != self.candidates {
             self.candidates = candidates;
             self.cursor = 0;
         }
-        self.refit();
     }
 
     fn refit(&mut self) {
@@ -224,17 +268,30 @@ impl Prospector {
         self.refit();
     }
 
-    pub(crate) fn note_carriers(&mut self, freq_hz: &[u64], now: Instant) {
+    /// Reports whether a candidate has just become loud enough, for long enough, to be worth
+    /// interrupting the sweep for.
+    pub(crate) fn note_carriers(&mut self, heard: &[Heard], now: Instant) -> bool {
         if !self.enabled || self.wanted.is_empty() {
-            return;
-        }
-        for observed in freq_hz {
-            if let Some(candidate) = self.nearest_candidate(*observed) {
-                self.busy.insert(candidate, now);
-            }
+            return false;
         }
         self.busy
-            .retain(|_, seen| now.duration_since(*seen) < CARRIER_MEMORY);
+            .retain(|_, sighting| now.duration_since(sighting.seen) < CARRIER_MEMORY);
+        let mut woke = false;
+        for observed in heard {
+            let Some(candidate) = self.nearest_candidate(observed.freq_hz) else {
+                continue;
+            };
+            let sighting = self.busy.entry(candidate).or_insert(Sighting {
+                seen: now,
+                count: 0,
+                level_db: observed.level_db,
+            });
+            sighting.seen = now;
+            sighting.count += 1;
+            sighting.level_db = sighting.level_db.max(observed.level_db);
+            woke |= sighting.count == CARRIER_SIGHTINGS;
+        }
+        woke
     }
 
     fn nearest_candidate(&self, freq_hz: u64) -> Option<u64> {
@@ -256,11 +313,11 @@ impl Prospector {
         destination: u32,
         source: Option<u32>,
         now: Instant,
-    ) {
+    ) -> bool {
         if !self.enabled || self.frequency_of(logical_channel).is_some() {
-            return;
+            return false;
         }
-        self.wanted.insert(logical_channel, now);
+        let fresh = self.wanted.insert(logical_channel, now).is_none();
         self.pending.retain(|grant| grant.expires > now);
         let source = source.filter(|source| *source != 0);
         if let Some(grant) = self.pending.iter_mut().find(|grant| {
@@ -270,7 +327,7 @@ impl Prospector {
         }) {
             grant.expires = now + GRANT_WINDOW;
             grant.source = grant.source.or(source);
-            return;
+            return fresh;
         }
         if self.pending.len() >= MAX_PENDING {
             self.pending.remove(0);
@@ -282,6 +339,7 @@ impl Prospector {
             source,
             expires: now + GRANT_WINDOW,
         });
+        fresh
     }
 
     pub(crate) fn note_probe(
@@ -290,14 +348,17 @@ impl Prospector {
         frame: &DvFrame,
         now: Instant,
     ) -> Option<Match> {
-        if frame.crc_verified == Some(false) {
-            return None;
+        if frame.control_channel == Some(false) {
+            self.payload.insert(freq_hz);
+            self.control.remove(&freq_hz);
         }
-        if frame.trunk_protocol == Some(DvTrunkProtocol::TierThree)
-            && frame.kind == DvFrameKind::Control
-        {
+        if frame.control_channel == Some(true) {
+            self.payload.remove(&freq_hz);
             self.control.insert(freq_hz);
             return None;
+        }
+        if let Some(found) = self.note_late_entry(freq_hz, frame, now) {
+            return Some(found);
         }
         if !identifies_a_call(frame) {
             return None;
@@ -310,11 +371,7 @@ impl Prospector {
         let destination = frame.destination?;
         self.pending.retain(|grant| grant.expires > now);
         let (logical_channel, slot) = self.sole_candidate(frame, destination)?;
-        let identified = frame.source.is_some_and(|source| {
-            self.pending.iter().any(|grant| {
-                grant.logical_channel == logical_channel && grant.source == Some(source)
-            })
-        });
+        let identified = self.names_both_radios(logical_channel, frame);
         if frame.kind == DvFrameKind::Data && !identified {
             return None;
         }
@@ -323,6 +380,37 @@ impl Prospector {
         } else {
             ANONYMOUS_WEIGHT
         };
+        Some(self.credit(logical_channel, slot, freq_hz, weight, now))
+    }
+
+    /// A traffic channel repeats the grant for the call it is carrying so a radio can join late,
+    /// which names the logical channel the transmitter is sitting on. Only a frequency the CACH
+    /// has already called a payload channel is read this way, so a neighbouring control channel
+    /// handing out somebody else's channel is never mistaken for it - and only a channel grant,
+    /// because the announcements that move a radio elsewhere name a channel they are not on.
+    fn note_late_entry(&mut self, freq_hz: u64, frame: &DvFrame, now: Instant) -> Option<Match> {
+        if frame.kind != DvFrameKind::Control
+            || frame.late_entry.is_none()
+            || !self.payload.contains(&freq_hz)
+        {
+            return None;
+        }
+        let logical_channel = frame.channel?;
+        if self.frequency_of(logical_channel).is_some() {
+            return None;
+        }
+        let slot = frame.slot.unwrap_or(1);
+        Some(self.credit(logical_channel, slot, freq_hz, ANONYMOUS_WEIGHT, now))
+    }
+
+    fn credit(
+        &mut self,
+        logical_channel: u16,
+        slot: u8,
+        freq_hz: u64,
+        weight: i32,
+        now: Instant,
+    ) -> Match {
         self.contradict(logical_channel, freq_hz);
         self.dwell.insert(freq_hz, now);
         let score = self.scores.entry((logical_channel, freq_hz)).or_insert(0);
@@ -337,26 +425,21 @@ impl Prospector {
                 .retain(|grant| grant.logical_channel != logical_channel);
             self.refit();
         }
-        Some(Match {
+        Match {
             logical_channel,
             slot,
             freq_hz,
             confirmed,
-        })
+        }
     }
 
     fn sole_candidate(&self, frame: &DvFrame, destination: u32) -> Option<(u16, u8)> {
         let mut found: Option<(u16, u8)> = None;
         for grant in &self.pending {
-            if grant.destination != destination {
-                continue;
-            }
             if frame.slot.is_some_and(|slot| slot != grant.slot) {
                 continue;
             }
-            if let (Some(seen), Some(granted)) = (frame.source, grant.source)
-                && seen != granted
-            {
+            if !answers(grant, frame, destination) {
                 continue;
             }
             match found {
@@ -367,6 +450,21 @@ impl Prospector {
             }
         }
         found
+    }
+
+    /// Whether the burst names the two radios the grant named, whichever way round. Both halves
+    /// of a conversation run on the channel that was handed out, so an answer is as good a
+    /// witness as the call that prompted it - and naming both radios is a stricter test than
+    /// matching the called party alone.
+    fn names_both_radios(&self, logical_channel: u16, frame: &DvFrame) -> bool {
+        let (Some(source), Some(destination)) = (frame.source, frame.destination) else {
+            return false;
+        };
+        self.pending.iter().any(|grant| {
+            grant.logical_channel == logical_channel
+                && ((grant.source == Some(source) && grant.destination == destination)
+                    || (grant.source == Some(destination) && grant.destination == source))
+        })
     }
 
     fn contradict(&mut self, logical_channel: u16, freq_hz: u64) {
@@ -412,6 +510,7 @@ impl Prospector {
         let budget = usize::from(self.probes);
         let mut chosen: Vec<u64> = Vec::with_capacity(budget);
         let mut expired: Vec<u64> = Vec::new();
+        let mut holding: Vec<u64> = Vec::new();
         for freq_hz in open {
             if !self.probeable(*freq_hz, &usable) {
                 continue;
@@ -419,8 +518,26 @@ impl Prospector {
             let since = self.dwell.get(freq_hz).copied().unwrap_or(now);
             if now.duration_since(since) >= DWELL {
                 expired.push(*freq_hz);
-            } else if chosen.len() < budget && !chosen.contains(freq_hz) {
-                chosen.push(*freq_hz);
+            } else {
+                holding.push(*freq_hz);
+            }
+        }
+        let mut heard: Vec<(f32, u64)> = self
+            .busy
+            .iter()
+            .filter(|(_, sighting)| {
+                sighting.count >= CARRIER_SIGHTINGS
+                    && now.duration_since(sighting.seen) < CARRIER_MEMORY
+            })
+            .map(|(freq_hz, sighting)| (sighting.level_db, *freq_hz))
+            .collect();
+        heard.sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+        for (_, freq_hz) in heard {
+            if chosen.len() >= budget {
+                break;
+            }
+            if self.selectable(freq_hz, &chosen, &expired, &usable) {
+                chosen.push(freq_hz);
             }
         }
         let mut hot: Vec<(i32, u64)> = self
@@ -438,14 +555,7 @@ impl Prospector {
                 chosen.push(freq_hz);
             }
         }
-        let mut heard: Vec<u64> = self
-            .busy
-            .iter()
-            .filter(|(_, seen)| now.duration_since(**seen) < CARRIER_MEMORY)
-            .map(|(freq_hz, _)| *freq_hz)
-            .collect();
-        heard.sort_unstable();
-        for freq_hz in heard {
+        for freq_hz in holding {
             if chosen.len() >= budget {
                 break;
             }
@@ -543,6 +653,18 @@ impl Prospector {
     }
 }
 
+/// Whether the burst belongs to the call the grant handed the channel out for: the call itself,
+/// addressed to the party that was called, or the answer coming back the other way.
+fn answers(grant: &PendingGrant, frame: &DvFrame, destination: u32) -> bool {
+    let called = grant.destination == destination
+        && match (frame.source, grant.source) {
+            (Some(seen), Some(granted)) => seen == granted,
+            _ => true,
+        };
+    let answering = grant.source == Some(destination) && frame.source == Some(grant.destination);
+    called || answering
+}
+
 /// A data call names its parties in a header that looks much like any other burst, so a system
 /// that only ever carries telemetry can still be placed. It is held to the stricter of the two
 /// tests below: only a matching radio counts, because a control channel carries short data too.
@@ -555,7 +677,7 @@ fn identifies_a_call(frame: &DvFrame) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{DmrSearchRange, DvMode};
+    use sdrmm_wire::{DmrSearchRange, DvMode, DvTrunkProtocol};
 
     use super::*;
 
@@ -581,6 +703,7 @@ mod tests {
     fn grant(logical_channel: u16, destination: u32, source: u32) -> DvFrame {
         DvFrame {
             channel: Some(logical_channel),
+            late_entry: Some(false),
             slot: Some(1),
             destination: Some(destination),
             source: Some(source),
@@ -599,6 +722,13 @@ mod tests {
         }
     }
 
+    fn loud(freq_hz: u64) -> Heard {
+        Heard {
+            freq_hz,
+            level_db: 20.0,
+        }
+    }
+
     fn bind(prospector: &mut Prospector, frame: &DvFrame, now: Instant) -> Option<Match> {
         bind_at(prospector, TRAFFIC_HZ, frame, now)
     }
@@ -614,6 +744,81 @@ mod tests {
             last = prospector.note_probe(freq_hz, frame, now);
         }
         last
+    }
+
+    #[test]
+    fn a_search_without_a_named_band_covers_what_the_radio_can_hear() {
+        let mut prospector = Prospector::new(
+            &DmrDiscovery {
+                enabled: true,
+                ranges: Vec::new(),
+                max_probes: 4,
+            },
+            &[],
+        );
+        let now = Instant::now();
+        prospector.cover(460_137_500, &(459_612_500..=461_012_500));
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+
+        let chosen = prospector.schedule(now, &[], |_| true);
+
+        assert!(!chosen.is_empty(), "an unnamed search picked nothing");
+        assert!(
+            prospector.candidates.contains(&460_262_500)
+                && prospector.candidates.contains(&460_512_500),
+            "the band the radio is tuned to was not stepped off the control channel"
+        );
+        assert!(
+            prospector
+                .candidates
+                .iter()
+                .all(|freq_hz| (459_612_500..=461_012_500).contains(freq_hz)),
+            "the search reached past what the radio can hear"
+        );
+    }
+
+    #[test]
+    fn a_named_band_is_never_widened_to_the_whole_radio() {
+        let mut prospector = prospector();
+        prospector.cover(451_012_500, &(450_000_000..=452_000_000));
+
+        assert_eq!(
+            *prospector.candidates.last().expect("candidates"),
+            451_050_000
+        );
+    }
+
+    #[test]
+    fn a_carrier_that_holds_for_two_snapshots_asks_for_an_early_look() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+
+        assert!(
+            !prospector.note_carriers(&[loud(TRAFFIC_HZ)], now),
+            "one loud snapshot was taken for a transmitter"
+        );
+        assert!(prospector.note_carriers(&[loud(TRAFFIC_HZ)], now));
+        assert!(
+            !prospector.note_carriers(&[loud(TRAFFIC_HZ)], now),
+            "a carrier that was already believed woke the search again"
+        );
+    }
+
+    #[test]
+    fn a_single_loud_snapshot_never_displaces_the_sweep() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.probes = 1;
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+
+        prospector.note_carriers(&[loud(451_037_600)], now);
+
+        assert_ne!(
+            prospector.schedule(now, &[], |_| true),
+            vec![451_037_500],
+            "a one-snapshot noise run stole the only probe"
+        );
     }
 
     #[test]
@@ -668,8 +873,10 @@ mod tests {
         let mut prospector = prospector();
         let now = Instant::now();
         prospector.note_grant(LCN, 1, 91, Some(4001), now);
+        let mut announced = grant(LCN, 91, 4001);
+        announced.control_channel = Some(true);
 
-        let outcome = prospector.note_probe(TRAFFIC_HZ, &grant(LCN, 91, 4001), now);
+        let outcome = prospector.note_probe(TRAFFIC_HZ, &announced, now);
 
         assert!(outcome.is_none());
         assert!(prospector.frequency_of(LCN).is_none());
@@ -679,6 +886,65 @@ mod tests {
                 .contains(&TRAFFIC_HZ),
             "a known control channel stayed in the search"
         );
+    }
+
+    #[test]
+    fn a_traffic_channel_that_announces_its_own_call_places_itself() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+        let mut cach = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        cach.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+        cach.control_channel = Some(false);
+        prospector.note_probe(TRAFFIC_HZ, &cach, now);
+
+        let mut last = None;
+        for _ in 0..CONFIRM_SCORE {
+            last = prospector.note_probe(TRAFFIC_HZ, &grant(LCN, 91, 4001), now);
+        }
+
+        assert_eq!(
+            last,
+            Some(Match {
+                logical_channel: LCN,
+                slot: 1,
+                freq_hz: TRAFFIC_HZ,
+                confirmed: true,
+            })
+        );
+        assert_eq!(prospector.frequency_of(LCN), Some(TRAFFIC_HZ));
+    }
+
+    #[test]
+    fn an_announcement_naming_another_channel_places_nothing() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+        let mut cach = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        cach.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+        cach.control_channel = Some(false);
+        prospector.note_probe(TRAFFIC_HZ, &cach, now);
+        let mut elsewhere = grant(LCN, 91, 4001);
+        elsewhere.late_entry = None;
+
+        for _ in 0..CONFIRM_SCORE * 2 {
+            prospector.note_probe(TRAFFIC_HZ, &elsewhere, now);
+        }
+
+        assert_eq!(prospector.frequency_of(LCN), None);
+    }
+
+    #[test]
+    fn a_channel_announced_before_the_cach_names_the_channel_kind_is_not_placed() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+
+        for _ in 0..CONFIRM_SCORE * 2 {
+            prospector.note_probe(TRAFFIC_HZ, &grant(LCN, 91, 4001), now);
+        }
+
+        assert_eq!(prospector.frequency_of(LCN), None);
     }
 
     #[test]
@@ -693,31 +959,57 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_that_failed_its_checks_never_counts() {
+    fn a_site_that_checksums_its_own_way_still_places_a_channel() {
         let mut prospector = prospector();
         let now = Instant::now();
         prospector.note_grant(LCN, 1, 91, Some(4001), now);
-        let mut broken = voice(91, 4001);
-        broken.crc_verified = Some(false);
+        let mut unchecked = voice(91, 4001);
+        unchecked.crc_verified = Some(false);
 
-        assert!(prospector.note_probe(TRAFFIC_HZ, &broken, now).is_none());
+        let found = prospector
+            .note_probe(TRAFFIC_HZ, &unchecked, now)
+            .expect("an unverified burst was thrown away");
+
+        assert_eq!(found.logical_channel, LCN);
+        assert_eq!(found.freq_hz, TRAFFIC_HZ);
     }
 
     #[test]
-    fn a_control_frame_that_failed_its_checks_never_blacklists_a_frequency() {
+    fn a_traffic_channel_that_repeats_a_grant_is_not_taken_for_a_control_channel() {
         let mut prospector = prospector();
         let now = Instant::now();
         prospector.note_grant(LCN, 1, 91, Some(4001), now);
-        let mut broken = grant(LCN, 91, 4001);
-        broken.crc_verified = Some(false);
+        let mut payload = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        payload.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+        payload.control_channel = Some(false);
 
-        prospector.note_probe(TRAFFIC_HZ, &broken, now);
+        prospector.note_probe(TRAFFIC_HZ, &payload, now);
+        prospector.note_probe(TRAFFIC_HZ, &grant(LCN, 91, 4001), now);
 
         assert!(
             prospector
                 .schedule(now, &[], |_| true)
                 .contains(&TRAFFIC_HZ),
-            "a corrupt frame dropped a frequency from the search"
+            "the traffic channel was blacklisted as another site's control channel"
+        );
+    }
+
+    #[test]
+    fn a_neighbouring_control_channel_leaves_the_search() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+        let mut control = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        control.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+        control.control_channel = Some(true);
+
+        prospector.note_probe(TRAFFIC_HZ, &control, now);
+
+        assert!(
+            !prospector
+                .schedule(now, &[], |_| true)
+                .contains(&TRAFFIC_HZ),
+            "a control channel stayed in the traffic search"
         );
     }
 
@@ -1064,7 +1356,8 @@ mod tests {
         prospector.probes = 1;
         prospector.note_grant(LCN, 1, 91, Some(4001), now);
 
-        prospector.note_carriers(&[451_037_600], now);
+        prospector.note_carriers(&[loud(451_037_600)], now);
+        prospector.note_carriers(&[loud(451_037_600)], now);
 
         assert_eq!(
             prospector.schedule(now, &[], |_| true),
@@ -1079,7 +1372,7 @@ mod tests {
         let now = Instant::now();
         prospector.note_grant(LCN, 1, 91, Some(4001), now);
 
-        prospector.note_carriers(&[451_006_250], now);
+        prospector.note_carriers(&[loud(451_006_250)], now);
 
         assert!(
             prospector.busy.is_empty(),
@@ -1092,7 +1385,7 @@ mod tests {
         let mut prospector = prospector();
         let now = Instant::now();
 
-        prospector.note_carriers(&[451_012_500], now);
+        prospector.note_carriers(&[loud(451_012_500)], now);
 
         assert!(prospector.busy.is_empty());
     }
@@ -1103,7 +1396,7 @@ mod tests {
         let now = Instant::now();
         prospector.probes = 1;
         prospector.note_grant(LCN, 1, 91, Some(4001), now);
-        prospector.note_carriers(&[451_037_500], now);
+        prospector.note_carriers(&[loud(451_037_500)], now);
 
         let later = now + CARRIER_MEMORY + Duration::from_secs(1);
 

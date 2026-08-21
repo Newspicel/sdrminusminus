@@ -147,12 +147,21 @@ pub struct TrunkProbe {
     pub freq_hz: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TrunkControl {
+    pub device_set: u32,
+    pub channel: u32,
+    pub freq_hz: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TrunkSystemStatus {
     pub node: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detected: Option<DvTrunkProtocol>,
     pub carriers: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<TrunkControl>,
     pub followers: Vec<TrunkFollower>,
     pub problems: Vec<TrunkProblem>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

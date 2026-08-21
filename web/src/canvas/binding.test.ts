@@ -193,15 +193,47 @@ describe("binding", () => {
       {
         node: "trunk",
         carriers: 1,
+        control: { device_set: 1, channel: 9, freq_hz: 451_012_500 },
         followers: [{ device_set: 1, channel: 10, slot: 2, freq_hz: 451_125_000 }],
         problems: [],
       },
     ];
 
     expect(inputsOf(g, "log", "events", devices, channels, trunks)).toEqual([
+      { node: "trunk", deviceSet: 1, channel: control },
       { node: "trunk", deviceSet: 1, channel: traffic },
     ]);
     expect(inputsOf(g, "log", "events", devices, channels)).toEqual([]);
+  });
+
+  it("keeps a trunk system's control channel on the wire between calls", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto", record_calls: true } }),
+        node("log", { kind: "decoder_log" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "trunk", port: "iq" } },
+        { from: { node: "trunk", port: "events" }, to: { node: "log", port: "events" } },
+      ],
+    };
+    const control = channel(9, "dmr");
+    const devices = bindDevices(g, [set(1, rtl, [control])]);
+    const channels = bindChannels(g, devices);
+    const trunks = [
+      {
+        node: "trunk",
+        carriers: 1,
+        control: { device_set: 1, channel: 9, freq_hz: 451_012_500 },
+        followers: [],
+        problems: [],
+      },
+    ];
+
+    expect(inputsOf(g, "log", "events", devices, channels, trunks)).toEqual([
+      { node: "trunk", deviceSet: 1, channel: control },
+    ]);
   });
 
   it("sees the decoder behind an event filter, however many are chained", () => {

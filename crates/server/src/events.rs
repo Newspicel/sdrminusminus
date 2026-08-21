@@ -24,6 +24,11 @@ pub(crate) fn decoder_nodes(
                 .entry((follower.device_set, follower.channel))
                 .or_insert_with(|| system.node.clone());
         }
+        if let Some(control) = &system.control {
+            sources
+                .entry((control.device_set, control.channel))
+                .or_insert_with(|| system.node.clone());
+        }
     }
     sources
 }
@@ -73,7 +78,10 @@ fn walk(
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{ChannelNode, PatchEdge, PatchNode, PortRef, Position, RttyText};
+    use sdrmm_wire::{
+        ChannelNode, PatchEdge, PatchNode, PortRef, Position, RttyText, TrunkControl,
+        TrunkFollower, TrunkSystemStatus,
+    };
 
     use super::*;
 
@@ -235,6 +243,44 @@ mod tests {
         assert_eq!(paths.len(), 2);
         assert!(paths.iter().any(|path| path.passes(&rtty())));
         assert!(paths.iter().any(|path| !path.passes(&rtty())));
+    }
+
+    #[test]
+    fn a_trunk_system_owns_the_control_channel_it_opened_as_well_as_its_traffic() {
+        let graph = PatchGraph {
+            nodes: vec![node("trunk", NodeBody::DmrTrunk(Default::default()))],
+            edges: Vec::new(),
+        };
+        let state = StateSnapshot {
+            trunk_systems: vec![TrunkSystemStatus {
+                node: "trunk".to_owned(),
+                detected: None,
+                carriers: 1,
+                control: Some(TrunkControl {
+                    device_set: 1,
+                    channel: 9,
+                    freq_hz: 451_012_500,
+                }),
+                followers: vec![TrunkFollower {
+                    device_set: 1,
+                    channel: 10,
+                    logical_channel: Some(22),
+                    slot: 2,
+                    freq_hz: 451_125_000,
+                }],
+                problems: Vec::new(),
+                channel_map: Vec::new(),
+                probes: Vec::new(),
+                searching: 0,
+                color_code: None,
+            }],
+            ..StateSnapshot::default()
+        };
+
+        let sources = decoder_nodes(&graph, &state);
+
+        assert_eq!(sources.get(&(1, 9)).map(String::as_str), Some("trunk"));
+        assert_eq!(sources.get(&(1, 10)).map(String::as_str), Some("trunk"));
     }
 
     #[test]

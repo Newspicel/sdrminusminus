@@ -240,7 +240,7 @@ export function inputsOf(
   for (const source of sources) {
     const trunk = trunks.find((system) => system.node === source);
     if (trunk !== undefined) {
-      out.push(...followerInputs(trunk, devices));
+      out.push(...trunkInputs(trunk, devices));
       continue;
     }
     const channel = channels.get(source);
@@ -256,17 +256,18 @@ export function inputsOf(
   return out;
 }
 
-function followerInputs(
-  trunk: TrunkSystemStatus,
-  devices: ReadonlyMap<string, DeviceSet>,
-): Input[] {
+function trunkInputs(trunk: TrunkSystemStatus, devices: ReadonlyMap<string, DeviceSet>): Input[] {
   const sets = [...devices.values()];
-  return trunk.followers.flatMap((follower) => {
-    const channel = sets
-      .find((set) => set.id === follower.device_set)
-      ?.channels.find((candidate) => candidate.id === follower.channel);
-    return channel === undefined
-      ? []
-      : [{ node: trunk.node, deviceSet: follower.device_set, channel }];
-  });
+  const wired = (deviceSet: number, channel: number): Input[] => {
+    const info = sets
+      .find((set) => set.id === deviceSet)
+      ?.channels.find((candidate) => candidate.id === channel);
+    return info === undefined ? [] : [{ node: trunk.node, deviceSet, channel: info }];
+  };
+  const control =
+    trunk.control == null ? [] : wired(trunk.control.device_set, trunk.control.channel);
+  return [
+    ...control,
+    ...trunk.followers.flatMap((follower) => wired(follower.device_set, follower.channel)),
+  ];
 }

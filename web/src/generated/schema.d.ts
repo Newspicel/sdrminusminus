@@ -2643,6 +2643,11 @@ export interface components {
             channel_definition?: null | components["schemas"]["DvChannelDefinition"];
             /** Format: int32 */
             color_code?: number | null;
+            /**
+             * @description Whether the burst came from a trunked site's control channel rather than one of its
+             *     traffic channels, where the air interface says so outright.
+             */
+            control_channel?: boolean | null;
             crc_verified?: boolean | null;
             data?: string | null;
             /** Format: int32 */
@@ -4447,6 +4452,14 @@ export interface components {
         };
         /** @enum {string} */
         TrunkChannelSource: "announced" | "manual" | "learned" | "predicted";
+        TrunkControl: {
+            /** Format: int32 */
+            channel: number;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: int64 */
+            freq_hz: number;
+        };
         TrunkFollower: {
             /** Format: int32 */
             channel: number;
@@ -4485,6 +4498,7 @@ export interface components {
             channel_map?: components["schemas"]["TrunkChannel"][];
             /** Format: int32 */
             color_code?: number | null;
+            control?: null | components["schemas"]["TrunkControl"];
             detected?: null | components["schemas"]["DvTrunkProtocol"];
             followers: components["schemas"]["TrunkFollower"][];
             node: string;
