@@ -38,7 +38,7 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `dcf77_2026_2k` | 2 k | `radio_clock` / DCF77 @ 0 Hz | 2026-08-15 12:34 CET, valid parity |
 | `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
 
-Seven pairs are **not** written by `cargo xtask fixtures` and are committed instead — four
+Eight pairs are **not** written by `cargo xtask fixtures` and are committed instead — five
 recorded off air and three frozen regression renders. `cargo xtask excerpt` cuts them: it reads a
 SigMF stem, a WAV, or a raw `cu8`/`cs8`/`cs16`/`cf32` capture, shifts and resamples through the
 same `Ddc` the engine feeds a channel with, and writes the window asked for with the source's
@@ -47,7 +47,8 @@ SHA-256 in the annotation.
 | stem | rate | channel | expected |
 |---|---|---|---|
 | `dmr_call_48k` | 48 k | `dmr` @ 0 Hz | colour code 1, group call, radio ID 12345678 to talkgroup 12345678 |
-| `dmr_tier3_control_48k` | 48 k | `dmr` @ 0 Hz, `ignore_crc` | colour code 10 Capacity Max control channel, grants for logical channels 22 (slot 2) and 42 (slot 1) between radios 9995 and 9999 |
+| `dmr_tier3_control_48k` | 48 k | `dmr` @ 0 Hz | colour code 10 Capacity Max control channel, grants for logical channels 22 (slot 2) and 42 (slot 1) between radios 9995 and 9999 |
+| `dmr_capacity_plus_48k` | 48 k | `dmr` @ 0 Hz | colour code 5 Capacity Plus rest channel, a talkgroup 101 call handed from timeslot 1 to timeslot 2 and the rest channel moving 4 → 3 with it |
 | `freedv_1600_8k` | 8 k | `freedv` @ 0 Hz, USB | FreeDV 1600 sync and decoded Codec2 speech |
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
 | `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
@@ -95,12 +96,22 @@ device.
   taken from a 2.4 Msps capture centred on 460.802929 MHz and down-converted to the channel rate
   so only the 12.5 kHz that matters is carried. It is committed because it is the only signal in
   the tree whose CSBKs do not carry the checksum ETSI describes — every block decodes with a
-  clean BPTC and a trailer that matches no CRC-16 of its own payload, which is why the trunk
-  receivers are opened tolerant of one — and because it holds the two channel grants a trunked
-  site hands out, which nothing generated reproduces.
-  `dv::dmr::tests::decodes_a_recorded_tier_three_control_channel` reads it directly, and
+  clean BPTC and a trailer that matches no CRC-16 of its own payload — and because it holds the
+  two channel grants a trunked site hands out, which nothing generated reproduces.
+  `dv::dmr::tests::decodes_a_recorded_tier_three_control_channel` reads it directly,
   `dv::dmr::tests::a_live_control_channel_decodes_in_the_blocks_a_radio_delivers` replays it the
-  way the engine does, through the channel filter and in fixed blocks.
+  way the engine does, through the channel filter and in fixed blocks, and
+  `dv::dmr::tests::a_site_that_masks_its_checksums_is_read_without_being_asked_to_be` holds a
+  receiver on its defaults to it.
+- `dmr_capacity_plus_48k` (2.4 s, 900 KB): the rest channel of a Motorola Capacity Plus system,
+  cut from the same 2.4 Msps capture as the Capacity Max fixture but at 460.800 MHz. It is
+  committed because Capacity Plus was covered only by hand-built payloads until now, and because
+  no generator reproduces what a rest channel does across a hand-over: a talkgroup 101 call ends
+  on timeslot 1, the repeater reports itself idle, and the next call opens on timeslot 2 while
+  the rest channel moves from 4 to 3. Its channel-status CSBKs all check out against the ETSI
+  checksum, which is what makes it the counterpart to the Capacity Max fixture above. One
+  talkgroup is all this capture carries, so the address field's width is pinned by one value.
+  `dv::dmr::tests::decodes_a_recorded_capacity_plus_rest_channel` reads it directly.
 - `ais_position_pre_cpm_240k` (0.03 s, 50 KB): the AIS position burst as the pre-migration
   generator rendered it, stepped envelope and all. It is committed because it is the only
   evidence left that the general CPM engine decodes what the hand-written AIS chain produced —

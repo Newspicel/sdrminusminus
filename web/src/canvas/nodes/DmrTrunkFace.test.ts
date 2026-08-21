@@ -46,7 +46,7 @@ describe("DMR trunk protocols", () => {
     expect(planLabel("capacity_plus")).toBe("Repeater outputs");
   });
 
-  it("offers the search only where logical channels are granted", () => {
+  it("tells a system that grants channels apart from one whose repeaters are the plan", () => {
     expect(followsTierThree("tier_three")).toBe(true);
     expect(followsTierThree("auto", "tier_three")).toBe(true);
     expect(followsTierThree("auto", "capacity_plus")).toBe(false);

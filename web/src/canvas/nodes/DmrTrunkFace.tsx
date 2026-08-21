@@ -14,7 +14,6 @@ import {
   controlChannelLabel,
   controlChannelStalled,
   DMR_TRUNK_PROTOCOLS,
-  followsTierThree,
   formatSearchRanges,
   parseControlHz,
   parseSearchRanges,
@@ -127,43 +126,41 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
           following={following}
           onChange={(channel_map) => edit({ channel_map })}
         />
-        {followsTierThree(protocol, detected) && (
-          <Settings className="border-b border-line p-2">
-            <SettingGroup label="Find the rest">
-              <SettingRow label="Search">
-                <Checkbox
-                  label="Search"
-                  checked={discovery.enabled ?? false}
-                  onChange={(next) => edit({ discovery: { ...discovery, enabled: next } })}
-                />
-              </SettingRow>
-              {discovery.enabled === true && (
-                <>
-                  <SettingRow
-                    label="Range"
-                    title="Optional: narrow the search to start-end in MHz / step in kHz"
-                  >
-                    <Input
-                      aria-label="Search range"
-                      className={FIELD}
-                      defaultValue={formatSearchRanges(discovery.ranges)}
-                      placeholder="whole band"
-                      onBlur={(event) =>
-                        edit({
-                          discovery: {
-                            ...discovery,
-                            ranges: parseSearchRanges(event.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </SettingRow>
-                  {summary !== "" && <p className="col-span-2 text-xs text-ink-dim">{summary}</p>}
-                </>
-              )}
-            </SettingGroup>
-          </Settings>
-        )}
+        <Settings className="border-b border-line p-2">
+          <SettingGroup label="Find the rest">
+            <SettingRow label="Search">
+              <Checkbox
+                label="Search"
+                checked={discovery.enabled ?? false}
+                onChange={(next) => edit({ discovery: { ...discovery, enabled: next } })}
+              />
+            </SettingRow>
+            {discovery.enabled === true && (
+              <>
+                <SettingRow
+                  label="Range"
+                  title="Optional: narrow the search to start-end in MHz / step in kHz"
+                >
+                  <Input
+                    aria-label="Search range"
+                    className={FIELD}
+                    defaultValue={formatSearchRanges(discovery.ranges)}
+                    placeholder="whole band"
+                    onBlur={(event) =>
+                      edit({
+                        discovery: {
+                          ...discovery,
+                          ranges: parseSearchRanges(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                </SettingRow>
+                {summary !== "" && <p className="col-span-2 text-xs text-ink-dim">{summary}</p>}
+              </>
+            )}
+          </SettingGroup>
+        </Settings>
         {otherControl.length > 0 && (
           <ul className="flex flex-wrap gap-1 border-b border-line p-2">
             {otherControl.map((freq_hz) => (

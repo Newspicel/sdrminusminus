@@ -249,7 +249,7 @@ channel has to be drawn for it.
 | System | How it is followed |
 |---|---|
 | Tier III (including Capacity Max) | Logical channels are learned from the system's own channel definitions; a receiver opens when a voice grant names one. |
-| Capacity Plus | No frequency is granted, so every repeater output is itself a traffic channel. List them under **Repeater outputs** and both timeslots of each are followed once the system is recognized. |
+| Capacity Plus | No frequency is granted, so every repeater output is itself a traffic channel. List them under **Repeater outputs**, or turn on **Search** and let the node find them: a carrier that names the same rest channel as the one you pointed it at, and moves to the next one with it, is another repeater of the same system. Both timeslots of each are followed. |
 | Hytera XPT | As Capacity Plus, using XPT's own signalling. |
 
 The receivers it opens belong to the server, not to the patch, so following continues while no
