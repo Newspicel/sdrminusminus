@@ -41,7 +41,12 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
   const learned = status?.channel_map ?? [];
   const probes = status?.probes ?? [];
   const followers = status?.followers ?? [];
-  const summary = searchSummary(discovery.ranges, status?.searching ?? 0, probes.length);
+  const summary = searchSummary(
+    discovery.ranges,
+    status?.candidates ?? 0,
+    status?.searching ?? 0,
+    probes.length,
+  );
   const following = new Set(
     followers
       .map((follower) => follower.logical_channel)
@@ -132,12 +137,15 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               </SettingRow>
               {discovery.enabled === true && (
                 <>
-                  <SettingRow label="Range" title="Start-end in MHz / step in kHz">
+                  <SettingRow
+                    label="Range"
+                    title="Optional: narrow the search to start-end in MHz / step in kHz"
+                  >
                     <Input
                       aria-label="Search range"
                       className={FIELD}
                       defaultValue={formatSearchRanges(discovery.ranges)}
-                      placeholder="451.0-451.5 / 12.5"
+                      placeholder="whole band"
                       onBlur={(event) =>
                         edit({
                           discovery: {

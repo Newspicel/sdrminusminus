@@ -121,12 +121,29 @@ describe("DMR channel search", () => {
   });
 
   it("says what the search is doing right now", () => {
-    expect(searchSummary([], 0, 0)).toBe("");
-    expect(searchSummary(parseSearchRanges("451.0-451.05 / 12.5"), 0, 0)).toContain(
-      "5 frequencies ready",
+    expect(searchSummary(parseSearchRanges("451.0-451.05 / 12.5"), 0, 0, 0)).toContain(
+      "Covering the band you named: 5 frequencies",
     );
-    expect(searchSummary(parseSearchRanges("451.0-451.05 / 12.5"), 1, 4)).toContain(
+    expect(searchSummary(parseSearchRanges("451.0-451.05 / 12.5"), 0, 1, 4)).toContain(
       "Hunting 1 logical channel across 5 frequencies with 4 receivers",
+    );
+  });
+});
+
+describe("a search nobody narrowed", () => {
+  it("says it is covering the whole band rather than saying nothing at all", () => {
+    expect(searchSummary([], 192, 0, 0)).toBe(
+      "Covering everything the radio can hear: 192 frequencies.",
+    );
+  });
+
+  it("owns up to not knowing the reach until the site identifies itself", () => {
+    expect(searchSummary([], 0, 0, 0)).toContain("once the site identifies itself");
+  });
+
+  it("counts the band it settled on while it is hunting", () => {
+    expect(searchSummary([], 192, 2, 4)).toContain(
+      "Hunting 2 logical channels across 192 frequencies with 4 receivers",
     );
   });
 });

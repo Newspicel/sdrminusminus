@@ -532,6 +532,54 @@ describe("eventDetail", () => {
     expect(detail.body).toBe("A1B2C3");
   });
 
+  it("says which side of a trunked site a burst came from and whether it checked out", () => {
+    const detail = eventDetail({
+      kind: "dv",
+      data: {
+        mode: "dmr",
+        kind: "control",
+        errors_corrected: 0,
+        trunk_protocol: "tier_three",
+        control_channel: true,
+        crc_verified: true,
+      },
+    });
+
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Trunking: "Tier III · control channel",
+      Checksum: "verified",
+    });
+  });
+
+  it("never lets a burst its checksum could not vouch for pass as a checked one", () => {
+    const detail = eventDetail({
+      kind: "dv",
+      data: {
+        mode: "dmr",
+        kind: "control",
+        errors_corrected: 0,
+        trunk_protocol: "tier_three",
+        control_channel: false,
+        crc_verified: false,
+      },
+    });
+
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Trunking: "Tier III · traffic channel",
+      Checksum: "not verified — read on error correction alone",
+    });
+  });
+
+  it("has nothing to say about trunking for a burst that is not part of a system", () => {
+    const detail = eventDetail({
+      kind: "dv",
+      data: { mode: "dmr", kind: "voice", errors_corrected: 0 },
+    });
+
+    expect(Object.fromEntries(detail.fields)).not.toHaveProperty("Trunking");
+    expect(Object.fromEntries(detail.fields)).not.toHaveProperty("Checksum");
+  });
+
   it("reads an RDS picture as its fields, with the radiotext as the body", () => {
     const detail = eventDetail({
       kind: "rds",

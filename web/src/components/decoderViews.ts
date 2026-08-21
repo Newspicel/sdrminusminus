@@ -451,6 +451,31 @@ export function dvNetwork(frame: Pick<DvFrame, "mode" | "color_code" | "slot">):
   return parts.join(" ");
 }
 
+export function dvTrunking(
+  frame: Pick<DvFrame, "trunk_protocol" | "control_channel">,
+): string | undefined {
+  const names: Record<NonNullable<DvFrame["trunk_protocol"]>, string> = {
+    capacity_plus: "Capacity Plus",
+    hytera_xpt: "Hytera XPT",
+    tier_three: "Tier III",
+  };
+  const system = frame.trunk_protocol == null ? undefined : names[frame.trunk_protocol];
+  const role =
+    frame.control_channel == null
+      ? undefined
+      : frame.control_channel
+        ? "control channel"
+        : "traffic channel";
+  return [system, role].filter((part) => part !== undefined).join(" · ") || undefined;
+}
+
+export function dvChecksum(frame: Pick<DvFrame, "crc_verified">): string | undefined {
+  if (frame.crc_verified == null) {
+    return undefined;
+  }
+  return frame.crc_verified ? "verified" : "not verified — read on error correction alone";
+}
+
 export function dvParties(
   frame: Pick<
     DvFrame,

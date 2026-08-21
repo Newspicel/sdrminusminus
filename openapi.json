@@ -15737,6 +15737,12 @@
           "problems"
         ],
         "properties": {
+          "candidates": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many frequencies the search is covering, whether the operator named a band or left\nthe radio's own reach to be swept.",
+            "minimum": 0
+          },
           "carriers": {
             "type": "integer",
             "format": "int32",

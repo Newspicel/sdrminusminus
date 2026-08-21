@@ -1032,6 +1032,10 @@ impl Follower {
                 .prospectors
                 .get(&system.node)
                 .map_or(0, Prospector::searching),
+            candidates: self
+                .prospectors
+                .get(&system.node)
+                .map_or(0, Prospector::candidates),
             color_code: self
                 .prospectors
                 .get(&system.node)
@@ -1843,6 +1847,34 @@ mod tests {
     }
 
     #[test]
+    fn a_search_with_no_band_named_reports_the_reach_it_settled_on() {
+        let engine = engine();
+        let (device_set, channel, _) = control_channel(&engine);
+        let carrier = (device_set, channel);
+        let mut follower = searching_follower(
+            &engine,
+            DmrTrunkProtocol::TierThree,
+            carrier,
+            DmrDiscovery {
+                enabled: true,
+                ranges: Vec::new(),
+                max_probes: 4,
+            },
+            Vec::new(),
+        );
+
+        follower.observe(&record(carrier, identified_grant(1)));
+        follower.reconcile();
+
+        let status = status(&follower);
+        assert!(
+            status.candidates > 1,
+            "an unnamed search reported {} frequencies",
+            status.candidates
+        );
+    }
+
+    #[test]
     fn a_grant_for_an_unknown_channel_opens_search_receivers() {
         let engine = engine();
         let (device_set, channel, center_hz) = control_channel(&engine);
@@ -1861,6 +1893,10 @@ mod tests {
 
         let status = status(&follower);
         assert_eq!(status.searching, 1);
+        assert_eq!(
+            status.candidates, 4,
+            "the status did not say how wide it looks"
+        );
         assert_eq!(status.probes.len(), 4, "the raster was not swept");
         assert!(
             status

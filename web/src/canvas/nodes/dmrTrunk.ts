@@ -239,17 +239,20 @@ export function adoptable(
 
 export function searchSummary(
   ranges: readonly DmrSearchRange[] | undefined,
+  candidates: number,
   searching: number,
   probes: number,
 ): string {
-  const candidates = searchCandidates(ranges ?? []);
-  if (candidates === 0) {
-    return "";
+  const named = searchCandidates(ranges ?? []);
+  const covering = named > 0 ? named : candidates;
+  const where = named > 0 ? "the band you named" : "everything the radio can hear";
+  if (covering === 0) {
+    return "Covering everything the radio can hear, once the site identifies itself.";
   }
   if (searching === 0) {
-    return `${candidates} frequencies ready.`;
+    return `Covering ${where}: ${covering} frequencies.`;
   }
-  return `Hunting ${searching} logical channel${searching === 1 ? "" : "s"} across ${candidates} frequencies with ${probes} receiver${probes === 1 ? "" : "s"}.`;
+  return `Hunting ${searching} logical channel${searching === 1 ? "" : "s"} across ${covering} frequencies with ${probes} receiver${probes === 1 ? "" : "s"}.`;
 }
 
 export type TrunkChannelRole = "control" | "call" | "search";

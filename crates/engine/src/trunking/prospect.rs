@@ -248,6 +248,10 @@ impl Prospector {
         self.wanted.len() as u32
     }
 
+    pub(crate) fn candidates(&self) -> u32 {
+        self.candidates.len() as u32
+    }
+
     pub(crate) fn color_code(&self) -> Option<u8> {
         self.color_code
     }

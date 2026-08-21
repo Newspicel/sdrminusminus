@@ -713,6 +713,7 @@ mod tests {
                 .collect(),
             probes: Vec::new(),
             searching: 0,
+            candidates: 0,
             color_code,
         }
     }

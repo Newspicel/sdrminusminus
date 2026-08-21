@@ -272,6 +272,7 @@ mod tests {
                 channel_map: Vec::new(),
                 probes: Vec::new(),
                 searching: 0,
+                candidates: 0,
                 color_code: None,
             }],
             ..StateSnapshot::default()

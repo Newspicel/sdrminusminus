@@ -170,6 +170,10 @@ pub struct TrunkSystemStatus {
     pub probes: Vec<TrunkProbe>,
     #[serde(default)]
     pub searching: u32,
+    /// How many frequencies the search is covering, whether the operator named a band or left
+    /// the radio's own reach to be swept.
+    #[serde(default)]
+    pub candidates: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_code: Option<u8>,
 }

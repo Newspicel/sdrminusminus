@@ -4493,6 +4493,12 @@ export interface components {
             slot: number;
         };
         TrunkSystemStatus: {
+            /**
+             * Format: int32
+             * @description How many frequencies the search is covering, whether the operator named a band or left
+             *     the radio's own reach to be swept.
+             */
+            candidates?: number;
             /** Format: int32 */
             carriers: number;
             channel_map?: components["schemas"]["TrunkChannel"][];

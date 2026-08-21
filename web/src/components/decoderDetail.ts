@@ -2,9 +2,11 @@ import type { AprsPacket, DataLinkMessage, DecoderEvent, DecoderKind, DvFrame } 
 import { hex2, hex5 } from "./decoderLog";
 import {
   candidateScore,
+  dvChecksum,
   dvMode,
   dvNetwork,
   dvParties,
+  dvTrunking,
   identMeasurements,
   modulationLabel,
 } from "./decoderViews";
@@ -322,6 +324,7 @@ const DETAIL: {
       ["Frame", dvKind(f)],
       ["Network", dvNetwork(f)],
       ["Vendor", dvVendor(f)],
+      ["Trunking", dvTrunking(f)],
       ["Parties", dvParties(f)],
       ["Talker alias", f.talker_alias],
       ["Call", f.group_call == null ? undefined : f.group_call ? "talkgroup" : "private"],
@@ -348,6 +351,7 @@ const DETAIL: {
       ["Key ID", f.key_id == null ? undefined : hex(f.key_id, 4)],
       ["Message indicator", f.message_indicator],
       ["Repaired", f.errors_corrected > 0 ? `${f.errors_corrected} bits` : undefined],
+      ["Checksum", dvChecksum(f)],
     ]),
     body: f.text ?? f.data ?? null,
   }),
