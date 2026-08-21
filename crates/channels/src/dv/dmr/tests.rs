@@ -445,14 +445,39 @@ fn a_capacity_max_update_skips_a_timeslot_nobody_is_using() {
 fn advantage_mode_reads_the_shorter_talkgroup_fields() {
     let mut payload = [false; 96];
     put(&mut payload, 16, 12, 811);
-    put(&mut payload, 32, 10, 501);
-    put(&mut payload, 42, 10, 502);
+    put(&mut payload, 28, 10, 501);
+    put(&mut payload, 38, 10, 502);
     let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
     decode_vendor_csbk(&mut frame, 0x10, 34, &payload);
 
     assert_eq!(frame.slot_activity.len(), 2);
     assert_eq!(frame.slot_activity[0].destination, Some(501));
     assert_eq!(frame.slot_activity[1].destination, Some(502));
+}
+
+/// An off-air update from a Capacity Max site, alongside the grant the same site sent for the
+/// same call: channel 22, timeslot 1, talkgroup 900. Reading the talkgroup a byte in instead of
+/// straight after the channel number turns that 900 into a 64 that answers to nothing.
+#[test]
+fn an_off_air_advantage_update_names_the_talkgroup_its_grant_named() {
+    let mut payload = [false; 96];
+    for (index, bit) in payload.iter_mut().enumerate() {
+        let byte = [
+            0xa2, 0x10, 0x01, 0x6e, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x6e,
+        ][index / 8];
+        *bit = byte >> (7 - index % 8) & 1 == 1;
+    }
+    let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+    decode_vendor_csbk(&mut frame, 0x10, 34, &payload);
+
+    assert_eq!(frame.channel, Some(22));
+    assert_eq!(
+        frame.slot_activity.len(),
+        1,
+        "an idle timeslot was reported"
+    );
+    assert_eq!(frame.slot_activity[0].slot, 1);
+    assert_eq!(frame.slot_activity[0].destination, Some(900));
 }
 
 #[test]

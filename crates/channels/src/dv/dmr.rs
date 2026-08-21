@@ -1163,7 +1163,9 @@ fn decode_capacity_max_update(frame: &mut DvFrame, opcode: u8, payload: &[bool])
     let talkgroups = if opcode == 33 {
         [bits_to_u32(payload, 32, 24), bits_to_u32(payload, 56, 24)]
     } else {
-        [bits_to_u32(payload, 32, 10), bits_to_u32(payload, 42, 10)]
+        // Advantage mode packs its two shortened talkgroups straight after the channel number
+        // rather than starting them on the next byte.
+        [bits_to_u32(payload, 28, 10), bits_to_u32(payload, 38, 10)]
     };
     for (index, destination) in talkgroups.into_iter().enumerate() {
         if destination == 0 {
