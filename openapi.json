@@ -15791,6 +15791,15 @@
           "node": {
             "type": "string"
           },
+          "other_control_hz": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Other frequencies the site runs a control channel on, found while searching."
+          },
           "probes": {
             "type": "array",
             "items": {

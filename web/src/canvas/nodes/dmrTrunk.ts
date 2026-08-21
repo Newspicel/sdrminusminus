@@ -237,6 +237,10 @@ export function adoptable(
     .map((channel) => ({ lcn: channel.logical_channel, freq_hz: channel.freq_hz }));
 }
 
+export function controlChannelLabel(freq_hz: number): string {
+  return `also control ${(freq_hz / 1e6).toFixed(4)} MHz`;
+}
+
 export function searchSummary(
   ranges: readonly DmrSearchRange[] | undefined,
   candidates: number,

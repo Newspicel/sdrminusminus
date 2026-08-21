@@ -132,6 +132,7 @@ pub(crate) struct Prospector {
     pending: Vec<PendingGrant>,
     wanted: HashMap<u16, Instant>,
     control: HashSet<u64>,
+    colours: HashMap<u64, u16>,
     payload: HashSet<u64>,
     dwell: HashMap<u64, Instant>,
     busy: HashMap<u64, Sighting>,
@@ -153,6 +154,7 @@ impl Prospector {
             pending: Vec::new(),
             wanted: HashMap::new(),
             control: HashSet::new(),
+            colours: HashMap::new(),
             payload: HashSet::new(),
             dwell: HashMap::new(),
             busy: HashMap::new(),
@@ -265,6 +267,23 @@ impl Prospector {
         self.busy.clear();
     }
 
+    /// The other frequencies this site runs a control channel on. A neighbouring site's control
+    /// channel is kept out of the traffic search just the same, but it is not this site's, so it
+    /// is only named here once a burst on it has answered to the same colour code.
+    pub(crate) fn other_control_hz(&self) -> Vec<u64> {
+        let Some(site) = self.color_code else {
+            return Vec::new();
+        };
+        let mut found: Vec<u64> = self
+            .control
+            .iter()
+            .filter(|freq_hz| self.colours.get(freq_hz) == Some(&u16::from(site)))
+            .copied()
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
     pub(crate) fn adopt(&mut self, channels: &[DmrChannelEntry]) {
         for entry in channels {
             self.learned.entry(entry.lcn).or_insert(entry.freq_hz);
@@ -352,6 +371,9 @@ impl Prospector {
         frame: &DvFrame,
         now: Instant,
     ) -> Option<Match> {
+        if let Some(colour) = frame.color_code {
+            self.colours.insert(freq_hz, colour);
+        }
         if frame.control_channel == Some(false) {
             self.payload.insert(freq_hz);
             self.control.remove(&freq_hz);
@@ -995,6 +1017,44 @@ mod tests {
                 .schedule(now, &[], |_| true)
                 .contains(&TRAFFIC_HZ),
             "the traffic channel was blacklisted as another site's control channel"
+        );
+    }
+
+    fn control_channel_at(colour: u16) -> DvFrame {
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        frame.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+        frame.control_channel = Some(true);
+        frame.color_code = Some(colour);
+        frame
+    }
+
+    #[test]
+    fn a_second_control_channel_of_this_site_is_named() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_site(10);
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+
+        prospector.note_probe(TRAFFIC_HZ, &control_channel_at(10), now);
+
+        assert_eq!(prospector.other_control_hz(), vec![TRAFFIC_HZ]);
+    }
+
+    #[test]
+    fn a_neighbouring_sites_control_channel_is_never_claimed_as_this_ones() {
+        let mut prospector = prospector();
+        let now = Instant::now();
+        prospector.note_site(10);
+        prospector.note_grant(LCN, 1, 91, Some(4001), now);
+
+        prospector.note_probe(TRAFFIC_HZ, &control_channel_at(3), now);
+
+        assert!(prospector.other_control_hz().is_empty());
+        assert!(
+            !prospector
+                .schedule(now, &[], |_| true)
+                .contains(&TRAFFIC_HZ),
+            "a neighbour's control channel stayed in the traffic search"
         );
     }
 

@@ -4508,6 +4508,8 @@ export interface components {
             detected?: null | components["schemas"]["DvTrunkProtocol"];
             followers: components["schemas"]["TrunkFollower"][];
             node: string;
+            /** @description Other frequencies the site runs a control channel on, found while searching. */
+            other_control_hz?: number[];
             probes?: components["schemas"]["TrunkProbe"][];
             problems: components["schemas"]["TrunkProblem"][];
             /** Format: int32 */

@@ -11,6 +11,7 @@ import {
   adoptable,
   awaitingControlChannel,
   channelPlanRows,
+  controlChannelLabel,
   controlChannelStalled,
   DMR_TRUNK_PROTOCOLS,
   followsTierThree,
@@ -40,6 +41,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
   const channelMap = node.data.channel_map ?? [];
   const learned = status?.channel_map ?? [];
   const probes = status?.probes ?? [];
+  const otherControl = status?.other_control_hz ?? [];
   const followers = status?.followers ?? [];
   const summary = searchSummary(
     discovery.ranges,
@@ -161,6 +163,19 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               )}
             </SettingGroup>
           </Settings>
+        )}
+        {otherControl.length > 0 && (
+          <ul className="flex flex-wrap gap-1 border-b border-line p-2">
+            {otherControl.map((freq_hz) => (
+              <li
+                key={freq_hz}
+                className={`${CHIP} text-ink-dim`}
+                title="The site runs a control channel here too. Point the node at it if this one stops."
+              >
+                {controlChannelLabel(freq_hz)}
+              </li>
+            ))}
+          </ul>
         )}
         {probes.length > 0 && (
           <ul className="flex flex-wrap gap-1 border-b border-line p-2">

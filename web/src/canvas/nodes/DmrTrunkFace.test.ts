@@ -14,6 +14,7 @@ import {
   planLabel,
   planSummary,
   searchCandidates,
+  controlChannelLabel,
   searchSummary,
   trunkChannelRoles,
   trunkProtocolLabel,
@@ -127,6 +128,12 @@ describe("DMR channel search", () => {
     expect(searchSummary(parseSearchRanges("451.0-451.05 / 12.5"), 0, 1, 4)).toContain(
       "Hunting 1 logical channel across 5 frequencies with 4 receivers",
     );
+  });
+});
+
+describe("a site that runs more than one control channel", () => {
+  it("names the frequency to fall back on", () => {
+    expect(controlChannelLabel(460_275_000)).toBe("also control 460.2750 MHz");
   });
 });
 

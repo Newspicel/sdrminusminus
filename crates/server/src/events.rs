@@ -273,6 +273,7 @@ mod tests {
                 probes: Vec::new(),
                 searching: 0,
                 candidates: 0,
+                other_control_hz: Vec::new(),
                 color_code: None,
             }],
             ..StateSnapshot::default()

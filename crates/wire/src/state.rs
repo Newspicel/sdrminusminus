@@ -174,6 +174,9 @@ pub struct TrunkSystemStatus {
     /// the radio's own reach to be swept.
     #[serde(default)]
     pub candidates: u32,
+    /// Other frequencies the site runs a control channel on, found while searching.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub other_control_hz: Vec<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_code: Option<u8>,
 }

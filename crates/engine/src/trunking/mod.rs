@@ -1036,6 +1036,11 @@ impl Follower {
                 .prospectors
                 .get(&system.node)
                 .map_or(0, Prospector::candidates),
+            other_control_hz: self
+                .prospectors
+                .get(&system.node)
+                .map(Prospector::other_control_hz)
+                .unwrap_or_default(),
             color_code: self
                 .prospectors
                 .get(&system.node)
