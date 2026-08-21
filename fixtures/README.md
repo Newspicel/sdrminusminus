@@ -38,7 +38,7 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `dcf77_2026_2k` | 2 k | `radio_clock` / DCF77 @ 0 Hz | 2026-08-15 12:34 CET, valid parity |
 | `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
 
-Six pairs are **not** written by `cargo xtask fixtures` and are committed instead — three
+Seven pairs are **not** written by `cargo xtask fixtures` and are committed instead — four
 recorded off air and three frozen regression renders. `cargo xtask excerpt` cuts them: it reads a
 SigMF stem, a WAV, or a raw `cu8`/`cs8`/`cs16`/`cf32` capture, shifts and resamples through the
 same `Ddc` the engine feeds a channel with, and writes the window asked for with the source's
@@ -52,6 +52,7 @@ SHA-256 in the annotation.
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
 | `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
 | `adsb_offair_2m` | 2 M | `adsb` @ 0 Hz | 17 Mode S replies from four aircraft — DF4/5/11/17/20/21, FL370 and squawk 5245 from 4D2256, a TC11 position and a TC19 velocity from 3FF91D |
+| `ft8_20m_busy_12k` | 12 k | `ft8` @ 0 Hz | 19 of the 20 decodes `ft8_lib` publishes for this slot |
 
 SSTV and ATV are the two whose output is a picture rather than a log line. ATV shows on the
 channel's own face; SSTV also lands in the picture store, so the decoder log gets one line per
@@ -116,6 +117,13 @@ device.
   which is why it is 200 ms and not a second. `adsb::tests::decodes_a_recorded_sky` reads it
   directly, and `a_recorded_squitter_places_its_aircraft_against_the_receiver` checks the local
   CPR solution against the position the whole recording solves globally.
+- `ft8_20m_busy_12k` (15 s, 1.4 MB): one FT8 slot from a crowded 20 m band, recorded
+  2019-11-11 11:06:15 UTC, converted from the upstream 12 kHz mono WAV to `cf32_le` with a zero
+  quadrature component. It is committed because it comes with an independent decoder's published
+  answer — twenty messages — which is a stronger check than any render of our own modulator.
+  `weak_signal::tests::a_recorded_slot_reads_the_band_the_reference_decoder_published` reads it,
+  appends the quiet tail a live receiver would deliver so the sliding slot window closes, and
+  pins the one decode we do not reach.
 - `freedv_1600_8k` (3 s, 188 KB): the first three seconds of the FreeDV GUI project's
   `wav/ve9qrp_1600.wav` receive test, converted from signed 16-bit mono audio to normalized
   `cf32_le` with a zero quadrature component. The source file's SHA-256 is recorded in the SigMF

@@ -458,4 +458,82 @@ mod tests {
         assert_eq!(spot.power_dbm, 37);
         assert!((spot.audio_hz - 1_500.0).abs() < 3.0);
     }
+
+    fn busy_slot_with_quiet_tail() -> Vec<Complex<f32>> {
+        const FIXTURE: &[u8] = include_bytes!("../../../fixtures/ft8_20m_busy_12k.sigmf-data");
+        let mut iq: Vec<Complex<f32>> = FIXTURE
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|sample| {
+                Complex::new(
+                    f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                    f32::from_le_bytes([sample[4], sample[5], sample[6], sample[7]]),
+                )
+            })
+            .collect();
+        iq.resize(iq.len() + 4 * INPUT_RATE_HZ as usize, Complex::default());
+        iq
+    }
+
+    #[test]
+    fn a_recorded_slot_reads_the_band_the_reference_decoder_published() {
+        const PUBLISHED: [&str; 20] = [
+            "VK4BLE OH8JK R-17",
+            "RK6AH JH1AJT -05",
+            "PA3EPP SP8NFO KN09",
+            "RV6K RU3XL -13",
+            "SQ8OHR UA9LL MO27",
+            "ET3RFG/R IN3ADG -23",
+            "CQ F4FSY JN25",
+            "JR5MJS OH8NW 73",
+            "SV1GN RK6AUV LN05",
+            "PB5DX EI3CTB IO63",
+            "CQ IZ1ANK JN33",
+            "NT6Q OH8GDU -17",
+            "CQ DL1UDO JO31",
+            "VK4BLE OH1EDK -20",
+            "CQ JA OH1LWZ KP11",
+            "<...> ON7EE JO10",
+            "CQ DG0OFT JO50",
+            "CQ UB3AQS KO85",
+            "PA3EPP SP8NFO KN09",
+            "RV6K RU3XL -13",
+        ];
+
+        let mut channel = Ft8Channel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            settings(ChannelParams::Ft8(WsjtParams::default())),
+        )
+        .unwrap();
+        let mut out = ChannelOutputs::default();
+        let mut texts = Vec::new();
+        for block in busy_slot_with_quiet_tail().chunks(4_096) {
+            out.reset();
+            channel.process(block, &mut out);
+            for event in out.events.drain(..) {
+                let DecoderEvent::Ft8(message) = event else {
+                    panic!("the FT8 channel emitted something else")
+                };
+                texts.push(message.text);
+            }
+        }
+
+        let missing: Vec<&str> = PUBLISHED
+            .iter()
+            .filter(|wanted| !texts.iter().any(|text| text == *wanted))
+            .copied()
+            .collect();
+        assert_eq!(
+            missing,
+            ["CQ UB3AQS KO85"],
+            "the recording's published decodes changed, read {texts:?}"
+        );
+        assert!(
+            texts.iter().all(|text| text.is_ascii() && !text.is_empty()),
+            "{texts:?}"
+        );
+    }
 }

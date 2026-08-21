@@ -970,7 +970,7 @@ fn default_wsjt_high_hz() -> f32 {
 }
 
 fn default_wsjt_candidates() -> u16 {
-    50
+    200
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

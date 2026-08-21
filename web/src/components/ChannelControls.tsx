@@ -1334,7 +1334,7 @@ function WsjtControls({
       <SettingRow label="Candidates">
         <NumberField
           label="Maximum synchronized signals tried per decode pass"
-          value={settings.max_candidates ?? (wspr ? 200 : 50)}
+          value={settings.max_candidates ?? 200}
           min={1}
           max={1_000}
           step={1}

@@ -1,0 +1,24 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 12000.0,
+    "core:recorder": "sdr--",
+    "core:hw": "ft8_lib test recording 191111_110615.wav",
+    "core:description": "FT8 on a crowded 20 m band, recorded 2019-11-11 11:06:15 UTC — one 15-second slot holding twenty stations, represented as real-valued complex IQ"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 0.0,
+      "core:datetime": "2026-08-21T11:26:32.312862Z"
+    }
+  ],
+  "annotations": [
+    {
+      "core:comment": "Source: https://github.com/kgoba/ft8_lib/blob/9fec6ca39886edbf96f4f5e71edc76da5074e871/test/wav/191111_110615.wav (MIT); source SHA-256 e01659d78fb07452eaf12730940e33b90df786ddd50584e5f995c9934e6fa322; samples 0..180000 at 12000 Hz",
+      "core:sample_count": 180000,
+      "core:sample_start": 0
+    }
+  ]
+}
