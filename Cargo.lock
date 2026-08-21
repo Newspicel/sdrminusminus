@@ -7994,6 +7994,7 @@ dependencies = [
  "resvg",
  "sdrmm-channels",
  "sdrmm-device-virtual",
+ "sdrmm-dsp",
  "sdrmm-modem",
  "sdrmm-recorder",
  "sdrmm-server",

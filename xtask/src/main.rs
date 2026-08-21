@@ -17,10 +17,12 @@ use num_complex::Complex;
 mod bandplan;
 mod ber;
 mod bundle;
+mod excerpt;
 mod homebrew;
 mod icons;
 mod licenses;
 mod linkage;
+mod replay;
 mod updater;
 
 #[derive(Parser)]
@@ -44,6 +46,8 @@ enum Cmd {
     Smoke,
     Screenshots,
     Fixtures,
+    Excerpt(excerpt::Excerpt),
+    Replay(replay::Replay),
     Bandplan {
         #[arg(long)]
         offline: bool,
@@ -111,6 +115,8 @@ fn main() -> Result<()> {
         Cmd::Smoke => smoke(&root()),
         Cmd::Screenshots => screenshots(&root()),
         Cmd::Fixtures => fixtures(&root()),
+        Cmd::Excerpt(args) => excerpt::run(&root(), &args),
+        Cmd::Replay(args) => replay::run(&args),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
         Cmd::Icons => icons::icons(&root()),
