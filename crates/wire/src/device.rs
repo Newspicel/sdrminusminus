@@ -128,12 +128,20 @@ pub enum DcArtifact {
     /// A front end whose artifact the engine knows how to handle. It parks the LO clear of every
     /// channel and removes the term without asking, and neither is an operator setting.
     Managed,
+    /// A source with no analog front end, such as a recording. There is no LO to park and no
+    /// receiver term to remove, so neither is an operator setting and neither is applied.
+    None,
 }
 
 impl DcArtifact {
     #[must_use]
     pub const fn is_managed(self) -> bool {
         matches!(self, Self::Managed)
+    }
+
+    #[must_use]
+    pub const fn is_operator(self) -> bool {
+        matches!(self, Self::Operator)
     }
 }
 
@@ -177,6 +185,23 @@ impl Range {
     pub fn holds(&self, value: f64) -> bool {
         self.min <= value && value <= self.max
     }
+}
+
+fn reaches(ranges: &[Range], hz: f64) -> bool {
+    ranges.is_empty() || any_range_holds(ranges, hz)
+}
+
+fn supported_gains(gains: &[GainValue], capabilities: &Capabilities) -> Vec<GainValue> {
+    gains
+        .iter()
+        .filter(|value| {
+            capabilities
+                .gains
+                .iter()
+                .any(|stage| stage.name == value.stage)
+        })
+        .cloned()
+        .collect()
 }
 
 /// Whether a value lies in any of `ranges`. An empty list holds nothing, so callers that mean
@@ -668,6 +693,69 @@ impl DeviceSettings {
                 Some(existing) => existing.merge_from(stream),
                 None => self.streams.push(stream.clone()),
             }
+        }
+    }
+
+    /// The part of these settings a radio can actually take.
+    ///
+    /// Settings are remembered per patch node, not per radio, so the same stored values are
+    /// replayed onto whatever is bound there next. A recording has no bias tee and a receiver has
+    /// no other receiver's gain stages; dropping what the radio never offered lets the rest of the
+    /// settings land instead of the whole patch being refused.
+    #[must_use]
+    pub fn supported_by(&self, capabilities: &Capabilities) -> DeviceSettings {
+        let scope = capabilities.per_stream;
+        DeviceSettings {
+            center_hz: self
+                .center_hz
+                .filter(|hz| reaches(&capabilities.freq_ranges, *hz)),
+            sample_rate: self.sample_rate.filter(|rate| {
+                capabilities.sample_rates.contains(rate)
+                    || any_range_holds(&capabilities.sample_rate_ranges, *rate)
+            }),
+            ppm: self.ppm.filter(|_| capabilities.ppm),
+            antenna: self
+                .antenna
+                .clone()
+                .filter(|antenna| capabilities.antennas.contains(antenna)),
+            bandwidth: self.bandwidth.filter(|hz| {
+                capabilities.bandwidths.contains(hz)
+                    || any_range_holds(&capabilities.bandwidth_ranges, *hz)
+            }),
+            dc_block: self.dc_block,
+            lo_offset_hz: self.lo_offset_hz,
+            gains: supported_gains(&self.gains, capabilities),
+            extra: self
+                .extra
+                .iter()
+                .filter(|value| capabilities.extra.iter().any(|e| e.name() == value.name))
+                .cloned()
+                .collect(),
+            streams: self
+                .streams
+                .iter()
+                .filter(|stream| stream.stream < capabilities.rx_streams)
+                .map(|stream| StreamSettings {
+                    stream: stream.stream,
+                    center_hz: stream
+                        .center_hz
+                        .filter(|hz| scope.tuning && reaches(&capabilities.freq_ranges, *hz)),
+                    gains: if scope.gain {
+                        supported_gains(&stream.gains, capabilities)
+                    } else {
+                        Vec::new()
+                    },
+                    antenna: stream
+                        .antenna
+                        .clone()
+                        .filter(|a| scope.antenna && capabilities.antennas.contains(a)),
+                })
+                .filter(|stream| {
+                    stream.center_hz.is_some()
+                        || !stream.gains.is_empty()
+                        || stream.antenna.is_some()
+                })
+                .collect(),
         }
     }
 
@@ -1250,5 +1338,128 @@ mod tests {
 
         settings.merge_from(&DeviceSettings::default());
         assert_eq!(settings.bandwidth, Some(1_750_000.0));
+    }
+
+    #[test]
+    fn a_recording_takes_only_the_part_of_a_receivers_settings_it_has() {
+        let stored = DeviceSettings {
+            center_hz: Some(460_802_929.0),
+            sample_rate: Some(2.048e6),
+            ppm: Some(3.0),
+            antenna: Some("RX".to_string()),
+            bandwidth: Some(1_750_000.0),
+            gains: vec![GainValue {
+                stage: "TUNER".to_string(),
+                value_db: 30.0,
+            }],
+            extra: vec![
+                ExtraValue {
+                    name: "bias_tee".to_string(),
+                    value: true.into(),
+                },
+                ExtraValue {
+                    name: "loop".to_string(),
+                    value: true.into(),
+                },
+            ],
+            ..DeviceSettings::default()
+        };
+        let mut recording = caps(
+            vec![range(460_802_929.0, 460_802_929.0)],
+            vec![2.4e6],
+            Duplex::RxOnly,
+        );
+        recording.gains = Vec::new();
+        recording.antennas = Vec::new();
+        recording.extra = vec![ExtraSetting::Bool {
+            name: "loop".to_string(),
+            default: true,
+        }];
+        recording.dc_artifact = DcArtifact::None;
+
+        let taken = stored.supported_by(&recording);
+        assert_eq!(taken.center_hz, Some(460_802_929.0));
+        assert_eq!(taken.sample_rate, None, "a recording plays at its own rate");
+        assert_eq!(taken.ppm, None);
+        assert_eq!(taken.antenna, None);
+        assert_eq!(taken.bandwidth, None);
+        assert!(taken.gains.is_empty());
+        assert_eq!(
+            taken
+                .extra
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["loop"]
+        );
+    }
+
+    #[test]
+    fn a_receiver_keeps_every_setting_it_declares() {
+        let mut receiver = caps(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
+        receiver.ppm = true;
+        receiver.extra = vec![ExtraSetting::Bool {
+            name: "bias_tee".to_string(),
+            default: false,
+        }];
+        let stored = DeviceSettings {
+            center_hz: Some(145_500_000.0),
+            sample_rate: Some(2.048e6),
+            ppm: Some(3.0),
+            antenna: Some("RX".to_string()),
+            gains: vec![GainValue {
+                stage: "TUNER".to_string(),
+                value_db: 30.0,
+            }],
+            extra: vec![ExtraValue {
+                name: "bias_tee".to_string(),
+                value: true.into(),
+            }],
+            dc_block: Some(true),
+            lo_offset_hz: Some(250_000.0),
+            ..DeviceSettings::default()
+        };
+        assert_eq!(stored.supported_by(&receiver), stored);
+    }
+
+    #[test]
+    fn a_shared_tuning_radio_drops_a_per_stream_centre_it_cannot_take() {
+        let mut radio = caps(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
+        radio.rx_streams = 2;
+        radio.per_stream = StreamScope {
+            tuning: false,
+            gain: true,
+            antenna: false,
+        };
+        let stored = DeviceSettings {
+            streams: vec![
+                StreamSettings {
+                    stream: 1,
+                    center_hz: Some(433_920_000.0),
+                    gains: vec![GainValue {
+                        stage: "TUNER".to_string(),
+                        value_db: 20.0,
+                    }],
+                    antenna: Some("RX".to_string()),
+                },
+                StreamSettings {
+                    stream: 7,
+                    center_hz: Some(145_500_000.0),
+                    ..StreamSettings::default()
+                },
+            ],
+            ..DeviceSettings::default()
+        };
+        let taken = stored.supported_by(&radio);
+        assert_eq!(
+            taken.streams.len(),
+            1,
+            "stream 7 is not a lane this radio has"
+        );
+        let lane = &taken.streams[0];
+        assert_eq!(lane.stream, 1);
+        assert_eq!(lane.center_hz, None, "this radio's lanes share one tuning");
+        assert_eq!(lane.antenna, None);
+        assert_eq!(lane.gains.len(), 1);
     }
 }

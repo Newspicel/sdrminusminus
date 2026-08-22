@@ -250,6 +250,7 @@ fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
                     serial: None,
                     key: Some(key.to_owned()),
                 }),
+                tuning_locked: false,
             }),
             position: Position { x: 0.0, y: 300.0 },
             size: None,

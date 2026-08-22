@@ -10,6 +10,8 @@ export function Popover({
   align = "start",
   width = "w-80",
   padded = true,
+  disabled = false,
+  title,
   children,
 }: {
   label: ReactNode;
@@ -17,6 +19,8 @@ export function Popover({
   align?: "start" | "end";
   width?: string;
   padded?: boolean;
+  disabled?: boolean;
+  title?: string;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -24,7 +28,14 @@ export function Popover({
 
   return (
     <Primitive.Root open={open} onOpenChange={setOpen}>
-      <Primitive.Trigger className={triggerClass}>{label}</Primitive.Trigger>
+      <Primitive.Trigger
+        className={triggerClass}
+        disabled={disabled}
+        title={title}
+        aria-label={title}
+      >
+        {label}
+      </Primitive.Trigger>
       <Primitive.Portal container={portalContainer} className="contents">
         <Primitive.Positioner className="z-30" side="bottom" align={align} sideOffset={4}>
           <Primitive.Popup

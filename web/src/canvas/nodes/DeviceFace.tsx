@@ -1,17 +1,20 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET } from "../../components/controls";
+import { useState } from "react";
+import { Button, Form, Input } from "../../components/BaseControls";
+import { BTN_PRIMARY, BTN_QUIET, FIELD, ICON_BTN, LABEL } from "../../components/controls";
 import { deviceId } from "../../components/devices";
-import { isTunable, tuningRange } from "../../components/dial";
+import { isTunable, type Range, tuneTargetHz, tuningRange } from "../../components/dial";
 import { FrequencyDial } from "../../components/FrequencyDial";
+import { formatMhz } from "../../components/format";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { PlaybackTransport } from "../../components/PlaybackTransport";
+import { Popover } from "../../components/Popover";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
-import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode } from "../../lib/types";
+import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { claimedDevices, deviceRefOf, refMatches } from "../binding";
 import { useWorkspaceContext } from "../context";
@@ -28,24 +31,74 @@ import {
 } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
-function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning: boolean }) {
+type DeviceNodeData = PatchNodeOf<"device">["data"];
+
+function Tuner({
+  node,
+  set,
+  scanning,
+  locked,
+  onLock,
+}: {
+  node: string;
+  set: DeviceSet;
+  scanning: boolean;
+  locked: boolean;
+  onLock: (locked: boolean) => void;
+}) {
   const { applyPatch } = useDevicePatch();
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
+  const held = scanning || pinned || locked;
+  const tune = (stream: number, hz: number): void =>
+    applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   return (
     <div className="@container flex flex-col gap-1 border-b border-line p-2">
-      {tunerDials(set).map((dial) => (
+      {tunerDials(set).map((dial, index) => (
         <div key={dial.stream} className="flex flex-col">
           {dial.port !== null && <span className="legend">{dial.port}</span>}
-          <FrequencyDial
-            id={deviceDialId(node, dial.stream)}
-            hz={dial.hz}
-            range={range}
-            disabled={scanning || pinned}
-            wheelTunes={active}
-            onTune={(hz) => applyPatch(set.id, tuneDelta(set.capabilities, dial.stream, hz))}
-          />
+          <div className="flex min-w-0 items-center gap-1">
+            <FrequencyDial
+              id={deviceDialId(node, dial.stream)}
+              hz={dial.hz}
+              range={range}
+              disabled={held}
+              wheelTunes={active}
+              onTune={(hz) => tune(dial.stream, hz)}
+            />
+            {!pinned && (
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                <TuneTo
+                  title={
+                    dial.port === null
+                      ? "Type a frequency to tune to"
+                      : `Type a frequency for ${dial.port}`
+                  }
+                  hz={dial.hz}
+                  range={range}
+                  disabled={held}
+                  onTune={(hz) => tune(dial.stream, hz)}
+                />
+                {index === 0 && (
+                  <Button
+                    type="button"
+                    className={`${ICON_BTN} ${locked ? "bg-accent/15" : ""}`}
+                    aria-label={locked ? "Unlock tuning" : "Lock tuning"}
+                    aria-pressed={locked}
+                    title={
+                      locked
+                        ? "Tuning is held; unlock it to move this radio again"
+                        : "Hold this radio where it is so tuning cannot move by accident"
+                    }
+                    onClick={() => onLock(!locked)}
+                  >
+                    <LockGlyph locked={locked} />
+                  </Button>
+                )}
+              </span>
+            )}
+          </div>
         </div>
       ))}
       {scanning && (
@@ -54,6 +107,113 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
         </p>
       )}
     </div>
+  );
+}
+
+function LockGlyph({ locked }: { locked: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={`size-4 ${locked ? "text-accent" : ""}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      aria-hidden
+    >
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1" />
+      <path d={locked ? "M5.75 7V5a2.25 2.25 0 0 1 4.5 0v2" : "M5.75 7V5a2.25 2.25 0 0 1 4.5 0"} />
+    </svg>
+  );
+}
+
+const KEYPAD_DOTS = [4, 8, 12].flatMap((cy) => [4, 8, 12].map((cx) => ({ cx, cy })));
+
+function KeypadGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden>
+      {KEYPAD_DOTS.map((dot) => (
+        <circle key={`${dot.cx}:${dot.cy}`} cx={dot.cx} cy={dot.cy} r="1.1" />
+      ))}
+    </svg>
+  );
+}
+
+function TuneTo({
+  title,
+  hz,
+  range,
+  disabled,
+  onTune,
+}: {
+  title: string;
+  hz: number;
+  range: Range;
+  disabled: boolean;
+  onTune: (hz: number) => void;
+}) {
+  return (
+    <Popover
+      label={<KeypadGlyph />}
+      title={title}
+      triggerClass={`${ICON_BTN} shrink-0`}
+      width="w-64"
+      align="end"
+      disabled={disabled}
+    >
+      {(close) => (
+        <TuneForm
+          hz={hz}
+          range={range}
+          onTune={(entered) => {
+            onTune(entered);
+            close();
+          }}
+        />
+      )}
+    </Popover>
+  );
+}
+
+function TuneForm({
+  hz,
+  range,
+  onTune,
+}: {
+  hz: number;
+  range: Range;
+  onTune: (hz: number) => void;
+}) {
+  const [text, setText] = useState(`${hz / 1e6}`);
+  const target = tuneTargetHz(text, range);
+  return (
+    <Form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (target !== null) {
+          onTune(target);
+        }
+      }}
+    >
+      <span className={LABEL}>Frequency (MHz)</span>
+      <span className="flex items-center gap-2">
+        <Input
+          className={`${FIELD} min-w-0 flex-1 tabular-nums ${target === null && text.trim() !== "" ? "border-danger" : ""}`}
+          value={text}
+          inputMode="decimal"
+          autoFocus
+          aria-label="Frequency to tune to"
+          aria-invalid={target === null}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <Button type="submit" className={BTN_PRIMARY} disabled={target === null}>
+          Set
+        </Button>
+      </span>
+      <span className="legend">
+        Reaches {formatMhz(range.min)} – {formatMhz(range.max)}
+      </span>
+    </Form>
   );
 }
 
@@ -80,6 +240,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   const queryClient = useQueryClient();
   const attached = useQuery(devicesQuery());
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
+  const locked = node.kind === "device" && (node.data.tuning_locked ?? false);
   const set = workspace.devices.get(node.id) ?? null;
   const onBus =
     reference !== null &&
@@ -92,13 +253,15 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
-  const nameRadio = (chosen: DeviceRef | null): void =>
+  const editNode = (next: Partial<DeviceNodeData>): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,
       graph: patchNode(snapshot.graph, node.id, (stored) =>
-        stored.kind === "device" ? { ...stored, data: { device: chosen } } : stored,
+        stored.kind === "device" ? { ...stored, data: { ...stored.data, ...next } } : stored,
       ),
     }));
+
+  const nameRadio = (chosen: DeviceRef | null): void => editNode({ device: chosen });
 
   const forget = useMutation({
     mutationFn: () => releaseRadio(workspace, node.id, () => nameRadio(null)),
@@ -225,7 +388,13 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       subtitle={<span className={set.status === "error" ? "text-danger" : ""}>{set.status}</span>}
     >
       <FaceBody>
-        <Tuner node={node.id} set={set} scanning={scanning} />
+        <Tuner
+          node={node.id}
+          set={set}
+          scanning={scanning}
+          locked={locked}
+          onLock={(next) => editNode({ tuning_locked: next })}
+        />
 
         {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
 

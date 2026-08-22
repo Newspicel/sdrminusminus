@@ -2139,7 +2139,7 @@ export interface components {
          *     artifact has somewhere harmless to sit.
          * @enum {string}
          */
-        DcArtifact: "operator" | "managed";
+        DcArtifact: "operator" | "managed" | "none";
         DecodedRecord: {
             at: string;
             /** Format: int32 */
@@ -2349,6 +2349,7 @@ export interface components {
         };
         DeviceNode: {
             device?: null | components["schemas"]["DeviceRef"];
+            tuning_locked?: boolean;
         };
         DeviceProfile: {
             duplex: components["schemas"]["Duplex"];

@@ -8,7 +8,7 @@ import {
   clampLoOffsetHz,
   isSwitch,
   loOffsetLimitHz,
-  managesDcArtifact,
+  operatorPlacesDcArtifact,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -40,7 +40,7 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
   const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
   const loOffsetLimit = loOffsetLimitHz(sampleRate);
   const loOffset = active.lo_offset_in_force_hz ?? 0;
-  const managedDcArtifact = managesDcArtifact(caps);
+  const operatorFrontEnd = operatorPlacesDcArtifact(caps);
   const extras = (caps.extra ?? []).filter(
     (setting) => active.playback == null || setting.name !== LOOP_SETTING,
   );
@@ -192,7 +192,7 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
         </SettingRow>
       )}
 
-      {!managedDcArtifact && (
+      {operatorFrontEnd && (
         <>
           <SettingRow label="DC block">
             <Checkbox

@@ -4,7 +4,7 @@ import {
   clampLoOffsetHz,
   isSwitch,
   loOffsetLimitHz,
-  managesDcArtifact,
+  operatorPlacesDcArtifact,
   settingIndex,
   snapToRanges,
   snapToStage,
@@ -164,13 +164,17 @@ describe("clampLoOffsetHz", () => {
   });
 });
 
-describe("managesDcArtifact", () => {
+describe("operatorPlacesDcArtifact", () => {
   it("keeps the controls for hardware the engine does not recognise", () => {
-    expect(managesDcArtifact({ dc_artifact: "operator" })).toBe(false);
-    expect(managesDcArtifact({})).toBe(false);
+    expect(operatorPlacesDcArtifact({ dc_artifact: "operator" })).toBe(true);
+    expect(operatorPlacesDcArtifact({})).toBe(true);
   });
 
   it("drops them for a front end the engine handles itself", () => {
-    expect(managesDcArtifact({ dc_artifact: "managed" })).toBe(true);
+    expect(operatorPlacesDcArtifact({ dc_artifact: "managed" })).toBe(false);
+  });
+
+  it("drops them for a source with no front end at all", () => {
+    expect(operatorPlacesDcArtifact({ dc_artifact: "none" })).toBe(false);
   });
 });

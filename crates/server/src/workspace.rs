@@ -482,9 +482,13 @@ pub(crate) fn reconcile(
                 }
             }
         }
-        if let Err(err) = restore_device(engine, set.id, &binding.node, saved) {
-            tracing::warn!(err, set = set.id, "could not restore a radio on switch");
-            report.unrestored.push(binding.node.clone());
+        match restore_device(engine, set.id, &binding.node, saved) {
+            Ok(Restored::Whole) => {}
+            Ok(Restored::Partial) => report.unrestored.push(binding.node.clone()),
+            Err(err) => {
+                tracing::warn!(err, set = set.id, "could not restore a radio on switch");
+                report.unrestored.push(binding.node.clone());
+            }
         }
         for (node, channel) in &binding.channels {
             let Some(stored) = saved.channel(node) else {
@@ -504,18 +508,38 @@ pub(crate) fn reconcile(
     report
 }
 
+/// How much of what a node remembered the radio bound there could actually take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Restored {
+    Whole,
+    /// A different radio is bound than the one these settings were left by, and it has no bias tee
+    /// or no such gain stage. What it can take lands; the node goes on remembering the rest, so the
+    /// radio that can take it gets it back.
+    Partial,
+}
+
 pub(crate) fn restore_device(
     engine: &sdrmm_engine::Engine,
     device_set: u32,
     node: &str,
     saved: &WorkspaceState,
-) -> Result<(), String> {
+) -> Result<Restored, String> {
     let Some(device) = saved.device(node) else {
-        return Ok(());
+        return Ok(Restored::Whole);
     };
+    let capabilities = engine
+        .capabilities(device_set)
+        .ok_or_else(|| format!("device set {device_set} is not open"))?;
+    let taken = device.settings.supported_by(&capabilities);
+    let whole = taken == device.settings;
     engine
-        .patch_device(device_set, device.settings.clone())
-        .map_err(|err| err.to_string())
+        .patch_device(device_set, taken)
+        .map_err(|err| err.to_string())?;
+    Ok(if whole {
+        Restored::Whole
+    } else {
+        Restored::Partial
+    })
 }
 
 pub(crate) fn channel_settings(
@@ -606,6 +630,7 @@ mod tests {
             id: "device".to_string(),
             body: NodeBody::Device(DeviceNode {
                 device: Some(reference),
+                tuning_locked: false,
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,

@@ -171,6 +171,7 @@ impl WorkspaceSnapshot {
                 (NodeBody::Device(d), Some(want)) if d.device.is_none() => {
                     NodeBody::Device(crate::patch::DeviceNode {
                         device: Some(want.clone()),
+                        ..d.clone()
                     })
                 }
                 (body, _) => body.clone(),
@@ -478,7 +479,8 @@ mod tests {
         assert_eq!(
             merged.body,
             NodeBody::Device(DeviceNode {
-                device: Some(rtlsdr())
+                device: Some(rtlsdr()),
+                tuning_locked: false
             })
         );
         assert!(
@@ -491,6 +493,24 @@ mod tests {
                 .map(|(n, stream)| (n.id.as_str(), stream))
                 .collect::<Vec<_>>(),
             vec![("template:airband:ch", 0)]
+        );
+    }
+
+    #[test]
+    fn binding_a_radio_into_a_template_keeps_the_node_s_frequency_lock() {
+        let mut locked = template();
+        locked.nodes[0].body = NodeBody::Device(DeviceNode {
+            device: None,
+            tuning_locked: true,
+        });
+        let mut snap = WorkspaceSnapshot::starter();
+        snap.merge_patch(&locked, "held:", Some(&rtlsdr()));
+        assert_eq!(
+            snap.graph.node("held:dev").unwrap().body,
+            NodeBody::Device(DeviceNode {
+                device: Some(rtlsdr()),
+                tuning_locked: true
+            })
         );
     }
 

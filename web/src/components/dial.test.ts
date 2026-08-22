@@ -7,6 +7,7 @@ import {
   parseFrequency,
   setDialDigit,
   stepDial,
+  tuneTargetHz,
 } from "./dial";
 
 const WIDE = { min: 0, max: 6e9 };
@@ -103,6 +104,27 @@ describe("parseFrequency", () => {
     expect(parseFrequency("abc")).toBeNull();
     expect(parseFrequency("145.5.5")).toBeNull();
     expect(parseFrequency("145 MHz extra")).toBeNull();
+  });
+});
+
+describe("tuneTargetHz", () => {
+  const range = { min: 24e6, max: 1.766e9 };
+
+  it("reads what the dial's own entry reads", () => {
+    expect(tuneTargetHz("145.5", range)).toBe(145_500_000);
+    expect(tuneTargetHz("433800k", range)).toBe(433_800_000);
+  });
+
+  it("refuses a frequency the radio cannot reach rather than tuning the nearest edge", () => {
+    expect(tuneTargetHz("10", range)).toBeNull();
+    expect(tuneTargetHz("2.4g", range)).toBeNull();
+    expect(tuneTargetHz("24", range)).toBe(24_000_000);
+    expect(tuneTargetHz("1766", range)).toBe(1_766_000_000);
+  });
+
+  it("refuses what it cannot read", () => {
+    expect(tuneTargetHz("", range)).toBeNull();
+    expect(tuneTargetHz("abc", range)).toBeNull();
   });
 });
 

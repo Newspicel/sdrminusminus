@@ -111,6 +111,7 @@ async fn a_preset_carries_every_radio_the_workspace_draws() {
                 serial: None,
                 key: Some("array4".to_string()),
             }),
+            tuning_locked: false,
         }),
         position: sdrmm_wire::Position { x: 0.0, y: 600.0 },
         size: None,

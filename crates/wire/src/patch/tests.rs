@@ -255,6 +255,26 @@ fn node_body_is_adjacently_tagged_and_flattened_onto_the_node() {
 }
 
 #[test]
+fn a_device_node_saved_before_the_frequency_lock_existed_still_loads_unlocked() {
+    let stored = r#"{"id":"dev","kind":"device","data":{"device":{"backend":"rtlsdr"}},"position":{"x":0.0,"y":0.0}}"#;
+    let back: PatchNode = serde_json::from_str(stored).expect("an older device node parses");
+    let NodeBody::Device(device) = back.body else {
+        panic!("the node is still a device");
+    };
+    assert!(!device.tuning_locked);
+
+    let locked = NodeBody::Device(DeviceNode {
+        device: device.device,
+        tuning_locked: true,
+    });
+    let json = serde_json::to_string(&locked).expect("serialize the body");
+    assert_eq!(
+        serde_json::from_str::<NodeBody>(&json).expect("the lock survives a round trip"),
+        locked
+    );
+}
+
+#[test]
 fn a_workspace_validates_structurally_and_against_the_registry() {
     let graph = workspace();
     graph.validate().expect("structurally valid");

@@ -1,4 +1,5 @@
 use super::*;
+use crate::workspace::Restored;
 
 #[utoipa::path(
     get, path = "/api/templates",
@@ -159,7 +160,7 @@ pub(super) fn bring_up(
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         if first_binding(app, workspace, &node, device_set) {
             match workspace::restore_device(engine, device_set, &node, saved) {
-                Ok(()) => note_restore(app, &node, true),
+                Ok(whole) => note_restore(app, &node, whole == Restored::Whole),
                 Err(reason) => {
                     note_restore(app, &node, false);
                     report.refused.push(PatchRefusal {
@@ -201,7 +202,7 @@ pub(super) fn bring_up(
                     report.opened += 1;
                     first_binding(app, workspace, &node.id, id);
                     match workspace::restore_device(engine, id, &node.id, saved) {
-                        Ok(()) => note_restore(app, &node.id, true),
+                        Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                         Err(reason) => {
                             note_restore(app, &node.id, false);
                             report.refused.push(PatchRefusal {

@@ -13,7 +13,9 @@ use sdrmm_device::DeviceRegistry;
 use sdrmm_device_virtual::{NFM_CARRIER_OFFSET_HZ, VirtualDriver};
 use sdrmm_engine::{Engine, FinalizedRecording};
 use sdrmm_recorder::{BYTES_PER_SAMPLE, SigmfReader};
-use sdrmm_wire::{ChannelParams, ChannelSettings, DeviceSettings, NfmParams};
+use sdrmm_wire::{
+    ChannelParams, ChannelSettings, DeviceSettings, ExtraValue, GainValue, NfmParams,
+};
 use tempfile::TempDir;
 
 const TEST_RATE: f64 = 2_400_000.0;
@@ -92,6 +94,49 @@ async fn recorded_siggen_replays_and_demodulates() {
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
     assert_tone_dominates(&settle_then_collect_second(&mut rx).await);
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn a_recording_takes_back_the_settings_a_receiver_left_on_the_node() {
+    let dir = TempDir::new().unwrap();
+    let engine = recording_engine(dir.path());
+    let finalized = record_siggen(&engine, TEST_RATE, TEST_RATE as u64 / 4).await;
+
+    let ds = engine
+        .create_device_set(&format!("virtual:file:{}", finalized.stem.display()))
+        .unwrap();
+    let left_by_a_receiver = DeviceSettings {
+        center_hz: Some(100_000_000.0),
+        sample_rate: Some(2_048_000.0),
+        gains: vec![GainValue {
+            stage: "TUNER".to_string(),
+            value_db: 30.0,
+        }],
+        extra: vec![ExtraValue {
+            name: "bias_tee".to_string(),
+            value: true.into(),
+        }],
+        ..DeviceSettings::default()
+    };
+
+    engine
+        .patch_device(ds, left_by_a_receiver.clone())
+        .expect_err("a patch naming a bias tee this source has no such thing as must be refused");
+
+    let capabilities = engine.capabilities(ds).expect("the recording is open");
+    engine
+        .patch_device(ds, left_by_a_receiver.supported_by(&capabilities))
+        .expect("what the recording cannot take is dropped, not refused");
+
+    let set = &engine.snapshot().device_sets[0];
+    assert_eq!(set.settings.center_hz, Some(100_000_000.0));
+    assert_eq!(set.settings.sample_rate, Some(TEST_RATE));
+    assert!(set.settings.gains.is_empty());
+    assert!(
+        set.settings.extra.iter().all(|e| e.name != "bias_tee"),
+        "the receiver's bias tee followed the node onto the recording"
+    );
     engine.remove_device_set(ds).unwrap();
 }
 

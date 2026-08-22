@@ -77,9 +77,10 @@ export function clampLoOffsetHz(hz: number, sampleRate: number | undefined): num
 }
 
 /**
- * Whether the engine places and removes this front end's DC artifact itself. Hardware it knows
- * leaves the operator nothing to decide, so the panel drops both controls.
+ * Whether the operator places the LO and removes the DC term for this source. Hardware the engine
+ * knows decides both for itself, and a recording has no front end to decide about, so only a radio
+ * the engine does not recognise carries the two controls.
  */
-export function managesDcArtifact(caps: Pick<Capabilities, "dc_artifact">): boolean {
-  return caps.dc_artifact === "managed";
+export function operatorPlacesDcArtifact(caps: Pick<Capabilities, "dc_artifact">): boolean {
+  return (caps.dc_artifact ?? "operator") === "operator";
 }

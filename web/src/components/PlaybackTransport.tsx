@@ -58,7 +58,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
       </Button>
       <Button
         type="button"
-        className={`${ICON_BTN} ${looping ? "text-accent" : ""}`}
+        className={`${ICON_BTN} ${looping ? "bg-accent/15 text-accent" : ""}`}
         aria-label="Loop"
         aria-pressed={looping}
         title={

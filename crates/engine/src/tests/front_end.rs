@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn a_source_with_no_front_end_neither_displaces_its_lo_nor_blocks_dc() {
+    let mut recording = tuner_caps();
+    recording.dc_artifact = sdrmm_wire::DcArtifact::None;
+    let mut asked = offset_settings(250_000.0);
+    asked.dc_block = Some(true);
+
+    let plan = plan_front_end(&recording, &asked, &[parked(1, 0.0)]);
+    assert_eq!(plan.lo_offset_hz, 0.0, "a recording has no LO to park");
+    assert!(!plan.dc_block, "a recording has no receiver term to remove");
+}
+
+#[test]
 fn an_lo_offset_no_channel_sits_on_is_left_where_it_was_asked_for() {
     let placed = plan_front_end(
         &tuner_caps(),

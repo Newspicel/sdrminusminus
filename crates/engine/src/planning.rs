@@ -1,8 +1,8 @@
 use sdrmm_channels::ChannelError;
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DeviceSettings,
-    StreamSettings,
+    Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DcArtifact,
+    DeviceSettings, StreamSettings,
 };
 
 use crate::{DEFAULT_CENTER_HZ, EngineError, sample_rate_of};
@@ -200,6 +200,12 @@ pub(crate) fn plan_front_end(
     settings: &DeviceSettings,
     channels: &[ChannelInfo],
 ) -> FrontEndPlan {
+    if capabilities.dc_artifact == DcArtifact::None {
+        return FrontEndPlan {
+            lo_offset_hz: 0.0,
+            dc_block: false,
+        };
+    }
     let rate = sample_rate_of(settings);
     // A centre the radio has not reported cannot be displaced: there is nothing to subtract the
     // offset from, and the front end would mix back a shift the hardware never took.

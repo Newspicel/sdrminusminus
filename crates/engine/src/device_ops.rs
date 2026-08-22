@@ -4,7 +4,9 @@ use std::{
 };
 
 use sdrmm_device::DeviceError;
-use sdrmm_wire::{DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, StreamSettings};
+use sdrmm_wire::{
+    Capabilities, DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, StreamSettings,
+};
 
 use crate::{
     ChannelMedia, DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, FaultGate, FrontEndPlan,
@@ -572,6 +574,15 @@ impl Engine {
 
     pub fn patch_device(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
         self.patch_device_from(ds, delta, PatchOrigin::Client)
+    }
+
+    /// What the radio open on this set can do, for a caller deciding what to ask of it.
+    #[must_use]
+    pub fn capabilities(&self, ds: u32) -> Option<Capabilities> {
+        self.lock()
+            .device_sets
+            .get(&ds)
+            .map(|state| state.capabilities.clone())
     }
 
     /// Moves the LO out from under a channel that has just been added, retuned, or reshaped.

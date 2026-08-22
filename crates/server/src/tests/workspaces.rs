@@ -379,7 +379,7 @@ async fn a_hand_picked_radio_comes_up_with_the_nodes_stored_settings() {
 }
 
 #[tokio::test]
-async fn a_refused_restore_does_not_let_the_autosave_overwrite_the_stored_settings() {
+async fn a_partial_restore_lands_what_fits_and_keeps_remembering_the_rest() {
     let (app, state) = test_router_with_state();
     let workspace = store_siggen_workspace(&app).await;
     let planted = sdrmm_wire::WorkspaceState {
@@ -390,6 +390,10 @@ async fn a_refused_restore_does_not_let_the_autosave_overwrite_the_stored_settin
             settings: DeviceSettings {
                 center_hz: Some(145_500_000.0),
                 sample_rate: Some(999.0),
+                extra: vec![sdrmm_wire::ExtraValue {
+                    name: "bias_tee".to_string(),
+                    value: true.into(),
+                }],
                 ..DeviceSettings::default()
             },
             channels: Vec::new(),
@@ -401,19 +405,28 @@ async fn a_refused_restore_does_not_let_the_autosave_overwrite_the_stored_settin
         .expect("plant the stored settings");
 
     let report = apply(&app, workspace).await;
-    assert_eq!(report.refused.len(), 1, "{report:?}");
-    assert_eq!(report.refused[0].node, "device");
+    assert!(
+        report.refused.is_empty(),
+        "a radio without the other one's bias tee is not a refusal: {report:?}"
+    );
+    assert_eq!(
+        get_state(&app).await.device_sets[0].settings.center_hz,
+        Some(145_500_000.0),
+        "the frequency this radio can reach still landed"
+    );
 
     workspace::save_active(&state).expect("capture the workspace");
     let stored = state
         .store
         .workspace_state(workspace)
         .expect("read the stored settings");
+    let kept = stored.device("device").expect("kept");
     assert_eq!(
-        stored.device("device").expect("kept").settings.sample_rate,
+        kept.settings.sample_rate,
         Some(999.0),
-        "the workspace keeps what it had until a restore succeeds"
+        "the node goes on remembering what this radio could not take"
     );
+    assert_eq!(kept.settings.extra.len(), 1);
 }
 
 #[tokio::test]

@@ -84,7 +84,7 @@ impl FilePlayback {
             tx_streams: 0,
             per_stream: StreamScope::default(),
             directional: None,
-            dc_artifact: DcArtifact::Operator,
+            dc_artifact: DcArtifact::None,
             hardware_sweep: false,
             coherence: sdrmm_wire::Coherence::None,
         };

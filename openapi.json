@@ -7243,7 +7243,8 @@
         "description": "Who places and removes the receiver's own DC artifact.\n\nA zero-IF front end lands an impulse at the tuned frequency. Moving the LO clear of every\nchannel is the only correction that works, because a signal genuinely at 0 Hz is\narithmetically indistinguishable from the offset, and the blocker must not run until the\nartifact has somewhere harmless to sit.",
         "enum": [
           "operator",
-          "managed"
+          "managed",
+          "none"
         ]
       },
       "DecodedRecord": {
@@ -8130,6 +8131,9 @@
                 "$ref": "#/components/schemas/DeviceRef"
               }
             ]
+          },
+          "tuning_locked": {
+            "type": "boolean"
           }
         }
       },
