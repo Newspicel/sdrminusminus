@@ -1,7 +1,8 @@
 import type { Node, NodeProps } from "@xyflow/react";
-import type { ComponentType } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
+import { NODE_SIZE } from "../graph";
 import { ArrayFace } from "./ArrayFace";
 import { ChannelFace } from "./ChannelFace";
 import { CombinerFace } from "./CombinerFace";
@@ -104,3 +105,8 @@ export const FACES: Record<NodeKind, Face> = {
   combiner: CombinerFace,
   triangulation: TriangulationFace,
 };
+
+export function faceSize(node: PatchNode): CSSProperties {
+  const size = NODE_SIZE[node.kind];
+  return { width: size.h === undefined ? size.w : "100%", height: "100%" };
+}

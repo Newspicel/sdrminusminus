@@ -752,6 +752,64 @@ test.describe("the workspace", () => {
       .toBe(1);
   });
 
+  test("leaves the canvas its gestures and blows a face up to the window", async ({ page }) => {
+    await page.goto("/");
+    const scope = page.locator('.react-flow__node[data-id="scope"]');
+    await expect(scope).toBeVisible();
+    await fitPatch(page);
+    await activate(scope);
+
+    const viewport = page.locator(".react-flow__viewport");
+    const transform = () => viewport.evaluate((element) => getComputedStyle(element).transform);
+
+    const plot = scope.locator(".bg-plot-bg");
+    const spectrum = await plot.boundingBox();
+    if (spectrum === null) {
+      throw new Error("a visible spectrum to wheel over");
+    }
+    await page.mouse.move(spectrum.x + spectrum.width / 2, spectrum.y + spectrum.height / 2);
+    const held = await transform();
+    await page.mouse.wheel(0, -200);
+    await expect(scope.getByRole("button", { name: /× · reset/ })).toBeVisible();
+    expect(await transform()).toBe(held);
+
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -200);
+    await page.keyboard.up("Control");
+    await expect.poll(transform).not.toBe(held);
+
+    const panned = await transform();
+    const header = await scope.locator("header").boundingBox();
+    if (header === null) {
+      throw new Error("a header to wheel over");
+    }
+    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2);
+    await page.mouse.wheel(0, 200);
+    await expect.poll(transform).not.toBe(panned);
+
+    await scope.getByRole("button", { name: "Show full screen" }).click();
+    const enlarged = page.locator('[data-full="scope"]');
+    await expect(enlarged).toBeVisible();
+    const frame = page.viewportSize();
+    const filled = await enlarged.boundingBox();
+    if (frame === null || filled === null) {
+      throw new Error("a window to fill and a face filling it");
+    }
+    expect(filled.height).toBeGreaterThan(frame.height - 60);
+    await expect(enlarged.getByRole("button", { name: "Leave full screen" })).toBeVisible();
+
+    await page.keyboard.press("Backspace");
+    await expect(enlarged).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(enlarged).toHaveCount(0);
+    await expect(scope).toHaveClass(/selected/);
+
+    await page.keyboard.press("Escape");
+    await expect(scope).not.toHaveClass(/selected/);
+    await expect(scope.getByRole("button", { name: /× · reset/ })).toBeVisible();
+  });
+
   test("runs a tool beside the receiver without touching the patch", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();

@@ -71,6 +71,7 @@ import { basebandSourceOf, channelNodesOf, hasWire, iqSourceOf } from "../bindin
 import { useWorkspaceContext } from "../context";
 import { addEdge, addNode, newNodeId, patchNode, streamPort } from "../graph";
 import { useNodePlacement } from "../placement";
+import { movesCanvas } from "../wheel";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
@@ -562,7 +563,11 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       return;
     }
     const onWheel = (event: WheelEvent) => {
+      if (movesCanvas(event)) {
+        return;
+      }
       event.preventDefault();
+      event.stopPropagation();
       const rect = plot.getBoundingClientRect();
       const at = (event.clientX - rect.left) / rect.width;
       setView((current) => zoomView(current, at, event.deltaY < 0 ? 1.2 : 1 / 1.2));
@@ -770,7 +775,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     <div
       ref={plotRef}
       className={`relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg ${
-        active ? "nodrag nopan nowheel touch-none cursor-crosshair" : "cursor-default"
+        active ? "nodrag nopan touch-none cursor-crosshair" : "cursor-default"
       } ${panning ? "!cursor-grabbing" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

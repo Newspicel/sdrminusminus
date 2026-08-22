@@ -1,17 +1,9 @@
-import { type CSSProperties, memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 
 import type { PatchNode, RackLayout } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import {
-  moveSlot,
-  NODE_SIZE,
-  placeSlot,
-  RACK_COLS,
-  RACK_ROWS,
-  type RackEdge,
-  resizeSlot,
-} from "./graph";
-import { FACES } from "./nodes";
+import { moveSlot, placeSlot, RACK_COLS, RACK_ROWS, type RackEdge, resizeSlot } from "./graph";
+import { FACES, faceSize } from "./nodes";
 
 interface Gesture {
   node: string;
@@ -131,11 +123,6 @@ export function Rack() {
       })}
     </div>
   );
-}
-
-function faceSize(node: PatchNode): CSSProperties {
-  const size = NODE_SIZE[node.kind];
-  return { width: size.h === undefined ? size.w : "100%", height: "100%" };
 }
 
 const RackFace = memo(function RackFace({ node }: { node: PatchNode }) {

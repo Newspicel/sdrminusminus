@@ -1,6 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
-import { createContext, type ReactNode, useContext, useRef } from "react";
+import {
+  createContext,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useRef,
+} from "react";
 import { Button } from "../../components/BaseControls";
 import { ICON_BTN_SM } from "../../components/controls";
 import { PortalContainerProvider } from "../../components/PortalContainer";
@@ -21,6 +28,7 @@ import {
   unpin,
 } from "../graph";
 import { closeEngineObjects } from "../remove";
+import { wheelStaysOnFace } from "../wheel";
 
 const Surface = createContext<"canvas" | "rack">("rack");
 
@@ -78,6 +86,21 @@ function PortGlyph({ type }: { type: PortType }) {
   );
 }
 
+function FullGlyph({ full }: { full: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1"
+      className="pointer-events-none size-3"
+    >
+      {full ? <path d="M5 1v4H1M7 11V7h4" /> : <path d="M1 4V1h3M11 8v3H8" />}
+    </svg>
+  );
+}
+
 function PinGlyph({ pinned }: { pinned: boolean }) {
   return (
     <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3">
@@ -123,6 +146,8 @@ export function NodeShell({
   const active = surface === "rack" || selected;
   const minimum = nodeMinSize(node.kind, ports);
   const portalContainer = useRef<HTMLDivElement>(null);
+  const full = workspace.expanded === node.id;
+  useWheelRouting(portalContainer);
 
   return (
     <div
@@ -157,6 +182,16 @@ export function NodeShell({
             {actions}
             <Button
               type="button"
+              aria-label={full ? "Leave full screen" : "Show full screen"}
+              aria-pressed={full}
+              title={full ? "Back to its usual size" : "Fill the window with this face"}
+              className={`${ICON_BTN_SM} ${full ? "bg-accent/15 text-accent" : "text-ink-faint"}`}
+              onClick={() => workspace.expand(full ? null : node.id)}
+            >
+              <FullGlyph full={full} />
+            </Button>
+            <Button
+              type="button"
               aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
               aria-pressed={pinned}
               title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
@@ -184,11 +219,7 @@ export function NodeShell({
           </span>
         </header>
 
-        <div
-          className={`relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan ${
-            active ? "nowheel" : ""
-          }`}
-        >
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan">
           <Active value={active}>{children}</Active>
           {!active && (
             <span
@@ -210,6 +241,23 @@ export function NodeShell({
       </PortalContainerProvider>
     </div>
   );
+}
+
+function useWheelRouting(face: RefObject<HTMLDivElement | null>): void {
+  useEffect(() => {
+    const host = face.current;
+    if (host === null) {
+      return;
+    }
+    // Native and bubbling, so it runs before React Flow's pane listener and can withhold the event.
+    const onWheel = (event: WheelEvent) => {
+      if (wheelStaysOnFace(event, host)) {
+        event.stopPropagation();
+      }
+    };
+    host.addEventListener("wheel", onWheel);
+    return () => host.removeEventListener("wheel", onWheel);
+  }, [face]);
 }
 
 function useRemoveNode(node: PatchNode): () => void {

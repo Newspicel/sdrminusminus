@@ -5,6 +5,7 @@ import { useAppHotkeys } from "./appHotkeys";
 import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
+import { FullFace } from "./canvas/FullFace";
 import { pruneRack } from "./canvas/graph";
 import { Rack } from "./canvas/Rack";
 import { useWorkspace } from "./canvas/useWorkspace";
@@ -28,6 +29,7 @@ import { ToolsDialog } from "./tools/ToolsDialog";
 export function App() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [view, setView] = useState<View>("patch");
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -140,6 +142,7 @@ export function App() {
     cachedSettings,
     applyEdit,
     setView,
+    setExpanded,
     setShowShortcuts,
   });
 
@@ -161,6 +164,8 @@ export function App() {
               channels,
               selected,
               select: setSelected,
+              expanded,
+              expand: setExpanded,
               edit: workspace.save,
               editSettings,
               apply: workspace.apply,
@@ -182,7 +187,10 @@ export function App() {
                 onShowShortcuts={() => setShowShortcuts(true)}
                 onOpenTool={setOpenTool}
               />
-              {view === "patch" ? <Canvas /> : <Rack />}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                {view === "patch" ? <Canvas /> : <Rack />}
+                <FullFace />
+              </div>
             </ReactFlowProvider>
           </WorkspaceProvider>
         )}

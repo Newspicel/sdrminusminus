@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { movesCanvas } from "../canvas/wheel";
 import { Button, Input } from "./BaseControls";
 import {
   type DialDigit,
@@ -47,10 +48,11 @@ export function FrequencyDial({
     const onWheel = (event: WheelEvent) => {
       const target = (event.target as HTMLElement).closest("[data-place]");
       const wheelPlace = Number(target?.getAttribute("data-place"));
-      if (!Number.isFinite(wheelPlace)) {
+      if (movesCanvas(event) || !Number.isFinite(wheelPlace)) {
         return;
       }
       event.preventDefault();
+      event.stopPropagation();
       setActive(places.indexOf(wheelPlace));
       onTune(stepDial(hz, wheelPlace, event.deltaY < 0 ? 1 : -1, range));
     };

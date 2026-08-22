@@ -26,6 +26,7 @@ export interface AppHotkeys {
   cachedSettings: ReturnType<typeof useDevicePatch>["cachedSettings"];
   applyEdit: ReturnType<typeof useChannelPatch>["applyEdit"];
   setView: (update: (current: View) => View) => void;
+  setExpanded: (update: (current: string | null) => string | null) => void;
   setShowShortcuts: (show: boolean) => void;
 }
 
@@ -112,6 +113,10 @@ export function useAppHotkeys(b: AppHotkeys) {
       }));
     },
     toggleView: () => b.setView((current) => (current === "patch" ? "rack" : "patch")),
+    toggleFull: () => {
+      const node = b.selectedNode;
+      b.setExpanded((current) => (current !== null || node === null ? null : node.id));
+    },
     undo: b.workspace.undo,
     redo: b.workspace.redo,
     showShortcuts: () => b.setShowShortcuts(true),

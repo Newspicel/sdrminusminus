@@ -32,6 +32,7 @@ import {
 import { useConnections, useGraphChanges } from "./handlers";
 import { NODE_TYPES } from "./nodes";
 import { focusNode } from "./selection";
+import { isTyping } from "./useHotkeys";
 
 export interface FlowData extends Record<string, unknown> {
   node: PatchNode;
@@ -136,6 +137,25 @@ export function Canvas() {
     setMenu({ x: event.clientX, y: event.clientY, target });
   }, []);
 
+  const select = workspace.select;
+  const claimed = menu !== null || workspace.expanded !== null;
+  useEffect(() => {
+    if (claimed) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || isTyping(event.target)) {
+        return;
+      }
+      setNodes((previous) =>
+        previous.map((node) => (node.selected === true ? { ...node, selected: false } : node)),
+      );
+      select(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [claimed, select, setNodes]);
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ReactFlow
@@ -157,7 +177,7 @@ export function Canvas() {
         onNodeContextMenu={(event, node) => openMenu(event, { kind: "node", id: node.id })}
         onEdgeContextMenu={(event, edge) => openMenu(event, { kind: "edge", id: edge.id })}
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
-        deleteKeyCode={DELETE_KEYS}
+        deleteKeyCode={workspace.expanded === null ? DELETE_KEYS : null}
         panOnScroll
         panOnScrollSpeed={1}
         fitView
@@ -224,6 +244,12 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
 
   const items: ReactNode[] = [];
   if (node !== undefined) {
+    const full = workspace.expanded === node.id;
+    items.push(
+      item(full ? "Leave full screen" : "Show full screen", () =>
+        workspace.expand(full ? null : node.id),
+      ),
+    );
     items.push(
       item(pinned ? "Unpin from the rack" : "Pin to the rack", () =>
         workspace.edit((snapshot) => ({
@@ -254,9 +280,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
       ),
     );
   }
-  if (menu.target.kind === "pane") {
-    items.push(item("Fit the patch on screen", () => void fitView(FIT_VIEW)));
-  }
+  items.push(item("Fit the patch on screen", () => void fitView(FIT_VIEW)));
 
   return (
     <div

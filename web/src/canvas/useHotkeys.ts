@@ -11,6 +11,7 @@ export interface HotkeyActions {
   selectNode: (index: number) => void;
   togglePin: () => void;
   toggleView: () => void;
+  toggleFull: () => void;
   undo: () => void;
   redo: () => void;
   showShortcuts: () => void;
@@ -33,13 +34,14 @@ export const BINDINGS: readonly Binding[] = [
   { keys: "1 – 9", what: "Select the nth node" },
   { keys: "p", what: "Pin / unpin the selected face on the rack" },
   { keys: "v", what: "Swap the patch and the rack" },
+  { keys: "z", what: "Blow the selected face up to the whole window — Esc brings it back" },
   { keys: "Ctrl / ⌘ Z", what: "Undo the last change — the workspace's history, so for everyone" },
   { keys: "Ctrl / ⌘ Shift Z", what: "Redo (Ctrl / ⌘ Y too)" },
   { keys: "Ctrl / ⌘ C", what: "Copy the selected nodes and the wires between them" },
   { keys: "Ctrl / ⌘ V", what: "Paste them beside the originals — a copied radio names none" },
   { keys: "Backspace", what: "Delete the selected node or wire (right-click offers it too)" },
   { keys: "?", what: "This list" },
-  { keys: "Esc", what: "Close an overlay or a menu" },
+  { keys: "Esc", what: "Close an overlay or a menu, or drop the selection" },
 ];
 
 export type Chord = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
@@ -121,6 +123,9 @@ export function useHotkeys(actions: HotkeyActions): void {
           break;
         case "v":
           act.toggleView();
+          break;
+        case "z":
+          act.toggleFull();
           break;
         case "?":
           act.showShortcuts();

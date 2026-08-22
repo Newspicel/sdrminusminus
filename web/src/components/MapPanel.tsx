@@ -323,6 +323,16 @@ export function MapPanel({
   }, []);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (container === null || !active) {
+      return;
+    }
+    const keepWheel = (event: WheelEvent) => event.stopPropagation();
+    container.addEventListener("wheel", keepWheel);
+    return () => container.removeEventListener("wheel", keepWheel);
+  }, [active]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (map === null) {
       return;

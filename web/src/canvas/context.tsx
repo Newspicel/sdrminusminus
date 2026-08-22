@@ -25,6 +25,8 @@ export interface Workspace {
   channels: ReadonlyMap<string, ChannelInfo>;
   selected: string | null;
   select: (node: string | null) => void;
+  expanded: string | null;
+  expand: (node: string | null) => void;
   edit: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
   editSettings: (settings: Partial<WorkspaceSettings>) => void;
   apply: () => void;
