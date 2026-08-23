@@ -22,6 +22,16 @@ pub enum StoreError {
     RecordingNotFound(i64),
     #[error("workspace {0} not found")]
     WorkspaceNotFound(i64),
+    #[error("radio operator {0} not found")]
+    CpsUserNotFound(i64),
+    #[error("radio {0} not found")]
+    CpsDeviceNotFound(i64),
+    #[error("codeplug {0} not found")]
+    CpsCodeplugNotFound(i64),
+    #[error("that {0} is not usable")]
+    CpsField(&'static str),
+    #[error("that name is already taken")]
+    CpsNameTaken,
     #[error("a workspace named {0:?} already exists")]
     WorkspaceNameTaken(String),
     #[error("workspace {id} moved on (revision {current}, not {sent}) — reload and reapply")]
@@ -216,6 +226,41 @@ const MIGRATIONS: &[&str] = &[
     -- An array is drawn on the canvas now, so the bank of radios lives in the patch that uses it
     -- rather than in a table nothing else refers to.
     DROP TABLE arrays;
+    ",
+    "
+    CREATE TABLE cps_users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        callsign TEXT,
+        dmr_id INTEGER,
+        note TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE cps_devices (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        model_id TEXT NOT NULL,
+        port TEXT,
+        serial_number TEXT,
+        firmware TEXT,
+        owner_id INTEGER REFERENCES cps_users(id) ON DELETE SET NULL,
+        note TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE cps_codeplugs (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        device_id INTEGER REFERENCES cps_devices(id) ON DELETE SET NULL,
+        user_id INTEGER REFERENCES cps_users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        codeplug TEXT NOT NULL,
+        -- The raw bytes the radio handed over. A write patches this image rather than building
+        -- one from scratch, so settings the generic model does not cover survive the round trip.
+        image BLOB
+    );
+    CREATE INDEX cps_codeplugs_model ON cps_codeplugs (model_id, updated_at DESC);
     ",
 ];
 
@@ -1544,6 +1589,13 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
 fn now_rfc3339() -> String {
     rfc3339(jiff::Timestamp::now())
 }
+
+#[must_use]
+pub fn rfc3339_now() -> String {
+    now_rfc3339()
+}
+
+mod cps;
 
 #[cfg(test)]
 mod tests;

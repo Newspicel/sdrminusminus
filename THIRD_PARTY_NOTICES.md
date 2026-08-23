@@ -48,6 +48,10 @@ DVB-S2 is specified by ETSI EN 302 307-1 and -2, and `crates/channels/src/datv` 
 
 As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary.
 
+**qdmr (libdmrconf)** — GPL-3.0-or-later
+
+A codeplug is a vendor binary with no published specification, so the memory maps and serial protocols in `crates/cps` were written from qdmr, which is where those formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, the same terms sdr-- distributes under, so no separate text accompanies them. The AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map decodes firmware V100's digital channels as analogue, and the field layout in `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`.
+
 **rtl-sdr (librtlsdr)** — GPL-2.0-or-later
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
@@ -822,13 +826,14 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
 
-## Hardware libraries (5)
+## Hardware libraries (6)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
+| [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | — | GPL-3.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |
 

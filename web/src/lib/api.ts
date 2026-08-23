@@ -15,6 +15,19 @@ import type {
   CapturedImagesResponse,
   ChannelSettings,
   ChannelTypesResponse,
+  CpsCodeplugDetail,
+  CpsCodeplugRequest,
+  CpsConvertRequest,
+  CpsConvertResponse,
+  CpsDeviceRequest,
+  CpsJob,
+  CpsJobsResponse,
+  CpsLibraryResponse,
+  CpsMergeRequest,
+  CpsPortsResponse,
+  CpsReadRequest,
+  CpsUserRequest,
+  CpsWriteRequest,
   CreateBookmarkRequest,
   DecoderLogFilter,
   DecoderLogResponse,
@@ -37,6 +50,8 @@ import type {
   PlaybackAction,
   PlaybackStatus,
   PresetInfo,
+  RadioIdent,
+  RadioModelsResponse,
   RecordAction,
   RecordingAnnotation,
   RecordingFormat,
@@ -102,6 +117,10 @@ export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
 export const BAND_REGIONS_KEY = ["get", "/api/bandplan/regions"] as const;
 export const TOOLS_KEY = ["get", "/api/tools"] as const;
+export const CPS_MODELS_KEY = ["get", "/api/cps/models"] as const;
+export const CPS_PORTS_KEY = ["get", "/api/cps/ports"] as const;
+export const CPS_LIBRARY_KEY = ["get", "/api/cps/library"] as const;
+export const CPS_JOBS_KEY = ["get", "/api/cps/jobs"] as const;
 export const TOOL_RUN_KEY = ["post", "/api/tools/run"] as const;
 
 export function stateQuery() {
@@ -752,5 +771,113 @@ function isApiError(error: unknown): error is ApiError {
     typeof error === "object" &&
     error !== null &&
     typeof (error as { error?: unknown }).error === "string"
+  );
+}
+
+export function radioModelsQuery() {
+  return queryOptions({
+    queryKey: CPS_MODELS_KEY,
+    queryFn: async (): Promise<RadioModelsResponse> => unwrap(await client.GET("/api/cps/models")),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+export function cpsPortsQuery() {
+  return queryOptions({
+    queryKey: CPS_PORTS_KEY,
+    queryFn: async (): Promise<CpsPortsResponse> => unwrap(await client.GET("/api/cps/ports")),
+  });
+}
+
+export function cpsLibraryQuery() {
+  return queryOptions({
+    queryKey: CPS_LIBRARY_KEY,
+    queryFn: async (): Promise<CpsLibraryResponse> => unwrap(await client.GET("/api/cps/library")),
+  });
+}
+
+export function cpsJobsQuery(active: boolean) {
+  return queryOptions({
+    queryKey: CPS_JOBS_KEY,
+    queryFn: async (): Promise<CpsJobsResponse> => unwrap(await client.GET("/api/cps/jobs")),
+    refetchInterval: active ? 400 : false,
+  });
+}
+
+export function cpsCodeplugQuery(id: number | null) {
+  return queryOptions({
+    queryKey: ["get", "/api/cps/codeplugs", id] as const,
+    enabled: id !== null,
+    queryFn: async (): Promise<CpsCodeplugDetail> =>
+      unwrap(await client.GET("/api/cps/codeplugs/{id}", { params: { path: { id: id ?? 0 } } })),
+  });
+}
+
+export async function identifyRadio(model_id: string, port: string): Promise<RadioIdent> {
+  return unwrap(await client.POST("/api/cps/identify", { body: { model_id, port } }));
+}
+
+export async function readRadio(request: CpsReadRequest): Promise<CpsJob> {
+  return unwrap(await client.POST("/api/cps/read", { body: request }));
+}
+
+export async function writeRadio(request: CpsWriteRequest): Promise<CpsJob> {
+  return unwrap(await client.POST("/api/cps/write", { body: request }));
+}
+
+export async function cancelCpsJob(id: number): Promise<CpsJob> {
+  return unwrap(await client.DELETE("/api/cps/jobs/{id}", { params: { path: { id } } }));
+}
+
+export async function createCpsUser(request: CpsUserRequest): Promise<number> {
+  return unwrap(await client.POST("/api/cps/users", { body: request })).id;
+}
+
+export async function deleteCpsUser(id: number): Promise<void> {
+  unwrap(await client.DELETE("/api/cps/users/{id}", { params: { path: { id } } }));
+}
+
+export async function createCpsDevice(request: CpsDeviceRequest): Promise<number> {
+  return unwrap(await client.POST("/api/cps/devices", { body: request })).id;
+}
+
+export async function deleteCpsDevice(id: number): Promise<void> {
+  unwrap(await client.DELETE("/api/cps/devices/{id}", { params: { path: { id } } }));
+}
+
+export async function saveCpsCodeplug(
+  id: number,
+  request: CpsCodeplugRequest,
+): Promise<CpsCodeplugDetail> {
+  return unwrap(
+    await client.PATCH("/api/cps/codeplugs/{id}", { params: { path: { id } }, body: request }),
+  );
+}
+
+export async function deleteCpsCodeplug(id: number): Promise<void> {
+  unwrap(await client.DELETE("/api/cps/codeplugs/{id}", { params: { path: { id } } }));
+}
+
+export async function convertCpsCodeplug(
+  id: number,
+  request: CpsConvertRequest,
+): Promise<CpsConvertResponse> {
+  return unwrap(
+    await client.POST("/api/cps/codeplugs/{id}/convert", {
+      params: { path: { id } },
+      body: request,
+    }),
+  );
+}
+
+export async function mergeCpsCodeplug(
+  id: number,
+  request: CpsMergeRequest,
+): Promise<CpsConvertResponse> {
+  return unwrap(
+    await client.POST("/api/cps/codeplugs/{id}/merge", {
+      params: { path: { id } },
+      body: request,
+    }),
   );
 }

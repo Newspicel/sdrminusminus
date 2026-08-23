@@ -30,6 +30,7 @@ sdrmm-device.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-device-sdrplay = { workspace = true, optional = true }
 sdrmm-device-cr8 = { workspace = true, optional = true }
+sdrmm-cps.workspace = true
 sdrmm-recorder.workspace = true
 sdrmm-tools.workspace = true
 
@@ -75,5 +76,6 @@ sdrmm-device-virtual.workspace = true
 sdrmm-device-array.workspace = true
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 tokio-tungstenite.workspace = true
+serialport.workspace = true
 num-complex.workspace = true
 tempfile.workspace = true

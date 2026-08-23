@@ -3,6 +3,7 @@ pub mod audio;
 pub mod bandplan;
 pub mod channel;
 pub mod coherent;
+pub mod cps;
 pub mod decode;
 pub mod device;
 pub mod doctor;
@@ -58,6 +59,18 @@ pub use coherent::{
     MAX_DF_REPORT_MS, MAX_RANGE_BINS, MAX_STATION_ID_LEN, MIN_ARRAY_ELEMENTS, MIN_CPI_MS,
     MIN_DF_BANDWIDTH_HZ, MIN_DF_REPORT_MS, NavTarget, NavTargetKind, PassiveRadarParams,
     RadarDetection,
+};
+pub use cps::{
+    ALL_CALL_NUMBER, Admit, Bandwidth, CODEPLUG_VERSION, ChannelKind, ChannelMode, Codeplug,
+    CodeplugCounts, CodeplugMeta, Contact, ContactKind, ConversionIssue, ConversionReport,
+    CpsCodeplugDetail, CpsCodeplugInfo, CpsCodeplugRequest, CpsConvertRequest, CpsConvertResponse,
+    CpsDevice, CpsDeviceRequest, CpsIdentifyRequest, CpsJob, CpsJobKind, CpsJobState,
+    CpsJobsResponse, CpsLibraryResponse, CpsMergeRequest, CpsPort, CpsPortsResponse,
+    CpsReadRequest, CpsUser, CpsUserRequest, CpsWriteRequest, DmrChannel, FmChannel,
+    FrequencyRange, GeneralSettings, GroupList, IssueScope, IssueSeverity, MAX_CPS_NAME_LEN,
+    MAX_CPS_NOTE_LEN, MergeMode, MergePart, PortMatch, Power, RadioFeatures, RadioId, RadioIdent,
+    RadioLimits, RadioModelDescriptor, RadioModelsResponse, ScanList, ScanRevert, ScanTarget,
+    TimeSlot, Tone, UsbMatch,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, BroadcastService, BroadcastServiceKind,

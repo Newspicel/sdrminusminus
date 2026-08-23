@@ -15,6 +15,7 @@ members = [
     "crates/device-net",
     "crates/usb-stream",
     "crates/channels",
+    "crates/cps",
     "crates/recorder",
     "crates/engine",
     "crates/tools",
@@ -39,6 +40,7 @@ default-members = [
     "crates/device-net",
     "crates/usb-stream",
     "crates/channels",
+    "crates/cps",
     "crates/recorder",
     "crates/engine",
     "crates/tools",
@@ -71,6 +73,7 @@ sdrmm-device-hackrf = { path = "crates/device-hackrf" }
 sdrmm-device-net = { path = "crates/device-net" }
 sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-channels = { path = "crates/channels" }
+sdrmm-cps = { path = "crates/cps" }
 sdrmm-recorder = { path = "crates/recorder" }
 sdrmm-tools = { path = "crates/tools" }
 # default-features = false so binaries opt into `soapy` themselves — a member manifest cannot

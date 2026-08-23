@@ -97,6 +97,18 @@ multiplex.
 
 ## 6. Station services & hardware integration
 
+- Codeplug programming reaches the objects every radio shares — channels, contacts, group lists,
+  zones, scan lists and radio IDs — and preserves every byte it does not model, so a read/write
+  round trip changes nothing. What it does not read at all is the rest of the AnyTone map: the
+  general-settings block, GPS and both APRS flavours, roaming zones and channels, encryption keys,
+  DTMF/2-tone/5-tone signalling, satellite and boot settings, and the per-channel long tail
+  (custom CTCSS, talkaround, call confirm, ranging, scrambler, TX colour code). Radtel RT-4D covers
+  the same common objects and its DMR ID; its settings blocks, keys and message templates are read
+  but not modelled. One AnyTone field is still unproven: the radio read to derive the map holds no
+  channel with a transmit shift, so the direction bits are a reading, not a measurement, and the
+  conversion report says so on any channel that uses one
+- More radios: the AnyTone GD32 family (D868/D878/D578) shares the serial protocol already here and
+  needs only its own memory map
 - Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
 - Rotator control (GS-232, rotctld); rigctld-compatible rig control server
 - Saved antenna profiles — the NanoVNA tool sweeps, plots SWR and a Smith chart and

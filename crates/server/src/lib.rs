@@ -28,6 +28,7 @@ mod bandplan;
 mod basemap;
 mod calls;
 pub(crate) mod coherent;
+pub(crate) mod cps;
 mod decoderlog;
 pub(crate) mod df_fusion;
 pub mod doctor;
@@ -76,6 +77,7 @@ pub(crate) struct AppState {
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
     pub(crate) gps: Arc<gps::GpsHub>,
     pub(crate) coherent: Arc<coherent::CoherentHub>,
+    pub(crate) cps: Arc<cps::CpsHub>,
     pub(crate) fusion: df_fusion::SharedFusion,
     pub(crate) routing: Arc<routing::RoutingOptions>,
 }
@@ -101,6 +103,7 @@ impl AppState {
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
             gps: Arc::new(gps::GpsHub::default()),
             coherent: Arc::new(coherent::CoherentHub::default()),
+            cps: Arc::new(cps::CpsHub::default()),
             fusion: Arc::new(df_fusion::FusionHub::default()),
             routing: Arc::new(routing::RoutingOptions::default()),
         }

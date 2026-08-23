@@ -555,6 +555,836 @@
         }
       }
     },
+    "/api/cps/codeplugs": {
+      "post": {
+        "operationId": "create_cps_codeplug",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsCodeplugRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Codeplug stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such radio model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/codeplugs/{id}": {
+      "get": {
+        "operationId": "get_cps_codeplug",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Codeplug id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored codeplug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsCodeplugDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Codeplug not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_cps_codeplug",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Codeplug id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Codeplug removed"
+          },
+          "404": {
+            "description": "Codeplug not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "update_cps_codeplug",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Codeplug id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsCodeplugRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Codeplug updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsCodeplugDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Codeplug not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/codeplugs/{id}/convert": {
+      "post": {
+        "operationId": "convert_cps_codeplug",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Codeplug id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsConvertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the target radio can hold, and what it cannot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsConvertResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Codeplug or model not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/codeplugs/{id}/merge": {
+      "post": {
+        "operationId": "merge_cps_codeplug",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Codeplug the entries land in",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsMergeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The merged codeplug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsConvertResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Either codeplug was not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/devices": {
+      "post": {
+        "operationId": "create_cps_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Radio stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such radio model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That name is taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/devices/{id}": {
+      "delete": {
+        "operationId": "delete_cps_device",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Radio id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Radio removed"
+          },
+          "404": {
+            "description": "Radio not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "update_cps_device",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Radio id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Radio updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsDevice"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Radio not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/identify": {
+      "post": {
+        "operationId": "identify_radio",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsIdentifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the radio on that port says it is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadioIdent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such radio model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another transfer holds the port",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The radio did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/jobs": {
+      "get": {
+        "operationId": "list_cps_jobs",
+        "responses": {
+          "200": {
+            "description": "Radio transfers this session ran",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsJobsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/jobs/{id}": {
+      "get": {
+        "operationId": "get_cps_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How the transfer is going",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsJob"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancel_cps_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The transfer was asked to stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsJob"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The transfer already finished",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/library": {
+      "get": {
+        "operationId": "get_cps_library",
+        "responses": {
+          "200": {
+            "description": "Stored operators, radios and codeplugs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsLibraryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/models": {
+      "get": {
+        "operationId": "list_radio_models",
+        "responses": {
+          "200": {
+            "description": "Radio models this build can program",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadioModelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/ports": {
+      "get": {
+        "operationId": "list_cps_ports",
+        "responses": {
+          "200": {
+            "description": "Serial ports a radio could be on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsPortsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/read": {
+      "post": {
+        "operationId": "read_radio",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The read is running; poll the job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsJob"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such radio model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another transfer holds the port",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/users": {
+      "post": {
+        "operationId": "create_cps_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Operator stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That name is taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/users/{id}": {
+      "delete": {
+        "operationId": "delete_cps_user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operator id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Operator removed"
+          },
+          "404": {
+            "description": "Operator not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "update_cps_user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operator id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Operator updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsUser"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operator not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cps/write": {
+      "post": {
+        "operationId": "write_radio",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CpsWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The write is running; poll the job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CpsJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`confirm` was not set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Model or codeplug not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another transfer holds the port",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/decoderlog": {
       "get": {
         "operationId": "list_decoder_log",
@@ -3268,6 +4098,16 @@
           }
         }
       },
+      "Admit": {
+        "type": "string",
+        "enum": [
+          "always",
+          "channel_free",
+          "color_code_free",
+          "different_color_code",
+          "tone_free"
+        ]
+      },
       "AdsbMessage": {
         "type": "object",
         "required": [
@@ -4711,6 +5551,13 @@
           "other"
         ]
       },
+      "Bandwidth": {
+        "type": "string",
+        "enum": [
+          "narrow",
+          "wide"
+        ]
+      },
       "Bookmark": {
         "type": "object",
         "required": [
@@ -5216,6 +6063,56 @@
           }
         }
       },
+      "Channel": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ChannelMode"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "rx_hz",
+              "tx_hz"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "power": {
+                "$ref": "#/components/schemas/Power"
+              },
+              "rx_hz": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "rx_only": {
+                "type": "boolean"
+              },
+              "scan_list": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "timeout_s": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "tx_hz": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
       "ChannelCapabilities": {
         "type": "object",
         "required": [
@@ -5433,6 +6330,13 @@
           }
         }
       },
+      "ChannelKind": {
+        "type": "string",
+        "enum": [
+          "fm",
+          "dmr"
+        ]
+      },
       "ChannelLevel": {
         "type": "object",
         "required": [
@@ -5462,6 +6366,52 @@
             "format": "float"
           }
         }
+      },
+      "ChannelMode": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FmChannel"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "fm"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DmrChannel"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "dmr"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
       },
       "ChannelNetworkExportRequest": {
         "type": "object",
@@ -6847,6 +7797,140 @@
           }
         }
       },
+      "Codeplug": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Channel"
+            }
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Contact"
+            }
+          },
+          "extensions": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "group_lists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupList"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/CodeplugMeta"
+          },
+          "radio_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RadioId"
+            }
+          },
+          "scan_lists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanList"
+            }
+          },
+          "settings": {
+            "$ref": "#/components/schemas/GeneralSettings"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Zone"
+            }
+          }
+        }
+      },
+      "CodeplugCounts": {
+        "type": "object",
+        "required": [
+          "channels",
+          "contacts",
+          "group_lists",
+          "zones",
+          "scan_lists",
+          "radio_ids"
+        ],
+        "properties": {
+          "channels": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "contacts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "group_lists": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "radio_ids": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scan_lists": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "zones": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "CodeplugMeta": {
+        "type": "object",
+        "properties": {
+          "bands": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firmware": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Coherence": {
         "type": "string",
         "description": "How much of the relationship between two of a radio's receive lanes survives calibration.\n\nA shared clock alone fixes the sample rate, so a measured delay between lanes stays true; the\nseparate synthesizers still come up at an arbitrary phase after every retune. Only a shared\nlocal oscillator makes inter-lane phase — and therefore a bearing — mean anything.",
@@ -6930,6 +8014,773 @@
           "web",
           "native"
         ]
+      },
+      "Contact": {
+        "type": "object",
+        "required": [
+          "name",
+          "number"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ContactKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ring": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ContactKind": {
+        "type": "string",
+        "enum": [
+          "private",
+          "group",
+          "all"
+        ]
+      },
+      "ConversionIssue": {
+        "type": "object",
+        "required": [
+          "severity",
+          "scope",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/IssueScope"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/IssueSeverity"
+          }
+        }
+      },
+      "ConversionReport": {
+        "type": "object",
+        "required": [
+          "target_model",
+          "before",
+          "after",
+          "issues"
+        ],
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/CodeplugCounts"
+          },
+          "before": {
+            "$ref": "#/components/schemas/CodeplugCounts"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversionIssue"
+            }
+          },
+          "source_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_model": {
+            "type": "string"
+          }
+        }
+      },
+      "CpsCodeplugDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CpsCodeplugInfo"
+          },
+          {
+            "type": "object",
+            "required": [
+              "codeplug"
+            ],
+            "properties": {
+              "codeplug": {
+                "$ref": "#/components/schemas/Codeplug"
+              }
+            }
+          }
+        ]
+      },
+      "CpsCodeplugInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "model_id",
+          "counts",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/CodeplugCounts"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "CpsCodeplugRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "model_id",
+          "codeplug"
+        ],
+        "properties": {
+          "codeplug": {
+            "$ref": "#/components/schemas/Codeplug"
+          },
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "CpsConvertRequest": {
+        "type": "object",
+        "required": [
+          "target_model_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "store": {
+            "type": "boolean"
+          },
+          "target_model_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "CpsConvertResponse": {
+        "type": "object",
+        "required": [
+          "report",
+          "codeplug"
+        ],
+        "properties": {
+          "codeplug": {
+            "$ref": "#/components/schemas/Codeplug"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ConversionReport"
+          },
+          "stored_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "CpsDevice": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "model_id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "firmware": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "port": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CpsDeviceRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "model_id"
+        ],
+        "properties": {
+          "firmware": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "port": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CpsIdentifyRequest": {
+        "type": "object",
+        "required": [
+          "model_id",
+          "port"
+        ],
+        "properties": {
+          "model_id": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string"
+          }
+        }
+      },
+      "CpsJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "model_id",
+          "port",
+          "state",
+          "step",
+          "done_bytes",
+          "total_bytes",
+          "started_at"
+        ],
+        "properties": {
+          "codeplug_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "done_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CpsJobKind"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string"
+          },
+          "radio": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RadioIdent"
+              }
+            ]
+          },
+          "report": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConversionReport"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CpsJobState"
+          },
+          "step": {
+            "type": "string"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CpsJobKind": {
+        "type": "string",
+        "enum": [
+          "read",
+          "write",
+          "identify"
+        ]
+      },
+      "CpsJobState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "done",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "CpsJobsResponse": {
+        "type": "object",
+        "required": [
+          "jobs"
+        ],
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CpsJob"
+            }
+          }
+        }
+      },
+      "CpsLibraryResponse": {
+        "type": "object",
+        "required": [
+          "users",
+          "devices",
+          "codeplugs"
+        ],
+        "properties": {
+          "codeplugs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CpsCodeplugInfo"
+            }
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CpsDevice"
+            }
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CpsUser"
+            }
+          }
+        }
+      },
+      "CpsMergeRequest": {
+        "type": "object",
+        "required": [
+          "source_id"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/MergeMode"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MergePart"
+            }
+          },
+          "source_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CpsPort": {
+        "type": "object",
+        "required": [
+          "port",
+          "label",
+          "match_kind",
+          "candidate_models"
+        ],
+        "properties": {
+          "candidate_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": "string"
+          },
+          "manufacturer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "match_kind": {
+            "$ref": "#/components/schemas/PortMatch"
+          },
+          "port": {
+            "type": "string"
+          },
+          "product": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usb_pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "usb_vid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "CpsPortsResponse": {
+        "type": "object",
+        "required": [
+          "ports",
+          "ignored_ports"
+        ],
+        "properties": {
+          "ignored_ports": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CpsPort"
+            }
+          }
+        }
+      },
+      "CpsReadRequest": {
+        "type": "object",
+        "required": [
+          "model_id",
+          "port"
+        ],
+        "properties": {
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "port": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "CpsUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "properties": {
+          "callsign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "dmr_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CpsUserRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "callsign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dmr_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CpsWriteRequest": {
+        "type": "object",
+        "required": [
+          "model_id",
+          "port",
+          "codeplug_id",
+          "confirm"
+        ],
+        "properties": {
+          "codeplug_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "device_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string"
+          },
+          "restore_image": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
       },
       "CreateBookmarkRequest": {
         "type": "object",
@@ -8805,6 +10656,40 @@
           }
         }
       },
+      "DmrChannel": {
+        "type": "object",
+        "properties": {
+          "admit": {
+            "$ref": "#/components/schemas/Admit"
+          },
+          "color_code": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "contact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_list": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "radio_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_slot": {
+            "$ref": "#/components/schemas/TimeSlot"
+          }
+        }
+      },
       "DmrChannelEntry": {
         "type": "object",
         "required": [
@@ -9844,6 +11729,45 @@
           }
         }
       },
+      "FmChannel": {
+        "type": "object",
+        "properties": {
+          "admit": {
+            "$ref": "#/components/schemas/Admit"
+          },
+          "bandwidth": {
+            "$ref": "#/components/schemas/Bandwidth"
+          },
+          "rx_tone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Tone"
+              }
+            ]
+          },
+          "squelch": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "tx_tone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Tone"
+              }
+            ]
+          }
+        }
+      },
       "FreeDvMode": {
         "type": "string",
         "enum": [
@@ -9858,6 +11782,25 @@
           },
           "sideband": {
             "$ref": "#/components/schemas/Sideband"
+          }
+        }
+      },
+      "FrequencyRange": {
+        "type": "object",
+        "required": [
+          "lower_hz",
+          "upper_hz"
+        ],
+        "properties": {
+          "lower_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "upper_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -9897,6 +11840,59 @@
           "value_db": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "GeneralSettings": {
+        "type": "object",
+        "properties": {
+          "default_radio_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "intro_line1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "intro_line2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mic_gain": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "radio_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "squelch": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "vox": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -9996,6 +11992,23 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "GroupList": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -10462,6 +12475,27 @@
       "IridiumParams": {
         "type": "object"
       },
+      "IssueScope": {
+        "type": "string",
+        "enum": [
+          "settings",
+          "radio_id",
+          "contact",
+          "group_list",
+          "channel",
+          "zone",
+          "scan_list",
+          "extension"
+        ]
+      },
+      "IssueSeverity": {
+        "type": "string",
+        "enum": [
+          "note",
+          "adjusted",
+          "dropped"
+        ]
+      },
       "ItuRegion": {
         "type": "string",
         "enum": [
@@ -10554,6 +12588,26 @@
           "u_turn",
           "roundabout",
           "arrive"
+        ]
+      },
+      "MergeMode": {
+        "type": "string",
+        "enum": [
+          "replace",
+          "append",
+          "union"
+        ]
+      },
+      "MergePart": {
+        "type": "string",
+        "enum": [
+          "contacts",
+          "group_lists",
+          "channels",
+          "zones",
+          "scan_lists",
+          "radio_ids",
+          "settings"
         ]
       },
       "Modulation": {
@@ -12648,6 +14702,14 @@
           "out"
         ]
       },
+      "PortMatch": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "probable",
+          "possible"
+        ]
+      },
       "PortRef": {
         "type": "object",
         "required": [
@@ -12880,6 +14942,16 @@
               }
             }
           }
+        ]
+      },
+      "Power": {
+        "type": "string",
+        "enum": [
+          "min",
+          "low",
+          "mid",
+          "high",
+          "max"
         ]
       },
       "PresetDevice": {
@@ -13198,6 +15270,280 @@
           "msf",
           "jjy"
         ]
+      },
+      "RadioFeatures": {
+        "type": "object",
+        "required": [
+          "dual_zone_lists",
+          "per_channel_radio_id",
+          "scan_lists",
+          "group_lists",
+          "dcs_tones",
+          "talkaround",
+          "named_radio_ids"
+        ],
+        "properties": {
+          "dcs_tones": {
+            "type": "boolean"
+          },
+          "dual_zone_lists": {
+            "type": "boolean"
+          },
+          "group_lists": {
+            "type": "boolean"
+          },
+          "named_radio_ids": {
+            "type": "boolean"
+          },
+          "per_channel_radio_id": {
+            "type": "boolean"
+          },
+          "scan_lists": {
+            "type": "boolean"
+          },
+          "talkaround": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RadioId": {
+        "type": "object",
+        "required": [
+          "name",
+          "number"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RadioIdent": {
+        "type": "object",
+        "required": [
+          "reported_model"
+        ],
+        "properties": {
+          "bands": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firmware": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reported_model": {
+            "type": "string"
+          }
+        }
+      },
+      "RadioLimits": {
+        "type": "object",
+        "required": [
+          "channels",
+          "contacts",
+          "group_lists",
+          "group_list_members",
+          "zones",
+          "zone_channels",
+          "scan_lists",
+          "scan_list_members",
+          "radio_ids",
+          "channel_name_len",
+          "contact_name_len",
+          "group_list_name_len",
+          "zone_name_len",
+          "scan_list_name_len",
+          "radio_id_name_len",
+          "rx_ranges",
+          "tx_ranges",
+          "powers",
+          "modes",
+          "frequency_step_hz",
+          "features"
+        ],
+        "properties": {
+          "channel_name_len": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "channels": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "contact_name_len": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "contacts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "features": {
+            "$ref": "#/components/schemas/RadioFeatures"
+          },
+          "frequency_step_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "group_list_members": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "group_list_name_len": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "group_lists": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelKind"
+            }
+          },
+          "powers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Power"
+            }
+          },
+          "radio_id_name_len": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "radio_ids": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rx_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FrequencyRange"
+            }
+          },
+          "scan_list_members": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scan_list_name_len": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scan_lists": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tx_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FrequencyRange"
+            }
+          },
+          "zone_channels": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "zone_name_len": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "zones": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RadioModelDescriptor": {
+        "type": "object",
+        "required": [
+          "id",
+          "manufacturer",
+          "model",
+          "family",
+          "usb",
+          "needs_explicit_selection",
+          "transfer_bytes",
+          "limits"
+        ],
+        "properties": {
+          "family": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/RadioLimits"
+          },
+          "manufacturer": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "needs_explicit_selection": {
+            "type": "boolean"
+          },
+          "transfer_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usb": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsbMatch"
+            }
+          }
+        }
+      },
+      "RadioModelsResponse": {
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RadioModelDescriptor"
+            }
+          }
+        }
       },
       "Range": {
         "type": "object",
@@ -13589,6 +15935,62 @@
           "stop"
         ]
       },
+      "ScanList": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dwell_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "hang_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "primary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanTarget"
+              }
+            ]
+          },
+          "revert": {
+            "$ref": "#/components/schemas/ScanRevert"
+          },
+          "secondary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanTarget"
+              }
+            ]
+          }
+        }
+      },
       "ScanMember": {
         "type": "object",
         "required": [
@@ -13656,6 +16058,16 @@
             ]
           }
         }
+      },
+      "ScanRevert": {
+        "type": "string",
+        "enum": [
+          "selected",
+          "last_called",
+          "last_used",
+          "primary",
+          "secondary"
+        ]
       },
       "ScanSession": {
         "type": "object",
@@ -13786,6 +16198,42 @@
         "enum": [
           "scanning",
           "holding"
+        ]
+      },
+      "ScanTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "type": "string",
+                "enum": [
+                  "selected"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "target"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "channel"
+                ]
+              }
+            }
+          }
         ]
       },
       "ScannerStatus": {
@@ -15409,6 +17857,61 @@
           }
         }
       },
+      "TimeSlot": {
+        "type": "string",
+        "enum": [
+          "one",
+          "two"
+        ]
+      },
+      "Tone": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "decihertz",
+              "kind"
+            ],
+            "properties": {
+              "decihertz": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ctcss"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code",
+              "inverted",
+              "kind"
+            ],
+            "properties": {
+              "code": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "inverted": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dcs"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "ToneSquelchStatus": {
         "type": "object",
         "required": [
@@ -15849,6 +18352,25 @@
                 "$ref": "#/components/schemas/WorkspaceSnapshot"
               }
             ]
+          }
+        }
+      },
+      "UsbMatch": {
+        "type": "object",
+        "required": [
+          "vid",
+          "pid"
+        ],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "vid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -16375,6 +18897,29 @@
       },
       "YsfParams": {
         "type": "object"
+      },
+      "Zone": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "channels_a": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "channels_b": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
       }
     }
   }

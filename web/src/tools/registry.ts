@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { ToolCategory, ToolDescriptor } from "../lib/types";
 import { AntennaPanel } from "./antenna/AntennaPanel";
+import { CpsPanel } from "./cps/CpsPanel";
 import { NanoVnaPanel } from "./nanovna/NanoVnaPanel";
 
 export interface ToolPanel {
@@ -14,6 +15,18 @@ export type ToolSize = "standard" | "full";
 
 export const TOOL_PANELS: readonly ToolPanel[] = [
   { id: "antenna", panel: AntennaPanel },
+  {
+    id: "cps",
+    panel: CpsPanel,
+    size: "full",
+    descriptor: {
+      id: "cps",
+      name: "Radio programmer",
+      summary: "Read, edit and write radio codeplugs, and copy them between radios",
+      category: "instrument",
+      needs_hardware: true,
+    },
+  },
   { id: "nanovna", panel: NanoVnaPanel, size: "full" },
 ];
 

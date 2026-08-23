@@ -1,0 +1,11 @@
+The radio protocols and codeplug memory maps in this crate were written from qdmr, which is the
+only specification these formats have. The AnyTone AT-D890UV channel element differs from qdmr's
+second-generation map on firmware V100 and was re-derived from a radio; the rest of that map, the
+AnyTone serial protocol, the Radtel RT-4D protocol and its codeplug banks follow qdmr.
+
+qdmr (libdmrconf)
+https://github.com/hmatuschek/qdmr
+Copyright 2019-2026 Hannes Matuschek and the qdmr contributors
+License: GNU General Public License, version 3 or later
+
+The full license text is available in the repository root LICENSE file.

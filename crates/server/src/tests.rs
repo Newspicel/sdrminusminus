@@ -21,6 +21,7 @@ mod calls;
 mod catalog;
 mod channel_capture;
 mod coherent;
+mod cps;
 mod decoderlog;
 mod devices;
 mod openapi;

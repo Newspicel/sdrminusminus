@@ -118,6 +118,22 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
+        name: "qdmr (libdmrconf)",
+        license: "GPL-3.0-or-later",
+        url: "https://github.com/hmatuschek/qdmr",
+        note: Some(
+            "A codeplug is a vendor binary with no published specification, so the memory maps \
+             and serial protocols in `crates/cps` were written from qdmr, which is where those \
+             formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, \
+             the same terms sdr-- distributes under, so no separate text accompanies them. The \
+             AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map \
+             decodes firmware V100's digital channels as analogue, and the field layout in \
+             `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against \
+             `fixtures/cps/anytone-d890uv-v100.img`.",
+        ),
+        files: &[],
+    },
+    Native {
         name: "Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote",
         license: "See the bundled package metadata",
         url: "https://github.com/pothosware",

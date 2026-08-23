@@ -7967,6 +7967,14 @@
       "note": "As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary."
     },
     {
+      "name": "qdmr (libdmrconf)",
+      "license": "GPL-3.0-or-later",
+      "source": "native",
+      "url": "https://github.com/hmatuschek/qdmr",
+      "texts": [],
+      "note": "A codeplug is a vendor binary with no published specification, so the memory maps and serial protocols in `crates/cps` were written from qdmr, which is where those formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, the same terms sdr-- distributes under, so no separate text accompanies them. The AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map decodes firmware V100's digital channels as analogue, and the field layout in `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`."
+    },
+    {
       "name": "rtl-sdr (librtlsdr)",
       "license": "GPL-2.0-or-later",
       "source": "native",

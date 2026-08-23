@@ -39,6 +39,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 mod audio_recordings;
 mod capture;
 mod coherent;
+mod cps;
 mod decoderlog;
 mod devices;
 mod info;
@@ -51,6 +52,7 @@ mod workspaces;
 use audio_recordings::*;
 use capture::*;
 use coherent::*;
+use cps::*;
 use decoderlog::*;
 use devices::*;
 use info::*;
@@ -191,12 +193,17 @@ impl From<StoreError> for AppError {
             StoreError::PresetNotFound(_)
             | StoreError::BookmarkNotFound(_)
             | StoreError::RecordingNotFound(_)
-            | StoreError::WorkspaceNotFound(_) => StatusCode::NOT_FOUND,
-            StoreError::Timestamp(_) | StoreError::Sources(_) | StoreError::WorkspaceLayout(_) => {
-                StatusCode::BAD_REQUEST
-            }
+            | StoreError::WorkspaceNotFound(_)
+            | StoreError::CpsUserNotFound(_)
+            | StoreError::CpsDeviceNotFound(_)
+            | StoreError::CpsCodeplugNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::Timestamp(_)
+            | StoreError::Sources(_)
+            | StoreError::WorkspaceLayout(_)
+            | StoreError::CpsField(_) => StatusCode::BAD_REQUEST,
             StoreError::WorkspaceNameTaken(_)
             | StoreError::WorkspaceConflict { .. }
+            | StoreError::CpsNameTaken
             | StoreError::WorkspaceHistoryEnd { .. } => StatusCode::CONFLICT,
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -381,6 +388,26 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_occupancy))
         .routes(routes!(get_ionosonde))
         .routes(routes!(get_doctor))
+        .routes(routes!(list_radio_models))
+        .routes(routes!(list_cps_ports))
+        .routes(routes!(get_cps_library))
+        .routes(routes!(create_cps_user))
+        .routes(routes!(update_cps_user, delete_cps_user))
+        .routes(routes!(create_cps_device))
+        .routes(routes!(update_cps_device, delete_cps_device))
+        .routes(routes!(create_cps_codeplug))
+        .routes(routes!(
+            get_cps_codeplug,
+            update_cps_codeplug,
+            delete_cps_codeplug
+        ))
+        .routes(routes!(convert_cps_codeplug))
+        .routes(routes!(merge_cps_codeplug))
+        .routes(routes!(identify_radio))
+        .routes(routes!(read_radio))
+        .routes(routes!(write_radio))
+        .routes(routes!(list_cps_jobs))
+        .routes(routes!(get_cps_job, cancel_cps_job))
         .routes(routes!(list_tools))
         .routes(routes!(run_tool))
         .routes(routes!(calibrate_coherent))

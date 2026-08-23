@@ -10,21 +10,39 @@ function descriptor(
   return { id, name, summary: `${name} summary`, category, needs_hardware: false };
 }
 
+const CLIENT_ONLY = TOOL_PANELS.filter((entry) => entry.descriptor !== undefined).length;
+
+function served(tools: ReturnType<typeof launchableTools>, id: string) {
+  return tools.find((tool) => tool.descriptor.id === id);
+}
+
 describe("launchableTools", () => {
   it("gives every advertised tool its panel", () => {
     const tools = launchableTools([descriptor("antenna", "Antenna calculator")]);
-    expect(tools).toHaveLength(1);
-    expect(tools[0]?.panel).toBe(TOOL_PANELS.find((entry) => entry.id === "antenna")?.panel);
+    expect(tools).toHaveLength(1 + CLIENT_ONLY);
+    expect(served(tools, "antenna")?.panel).toBe(
+      TOOL_PANELS.find((entry) => entry.id === "antenna")?.panel,
+    );
   });
 
   it("opens the NanoVNA instrument panel", () => {
     const tools = launchableTools([descriptor("nanovna", "NanoVNA", "instrument")]);
-    expect(tools).toHaveLength(1);
-    expect(tools[0]?.panel).toBe(TOOL_PANELS.find((entry) => entry.id === "nanovna")?.panel);
+    expect(served(tools, "nanovna")?.panel).toBe(
+      TOOL_PANELS.find((entry) => entry.id === "nanovna")?.panel,
+    );
   });
 
-  it("lists nothing when the server offers nothing", () => {
-    expect(launchableTools([])).toEqual([]);
+  it("still offers a panel this client owns when the server advertises no tool", () => {
+    const tools = launchableTools([]);
+    expect(tools).toHaveLength(CLIENT_ONLY);
+    expect(served(tools, "cps")?.panel).toBe(
+      TOOL_PANELS.find((entry) => entry.id === "cps")?.panel,
+    );
+  });
+
+  it("does not list a client panel twice when the server also advertises it", () => {
+    const tools = launchableTools([descriptor("cps", "Radio programmer", "instrument")]);
+    expect(tools.filter((tool) => tool.descriptor.id === "cps")).toHaveLength(1);
   });
 });
 
@@ -42,10 +60,16 @@ describe("groupTools", () => {
       "Alpha calculator",
       "Zed calculator",
     ]);
+    expect(groups[0]?.tools.map((tool) => tool.descriptor.id)).toContain("cps");
   });
 
   it("drops the categories nothing is in", () => {
-    const groups = groupTools(launchableTools([descriptor("antenna", "Antenna calculator")]));
+    const groups = groupTools([
+      {
+        descriptor: descriptor("antenna", "Antenna calculator"),
+        panel: null,
+      },
+    ]);
     expect(groups).toHaveLength(1);
     expect(groups[0]?.label).toBe("Calculators");
   });
@@ -54,6 +78,7 @@ describe("groupTools", () => {
 describe("toolSize", () => {
   it("gives the instrument the whole window and the calculator a dialog", () => {
     expect(toolSize("nanovna")).toBe("full");
+    expect(toolSize("cps")).toBe("full");
     expect(toolSize("antenna")).toBe("standard");
   });
 

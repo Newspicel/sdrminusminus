@@ -276,6 +276,262 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cps/codeplugs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_cps_codeplug"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/codeplugs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_cps_codeplug"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_cps_codeplug"];
+        options?: never;
+        head?: never;
+        patch: operations["update_cps_codeplug"];
+        trace?: never;
+    };
+    "/api/cps/codeplugs/{id}/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["convert_cps_codeplug"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/codeplugs/{id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["merge_cps_codeplug"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_cps_device"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/devices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_cps_device"];
+        options?: never;
+        head?: never;
+        patch: operations["update_cps_device"];
+        trace?: never;
+    };
+    "/api/cps/identify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["identify_radio"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_cps_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_cps_job"];
+        put?: never;
+        post?: never;
+        delete: operations["cancel_cps_job"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_cps_library"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_radio_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/ports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_cps_ports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["read_radio"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_cps_user"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cps/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_cps_user"];
+        options?: never;
+        head?: never;
+        patch: operations["update_cps_user"];
+        trace?: never;
+    };
+    "/api/cps/write": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["write_radio"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/decoderlog": {
         parameters: {
             query?: never;
@@ -1024,6 +1280,8 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
         };
+        /** @enum {string} */
+        Admit: "always" | "channel_free" | "color_code_free" | "different_color_code" | "tone_free";
         AdsbMessage: {
             /** Format: int32 */
             altitude_ft?: number | null;
@@ -1413,6 +1671,8 @@ export interface components {
         };
         /** @enum {string} */
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
+        /** @enum {string} */
+        Bandwidth: "narrow" | "wide";
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -1597,6 +1857,18 @@ export interface components {
              */
             zero_doppler_guard: number;
         };
+        Channel: components["schemas"]["ChannelMode"] & {
+            name: string;
+            power?: components["schemas"]["Power"];
+            /** Format: int64 */
+            rx_hz: number;
+            rx_only?: boolean;
+            scan_list?: string | null;
+            /** Format: int32 */
+            timeout_s?: number | null;
+            /** Format: int64 */
+            tx_hz: number;
+        };
         ChannelCapabilities: {
             antennas: string[];
             bandwidth_ranges: components["schemas"]["Range"][];
@@ -1646,6 +1918,8 @@ export interface components {
             /** Format: int32 */
             stream?: number;
         };
+        /** @enum {string} */
+        ChannelKind: "fm" | "dmr";
         ChannelLevel: {
             /** Format: int32 */
             channel: number;
@@ -1656,6 +1930,13 @@ export interface components {
             /** Format: float */
             squelch_db?: number | null;
         };
+        ChannelMode: (components["schemas"]["FmChannel"] & {
+            /** @enum {string} */
+            mode: "fm";
+        }) | (components["schemas"]["DmrChannel"] & {
+            /** @enum {string} */
+            mode: "dmr";
+        });
         ChannelNetworkExportRequest: {
             action: components["schemas"]["NetworkExportAction"];
             node: string;
@@ -1988,6 +2269,41 @@ export interface components {
             /** Format: int32 */
             clients: number;
         };
+        Codeplug: {
+            channels?: components["schemas"]["Channel"][];
+            contacts?: components["schemas"]["Contact"][];
+            extensions?: {
+                [key: string]: unknown;
+            };
+            group_lists?: components["schemas"]["GroupList"][];
+            meta?: components["schemas"]["CodeplugMeta"];
+            radio_ids?: components["schemas"]["RadioId"][];
+            scan_lists?: components["schemas"]["ScanList"][];
+            settings?: components["schemas"]["GeneralSettings"];
+            /** Format: int32 */
+            version: number;
+            zones?: components["schemas"]["Zone"][];
+        };
+        CodeplugCounts: {
+            /** Format: int32 */
+            channels: number;
+            /** Format: int32 */
+            contacts: number;
+            /** Format: int32 */
+            group_lists: number;
+            /** Format: int32 */
+            radio_ids: number;
+            /** Format: int32 */
+            scan_lists: number;
+            /** Format: int32 */
+            zones: number;
+        };
+        CodeplugMeta: {
+            bands?: string | null;
+            firmware?: string | null;
+            note?: string | null;
+            source_model?: string | null;
+        };
         /**
          * @description How much of the relationship between two of a radio's receive lanes survives calibration.
          *
@@ -2042,6 +2358,191 @@ export interface components {
         };
         /** @enum {string} */
         ComponentSource: "rust" | "web" | "native";
+        Contact: {
+            kind?: components["schemas"]["ContactKind"];
+            name: string;
+            /** Format: int32 */
+            number: number;
+            ring?: boolean;
+        };
+        /** @enum {string} */
+        ContactKind: "private" | "group" | "all";
+        ConversionIssue: {
+            field?: string | null;
+            item?: string | null;
+            message: string;
+            scope: components["schemas"]["IssueScope"];
+            severity: components["schemas"]["IssueSeverity"];
+        };
+        ConversionReport: {
+            after: components["schemas"]["CodeplugCounts"];
+            before: components["schemas"]["CodeplugCounts"];
+            issues: components["schemas"]["ConversionIssue"][];
+            source_model?: string | null;
+            target_model: string;
+        };
+        CpsCodeplugDetail: components["schemas"]["CpsCodeplugInfo"] & {
+            codeplug: components["schemas"]["Codeplug"];
+        };
+        CpsCodeplugInfo: {
+            counts: components["schemas"]["CodeplugCounts"];
+            created_at: string;
+            /** Format: int64 */
+            device_id?: number | null;
+            /** Format: int64 */
+            id: number;
+            model_id: string;
+            name: string;
+            updated_at: string;
+            /** Format: int64 */
+            user_id?: number | null;
+        };
+        CpsCodeplugRequest: {
+            codeplug: components["schemas"]["Codeplug"];
+            /** Format: int64 */
+            device_id?: number | null;
+            model_id: string;
+            name: string;
+            /** Format: int64 */
+            user_id?: number | null;
+        };
+        CpsConvertRequest: {
+            /** Format: int64 */
+            device_id?: number | null;
+            name?: string | null;
+            store?: boolean;
+            target_model_id: string;
+            /** Format: int64 */
+            user_id?: number | null;
+        };
+        CpsConvertResponse: {
+            codeplug: components["schemas"]["Codeplug"];
+            report: components["schemas"]["ConversionReport"];
+            /** Format: int64 */
+            stored_id?: number | null;
+        };
+        CpsDevice: {
+            created_at: string;
+            firmware?: string | null;
+            /** Format: int64 */
+            id: number;
+            model_id: string;
+            name: string;
+            note?: string | null;
+            /** Format: int64 */
+            owner_id?: number | null;
+            port?: string | null;
+            serial_number?: string | null;
+        };
+        CpsDeviceRequest: {
+            firmware?: string | null;
+            model_id: string;
+            name: string;
+            note?: string | null;
+            /** Format: int64 */
+            owner_id?: number | null;
+            port?: string | null;
+            serial_number?: string | null;
+        };
+        CpsIdentifyRequest: {
+            model_id: string;
+            port: string;
+        };
+        CpsJob: {
+            /** Format: int64 */
+            codeplug_id?: number | null;
+            /** Format: int64 */
+            device_id?: number | null;
+            /** Format: int64 */
+            done_bytes: number;
+            error?: string | null;
+            finished_at?: string | null;
+            /** Format: int64 */
+            id: number;
+            kind: components["schemas"]["CpsJobKind"];
+            model_id: string;
+            port: string;
+            radio?: null | components["schemas"]["RadioIdent"];
+            report?: null | components["schemas"]["ConversionReport"];
+            started_at: string;
+            state: components["schemas"]["CpsJobState"];
+            step: string;
+            /** Format: int64 */
+            total_bytes: number;
+        };
+        /** @enum {string} */
+        CpsJobKind: "read" | "write" | "identify";
+        CpsJobsResponse: {
+            jobs: components["schemas"]["CpsJob"][];
+        };
+        /** @enum {string} */
+        CpsJobState: "pending" | "running" | "done" | "failed" | "cancelled";
+        CpsLibraryResponse: {
+            codeplugs: components["schemas"]["CpsCodeplugInfo"][];
+            devices: components["schemas"]["CpsDevice"][];
+            users: components["schemas"]["CpsUser"][];
+        };
+        CpsMergeRequest: {
+            mode?: components["schemas"]["MergeMode"];
+            parts?: components["schemas"]["MergePart"][];
+            /** Format: int64 */
+            source_id: number;
+        };
+        CpsPort: {
+            candidate_models: string[];
+            label: string;
+            manufacturer?: string | null;
+            match_kind: components["schemas"]["PortMatch"];
+            port: string;
+            product?: string | null;
+            serial_number?: string | null;
+            /** Format: int32 */
+            usb_pid?: number | null;
+            /** Format: int32 */
+            usb_vid?: number | null;
+        };
+        CpsPortsResponse: {
+            ignored_ports: string[];
+            ports: components["schemas"]["CpsPort"][];
+        };
+        CpsReadRequest: {
+            /** Format: int64 */
+            device_id?: number | null;
+            model_id: string;
+            name?: string | null;
+            port: string;
+            /** Format: int64 */
+            user_id?: number | null;
+        };
+        CpsUser: {
+            callsign?: string | null;
+            created_at: string;
+            /** Format: int32 */
+            dmr_id?: number | null;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            note?: string | null;
+        };
+        CpsUserRequest: {
+            callsign?: string | null;
+            /** Format: int32 */
+            dmr_id?: number | null;
+            name: string;
+            note?: string | null;
+        };
+        CpsWriteRequest: {
+            /** Format: int64 */
+            codeplug_id: number;
+            confirm: boolean;
+            /** Format: int64 */
+            device_id?: number | null;
+            model_id: string;
+            port: string;
+            restore_image?: boolean;
+            /** Format: int64 */
+            user_id?: number | null;
+        };
         CreateBookmarkRequest: {
             /** Format: double */
             freq_hz: number;
@@ -2563,6 +3064,15 @@ export interface components {
             time_sources?: string[];
             tx?: components["schemas"]["ChannelCapabilities"][];
         };
+        DmrChannel: {
+            admit?: components["schemas"]["Admit"];
+            /** Format: int32 */
+            color_code?: number;
+            contact?: string | null;
+            group_list?: string | null;
+            radio_id?: string | null;
+            time_slot?: components["schemas"]["TimeSlot"];
+        };
         DmrChannelEntry: {
             /** Format: int64 */
             freq_hz: number;
@@ -2844,11 +3354,25 @@ export interface components {
             bandwidth_hz?: number;
             invert?: boolean;
         };
+        FmChannel: {
+            admit?: components["schemas"]["Admit"];
+            bandwidth?: components["schemas"]["Bandwidth"];
+            rx_tone?: null | components["schemas"]["Tone"];
+            /** Format: int32 */
+            squelch?: number | null;
+            tx_tone?: null | components["schemas"]["Tone"];
+        };
         /** @enum {string} */
         FreeDvMode: "mode1600";
         FreeDvParams: {
             mode?: components["schemas"]["FreeDvMode"];
             sideband?: components["schemas"]["Sideband"];
+        };
+        FrequencyRange: {
+            /** Format: int64 */
+            lower_hz: number;
+            /** Format: int64 */
+            upper_hz: number;
         };
         GainStage: {
             name: string;
@@ -2865,6 +3389,18 @@ export interface components {
             stage: string;
             /** Format: double */
             value_db: number;
+        };
+        GeneralSettings: {
+            default_radio_id?: string | null;
+            intro_line1?: string | null;
+            intro_line2?: string | null;
+            /** Format: int32 */
+            mic_gain?: number | null;
+            radio_name?: string | null;
+            /** Format: int32 */
+            squelch?: number | null;
+            /** Format: int32 */
+            vox?: number | null;
         };
         GnssFrame: {
             /** Format: float */
@@ -2899,6 +3435,10 @@ export interface components {
             radial_slope_deg?: number;
             /** Format: int32 */
             radials?: number;
+        };
+        GroupList: {
+            contacts?: string[];
+            name: string;
         };
         /** @enum {string} */
         GuidanceMode: "cross" | "approach";
@@ -3069,6 +3609,10 @@ export interface components {
         };
         IridiumParams: Record<string, never>;
         /** @enum {string} */
+        IssueScope: "settings" | "radio_id" | "contact" | "group_list" | "channel" | "zone" | "scan_list" | "extension";
+        /** @enum {string} */
+        IssueSeverity: "note" | "adjusted" | "dropped";
+        /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
         LaneCal: {
             /** Format: float */
@@ -3097,6 +3641,10 @@ export interface components {
         };
         /** @enum {string} */
         ManeuverKind: "depart" | "continue" | "left" | "slight_left" | "sharp_left" | "right" | "slight_right" | "sharp_right" | "u_turn" | "roundabout" | "arrive";
+        /** @enum {string} */
+        MergeMode: "replace" | "append" | "union";
+        /** @enum {string} */
+        MergePart: "contacts" | "group_lists" | "channels" | "zones" | "scan_lists" | "radio_ids" | "settings";
         /** @enum {string} */
         Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "psk2" | "psk4" | "noise_like" | "unknown";
         MorseParams: {
@@ -3628,6 +4176,8 @@ export interface components {
         PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "channel_needs_position" | "device_is_tx_capable";
         /** @enum {string} */
         PortDirection: "in" | "out";
+        /** @enum {string} */
+        PortMatch: "confirmed" | "probable" | "possible";
         PortRef: {
             node: string;
             port: string;
@@ -3691,6 +4241,8 @@ export interface components {
             /** Format: int32 */
             update_interval_ms?: number;
         };
+        /** @enum {string} */
+        Power: "min" | "low" | "mid" | "high" | "max";
         PresetDevice: {
             channels: components["schemas"]["ChannelSettings"][];
             device_id: string;
@@ -3796,6 +4348,79 @@ export interface components {
         };
         /** @enum {string} */
         RadioClockStandard: "dcf77" | "wwvb" | "msf" | "jjy";
+        RadioFeatures: {
+            dcs_tones: boolean;
+            dual_zone_lists: boolean;
+            group_lists: boolean;
+            named_radio_ids: boolean;
+            per_channel_radio_id: boolean;
+            scan_lists: boolean;
+            talkaround: boolean;
+        };
+        RadioId: {
+            name: string;
+            /** Format: int32 */
+            number: number;
+        };
+        RadioIdent: {
+            bands?: string | null;
+            firmware?: string | null;
+            model_id?: string | null;
+            reported_model: string;
+        };
+        RadioLimits: {
+            /** Format: int32 */
+            channel_name_len: number;
+            /** Format: int32 */
+            channels: number;
+            /** Format: int32 */
+            contact_name_len: number;
+            /** Format: int32 */
+            contacts: number;
+            features: components["schemas"]["RadioFeatures"];
+            /** Format: int64 */
+            frequency_step_hz: number;
+            /** Format: int32 */
+            group_list_members: number;
+            /** Format: int32 */
+            group_list_name_len: number;
+            /** Format: int32 */
+            group_lists: number;
+            modes: components["schemas"]["ChannelKind"][];
+            powers: components["schemas"]["Power"][];
+            /** Format: int32 */
+            radio_id_name_len: number;
+            /** Format: int32 */
+            radio_ids: number;
+            rx_ranges: components["schemas"]["FrequencyRange"][];
+            /** Format: int32 */
+            scan_list_members: number;
+            /** Format: int32 */
+            scan_list_name_len: number;
+            /** Format: int32 */
+            scan_lists: number;
+            tx_ranges: components["schemas"]["FrequencyRange"][];
+            /** Format: int32 */
+            zone_channels: number;
+            /** Format: int32 */
+            zone_name_len: number;
+            /** Format: int32 */
+            zones: number;
+        };
+        RadioModelDescriptor: {
+            family: string;
+            id: string;
+            limits: components["schemas"]["RadioLimits"];
+            manufacturer: string;
+            model: string;
+            needs_explicit_selection: boolean;
+            /** Format: int64 */
+            transfer_bytes: number;
+            usb: components["schemas"]["UsbMatch"][];
+        };
+        RadioModelsResponse: {
+            models: components["schemas"]["RadioModelDescriptor"][];
+        };
         Range: {
             /** Format: double */
             max: number;
@@ -3906,6 +4531,17 @@ export interface components {
         };
         /** @enum {string} */
         ScanAction: "start" | "stop";
+        ScanList: {
+            channels?: string[];
+            /** Format: int32 */
+            dwell_ms?: number | null;
+            /** Format: int32 */
+            hang_ms?: number | null;
+            name: string;
+            primary?: null | components["schemas"]["ScanTarget"];
+            revert?: components["schemas"]["ScanRevert"];
+            secondary?: null | components["schemas"]["ScanTarget"];
+        };
         ScanMember: {
             /** Format: int32 */
             device_set: number;
@@ -3952,6 +4588,8 @@ export interface components {
             action: components["schemas"]["ScanAction"];
             settings?: null | components["schemas"]["ScanSettings"];
         };
+        /** @enum {string} */
+        ScanRevert: "selected" | "last_called" | "last_used" | "primary" | "secondary";
         /**
          * @description The device sets sweeping one plan together, so a client can tell a ganged scan from several
          *     unrelated ones.
@@ -3996,6 +4634,14 @@ export interface components {
         };
         /** @enum {string} */
         ScanState: "scanning" | "holding";
+        ScanTarget: {
+            /** @enum {string} */
+            target: "selected";
+        } | {
+            name: string;
+            /** @enum {string} */
+            target: "channel";
+        };
         ScramblerStatus: {
             /** Format: double */
             confidence: number;
@@ -4405,6 +5051,20 @@ export interface components {
             /** Format: int32 */
             stream: number;
         };
+        /** @enum {string} */
+        TimeSlot: "one" | "two";
+        Tone: {
+            /** Format: int32 */
+            decihertz: number;
+            /** @enum {string} */
+            kind: "ctcss";
+        } | {
+            /** Format: int32 */
+            code: number;
+            inverted: boolean;
+            /** @enum {string} */
+            kind: "dcs";
+        };
         ToneSquelchStatus: {
             /** Format: double */
             ctcss_hz?: number | null;
@@ -4521,6 +5181,12 @@ export interface components {
             /** Format: int64 */
             revision: number;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+        };
+        UsbMatch: {
+            /** Format: int32 */
+            pid: number;
+            /** Format: int32 */
+            vid: number;
         };
         Vdl2Params: Record<string, never>;
         /** @enum {string} */
@@ -4679,6 +5345,11 @@ export interface components {
             spacing_wavelengths?: number;
         };
         YsfParams: Record<string, never>;
+        Zone: {
+            channels_a?: string[];
+            channels_b?: string[];
+            name: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -5199,6 +5870,731 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    create_cps_codeplug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsCodeplugRequest"];
+            };
+        };
+        responses: {
+            /** @description Codeplug stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description No such radio model */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_cps_codeplug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Codeplug id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored codeplug */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsCodeplugDetail"];
+                };
+            };
+            /** @description Codeplug not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_cps_codeplug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Codeplug id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Codeplug removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Codeplug not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_cps_codeplug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Codeplug id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsCodeplugRequest"];
+            };
+        };
+        responses: {
+            /** @description Codeplug updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsCodeplugDetail"];
+                };
+            };
+            /** @description Codeplug not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    convert_cps_codeplug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Codeplug id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsConvertRequest"];
+            };
+        };
+        responses: {
+            /** @description What the target radio can hold, and what it cannot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsConvertResponse"];
+                };
+            };
+            /** @description Codeplug or model not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    merge_cps_codeplug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Codeplug the entries land in */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description The merged codeplug */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsConvertResponse"];
+                };
+            };
+            /** @description Either codeplug was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    create_cps_device: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Radio stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Unusable field */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such radio model */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description That name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_cps_device: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Radio id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Radio removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Radio not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_cps_device: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Radio id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Radio updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsDevice"];
+                };
+            };
+            /** @description Radio not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    identify_radio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsIdentifyRequest"];
+            };
+        };
+        responses: {
+            /** @description What the radio on that port says it is */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadioIdent"];
+                };
+            };
+            /** @description No such radio model */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Another transfer holds the port */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The radio did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_cps_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Radio transfers this session ran */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsJobsResponse"];
+                };
+            };
+        };
+    };
+    get_cps_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How the transfer is going */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsJob"];
+                };
+            };
+            /** @description Job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    cancel_cps_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The transfer was asked to stop */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsJob"];
+                };
+            };
+            /** @description Job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The transfer already finished */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_cps_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored operators, radios and codeplugs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsLibraryResponse"];
+                };
+            };
+        };
+    };
+    list_radio_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Radio models this build can program */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadioModelsResponse"];
+                };
+            };
+        };
+    };
+    list_cps_ports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serial ports a radio could be on */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsPortsResponse"];
+                };
+            };
+        };
+    };
+    read_radio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsReadRequest"];
+            };
+        };
+        responses: {
+            /** @description The read is running; poll the job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsJob"];
+                };
+            };
+            /** @description No such radio model */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Another transfer holds the port */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    create_cps_user: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Operator stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Unusable field */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description That name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_cps_user: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operator id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Operator not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_cps_user: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operator id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Operator updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsUser"];
+                };
+            };
+            /** @description Operator not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    write_radio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CpsWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description The write is running; poll the job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CpsJob"];
+                };
+            };
+            /** @description `confirm` was not set */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Model or codeplug not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Another transfer holds the port */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
         };
     };

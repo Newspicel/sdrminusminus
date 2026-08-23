@@ -4721,6 +4721,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-cps"
+version = "0.0.0"
+dependencies = [
+ "sdrmm-wire",
+ "serde_json",
+ "serialport",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "sdrmm-desktop"
 version = "0.0.0"
 dependencies = [
@@ -4941,6 +4951,7 @@ dependencies = [
  "rust-embed",
  "schemars 1.2.2",
  "sdrmm-channels",
+ "sdrmm-cps",
  "sdrmm-device",
  "sdrmm-device-array",
  "sdrmm-device-cr8",
@@ -4954,6 +4965,7 @@ dependencies = [
  "sdrmm-wire",
  "serde",
  "serde_json",
+ "serialport",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
