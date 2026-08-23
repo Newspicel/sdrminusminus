@@ -288,6 +288,7 @@ pub(crate) async fn run(
                 None => break,
             },
             _ = reconcile_tick.tick() => {
+                rebind = true;
                 if calls.expire() && let Some(strong) = engine.upgrade() {
                     strong.emit_scope(StateScope::Calls);
                 }
@@ -681,6 +682,51 @@ mod tests {
         let bound = bindings.get(&(1, 2)).expect("the channel is bound");
         assert_eq!(bound.len(), 1);
         assert_eq!(bound[0].node, "dmr");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_binding_that_arrives_without_a_state_event_still_records() {
+        let engine = Arc::new(Engine::with_registry(DeviceRegistry::new(), None));
+        let calls = Arc::new(Calls::default());
+        let (policy, watched) = watch::channel(Recording::default());
+        let task = tokio::spawn(run(Arc::downgrade(&engine), calls.clone(), watched));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        policy.send_if_modified(|current| {
+            *current = Arc::new(CallPolicy {
+                channels: vec![CallBinding {
+                    node: "dmr".to_owned(),
+                    device_set: 1,
+                    channel: 2,
+                }],
+                ..CallPolicy::default()
+            });
+            false
+        });
+        tokio::time::sleep(RECONCILE_INTERVAL * 2).await;
+        for kind in [
+            DvFrameKind::Header,
+            DvFrameKind::Voice,
+            DvFrameKind::Terminator,
+        ] {
+            engine.publish_decoded(record(kind, 1));
+        }
+
+        let listed = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let listed = calls.list();
+                if !listed.is_empty() {
+                    return listed;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("a binding that no state event announced is still picked up");
+        task.abort();
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].node, "dmr");
     }
 
     #[test]

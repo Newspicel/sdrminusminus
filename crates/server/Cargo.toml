@@ -69,7 +69,7 @@ libc.workspace = true
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "test-util"] }
 # Hermetic test engine (virtual driver only): tests must never enumerate live Soapy modules.
 sdrmm-device-virtual.workspace = true
 sdrmm-device-array.workspace = true
