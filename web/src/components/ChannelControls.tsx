@@ -33,6 +33,15 @@ const NXDN_WIDTHS: Options<NonNullable<ChannelParamsOf<"nxdn">["bandwidth"]>> = 
   { value: "narrow", label: "6.25" },
   { value: "wide", label: "12.5" },
 ];
+const DECT_BANDS: Options<NonNullable<ChannelParamsOf<"dect">["band"]>> = [
+  { value: "eu", label: "EU" },
+  { value: "us", label: "US" },
+];
+const DECT_SIDES: Options<NonNullable<ChannelParamsOf<"dect">["sides"]>> = [
+  { value: "both", label: "Both" },
+  { value: "rfp", label: "Base" },
+  { value: "pp", label: "Handset" },
+];
 const SIDEBANDS: Options<NonNullable<ChannelParamsOf<"ssb">["sideband"]>> = [
   { value: "usb", label: "USB" },
   { value: "lsb", label: "LSB" },
@@ -1277,6 +1286,31 @@ function ModeControls({
               className="w-16"
             />
             <span className="legend">dB</span>
+          </SettingRow>
+        </>
+      );
+    case "dect":
+      return (
+        <>
+          <SettingRow label="Band">
+            <Segmented
+              label="DECT band"
+              value={params.settings.band ?? "eu"}
+              options={DECT_BANDS}
+              onChange={(band) =>
+                onParams({ type: "dect", settings: { ...params.settings, band } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Side">
+            <Segmented
+              label="DECT side"
+              value={params.settings.sides ?? "both"}
+              options={DECT_SIDES}
+              onChange={(sides) =>
+                onParams({ type: "dect", settings: { ...params.settings, sides } })
+              }
+            />
           </SettingRow>
         </>
       );

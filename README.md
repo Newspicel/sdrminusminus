@@ -24,6 +24,9 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 - Pull weak amateur traffic out of the noise with FT8, FT4, and WSPR.
 - Follow DMR trunked systems: Capacity Plus, Hytera XPT, and Tier III. And keep every call as
   replayable audio.
+- Survey a DECT network: every base station's RFPI and access rights class, the carrier and slot it
+  keeps, what it advertises for authentication and ciphering, and whether encryption was actually
+  negotiated on the air.
 - Identify an unknown signal from its bandwidth, symbol rate, and deviation, with ranked protocol
   candidates and the reason behind each one.
 - Acquire DAB/DAB+, narrow-band DVB-S/S2 DATV, and DRM30/DRM+ carriers with lock, SNR, and

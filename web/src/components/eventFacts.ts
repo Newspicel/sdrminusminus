@@ -26,6 +26,32 @@ export type SensorReading = {
   energy_kwh?: number | null;
 };
 
+export type DectSecurityView = {
+  security: {
+    authentication_supported?: boolean | null;
+    ciphering_supported?: boolean | null;
+    cipher_state: string;
+  };
+};
+
+export function dectSecurityFact(frame: DectSecurityView): string | null {
+  if (frame.security.cipher_state !== "clear") {
+    return DECT_CIPHER_LABELS[frame.security.cipher_state] ?? frame.security.cipher_state;
+  }
+  const cipher = frame.security.ciphering_supported;
+  const auth = frame.security.authentication_supported;
+  if (cipher == null && auth == null) return null;
+  return `auth ${auth ? "yes" : "no"} · cipher ${cipher ? "yes" : "no"}`;
+}
+
+export const DECT_CIPHER_LABELS: Record<string, string> = {
+  clear: "no encryption seen",
+  requested: "start requested",
+  confirmed: "start confirmed",
+  active: "encryption active",
+  stopped: "encryption stopped",
+};
+
 export function sensorFacts(reading: SensorReading): (string | null)[] {
   return [
     reading.model,
@@ -318,6 +344,14 @@ export function eventSummary(event: DecoderEvent): string {
         message.text?.replaceAll("\n", " ").trim() ?? null,
       ]);
     }
+    case "dect": {
+      const frame = event.data;
+      return join([
+        frame.identity ? `RFPI ${frame.identity.rfpi}` : frame.side,
+        frame.carrier == null ? null : `carrier ${frame.carrier}`,
+        dectSecurityFact(frame),
+      ]);
+    }
   }
 }
 
@@ -380,6 +414,8 @@ export function eventStation(event: DecoderEvent): string | null {
     case "hfdl":
     case "iridium":
       return event.data.station ?? null;
+    case "dect":
+      return event.data.identity?.rfpi ?? null;
     case "rtty":
     case "morse":
     case "cw_skimmer":

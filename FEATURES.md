@@ -35,6 +35,9 @@ If something is shipped, then remove it.
 - HF WEFAX — the DSP is the easy half; the picture store SSTV shipped already holds a picture that
   takes minutes to arrive, so what is left is the decoder and the mode's own line geometry
 - APRS weather aggregation
+- DECT: the survey reads the A-field only. The B-field is left — ADPCM/G.726 voice off unencrypted
+  bearers — as are the extended fixed part capability messages (QH = 4, C, E) that carry the newer
+  DSAA2/DSC2 security bits, and scanning the ten carriers from one wideband capture
 
 ### Broadcast & wideband digital
 

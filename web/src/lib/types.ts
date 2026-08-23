@@ -90,6 +90,7 @@ export type GnssFrame = components["schemas"]["GnssFrame"];
 export type VorReading = components["schemas"]["VorReading"];
 export type IlsReading = components["schemas"]["IlsReading"];
 export type DataLinkMessage = components["schemas"]["DataLinkMessage"];
+export type DectFrame = components["schemas"]["DectFrame"];
 export type DvFrame = components["schemas"]["DvFrame"];
 export type IdentReport = components["schemas"]["IdentReport"];
 export type ProtocolMatch = components["schemas"]["ProtocolMatch"];

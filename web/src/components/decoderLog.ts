@@ -48,6 +48,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   vdl2: "VDL Mode 2",
   hfdl: "HFDL",
   iridium: "Iridium",
+  dect: "DECT",
   df: "Bearing",
   df_fix: "Fix",
   radar: "Radar",

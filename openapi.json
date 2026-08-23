@@ -7256,6 +7256,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DectParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dect"
+                ]
+              }
+            }
           }
         ]
       },
@@ -9815,6 +9833,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DectFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dect"
+                ]
+              }
+            }
           }
         ]
       },
@@ -9900,6 +9936,395 @@
             "minimum": 0
           }
         }
+      },
+      "DectArc": {
+        "type": "string",
+        "enum": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+          "f",
+          "g",
+          "h"
+        ]
+      },
+      "DectBand": {
+        "type": "string",
+        "enum": [
+          "eu",
+          "us"
+        ]
+      },
+      "DectCapability": {
+        "type": "string",
+        "enum": [
+          "extended_fp_info",
+          "double_duplex_bearer",
+          "double_slot",
+          "half_slot",
+          "full_slot",
+          "frequency_control",
+          "page_repetition",
+          "co_setup_on_dummy",
+          "cl_uplink",
+          "cl_downlink",
+          "basic_a_field_setup",
+          "advanced_a_field_setup",
+          "b_field_setup",
+          "cf_messages",
+          "in_minimum_delay",
+          "in_normal_delay",
+          "ip_error_detection",
+          "ip_error_correction",
+          "multibearer_connections",
+          "adpcm",
+          "gap_basic_speech",
+          "non_voice_circuit_switched",
+          "non_voice_packet_switched",
+          "standard_authentication",
+          "standard_ciphering",
+          "location_registration",
+          "sim_services",
+          "non_static_fixed_part",
+          "ciss_services",
+          "clms_service",
+          "coms_service",
+          "access_rights_requests",
+          "external_handover",
+          "connection_handover"
+        ]
+      },
+      "DectCipherState": {
+        "type": "string",
+        "enum": [
+          "clear",
+          "requested",
+          "confirmed",
+          "active",
+          "stopped"
+        ]
+      },
+      "DectFrame": {
+        "type": "object",
+        "required": [
+          "side",
+          "update",
+          "security",
+          "bursts",
+          "crc_errors",
+          "level_dbfs"
+        ],
+        "properties": {
+          "bursts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DectCapability"
+            }
+          },
+          "carrier": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "carrier_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "crc_errors": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "extended_carriers": {
+            "type": "boolean"
+          },
+          "fmid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "handsets": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "identity": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DectIdentity"
+              }
+            ]
+          },
+          "level_dbfs": {
+            "type": "number",
+            "format": "float"
+          },
+          "multiframe": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "pmid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "pscn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "rf_carriers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "security": {
+            "$ref": "#/components/schemas/DectSecurity"
+          },
+          "side": {
+            "$ref": "#/components/schemas/DectSide"
+          },
+          "slot_pair": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "transceivers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "update": {
+            "$ref": "#/components/schemas/DectUpdate"
+          }
+        }
+      },
+      "DectIdentity": {
+        "type": "object",
+        "required": [
+          "rfpi",
+          "pari",
+          "arc",
+          "sari_available",
+          "rpn"
+        ],
+        "properties": {
+          "arc": {
+            "$ref": "#/components/schemas/DectArc"
+          },
+          "eic": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "emc": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "fil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "fpn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "fps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "gop": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "mcc": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "mnc": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "multicell": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "pari": {
+            "type": "string"
+          },
+          "poc": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "rfpi": {
+            "type": "string"
+          },
+          "rpn": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sari_available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DectParams": {
+        "type": "object",
+        "properties": {
+          "band": {
+            "$ref": "#/components/schemas/DectBand"
+          },
+          "sides": {
+            "$ref": "#/components/schemas/DectSides"
+          }
+        }
+      },
+      "DectSecurity": {
+        "type": "object",
+        "required": [
+          "cipher_state"
+        ],
+        "properties": {
+          "authentication_supported": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "cipher_key_index": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "cipher_state": {
+            "$ref": "#/components/schemas/DectCipherState"
+          },
+          "ciphering_supported": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "encryption_events": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DectSide": {
+        "type": "string",
+        "enum": [
+          "rfp",
+          "pp"
+        ]
+      },
+      "DectSides": {
+        "type": "string",
+        "enum": [
+          "both",
+          "rfp",
+          "pp"
+        ]
+      },
+      "DectUpdate": {
+        "type": "string",
+        "enum": [
+          "identity",
+          "system_info",
+          "capabilities",
+          "encryption",
+          "paging",
+          "bearer"
+        ]
       },
       "DeletedCount": {
         "type": "object",

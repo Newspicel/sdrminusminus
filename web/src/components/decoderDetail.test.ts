@@ -255,10 +255,78 @@ describe("eventDetail", () => {
       vdl2: dataLink("vdl2"),
       hfdl: dataLink("hfdl"),
       iridium: dataLink("iridium"),
+      dect: {
+        kind: "dect",
+        data: {
+          side: "rfp",
+          update: "identity",
+          identity: {
+            rfpi: "01234D5E6D",
+            pari: "02469ABCD",
+            arc: "a",
+            sari_available: false,
+            rpn: 5,
+            emc: 0x1234,
+            fpn: 0x1abcd,
+          },
+          security: { cipher_state: "clear", encryption_events: 0 },
+          extended_carriers: false,
+          bursts: 12,
+          crc_errors: 0,
+          level_dbfs: -31.5,
+        },
+      },
     };
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();
     }
+  });
+
+  it("breaks a DECT base station into its identity and security", () => {
+    const detail = eventDetail({
+      kind: "dect",
+      data: {
+        side: "rfp",
+        update: "capabilities",
+        identity: {
+          rfpi: "01234D5E6D",
+          pari: "02469ABCD",
+          arc: "a",
+          sari_available: false,
+          rpn: 5,
+          emc: 0x1234,
+          fpn: 0x1abcd,
+          multicell: true,
+        },
+        carrier: 4,
+        carrier_hz: 1_890_432_000,
+        slot_pair: 2,
+        rf_carriers: 0x3ff,
+        capabilities: ["full_slot", "standard_authentication", "standard_ciphering"],
+        security: {
+          cipher_state: "active",
+          authentication_supported: true,
+          ciphering_supported: true,
+          encryption_events: 1,
+        },
+        extended_carriers: false,
+        bursts: 40,
+        crc_errors: 2,
+        level_dbfs: -28.25,
+      },
+    });
+    const shown = Object.fromEntries(detail.fields);
+    expect(shown.RFPI).toBe("01234D5E6D");
+    expect(shown["Access rights class"]).toBe("A residential / small PBX");
+    expect(shown["Manufacturer code"]).toBe("1234");
+    expect(shown.Cell).toBe("multi-cell");
+    expect(shown.Frequency).toBe("1890.4 MHz");
+    expect(shown.Authentication).toBe("yes");
+    expect(shown.Ciphering).toBe("yes");
+    expect(shown.Encryption).toBe("encryption active");
+    expect(shown["Carriers available"]).toBe("0, 1, 2, 3, 4, 5, 6, 7, 8, 9");
+    expect(shown["A-field CRC errors"]).toBe("2");
+    expect(detail.body).toContain("standard ciphering (DSC)");
   });
 
   it("shows weak-signal timing and link measurements", () => {

@@ -1165,6 +1165,75 @@ impl Default for IlsParams {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectBand {
+    #[default]
+    Eu,
+    Us,
+}
+
+pub const DECT_CARRIER_SPACING_HZ: f64 = 1_728_000.0;
+
+impl DectBand {
+    #[must_use]
+    pub const fn carriers(self) -> u8 {
+        match self {
+            Self::Eu => 10,
+            Self::Us => 5,
+        }
+    }
+
+    #[must_use]
+    pub fn carrier_hz(self, carrier: u8) -> Option<f64> {
+        if carrier >= self.carriers() {
+            return None;
+        }
+        let step = f64::from(carrier) * DECT_CARRIER_SPACING_HZ;
+        Some(match self {
+            Self::Eu => 1_897_344_000.0 - step,
+            Self::Us => 1_921_536_000.0 + step,
+        })
+    }
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Eu => "EU 1880-1900 MHz",
+            Self::Us => "US 1920-1930 MHz",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectSides {
+    #[default]
+    Both,
+    Rfp,
+    Pp,
+}
+
+impl DectSides {
+    #[must_use]
+    pub const fn accepts_rfp(self) -> bool {
+        matches!(self, Self::Both | Self::Rfp)
+    }
+
+    #[must_use]
+    pub const fn accepts_pp(self) -> bool {
+        matches!(self, Self::Both | Self::Pp)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DectParams {
+    #[serde(default)]
+    pub band: DectBand,
+    #[serde(default)]
+    pub sides: DectSides,
+}
+
 empty_params! {
     DscParams,
     InmarsatStdcParams,
@@ -1222,6 +1291,7 @@ pub enum ChannelParams {
     Vdl2(Vdl2Params),
     Hfdl(HfdlParams),
     Iridium(IridiumParams),
+    Dect(DectParams),
 }
 
 impl ChannelParams {
@@ -1273,6 +1343,7 @@ impl ChannelParams {
             Self::Vdl2(_) => "vdl2",
             Self::Hfdl(_) => "hfdl",
             Self::Iridium(_) => "iridium",
+            Self::Dect(_) => "dect",
         }
     }
 }

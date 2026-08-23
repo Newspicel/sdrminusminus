@@ -808,6 +808,258 @@ pub struct IlsReading {
     pub signal_db: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectSide {
+    #[default]
+    Rfp,
+    Pp,
+}
+
+impl DectSide {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Rfp => "base",
+            Self::Pp => "handset",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectArc {
+    #[default]
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+}
+
+impl DectArc {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::A => "A residential / small PBX",
+            Self::B => "B private multi-cell",
+            Self::C => "C public access",
+            Self::D => "D public GSM/UMTS",
+            Self::E => "E PP-to-PP direct",
+            Self::F => "F reserved",
+            Self::G => "G reserved",
+            Self::H => "H reserved",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectUpdate {
+    #[default]
+    Identity,
+    SystemInfo,
+    Capabilities,
+    Encryption,
+    Paging,
+    Bearer,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectCipherState {
+    #[default]
+    Clear,
+    Requested,
+    Confirmed,
+    Active,
+    Stopped,
+}
+
+impl DectCipherState {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Clear => "no encryption seen",
+            Self::Requested => "start requested",
+            Self::Confirmed => "start confirmed",
+            Self::Active => "encryption active",
+            Self::Stopped => "encryption stopped",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DectCapability {
+    ExtendedFpInfo,
+    DoubleDuplexBearer,
+    DoubleSlot,
+    HalfSlot,
+    FullSlot,
+    FrequencyControl,
+    PageRepetition,
+    CoSetupOnDummy,
+    ClUplink,
+    ClDownlink,
+    BasicAFieldSetup,
+    AdvancedAFieldSetup,
+    BFieldSetup,
+    CfMessages,
+    InMinimumDelay,
+    InNormalDelay,
+    IpErrorDetection,
+    IpErrorCorrection,
+    MultibearerConnections,
+    Adpcm,
+    GapBasicSpeech,
+    NonVoiceCircuitSwitched,
+    NonVoicePacketSwitched,
+    StandardAuthentication,
+    StandardCiphering,
+    LocationRegistration,
+    SimServices,
+    NonStaticFixedPart,
+    CissServices,
+    ClmsService,
+    ComsService,
+    AccessRightsRequests,
+    ExternalHandover,
+    ConnectionHandover,
+}
+
+impl DectCapability {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ExtendedFpInfo => "extended FP info",
+            Self::DoubleDuplexBearer => "double duplex bearer",
+            Self::DoubleSlot => "double slot",
+            Self::HalfSlot => "half slot",
+            Self::FullSlot => "full slot",
+            Self::FrequencyControl => "frequency control",
+            Self::PageRepetition => "page repetition",
+            Self::CoSetupOnDummy => "C/O setup on dummy",
+            Self::ClUplink => "C/L uplink",
+            Self::ClDownlink => "C/L downlink",
+            Self::BasicAFieldSetup => "basic A-field setup",
+            Self::AdvancedAFieldSetup => "advanced A-field setup",
+            Self::BFieldSetup => "B-field setup",
+            Self::CfMessages => "Cf messages",
+            Self::InMinimumDelay => "IN minimum delay",
+            Self::InNormalDelay => "IN normal delay",
+            Self::IpErrorDetection => "IP error detection",
+            Self::IpErrorCorrection => "IP error correction",
+            Self::MultibearerConnections => "multibearer connections",
+            Self::Adpcm => "ADPCM/G.726",
+            Self::GapBasicSpeech => "GAP basic speech",
+            Self::NonVoiceCircuitSwitched => "non-voice circuit switched",
+            Self::NonVoicePacketSwitched => "non-voice packet switched",
+            Self::StandardAuthentication => "standard authentication (DSAA)",
+            Self::StandardCiphering => "standard ciphering (DSC)",
+            Self::LocationRegistration => "location registration",
+            Self::SimServices => "SIM services",
+            Self::NonStaticFixedPart => "non-static fixed part",
+            Self::CissServices => "CISS services",
+            Self::ClmsService => "CLMS service",
+            Self::ComsService => "COMS service",
+            Self::AccessRightsRequests => "access rights requests",
+            Self::ExternalHandover => "external handover",
+            Self::ConnectionHandover => "connection handover",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DectIdentity {
+    pub rfpi: String,
+    pub pari: String,
+    pub arc: DectArc,
+    pub sari_available: bool,
+    pub rpn: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multicell: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emc: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eic: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poc: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gop: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcc: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mnc: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fil: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fpn: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fps: Option<u8>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DectSecurity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication_supported: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ciphering_supported: Option<bool>,
+    pub cipher_state: DectCipherState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cipher_key_index: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_command: Option<String>,
+    #[serde(default)]
+    pub encryption_events: u32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DectFrame {
+    pub side: DectSide,
+    pub update: DectUpdate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<DectIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carrier: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carrier_hz: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_pair: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rf_carriers: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transceivers: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pscn: Option<u8>,
+    #[serde(default)]
+    pub extended_carriers: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiframe: Option<u32>,
+    pub security: DectSecurity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<DectCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmid: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pmid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handsets: Vec<u32>,
+    pub bursts: u32,
+    pub crc_errors: u32,
+    pub level_dbfs: f32,
+}
+
+impl DectFrame {
+    #[must_use]
+    pub fn has(&self, capability: DectCapability) -> bool {
+        self.capabilities.contains(&capability)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DataLinkMessage {
     pub message_type: String,
@@ -872,6 +1124,37 @@ pub enum DecoderEvent {
     Df(crate::coherent::DfBearing),
     DfFix(crate::coherent::DfEstimate),
     Radar(crate::coherent::RadarDetection),
+    Dect(DectFrame),
+}
+
+fn dect_summary(f: &DectFrame) -> String {
+    let mut parts = Vec::new();
+    if let Some(identity) = &f.identity {
+        parts.push(format!("RFPI {}", identity.rfpi));
+        parts.push(format!("class {}", identity.arc.label()));
+    } else {
+        parts.push(f.side.label().to_owned());
+    }
+    if let Some(carrier) = f.carrier {
+        parts.push(format!("carrier {carrier}"));
+    }
+    if let Some(slot) = f.slot_pair {
+        parts.push(format!("slot {slot}"));
+    }
+    if let (Some(auth), Some(cipher)) = (
+        f.security.authentication_supported,
+        f.security.ciphering_supported,
+    ) {
+        parts.push(format!(
+            "auth {} · cipher {}",
+            if auth { "yes" } else { "no" },
+            if cipher { "yes" } else { "no" }
+        ));
+    }
+    if f.security.cipher_state != DectCipherState::Clear {
+        parts.push(f.security.cipher_state.label().to_owned());
+    }
+    parts.join(" · ")
 }
 
 fn rds_summary(r: &RdsUpdate) -> String {
@@ -1090,6 +1373,7 @@ impl DecoderEvent {
             Self::Df(_) => "df",
             Self::DfFix(_) => "df_fix",
             Self::Radar(_) => "radar",
+            Self::Dect(_) => "dect",
         }
     }
 
@@ -1285,6 +1569,7 @@ impl DecoderEvent {
             | Self::Vdl2(m)
             | Self::Hfdl(m)
             | Self::Iridium(m) => data_link_summary(m),
+            Self::Dect(f) => dect_summary(f),
         }
     }
 
@@ -1355,6 +1640,7 @@ impl DecoderEvent {
             | Self::Vdl2(m)
             | Self::Hfdl(m)
             | Self::Iridium(m) => m.station.clone(),
+            Self::Dect(f) => f.identity.as_ref().map(|id| id.rfpi.clone()),
             Self::Ils(_) => None,
         }
     }

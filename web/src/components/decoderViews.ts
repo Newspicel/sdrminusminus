@@ -48,6 +48,52 @@ export function latestVorReadings(
   return [...latest.values()].toSorted((a, b) => a.event.data.radial_deg - b.event.data.radial_deg);
 }
 
+export interface DectStation {
+  key: string;
+  rfpi: string | null;
+  arc: string | null;
+  carrier: number | null;
+  carrierHz: number | null;
+  slotPair: number | null;
+  authentication: boolean | null;
+  ciphering: boolean | null;
+  cipherState: string;
+  handsets: number;
+  bursts: number;
+  crcErrors: number;
+  levelDbfs: number;
+  at: string;
+}
+
+export function dectStations(records: readonly DecodedRecordOf<"dect">[]): DectStation[] {
+  const latest = new Map<string, DectStation>();
+  for (const record of records) {
+    const frame = record.event.data;
+    const key = frame.identity?.rfpi ?? `${record.device_set}:${record.channel}:${frame.side}`;
+    const previous = latest.get(key);
+    if (previous !== undefined && Date.parse(record.at) <= Date.parse(previous.at)) {
+      continue;
+    }
+    latest.set(key, {
+      key,
+      rfpi: frame.identity?.rfpi ?? null,
+      arc: frame.identity?.arc ?? null,
+      carrier: frame.carrier ?? null,
+      carrierHz: frame.carrier_hz ?? null,
+      slotPair: frame.slot_pair ?? null,
+      authentication: frame.security.authentication_supported ?? null,
+      ciphering: frame.security.ciphering_supported ?? null,
+      cipherState: frame.security.cipher_state,
+      handsets: (frame.handsets ?? []).length,
+      bursts: frame.bursts,
+      crcErrors: frame.crc_errors,
+      levelDbfs: frame.level_dbfs,
+      at: record.at,
+    });
+  }
+  return [...latest.values()].toSorted((a, b) => b.levelDbfs - a.levelDbfs);
+}
+
 export interface VorFix {
   lat: number;
   lon: number;

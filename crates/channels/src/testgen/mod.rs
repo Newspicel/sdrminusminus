@@ -4,6 +4,7 @@ pub mod ais;
 pub mod atv;
 pub mod dab;
 pub mod datv;
+pub mod dect;
 pub mod dv;
 pub mod ermes;
 pub mod flex;

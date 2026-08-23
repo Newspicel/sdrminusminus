@@ -2126,6 +2126,10 @@ export interface components {
             settings: components["schemas"]["IridiumParams"];
             /** @enum {string} */
             type: "iridium";
+        } | {
+            settings: components["schemas"]["DectParams"];
+            /** @enum {string} */
+            type: "dect";
         };
         ChannelRecordRequest: {
             action: components["schemas"]["RecordAction"];
@@ -2803,6 +2807,10 @@ export interface components {
             data: components["schemas"]["RadarDetection"];
             /** @enum {string} */
             kind: "radar";
+        } | {
+            data: components["schemas"]["DectFrame"];
+            /** @enum {string} */
+            kind: "dect";
         };
         DecoderLogEntry: {
             at: string;
@@ -2827,6 +2835,94 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /** @enum {string} */
+        DectArc: "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h";
+        /** @enum {string} */
+        DectBand: "eu" | "us";
+        /** @enum {string} */
+        DectCapability: "extended_fp_info" | "double_duplex_bearer" | "double_slot" | "half_slot" | "full_slot" | "frequency_control" | "page_repetition" | "co_setup_on_dummy" | "cl_uplink" | "cl_downlink" | "basic_a_field_setup" | "advanced_a_field_setup" | "b_field_setup" | "cf_messages" | "in_minimum_delay" | "in_normal_delay" | "ip_error_detection" | "ip_error_correction" | "multibearer_connections" | "adpcm" | "gap_basic_speech" | "non_voice_circuit_switched" | "non_voice_packet_switched" | "standard_authentication" | "standard_ciphering" | "location_registration" | "sim_services" | "non_static_fixed_part" | "ciss_services" | "clms_service" | "coms_service" | "access_rights_requests" | "external_handover" | "connection_handover";
+        /** @enum {string} */
+        DectCipherState: "clear" | "requested" | "confirmed" | "active" | "stopped";
+        DectFrame: {
+            /** Format: int32 */
+            bursts: number;
+            capabilities?: components["schemas"]["DectCapability"][];
+            /** Format: int32 */
+            carrier?: number | null;
+            /** Format: double */
+            carrier_hz?: number | null;
+            /** Format: int32 */
+            crc_errors: number;
+            extended_carriers?: boolean;
+            /** Format: int32 */
+            fmid?: number | null;
+            handsets?: number[];
+            identity?: null | components["schemas"]["DectIdentity"];
+            /** Format: float */
+            level_dbfs: number;
+            /** Format: int32 */
+            multiframe?: number | null;
+            /** Format: int32 */
+            pmid?: number | null;
+            /** Format: int32 */
+            pscn?: number | null;
+            /** Format: int32 */
+            rf_carriers?: number | null;
+            security: components["schemas"]["DectSecurity"];
+            side: components["schemas"]["DectSide"];
+            /** Format: int32 */
+            slot_pair?: number | null;
+            /** Format: int32 */
+            transceivers?: number | null;
+            update: components["schemas"]["DectUpdate"];
+        };
+        DectIdentity: {
+            arc: components["schemas"]["DectArc"];
+            /** Format: int32 */
+            eic?: number | null;
+            /** Format: int32 */
+            emc?: number | null;
+            /** Format: int32 */
+            fil?: number | null;
+            /** Format: int32 */
+            fpn?: number | null;
+            /** Format: int32 */
+            fps?: number | null;
+            /** Format: int32 */
+            gop?: number | null;
+            /** Format: int32 */
+            mcc?: number | null;
+            /** Format: int32 */
+            mnc?: number | null;
+            multicell?: boolean | null;
+            pari: string;
+            /** Format: int32 */
+            poc?: number | null;
+            rfpi: string;
+            /** Format: int32 */
+            rpn: number;
+            sari_available: boolean;
+        };
+        DectParams: {
+            band?: components["schemas"]["DectBand"];
+            sides?: components["schemas"]["DectSides"];
+        };
+        DectSecurity: {
+            authentication_supported?: boolean | null;
+            /** Format: int32 */
+            cipher_key_index?: number | null;
+            cipher_state: components["schemas"]["DectCipherState"];
+            ciphering_supported?: boolean | null;
+            /** Format: int32 */
+            encryption_events?: number;
+            last_command?: string | null;
+        };
+        /** @enum {string} */
+        DectSide: "rfp" | "pp";
+        /** @enum {string} */
+        DectSides: "both" | "rfp" | "pp";
+        /** @enum {string} */
+        DectUpdate: "identity" | "system_info" | "capabilities" | "encryption" | "paging" | "bearer";
         DeletedCount: {
             /** Format: int64 */
             deleted: number;

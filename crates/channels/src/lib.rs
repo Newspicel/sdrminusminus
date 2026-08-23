@@ -10,6 +10,7 @@ mod combiner;
 mod cw_skimmer;
 mod dab;
 mod datv;
+mod dect;
 mod df;
 mod drm;
 mod dsc;
@@ -64,6 +65,7 @@ pub use dab::DabChannel;
 pub use datv::DatvChannel;
 #[cfg(any(test, feature = "test-signals"))]
 pub use datv::dvbs2::{frame::Modulation as Dvbs2Modulation, ldpc::Rate as Dvbs2Rate};
+pub use dect::DectChannel;
 pub use drm::DrmChannel;
 pub use dsc::DscChannel;
 pub use dv::{
@@ -171,6 +173,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Vdl2(_) => vdl2::occupied_band(),
         ChannelParams::Hfdl(_) => hfdl::occupied_band(),
         ChannelParams::Iridium(_) => iridium::occupied_band(),
+        ChannelParams::Dect(_) => dect::occupied_band(),
     }
 }
 
@@ -240,6 +243,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Vdl2(_) => Ok(vdl2::channel_filter()),
         ChannelParams::Hfdl(_) => Ok(hfdl::channel_filter()),
         ChannelParams::Iridium(_) => Ok(iridium::channel_filter()),
+        ChannelParams::Dect(_) => Ok(dect::channel_filter()),
     }
 }
 
@@ -596,6 +600,11 @@ const REGISTRY: &[Registration] = &[
         create: boxed::<IridiumChannel>,
         create_tx: None,
     },
+    Registration {
+        descriptor: DectChannel::descriptor,
+        create: boxed::<DectChannel>,
+        create_tx: None,
+    },
 ];
 
 #[must_use]
@@ -677,12 +686,12 @@ mod tests {
 
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
-        ChannelParams, CwSkimmerParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams,
-        DscParams, DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams, HfdlParams,
-        IdentParams, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params,
-        MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, PskParams,
-        RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams, SubghzParams,
-        Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+        ChannelParams, CwSkimmerParams, DabParams, DatvParams, DectParams, DmrParams, DpmrParams,
+        DrmParams, DscParams, DstarParams, ErmesParams, FlexParams, FreeDvParams, GnssParams,
+        HfdlParams, IdentParams, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams,
+        M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
+        PskParams, RadioClockParams, RttyParams, SelcallParams, SsbParams, SstvParams,
+        SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
     };
 
     use super::*;
@@ -735,6 +744,7 @@ mod tests {
             "vdl2" => ChannelParams::Vdl2(Vdl2Params::default()),
             "hfdl" => ChannelParams::Hfdl(HfdlParams::default()),
             "iridium" => ChannelParams::Iridium(IridiumParams::default()),
+            "dect" => ChannelParams::Dect(DectParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -742,7 +752,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 45);
+        assert_eq!(all.len(), 46);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -792,6 +802,7 @@ mod tests {
                 "vdl2",
                 "hfdl",
                 "iridium",
+                "dect",
             ])
         );
         for d in &all {
@@ -834,6 +845,7 @@ mod tests {
                 "vdl2" => (17_000.0, 100_000.0),
                 "hfdl" => (6_000.0, 12_000.0),
                 "iridium" => (50_000.0, 250_000.0),
+                "dect" => (1_728_000.0, 2_304_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);

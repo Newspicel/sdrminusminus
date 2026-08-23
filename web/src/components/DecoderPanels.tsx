@@ -20,6 +20,8 @@ import {
   candidateScore,
   cwSignalRows,
   type DecoderScope,
+  type DectStation,
+  dectStations,
   formatAge,
   formatAltFreqs,
   formatClock,
@@ -477,6 +479,84 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+const DECT_CIPHER_CHIP: Record<string, string> = {
+  clear: "no encryption seen",
+  requested: "start requested",
+  confirmed: "start confirmed",
+  active: "encrypted",
+  stopped: "encryption stopped",
+};
+
+function dectSupport(value: boolean | null): string {
+  return value === null ? "—" : value ? "yes" : "no";
+}
+
+function DectRow({ station }: { station: DectStation }) {
+  return (
+    <tr>
+      <td className={`${TABLE_CELL} font-mono`}>{station.rfpi ?? "—"}</td>
+      <td className={TABLE_CELL}>{station.arc === null ? "—" : station.arc.toUpperCase()}</td>
+      <td className={TABLE_CELL}>
+        {station.carrier === null
+          ? "—"
+          : station.carrierHz === null
+            ? String(station.carrier)
+            : `${station.carrier} · ${(station.carrierHz / 1e6).toFixed(3)} MHz`}
+      </td>
+      <td className={TABLE_CELL}>{station.slotPair === null ? "—" : String(station.slotPair)}</td>
+      <td className={TABLE_CELL}>{dectSupport(station.authentication)}</td>
+      <td className={TABLE_CELL}>{dectSupport(station.ciphering)}</td>
+      <td className={TABLE_CELL}>
+        <span className={CHIP}>{DECT_CIPHER_CHIP[station.cipherState] ?? station.cipherState}</span>
+      </td>
+      <td className={TABLE_CELL}>{station.handsets === 0 ? "—" : String(station.handsets)}</td>
+      <td className={TABLE_CELL}>{station.levelDbfs.toFixed(1)}</td>
+      <td className={TABLE_CELL}>
+        {station.bursts}
+        {station.crcErrors === 0 ? "" : ` / ${station.crcErrors} bad`}
+      </td>
+    </tr>
+  );
+}
+
+function DectView({ scope = {} }: { scope?: DecoderScope }) {
+  const stations = dectStations(recordsInScope(useDecodedKind("dect"), scope));
+  if (stations.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No DECT base stations heard yet.</span>
+      </div>
+    );
+  }
+  return (
+    <div className={PANE}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left text-xs">
+          <thead>
+            <tr>
+              <th className={TABLE_HEAD}>RFPI</th>
+              <th className={TABLE_HEAD}>Class</th>
+              <th className={TABLE_HEAD}>Carrier</th>
+              <th className={TABLE_HEAD}>Slot</th>
+              <th className={TABLE_HEAD}>Auth</th>
+              <th className={TABLE_HEAD}>Cipher</th>
+              <th className={TABLE_HEAD}>State</th>
+              <th className={TABLE_HEAD}>Handsets</th>
+              <th className={TABLE_HEAD}>dBFS</th>
+              <th className={TABLE_HEAD}>Bursts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stations.map((station) => (
+              <DectRow key={station.key} station={station} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function VorView({ scope = {} }: { scope?: DecoderScope }) {
   const readings = latestVorReadings(recordsInScope(useDecodedKind("vor"), scope));
   const fix = multiVorFix(readings);
@@ -658,6 +738,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   vdl2: null,
   hfdl: null,
   iridium: null,
+  dect: (scope) => <DectView scope={scope} />,
 };
 
 function isDecoderKind(kind: string): kind is DecoderKind {

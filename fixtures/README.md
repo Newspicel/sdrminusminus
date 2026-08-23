@@ -37,6 +37,7 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `sstv_robot36_48k` | 48 k | `sstv` @ +4 kHz | Robot 36, eight colour bars white to black |
 | `dcf77_2026_2k` | 2 k | `radio_clock` / DCF77 @ 0 Hz | 2026-08-15 12:34 CET, valid parity |
 | `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
+| `dect_base_2m304` | 2.304 M | `dect` @ 0 Hz | RFPI `01234D5E6D`, class A, carrier 4, standard authentication and ciphering advertised |
 
 Eight pairs are **not** written by `cargo xtask fixtures` and are committed instead — five
 recorded off air and three frozen regression renders. `cargo xtask excerpt` cuts them: it reads a

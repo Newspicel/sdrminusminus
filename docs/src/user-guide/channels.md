@@ -42,7 +42,7 @@ list.
 | Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
 | Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
-| Utility | Signal identifier, Iridium bursts | fixture-only |
+| Utility | Signal identifier, Iridium bursts, DECT base station survey | fixture-only |
 | Utility | GNSS lab (GPS L1 C/A) | experimental |
 
 Coverage varies by protocol. A listed mode means the signal path and the documented frame layers
@@ -238,6 +238,50 @@ Wire the channel's `video` output into a Video node to watch a picture build up 
 finished picture, and every kept partial, is also stored on the server as a PNG and listed in the
 channel's own panel, so a picture that arrived while no browser was connected is still there. The
 store holds 24 hours of pictures, capped at 512 of them.
+
+## Surveying a DECT network
+
+The `dect` channel listens to one DECT carrier and reports what the base stations on it say about
+themselves. It reads the A-field of every burst — the 64-bit control field each slot carries
+alongside its traffic — and never touches the B-field, so it recovers identity, configuration and
+security posture but no call audio and no user data.
+
+A DECT carrier is 1.728 MHz wide and the channel runs at 2.304 MHz, so the receiver needs at least
+that much bandwidth and must reach the band: 1880–1900 MHz in Europe, 1920–1930 MHz in the US.
+An RTL-SDR tops out below the band and cannot be used; a HackRF or an SDRplay can.
+
+Set **Band** so carrier numbers resolve to frequencies, and set **Side** to `Base` if you only want
+the fixed part, `Handset` for portables, or `Both`. Carrier 0 is the *highest* frequency in the
+European band (1897.344 MHz) and they count downwards in 1.728 MHz steps to carrier 9 at
+1881.792 MHz; the US band counts upwards from 1921.536 MHz.
+
+Each base station transmits a dummy bearer once per 10 ms frame in a fixed slot, cycling through
+the identity and system-information messages. The decoder groups bursts by their slot timing, so
+several base stations sharing one carrier stay apart, and folds each one into a single record:
+
+- **RFPI** — the 40-bit Radio Fixed Part Identity, broadcast on the Nt channel. It splits into the
+  access rights class (A residential, B private multi-cell, C public, D GSM/UMTS, E direct), the
+  manufacturer, installer or operator code, the fixed part number and sub-number, and the radio
+  fixed part number that separates cells within one system. Class C and D encode single-cell versus
+  multi-cell in the low bit of the RPN.
+- **System information** — the carrier the base is on and its frequency, which slot pair it uses,
+  how many transceivers it has, which of the ten carriers it says are available, and its primary
+  scan carrier number.
+- **Capabilities** — the fixed part capabilities broadcast, decoded bit by bit: slot types,
+  frequency control, handover, the connectionless services, and the higher-layer services.
+- **Security** — whether the base advertises **standard authentication (DSAA)** and **standard
+  ciphering (DSC)**, and, separately, whether encryption was actually negotiated on the air. MAC
+  encryption-control messages are followed through request, confirm and grant, so a bearer shows as
+  encrypted only once the grant is seen. A cipher key index is reported when the base uses the
+  keyed variant.
+- **Handsets** — the PMIDs seen in encryption handshakes, plus the FMID of the fixed part.
+
+Every A-field is checked against the R-CRC before anything is believed, and bursts that fail are
+counted rather than dropped quietly — the burst and error counts sit next to each station.
+
+A base that advertises ciphering is not necessarily using it, and a base that advertises neither is
+sending its calls in the clear. That distinction is the point of the survey: the capability bits
+say what the equipment can do, the encryption state says what it did.
 
 ## Following a DMR trunk system
 

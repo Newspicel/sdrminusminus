@@ -11,11 +11,11 @@ use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, BroadcastSystem,
     ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams, DatvStandard,
-    DecodedRecord, DecoderEvent, DmrParams, DrmMode, DrmParams, DvFrameKind, DvMode, ErmesParams,
-    FlexParams, FreeDvParams, GnssParams, IdentParams, Modulation, MorseParams, NavtexParams,
-    NfmParams, NfmToneMode, PocsagBaud, PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams,
-    SelcallParams, SelcallSystem, SubghzEncoding, SubghzParams, SymbolPlane, VorParams, WfmParams,
-    WsjtParams, WsprParams, YsfParams,
+    DecodedRecord, DecoderEvent, DectCapability, DectCipherState, DectParams, DmrParams, DrmMode,
+    DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams, FreeDvParams, GnssParams, IdentParams,
+    Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams,
+    PskBaud, PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SubghzEncoding,
+    SubghzParams, SymbolPlane, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 use tempfile::TempDir;
 
@@ -25,6 +25,7 @@ const NARROW_DEVICE_RATE: f64 = 240_000.0;
 const AUDIO_DEVICE_RATE: f64 = 48_000.0;
 const ADSB_DEVICE_RATE: f64 = 2_000_000.0;
 const GNSS_DEVICE_RATE: f64 = 2_048_000.0;
+const DECT_DEVICE_RATE: f64 = 2_304_000.0;
 const CENTER_HZ: f64 = 145_000_000.0;
 fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
     let mut tx = AprsTx::new(
@@ -1561,4 +1562,80 @@ async fn an_analog_channel_never_pretends_to_have_symbols() {
     let got = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
     engine.remove_device_set(ds).unwrap();
     assert!(got.is_err(), "an FM channel published a symbol block");
+}
+
+#[tokio::test]
+async fn a_dect_base_station_survives_the_ddc_and_reports_its_identity_and_security() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+
+    let station = testgen::dect::Station {
+        rfpi: 0x0001_234D_5E6D,
+        carrier: 4,
+        slot: 2,
+        slot_pair: 2,
+        capabilities: testgen::dect::capability_bits(&[17, 33, 36, 37]),
+        ..testgen::dect::Station::default()
+    };
+    let iq = testgen::dect::dummy_bearer(&station, 40);
+
+    let device = plant(dir.path(), "dect", iq, DECT_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Dect(DectParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Dect(f) if f.identity.is_some()),
+    )
+    .await;
+
+    let DecoderEvent::Dect(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    let identity = frame.identity.unwrap();
+    assert_eq!(identity.rfpi, "01234D5E6D");
+    assert_eq!(identity.emc, Some(0x1234));
+    assert_eq!(frame.crc_errors, 0);
+}
+
+#[tokio::test]
+async fn a_dect_capabilities_broadcast_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+
+    let station = testgen::dect::Station {
+        rfpi: 0x0001_234D_5E6D,
+        capabilities: testgen::dect::capability_bits(&[17, 33, 36, 37]),
+        ..testgen::dect::Station::default()
+    };
+    let iq = testgen::dect::dummy_bearer(&station, 40);
+
+    let device = plant(dir.path(), "dect_caps", iq, DECT_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            squelch_auto_db: None,
+            params: ChannelParams::Dect(DectParams::default()),
+            audio: Default::default(),
+        },
+        |event| matches!(event, DecoderEvent::Dect(f) if !f.capabilities.is_empty()),
+    )
+    .await;
+
+    let DecoderEvent::Dect(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(frame.has(DectCapability::StandardAuthentication));
+    assert!(frame.has(DectCapability::StandardCiphering));
+    assert_eq!(frame.security.authentication_supported, Some(true));
+    assert_eq!(frame.security.ciphering_supported, Some(true));
+    assert_eq!(frame.security.cipher_state, DectCipherState::Clear);
 }

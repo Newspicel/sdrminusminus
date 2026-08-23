@@ -1622,6 +1622,25 @@ fn broadcast_fixtures(out: &mut Vec<Fixture>) {
 fn wideband_fixtures(out: &mut Vec<Fixture>) {
     use sdrmm_channels::testgen;
 
+    const DECT_RATE: f64 = 2_304_000.0;
+    out.push(Fixture {
+        stem: "dect_base_2m304".to_string(),
+        iq: testgen::dect::dummy_bearer(
+            &testgen::dect::Station {
+                rfpi: 0x0001_234D_5E6D,
+                carrier: 4,
+                slot: 2,
+                slot_pair: 2,
+                capabilities: testgen::dect::capability_bits(&[17, 33, 36, 37, 38]),
+                ..testgen::dect::Station::default()
+            },
+            60,
+        ),
+        rate: DECT_RATE,
+        note: "dect channel -> RFPI 01234D5E6D, carrier 4, standard authentication and ciphering"
+            .to_string(),
+    });
+
     const SUBGHZ_RATE: f64 = 500_000.0;
     out.push(Fixture {
         stem: "subghz_ev1527_500k".to_string(),

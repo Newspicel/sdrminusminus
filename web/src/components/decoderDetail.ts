@@ -1,4 +1,11 @@
-import type { AprsPacket, DataLinkMessage, DecoderEvent, DecoderKind, DvFrame } from "../lib/types";
+import type {
+  AprsPacket,
+  DataLinkMessage,
+  DecoderEvent,
+  DecoderKind,
+  DectFrame,
+  DvFrame,
+} from "../lib/types";
 import { hex2, hex5 } from "./decoderLog";
 import {
   candidateScore,
@@ -10,6 +17,7 @@ import {
   identMeasurements,
   modulationLabel,
 } from "./decoderViews";
+import { DECT_CIPHER_LABELS } from "./eventFacts";
 import { SSTV_MODE_LABELS } from "./sstvModes";
 
 export type DetailField = readonly [label: string, value: string];
@@ -465,6 +473,7 @@ const DETAIL: {
   vdl2: dataLinkDetail,
   hfdl: dataLinkDetail,
   iridium: dataLinkDetail,
+  dect: dectDetail,
 };
 
 function dataLinkDetail(message: DataLinkMessage): EventDetail {
@@ -564,6 +573,118 @@ function dvKind(frame: Pick<DvFrame, "kind">): string {
 
 function monitorLine(packet: AprsPacket): string | null {
   return packet.tnc2 || null;
+}
+
+const DECT_CLASS_LABELS: Record<string, string> = {
+  a: "A residential / small PBX",
+  b: "B private multi-cell",
+  c: "C public access",
+  d: "D public GSM/UMTS",
+  e: "E PP-to-PP direct",
+  f: "F reserved",
+  g: "G reserved",
+  h: "H reserved",
+};
+
+const DECT_CAPABILITY_LABELS: Record<string, string> = {
+  extended_fp_info: "extended FP info",
+  double_duplex_bearer: "double duplex bearer",
+  double_slot: "double slot",
+  half_slot: "half slot",
+  full_slot: "full slot",
+  frequency_control: "frequency control",
+  page_repetition: "page repetition",
+  co_setup_on_dummy: "C/O setup on dummy",
+  cl_uplink: "C/L uplink",
+  cl_downlink: "C/L downlink",
+  basic_a_field_setup: "basic A-field setup",
+  advanced_a_field_setup: "advanced A-field setup",
+  b_field_setup: "B-field setup",
+  cf_messages: "Cf messages",
+  in_minimum_delay: "IN minimum delay",
+  in_normal_delay: "IN normal delay",
+  ip_error_detection: "IP error detection",
+  ip_error_correction: "IP error correction",
+  multibearer_connections: "multibearer connections",
+  adpcm: "ADPCM/G.726",
+  gap_basic_speech: "GAP basic speech",
+  non_voice_circuit_switched: "non-voice circuit switched",
+  non_voice_packet_switched: "non-voice packet switched",
+  standard_authentication: "standard authentication (DSAA)",
+  standard_ciphering: "standard ciphering (DSC)",
+  location_registration: "location registration",
+  sim_services: "SIM services",
+  non_static_fixed_part: "non-static fixed part",
+  ciss_services: "CISS services",
+  clms_service: "CLMS service",
+  coms_service: "COMS service",
+  access_rights_requests: "access rights requests",
+  external_handover: "external handover",
+  connection_handover: "connection handover",
+};
+
+export function dectCarriers(mask: number | null | undefined): string | undefined {
+  if (mask == null) return undefined;
+  const on = [];
+  for (let carrier = 0; carrier < 10; carrier += 1) {
+    if ((mask >> (9 - carrier)) & 1) on.push(carrier);
+  }
+  return on.length === 0 ? undefined : on.join(", ");
+}
+
+function dectDetail(frame: DectFrame): EventDetail {
+  const id = frame.identity;
+  const capabilities = (frame.capabilities ?? []).map(
+    (capability) => DECT_CAPABILITY_LABELS[capability] ?? capability,
+  );
+  return {
+    fields: fields([
+      ["Side", frame.side === "rfp" ? "base station" : "handset"],
+      ["RFPI", id?.rfpi],
+      ["Access rights class", id ? (DECT_CLASS_LABELS[id.arc] ?? id.arc) : undefined],
+      ["PARI", id?.pari],
+      ["Manufacturer code", id?.emc == null ? undefined : hex4(id.emc)],
+      ["Installer code", id?.eic == null ? undefined : hex4(id.eic)],
+      ["Operator code", id?.poc == null ? undefined : hex4(id.poc)],
+      ["GSM/UMTS operator", id?.gop == null ? undefined : hex5(id.gop)],
+      ["Fixed part number", id?.fpn == null ? undefined : String(id.fpn)],
+      ["Fixed part sub-number", id?.fps == null ? undefined : String(id.fps)],
+      ["Radio fixed part", id == null ? undefined : String(id.rpn)],
+      ["Cell", id?.multicell == null ? undefined : id.multicell ? "multi-cell" : "single cell"],
+      ["SARI list", flag(id?.sari_available)],
+      ["Carrier", frame.carrier == null ? undefined : String(frame.carrier)],
+      ["Frequency", frame.carrier_hz == null ? undefined : mhz(frame.carrier_hz)],
+      ["Slot pair", frame.slot_pair == null ? undefined : String(frame.slot_pair)],
+      ["Transceivers", frame.transceivers == null ? undefined : String(frame.transceivers)],
+      ["Carriers available", dectCarriers(frame.rf_carriers)],
+      ["Scan carrier", frame.pscn == null ? undefined : String(frame.pscn)],
+      ["Multiframe", frame.multiframe == null ? undefined : String(frame.multiframe)],
+      ["Authentication", flag(frame.security.authentication_supported)],
+      ["Ciphering", flag(frame.security.ciphering_supported)],
+      [
+        "Encryption",
+        DECT_CIPHER_LABELS[frame.security.cipher_state] ?? frame.security.cipher_state,
+      ],
+      ["Last cipher command", frame.security.last_command],
+      [
+        "Cipher key index",
+        frame.security.cipher_key_index == null
+          ? undefined
+          : String(frame.security.cipher_key_index),
+      ],
+      ["FMID", frame.fmid == null ? undefined : hex4(frame.fmid)],
+      ["PMID", frame.pmid == null ? undefined : hex5(frame.pmid)],
+      ["Handsets", (frame.handsets ?? []).map(hex5).join(", ")],
+      ["Bursts", String(frame.bursts)],
+      ["A-field CRC errors", String(frame.crc_errors)],
+      ["Level", `${frame.level_dbfs.toFixed(1)} dBFS`],
+    ]),
+    body: capabilities.length === 0 ? null : capabilities.join("\n"),
+  };
+}
+
+function hex4(value: number): string {
+  return value.toString(16).toUpperCase().padStart(4, "0");
 }
 
 function fields(rows: readonly (readonly [string, string | null | undefined])[]): DetailField[] {
