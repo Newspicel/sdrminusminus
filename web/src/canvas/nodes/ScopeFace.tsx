@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -45,7 +46,7 @@ import {
   spanToView,
   viewToSpan,
   viewWidth,
-  zoomView,
+  wheelView,
 } from "../../components/spectrumView";
 import { rowsForHeight } from "../../gl/raster";
 import {
@@ -71,14 +72,13 @@ import { basebandSourceOf, channelNodesOf, hasWire, iqSourceOf } from "../bindin
 import { useWorkspaceContext } from "../context";
 import { addEdge, addNode, newNodeId, patchNode, streamPort } from "../graph";
 import { useNodePlacement } from "../placement";
-import { movesCanvas } from "../wheel";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
 import { ChannelPicker } from "./ChannelPicker";
 import { tuneDelta } from "./deviceNode";
 import { type TrunkChannelOwner, trunkChannelRoles } from "./dmrTrunk";
-import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, FaceEmpty, NodeShell, useFaceActive, useFaceWheel } from "./NodeShell";
 import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
 import {
   bookmarkDraft,
@@ -557,24 +557,21 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    const plot = plotRef.current;
-    if (plot === null || !active) {
-      return;
-    }
-    const onWheel = (event: WheelEvent) => {
-      if (movesCanvas(event)) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      const rect = plot.getBoundingClientRect();
-      const at = (event.clientX - rect.left) / rect.width;
-      setView((current) => zoomView(current, at, event.deltaY < 0 ? 1.2 : 1 / 1.2));
-    };
-    plot.addEventListener("wheel", onWheel, { passive: false });
-    return () => plot.removeEventListener("wheel", onWheel);
-  }, [active]);
+  useFaceWheel(
+    useCallback(
+      (event: WheelEvent): boolean => {
+        const plot = plotRef.current;
+        if (plot === null || !wheelOnPlot(event, plot, active)) {
+          return false;
+        }
+        const rect = plot.getBoundingClientRect();
+        const at = (event.clientX - rect.left) / rect.width;
+        setView((current) => wheelView(current, event, at, rect.width));
+        return true;
+      },
+      [active],
+    ),
+  );
 
   const chooseColormap = (next: Colormap): void => {
     setColormap(next);
@@ -1307,6 +1304,19 @@ function markerFrom(
     return null;
   }
   return channels.find((channel) => String(channel.id) === id) ?? null;
+}
+
+function wheelOnPlot(event: WheelEvent, plot: HTMLElement, active: boolean): boolean {
+  if (active) {
+    return event.target instanceof Node && plot.contains(event.target);
+  }
+  const rect = plot.getBoundingClientRect();
+  return (
+    event.clientX >= rect.left &&
+    event.clientX < rect.right &&
+    event.clientY >= rect.top &&
+    event.clientY < rect.bottom
+  );
 }
 
 function onPlotSurface(target: EventTarget | null, plot: HTMLElement): boolean {

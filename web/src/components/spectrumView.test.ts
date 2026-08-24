@@ -13,6 +13,7 @@ import {
   spanToView,
   viewToSpan,
   viewWidth,
+  wheelView,
   zoomView,
 } from "./spectrumView";
 
@@ -62,6 +63,31 @@ describe("panView", () => {
     const panned = panView(view, -5);
     expect(panned.start).toBe(0);
     expect(viewWidth(panned)).toBeCloseTo(viewWidth(view), 10);
+  });
+});
+
+describe("wheelView", () => {
+  const zoomed = zoomView(FULL_VIEW, 0.5, 4);
+
+  it("zooms in on a wheel up and back out on a wheel down", () => {
+    const closer = wheelView(FULL_VIEW, { deltaX: 0, deltaY: -100 }, 0.5, 400);
+    expect(viewWidth(closer)).toBeCloseTo(1 / 1.2, 10);
+    expect(isFullView(wheelView(closer, { deltaX: 0, deltaY: 100 }, 0.5, 400))).toBe(true);
+  });
+
+  it("pans a sideways swipe by its share of the plot width", () => {
+    const panned = wheelView(zoomed, { deltaX: 100, deltaY: 2 }, 0.5, 400);
+    expect(panned.start - zoomed.start).toBeCloseTo(0.25 * 0.25, 10);
+    expect(viewWidth(panned)).toBeCloseTo(viewWidth(zoomed), 10);
+  });
+
+  it("has nowhere to pan at full span", () => {
+    expect(wheelView(FULL_VIEW, { deltaX: 100, deltaY: 0 }, 0.5, 400)).toEqual(FULL_VIEW);
+  });
+
+  it("treats a diagonal tie as a zoom", () => {
+    const view = wheelView(FULL_VIEW, { deltaX: -50, deltaY: -50 }, 0.5, 400);
+    expect(viewWidth(view)).toBeCloseTo(1 / 1.2, 10);
   });
 });
 

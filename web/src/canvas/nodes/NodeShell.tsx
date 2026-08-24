@@ -28,7 +28,7 @@ import {
   unpin,
 } from "../graph";
 import { closeEngineObjects } from "../remove";
-import { wheelStaysOnFace } from "../wheel";
+import { movesCanvas, wheelStaysOnFace } from "../wheel";
 
 const Surface = createContext<"canvas" | "rack">("rack");
 
@@ -40,6 +40,23 @@ const Active = createContext(true);
 
 export function useFaceActive(): boolean {
   return useContext(Active);
+}
+
+export type WheelClaim = (event: WheelEvent) => boolean;
+
+const WheelClaimSlot = createContext<RefObject<WheelClaim | null> | null>(null);
+
+export function useFaceWheel(claim: WheelClaim): void {
+  const slot = useContext(WheelClaimSlot);
+  useEffect(() => {
+    if (slot === null) {
+      return;
+    }
+    slot.current = claim;
+    return () => {
+      slot.current = null;
+    };
+  }, [slot, claim]);
 }
 
 const CATEGORY_STRIP: Record<NodeCategory, string> = {
@@ -146,8 +163,9 @@ export function NodeShell({
   const active = surface === "rack" || selected;
   const minimum = nodeMinSize(node.kind, ports);
   const portalContainer = useRef<HTMLDivElement>(null);
+  const wheelClaim = useRef<WheelClaim | null>(null);
   const full = workspace.expanded === node.id;
-  useWheelRouting(portalContainer);
+  useWheelRouting(portalContainer, wheelClaim);
 
   return (
     <div
@@ -220,7 +238,9 @@ export function NodeShell({
         </header>
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan">
-          <Active value={active}>{children}</Active>
+          <Active value={active}>
+            <WheelClaimSlot value={wheelClaim}>{children}</WheelClaimSlot>
+          </Active>
           {!active && (
             <span
               aria-hidden
@@ -243,7 +263,10 @@ export function NodeShell({
   );
 }
 
-function useWheelRouting(face: RefObject<HTMLDivElement | null>): void {
+function useWheelRouting(
+  face: RefObject<HTMLDivElement | null>,
+  claim: RefObject<WheelClaim | null>,
+): void {
   useEffect(() => {
     const host = face.current;
     if (host === null) {
@@ -251,13 +274,21 @@ function useWheelRouting(face: RefObject<HTMLDivElement | null>): void {
     }
     // Native and bubbling, so it runs before React Flow's pane listener and can withhold the event.
     const onWheel = (event: WheelEvent) => {
+      if (movesCanvas(event)) {
+        return;
+      }
       if (wheelStaysOnFace(event, host)) {
+        event.stopPropagation();
+        return;
+      }
+      if (claim.current?.(event) === true) {
+        event.preventDefault();
         event.stopPropagation();
       }
     };
-    host.addEventListener("wheel", onWheel);
+    host.addEventListener("wheel", onWheel, { passive: false });
     return () => host.removeEventListener("wheel", onWheel);
-  }, [face]);
+  }, [face, claim]);
 }
 
 function useRemoveNode(node: PatchNode): () => void {

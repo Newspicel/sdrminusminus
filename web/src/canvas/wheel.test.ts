@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxScrolls, movesCanvas, type WheelBox } from "./wheel";
+import { boxScrolls, movesCanvas, verticalWheel, type WheelBox } from "./wheel";
 
 const wheel = (over: Partial<WheelBox> = {}): WheelBox => ({
   overflowX: "visible",
@@ -30,6 +30,20 @@ describe("movesCanvas", () => {
 
   it("claims the zoom modifier", () => {
     expect(movesCanvas(gesture({ metaKey: true }))).toBe(true);
+  });
+});
+
+describe("verticalWheel", () => {
+  it("reads a straight scroll as vertical", () => {
+    expect(verticalWheel({ deltaX: 0, deltaY: 40 })).toBe(true);
+  });
+
+  it("reads a sideways swipe as horizontal", () => {
+    expect(verticalWheel({ deltaX: -40, deltaY: 3 })).toBe(false);
+  });
+
+  it("breaks a tie towards vertical", () => {
+    expect(verticalWheel({ deltaX: 20, deltaY: 20 })).toBe(true);
   });
 });
 

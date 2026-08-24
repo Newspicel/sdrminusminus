@@ -757,7 +757,7 @@ test.describe("the workspace", () => {
     const scope = page.locator('.react-flow__node[data-id="scope"]');
     await expect(scope).toBeVisible();
     await fitPatch(page);
-    await activate(scope);
+    await activate(page.locator('.react-flow__node[data-id="device"]'));
 
     const viewport = page.locator(".react-flow__viewport");
     const transform = () => viewport.evaluate((element) => getComputedStyle(element).transform);
@@ -767,10 +767,19 @@ test.describe("the workspace", () => {
     if (spectrum === null) {
       throw new Error("a visible spectrum to wheel over");
     }
-    await page.mouse.move(spectrum.x + spectrum.width / 2, spectrum.y + spectrum.height / 2);
+    const overSpectrum = () =>
+      page.mouse.move(spectrum.x + spectrum.width / 2, spectrum.y + spectrum.height / 2);
+    await overSpectrum();
     const held = await transform();
     await page.mouse.wheel(0, -200);
     await expect(scope.getByRole("button", { name: /× · reset/ })).toBeVisible();
+    await page.mouse.wheel(300, 0);
+    expect(await transform()).toBe(held);
+    expect(await cursor(plot)).toBe("default");
+
+    await activate(scope);
+    await overSpectrum();
+    await page.mouse.wheel(0, -200);
     expect(await transform()).toBe(held);
 
     await page.keyboard.down("Control");

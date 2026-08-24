@@ -1,8 +1,11 @@
-export interface WheelGesture {
-  ctrlKey: boolean;
-  metaKey: boolean;
+export interface WheelDelta {
   deltaX: number;
   deltaY: number;
+}
+
+export interface WheelGesture extends WheelDelta {
+  ctrlKey: boolean;
+  metaKey: boolean;
 }
 
 export interface WheelBox {
@@ -18,8 +21,12 @@ export function movesCanvas(gesture: WheelGesture): boolean {
   return gesture.ctrlKey || gesture.metaKey;
 }
 
+export function verticalWheel(wheel: WheelDelta): boolean {
+  return Math.abs(wheel.deltaY) >= Math.abs(wheel.deltaX);
+}
+
 export function boxScrolls(box: WheelBox, gesture: WheelGesture): boolean {
-  const vertical = Math.abs(gesture.deltaY) >= Math.abs(gesture.deltaX);
+  const vertical = verticalWheel(gesture);
   const overflow = vertical ? box.overflowY : box.overflowX;
   if (overflow !== "auto" && overflow !== "scroll") {
     return false;

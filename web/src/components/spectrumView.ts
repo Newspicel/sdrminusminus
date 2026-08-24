@@ -1,3 +1,5 @@
+import { verticalWheel, type WheelDelta } from "../canvas/wheel";
+
 export interface SpectrumView {
   start: number;
   end: number;
@@ -6,6 +8,7 @@ export interface SpectrumView {
 export const FULL_VIEW: SpectrumView = { start: 0, end: 1 };
 
 const MIN_WIDTH = 1 / 512;
+const WHEEL_ZOOM = 1.2;
 
 export function viewWidth(view: SpectrumView): number {
   return view.end - view.start;
@@ -26,6 +29,18 @@ export function panView(view: SpectrumView, byScreenFraction: number): SpectrumV
   const width = viewWidth(view);
   const delta = byScreenFraction * width;
   return slide({ start: view.start + delta, end: view.end + delta });
+}
+
+export function wheelView(
+  view: SpectrumView,
+  wheel: WheelDelta,
+  at: number,
+  widthPx: number,
+): SpectrumView {
+  if (verticalWheel(wheel)) {
+    return zoomView(view, at, wheel.deltaY < 0 ? WHEEL_ZOOM : 1 / WHEEL_ZOOM);
+  }
+  return panView(view, wheel.deltaX / Math.max(1, widthPx));
 }
 
 export function viewToSpan(view: SpectrumView, at: number): number {
