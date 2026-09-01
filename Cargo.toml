@@ -131,7 +131,7 @@ xng-mode-hfdl = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843
 xng-mode-iridium = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-types = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-acars = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-rtrb = "0.3"
+rtrb = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"] }
