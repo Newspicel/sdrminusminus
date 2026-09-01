@@ -116,7 +116,7 @@ nusb = "0.2.7"
 soapysdr = { git = "https://github.com/Newspicel/rust-soapysdr", rev = "5f05fb65366d75e4706285df5bc3864abbd51284" }
 # The SDRplay vendor API is resolved at runtime from wherever its installer put it, so nothing
 # here links or ships it and a machine without it simply reports no SDRplay hardware.
-libloading = "0.8"
+libloading = "0.9"
 
 # DSP
 num-complex = "0.4"
