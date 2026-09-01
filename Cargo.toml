@@ -137,7 +137,7 @@ pollster = "1"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"] }
 
 # Audio (libopus via vendored build, )
-opus = "0.3"
+opus = "0.4"
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 codec2 = "0.3.1"
 
