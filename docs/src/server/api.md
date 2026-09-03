@@ -28,7 +28,7 @@ The API covers:
 |---|---|
 | Discovery and state | `/api/devices`, `/api/channeltypes`, `/api/state`, `/api/clients` |
 | Live receiver | `/api/devicesets`, device settings, channels, scanner, recording, playback |
-| Workspaces | `/api/workspaces`, activate, apply, undo and redo |
+| Workspaces | `/api/workspaces`, activate, apply, undo and redo, export and import |
 | Reuse | `/api/templates`, `/api/presets`, `/api/bookmarks` |
 | Data | `/api/decoderlog`, exports, `/api/recordings`, downloads |
 | Reference | `/api/bandplan/regions`, `/api/about`, `/api/doctor` |

@@ -3609,6 +3609,63 @@
         }
       }
     },
+    "/api/workspaces/import": {
+      "post": {
+        "operationId": "import_workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceExport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Imported as a new workspace, keeping the one it was exported from. A name already in use gains a copy number; the radios it names are opened by activating and applying it, and the ones this machine does not have are reported absent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a workspace document this build can read, or its layout is rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No free name is left for this one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{id}": {
       "get": {
         "operationId": "get_workspace",
@@ -3855,6 +3912,65 @@
           },
           "404": {
             "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/export": {
+      "get": {
+        "operationId": "export_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace as a portable document: its name, the patch and rack it draws, and the tuning each node was left on. Nothing server-local travels — no id, revision or history — so importing it makes a new workspace rather than overwriting one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceExport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The stored layout no longer parses — the row is left intact so a newer build can still read it",
             "content": {
               "application/json": {
                 "schema": {
@@ -19080,6 +19196,21 @@
           }
         }
       },
+      "WorkspaceChannel": {
+        "type": "object",
+        "required": [
+          "node",
+          "settings"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ChannelSettings"
+          }
+        }
+      },
       "WorkspaceDetail": {
         "allOf": [
           {
@@ -19100,6 +19231,51 @@
             }
           }
         ]
+      },
+      "WorkspaceDevice": {
+        "type": "object",
+        "required": [
+          "node",
+          "settings"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceChannel"
+            }
+          },
+          "node": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DeviceSettings"
+          }
+        }
+      },
+      "WorkspaceExport": {
+        "type": "object",
+        "required": [
+          "version",
+          "name",
+          "snapshot"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/WorkspaceSnapshot"
+          },
+          "state": {
+            "$ref": "#/components/schemas/WorkspaceState"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "WorkspaceHistory": {
         "type": "object",
@@ -19186,6 +19362,58 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "WorkspaceState": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceDevice"
+            }
+          },
+          "trunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceTrunk"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkspaceTrunk": {
+        "type": "object",
+        "description": "A trunk system's channel plan as the server worked it out, kept apart from the patch so a\nfrequency the search confirmed is not an edit to what the operator drew.",
+        "required": [
+          "node"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DmrChannelEntry"
+            }
+          },
+          "color_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Which site the plan belongs to. Neighbouring sites of one system repeat logical channel\nnumbers on different frequencies, so a plan learned from one site is wrong for the next.",
+            "minimum": 0
+          },
+          "node": {
+            "type": "string"
           }
         }
       },

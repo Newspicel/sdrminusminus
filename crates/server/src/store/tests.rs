@@ -1471,3 +1471,55 @@ fn a_stored_discord_output_reopens_as_a_webhook_in_the_discord_format() {
     };
     assert!(matrix.target.configured(), "a Matrix room keeps posting");
 }
+
+#[test]
+fn importing_the_same_workspace_again_keeps_its_name_within_the_limit() {
+    let store = Store::open(None).expect("open");
+    let long = "x".repeat(sdrmm_wire::workspace::MAX_NAME_LEN);
+    let export = sdrmm_wire::WorkspaceExport::new(
+        long.clone(),
+        WorkspaceSnapshot::starter(),
+        sdrmm_wire::WorkspaceState::new(),
+    );
+
+    let first = store.import_workspace(&export).expect("first import");
+    let second = store.import_workspace(&export).expect("second import");
+    let third = store.import_workspace(&export).expect("third import");
+
+    let name = |id: i64| store.workspace(id).expect("read").info.name;
+    assert_eq!(name(first), long);
+    assert_eq!(name(second), format!("{} (2)", "x".repeat(long.len() - 4)));
+    assert_eq!(name(third), format!("{} (3)", "x".repeat(long.len() - 4)));
+    for id in [second, third] {
+        assert!(name(id).chars().count() <= sdrmm_wire::workspace::MAX_NAME_LEN);
+    }
+}
+
+#[test]
+fn an_exported_workspace_carries_the_tuning_it_was_left_on() {
+    let store = Store::open(None).expect("open");
+    let id = store.list_workspaces().expect("list").workspaces[0].id;
+    let mut state = sdrmm_wire::WorkspaceState::new();
+    state.merge(vec![sdrmm_wire::WorkspaceDevice {
+        node: "device".to_string(),
+        settings: DeviceSettings {
+            center_hz: Some(145_500_000.0),
+            ..DeviceSettings::default()
+        },
+        channels: Vec::new(),
+    }]);
+    store.put_workspace_state(id, &state).expect("plant");
+
+    let export = store.export_workspace(id).expect("export");
+
+    assert_eq!(export.name, store.workspace(id).expect("read").info.name);
+    assert_eq!(export.snapshot, store.workspace(id).expect("read").snapshot);
+    assert_eq!(export.state, state);
+
+    let imported = store.import_workspace(&export).expect("import");
+    assert_eq!(
+        store.workspace_state(imported).expect("stored state"),
+        state,
+        "an import that drops the tuning is a workspace that comes up untuned"
+    );
+}

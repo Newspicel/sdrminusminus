@@ -1090,4 +1090,46 @@ test.describe("the workspace", () => {
     await page.request.post(`/api/workspaces/${restored.id}/activate`);
     await page.request.delete(`/api/workspaces/${named.active}`);
   });
+
+  test("downloads a workspace and reads the same bench back in", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const original: WorkspaceDetail = await page.request
+      .get(`/api/workspaces/${list.active}`)
+      .then((r) => r.json());
+    const open = () => page.getByRole("button", { name: original.name, exact: true }).click();
+
+    await open();
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("link", { name: `Export ${original.name}` }).click(),
+    ]);
+    expect(download.suggestedFilename()).toBe(
+      `workspace-${original.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}.json`,
+    );
+    const written = await page.request
+      .get(`/api/workspaces/${list.active}/export`)
+      .then((r) => r.json());
+    expect(written.snapshot.graph.nodes).toEqual(original.snapshot.graph.nodes);
+
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      page.getByRole("button", { name: "Import a workspace file" }).click(),
+    ]);
+    await chooser.setFiles(await download.path());
+
+    const copy = `${original.name} (2)`;
+    await expect(page.getByRole("button", { name: copy, exact: true })).toBeVisible();
+    const after = await page.request.get("/api/workspaces").then((r) => r.json());
+    const imported = after.workspaces.find((entry: { name: string }) => entry.name === copy);
+    expect(after.active).toBe(imported.id);
+    const detail: WorkspaceDetail = await page.request
+      .get(`/api/workspaces/${imported.id}`)
+      .then((r) => r.json());
+    expect(detail.snapshot.graph.nodes).toEqual(original.snapshot.graph.nodes);
+
+    await page.request.post(`/api/workspaces/${list.active}/activate`);
+    await page.request.delete(`/api/workspaces/${imported.id}`);
+    await expect(page.getByRole("button", { name: original.name, exact: true })).toBeVisible();
+  });
 });

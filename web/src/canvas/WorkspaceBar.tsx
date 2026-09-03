@@ -25,6 +25,7 @@ export function WorkspaceBar({
   activeWorkspace,
   onActivate,
   onCreate,
+  onImport,
   onRemove,
   onUndo,
   onRedo,
@@ -39,6 +40,7 @@ export function WorkspaceBar({
   activeWorkspace: number | null;
   onActivate: (id: number) => void;
   onCreate: (name: string) => void;
+  onImport: (file: File) => void;
   onRemove: (id: number) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -85,6 +87,10 @@ export function WorkspaceBar({
             }}
             onCreate={(name) => {
               onCreate(name);
+              close();
+            }}
+            onImport={(file) => {
+              onImport(file);
               close();
             }}
             onRemove={(id) => {

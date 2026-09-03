@@ -30,8 +30,8 @@ use sdrmm_wire::{
     ScanRequest, ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent, StateScope,
     StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction, TimeMachineRequest,
     TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse, UpdateWorkspaceRequest,
-    VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -375,6 +375,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_templates))
         .routes(routes!(apply_template))
         .routes(routes!(list_workspaces, create_workspace))
+        .routes(routes!(import_workspace))
+        .routes(routes!(export_workspace))
         .routes(routes!(get_workspace, update_workspace, delete_workspace))
         .routes(routes!(activate_workspace))
         .routes(routes!(apply_workspace))

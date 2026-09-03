@@ -383,6 +383,104 @@ pub(super) async fn get_workspace(
 }
 
 #[utoipa::path(
+    get, path = "/api/workspaces/{id}/export",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (
+            status = 200,
+            description = "The workspace as a portable document: its name, the patch and rack it \
+                           draws, and the tuning each node was left on. Nothing server-local \
+                           travels — no id, revision or history — so importing it makes a new \
+                           workspace rather than overwriting one",
+            body = WorkspaceExport,
+        ),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+        (
+            status = 500,
+            description = "The stored layout no longer parses — the row is left intact so a \
+                           newer build can still read it",
+            body = ApiError,
+        ),
+    ),
+)]
+pub(super) async fn export_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let store = state.store.clone();
+    let export = tokio::task::spawn_blocking(move || store.export_workspace(id)).await??;
+    let filename = export_filename(&export.name, id);
+    let body = serde_json::to_string_pretty(&export)
+        .map_err(|err| AppError::internal(format!("serializing the workspace export: {err}")))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json".to_owned()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+pub(super) fn export_filename(name: &str, id: i64) -> String {
+    let mut slug = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        format!("workspace-{id}.json")
+    } else {
+        format!("workspace-{slug}.json")
+    }
+}
+
+#[utoipa::path(
+    post, path = "/api/workspaces/import",
+    request_body = WorkspaceExport,
+    responses(
+        (
+            status = 200,
+            description = "Imported as a new workspace, keeping the one it was exported from. A \
+                           name already in use gains a copy number; the radios it names are \
+                           opened by activating and applying it, and the ones this machine does \
+                           not have are reported absent",
+            body = CreatedRowId,
+        ),
+        (
+            status = 400,
+            description = "Not a workspace document this build can read, or its layout is \
+                           rejected",
+            body = ApiError,
+        ),
+        (status = 409, description = "No free name is left for this one", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+pub(super) async fn import_workspace(
+    State(state): State<AppState>,
+    Json(export): Json<WorkspaceExport>,
+) -> Result<Json<CreatedRowId>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
+        let id = store.import_workspace(&export)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(id)
+    })
+    .await??;
+    Ok(Json(CreatedRowId { id }))
+}
+
+#[utoipa::path(
     put, path = "/api/workspaces/{id}",
     params(("id" = i64, Path, description = "Workspace id")),
     request_body = UpdateWorkspaceRequest,

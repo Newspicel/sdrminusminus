@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::patch::{DeviceRef, NodeBody, PatchError, PatchGraph, PatchNode, Position, RackLayout};
+use crate::{
+    patch::{DeviceRef, NodeBody, PatchError, PatchGraph, PatchNode, Position, RackLayout},
+    workspace_state::{WORKSPACE_STATE_VERSION, WorkspaceState},
+};
 
 pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 3;
+
+pub const WORKSPACE_EXPORT_VERSION: u32 = 1;
 
 pub const MAX_NAME_LEN: usize = 64;
 
@@ -47,6 +52,8 @@ impl Default for WorkspaceSettings {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceError {
     Version(u32),
+    ExportVersion(u32),
+    StateVersion(u32),
     Patch(PatchError),
     Name,
     Region,
@@ -59,6 +66,16 @@ impl std::fmt::Display for WorkspaceError {
                 f,
                 "unsupported workspace snapshot version {v} (this build writes \
                  {WORKSPACE_SNAPSHOT_VERSION})"
+            ),
+            Self::ExportVersion(v) => write!(
+                f,
+                "unsupported workspace export version {v} (this build reads \
+                 {WORKSPACE_EXPORT_VERSION})"
+            ),
+            Self::StateVersion(v) => write!(
+                f,
+                "unsupported workspace state version {v} (this build reads \
+                 {WORKSPACE_STATE_VERSION})"
             ),
             Self::Patch(err) => write!(f, "{err}"),
             Self::Name => write!(f, "name must be 1..={MAX_NAME_LEN} characters"),
@@ -283,6 +300,46 @@ pub struct WorkspaceDetail {
     pub snapshot: WorkspaceSnapshot,
     #[serde(default)]
     pub history: WorkspaceHistory,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WorkspaceExport {
+    pub version: u32,
+    pub name: String,
+    pub snapshot: WorkspaceSnapshot,
+    #[serde(default = "WorkspaceState::new")]
+    pub state: WorkspaceState,
+}
+
+impl WorkspaceExport {
+    #[must_use]
+    pub fn new(name: String, snapshot: WorkspaceSnapshot, state: WorkspaceState) -> Self {
+        Self {
+            version: WORKSPACE_EXPORT_VERSION,
+            name,
+            snapshot,
+            state,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), WorkspaceError> {
+        if self.version != WORKSPACE_EXPORT_VERSION {
+            return Err(WorkspaceError::ExportVersion(self.version));
+        }
+        if self.state.version != WORKSPACE_STATE_VERSION {
+            return Err(WorkspaceError::StateVersion(self.state.version));
+        }
+        if self.name.trim().is_empty() || self.name.chars().count() > MAX_NAME_LEN {
+            return Err(WorkspaceError::Name);
+        }
+        self.snapshot.validate()
+    }
+
+    pub fn forget_absent_nodes(&mut self) {
+        let graph = &self.snapshot.graph;
+        self.state
+            .retain_nodes(|node| graph.nodes.iter().any(|drawn| drawn.id == node));
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -598,6 +655,119 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["template:airband:ch"]
         );
+    }
+
+    fn saved_state() -> WorkspaceState {
+        let mut state = WorkspaceState::new();
+        state.merge(vec![crate::WorkspaceDevice {
+            node: "device".to_owned(),
+            settings: crate::DeviceSettings {
+                center_hz: Some(145_500_000.0),
+                ..crate::DeviceSettings::default()
+            },
+            channels: Vec::new(),
+        }]);
+        state
+    }
+
+    #[test]
+    fn an_export_carries_the_name_the_layout_and_the_tuning() {
+        let export = WorkspaceExport::new(
+            "Airband".to_owned(),
+            WorkspaceSnapshot::starter(),
+            saved_state(),
+        );
+        export.validate().expect("a freshly written export");
+
+        let json = serde_json::to_value(&export).unwrap();
+        assert_eq!(json["version"], WORKSPACE_EXPORT_VERSION);
+        assert_eq!(json["name"], "Airband");
+        assert_eq!(json["snapshot"]["version"], WORKSPACE_SNAPSHOT_VERSION);
+        assert_eq!(json["state"]["devices"][0]["node"], "device");
+
+        let back: WorkspaceExport = serde_json::from_value(json).unwrap();
+        assert_eq!(back, export);
+    }
+
+    #[test]
+    fn an_export_without_tuning_reads_as_an_empty_state() {
+        let json = format!(
+            r#"{{"version":{WORKSPACE_EXPORT_VERSION},"name":"Bare","snapshot":{}}}"#,
+            serde_json::to_string(&WorkspaceSnapshot::starter()).unwrap()
+        );
+        let export: WorkspaceExport = serde_json::from_str(&json).unwrap();
+        export
+            .validate()
+            .expect("a hand-trimmed export still imports");
+        assert_eq!(export.state.version, WORKSPACE_STATE_VERSION);
+        assert!(export.state.devices.is_empty());
+    }
+
+    #[test]
+    fn validate_refuses_an_export_this_build_cannot_read() {
+        let mut export = WorkspaceExport::new(
+            "Airband".to_owned(),
+            WorkspaceSnapshot::starter(),
+            WorkspaceState::new(),
+        );
+        export.version = WORKSPACE_EXPORT_VERSION + 1;
+        assert_eq!(
+            export.validate(),
+            Err(WorkspaceError::ExportVersion(WORKSPACE_EXPORT_VERSION + 1))
+        );
+
+        export.version = WORKSPACE_EXPORT_VERSION;
+        export.state.version = WORKSPACE_STATE_VERSION + 1;
+        assert_eq!(
+            export.validate(),
+            Err(WorkspaceError::StateVersion(WORKSPACE_STATE_VERSION + 1)),
+            "tuning this build cannot read is refused, not silently dropped"
+        );
+    }
+
+    #[test]
+    fn validate_refuses_an_export_without_a_usable_name_or_layout() {
+        let mut export = WorkspaceExport::new(
+            "   ".to_owned(),
+            WorkspaceSnapshot::starter(),
+            WorkspaceState::new(),
+        );
+        assert_eq!(export.validate(), Err(WorkspaceError::Name));
+
+        export.name = "x".repeat(MAX_NAME_LEN + 1);
+        assert_eq!(export.validate(), Err(WorkspaceError::Name));
+
+        export.name = "Airband".to_owned();
+        export
+            .snapshot
+            .graph
+            .edges
+            .push(wire(("device", "iq"), ("ghost", "iq")));
+        assert_eq!(
+            export.validate(),
+            Err(WorkspaceError::Patch(PatchError::UnknownNode(
+                "ghost".to_owned()
+            )))
+        );
+    }
+
+    #[test]
+    fn an_export_drops_tuning_for_a_node_its_layout_never_draws() {
+        let mut export = WorkspaceExport::new(
+            "Airband".to_owned(),
+            WorkspaceSnapshot::starter(),
+            saved_state(),
+        );
+        export.state.merge(vec![crate::WorkspaceDevice {
+            node: "gone".to_owned(),
+            settings: crate::DeviceSettings::default(),
+            channels: Vec::new(),
+        }]);
+
+        export.forget_absent_nodes();
+
+        assert_eq!(export.state.devices.len(), 1);
+        assert_eq!(export.state.devices[0].node, "device");
     }
 
     #[test]

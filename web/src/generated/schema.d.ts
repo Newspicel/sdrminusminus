@@ -1204,6 +1204,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_workspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{id}/redo": {
         parameters: {
             query?: never;
@@ -1230,6 +1246,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["undo_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import_workspace"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5359,9 +5391,25 @@ export interface components {
             deemphasis_us?: number;
             stereo?: boolean;
         };
+        WorkspaceChannel: {
+            node: string;
+            settings: components["schemas"]["ChannelSettings"];
+        };
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             history?: components["schemas"]["WorkspaceHistory"];
             snapshot: components["schemas"]["WorkspaceSnapshot"];
+        };
+        WorkspaceDevice: {
+            channels?: components["schemas"]["WorkspaceChannel"][];
+            node: string;
+            settings: components["schemas"]["DeviceSettings"];
+        };
+        WorkspaceExport: {
+            name: string;
+            snapshot: components["schemas"]["WorkspaceSnapshot"];
+            state?: components["schemas"]["WorkspaceState"];
+            /** Format: int32 */
+            version: number;
         };
         WorkspaceHistory: {
             can_redo: boolean;
@@ -5393,6 +5441,26 @@ export interface components {
             /** Format: int64 */
             active?: number | null;
             workspaces: components["schemas"]["WorkspaceInfo"][];
+        };
+        WorkspaceState: {
+            devices?: components["schemas"]["WorkspaceDevice"][];
+            trunks?: components["schemas"]["WorkspaceTrunk"][];
+            /** Format: int32 */
+            version: number;
+        };
+        /**
+         * @description A trunk system's channel plan as the server worked it out, kept apart from the patch so a
+         *     frequency the search confirmed is not an edit to what the operator drew.
+         */
+        WorkspaceTrunk: {
+            channels?: components["schemas"]["DmrChannelEntry"][];
+            /**
+             * Format: int32
+             * @description Which site the plan belongs to. Neighbouring sites of one system repeat logical channel
+             *     numbers on different frequencies, so a plan learned from one site is wrong for the next.
+             */
+            color_code?: number | null;
+            node: string;
         };
         WsjtMessage: {
             /** Format: float */
@@ -8640,6 +8708,56 @@ export interface operations {
             };
         };
     };
+    export_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace as a portable document: its name, the patch and rack it draws, and the tuning each node was left on. Nothing server-local travels — no id, revision or history — so importing it makes a new workspace rather than overwriting one */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceExport"];
+                };
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The stored layout no longer parses — the row is left intact so a newer build can still read it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     redo_workspace: {
         parameters: {
             query?: never;
@@ -8731,6 +8849,57 @@ export interface operations {
             };
             /** @description Nothing left to undo */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    import_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceExport"];
+            };
+        };
+        responses: {
+            /** @description Imported as a new workspace, keeping the one it was exported from. A name already in use gains a copy number; the radios it names are opened by activating and applying it, and the ones this machine does not have are reported absent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Not a workspace document this build can read, or its layout is rejected */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No free name is left for this one */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

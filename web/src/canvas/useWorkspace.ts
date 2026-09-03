@@ -5,6 +5,7 @@ import {
   applyWorkspace,
   createWorkspace,
   deleteWorkspace,
+  importWorkspace,
   STATE_KEY,
   stepWorkspace,
   updateWorkspace,
@@ -20,6 +21,7 @@ import type {
 } from "../lib/types";
 import { pruneRack } from "./graph";
 import { WorkspaceDrafts } from "./workspaceDrafts";
+import { parseWorkspaceExport } from "./workspaceExport";
 
 export interface WorkspaceStore {
   workspaces: WorkspaceInfo[];
@@ -28,6 +30,7 @@ export interface WorkspaceStore {
   save: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
   activate: (id: number) => void;
   create: (name: string) => void;
+  importFile: (file: File) => void;
   remove: (id: number) => void;
   apply: () => void;
   applied: PatchApplyReport | null;
@@ -72,6 +75,11 @@ export function useWorkspace(): WorkspaceStore {
   });
   const createMut = useMutation({
     mutationFn: (name: string) => createWorkspace(name),
+    onSuccess: (id) => activateMut.mutate(id),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+  });
+  const importMut = useMutation({
+    mutationFn: async (file: File) => importWorkspace(parseWorkspaceExport(await file.text())),
     onSuccess: (id) => activateMut.mutate(id),
     onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
   });
@@ -202,12 +210,14 @@ export function useWorkspace(): WorkspaceStore {
     error:
       errorOf(update.error) ??
       errorOf(createMut.error) ??
+      errorOf(importMut.error) ??
       errorOf(removeMut.error) ??
       errorOf(applyMut.error) ??
       errorOf(stepMut.error),
     save,
     activate: activateMut.mutate,
     create: createMut.mutate,
+    importFile: importMut.mutate,
     remove: removeMut.mutate,
     apply,
     applied: applyMut.data ?? null,

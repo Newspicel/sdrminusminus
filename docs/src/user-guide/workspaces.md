@@ -18,6 +18,22 @@ on a new database includes a starter Device, Scope, and Speaker. Later workspace
 Workspace changes are saved on the server, including node position, rack layout, and regional band
 plan. One workspace is active at a time across every connected client.
 
+### Export and import
+
+The ↓ button beside a workspace in the menu downloads it as a JSON file: its name, the patch and
+rack it draws, the band-plan choice, and the settings each node was left on. Nothing server-local
+travels with it — no id, revision, or undo history — so the file describes a bench rather than one
+database's row.
+
+**Import a workspace file** reads one back. The import always lands as a new workspace and never
+overwrites the one you are on; a name already in use gains a copy number. The imported workspace
+becomes the active one, and the radios it names are opened where this machine has them. A radio it
+names that is not attached here is reported absent by the apply report, and the node waits for it —
+pick a different radio on the Device node to run the same bench on other hardware.
+
+A file written by a newer build is refused rather than half-read, so the workspace you exported is
+the workspace you get back.
+
 ### Undo and redo
 
 The arrow buttons in the top bar step the workspace back through its changes, or forward again.

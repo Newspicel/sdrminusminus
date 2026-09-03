@@ -4,20 +4,25 @@ import { Checkbox } from "../components/Checkbox";
 import { BTN_QUIET, FIELD, ICON_BTN, LABEL, segment } from "../components/controls";
 import { Select } from "../components/Select";
 import { SettingRow, Settings } from "../components/Settings";
+import { workspaceExportUrl } from "../lib/api";
+import { pickFile } from "../lib/pickFile";
 import type { WorkspaceInfo } from "../lib/types";
 import { useBandPlan } from "../lib/useBandPlan";
+import { WORKSPACE_FILE_ACCEPT } from "./workspaceExport";
 
 export function WorkspaceMenu({
   workspaces,
   activeWorkspace,
   onActivate,
   onCreate,
+  onImport,
   onRemove,
 }: {
   workspaces: readonly WorkspaceInfo[];
   activeWorkspace: number | null;
   onActivate: (id: number) => void;
   onCreate: (name: string) => void;
+  onImport: (file: File) => void;
   onRemove: (id: number) => void;
 }) {
   const [name, setName] = useState("");
@@ -37,6 +42,15 @@ export function WorkspaceMenu({
                 {workspace.nodes}
               </span>
             </Button>
+            <a
+              className={ICON_BTN}
+              href={workspaceExportUrl(workspace.id)}
+              download
+              aria-label={`Export ${workspace.name}`}
+              title="Download this workspace as a file"
+            >
+              ↓
+            </a>
             <Button
               type="button"
               className={ICON_BTN}
@@ -67,6 +81,20 @@ export function WorkspaceMenu({
             Add
           </Button>
         </Form>
+        <Button
+          type="button"
+          className={`${BTN_QUIET} justify-center`}
+          title="Read a workspace file exported here or on another machine"
+          onClick={() => {
+            void pickFile(WORKSPACE_FILE_ACCEPT).then((file) => {
+              if (file !== null) {
+                onImport(file);
+              }
+            });
+          }}
+        >
+          Import a workspace file
+        </Button>
       </div>
 
       <div className="flex flex-col gap-2 border-t border-line pt-3">

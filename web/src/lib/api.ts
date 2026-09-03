@@ -73,6 +73,7 @@ import type {
   ToolsResponse,
   VoiceCallsResponse,
   WorkspaceDetail,
+  WorkspaceExport,
   WorkspaceInfo,
   WorkspaceSnapshot,
   WorkspacesResponse,
@@ -520,6 +521,14 @@ export async function updateWorkspace(
       body: update,
     }),
   );
+}
+
+export function workspaceExportUrl(id: number): string {
+  return withToken(`/api/workspaces/${id}/export`);
+}
+
+export async function importWorkspace(document: WorkspaceExport): Promise<number> {
+  return unwrap(await client.POST("/api/workspaces/import", { body: document })).id;
 }
 
 export async function deleteWorkspace(id: number): Promise<void> {

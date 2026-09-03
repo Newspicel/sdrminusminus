@@ -8,8 +8,8 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::V
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, LogScope,
     PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
-    WorkspaceError, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    WorkspaceError, WorkspaceExport, WorkspaceHistory, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -54,6 +54,8 @@ pub const DECODER_LOG_LIMIT_DEFAULT: u32 = 200;
 pub const DECODER_LOG_LIMIT_MAX: u32 = 2_000;
 
 pub const DECODER_LOG_EXPORT_MAX: u32 = 100_000;
+
+const IMPORT_COPY_LIMIT: u32 = 999;
 
 const MIGRATIONS: &[&str] = &[
     "
@@ -673,6 +675,36 @@ impl Store {
         Ok(conn.last_insert_rowid())
     }
 
+    pub fn export_workspace(&self, id: i64) -> Result<WorkspaceExport, StoreError> {
+        let conn = self.lock();
+        let detail = read_workspace(&conn, id)?;
+        let state = read_workspace_state(&conn, id)?;
+        let mut export = WorkspaceExport::new(detail.info.name, detail.snapshot, state);
+        export.forget_absent_nodes();
+        Ok(export)
+    }
+
+    pub fn import_workspace(&self, export: &WorkspaceExport) -> Result<i64, StoreError> {
+        export.validate()?;
+        let mut document = export.clone();
+        document.forget_absent_nodes();
+        let json = serde_json::to_string(&document.snapshot)?;
+        let now = now_rfc3339();
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        let name = free_workspace_name(&tx, document.name.trim())?;
+        tx.execute(
+            "INSERT INTO workspaces (name, created_at, updated_at, revision, nodes, snapshot) \
+             VALUES (?1, ?2, ?2, 1, ?3, ?4)",
+            params![name, now, document.snapshot.graph.nodes.len() as i64, json],
+        )
+        .map_err(|err| name_taken(err, &name))?;
+        let id = tx.last_insert_rowid();
+        write_workspace_state(&tx, id, &document.state)?;
+        tx.commit()?;
+        Ok(id)
+    }
+
     pub fn update_workspace(
         &self,
         id: i64,
@@ -866,17 +898,7 @@ impl Store {
 
     pub fn workspace_state(&self, workspace_id: i64) -> Result<WorkspaceState, StoreError> {
         let conn = self.lock();
-        let stored: Option<String> = conn
-            .query_row(
-                "SELECT state FROM workspace_state WHERE workspace_id = ?1",
-                params![workspace_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        match stored {
-            Some(json) => Ok(serde_json::from_str::<WorkspaceState>(&json)?.current()),
-            None => Ok(WorkspaceState::new()),
-        }
+        read_workspace_state(&conn, workspace_id)
     }
 
     pub fn put_workspace_state(
@@ -941,6 +963,33 @@ fn validate_name(name: &str) -> Result<(), StoreError> {
         return Err(StoreError::WorkspaceLayout(WorkspaceError::Name));
     }
     Ok(())
+}
+
+fn free_workspace_name(conn: &Connection, wanted: &str) -> Result<String, StoreError> {
+    validate_name(wanted)?;
+    let taken = |name: &str| -> Result<bool, StoreError> {
+        Ok(conn
+            .query_row(
+                "SELECT 1 FROM workspaces WHERE name = ?1",
+                params![name],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_some())
+    };
+    if !taken(wanted)? {
+        return Ok(wanted.to_owned());
+    }
+    for copy in 2..=IMPORT_COPY_LIMIT {
+        let suffix = format!(" ({copy})");
+        let room = sdrmm_wire::MAX_NAME_LEN.saturating_sub(suffix.chars().count());
+        let stem: String = wanted.chars().take(room).collect();
+        let candidate = format!("{}{suffix}", stem.trim_end());
+        if !taken(&candidate)? {
+            return Ok(candidate);
+        }
+    }
+    Err(StoreError::WorkspaceNameTaken(wanted.to_owned()))
 }
 
 fn active_workspace(conn: &Connection) -> Result<Option<i64>, StoreError> {
@@ -1017,6 +1066,23 @@ impl Step {
             Self::Undo => "undo",
             Self::Redo => "redo",
         }
+    }
+}
+
+fn read_workspace_state(
+    conn: &Connection,
+    workspace_id: i64,
+) -> Result<WorkspaceState, StoreError> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT state FROM workspace_state WHERE workspace_id = ?1",
+            params![workspace_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match stored {
+        Some(json) => Ok(serde_json::from_str::<WorkspaceState>(&json)?.current()),
+        None => Ok(WorkspaceState::new()),
     }
 }
 

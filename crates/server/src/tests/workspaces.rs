@@ -702,3 +702,265 @@ async fn capture_and_restore_pair_same_type_channels_by_stream() {
         );
     }
 }
+
+async fn create_named_workspace(
+    app: &Router,
+    name: &str,
+    snapshot: &sdrmm_wire::WorkspaceSnapshot,
+) -> i64 {
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        "/api/workspaces",
+        Some(&format!(
+            r#"{{"name":{},"snapshot":{}}}"#,
+            serde_json::to_string(name).unwrap(),
+            serde_json::to_string(snapshot).unwrap()
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    serde_json::from_slice::<sdrmm_wire::CreatedRowId>(&body)
+        .expect("json")
+        .id
+}
+
+async fn export_document(
+    app: &Router,
+    id: i64,
+) -> (axum::http::HeaderMap, sdrmm_wire::WorkspaceExport) {
+    let (status, headers, body) = request_parts(
+        app.clone(),
+        "GET",
+        &format!("/api/workspaces/{id}/export"),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    (headers, serde_json::from_slice(&body).expect("json"))
+}
+
+async fn import_document(app: &Router, document: &str) -> (StatusCode, Bytes) {
+    request(
+        app.clone(),
+        "POST",
+        "/api/workspaces/import",
+        Some(document),
+    )
+    .await
+}
+
+fn tuned_state(center_hz: f64) -> sdrmm_wire::WorkspaceState {
+    sdrmm_wire::WorkspaceState {
+        version: sdrmm_wire::WORKSPACE_STATE_VERSION,
+        trunks: Vec::new(),
+        devices: vec![sdrmm_wire::WorkspaceDevice {
+            node: "device".to_string(),
+            settings: DeviceSettings {
+                center_hz: Some(center_hz),
+                ..DeviceSettings::default()
+            },
+            channels: Vec::new(),
+        }],
+    }
+}
+
+#[tokio::test]
+async fn an_exported_workspace_carries_its_layout_its_tuning_and_a_download_name() {
+    let (app, state) = test_router_with_state();
+    let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq")]);
+    let workspace = create_named_workspace(&app, "Airband Watch", &snapshot).await;
+    state
+        .store
+        .put_workspace_state(workspace, &tuned_state(145_500_000.0))
+        .expect("plant the stored settings");
+
+    let (headers, export) = export_document(&app, workspace).await;
+
+    assert_eq!(export.version, sdrmm_wire::WORKSPACE_EXPORT_VERSION);
+    assert_eq!(export.name, "Airband Watch");
+    assert_eq!(export.snapshot, snapshot);
+    assert_eq!(
+        export.state.device("device").map(|d| d.settings.center_hz),
+        Some(Some(145_500_000.0)),
+        "an export without the tuning would import as an untuned workspace"
+    );
+    let disposition = headers
+        .get("content-disposition")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert_eq!(
+        disposition, "attachment; filename=\"workspace-airband-watch.json\"",
+        "unusable download name: {disposition}"
+    );
+}
+
+#[tokio::test]
+async fn a_workspace_named_in_another_script_still_downloads_under_a_usable_name() {
+    let app = test_router();
+    let workspace =
+        create_named_workspace(&app, "航空無線", &sdrmm_wire::WorkspaceSnapshot::starter()).await;
+
+    let (headers, _) = export_document(&app, workspace).await;
+
+    assert_eq!(
+        headers
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("attachment; filename=\"workspace-{workspace}.json\"").as_str())
+    );
+}
+
+#[tokio::test]
+async fn exporting_a_workspace_that_is_not_there_says_so() {
+    let app = test_router();
+    let (status, _) = request(app, "GET", "/api/workspaces/9999/export", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn an_imported_workspace_lands_next_to_the_one_it_came_from_and_opens_its_radio() {
+    let (app, state) = test_router_with_state();
+    let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq")]);
+    let workspace = create_named_workspace(&app, "Airband Watch", &snapshot).await;
+    state
+        .store
+        .put_workspace_state(workspace, &tuned_state(145_500_000.0))
+        .expect("plant the stored settings");
+    let (_, export) = export_document(&app, workspace).await;
+    let active_before = workspaces(&app).await.active;
+
+    let (status, body) = import_document(&app, &serde_json::to_string(&export).unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let imported = serde_json::from_slice::<sdrmm_wire::CreatedRowId>(&body)
+        .expect("json")
+        .id;
+
+    assert_ne!(imported, workspace, "an import never overwrites its source");
+    let listed = workspaces(&app).await;
+    assert_eq!(
+        listed.active, active_before,
+        "an import does not switch away"
+    );
+    let names: Vec<&str> = listed
+        .workspaces
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert!(names.contains(&"Airband Watch"));
+    assert!(
+        names.contains(&"Airband Watch (2)"),
+        "a taken name should gain a copy number: {names:?}"
+    );
+
+    let detail = workspace_detail(&app, imported).await;
+    assert_eq!(detail.snapshot, snapshot);
+    assert_eq!(
+        state
+            .store
+            .workspace_state(imported)
+            .expect("stored settings")
+            .device("device")
+            .map(|d| d.settings.center_hz),
+        Some(Some(145_500_000.0))
+    );
+
+    let (status, _) = request(
+        app.clone(),
+        "POST",
+        &format!("/api/workspaces/{imported}/activate"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let report = apply(&app, imported).await;
+    assert_eq!(report.opened, 1);
+    assert_eq!(report.created, 1);
+    assert_eq!(
+        get_state(&app).await.device_sets[0].settings.center_hz,
+        Some(145_500_000.0),
+        "the imported workspace came up on the frequency it was exported from"
+    );
+}
+
+#[tokio::test]
+async fn importing_refuses_a_document_this_build_cannot_read() {
+    let app = test_router();
+    let export = sdrmm_wire::WorkspaceExport::new(
+        "Airband Watch".to_string(),
+        sdrmm_wire::WorkspaceSnapshot::starter(),
+        sdrmm_wire::WorkspaceState::new(),
+    );
+
+    let mut newer = export.clone();
+    newer.version = sdrmm_wire::WORKSPACE_EXPORT_VERSION + 1;
+    let (status, _) = import_document(&app, &serde_json::to_string(&newer).unwrap()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let mut newer_tuning = export.clone();
+    newer_tuning.state.version = sdrmm_wire::WORKSPACE_STATE_VERSION + 1;
+    let (status, body) =
+        import_document(&app, &serde_json::to_string(&newer_tuning).unwrap()).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "tuning this build cannot read must be refused, not dropped in silence"
+    );
+    assert!(String::from_utf8_lossy(&body).contains("state version"));
+
+    let mut broken = export.clone();
+    broken.snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+        from: sdrmm_wire::PortRef {
+            node: "device".to_string(),
+            port: "iq".to_string(),
+        },
+        to: sdrmm_wire::PortRef {
+            node: "ghost".to_string(),
+            port: "iq".to_string(),
+        },
+    });
+    let (status, _) = import_document(&app, &serde_json::to_string(&broken).unwrap()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = import_document(&app, r#"{"name":"nope"}"#).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    assert_eq!(
+        workspaces(&app).await.workspaces.len(),
+        1,
+        "a refused import left a row behind"
+    );
+}
+
+#[tokio::test]
+async fn an_import_forgets_tuning_for_nodes_the_document_never_draws() {
+    let (app, state) = test_router_with_state();
+    let mut export = sdrmm_wire::WorkspaceExport::new(
+        "Trimmed".to_string(),
+        sdrmm_wire::WorkspaceSnapshot::starter(),
+        tuned_state(145_500_000.0),
+    );
+    export.state.merge(vec![sdrmm_wire::WorkspaceDevice {
+        node: "gone".to_string(),
+        settings: DeviceSettings::default(),
+        channels: Vec::new(),
+    }]);
+
+    let (status, body) = import_document(&app, &serde_json::to_string(&export).unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let imported = serde_json::from_slice::<sdrmm_wire::CreatedRowId>(&body)
+        .expect("json")
+        .id;
+
+    let stored = state
+        .store
+        .workspace_state(imported)
+        .expect("stored settings");
+    let nodes: Vec<&str> = stored
+        .devices
+        .iter()
+        .map(|device| device.node.as_str())
+        .collect();
+    assert_eq!(nodes, vec!["device"]);
+}
