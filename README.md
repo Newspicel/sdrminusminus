@@ -8,7 +8,7 @@ A modular software-defined radio receiver for the desktop, the browser, and smal
 
 sdr-- keeps radio hardware and real-time DSP in a Rust server while a React interface handles
 tuning, visualization, and control. Run both together as a desktop app, serve the same interface
-from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServer receivers.
+from a Raspberry Pi or home server.
 
 <p align="center">
   <img src="assets/screenshots/patch.png" alt="One radio feeding three channels, a speaker, an audio recorder and a network baseband export">
@@ -110,20 +110,10 @@ code, that is what this is for.
 Everything above is implemented and covered by tests, but "tested" does not mean the same thing
 for every mode. Each entry in the
 [channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
-carries one of three labels:
-
-| Label | What it means |
-|---|---|
-| **tested on air** | Decoded from a real transmitter, with a capture of that signal committed as a regression test. |
-| **fixture-only** | Decodes a golden IQ fixture rendered by sdr--'s own modulator, plus the worked examples the standard publishes. The frame layers are proven; the receiver has not been held against a real transmitter. |
-| **experimental** | Acquisition, lock, or measurement only — no payload decoded — or a lab implementation rather than an operational one. |
-
-Most decoders are fixture-only today. A fixture proves that the decoder undoes what our own
-modulator did, which catches real bugs but says nothing about transmitter drift, keying
-transients, adjacent-channel splatter, or multipath. Treat a fixture-only mode as a decoder that
-should work rather than one that is known to. Off-air captures that promote a mode to *tested on
-air* are among the most useful contributions the project can receive — see the
-[contribution guide](CONTRIBUTING.md).
+carries a maturity label — *tested on air*, *fixture-only* or *experimental*, and most decoders are
+fixture-only today. The
+[maturity labels](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#what-the-maturity-labels-mean)
+say what each one promises.
 
 ## Get started
 
