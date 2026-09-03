@@ -12,6 +12,7 @@ import type {
 } from "../lib/types";
 import {
   addEdge,
+  clampCells,
   connectionRefusal,
   edgeKey,
   edgeWarning,
@@ -36,6 +37,7 @@ import {
   removeNode,
   resizeSlot,
   sameGraph,
+  slotRoom,
   streamLabel,
   streamPort,
   unpin,
@@ -569,6 +571,23 @@ describe("the rack", () => {
       { node: "b", x: 6, y: 0, w: 6, h: 4 },
       { node: "c", x: 6, y: 4, w: 6, h: 4 },
     ]);
+  });
+
+  it("says how far an edge can travel before the grid or a neighbour stops it", () => {
+    const rack = pin(pin({ slots: [] }, "a"), "b");
+
+    expect(slotRoom(rack, "a", "e")).toEqual({ min: -5, max: 5 });
+    expect(slotRoom(rack, "a", "s")).toEqual({ min: -3, max: 4 });
+    expect(slotRoom(rack, "a", "n")).toEqual({ min: 0, max: 3 });
+    expect(slotRoom(rack, "a", "w")).toEqual({ min: 0, max: 5 });
+    expect(slotRoom(rack, "gone", "e")).toEqual({ min: 0, max: 0 });
+
+    const stacked = placeSlot(pin(rack, "c"), "c", { x: 0, y: 4, w: 6, h: 4 });
+    expect(slotRoom(stacked, "a", "s")).toEqual({ min: -3, max: 3 });
+
+    expect(clampCells(slotRoom(rack, "a", "e"), 9)).toBe(5);
+    expect(clampCells(slotRoom(rack, "a", "e"), -9)).toBe(-5);
+    expect(clampCells(slotRoom(rack, "a", "e"), 2)).toBe(2);
   });
 
   it("drops slots whose node is gone and re-places ones the grid no longer holds", () => {

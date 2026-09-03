@@ -10,15 +10,26 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
-  const start = await from.boundingBox();
-  const end = await to.boundingBox();
-  if (start === null || end === null) {
-    throw new Error("a port to wire from and one to wire to");
+  const wires = page.locator(".react-flow__edge");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const before = await wires.count();
+    const start = await from.boundingBox();
+    const end = await to.boundingBox();
+    if (start === null || end === null) {
+      throw new Error("a port to wire from and one to wire to");
+    }
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
+    await page.mouse.up();
+    try {
+      await expect(wires).toHaveCount(before + 1, { timeout: 2_000 });
+      return;
+    } catch {
+      // A drag that started before the canvas settled lands on nothing; take it again.
+    }
   }
-  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
-  await page.mouse.up();
+  throw new Error("the wire never landed");
 }
 
 async function rowOffset(node: Locator, port: string): Promise<number> {
@@ -54,7 +65,9 @@ function rackNode(page: Page, id: string): Locator {
   return page.locator(`.grid > [data-id="${id}"]`);
 }
 
-async function slots(page: Page): Promise<{ node: string; x: number; w: number }[]> {
+async function slots(
+  page: Page,
+): Promise<{ node: string; x: number; y: number; w: number; h: number }[]> {
   const list = await page.request.get("/api/workspaces").then((r) => r.json());
   const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
   return detail.snapshot.rack.slots;
@@ -73,17 +86,48 @@ async function fitPatch(page: Page): Promise<void> {
     .click();
 }
 
-async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
+async function dragBy(page: Page, grip: Locator, cells: number, down = 0): Promise<void> {
   const box = await grip.boundingBox();
   const grid = await page.locator(".grid").first().boundingBox();
   if (box === null || grid === null) {
     throw new Error("a grip to drag and a grid to drag it in");
   }
   const step = (grid.width / 12) * cells;
+  const drop = (grid.height / 8) * down;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + step, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.move(box.x + box.width / 2 + step, box.y + box.height / 2 + drop, { steps: 8 });
+  await watchRackStyles(page);
   await page.mouse.up();
+}
+
+/// Records every grid placement the rack renders from here on, so a drop that flashes the old
+/// layout for a frame before the workspace catches up is visible to the test.
+async function watchRackStyles(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const host = document.querySelector(".grid");
+    if (host === null) {
+      throw new Error("a rack to watch");
+    }
+    const read = (): string =>
+      [...host.children]
+        .map((child) => `${child.getAttribute("data-id")}:${(child as HTMLElement).style.gridArea}`)
+        .join(" ");
+    const held = read();
+    const seen: string[] = [held];
+    const observer = new MutationObserver(() => {
+      const now = read();
+      if (seen.at(-1) !== now) {
+        seen.push(now);
+      }
+    });
+    observer.observe(host, { attributes: true, subtree: true, attributeFilter: ["style"] });
+    Object.assign(window, { rackPlacements: seen });
+  });
+}
+
+async function rackStyles(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { rackPlacements: string[] }).rackPlacements);
 }
 
 test.describe("the workspace", () => {
@@ -353,6 +397,22 @@ test.describe("the workspace", () => {
     await expect
       .poll(async () => (await slots(page)).map((slot) => slot.w))
       .toEqual([(before[0]?.w ?? 0) + 1, (before[1]?.w ?? 0) - 1]);
+    expect(
+      (await rackStyles(page)).length,
+      "the rack held the dropped layout instead of flashing the old one",
+    ).toBe(1);
+
+    const tall = await slots(page);
+    await dragBy(
+      page,
+      page.locator('[title="Move — drop on another face to trade places"]').first(),
+      0,
+      8,
+    );
+    await expect
+      .poll(async () => (await slots(page)).find((slot) => slot.node === "scope")?.y ?? -1)
+      .toBe(Math.max(0, 8 - (tall.find((slot) => slot.node === "scope")?.h ?? 0)));
+    expect((await rackStyles(page)).length).toBe(1);
 
     await page.reload();
     await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();

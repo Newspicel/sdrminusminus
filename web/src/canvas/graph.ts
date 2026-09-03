@@ -530,6 +530,36 @@ export function resizeSlot(
   return legal ? { slots: next } : rack;
 }
 
+export function slotRoom(
+  rack: RackLayout,
+  node: string,
+  edge: RackEdge,
+): { min: number; max: number } {
+  const slots = rack.slots ?? [];
+  const slot = slots.find((candidate) => candidate.node === node);
+  if (slot === undefined) {
+    return { min: 0, max: 0 };
+  }
+  const rooms = [
+    edgeRoom(slot, edge),
+    ...slots
+      .filter((other) => other.node !== node && abuts(slot, other, edge))
+      .map((other) => edgeRoom(other, OPPOSITE[edge])),
+  ];
+  return {
+    min: noNegativeZero(Math.max(...rooms.map((room) => room.min))),
+    max: noNegativeZero(Math.min(...rooms.map((room) => room.max))),
+  };
+}
+
+function noNegativeZero(value: number): number {
+  return value === 0 ? 0 : value;
+}
+
+export function clampCells(room: { min: number; max: number }, cells: number): number {
+  return Math.min(Math.max(cells, room.min), Math.max(room.max, room.min));
+}
+
 export function pruneRack(rack: RackLayout, graph: PatchGraph): RackLayout {
   const known = new Set(graph.nodes.map((node) => node.id));
   const kept = (rack.slots ?? []).filter((slot) => known.has(slot.node));
@@ -557,6 +587,19 @@ function inside(cell: RackCell): boolean {
 }
 
 const OPPOSITE: Record<RackEdge, RackEdge> = { n: "s", e: "w", s: "n", w: "e" };
+
+function edgeRoom(cell: RackCell, edge: RackEdge): { min: number; max: number } {
+  switch (edge) {
+    case "n":
+      return { min: -cell.y, max: cell.h - 1 };
+    case "s":
+      return { min: 1 - cell.h, max: RACK_ROWS - cell.y - cell.h };
+    case "w":
+      return { min: -cell.x, max: cell.w - 1 };
+    case "e":
+      return { min: 1 - cell.w, max: RACK_COLS - cell.x - cell.w };
+  }
+}
 
 function moveEdge(cell: RackCell, edge: RackEdge, cells: number): RackCell {
   switch (edge) {

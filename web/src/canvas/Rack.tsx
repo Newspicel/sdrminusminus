@@ -1,9 +1,20 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import type { PatchNode, RackLayout } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { moveSlot, placeSlot, RACK_COLS, RACK_ROWS, type RackEdge, resizeSlot } from "./graph";
+import {
+  clampCells,
+  moveSlot,
+  placeSlot,
+  RACK_COLS,
+  RACK_ROWS,
+  type RackEdge,
+  resizeSlot,
+  slotRoom,
+} from "./graph";
 import { FACES, faceSize } from "./nodes";
+
+const SETTLE_MS = 500;
 
 interface Gesture {
   node: string;
@@ -18,6 +29,23 @@ export function Rack() {
   const hostRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const [preview, setPreview] = useState<RackLayout | null>(null);
+  const dropped = useRef(false);
+
+  useEffect(() => {
+    if (!dropped.current || preview === null) {
+      return;
+    }
+    if (sameRack(workspace.rack, preview)) {
+      dropped.current = false;
+      setPreview(null);
+      return;
+    }
+    const settle = setTimeout(() => {
+      dropped.current = false;
+      setPreview(null);
+    }, SETTLE_MS);
+    return () => clearTimeout(settle);
+  }, [workspace.rack, preview]);
 
   const cellSize = useCallback(() => {
     const host = hostRef.current;
@@ -45,16 +73,19 @@ export function Rack() {
     (event: React.PointerEvent) => {
       const active = gesture.current;
       gesture.current = null;
-      setPreview(null);
       if (active === null) {
+        setPreview(null);
         return;
       }
       const cell = cellSize();
       const dx = Math.round((event.clientX - active.originX) / cell.w);
       const dy = Math.round((event.clientY - active.originY) / cell.h);
       if (dx === 0 && dy === 0) {
+        setPreview(null);
         return;
       }
+      dropped.current = true;
+      setPreview(applyGesture(active, dx, dy));
       workspace.edit((snapshot) => ({
         ...snapshot,
         rack: applyGesture({ ...active, base: snapshot.rack ?? {} }, dx, dy),
@@ -174,23 +205,32 @@ function applyGesture(gesture: Gesture, dx: number, dy: number): RackLayout {
   }
   switch (gesture.mode) {
     case "move":
-      return moveSlot(gesture.base, gesture.node, { x: slot.x + dx, y: slot.y + dy });
+      return moveSlot(gesture.base, gesture.node, {
+        x: clamp(slot.x + dx, 0, RACK_COLS - slot.w),
+        y: clamp(slot.y + dy, 0, RACK_ROWS - slot.h),
+      });
     case "corner":
       return placeSlot(gesture.base, gesture.node, {
         x: slot.x,
         y: slot.y,
-        w: slot.w + dx,
-        h: slot.h + dy,
+        w: clamp(slot.w + dx, 1, RACK_COLS - slot.x),
+        h: clamp(slot.h + dy, 1, RACK_ROWS - slot.y),
       });
-    case "n":
-      return resizeSlot(gesture.base, gesture.node, "n", dy);
-    case "s":
-      return resizeSlot(gesture.base, gesture.node, "s", dy);
-    case "w":
-      return resizeSlot(gesture.base, gesture.node, "w", dx);
-    case "e":
-      return resizeSlot(gesture.base, gesture.node, "e", dx);
+    default: {
+      const edge = gesture.mode;
+      const cells = edge === "n" || edge === "s" ? dy : dx;
+      return resizeSlot(
+        gesture.base,
+        gesture.node,
+        edge,
+        clampCells(slotRoom(gesture.base, gesture.node, edge), cells),
+      );
+    }
   }
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(Math.max(value, low), Math.max(high, low));
 }
 
 function sameRack(a: RackLayout, b: RackLayout): boolean {
