@@ -381,9 +381,15 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   };
 
   const editRef = useRef(applyEdit);
+  const bandTuneRef = useRef(tuneToBand);
   useLayoutEffect(() => {
     editRef.current = applyEdit;
+    bandTuneRef.current = tuneToBand;
   });
+  const onBandTune = useCallback(
+    (hz: number, suggested: ChannelParams | null) => bandTuneRef.current(hz, suggested),
+    [],
+  );
 
   useEffect(() => {
     for (const [channel, face] of faces) {
@@ -794,7 +800,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       }}
     >
       {meta !== null && (
-        <BandRuler centerHz={meta.centerHz} spanHz={meta.spanHz} view={view} onTune={tuneToBand} />
+        <BandRuler centerHz={meta.centerHz} spanHz={meta.spanHz} view={view} onTune={onBandTune} />
       )}
       <canvas
         ref={traceRef}

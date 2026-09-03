@@ -84,6 +84,30 @@ export function identify(plan: BandPlan, hz: number): BandIdentity[] {
   return found;
 }
 
+export interface CoveredGroup {
+  label: string;
+  names: string[];
+}
+
+export function coveredByLayer(
+  covered: readonly BandAllocation[],
+  labelOf: (layer: string) => string,
+): CoveredGroup[] {
+  const groups: CoveredGroup[] = [];
+  for (const allocation of covered) {
+    const label = labelOf(allocation.layer);
+    let group = groups.find((entry) => entry.label === label);
+    if (group === undefined) {
+      group = { label, names: [] };
+      groups.push(group);
+    }
+    if (!group.names.includes(allocation.name)) {
+      group.names.push(allocation.name);
+    }
+  }
+  return groups;
+}
+
 export function provisionText(plan: BandPlan, layer: string, id: string): string | null {
   return plan.provisions?.find((found) => found.layer === layer && found.id === id)?.text ?? null;
 }

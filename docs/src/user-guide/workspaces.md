@@ -91,6 +91,7 @@ A bookmark records a useful frequency and label. Applying one tunes the selected
 rebuilding the rest of the workspace.
 
 The **Bands** section searches the active regional allocation data. Set the region from the
-workspace menu and choose whether Scope nodes draw the allocation ruler. Automatic location
-detection requires HTTPS or localhost because browsers block geolocation on an insecure LAN
-origin; choosing the region manually always works.
+workspace menu and choose whether Scope nodes draw the allocation ruler. Hovering the ruler names
+what is allocated under the pointer; clicking it tunes there, with the band's usual mode when the
+plan knows one. Automatic location detection requires HTTPS or localhost because browsers block
+geolocation on an insecure LAN origin; choosing the region manually always works.

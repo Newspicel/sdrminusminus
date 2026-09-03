@@ -46,6 +46,10 @@ export const CHIP =
   "inline-flex h-7 items-center gap-1.5 rounded-[3px] border border-line bg-panel-2 px-2 " +
   "font-mono text-xs text-ink";
 
+export const CHIP_SM =
+  "inline-flex h-5 items-center rounded-[3px] border border-line bg-panel-2 px-1.5 " +
+  "font-mono text-[10px] text-ink";
+
 export const SURFACE = "rounded-md border border-line-strong bg-panel-3 shadow-pop";
 
 export const ALERT =

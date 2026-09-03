@@ -1,8 +1,9 @@
-import { X } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { Tooltip } from "@base-ui/react/tooltip";
+import { memo, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
-import type { BandIdentity } from "../../components/bandPlan";
+import type { BandIdentity, BandSpan } from "../../components/bandPlan";
 import {
+  coveredByLayer,
   identify,
   provisionText,
   serviceEdge,
@@ -11,17 +12,19 @@ import {
   spansIn,
   suggestedAt,
 } from "../../components/bandPlan";
-import { CHIP, LABEL, SURFACE } from "../../components/controls";
+import { CHIP_SM, LABEL, SURFACE } from "../../components/controls";
 import { formatHz } from "../../components/format";
-import { Icon } from "../../components/Icon";
+import { usePortalContainer } from "../../components/PortalContainer";
 import { type SpectrumView, spanToOffset, viewWidth } from "../../components/spectrumView";
-import type { ChannelParams } from "../../lib/types";
+import type { BandAllocation, BandLane, BandPlan, ChannelParams } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
 
 const ROW_H = 16;
 const LABEL_MIN = 0.07;
+const TIP_DELAY_MS = 120;
+const META = "block font-mono text-[10px] leading-snug tracking-[0.09em] uppercase text-ink-faint";
 
-export function BandRuler({
+export const BandRuler = memo(function BandRuler({
   centerHz,
   spanHz,
   view,
@@ -33,133 +36,124 @@ export function BandRuler({
   onTune: (hz: number, suggested: ChannelParams | null) => void;
 }) {
   const { plan, ruler } = useBandPlan();
-  const [pick, setPick] = useState<{ hz: number; at: number; frame: string } | null>(null);
+  const portalContainer = usePortalContainer();
   const rulerRef = useRef<HTMLDivElement>(null);
+  const [hoverAt, setHoverAt] = useState<number | null>(null);
 
-  const frame = `${centerHz}:${spanHz}:${view.start}:${view.end}`;
-  const picked = pick?.frame === frame ? pick : null;
+  const visibleHz = spanHz * viewWidth(view);
+  const lowHz = centerHz + spanToOffset(view.start, spanHz);
+  const lanes = useMemo(
+    () =>
+      plan === null
+        ? []
+        : plan.lanes.map((lane) => ({ lane, spans: spansIn(plan, lane, lowHz, visibleHz) })),
+    [plan, lowHz, visibleHz],
+  );
 
   if (!ruler || plan === null || !(spanHz > 0)) {
     return null;
   }
 
-  const visibleHz = spanHz * viewWidth(view);
-  const lowHz = centerHz + spanToOffset(view.start, spanHz);
   const hzAt = (fraction: number): number => lowHz + fraction * visibleHz;
-
-  const onPick = (event: React.MouseEvent<HTMLElement>): void => {
+  const fractionAt = (clientX: number): number | null => {
     const rect = rulerRef.current?.getBoundingClientRect();
     if (rect === undefined || rect.width === 0) {
+      return null;
+    }
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  };
+
+  const tuneAt = (event: React.MouseEvent<HTMLElement>): void => {
+    event.stopPropagation();
+    const at = event.detail === 0 ? null : fractionAt(event.clientX);
+    if (at === null) {
       return;
     }
-    const at = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    setPick({ hz: hzAt(at), at, frame });
+    const hz = Math.round(hzAt(at));
+    onTune(hz, suggestedAt(identify(plan, hz)));
   };
 
   return (
-    <div ref={rulerRef} data-plot-chrome className="relative shrink-0 bg-bg">
-      {plan.lanes.map((lane) => {
-        const spans = spansIn(plan, lane, lowHz, visibleHz);
-        return (
-          <Button
-            key={lane.id}
-            type="button"
-            className="relative block w-full cursor-help border-b border-line/60 last:border-b-0"
-            style={{ height: `${ROW_H}px` }}
-            onClick={(event) => {
-              event.stopPropagation();
-              onPick(event);
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-            aria-label={`${lane.name} — click to identify a frequency`}
-          >
-            {spans.map((span) => (
-              <span
-                key={`${span.allocation.id}:${span.block.start_hz}`}
-                aria-hidden
-                className={`absolute inset-y-0 overflow-hidden ${serviceFill(span.allocation.service)}`}
-                style={{ left: `${span.left * 100}%`, width: `${span.width * 100}%` }}
-              >
-                {span.startsInside && (
-                  <span
-                    className={`absolute inset-y-0 left-0 w-px ${serviceEdge(span.allocation.service)}`}
-                  />
-                )}
-                {span.width >= LABEL_MIN && (
-                  <span className="absolute inset-y-0 left-1 flex items-center whitespace-nowrap font-mono text-[10px] text-ink">
-                    {span.allocation.name}
-                  </span>
-                )}
-              </span>
-            ))}
-          </Button>
-        );
-      })}
+    <Tooltip.Root trackCursorAxis="x" disableHoverablePopup>
+      <Tooltip.Trigger
+        render={<div ref={rulerRef} />}
+        delay={TIP_DELAY_MS}
+        data-plot-chrome
+        className="relative shrink-0 bg-bg"
+        onPointerEnter={(event) => setHoverAt(fractionAt(event.clientX))}
+        onPointerMove={(event) => setHoverAt(fractionAt(event.clientX))}
+      >
+        {lanes.map(({ lane, spans }) => (
+          <Lane key={lane.id} lane={lane} spans={spans} onTune={tuneAt} />
+        ))}
+      </Tooltip.Trigger>
+      <Tooltip.Portal container={portalContainer} className="contents">
+        <Tooltip.Positioner
+          className="z-30 nodrag nopan"
+          side="bottom"
+          sideOffset={6}
+          collisionPadding={8}
+        >
+          <Tooltip.Popup className={`${SURFACE} w-72 max-w-[calc(100vw-1rem)] p-2 text-left`}>
+            {hoverAt !== null && <IdentifyTip plan={plan} hz={hzAt(hoverAt)} />}
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+});
 
-      {picked !== null && (
-        <IdentifyCard
-          hz={picked.hz}
-          at={picked.at}
-          found={identify(plan, picked.hz)}
-          layerName={(id) => plan.layers.find((layer) => layer.id === id)?.authority ?? id}
-          provision={(layer, id) => provisionText(plan, layer, id)}
-          onTune={onTune}
-          onClose={() => setPick(null)}
-        />
-      )}
-    </div>
+function Lane({
+  lane,
+  spans,
+  onTune,
+}: {
+  lane: BandLane;
+  spans: readonly BandSpan[];
+  onTune: (event: React.MouseEvent<HTMLElement>) => void;
+}) {
+  return (
+    <Button
+      type="button"
+      className="relative block w-full cursor-pointer border-b border-line/60 last:border-b-0"
+      style={{ height: `${ROW_H}px` }}
+      onClick={onTune}
+      onPointerDown={(event) => event.stopPropagation()}
+      aria-label={`${lane.name} — hover to identify, click to tune`}
+    >
+      {spans.map((span) => (
+        <span
+          key={`${span.allocation.id}:${span.block.start_hz}`}
+          aria-hidden
+          className={`absolute inset-y-0 overflow-hidden ${serviceFill(span.allocation.service)}`}
+          style={{ left: `${span.left * 100}%`, width: `${span.width * 100}%` }}
+        >
+          {span.startsInside && (
+            <span
+              className={`absolute inset-y-0 left-0 w-px ${serviceEdge(span.allocation.service)}`}
+            />
+          )}
+          {span.width >= LABEL_MIN && (
+            <span className="absolute inset-y-0 left-1 flex items-center whitespace-nowrap font-mono text-[10px] text-ink">
+              {span.allocation.name}
+            </span>
+          )}
+        </span>
+      ))}
+    </Button>
   );
 }
 
-function IdentifyCard({
-  hz,
-  at,
-  found,
-  layerName,
-  provision,
-  onTune,
-  onClose,
-}: {
-  hz: number;
-  at: number;
-  found: readonly BandIdentity[];
-  layerName: (id: string) => string;
-  provision: (layer: string, id: string) => string | null;
-  onTune: (hz: number, suggested: ChannelParams | null) => void;
-  onClose: () => void;
-}) {
+function IdentifyTip({ plan, hz }: { plan: BandPlan; hz: number }) {
+  const found = identify(plan, hz);
   const suggested = suggestedAt(found);
-  const cardRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const returnTo = document.activeElement;
-    cardRef.current?.focus();
-    return () => {
-      if (returnTo instanceof HTMLElement) {
-        returnTo.focus();
-      }
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- another frequency is another card, and focus follows it
-  }, [hz]);
+  const layerName = (id: string): string =>
+    plan.layers.find((layer) => layer.id === id)?.authority ?? id;
   return (
-    <div
-      ref={cardRef}
-      tabIndex={-1}
-      className={`absolute top-full z-20 mt-1 flex w-64 -translate-x-1/2 flex-col gap-1.5 p-2 outline-none ${SURFACE}`}
-      style={{ left: `clamp(8rem, ${at * 100}%, calc(100% - 8rem))` }}
-      onKeyDown={(event) => event.key === "Escape" && onClose()}
-      role="dialog"
-      aria-label={`Allocation at ${formatHz(hz)}`}
-    >
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-sm text-ink tabular-nums">{formatHz(hz)}</span>
-        <Button
-          type="button"
-          className="text-ink-faint hover:text-ink"
-          aria-label="Close"
-          onClick={onClose}
-        >
-          <Icon glyph={X} />
-        </Button>
+        <span className={LABEL}>click to tune{suggested !== null && ` · ${suggested.type}`}</span>
       </div>
 
       {found.length === 0 && (
@@ -173,26 +167,31 @@ function IdentifyCard({
           key={entry.laneId}
           entry={entry}
           layerName={layerName}
-          provision={provision}
+          provision={(layer, id) => provisionText(plan, layer, id)}
           covered={entry.laneId === found[0]?.laneId}
         />
       ))}
-
-      {found.length > 0 && (
-        <Button
-          type="button"
-          className="mt-0.5 h-7 rounded-[3px] border border-accent bg-accent/12 px-2 font-mono text-xs text-accent hover:bg-accent/20"
-          onClick={() => {
-            onTune(hz, suggested);
-            onClose();
-          }}
-        >
-          Tune {formatHz(hz)}
-          {suggested !== null && ` · ${suggested.type.toUpperCase()}`}
-        </Button>
-      )}
     </div>
   );
+}
+
+function metaLine(allocation: BandAllocation, layerName: (id: string) => string): string {
+  const parts = [
+    serviceLabel(allocation.service),
+    layerName(allocation.layer),
+    `${formatHz(allocation.start_hz)}–${formatHz(allocation.stop_hz)}`,
+  ];
+  if (
+    allocation.reference != null &&
+    allocation.reference !== allocation.name &&
+    allocation.reference !== allocation.official_name
+  ) {
+    parts.push(allocation.reference);
+  }
+  if (allocation.channel_step_hz != null) {
+    parts.push(`${formatHz(allocation.channel_step_hz)} steps`);
+  }
+  return parts.join(" · ");
 }
 
 function BandDetail({
@@ -209,40 +208,36 @@ function BandDetail({
   const { allocation } = entry;
   return (
     <div className="flex flex-col gap-0.5 border-t border-line pt-1.5 first:border-t-0 first:pt-0">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-start gap-1.5">
         <span
           aria-hidden
-          className={`size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`}
+          className={`mt-1.5 size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`}
         />
-        <span className="min-w-0 truncate text-sm text-ink">{allocation.name}</span>
+        <span className="min-w-0 flex-1 text-sm leading-snug text-ink">{allocation.name}</span>
         {!allocation.primary && (
-          <span className={CHIP} title="Must accept interference from every primary service">
+          <span
+            className={`${LABEL} shrink-0 pt-0.5`}
+            title="Must accept interference from every primary service"
+          >
             secondary
           </span>
         )}
       </div>
       {allocation.official_name !== allocation.name && (
-        <span className="truncate font-mono text-[11px] text-ink-dim">
+        <span className="font-mono text-[11px] leading-snug text-ink-dim">
           {allocation.official_name}
         </span>
       )}
-      <span className={LABEL}>
-        {serviceLabel(allocation.service)} · {layerName(allocation.layer)} ·{" "}
-        {formatHz(allocation.start_hz)}–{formatHz(allocation.stop_hz)}
-        {allocation.reference != null && ` · ${allocation.reference}`}
-      </span>
-      {allocation.channel_step_hz != null && (
-        <span className={CHIP}>{formatHz(allocation.channel_step_hz)} channels</span>
-      )}
+      <span className={META}>{metaLine(allocation, layerName)}</span>
       {allocation.notes != null && (
-        <p className="text-xs leading-snug text-ink-dim">{allocation.notes}</p>
+        <p className="line-clamp-2 text-xs leading-snug text-ink-dim">{allocation.notes}</p>
       )}
       {allocation.provisions != null && allocation.provisions.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {allocation.provisions.map((id) => (
             <span
               key={id}
-              className={CHIP}
+              className={CHIP_SM}
               title={
                 provision(allocation.layer, id) ?? "Not in the cited Frequenzverordnung extract"
               }
@@ -253,10 +248,11 @@ function BandDetail({
         </div>
       )}
       {covered &&
-        entry.covered.map((under) => (
-          <span key={under.id} className="text-[11px] text-ink-faint">
-            {under.layer === allocation.layer ? "also" : `over ${layerName(under.layer)}:`}{" "}
-            {under.name}
+        coveredByLayer(entry.covered, (layer) =>
+          layer === allocation.layer ? "also" : `over ${layerName(layer)}`,
+        ).map((group) => (
+          <span key={group.label} className="text-[11px] leading-snug text-ink-faint">
+            {group.label}: {group.names.join(" · ")}
           </span>
         ))}
     </div>

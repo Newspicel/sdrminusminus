@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BandAllocation, BandBlock, BandLane, BandPlan } from "../lib/types";
 import {
+  coveredByLayer,
   identify,
   parseFrequency,
   provisionText,
@@ -100,6 +101,31 @@ const PLAN: BandPlan = {
     { layer: "de", id: "5", text: "ISM-Anwendungen können Frequenzbereiche mitbenutzen." },
   ],
 };
+
+const authority = (layer: string): string => (layer === "cept" ? "CEPT / ECO" : "ITU");
+
+describe("coveredByLayer", () => {
+  it("groups what a block covers by authority and names each thing once", () => {
+    const groups = coveredByLayer(
+      [
+        allocation({ id: "a", layer: "cept", name: "1800 MHz mobile broadband" }),
+        allocation({ id: "b", layer: "cept", name: "1800 MHz mobile broadband" }),
+        allocation({ id: "c", layer: "world", name: "FIXED" }),
+        allocation({ id: "d", layer: "cept", name: "FIXED" }),
+        allocation({ id: "e", layer: "itu-r1", name: "1800 MHz mobile broadband" }),
+      ],
+      authority,
+    );
+    expect(groups).toEqual([
+      { label: "CEPT / ECO", names: ["1800 MHz mobile broadband", "FIXED"] },
+      { label: "ITU", names: ["FIXED", "1800 MHz mobile broadband"] },
+    ]);
+  });
+
+  it("has no groups for a block that covers nothing", () => {
+    expect(coveredByLayer([], authority)).toEqual([]);
+  });
+});
 
 describe("provisionText", () => {
   it("reads the text a layer's allocation cites", () => {
