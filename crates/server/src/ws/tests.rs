@@ -89,7 +89,7 @@ fn activate_device_gps(state: &AppState) {
     snapshot.graph.nodes.push(PatchNode {
         id: "position".to_owned(),
         body: sdrmm_wire::NodeBody::Gps(GpsNode {
-            source: PositionSource::Device,
+            source: Some(PositionSource::Device),
         }),
         position: Position { x: 0.0, y: 0.0 },
         size: None,

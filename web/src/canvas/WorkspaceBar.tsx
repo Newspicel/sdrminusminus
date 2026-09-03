@@ -2,7 +2,7 @@ import { Button } from "../components/BaseControls";
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
-import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
+import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import { addNode, newNodeId } from "./graph";
 import { Library } from "./Library";
@@ -52,13 +52,13 @@ export function WorkspaceBar({
   const active = workspaces.find((entry) => entry.id === activeWorkspace) ?? null;
   const pinned = workspace.rack.slots?.length ?? 0;
 
-  const add = (kind: NodeKind, channelType?: string, source?: PositionSource) => {
+  const add = (kind: NodeKind, channelType?: string) => {
     const id = newNodeId(kind);
     workspace.edit((snapshot) => {
       const node = {
         id,
         position: placeNode(snapshot.graph, kind),
-        ...newNodeBody(kind, { channelType, source }),
+        ...newNodeBody(kind, { channelType }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });
@@ -123,8 +123,8 @@ export function WorkspaceBar({
       <Popover label="+ Node" triggerClass={BTN_QUIET} width="w-[48rem]">
         {(close) => (
           <NodePalette
-            onAdd={(kind, channelType, source) => {
-              add(kind, channelType, source);
+            onAdd={(kind, channelType) => {
+              add(kind, channelType);
               close();
             }}
           />

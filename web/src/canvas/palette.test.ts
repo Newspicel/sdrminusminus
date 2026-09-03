@@ -54,17 +54,7 @@ describe("paletteGroups", () => {
       "combiner",
     ]);
     expect(groups[3]?.items.map((item) => item.id)).toContain("event_output");
-    expect(groups[0]?.items.map((item) => item.id)).toEqual([
-      "device",
-      "gps:fixed",
-      "gps:gpsd",
-      "gps:nmea",
-    ]);
-  });
-
-  it("offers device GPS only when this WebView exposes geolocation", () => {
-    const groups = paletteGroups(CATALOG, TYPES, true);
-    expect(groups[0]?.items.map((item) => item.id)).toContain("gps:device");
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(["device", "gps"]);
   });
 
   it("drops a section the server describes nothing for", () => {
@@ -129,7 +119,7 @@ describe("filterPalette", () => {
 
   it("offers every node the server describes, whatever its category", () => {
     const offered = new Set(
-      paletteGroups(CATALOG, TYPES, true)
+      paletteGroups(CATALOG, TYPES)
         .flatMap((group) => group.items)
         .map((item) => item.kind),
     );

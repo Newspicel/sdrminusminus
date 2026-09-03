@@ -177,7 +177,9 @@ impl GpsHub {
                     .nodes
                     .iter()
                     .filter_map(|node| match &node.body {
-                        NodeBody::Gps(gps) => Some((node.id.clone(), gps.source.clone())),
+                        NodeBody::Gps(gps) => {
+                            gps.source.clone().map(|source| (node.id.clone(), source))
+                        }
                         _ => None,
                     })
                     .collect::<HashMap<_, _>>()
@@ -346,7 +348,7 @@ impl GpsHub {
         let valid = active.snapshot.graph.node(node).is_some_and(|candidate| {
             matches!(
                 &candidate.body,
-                NodeBody::Gps(gps) if gps.source == PositionSource::Device
+                NodeBody::Gps(gps) if gps.source == Some(PositionSource::Device)
             )
         });
         if !valid {
@@ -1091,11 +1093,11 @@ mod tests {
         snapshot.graph.nodes.push(PatchNode {
             id: "roof".to_owned(),
             body: NodeBody::Gps(GpsNode {
-                source: PositionSource::Fixed {
+                source: Some(PositionSource::Fixed {
                     lat: 51.5,
                     lon: 7.0,
                     altitude_m: Some(120.0),
-                },
+                }),
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,
@@ -1124,7 +1126,7 @@ mod tests {
         snapshot.graph.nodes.push(PatchNode {
             id: "position".to_owned(),
             body: NodeBody::Gps(GpsNode {
-                source: PositionSource::Device,
+                source: Some(PositionSource::Device),
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,

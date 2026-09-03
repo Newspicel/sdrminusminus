@@ -3524,7 +3524,7 @@ export interface components {
             threshold?: number;
         };
         GpsNode: {
-            source?: components["schemas"]["PositionSource"];
+            source?: null | components["schemas"]["PositionSource"];
         };
         GroundPlaneParams: {
             /** Format: double */

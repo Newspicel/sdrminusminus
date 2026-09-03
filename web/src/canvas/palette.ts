@@ -1,11 +1,10 @@
-import type { ChannelDescriptor, NodeKind, PatchCatalog, PositionSource } from "../lib/types";
+import type { ChannelDescriptor, NodeKind, PatchCatalog } from "../lib/types";
 
 export interface PaletteItem {
   id: string;
   name: string;
   kind: NodeKind;
   type?: ChannelDescriptor;
-  source?: PositionSource;
 }
 
 export interface PaletteGroup {
@@ -24,47 +23,9 @@ const SECTIONS: readonly { id: string; title: string }[] = [
 export function paletteGroups(
   catalog: PatchCatalog,
   channelTypes: readonly ChannelDescriptor[],
-  devicePosition = false,
 ): PaletteGroup[] {
   const sections = new Map<string, PaletteItem[]>(SECTIONS.map((section) => [section.id, []]));
   for (const entry of catalog.nodes) {
-    if (entry.kind === "gps") {
-      const sources = sections.get("source");
-      if (devicePosition) {
-        sources?.push({
-          id: "gps:device",
-          name: "Device GPS",
-          kind: "gps",
-          source: { type: "device" },
-        });
-      }
-      sources?.push(
-        {
-          id: "gps:fixed",
-          name: "Fixed place",
-          kind: "gps",
-          source: { type: "fixed", lat: 0, lon: 0 },
-        },
-        {
-          id: "gps:gpsd",
-          name: "GPSD",
-          kind: "gps",
-          source: { type: "gpsd", address: "127.0.0.1:2947" },
-        },
-        {
-          id: "gps:nmea",
-          name: "NMEA serial",
-          kind: "gps",
-          source: {
-            type: "nmea",
-            device: "/dev/ttyUSB0",
-            baud: 9_600,
-            update_interval_ms: 1_000,
-          },
-        },
-      );
-      continue;
-    }
     if (entry.needs_channel_type === true) {
       sections.get("channel")?.push(...channelItems(channelTypes));
       continue;

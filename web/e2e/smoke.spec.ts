@@ -460,13 +460,23 @@ test.describe("the workspace", () => {
     await page.goto("/");
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
 
-    await page.getByRole("button", { name: "+ Node" }).click();
-    await page.getByRole("button", { name: "NMEA serial" }).click();
-    const nmea = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "NMEA" });
-    await expect(nmea).toBeVisible();
-    await activate(nmea);
+    const addGps = async (): Promise<Locator> => {
+      await page.getByRole("button", { name: "+ Node" }).click();
+      await page.getByRole("button", { name: "GPS position", exact: true }).click();
+      const added = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "no source" });
+      await expect(added).toBeVisible();
+      const id = await added.getAttribute("data-id");
+      const node = page.locator(`.react-flow__node[data-id="${id}"]`);
+      await activate(node);
+      return node;
+    };
+
+    const nmea = await addGps();
+    await expect(nmea.getByText("u-blox GNSS receiver · GNSS-1")).toBeVisible();
+    await nmea.getByRole("button", { name: /usbmodem11401/ }).click();
 
     const device = nmea.getByRole("combobox", { name: "Serial device" });
+    await expect(device).toHaveValue("/dev/cu.usbmodem11401");
     await device.fill("");
     await device.click();
     const detectedDevice = page.getByRole("option", { name: /\/dev\/cu\.usbmodem11401/ });
@@ -511,16 +521,21 @@ test.describe("the workspace", () => {
         }),
       );
 
-    await page.getByRole("button", { name: "+ Node" }).click();
-    await page.getByRole("button", { name: "GPSD" }).click();
-    const gpsd = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "gpsd" });
+    const gpsd = await addGps();
+    await gpsd.getByRole("button", { name: "GPS on the network?" }).click();
+    const typedAddress = gpsd.getByRole("textbox", { name: "GPSD address" });
+    await typedAddress.fill("not-an-endpoint");
+    await expect(gpsd.getByRole("button", { name: "Read" })).toBeDisabled();
+    await typedAddress.fill("127.0.0.1:2947");
+    await gpsd.getByRole("button", { name: "Read" }).click();
+
     const address = gpsd.getByRole("textbox", { name: "GPSD address" });
     await address.fill("not-an-endpoint");
     await address.blur();
     await expect(address).toHaveValue("127.0.0.1:2947");
 
-    await page.getByRole("button", { name: "+ Node" }).click();
-    await page.getByRole("button", { name: "Device GPS" }).click();
+    const own = await addGps();
+    await own.getByRole("button", { name: "This device's location" }).click();
     let deviceNode = "";
     await expect
       .poll(async () => {
@@ -595,6 +610,9 @@ test.describe("the workspace", () => {
     const deviceGps = page.locator(`.react-flow__node[data-id="${deviceNode}"]`);
     await expect(deviceGps.getByText("52.520000, 13.405000")).toBeVisible();
     await expect(deviceGps.getByText("JO62qm")).toBeVisible();
+
+    await deviceGps.getByRole("button", { name: "Forget source" }).click();
+    await expect(deviceGps.getByRole("button", { name: "This device's location" })).toBeVisible();
   });
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
@@ -749,7 +767,13 @@ test.describe("the workspace", () => {
     await plot.click({ button: "right", position: at });
     const menu = page.getByRole("dialog", { name: /^Frequency / });
     await expect(menu).toBeVisible();
-    await expect(menu).toContainText(/99\.4\d\d MHz/);
+    const under = Number(
+      /Frequency (\d+\.\d+) MHz/.exec((await menu.getAttribute("aria-label")) ?? "")?.[1] ?? "0",
+    );
+    expect(under, "the frequency under the pointer sits left of the 100 MHz center").toBeGreaterThan(
+      99,
+    );
+    expect(under).toBeLessThan(100);
 
     await menu.getByRole("button", { name: /^Mark this frequency/ }).click();
     const label = menu.getByRole("textbox", { name: "Bookmark label" });
@@ -761,7 +785,7 @@ test.describe("the workspace", () => {
         const bookmarks = await page.request.get("/api/bookmarks").then((r) => r.json());
         return bookmarks.find((b: { label: string }) => b.label === "smoke mark")?.freq_hz ?? 0;
       })
-      .toBeGreaterThan(99_400_000);
+      .toBeCloseTo(under * 1e6, -3);
     await expect(plot.getByText("smoke mark")).toBeVisible();
 
     await plot.click({ button: "right", position: at });

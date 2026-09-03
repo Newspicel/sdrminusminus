@@ -1213,7 +1213,11 @@ impl PatchGraph {
                 NodeBody::EventFilter(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));
                 }
-                NodeBody::Gps(gps) => validate_gps_source(&gps.source)?,
+                NodeBody::Gps(gps) => {
+                    if let Some(source) = &gps.source {
+                        validate_gps_source(source)?;
+                    }
+                }
                 NodeBody::SignalMap(settings) => {
                     if settings.offset_hz.unsigned_abs() > MAX_SIGNAL_MAP_OFFSET_HZ as u64
                         || !(1..=MAX_SIGNAL_MAP_BANDWIDTH_HZ).contains(&settings.bandwidth_hz)

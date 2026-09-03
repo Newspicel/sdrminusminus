@@ -1,13 +1,12 @@
 import { DEFAULT_HUNT_SETTINGS } from "../components/hunt";
 import { DEFAULT_HISTORY_SECONDS } from "../components/timeMachine";
-import type { NodeBody, NodeKind, PositionSource } from "../lib/types";
+import type { NodeBody, NodeKind } from "../lib/types";
 import { DEFAULT_COMBINER_PARAMS } from "./nodes/combiner";
 import { DEFAULT_DF_PARAMS } from "./nodes/df";
 import { DEFAULT_RADAR_PARAMS } from "./nodes/radar";
 
 export interface NewNodeSeed {
   channelType?: string;
-  source?: PositionSource;
 }
 
 const WITHOUT_DATA = new Set<NodeKind>([
@@ -34,7 +33,7 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
     case "array":
       return { kind, data: { members: 0, coherence: "time_sync", shared_tuning: true } };
     case "gps":
-      return { kind, data: { source: seed.source ?? { type: "device" } } };
+      return { kind, data: {} };
     case "signal_map":
       return { kind, data: { offset_hz: 0, bandwidth_hz: 12_500 } };
     case "propagation":

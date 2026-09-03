@@ -1569,34 +1569,34 @@ fn gps_source_settings_are_structurally_bounded() {
         nodes: vec![node(
             "gps",
             NodeBody::Gps(GpsNode {
-                source: PositionSource::Nmea {
+                source: Some(PositionSource::Nmea {
                     device: "/dev/ttyUSB0".to_owned(),
                     baud: 9_600,
                     update_interval_ms: 1_000,
-                },
+                }),
             }),
         )],
         edges: Vec::new(),
     };
     assert_eq!(graph.validate(), Ok(()));
     if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
-        gps.source = PositionSource::Nmea {
+        gps.source = Some(PositionSource::Nmea {
             device: "/dev/ttyUSB0".to_owned(),
             baud: 9_600,
             update_interval_ms: 49,
-        };
+        });
     }
     assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
     if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
-        gps.source = PositionSource::Gpsd {
+        gps.source = Some(PositionSource::Gpsd {
             address: String::new(),
-        };
+        });
     }
     assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
     if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
-        gps.source = PositionSource::Gpsd {
+        gps.source = Some(PositionSource::Gpsd {
             address: "not-an-endpoint".to_owned(),
-        };
+        });
     }
     assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
     for address in [
@@ -1607,9 +1607,9 @@ fn gps_source_settings_are_structurally_bounded() {
         "bad host:2947",
     ] {
         if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
-            gps.source = PositionSource::Gpsd {
+            gps.source = Some(PositionSource::Gpsd {
                 address: address.to_owned(),
-            };
+            });
         }
         assert!(
             matches!(graph.validate(), Err(PatchError::Gps(_))),
@@ -1617,11 +1617,19 @@ fn gps_source_settings_are_structurally_bounded() {
         );
     }
     if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
-        gps.source = PositionSource::Gpsd {
+        gps.source = Some(PositionSource::Gpsd {
             address: "[::1]:2947".to_owned(),
-        };
+        });
     }
     assert_eq!(graph.validate(), Ok(()));
+    if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+        gps.source = None;
+    }
+    assert_eq!(
+        graph.validate(),
+        Ok(()),
+        "a GPS node nobody has pointed at a source yet is a valid node"
+    );
 }
 
 #[test]

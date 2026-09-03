@@ -12402,7 +12402,14 @@
         "type": "object",
         "properties": {
           "source": {
-            "$ref": "#/components/schemas/PositionSource"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PositionSource"
+              }
+            ]
           }
         }
       },

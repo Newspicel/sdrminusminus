@@ -56,7 +56,7 @@ export function App() {
   );
   const deviceGpsNodeKey = JSON.stringify(
     graph.nodes
-      .filter((node) => node.kind === "gps" && (node.data.source?.type ?? "device") === "device")
+      .filter((node) => node.kind === "gps" && node.data.source?.type === "device")
       .map((node) => node.id)
       .toSorted(),
   );

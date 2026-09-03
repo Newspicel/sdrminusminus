@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Input } from "../../components/BaseControls";
-import { FIELD } from "../../components/controls";
+import { Button, Input } from "../../components/BaseControls";
+import { BTN_QUIET, FIELD } from "../../components/controls";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { Select } from "../../components/Select";
@@ -11,8 +11,9 @@ import { gridLocator, usePositionStore } from "../../lib/position";
 import type { PatchNode, PositionSource } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
+import { GpsChoices } from "./GpsChoices";
 import { nmeaSuggestion, validGpsdAddress } from "./gpsSource";
-import { FaceBody, NodeShell } from "./NodeShell";
+import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 
 export function GpsFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -20,16 +21,35 @@ export function GpsFace({ node }: { node: PatchNode }) {
   if (node.kind !== "gps") {
     return null;
   }
-  const source: PositionSource = node.data.source ?? { type: "device" };
-  const setSource = (next: PositionSource): void => {
+  const source = node.data.source ?? null;
+  const setSource = (next: PositionSource | null): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
       graph: patchNode(snapshot.graph, node.id, (current) =>
-        current.kind === "gps" ? { ...current, data: { source: next } } : current,
+        current.kind === "gps"
+          ? { ...current, data: next === null ? {} : { source: next } }
+          : current,
       ),
     }));
   };
   const fix = state?.fix ?? null;
+  if (source === null) {
+    return (
+      <NodeShell
+        node={node}
+        title="GPS position"
+        category="source"
+        subtitle="no source"
+        live={false}
+      >
+        <FaceBody>
+          <div className="flex flex-col gap-2 p-2">
+            <GpsChoices onChoose={setSource} />
+          </div>
+        </FaceBody>
+      </NodeShell>
+    );
+  }
   return (
     <NodeShell
       node={node}
@@ -61,6 +81,16 @@ export function GpsFace({ node }: { node: PatchNode }) {
           </Readout>
         )}
       </FaceBody>
+      <FaceFooter>
+        <Button
+          type="button"
+          className={BTN_QUIET}
+          title="Free this node so you can pick a different source"
+          onClick={() => setSource(null)}
+        >
+          Forget source
+        </Button>
+      </FaceFooter>
     </NodeShell>
   );
 }

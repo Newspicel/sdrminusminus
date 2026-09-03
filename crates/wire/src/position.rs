@@ -41,8 +41,8 @@ pub enum PositionSource {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct GpsNode {
-    #[serde(default)]
-    pub source: PositionSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<PositionSource>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

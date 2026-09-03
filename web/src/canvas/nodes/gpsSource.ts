@@ -1,5 +1,5 @@
 import type { AutocompleteSuggestion } from "../../components/TextAutocomplete";
-import type { NmeaDeviceInfo } from "../../lib/types";
+import type { NmeaDeviceInfo, PositionSource } from "../../lib/types";
 
 export function validGpsdAddress(address: string): boolean {
   const separator = address.lastIndexOf(":");
@@ -29,4 +29,37 @@ export function nmeaSuggestion(device: NmeaDeviceInfo): AutocompleteSuggestion {
   }
   const serial = device.serial == null ? "" : ` · ${device.serial}`;
   return { value: device.path, detail: `${description}${serial}` };
+}
+
+export function nmeaDetail(device: NmeaDeviceInfo): string {
+  return [device.product ?? device.manufacturer, device.serial]
+    .filter((part): part is string => part != null && part !== "")
+    .join(" · ");
+}
+
+export function filterNmeaDevices(
+  devices: readonly NmeaDeviceInfo[],
+  query: string,
+): readonly NmeaDeviceInfo[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") {
+    return devices;
+  }
+  return devices.filter((device) =>
+    [device.path, device.product, device.manufacturer, device.serial]
+      .filter((part): part is string => part != null)
+      .some((part) => part.toLowerCase().includes(needle)),
+  );
+}
+
+export const DEFAULT_NMEA_BAUD = 9_600;
+export const DEFAULT_NMEA_INTERVAL_MS = 1_000;
+
+export function nmeaSource(path: string): PositionSource {
+  return {
+    type: "nmea",
+    device: path,
+    baud: DEFAULT_NMEA_BAUD,
+    update_interval_ms: DEFAULT_NMEA_INTERVAL_MS,
+  };
 }

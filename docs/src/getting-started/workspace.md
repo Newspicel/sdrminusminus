@@ -27,19 +27,22 @@ channel type, the interface follows it rather than maintaining a second hard-cod
 
 ## Live position wiring
 
-Position is a typed stream in the patch, not a workspace setting. Add a **GPS position** node,
-choose its position source, and wire its **position** output only to the consumers that need it:
+Position is a typed stream in the patch, not a workspace setting. Add a **GPS position** node and
+pick a source on its face the way a Device node picks a radio; **Forget source** hands the node
+back to the picker. Wire its **position** output only to the consumers that need it:
 
-- **Device GPS** uses the desktop WebView's location provider and appears in the palette only when
-  that provider exists. The application requests high-accuracy, continuously updated fixes.
-- **GPSD** connects to a gpsd JSON endpoint. The default is `127.0.0.1:2947`; edit the address on
-  the node when gpsd runs elsewhere.
-- **NMEA serial** lists the serial devices detected on the machine running the `sdrmm` server and
-  reads checked GGA and RMC sentences from the selected device. A manual path is still accepted
-  for devices the operating system does not enumerate. Baud and the maximum live update rate are
-  configurable; the rate limits published fixes because NMEA receivers push sentences rather
-  than being polled.
-  The device is on the server machine, not the machine displaying a remote browser.
+- The **receivers listed** are the serial devices detected on the machine running the `sdrmm`
+  server, searchable by path or by what the receiver calls itself. The node reads checked GGA and
+  RMC sentences from the one chosen. Baud and the maximum live update rate are configurable once
+  it is picked; the rate limits published fixes because NMEA receivers push sentences rather than
+  being polled. **Receiver not listed?** takes a path for devices the operating system does not
+  enumerate. The device is on the server machine, not the machine displaying a remote browser.
+- **This device's location** uses the browser or desktop WebView's own location provider, and is
+  offered only where that provider exists. The application requests high-accuracy, continuously
+  updated fixes.
+- **GPS on the network?** connects to a gpsd JSON endpoint. The default is `127.0.0.1:2947`.
+- **Receiver that never moves?** takes a latitude and longitude typed in once, for a station that
+  runs no GPS at all.
 
 An ADS-B position input supplies the moving local CPR reference without writing each fix into its
 channel settings. A map position input draws the current station, its bounded route, and a heat
