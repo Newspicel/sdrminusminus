@@ -32,8 +32,8 @@ pub use audio::{
     MIN_NOTCH_WIDTH_HZ, NoiseBlankerSettings, NotchSettings,
 };
 pub use bandplan::{
-    BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
-    BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
+    BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandProvision,
+    BandRegion, BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
 };
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,

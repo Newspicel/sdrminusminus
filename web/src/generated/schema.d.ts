@@ -1643,6 +1643,7 @@ export interface components {
             notes?: string | null;
             official_name: string;
             primary?: boolean;
+            provisions?: string[];
             reference?: string | null;
             service: components["schemas"]["BandService"];
             /** Format: double */
@@ -1677,12 +1678,18 @@ export interface components {
             source: string;
         };
         /** @enum {string} */
-        BandLayerKind: "world" | "regulatory" | "amateur";
+        BandLayerKind: "world" | "regulatory" | "amateur" | "application";
         BandPlan: {
             allocations: components["schemas"]["BandAllocation"][];
             lanes: components["schemas"]["BandLane"][];
             layers: components["schemas"]["BandLayerInfo"][];
+            provisions?: components["schemas"]["BandProvision"][];
             region: components["schemas"]["BandRegion"];
+        };
+        BandProvision: {
+            id: string;
+            layer: string;
+            text: string;
         };
         BandRegion: {
             country?: string | null;

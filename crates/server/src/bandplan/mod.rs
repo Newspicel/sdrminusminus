@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
-    BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
-    BandRegionMatch, BandRegionsResponse, BandService, ChannelParams, ItuRegion,
+    BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandProvision,
+    BandRegion, BandRegionMatch, BandRegionsResponse, BandService, ChannelParams, ItuRegion,
 };
 use serde::Deserialize;
 
@@ -26,6 +26,14 @@ pub(crate) struct Entry {
     pub channel_step_hz: Option<f64>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
+    pub provisions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Provision {
+    pub id: String,
+    pub text: String,
 }
 
 const fn primary_by_default() -> bool {
@@ -57,6 +65,8 @@ pub(crate) struct Layer {
     pub kind: BandLayerKind,
     #[serde(default)]
     pub provenance: Provenance,
+    #[serde(default)]
+    pub provisions: Vec<Provision>,
     pub entries: Vec<Entry>,
 }
 
@@ -84,6 +94,10 @@ static LAYER_DOCS: &[(&str, &str)] = &[
     ("itu-r3", include_str!("../../data/bandplan/itu-r3.json")),
     ("cept", include_str!("../../data/bandplan/cept.json")),
     ("de", include_str!("../../data/bandplan/de.json")),
+    (
+        "de-sonstige",
+        include_str!("../../data/bandplan/de-sonstige.json"),
+    ),
     ("gb", include_str!("../../data/bandplan/gb.json")),
     ("us", include_str!("../../data/bandplan/us.json")),
     ("iaru-r1", include_str!("../../data/bandplan/iaru-r1.json")),
@@ -140,14 +154,15 @@ fn annotate(entries: Vec<Entry>, annotations: &[Annotation]) -> Vec<Entry> {
                 .iter()
                 .filter(|a| a.start_hz <= start && a.stop_hz >= stop)
                 .filter(|a| a.service.is_none_or(|service| service == entry.service))
-                .filter(|a| entry_width >= a.stop_hz - a.start_hz)
                 .min_by(|a, b| (a.stop_hz - a.start_hz).total_cmp(&(b.stop_hz - b.start_hz)));
             if let Some(annotation) = found {
-                piece.friendly = Some(annotation.name.clone());
-                piece.aliases = annotation.aliases.clone();
+                if entry_width >= annotation.stop_hz - annotation.start_hz {
+                    piece.friendly = Some(annotation.name.clone());
+                    piece.aliases = annotation.aliases.clone();
+                    piece.notes = piece.notes.or_else(|| annotation.notes.clone());
+                }
                 piece.suggested = piece.suggested.or_else(|| annotation.suggested.clone());
                 piece.channel_step_hz = piece.channel_step_hz.or(annotation.channel_step_hz);
-                piece.notes = piece.notes.or_else(|| annotation.notes.clone());
             }
             out.push(piece);
         }
@@ -183,7 +198,7 @@ static REGIONS: &[RegionDef] = &[
         country: Some("DE"),
         itu: ItuRegion::R1,
         layers: &["world", "itu-r1", "cept", "de"],
-        overlays: &["iaru-r1"],
+        overlays: &["de-sonstige", "iaru-r1"],
         footprint: &[Bbox {
             lat: (47.2, 55.1),
             lon: (5.8, 15.1),
@@ -378,6 +393,7 @@ fn build(def: &RegionDef) -> BandPlan {
         });
     }
 
+    let provisions = cited(&layers);
     BandPlan {
         region: BandRegion {
             id: def.id.to_string(),
@@ -390,7 +406,22 @@ fn build(def: &RegionDef) -> BandPlan {
         layers,
         allocations: pool.allocations,
         lanes,
+        provisions,
     }
+}
+
+fn cited(layers: &[BandLayerInfo]) -> Vec<BandProvision> {
+    layers
+        .iter()
+        .filter_map(|info| layer(&info.id))
+        .flat_map(|found| {
+            found.provisions.iter().map(|provision| BandProvision {
+                layer: found.id.clone(),
+                id: provision.id.clone(),
+                text: provision.text.clone(),
+            })
+        })
+        .collect()
 }
 
 #[derive(Default)]
@@ -493,15 +524,20 @@ fn push_block(
         rank_b
             .cmp(rank_a)
             .then(entry_b.primary.cmp(&entry_a.primary))
+            .then(
+                (entry_a.stop_hz - entry_a.start_hz)
+                    .total_cmp(&(entry_b.stop_hz - entry_b.start_hz)),
+            )
             .then(a.cmp(&b))
     });
-    let mut ids = order
-        .iter()
-        .map(|&at| {
-            let (layer, entry, _) = &flat[at];
-            pool.intern(layer, entry)
-        })
-        .collect::<Vec<u32>>();
+    let mut ids: Vec<u32> = Vec::with_capacity(order.len());
+    for &at in &order {
+        let (layer, entry, _) = &flat[at];
+        let id = pool.intern(layer, entry);
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
     let of = ids.remove(0);
 
     if let Some(last) = blocks.last_mut()
@@ -523,8 +559,14 @@ fn push_block(
 fn allocation(layer: &Layer, entry: &Entry) -> BandAllocation {
     BandAllocation {
         id: match &entry.reference {
-            Some(reference) => format!("{}:{reference}:{:.0}", layer.id, entry.start_hz),
-            None => format!("{}:{:.0}:{}", layer.id, entry.start_hz, entry.name),
+            Some(reference) => format!(
+                "{}:{reference}:{:.0}:{:.0}",
+                layer.id, entry.start_hz, entry.stop_hz
+            ),
+            None => format!(
+                "{}:{:.0}:{:.0}:{}",
+                layer.id, entry.start_hz, entry.stop_hz, entry.name
+            ),
         },
         layer: layer.id.clone(),
         start_hz: entry.start_hz,
@@ -538,6 +580,7 @@ fn allocation(layer: &Layer, entry: &Entry) -> BandAllocation {
         suggested: entry.suggested.clone(),
         channel_step_hz: entry.channel_step_hz,
         notes: entry.notes.clone(),
+        provisions: entry.provisions.clone(),
     }
 }
 
@@ -594,6 +637,33 @@ mod tests {
         assert_eq!(named(110.0), "Marine VHF");
         assert_eq!(named(150.0), "MARITIME MOBILE");
         assert_eq!(named(120.0), "A NARROW ROW");
+    }
+
+    #[test]
+    fn a_row_too_narrow_to_be_renamed_still_takes_the_annotation_it_sits_in() {
+        let entries: Vec<Entry> = serde_json::from_str(
+            r#"[{"start_hz": 120, "stop_hz": 130, "service": "maritime", "name": "A NARROW ROW"}]"#,
+        )
+        .expect("entries");
+        let annotations: Vec<Annotation> = serde_json::from_str(
+            r#"[{"start_hz": 110, "stop_hz": 150, "name": "Marine VHF", "channel_step_hz": 25000}]"#,
+        )
+        .expect("annotations");
+
+        let out = annotate(entries, &annotations);
+        assert_eq!(
+            out[0].friendly, None,
+            "the wider annotation does not rename it"
+        );
+        assert_eq!(
+            out[0].channel_step_hz,
+            Some(25_000.0),
+            "but its tuning hints apply to everything inside it"
+        );
+        assert_eq!(
+            out[0].notes, None,
+            "nor does it describe a row it does not name"
+        );
     }
 
     #[test]
@@ -816,14 +886,76 @@ mod tests {
     }
 
     #[test]
+    fn the_annex_lane_prefers_the_narrowest_application_over_a_blanket_permission() {
+        let plan = plan("de").expect("germany ships");
+        let lane = plan
+            .lanes
+            .iter()
+            .find(|lane| lane.id == "de-sonstige")
+            .expect("germany carries the annex of other applications");
+        assert!(
+            lane.overlay,
+            "it allocates nothing, so it cannot win a band"
+        );
+        let block = lane
+            .blocks
+            .iter()
+            .find(|block| block.start_hz <= 433_920_000.0 && block.stop_hz > 433_920_000.0)
+            .expect("433,92 MHz is an ISM frequency");
+        let winner = &plan.allocations[block.of as usize];
+        assert_eq!(winner.start_hz, 433_050_000.0);
+        assert_eq!(winner.stop_hz, 434_790_000.0);
+        let under: Vec<&str> = block
+            .covered
+            .iter()
+            .map(|&at| plan.allocations[at as usize].official_name.as_str())
+            .collect();
+        assert!(
+            under.contains(&"UWB-Funkanwendungen"),
+            "the wider permissions still sit beneath it: {under:?}"
+        );
+        assert!(
+            !plan.lanes[0]
+                .blocks
+                .iter()
+                .any(|block| { plan.allocations[block.of as usize].layer == "de-sonstige" }),
+            "the annex never wins a block in the allocation lane"
+        );
+    }
+
+    #[test]
+    fn a_german_allocation_cites_nutzungsbestimmungen_the_plan_carries() {
+        let plan = plan("de").expect("germany ships");
+        let cited = plan
+            .allocations
+            .iter()
+            .find(|allocation| allocation.reference.as_deref() == Some("27004"))
+            .expect("the avalanche beacon band");
+        assert_eq!(cited.provisions, ["1", "2", "5"]);
+        for id in &cited.provisions {
+            let provision = plan
+                .provisions
+                .iter()
+                .find(|found| found.layer == cited.layer && found.id == *id)
+                .unwrap_or_else(|| panic!("{id} has no text"));
+            assert!(!provision.text.is_empty());
+        }
+    }
+
+    #[test]
     fn the_amateur_overlay_is_its_own_lane() {
         let plan = plan("de").expect("germany ships");
         let overlay = plan
             .lanes
             .iter()
-            .find(|lane| lane.overlay)
+            .find(|lane| lane.id == "iaru-r1")
             .expect("germany carries the IARU R1 overlay");
-        assert_eq!(overlay.id, "iaru-r1");
+        assert!(overlay.overlay);
+        assert_eq!(
+            plan.lanes.last().map(|lane| lane.id.as_str()),
+            Some("iaru-r1"),
+            "the amateur overlay has the last word on what a click tunes"
+        );
         assert!(
             overlay
                 .blocks

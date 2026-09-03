@@ -1,0 +1,421 @@
+{
+  "authority": "Bundesnetzagentur",
+  "entries": [
+    {
+      "name": "Induktive Funkanwendungen",
+      "notes": "Induktive Funkanwendungen.",
+      "primary": false,
+      "provisions": [
+        "2"
+      ],
+      "reference": "Induktive Funkanwendungen",
+      "service": "ism",
+      "start_hz": 8300.0,
+      "stop_hz": 30000000.0
+    },
+    {
+      "name": "Funkanwendungen der BOS",
+      "notes": "Funkanwendungen der BOS.",
+      "primary": false,
+      "reference": "Funkanwendungen der BOS unterhalb von 30 MHz",
+      "service": "mobile",
+      "start_hz": 9000.0,
+      "stop_hz": 30000000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich.",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 9000.0,
+      "stop_hz": 600000.0
+    },
+    {
+      "name": "UWB-Funkanwendungen",
+      "notes": "UWB-Funkanwendungen.",
+      "primary": false,
+      "reference": "UWB - Funkanwendungen",
+      "service": "ism",
+      "start_hz": 9000.0,
+      "stop_hz": 30000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "5"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 9000.0,
+      "stop_hz": 300000000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 9000.0,
+      "stop_hz": 10000.0
+    },
+    {
+      "name": "Funkanwendungen der Eisenbahnen",
+      "notes": "Funkanwendungen der Eisenbahnen.",
+      "primary": false,
+      "reference": "Funkanwendungen der Eisenbahnen",
+      "service": "mobile",
+      "start_hz": 36000.0,
+      "stop_hz": 875000.0
+    },
+    {
+      "name": "Funkanwendungen der Eisenbahnen",
+      "notes": "Funkanwendungen der Eisenbahnen.",
+      "primary": false,
+      "reference": "Funkanwendungen der Eisenbahnen",
+      "service": "mobile",
+      "start_hz": 984000.0,
+      "stop_hz": 7484000.0
+    },
+    {
+      "name": "Induktive Funkanwendungen",
+      "notes": "Induktive Funkanwendungen.",
+      "primary": false,
+      "provisions": [
+        "7"
+      ],
+      "reference": "Induktive Funkanwendungen",
+      "service": "ism",
+      "start_hz": 3155000.0,
+      "stop_hz": 3400000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D138"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 6765000.0,
+      "stop_hz": 6795000.0
+    },
+    {
+      "name": "Funkanwendungen der Eisenbahnen",
+      "notes": "Funkanwendungen der Eisenbahnen.",
+      "primary": false,
+      "reference": "Funkanwendungen der Eisenbahnen",
+      "service": "mobile",
+      "start_hz": 7300000.0,
+      "stop_hz": 23000000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich.",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 12500000.0,
+      "stop_hz": 20000000.0
+    },
+    {
+      "name": "Grubenfunk",
+      "notes": "Grubenfunk.",
+      "primary": false,
+      "reference": "Grubenfunk",
+      "service": "mobile",
+      "start_hz": 13550000.0,
+      "stop_hz": 24262500000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 13553000.0,
+      "stop_hz": 13567000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 26957000.0,
+      "stop_hz": 27283000.0
+    },
+    {
+      "name": "Funkanwendungen der Eisenbahnen",
+      "notes": "Funkanwendungen der Eisenbahnen.",
+      "primary": false,
+      "provisions": [
+        "10"
+      ],
+      "reference": "Funkanwendungen der Eisenbahnen",
+      "service": "mobile",
+      "start_hz": 27090000.0,
+      "stop_hz": 27100000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich.",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 30000000.0,
+      "stop_hz": 37500000.0
+    },
+    {
+      "name": "UWB-Funkanwendungen",
+      "notes": "UWB-Funkanwendungen.",
+      "primary": false,
+      "provisions": [
+        "31"
+      ],
+      "reference": "UWB - Funkanwendungen",
+      "service": "ism",
+      "start_hz": 30000000.0,
+      "stop_hz": 3000000000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 40660000.0,
+      "stop_hz": 40700000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 149995000.0,
+      "stop_hz": 150005000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich.",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 401000000.0,
+      "stop_hz": 406000000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich. Kanalbandbreite: 1 MHz (402,6 MHz +/- 500 kHz).",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 402000000.0,
+      "stop_hz": 403000000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich.",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 430000000.0,
+      "stop_hz": 440000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 433050000.0,
+      "stop_hz": 434790000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 2400000000.0,
+      "stop_hz": 2500000000.0
+    },
+    {
+      "name": "Funkanwendungen der Eisenbahnen",
+      "notes": "Funkanwendungen der Eisenbahnen. Kanalbandbreite: 1,5 MHz.",
+      "primary": false,
+      "reference": "Funkanwendungen der Eisenbahnen",
+      "service": "mobile",
+      "start_hz": 2446000000.0,
+      "stop_hz": 2454000000.0
+    },
+    {
+      "name": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "notes": "Funkanwendungen kleiner Leistung im Gesundheitsbereich.",
+      "primary": false,
+      "reference": "Funkanwendungen kleiner Leistung im Gesundheitsbereich",
+      "service": "ism",
+      "start_hz": 2483500000.0,
+      "stop_hz": 2500000000.0
+    },
+    {
+      "name": "Tankradare",
+      "notes": "Tankradare.",
+      "primary": false,
+      "reference": "Tankradare",
+      "service": "ism",
+      "start_hz": 5150000000.0,
+      "stop_hz": 6450000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 5725000000.0,
+      "stop_hz": 5875000000.0
+    },
+    {
+      "name": "Tankradare",
+      "notes": "Tankradare.",
+      "primary": false,
+      "reference": "Tankradare",
+      "service": "ism",
+      "start_hz": 8100000000.0,
+      "stop_hz": 10600000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D150"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 24000000000.0,
+      "stop_hz": 24250000000.0
+    },
+    {
+      "name": "Tankradare",
+      "notes": "Tankradare.",
+      "primary": false,
+      "reference": "Tankradare",
+      "service": "ism",
+      "start_hz": 24050000000.0,
+      "stop_hz": 27000000000.0
+    },
+    {
+      "name": "Tankradare",
+      "notes": "Tankradare.",
+      "primary": false,
+      "reference": "Tankradare",
+      "service": "ism",
+      "start_hz": 57000000000.0,
+      "stop_hz": 64000000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D138"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 61000000000.0,
+      "stop_hz": 61500000000.0
+    },
+    {
+      "name": "Tankradare",
+      "notes": "Tankradare.",
+      "primary": false,
+      "reference": "Tankradare",
+      "service": "ism",
+      "start_hz": 75000000000.0,
+      "stop_hz": 85000000000.0
+    },
+    {
+      "name": "Funkanwendungen der Eisenbahnen",
+      "notes": "Funkanwendungen der Eisenbahnen.",
+      "primary": false,
+      "reference": "Funkanwendungen der Eisenbahnen",
+      "service": "mobile",
+      "start_hz": 76000000000.0,
+      "stop_hz": 77000000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D138"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 122000000000.0,
+      "stop_hz": 123000000000.0
+    },
+    {
+      "name": "ISM-Anwendungen",
+      "notes": "ISM-Anwendungen.",
+      "primary": false,
+      "provisions": [
+        "D138"
+      ],
+      "reference": "ISM-Anwendungen",
+      "service": "ism",
+      "start_hz": 244000000000.0,
+      "stop_hz": 246000000000.0
+    },
+    {
+      "name": "Infrarot-Funkanwendungen",
+      "notes": "Infrarot-Funkanwendungen.",
+      "primary": false,
+      "provisions": [
+        "D565"
+      ],
+      "reference": "Infrarot-Funkanwendungen",
+      "service": "ism",
+      "start_hz": 300000000000.0,
+      "stop_hz": 3000000000000.0
+    }
+  ],
+  "id": "de-sonstige",
+  "kind": "application",
+  "name": "Germany — other applications",
+  "provenance": {
+    "generator": "bnetza",
+    "pdftotext": "pdftotext version 26.08.0",
+    "sha256": "460078ec84536316b038e2f56bec3aceb7205bdb663f19a62d85d6889bacb8cd",
+    "url": "https://data.bundesnetzagentur.de/Bundesnetzagentur/SharedDocs/Downloads/DE/Sachgebiete/Telekommunikation/Unternehmen_Institutionen/Frequenzen/202608_Frequenzplan.pdf"
+  },
+  "provisions": [],
+  "source": "https://data.bundesnetzagentur.de/Bundesnetzagentur/SharedDocs/Downloads/DE/Sachgebiete/Telekommunikation/Unternehmen_Institutionen/Frequenzen/202608_Frequenzplan.pdf"
+}

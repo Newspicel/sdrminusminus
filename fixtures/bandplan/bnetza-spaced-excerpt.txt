@@ -1,0 +1,218 @@
+                                                          Frequenzteilplan:                       20                  Eintrag:                20001                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      148,5      -  255    kHz
+
+                                        Nutzungsbestimmung(en):                                2  5
+
+                                                                    Funkdienst:                RUNDFUNKDIENST
+
+                                                                         Nutzung:              ziv
+
+                                                        Frequenznutzung:                       Ton-Rundfunk               (TK)
+
+                                               Frequenzteilbereich(e):                         148,5      -  255    kHz
+
+
+                                                      Frequenznutzungs-                        Übertragung            von     Ton-     und     Datensignalen              in  analoger         Modulation          oder     in   digitaler      Modulation           nach
+                                                                bedingungen:                   dem      DRM-Standard.                Die    Übertragung            von     Rundfunk          hat    Vorrang        vor    der    Übertragung            sonstiger
+                                                                                               Inhalte.
+
+                                                                                               Kanalbandbreite:                                                                                   9  kHz
+                                                                                               Kanalraster:                                                                                       9  kHz
+
+
+                                                          Frequenzteilplan:                       27                  Eintrag:                27001                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      435     - 472     kHz
+
+                                        Nutzungsbestimmung(en):                                1  2   5
+
+                                                                    Funkdienst:                FLUGNAVIGATIONSFUNKDIENST
+
+                                                                         Nutzung:              ziv,   mil
+
+                                                        Frequenznutzung:                       Funkfeuer
+
+                                               Frequenzteilbereich(e):                         435     - 472     kHz
+
+
+                                                      Frequenznutzungs-                        Navigationssysteme                   gemäß         Anhang        10    zum      internationalen            Luftfahrtabkommen                   (NDB      ungerichtetes
+                                                                bedingungen:                   Funkfeuer)
+
+
+                                                          Frequenzteilplan:                       27                  Eintrag:                27002                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      435     - 472     kHz
+
+                                        Nutzungsbestimmung(en):                                1  2   5
+
+                                                                    Funkdienst:                MOBILER            SEEFUNKDIENST                      D79
+
+                                                                         Nutzung:              ziv,   mil
+
+                                                        Frequenznutzung:                       Seefunk
+
+                                               Frequenzteilbereich(e):                         435     - 472     kHz
+
+
+                                                      Frequenznutzungs-                        Übertragung            von     Nachrichten
+                                                                bedingungen:                   - zwischen          Seefunkstellen             oder
+                                                                                               - Küstenfunkstellen                und     Seefunkstellen
+
+                                                                                               Es    gelten      die   technischen            Parameter           gemäß        VO     Funk.
+
+
+                                                          Frequenzteilplan:                       27                  Eintrag:                27003                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      435     - 472     kHz
+
+                                        Nutzungsbestimmung(en):                                1  2   5
+
+                                                                    Funkdienst:
+
+                                                                         Nutzung:              ziv,   mil
+
+                                                        Frequenznutzung:                       Funkanwendungen                    geringer        Reichweite           (SRD)
+
+                                               Frequenzteilbereich(e):                         442,2      -  450    kHz
+
+
+                                                      Frequenznutzungs-                        Übertragung            von     Daten       und     Tonsignalen           über     kurze      Entfernung
+                                                                bedingungen:
+                                                                                               Maximal         zulässige         magnetische             Feldstärke:                              2,25     μA/m       (7  dB(μA/m))           in  10   m    Entfernung
+                                                                                               Kanalabstand:                                                                                      ≥  150     Hz
+
+                                                                                               Nur     für  Personenerkennungs-                      und     Kollisionsschutzgeräte
+                     ©    Bundesnetzagentur                                                 Frequenzplan
+
+
+                                           Frequenzteilplan:                        27                  Eintrag:                27004                                                                                Stand:           MÄRZ        2022
+
+                                           Frequenzbereich:                      435     - 472     kHz
+
+                          Nutzungsbestimmung(en):                                1  2   5
+
+                                                      Funkdienst:
+
+                                                           Nutzung:              ziv,   mil
+
+                                          Frequenznutzung:                       1:   Auffinden        von     Lawinenverschütteten
+
+                                 Frequenzteilbereich(e):                         456,9      -  457,1      kHz
+
+
+                                        Frequenznutzungs-                        Übertragung            von     Signalen         zur   Notfallortung           von     Verschütteten            und     Wertgegenständen
+                                                  bedingungen:
+                                                                                 Maximal         zulässige         magnetische             Feldstärke:                   2,25     μA/m      (7   dB(μA/m))           in  10   m    Entfernung
+
+
+                                                          Frequenzteilplan:                        3                  Eintrag:                 3001                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      9  -  11,3     kHz
+
+                                        Nutzungsbestimmung(en):                                D150       2  3  5
+
+                                                                    Funkdienst:
+
+                                                                         Nutzung:              ziv
+
+                                                        Frequenznutzung:                       3:   Militärische         Funkanwendungen
+
+                                               Frequenzteilbereich(e):                         9  -  11,3     kHz
+
+
+                                                      Frequenznutzungs-                        Einzelfrequenzen                für   militärische         Nutzungen           sind     mit   der    Bundesnetzagentur                   zu   koordinieren.
+                                                                bedingungen:
+                     ©    Bundesnetzagentur                                                 Frequenzplan
+
+
+                                           Frequenzteilplan:                        80                  Eintrag:                80003                                                                                Stand:           MÄRZ        2022
+
+                                           Frequenzbereich:                      5900      - 5950      kHz
+
+                          Nutzungsbestimmung(en):                                D134       D136      2   3  5
+
+                                                      Funkdienst:                D136:       Mobiler       Landfunkdienst
+
+                                                           Nutzung:              ziv
+
+                                          Frequenznutzung:                       3:   Militärische         Funkanwendungen
+
+                                 Frequenzteilbereich(e):                         5900      - 5950      kHz
+
+
+                                        Frequenznutzungs-                        Einzelfrequenzen                für   militärische         Nutzungen           sind     mit   der    Bundesnetzagentur                   zu   koordinieren.
+                                                  bedingungen:
+
+
+                                                          Frequenzteilplan:                      248                  Eintrag:               248098                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      440     - 470     MHz
+
+                                        Nutzungsbestimmung(en):                                D209       D286      D287       3  5   18   20    31
+
+                                                                    Funkdienst:                MOBILFUNKDIENST                        D286AA
+
+                                                                         Nutzung:              ziv
+
+                                                        Frequenznutzung:                       Betriebsfunk
+
+                                               Frequenzteilbereich(e):                         466,48       -  466,66       MHz
+
+
+                                                      Frequenznutzungs-                        Übertragung            innerbetrieblicher              Nachrichten            (Sprache         und     Daten)
+                                                                bedingungen:
+                                                                                               Maximal         zulässige         äquivalente          Strahlungsleistung:                         500     m   W    ERP
+                                                                                               Duplexfrequenzbereich:                                                                             456,48       -  456,66       MHz
+                                                                                               Kanalbandbreite:                                                                                   6,25     kHz     / 12,5     kHz     / 20    kHz
+                                                                                               Kanalraster:                                                                                       6,25     kHz     / 12,5     kHz     / 20    kHz
+                     ©    Bundesnetzagentur                                                 Frequenzplan
+
+
+                                                          Frequenzteilplan:                      488                  Eintrag:               488005                                                                                Stand:           MÄRZ        2022
+
+                                                         Frequenzbereich:                      170     - 174,5      GHz
+
+                                        Nutzungsbestimmung(en):                                D149       5  31
+
+                                                                    Funkdienst:
+
+                                                                         Nutzung:              ziv
+
+                                                        Frequenznutzung:                       D149:       Radioastronomie
+
+                                               Frequenzteilbereich(e):                         171.11       -  171,45       GHz
+
+
+                                                      Frequenznutzungs-                        Empfangen             von    Funkwellen            und    Strahlungen            aus     dem     Weltraum
+                                                                bedingungen:
+                                                                                               Die    Funkanwendungen                    des     Radioastronomiefunkdienstes                           sind    passiv.       Die    Schutzkriterien            dieser
+                                                                                               passiven         Funkanwendung                  sind    in  der    Empfehlung             UIT-R      RA.769         enthalten.
+
+
+                                           Frequenzteilplan:                      511                   Eintrag:               511001                                                                                Stand:           MÄRZ        2022
+
+                                           Frequenzbereich:                      oberhalb         3000      GHz
+
+                          Nutzungsbestimmung(en):
+
+                                                      Funkdienst:                (nicht     zugewiesen)
+
+                                                           Nutzung:              ziv
+
+                                          Frequenznutzung:
+
+                                 Frequenzteilbereich(e):
+
+
+                                        Frequenznutzungs-                        Der     Frequenzbereich                oberhalb        3000      GHz ist        gemäß        FreqV       keinem        Funkdienst           zugewiesen.
+                                                  bedingungen:
+                                                                                 Die    Nutzung         der    Frequenzen            oberhalb         3000      GHz stellt         keine     Frequenznutzung                  im   Sinne      des     §  3  Nr.
+                                                                                 9  des     TKG      dar.    Zur    Nutzung         von     Frequenzen            oberhalb         3000      GHz ist       deshalb        keine
+                                                                                 Frequenzzuteilung                 erforderlich.         Technische            und     betriebliche         Rahmenbedingungen                       für  den
+                                                                                 Amateurfunk             werden        durch      die    nach     §   6  Satz 1       des    Gesetzes          über     den     Amateurfunk             vom      23.   Juni
+                                                                                 1997      (BGBl.       I 1997      S.   1494)      erlassene          Rechtsverordnung                  festgelegt.“
+                                                              Sonstige                                                 Funkanwendungen
+                                                                    und                        andere                                         Anwendungen
+                                                              elektromagnetischer                                                                                                                 Wellen
+                                   ©     Bundesnetzagentur                                        -   Frequenzplan

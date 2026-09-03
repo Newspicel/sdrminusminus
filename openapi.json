@@ -5415,6 +5415,12 @@
           "primary": {
             "type": "boolean"
           },
+          "provisions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "reference": {
             "type": [
               "string",
@@ -5542,7 +5548,8 @@
         "enum": [
           "world",
           "regulatory",
-          "amateur"
+          "amateur",
+          "application"
         ]
       },
       "BandPlan": {
@@ -5572,8 +5579,33 @@
               "$ref": "#/components/schemas/BandLayerInfo"
             }
           },
+          "provisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandProvision"
+            }
+          },
           "region": {
             "$ref": "#/components/schemas/BandRegion"
+          }
+        }
+      },
+      "BandProvision": {
+        "type": "object",
+        "required": [
+          "layer",
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
           }
         }
       },

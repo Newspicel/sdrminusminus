@@ -4,6 +4,7 @@ import { Button } from "../../components/BaseControls";
 import type { BandIdentity } from "../../components/bandPlan";
 import {
   identify,
+  provisionText,
   serviceEdge,
   serviceFill,
   serviceLabel,
@@ -101,6 +102,7 @@ export function BandRuler({
           at={picked.at}
           found={identify(plan, picked.hz)}
           layerName={(id) => plan.layers.find((layer) => layer.id === id)?.authority ?? id}
+          provision={(layer, id) => provisionText(plan, layer, id)}
           onTune={onTune}
           onClose={() => setPick(null)}
         />
@@ -114,6 +116,7 @@ function IdentifyCard({
   at,
   found,
   layerName,
+  provision,
   onTune,
   onClose,
 }: {
@@ -121,6 +124,7 @@ function IdentifyCard({
   at: number;
   found: readonly BandIdentity[];
   layerName: (id: string) => string;
+  provision: (layer: string, id: string) => string | null;
   onTune: (hz: number, suggested: ChannelParams | null) => void;
   onClose: () => void;
 }) {
@@ -169,6 +173,7 @@ function IdentifyCard({
           key={entry.laneId}
           entry={entry}
           layerName={layerName}
+          provision={provision}
           covered={entry.laneId === found[0]?.laneId}
         />
       ))}
@@ -193,10 +198,12 @@ function IdentifyCard({
 function BandDetail({
   entry,
   layerName,
+  provision,
   covered,
 }: {
   entry: BandIdentity;
   layerName: (id: string) => string;
+  provision: (layer: string, id: string) => string | null;
   covered: boolean;
 }) {
   const { allocation } = entry;
@@ -229,6 +236,21 @@ function BandDetail({
       )}
       {allocation.notes != null && (
         <p className="text-xs leading-snug text-ink-dim">{allocation.notes}</p>
+      )}
+      {allocation.provisions != null && allocation.provisions.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {allocation.provisions.map((id) => (
+            <span
+              key={id}
+              className={CHIP}
+              title={
+                provision(allocation.layer, id) ?? "Not in the cited Frequenzverordnung extract"
+              }
+            >
+              {id}
+            </span>
+          ))}
+        </div>
       )}
       {covered &&
         entry.covered.map((under) => (

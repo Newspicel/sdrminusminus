@@ -3,6 +3,7 @@ import type { BandAllocation, BandBlock, BandLane, BandPlan } from "../lib/types
 import {
   identify,
   parseFrequency,
+  provisionText,
   searchPlan,
   serviceLabel,
   spansIn,
@@ -95,7 +96,23 @@ const PLAN: BandPlan = {
     },
   ],
   lanes: [ALLOCATION, AMATEUR],
+  provisions: [
+    { layer: "de", id: "5", text: "ISM-Anwendungen können Frequenzbereiche mitbenutzen." },
+  ],
 };
+
+describe("provisionText", () => {
+  it("reads the text a layer's allocation cites", () => {
+    expect(provisionText(PLAN, "de", "5")).toBe(
+      "ISM-Anwendungen können Frequenzbereiche mitbenutzen.",
+    );
+  });
+
+  it("has nothing to show for a reference the plan never defines", () => {
+    expect(provisionText(PLAN, "de", "D338")).toBeNull();
+    expect(provisionText(PLAN, "world", "5")).toBeNull();
+  });
+});
 
 describe("spansIn", () => {
   it("clips a block that runs off both edges and says which edges are real", () => {

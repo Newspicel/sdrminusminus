@@ -17,6 +17,7 @@ pub enum BandLayerKind {
     World,
     Regulatory,
     Amateur,
+    Application,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -67,6 +68,15 @@ pub struct BandAllocation {
     pub channel_step_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provisions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct BandProvision {
+    pub layer: String,
+    pub id: String,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -110,6 +120,8 @@ pub struct BandPlan {
     pub layers: Vec<BandLayerInfo>,
     pub allocations: Vec<BandAllocation>,
     pub lanes: Vec<BandLane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provisions: Vec<BandProvision>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

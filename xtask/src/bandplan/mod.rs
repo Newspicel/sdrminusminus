@@ -22,6 +22,30 @@ pub(crate) struct Row {
     pub channel_step_hz: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub provisions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(crate) struct Provision {
+    pub id: String,
+    pub text: String,
+}
+
+pub(crate) struct Import {
+    pub target: &'static Target,
+    pub rows: Vec<Row>,
+    pub provisions: Vec<Provision>,
+}
+
+impl Import {
+    pub(crate) fn new(target: &'static Target, rows: Vec<Row>) -> Self {
+        Self {
+            target,
+            rows,
+            provisions: Vec::new(),
+        }
+    }
 }
 
 impl Row {
@@ -35,6 +59,7 @@ impl Row {
             reference: None,
             channel_step_hz: None,
             notes: None,
+            provisions: Vec::new(),
         }
     }
 }
@@ -71,8 +96,8 @@ static SOURCES: &[Source] = &[
         generator: "bnetza",
         url: "https://data.bundesnetzagentur.de/Bundesnetzagentur/SharedDocs/Downloads/DE/\
                Sachgebiete/Telekommunikation/Unternehmen_Institutionen/Frequenzen/\
-               20210114_frequenzplan.pdf",
-        file: "bnetza-frequenzplan.pdf",
+               202608_Frequenzplan.pdf",
+        file: "bnetza-frequenzplan-202608.pdf",
         kind: Kind::PdfLayout,
     },
     Source {
@@ -89,11 +114,11 @@ static SOURCES: &[Source] = &[
     },
 ];
 
-struct Target {
-    id: &'static str,
-    name: &'static str,
-    authority: &'static str,
-    kind: &'static str,
+pub(crate) struct Target {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub authority: &'static str,
+    pub kind: &'static str,
 }
 
 pub(crate) fn run(root: &Path, offline: bool) -> Result<()> {
@@ -116,30 +141,33 @@ pub(crate) fn run(root: &Path, offline: bool) -> Result<()> {
         let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
         let digest = sha256(&bytes);
         let text = match source.kind {
-            Kind::PdfLayout => pdftotext(&path, "-layout")?,
-            Kind::PdfBbox => pdftotext(&path, "-bbox-layout")?,
+            Kind::PdfLayout => pdftotext(&path, &["-layout"])?,
+            Kind::PdfBbox => pdftotext(&path, &["-bbox-layout"])?,
             Kind::Text => String::from_utf8_lossy(&bytes).into_owned(),
         };
 
         let layers = match source.generator {
-            "ofcom" => vec![(ofcom::TARGET, ofcom::parse(&text)?)],
-            "bnetza" => vec![(bnetza::TARGET, bnetza::parse(&text)?)],
-            "cept" => vec![(cept::TARGET, cept::parse(&text)?)],
-            "fcc" => fcc::parse(&text)?,
+            "ofcom" => vec![Import::new(ofcom::TARGET, ofcom::parse(&text)?)],
+            "bnetza" => bnetza::parse(&text, &pdftotext(&path, &["-layout", "-fixed", "2"])?)?,
+            "cept" => vec![Import::new(cept::TARGET, cept::parse(&text)?)],
+            "fcc" => fcc::parse(&text)?
+                .into_iter()
+                .map(|(target, rows)| Import::new(target, rows))
+                .collect(),
             other => bail!("no importer named {other}"),
         };
 
-        for (target, rows) in layers {
-            let path = out.join(format!("{}.json", target.id));
+        for layer in layers {
+            let path = out.join(format!("{}.json", layer.target.id));
             let version = match source.kind {
                 Kind::PdfLayout | Kind::PdfBbox => poppler.as_deref(),
                 Kind::Text => None,
             };
-            write_layer(&path, source, target, &rows, &digest, version)?;
+            write_layer(&path, source, &layer, &digest, version)?;
             println!(
                 "{}: {} rows → {}",
                 source.generator,
-                rows.len(),
+                layer.rows.len(),
                 path.display()
             );
         }
@@ -153,11 +181,11 @@ pub(crate) fn run(root: &Path, offline: bool) -> Result<()> {
 fn write_layer(
     path: &Path,
     source: &Source,
-    target: &Target,
-    rows: &[Row],
+    layer: &Import,
     sha256: &str,
     poppler: Option<&str>,
 ) -> Result<()> {
+    let target = layer.target;
     let mut provenance = serde_json::Map::new();
     provenance.insert("generator".into(), source.generator.into());
     provenance.insert("url".into(), source.url.into());
@@ -172,7 +200,8 @@ fn write_layer(
         "source": source.url,
         "kind": target.kind,
         "provenance": provenance,
-        "entries": rows,
+        "provisions": layer.provisions,
+        "entries": layer.rows,
     });
     fs::write(path, format!("{}\n", serde_json::to_string_pretty(&doc)?))
         .with_context(|| format!("write {}", path.display()))?;
@@ -221,9 +250,9 @@ fn curl(url: &str, to: &Path, ca: Option<&Path>) -> Result<std::process::ExitSta
         .context("curl not found — it is how this fetches its sources")
 }
 
-fn pdftotext(path: &Path, mode: &str) -> Result<String> {
+fn pdftotext(path: &Path, mode: &[&str]) -> Result<String> {
     let out = Command::new("pdftotext")
-        .arg(mode)
+        .args(mode)
         .arg(path)
         .arg("-")
         .output()

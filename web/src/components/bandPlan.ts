@@ -84,6 +84,10 @@ export function identify(plan: BandPlan, hz: number): BandIdentity[] {
   return found;
 }
 
+export function provisionText(plan: BandPlan, layer: string, id: string): string | null {
+  return plan.provisions?.find((found) => found.layer === layer && found.id === id)?.text ?? null;
+}
+
 export function suggestedAt(found: readonly BandIdentity[]): ChannelParams | null {
   let suggested: ChannelParams | null = null;
   for (const entry of found) {
