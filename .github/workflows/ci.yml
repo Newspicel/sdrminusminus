@@ -157,7 +157,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # Tauri v2's Linux prerequisites; cmake is for audiopus_sys' vendored libopus.
+      # Tauri v2's Linux prerequisites; cmake is for opusic-sys' vendored libopus.
       - run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \

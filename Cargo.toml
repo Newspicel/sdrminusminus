@@ -90,7 +90,7 @@ futures = "0.3"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls"] }
 rumqttc = { package = "rumqttc-v4-next", version = "0.34.0", default-features = false, features = ["use-rustls"] }
 url = "2.5.8"
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 tokio-serial = "5.5.0"
 serialport = { version = "4.9.0", default-features = false }
 
@@ -116,13 +116,13 @@ nusb = "0.2.7"
 soapysdr = { git = "https://github.com/Newspicel/rust-soapysdr", rev = "5f05fb65366d75e4706285df5bc3864abbd51284" }
 # The SDRplay vendor API is resolved at runtime from wherever its installer put it, so nothing
 # here links or ships it and a machine without it simply reports no SDRplay hardware.
-libloading = "0.8"
+libloading = "0.9"
 
 # DSP
 num-complex = "0.4"
 rustfft = "6"
 realfft = "3"
-mfsk-core = { version = "0.9.1", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
+mfsk-core = { version = "0.10.0", default-features = false, features = ["std", "fft-rustfft", "ft8", "ft4", "wspr"] }
 xng-mode-dsc = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-mode-stdc = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-mode-aero = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
@@ -131,13 +131,13 @@ xng-mode-hfdl = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843
 xng-mode-iridium = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-types = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
 xng-acars = { git = "https://github.com/airframesio/xng", rev = "6a768a2f843099171d7ed08df9fe0f3ba0678f25" }
-rtrb = "0.3"
+rtrb = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "1"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"] }
 
 # Audio (libopus via vendored build, )
-opus = "0.3"
+opus = "0.4"
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 codec2 = "0.3.1"
 

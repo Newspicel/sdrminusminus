@@ -56,7 +56,7 @@ A codeplug is a vendor binary with no published specification, so the memory map
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
-## Rust crates (692)
+## Rust crates (698)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -76,16 +76,15 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [arc-swap](https://github.com/vorner/arc-swap) | 1.9.2 | MIT OR Apache-2.0 |
 | [arrayvec](https://github.com/bluss/arrayvec) | 0.7.8 | MIT OR Apache-2.0 |
 | [ash](https://github.com/ash-rs/ash) | 0.38.0+1.3.281 | MIT OR Apache-2.0 |
-| [async-compression](https://github.com/Nullus157/async-compression) | 0.4.43 | MIT OR Apache-2.0 |
+| [async-compression](https://github.com/Nullus157/async-compression) | 0.4.44 | MIT OR Apache-2.0 |
 | [async-trait](https://github.com/dtolnay/async-trait) | 0.1.92 | MIT OR Apache-2.0 |
 | [async-tungstenite](https://github.com/sdroege/async-tungstenite) | 0.34.1 | MIT |
 | [atk](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [atk-sys](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [atomic-waker](https://github.com/smol-rs/atomic-waker) | 1.1.2 | Apache-2.0 OR MIT |
-| [audiopus_sys](https://github.com/lakelezz/audiopus_sys.git) | 0.2.2 | ISC |
 | [autocfg](https://github.com/cuviper/autocfg) | 1.5.1 | Apache-2.0 OR MIT |
-| [aws-lc-rs](https://github.com/aws/aws-lc-rs) | 1.18.0 | ISC AND (Apache-2.0 OR ISC) |
-| [aws-lc-sys](https://github.com/aws/aws-lc-rs) | 0.44.0 | ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) |
+| [aws-lc-rs](https://github.com/aws/aws-lc-rs) | 1.18.1 | ISC AND (Apache-2.0 OR ISC) |
+| [aws-lc-sys](https://github.com/aws/aws-lc-rs) | 0.45.0 | ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) |
 | [axum](https://github.com/tokio-rs/axum) | 0.8.9 | MIT |
 | [axum-core](https://github.com/tokio-rs/axum) | 0.5.6 | MIT |
 | [axum-macros](https://github.com/tokio-rs/axum) | 0.5.1 | MIT |
@@ -116,13 +115,13 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [cargo-platform](https://github.com/rust-lang/cargo) | 0.1.9 | MIT OR Apache-2.0 |
 | [cargo_metadata](https://github.com/oli-obk/cargo_metadata) | 0.19.2 | MIT |
 | [cargo_toml](https://gitlab.com/lib.rs/cargo_toml) | 0.22.3 | Apache-2.0 OR MIT |
-| [cc](https://github.com/rust-lang/cc-rs) | 1.4.2 | MIT OR Apache-2.0 |
+| [cc](https://github.com/rust-lang/cc-rs) | 1.4.4 | MIT OR Apache-2.0 |
 | [cesu8](https://github.com/emk/cesu8-rs) | 1.1.0 | Apache-2.0/MIT |
 | [cfb](https://github.com/mdsteele/rust-cfb) | 0.7.3 | MIT |
 | [cfg-expr](https://github.com/EmbarkStudios/cfg-expr) | 0.15.8 | MIT OR Apache-2.0 |
 | [cfg-if](https://github.com/rust-lang/cfg-if) | 1.0.4 | MIT OR Apache-2.0 |
 | [cfg_aliases](https://github.com/katharostech/cfg_aliases) | 0.2.2 | MIT |
-| [chacha20](https://github.com/RustCrypto/stream-ciphers) | 0.10.1 | MIT OR Apache-2.0 |
+| [chacha20](https://github.com/RustCrypto/stream-ciphers) | 0.10.2 | MIT OR Apache-2.0 |
 | [chrono](https://github.com/chronotope/chrono) | 0.4.45 | MIT OR Apache-2.0 |
 | [clap](https://github.com/clap-rs/clap) | 4.6.6 | MIT OR Apache-2.0 |
 | [clap_builder](https://github.com/clap-rs/clap) | 4.6.6 | MIT OR Apache-2.0 |
@@ -132,20 +131,21 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [codec2](https://github.com/scriptjunkie/codec2) | 0.3.1 | LGPL-2.1-only AND MIT |
 | [codespan-reporting](https://github.com/brendanzab/codespan) | 0.13.1 | Apache-2.0 |
 | [colorchoice](https://github.com/rust-cli/anstyle.git) | 1.0.5 | MIT OR Apache-2.0 |
-| [combine](https://github.com/Marwes/combine) | 4.6.7 | MIT |
-| [compression-codecs](https://github.com/Nullus157/async-compression) | 0.4.38 | MIT OR Apache-2.0 |
-| [compression-core](https://github.com/Nullus157/async-compression) | 0.4.32 | MIT OR Apache-2.0 |
+| [combine](https://github.com/Marwes/combine) | 4.6.8 | MIT |
+| [compression-codecs](https://github.com/Nullus157/async-compression) | 0.4.39 | MIT OR Apache-2.0 |
+| [compression-core](https://github.com/Nullus157/async-compression) | 0.4.33 | MIT OR Apache-2.0 |
 | [const-oid](https://github.com/RustCrypto/formats) | 0.10.2 | Apache-2.0 OR MIT |
 | [cookie](https://github.com/SergioBenitez/cookie-rs) | 0.18.2 | MIT OR Apache-2.0 |
 | [core-foundation](https://github.com/servo/core-foundation-rs) | 0.10.1 | MIT OR Apache-2.0 |
+| [core-foundation](https://github.com/servo/core-foundation-rs) | 0.9.4 | MIT OR Apache-2.0 |
 | [core-foundation-sys](https://github.com/servo/core-foundation-rs) | 0.8.7 | MIT OR Apache-2.0 |
 | [core-graphics](https://github.com/servo/core-foundation-rs) | 0.25.0 | MIT OR Apache-2.0 |
 | [core-graphics-types](https://github.com/servo/core-foundation-rs) | 0.2.0 | MIT OR Apache-2.0 |
 | [cpufeatures](https://github.com/RustCrypto/utils) | 0.2.17 | MIT OR Apache-2.0 |
-| [cpufeatures](https://github.com/RustCrypto/utils) | 0.3.0 | MIT OR Apache-2.0 |
+| [cpufeatures](https://github.com/RustCrypto/utils) | 0.3.1 | MIT OR Apache-2.0 |
 | [crc](https://github.com/mrhooray/crc-rs.git) | 3.4.0 | MIT OR Apache-2.0 |
 | [crc-catalog](https://github.com/akhilles/crc-catalog.git) | 2.5.0 | MIT OR Apache-2.0 |
-| [crc32fast](https://github.com/srijs/rust-crc32fast) | 1.5.0 | MIT OR Apache-2.0 |
+| [crc32fast](https://github.com/srijs/rust-crc32fast) | 1.5.1 | MIT OR Apache-2.0 |
 | [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam) | 0.5.16 | MIT OR Apache-2.0 |
 | [crossbeam-deque](https://github.com/crossbeam-rs/crossbeam) | 0.8.7 | MIT OR Apache-2.0 |
 | [crossbeam-epoch](https://github.com/crossbeam-rs/crossbeam) | 0.9.20 | MIT OR Apache-2.0 |
@@ -159,13 +159,13 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [ctor-proc-macro](https://github.com/mmastrac/rust-ctor) | 0.0.7 | Apache-2.0 OR MIT |
 | [darling](https://github.com/TedDriggs/darling) | 0.20.11 | MIT |
 | [darling](https://github.com/TedDriggs/darling) | 0.23.0 | MIT |
-| [darling](https://github.com/TedDriggs/darling) | 0.24.0 | MIT |
+| [darling](https://github.com/TedDriggs/darling) | 0.24.1 | MIT |
 | [darling_core](https://github.com/TedDriggs/darling) | 0.20.11 | MIT |
 | [darling_core](https://github.com/TedDriggs/darling) | 0.23.0 | MIT |
-| [darling_core](https://github.com/TedDriggs/darling) | 0.24.0 | MIT |
+| [darling_core](https://github.com/TedDriggs/darling) | 0.24.1 | MIT |
 | [darling_macro](https://github.com/TedDriggs/darling) | 0.20.11 | MIT |
 | [darling_macro](https://github.com/TedDriggs/darling) | 0.23.0 | MIT |
-| [darling_macro](https://github.com/TedDriggs/darling) | 0.24.0 | MIT |
+| [darling_macro](https://github.com/TedDriggs/darling) | 0.24.1 | MIT |
 | [data-encoding](https://github.com/ia0/data-encoding) | 2.11.1 | MIT |
 | [dbus](https://github.com/diwic/dbus-rs) | 0.9.12 | Apache-2.0/MIT |
 | [defmt](https://github.com/knurling-rs/defmt) | 1.1.1 | MIT OR Apache-2.0 |
@@ -196,7 +196,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [dtor-proc-macro](https://github.com/mmastrac/rust-ctor) | 0.0.6 | Apache-2.0 OR MIT |
 | [dunce](https://gitlab.com/kornelski/dunce) | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | [dyn-clone](https://github.com/dtolnay/dyn-clone) | 1.0.20 | MIT OR Apache-2.0 |
-| [either](https://github.com/rayon-rs/either) | 1.17.0 | MIT OR Apache-2.0 |
+| [either](https://github.com/rayon-rs/either) | 1.18.0 | MIT OR Apache-2.0 |
 | [embed-resource](https://github.com/nabijaczleweli/rust-embed-resource) | 3.0.11 | MIT |
 | [embed_plist](https://github.com/nvzqz/embed-plist-rs) | 1.2.2 | MIT OR Apache-2.0 |
 | [equivalent](https://github.com/indexmap-rs/equivalent) | 1.0.2 | Apache-2.0 OR MIT |
@@ -208,9 +208,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [fdeflate](https://github.com/image-rs/fdeflate) | 0.3.7 | MIT OR Apache-2.0 |
 | [field-offset](https://github.com/Diggsey/rust-field-offset) | 0.3.6 | MIT OR Apache-2.0 |
 | [filetime](https://github.com/alexcrichton/filetime) | 0.2.29 | MIT/Apache-2.0 |
-| [find-msvc-tools](https://github.com/rust-lang/cc-rs) | 0.1.10 | MIT OR Apache-2.0 |
+| [find-msvc-tools](https://github.com/rust-lang/cc-rs) | 0.1.11 | MIT OR Apache-2.0 |
 | [fixedbitset](https://github.com/petgraph/fixedbitset) | 0.5.7 | MIT OR Apache-2.0 |
-| [flate2](https://github.com/rust-lang/flate2-rs) | 1.1.9 | MIT OR Apache-2.0 |
+| [flate2](https://github.com/rust-lang/flate2-rs) | 1.1.10 | MIT OR Apache-2.0 |
 | [flume](https://github.com/zesterer/flume) | 0.12.0 | Apache-2.0/MIT |
 | [fnv](https://github.com/servo/rust-fnv) | 1.0.7 | Apache-2.0 / MIT |
 | [foldhash](https://github.com/orlp/foldhash) | 0.2.0 | Zlib |
@@ -219,15 +219,15 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [foreign-types-shared](https://github.com/sfackler/foreign-types) | 0.3.1 | MIT/Apache-2.0 |
 | [form_urlencoded](https://github.com/servo/rust-url) | 1.2.2 | MIT OR Apache-2.0 |
 | [fs_extra](https://github.com/webdesus/fs_extra) | 1.3.0 | MIT |
-| [futures](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-channel](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-core](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-executor](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-io](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-macro](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-sink](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-task](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
-| [futures-util](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
+| [futures](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-channel](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-core](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-executor](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-io](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-macro](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-sink](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-task](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
+| [futures-util](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
 | [gdk](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [gdk-pixbuf](https://github.com/gtk-rs/gtk-rs-core) | 0.18.5 | MIT |
 | [gdk-pixbuf-sys](https://github.com/gtk-rs/gtk-rs-core) | 0.18.0 | MIT |
@@ -265,29 +265,29 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [html5ever](https://github.com/servo/html5ever) | 0.38.0 | MIT OR Apache-2.0 |
 | [http](https://github.com/hyperium/http) | 1.5.0 | MIT OR Apache-2.0 |
 | [http-body](https://github.com/hyperium/http-body) | 1.1.0 | MIT |
-| [http-body-util](https://github.com/hyperium/http-body) | 0.1.4 | MIT |
+| [http-body-util](https://github.com/hyperium/http-body) | 0.1.5 | MIT |
 | [http-range-header](https://github.com/MarcusGrass/parse-range-headers) | 0.4.2 | MIT |
 | [httparse](https://github.com/seanmonstar/httparse) | 1.10.1 | MIT OR Apache-2.0 |
 | [httpdate](https://github.com/pyfisch/httpdate) | 1.0.3 | MIT OR Apache-2.0 |
 | [hybrid-array](https://github.com/RustCrypto/hybrid-array) | 0.4.14 | MIT OR Apache-2.0 |
-| [hyper](https://github.com/hyperium/hyper) | 1.11.0 | MIT |
+| [hyper](https://github.com/hyperium/hyper) | 1.11.1 | MIT |
 | [hyper-rustls](https://github.com/rustls/hyper-rustls) | 0.27.9 | Apache-2.0 OR ISC OR MIT |
 | [hyper-util](https://github.com/hyperium/hyper-util) | 0.1.20 | MIT |
 | [iana-time-zone](https://github.com/strawlab/iana-time-zone) | 0.1.65 | MIT OR Apache-2.0 |
 | [iana-time-zone-haiku](https://github.com/strawlab/iana-time-zone) | 0.1.2 | MIT OR Apache-2.0 |
 | [ico](https://github.com/mdsteele/rust-ico) | 0.5.0 | MIT |
-| [icu_collections](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
-| [icu_locale_core](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
-| [icu_normalizer](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
-| [icu_normalizer_data](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
-| [icu_properties](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
-| [icu_properties_data](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
-| [icu_provider](https://github.com/unicode-org/icu4x) | 2.2.0 | Unicode-3.0 |
+| [icu_collections](https://github.com/unicode-org/icu4x) | 2.3.0 | Unicode-3.0 |
+| [icu_locale_core](https://github.com/unicode-org/icu4x) | 2.3.0 | Unicode-3.0 |
+| [icu_normalizer](https://github.com/unicode-org/icu4x) | 2.3.0 | Unicode-3.0 |
+| [icu_normalizer_data](https://github.com/unicode-org/icu4x) | 2.3.0 | Unicode-3.0 |
+| [icu_properties](https://github.com/unicode-org/icu4x) | 2.3.0 | Unicode-3.0 |
+| [icu_properties_data](https://github.com/unicode-org/icu4x) | 2.3.0 | Unicode-3.0 |
+| [icu_provider](https://github.com/unicode-org/icu4x) | 2.3.1 | Unicode-3.0 |
 | [ident_case](https://github.com/TedDriggs/ident_case) | 1.0.1 | MIT/Apache-2.0 |
 | [idna](https://github.com/servo/rust-url/) | 1.1.0 | MIT OR Apache-2.0 |
 | [idna_adapter](https://github.com/hsivonen/idna_adapter) | 1.2.2 | Apache-2.0 OR MIT |
 | [indexmap](https://github.com/bluss/indexmap) | 1.9.3 | Apache-2.0 OR MIT |
-| [indexmap](https://github.com/indexmap-rs/indexmap) | 2.14.0 | Apache-2.0 OR MIT |
+| [indexmap](https://github.com/indexmap-rs/indexmap) | 2.14.1 | Apache-2.0 OR MIT |
 | [infer](https://github.com/bojand/infer) | 0.19.0 | MIT |
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.4.1 | MIT / Apache-2.0 |
 | [io-kit-sys](https://github.com/jtakakura/io-kit-rs) | 0.5.0 | MIT OR Apache-2.0 |
@@ -321,15 +321,16 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [libdbus-sys](https://github.com/diwic/dbus-rs) | 0.2.7 | Apache-2.0/MIT |
 | [libloading](https://github.com/nagisa/rust_libloading/) | 0.7.4 | ISC |
 | [libloading](https://github.com/nagisa/rust_libloading/) | 0.8.9 | ISC |
+| [libloading](https://github.com/nagisa/rust_libloading/) | 0.9.0 | ISC |
 | [libm](https://github.com/rust-lang/compiler-builtins) | 0.2.16 | MIT |
-| [libredox](https://gitlab.redox-os.org/redox-os/libredox.git) | 0.1.19 | MIT |
+| [libredox](https://gitlab.redox-os.org/redox-os/libredox.git) | 0.1.23 | MIT |
 | [libsqlite3-sys](https://github.com/rusqlite/rusqlite) | 0.38.2 | MIT |
 | [linux-raw-sys](https://github.com/sunfishcode/linux-raw-sys) | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
-| [litemap](https://github.com/unicode-org/icu4x) | 0.8.2 | Unicode-3.0 |
+| [litemap](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
 | [litrs](https://github.com/LukasKalbertodt/litrs) | 1.0.0 | MIT OR Apache-2.0 |
 | [local-ip-address](https://github.com/LeoBorai/local-ip-address) | 0.6.13 | MIT OR Apache-2.0 |
 | [lock_api](https://github.com/Amanieu/parking_lot) | 0.4.14 | MIT OR Apache-2.0 |
-| [log](https://github.com/rust-lang/log) | 0.4.33 | MIT OR Apache-2.0 |
+| [log](https://github.com/rust-lang/log) | 0.4.34 | MIT OR Apache-2.0 |
 | [lru-slab](https://github.com/Ralith/lru-slab) | 0.1.2 | MIT OR Apache-2.0 OR Zlib |
 | [mach2](https://github.com/JohnTitor/mach2) | 0.4.3 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | [mach2](https://github.com/JohnTitor/mach2) | 0.5.0 | BSD-2-Clause OR MIT OR Apache-2.0 |
@@ -338,17 +339,18 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [matchit](https://github.com/ibraheemdev/matchit) | 0.8.4 | MIT AND BSD-3-Clause |
 | [memchr](https://github.com/BurntSushi/memchr) | 2.8.3 | Unlicense OR MIT |
 | [memoffset](https://github.com/Gilnaa/memoffset) | 0.9.1 | MIT |
-| [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.9.1 | GPL-3.0-or-later |
+| [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.10.0 | GPL-3.0-or-later |
 | [mime](https://github.com/hyperium/mime) | 0.3.17 | MIT OR Apache-2.0 |
 | [mime_guess](https://github.com/abonander/mime_guess) | 2.0.5 | MIT |
 | [minisign-verify](https://github.com/jedisct1/rust-minisign-verify) | 0.2.5 | MIT |
 | [miniz_oxide](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
-| [mio](https://github.com/tokio-rs/mio) | 1.2.2 | MIT |
+| [miniz_oxide](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) | 0.9.1 | MIT OR Zlib OR Apache-2.0 |
+| [mio](https://github.com/tokio-rs/mio) | 1.2.3 | MIT |
 | [mio-serial](https://github.com/berkowski/mio-serial) | 5.0.7 | MIT |
 | [mqttbytes-core-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [muda](https://github.com/tauri-apps/muda) | 0.19.3 | Apache-2.0 OR MIT |
-| [naga](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [naga-types](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
+| [naga](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [naga-types](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
 | [ndk](https://github.com/rust-mobile/ndk) | 0.9.0 | MIT OR Apache-2.0 |
 | [ndk-sys](https://github.com/rust-mobile/ndk) | 0.6.0+11769913 | MIT OR Apache-2.0 |
 | [neli](https://github.com/jbaublitz/neli) | 0.7.4 | BSD-3-Clause |
@@ -359,7 +361,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [nu-ansi-term](https://github.com/nushell/nu-ansi-term) | 0.50.3 | MIT |
 | [num-complex](https://github.com/rust-num/num-complex) | 0.4.6 | MIT OR Apache-2.0 |
 | [num-conv](https://github.com/jhpratt/num-conv) | 0.2.2 | MIT OR Apache-2.0 |
-| [num-integer](https://github.com/rust-num/num-integer) | 0.1.46 | MIT OR Apache-2.0 |
+| [num-integer](https://github.com/rust-num/num-integer) | 0.1.47 | MIT OR Apache-2.0 |
 | [num-traits](https://github.com/rust-num/num-traits) | 0.2.19 | MIT OR Apache-2.0 |
 | [num_enum](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | [num_enum_derive](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
@@ -387,8 +389,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [once_cell_polyfill](https://github.com/polyfill-rs/once_cell_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
 | [openssl-probe](https://github.com/rustls/openssl-probe) | 0.2.1 | MIT OR Apache-2.0 |
 | [option-ext](https://github.com/soc/option-ext.git) | 0.2.0 | MPL-2.0 |
-| [opus](https://github.com/SpaceManiac/opus-rs) | 0.3.1 | MIT/Apache-2.0 |
-| [ordered-float](https://github.com/reem/rust-ordered-float) | 5.3.0 | MIT |
+| [opus](https://github.com/SpaceManiac/opus-rs) | 0.4.0 | MIT/Apache-2.0 |
+| [opusic-sys](https://github.com/DoumanAsh/opusic-sys) | 0.7.5 | BSD-3-Clause |
+| [ordered-float](https://github.com/reem/rust-ordered-float) | 5.5.0 | MIT |
 | [osakit](https://github.com/mdevils/rust-osakit) | 0.3.1 | MIT OR Apache-2.0 |
 | [pango](https://github.com/gtk-rs/gtk-rs-core) | 0.18.3 | MIT |
 | [pango-sys](https://github.com/gtk-rs/gtk-rs-core) | 0.18.0 | MIT |
@@ -403,14 +406,14 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [phf_macros](https://github.com/rust-phf/rust-phf) | 0.13.1 | MIT |
 | [phf_shared](https://github.com/rust-phf/rust-phf) | 0.13.1 | MIT |
 | [pin-project-lite](https://github.com/taiki-e/pin-project-lite) | 0.2.17 | Apache-2.0 OR MIT |
-| [pkg-config](https://github.com/rust-lang/pkg-config-rs) | 0.3.33 | MIT OR Apache-2.0 |
+| [pkg-config](https://github.com/rust-lang/pkg-config-rs) | 0.3.34 | MIT OR Apache-2.0 |
 | [plist](https://github.com/ebarnard/rust-plist/) | 1.10.0 | MIT |
 | [png](https://github.com/image-rs/image-png) | 0.17.16 | MIT OR Apache-2.0 |
 | [png](https://github.com/image-rs/image-png) | 0.18.1 | MIT OR Apache-2.0 |
 | [pollster](https://github.com/zesterer/pollster) | 1.0.1 | Apache-2.0/MIT |
-| [portable-atomic](https://github.com/taiki-e/portable-atomic) | 1.14.0 | Apache-2.0 OR MIT |
+| [portable-atomic](https://github.com/taiki-e/portable-atomic) | 1.15.0 | Apache-2.0 OR MIT |
 | [portable-atomic-util](https://github.com/taiki-e/portable-atomic-util) | 0.2.7 | Apache-2.0 OR MIT |
-| [potential_utf](https://github.com/unicode-org/icu4x) | 0.1.5 | Unicode-3.0 |
+| [potential_utf](https://github.com/unicode-org/icu4x) | 0.1.6 | Unicode-3.0 |
 | [powerfmt](https://github.com/jhpratt/powerfmt) | 0.2.0 | MIT OR Apache-2.0 |
 | [ppv-lite86](https://github.com/cryptocorrosion/cryptocorrosion) | 0.2.21 | MIT OR Apache-2.0 |
 | [precomputed-hash](https://github.com/emilio/precomputed-hash) | 0.1.1 | MIT |
@@ -425,7 +428,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [profiling](https://github.com/aclysma/profiling) | 1.0.18 | MIT OR Apache-2.0 |
 | [quick-xml](https://github.com/tafia/quick-xml) | 0.41.0 | MIT |
 | [quinn](https://github.com/quinn-rs/quinn) | 0.11.11 | MIT OR Apache-2.0 |
-| [quinn-proto](https://github.com/quinn-rs/quinn) | 0.11.16 | MIT OR Apache-2.0 |
+| [quinn-proto](https://github.com/quinn-rs/quinn) | 0.11.17 | MIT OR Apache-2.0 |
 | [quinn-udp](https://github.com/quinn-rs/quinn) | 0.5.15 | MIT OR Apache-2.0 |
 | [quote](https://github.com/dtolnay/quote) | 1.0.47 | MIT OR Apache-2.0 |
 | [r-efi](https://github.com/r-efi/r-efi) | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
@@ -443,8 +446,8 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [rayon-core](https://github.com/rayon-rs/rayon) | 1.13.0 | MIT OR Apache-2.0 |
 | [redox_syscall](https://gitlab.redox-os.org/redox-os/syscall) | 0.5.18 | MIT |
 | [redox_users](https://gitlab.redox-os.org/redox-os/users) | 0.5.2 | MIT |
-| [ref-cast](https://github.com/dtolnay/ref-cast) | 1.0.26 | MIT OR Apache-2.0 |
-| [ref-cast-impl](https://github.com/dtolnay/ref-cast) | 1.0.26 | MIT OR Apache-2.0 |
+| [ref-cast](https://github.com/dtolnay/ref-cast) | 1.0.27 | MIT OR Apache-2.0 |
+| [ref-cast-impl](https://github.com/dtolnay/ref-cast) | 1.0.27 | MIT OR Apache-2.0 |
 | [regex](https://github.com/rust-lang/regex) | 1.13.1 | MIT OR Apache-2.0 |
 | [regex-automata](https://github.com/rust-lang/regex) | 0.4.18 | MIT OR Apache-2.0 |
 | [regex-syntax](https://github.com/rust-lang/regex) | 0.8.11 | MIT OR Apache-2.0 |
@@ -452,10 +455,10 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [reqwest](https://github.com/seanmonstar/reqwest) | 0.13.4 | MIT OR Apache-2.0 |
 | [rfd](https://github.com/PolyMeilex/rfd) | 0.16.0 | MIT |
 | [ring](https://github.com/briansmith/ring) | 0.17.14 | Apache-2.0 AND ISC |
-| [rmcp](https://github.com/modelcontextprotocol/rust-sdk/) | 3.1.2 | Apache-2.0 |
-| [rmcp-macros](https://github.com/modelcontextprotocol/rust-sdk/) | 3.1.2 | Apache-2.0 |
+| [rmcp](https://github.com/modelcontextprotocol/rust-sdk/) | 3.2.0 | Apache-2.0 |
+| [rmcp-macros](https://github.com/modelcontextprotocol/rust-sdk/) | 3.2.0 | Apache-2.0 |
 | rsqlite-vfs | 0.1.1 | MIT |
-| [rtrb](https://github.com/mgeier/rtrb) | 0.3.4 | MIT OR Apache-2.0 |
+| [rtrb](https://github.com/mgeier/rtrb) | 0.4.0 | MIT OR Apache-2.0 |
 | [rumqttc-core-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [rumqttc-v4-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [rusqlite](https://github.com/rusqlite/rusqlite) | 0.40.2 | MIT |
@@ -472,7 +475,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [rustls-pki-types](https://github.com/rustls/pki-types) | 1.15.1 | MIT OR Apache-2.0 |
 | [rustls-platform-verifier](https://github.com/rustls/rustls-platform-verifier) | 0.7.0 | MIT OR Apache-2.0 |
 | [rustls-platform-verifier-android](https://github.com/rustls/rustls-platform-verifier) | 0.1.1 | MIT OR Apache-2.0 |
-| [rustls-webpki](https://github.com/rustls/webpki) | 0.103.14 | ISC |
+| [rustls-webpki](https://github.com/rustls/webpki) | 0.103.15 | ISC |
 | [rustversion](https://github.com/dtolnay/rustversion) | 1.0.23 | MIT OR Apache-2.0 |
 | [ryu](https://github.com/dtolnay/ryu) | 1.0.23 | Apache-2.0 OR BSL-1.0 |
 | [same-file](https://github.com/BurntSushi/same-file) | 1.0.6 | Unlicense/MIT |
@@ -499,11 +502,11 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [serde_spanned](https://github.com/toml-rs/toml) | 0.6.9 | MIT OR Apache-2.0 |
 | [serde_spanned](https://github.com/toml-rs/toml) | 1.1.1 | MIT OR Apache-2.0 |
 | [serde_urlencoded](https://github.com/nox/serde_urlencoded) | 0.7.1 | MIT/Apache-2.0 |
-| [serde_with](https://github.com/jonasbb/serde_with/) | 3.21.0 | MIT OR Apache-2.0 |
-| [serde_with_macros](https://github.com/jonasbb/serde_with/) | 3.21.0 | MIT OR Apache-2.0 |
+| [serde_with](https://github.com/jonasbb/serde_with/) | 3.22.0 | MIT OR Apache-2.0 |
+| [serde_with_macros](https://github.com/jonasbb/serde_with/) | 3.22.0 | MIT OR Apache-2.0 |
 | [serialize-to-javascript](https://github.com/chippers/serialize-to-javascript) | 0.1.2 | MIT OR Apache-2.0 |
 | [serialize-to-javascript-impl](https://github.com/chippers/serialize-to-javascript) | 0.1.2 | MIT OR Apache-2.0 |
-| [serialport](https://github.com/serialport/serialport-rs) | 4.9.0 | MPL-2.0 |
+| [serialport](https://github.com/serialport/serialport-rs) | 4.10.0 | MPL-2.0 |
 | [servo_arc](https://github.com/servo/stylo) | 0.4.3 | MIT OR Apache-2.0 |
 | [sha1](https://github.com/RustCrypto/hashes) | 0.10.7 | MIT OR Apache-2.0 |
 | [sha2](https://github.com/RustCrypto/hashes) | 0.10.9 | MIT OR Apache-2.0 |
@@ -517,7 +520,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [siphasher](https://github.com/jedisct1/rust-siphash) | 1.0.3 | MIT/Apache-2.0 |
 | [slab](https://github.com/tokio-rs/slab) | 0.4.12 | MIT |
 | [slotmap](https://github.com/orlp/slotmap) | 1.1.1 | Zlib |
-| [smallvec](https://github.com/servo/rust-smallvec) | 1.15.2 | MIT OR Apache-2.0 |
+| [smallvec](https://github.com/servo/rust-smallvec) | 1.16.0 | MIT OR Apache-2.0 |
 | [soapysdr](https://github.com/kevinmehall/rust-soapysdr) | 0.5.1 | BSL-1.0 OR Apache-2.0 |
 | [soapysdr-sys](https://github.com/kevinmehall/rust-soapysdr) | 0.8.1 | BSL-1.0 |
 | [socket2](https://github.com/rust-lang/socket2) | 0.6.5 | MIT OR Apache-2.0 |
@@ -535,12 +538,14 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [string_cache_codegen](https://github.com/servo/string-cache) | 0.6.1 | MIT OR Apache-2.0 |
 | [strsim](https://github.com/rapidfuzz/strsim-rs) | 0.11.1 | MIT |
 | [subtle](https://github.com/dalek-cryptography/subtle) | 2.6.1 | BSD-3-Clause |
-| [swift-rs](https://github.com/Brendonovich/swift-rs) | 1.0.7 | MIT OR Apache-2.0 |
+| [swift-rs](https://github.com/Brendonovich/swift-rs) | 1.0.8 | MIT OR Apache-2.0 |
 | [syn](https://github.com/dtolnay/syn) | 1.0.109 | MIT OR Apache-2.0 |
 | [syn](https://github.com/dtolnay/syn) | 2.0.119 | MIT OR Apache-2.0 |
-| [syn](https://github.com/dtolnay/syn) | 3.0.3 | MIT OR Apache-2.0 |
+| [syn](https://github.com/dtolnay/syn) | 3.0.4 | MIT OR Apache-2.0 |
 | [sync_wrapper](https://github.com/Actyx/sync_wrapper) | 1.0.2 | Apache-2.0 |
 | [synstructure](https://github.com/mystor/synstructure) | 0.13.2 | MIT |
+| [system-configuration](https://github.com/mullvad/system-configuration-rs) | 0.7.0 | MIT OR Apache-2.0 |
+| [system-configuration-sys](https://github.com/mullvad/system-configuration-rs) | 0.6.0 | MIT OR Apache-2.0 |
 | [system-deps](https://github.com/gdesmott/system-deps) | 6.2.2 | MIT OR Apache-2.0 |
 | [tao](https://github.com/tauri-apps/tao) | 0.35.3 | Apache-2.0 |
 | [tao-macros](https://github.com/tauri-apps/tao) | 0.1.4 | MIT OR Apache-2.0 |
@@ -551,9 +556,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [tauri-codegen](https://github.com/tauri-apps/tauri) | 2.6.3 | Apache-2.0 OR MIT |
 | [tauri-macros](https://github.com/tauri-apps/tauri) | 2.6.3 | Apache-2.0 OR MIT |
 | [tauri-plugin](https://github.com/tauri-apps/tauri) | 2.6.3 | Apache-2.0 OR MIT |
-| [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) | 2.7.2 | Apache-2.0 OR MIT |
-| [tauri-plugin-fs](https://github.com/tauri-apps/plugins-workspace) | 2.5.1 | Apache-2.0 OR MIT |
-| [tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace) | 2.10.1 | Apache-2.0 OR MIT |
+| [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) | 2.7.3 | Apache-2.0 OR MIT |
+| [tauri-plugin-fs](https://github.com/tauri-apps/plugins-workspace) | 2.5.2 | Apache-2.0 OR MIT |
+| [tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace) | 2.11.0 | Apache-2.0 OR MIT |
 | [tauri-runtime](https://github.com/tauri-apps/tauri) | 2.11.3 | Apache-2.0 OR MIT |
 | [tauri-runtime-wry](https://github.com/tauri-apps/tauri) | 2.11.4 | Apache-2.0 OR MIT |
 | [tauri-utils](https://github.com/tauri-apps/tauri) | 2.9.3 | Apache-2.0 OR MIT |
@@ -568,7 +573,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [time](https://github.com/time-rs/time) | 0.3.55 | MIT OR Apache-2.0 |
 | [time-core](https://github.com/time-rs/time) | 0.1.9 | MIT OR Apache-2.0 |
 | [time-macros](https://github.com/time-rs/time) | 0.2.32 | MIT OR Apache-2.0 |
-| [tinystr](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
+| [tinystr](https://github.com/unicode-org/icu4x) | 0.8.4 | Unicode-3.0 |
 | [tinyvec](https://github.com/Lokathor/tinyvec) | 1.12.0 | Zlib OR Apache-2.0 OR MIT |
 | [tinyvec_macros](https://github.com/Soveu/tinyvec_macros) | 0.1.1 | MIT OR Apache-2.0 OR Zlib |
 | [tokio](https://github.com/tokio-rs/tokio) | 1.53.1 | MIT |
@@ -580,7 +585,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [tokio-util](https://github.com/tokio-rs/tokio) | 0.7.19 | MIT |
 | [toml](https://github.com/toml-rs/toml) | 0.8.2 | MIT OR Apache-2.0 |
 | [toml](https://github.com/toml-rs/toml) | 0.9.12+spec-1.1.0 | MIT OR Apache-2.0 |
-| [toml](https://github.com/toml-rs/toml) | 1.1.4+spec-1.1.0 | MIT OR Apache-2.0 |
+| [toml](https://github.com/toml-rs/toml) | 1.1.5+spec-1.1.0 | MIT OR Apache-2.0 |
 | [toml_datetime](https://github.com/toml-rs/toml) | 0.6.3 | MIT OR Apache-2.0 |
 | [toml_datetime](https://github.com/toml-rs/toml) | 0.7.5+spec-1.1.0 | MIT OR Apache-2.0 |
 | [toml_datetime](https://github.com/toml-rs/toml) | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |
@@ -591,7 +596,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [toml_writer](https://github.com/toml-rs/toml) | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 |
 | [tower](https://github.com/tower-rs/tower) | 0.5.3 | MIT |
 | [tower-http](https://github.com/tower-rs/tower-http) | 0.6.11 | MIT |
-| [tower-http](https://github.com/tower-rs/tower-http) | 0.7.0 | MIT |
+| [tower-http](https://github.com/tower-rs/tower-http) | 0.7.1 | MIT |
 | [tower-layer](https://github.com/tower-rs/tower) | 0.3.3 | MIT |
 | [tower-service](https://github.com/tower-rs/tower) | 0.3.3 | MIT |
 | [tracing](https://github.com/tokio-rs/tracing) | 0.1.44 | MIT |
@@ -625,7 +630,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [utoipa-gen](https://github.com/juhaku/utoipa) | 5.5.0 | MIT OR Apache-2.0 |
 | [utoipa-swagger-ui](https://github.com/juhaku/utoipa) | 9.0.2 | MIT OR Apache-2.0 |
 | [utoipa-swagger-ui-vendored](https://github.com/juhaku/utoipa) | 0.1.2 | MIT OR Apache-2.0 |
-| [uuid](https://github.com/uuid-rs/uuid) | 1.24.0 | Apache-2.0 OR MIT |
+| [uuid](https://github.com/uuid-rs/uuid) | 1.26.0 | Apache-2.0 OR MIT |
 | [valuable](https://github.com/tokio-rs/valuable) | 0.1.1 | MIT |
 | [vcpkg](https://github.com/mcgoo/vcpkg-rs) | 0.2.15 | MIT/Apache-2.0 |
 | [version-compare](https://gitlab.com/timvisee/version-compare) | 0.2.1 | MIT |
@@ -645,21 +650,21 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [wayland-sys](https://github.com/smithay/wayland-rs) | 0.31.11 | MIT |
 | [web-sys](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys) | 0.3.104 | MIT OR Apache-2.0 |
 | [web-time](https://github.com/daxpedda/web-time) | 1.1.0 | MIT OR Apache-2.0 |
-| [web_atoms](https://github.com/servo/html5ever) | 0.2.5 | MIT OR Apache-2.0 |
+| [web_atoms](https://github.com/servo/html5ever) | 0.2.6 | MIT OR Apache-2.0 |
 | [webkit2gtk](https://github.com/tauri-apps/webkit2gtk-rs) | 2.0.2 | MIT |
 | [webkit2gtk-sys](https://github.com/tauri-apps/webkit2gtk-rs) | 2.0.2 | MIT |
 | [webpki-root-certs](https://github.com/rustls/webpki-roots) | 1.0.9 | CDLA-Permissive-2.0 |
 | [webview2-com](https://github.com/wravery/webview2-rs) | 0.38.2 | MIT |
 | [webview2-com-macros](https://github.com/wravery/webview2-rs) | 0.8.1 | MIT |
 | [webview2-com-sys](https://github.com/wravery/webview2-rs) | 0.38.2 | MIT |
-| [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-core](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-core-deps-apple](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-core-deps-emscripten](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-core-deps-windows-linux-android](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-hal](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-naga-bridge](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
-| [wgpu-types](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
+| [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-core](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-core-deps-apple](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-core-deps-emscripten](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-core-deps-windows-linux-android](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-hal](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-naga-bridge](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
+| [wgpu-types](https://github.com/gfx-rs/wgpu) | 30.0.1 | MIT OR Apache-2.0 |
 | [winapi](https://github.com/retep998/winapi-rs) | 0.3.9 | MIT/Apache-2.0 |
 | [winapi-i686-pc-windows-gnu](https://github.com/retep998/winapi-rs) | 0.4.0 | MIT/Apache-2.0 |
 | [winapi-util](https://github.com/BurntSushi/winapi-util) | 0.1.11 | Unlicense OR MIT |
@@ -679,6 +684,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [windows-link](https://github.com/microsoft/windows-rs) | 0.2.1 | MIT OR Apache-2.0 |
 | [windows-numerics](https://github.com/microsoft/windows-rs) | 0.2.0 | MIT OR Apache-2.0 |
 | [windows-numerics](https://github.com/microsoft/windows-rs) | 0.3.1 | MIT OR Apache-2.0 |
+| [windows-registry](https://github.com/microsoft/windows-rs) | 0.6.1 | MIT OR Apache-2.0 |
 | [windows-result](https://github.com/microsoft/windows-rs) | 0.3.4 | MIT OR Apache-2.0 |
 | [windows-result](https://github.com/microsoft/windows-rs) | 0.4.1 | MIT OR Apache-2.0 |
 | [windows-strings](https://github.com/microsoft/windows-rs) | 0.4.2 | MIT OR Apache-2.0 |
@@ -722,7 +728,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [winnow](https://github.com/winnow-rs/winnow) | 1.0.4 | MIT |
 | [winreg](https://github.com/gentoo90/winreg-rs) | 0.55.0 | MIT |
 | [wit-bindgen](https://github.com/bytecodealliance/wit-bindgen) | 0.57.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
-| [writeable](https://github.com/unicode-org/icu4x) | 0.6.3 | Unicode-3.0 |
+| [writeable](https://github.com/unicode-org/icu4x) | 0.6.4 | Unicode-3.0 |
 | [wry](https://github.com/tauri-apps/wry) | 0.55.1 | Apache-2.0 OR MIT |
 | [x11](https://github.com/AltF02/x11-rs.git) | 2.21.0 | MIT |
 | [x11-dl](https://github.com/AltF02/x11-rs.git) | 2.21.0 | MIT |
@@ -744,9 +750,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [zerofrom](https://github.com/unicode-org/icu4x) | 0.1.8 | Unicode-3.0 |
 | [zerofrom-derive](https://github.com/unicode-org/icu4x) | 0.1.7 | Unicode-3.0 |
 | [zeroize](https://github.com/RustCrypto/utils) | 1.9.0 | Apache-2.0 OR MIT |
-| [zerotrie](https://github.com/unicode-org/icu4x) | 0.2.4 | Unicode-3.0 |
-| [zerovec](https://github.com/unicode-org/icu4x) | 0.11.6 | Unicode-3.0 |
-| [zerovec-derive](https://github.com/unicode-org/icu4x) | 0.11.3 | Unicode-3.0 |
+| [zerotrie](https://github.com/unicode-org/icu4x) | 0.2.5 | Unicode-3.0 |
+| [zerovec](https://github.com/unicode-org/icu4x) | 0.11.8 | Unicode-3.0 |
+| [zerovec-derive](https://github.com/unicode-org/icu4x) | 0.11.6 | Unicode-3.0 |
 | [zip](https://github.com/zip-rs/zip2.git) | 3.0.0 | MIT |
 | [zip](https://github.com/zip-rs/zip2.git) | 4.6.1 | MIT |
 | [zlib-rs](https://github.com/trifectatechfoundation/zlib-rs) | 0.6.7 | Zlib |
@@ -771,11 +777,11 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [@mapbox/unitbezier](https://github.com/mapbox/unitbezier) | 1.0.0 | BSD-2-Clause |
 | [@mapbox/vector-tile](https://github.com/mapbox/vector-tile-js#readme) | 3.0.0 | BSD-3-Clause |
 | [@maplibre/geojson-vt](https://github.com/maplibre/geojson-vt#readme) | 6.1.1 | ISC |
-| [@maplibre/maplibre-gl-style-spec](https://maplibre.org/maplibre-style-spec/) | 26.2.1 | ISC |
-| [@maplibre/mlt](https://github.com/maplibre/maplibre-tile-spec/#readme) | 1.1.12 | (MIT OR Apache-2.0) |
+| [@maplibre/maplibre-gl-style-spec](https://maplibre.org/maplibre-style-spec/) | 26.4.1 | ISC |
+| [@maplibre/mlt](https://github.com/maplibre/maplibre-tile-spec/#readme) | 1.2.0 | (MIT OR Apache-2.0) |
 | [@maplibre/vt-pbf](https://github.com/maplibre/vt-pbf#readme) | 4.3.2 | MIT |
-| [@tanstack/query-core](https://tanstack.com/query) | 5.101.4 | MIT |
-| [@tanstack/react-query](https://tanstack.com/query) | 5.101.4 | MIT |
+| [@tanstack/query-core](https://tanstack.com/query) | 5.102.8 | MIT |
+| [@tanstack/react-query](https://tanstack.com/query) | 5.102.8 | MIT |
 | [@types/d3-color](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-color) | 3.1.3 | MIT |
 | [@types/d3-drag](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-drag) | 3.0.7 | MIT |
 | [@types/d3-interpolate](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-interpolate) | 3.0.4 | MIT |
@@ -784,10 +790,10 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [@types/d3-zoom](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-zoom) | 3.0.8 | MIT |
 | [@types/geojson](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/geojson) | 7946.0.16 | MIT |
 | [@types/react](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react) | 19.2.18 | MIT |
-| [@types/react-dom](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom) | 19.2.4 | MIT |
+| [@types/react-dom](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom) | 19.2.5 | MIT |
 | [@wasm-audio-decoders/common](https://github.com/eshaz/wasm-audio-decoders/tree/master/src/common) | 9.0.7 | MIT |
-| [@xyflow/react](https://reactflow.dev) | 12.11.2 | MIT |
-| [@xyflow/system](https://github.com/xyflow/xyflow#readme) | 0.0.79 | MIT |
+| [@xyflow/react](https://reactflow.dev) | 12.11.6 | MIT |
+| [@xyflow/system](https://github.com/xyflow/xyflow#readme) | 0.0.82 | MIT |
 | [classcat](https://github.com/jorgebucaran/classcat#readme) | 5.0.5 | MIT |
 | [csstype](https://github.com/frenic/csstype#readme) | 3.2.3 | MIT |
 | [d3-color](https://d3js.org/d3-color/) | 3.1.0 | ISC |
@@ -804,12 +810,12 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [gl-matrix](http://glmatrix.net) | 3.4.4 | MIT |
 | [json-stringify-pretty-compact](https://github.com/lydell/json-stringify-pretty-compact#readme) | 4.0.0 | MIT |
 | [kdbush](https://github.com/mourner/kdbush#readme) | 4.1.0 | ISC |
-| [maplibre-gl](https://maplibre.org/) | 6.3.0 | BSD-3-Clause |
+| [maplibre-gl](https://maplibre.org/) | 6.6.0 | BSD-3-Clause |
 | [minimist](https://github.com/minimistjs/minimist) | 1.2.8 | MIT |
 | [murmurhash-js](https://github.com/mikolalysenko/murmurhash-js#readme) | 1.0.0 | MIT |
 | [openapi-fetch](https://openapi-ts.dev) | 0.17.0 | MIT |
 | [openapi-typescript-helpers](https://openapi-ts.dev) | 0.1.0 | MIT |
-| [opus-decoder](https://github.com/eshaz/wasm-audio-decoders/tree/main/src/opus-decoder) | 0.7.11 | MIT |
+| [opus-decoder](https://github.com/eshaz/wasm-audio-decoders/tree/main/src/opus-decoder) | 0.7.12 | MIT |
 | [pbf](https://github.com/mapbox/pbf) | 5.1.2 | BSD-3-Clause |
 | [pmtiles](https://github.com/protomaps/pmtiles) | 4.5.0 | BSD-3-Clause |
 | [potpack](https://mapbox.github.io/potpack/) | 2.1.0 | ISC |
@@ -817,14 +823,14 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [quickselect](https://github.com/mourner/quickselect#readme) | 3.0.0 | ISC |
 | [react](https://react.dev/) | 19.2.8 | MIT |
 | [react-dom](https://react.dev/) | 19.2.8 | MIT |
-| [reselect](https://github.com/reduxjs/reselect#readme) | 5.2.0 | MIT |
+| [reselect](https://github.com/reduxjs/reselect#readme) | 5.3.0 | MIT |
 | [resolve-protobuf-schema](https://github.com/mafintosh/resolve-protobuf-schema) | 2.1.0 | MIT |
 | [scheduler](https://react.dev/) | 0.27.0 | MIT |
 | [simple-yenc](https://github.com/eshaz/simple-yenc#readme) | 1.0.4 | MIT |
 | [tinyqueue](https://github.com/mourner/tinyqueue) | 3.0.0 | ISC |
 | [uqr](https://github.com/unjs/uqr#readme) | 0.1.3 | MIT |
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
-| [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
+| [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
 ## Hardware libraries (6)
 

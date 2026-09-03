@@ -10,9 +10,9 @@
 unsound = "all"
 # Unmaintained is the opposite case: it is only actionable for crates we chose ourselves.
 # Nothing unmaintained here today is one — the ten gtk3-rs crates, five `unic-*` and
-# `proc-macro-error` arrive through `tauri`, `audiopus_sys` through `opus`, `paste` through
-# `utoipa-axum` — and pinning them as ignores would bury the advisories we can actually reason
-# about under a wall of upstream noise.
+# `proc-macro-error` arrive through `tauri`, `paste` through `utoipa-axum` — and pinning them
+# as ignores would bury the advisories we can actually reason about under a wall of upstream
+# noise.
 unmaintained = "workspace"
 # An exception that no longer applies is a lie about the tree, so make it fail rather than warn:
 # when tauri finally moves off gtk3, this gate is what tells us to delete the ignore below.

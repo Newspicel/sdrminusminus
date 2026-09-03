@@ -63,7 +63,7 @@ jobs:
       changed: ${{ steps.stamp.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
-      # Building xtask reaches sdrmm-server, so audiopus_sys' vendored libopus is compiled here
+      # Building xtask reaches sdrmm-server, so opusic-sys' vendored libopus is compiled here
       # too — the one reason a manifest edit needs a C toolchain.
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
       - run: rustup show
@@ -203,7 +203,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      # audiopus_sys builds vendored libopus through the cmake crate.
+      # opusic-sys builds vendored libopus through the cmake crate.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
       - name: cargo xtask dist
@@ -484,7 +484,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      # Tauri v2's Linux prerequisites; cmake is for audiopus_sys' vendored libopus.
+      # Tauri v2's Linux prerequisites; cmake is for opusic-sys' vendored libopus.
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update

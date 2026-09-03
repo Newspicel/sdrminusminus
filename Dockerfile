@@ -60,7 +60,7 @@ RUN find crates apps xtask -type f ! -name Cargo.toml -delete \
 
 # --- server binary -----------------------------------------------------------------------
 FROM debian:trixie-slim AS builder
-# cc + cmake: audiopus_sys builds vendored libopus through the cmake crate. The private Soapy
+# cc + cmake: opusic-sys builds vendored libopus through the cmake crate. The private Soapy
 # environment supplies the core library used to link the canonical hardware backend.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
