@@ -55,7 +55,9 @@ test duration, reconnect result, and any overrun or underflow observations in th
 ## Generated output
 
 Run `cargo xtask codegen` after API or wire-type changes and `cargo xtask licenses` after dependency
-changes. Decoder fixtures, band plans, and icons have their own `xtask` commands documented in the
+changes. A change to `web/pnpm-lock.yaml` also moves the hash the Nix package pins the fetched pnpm
+store by: `cargo xtask nix-hash` retakes it, through nix on Linux or a `nixos/nix` container
+anywhere else, and `cargo xtask check` refuses a lockfile that has moved past the recorded one. Decoder fixtures, band plans, and icons have their own `xtask` commands documented in the
 [development guide](https://newspicel.github.io/sdrminusminus/development/building.html#generated-files).
 Commit generated outputs with the source change.
 

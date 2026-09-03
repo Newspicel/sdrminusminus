@@ -22,6 +22,7 @@ mod homebrew;
 mod icons;
 mod licenses;
 mod linkage;
+mod nixhash;
 mod replay;
 mod updater;
 
@@ -60,6 +61,7 @@ enum Cmd {
         full: bool,
     },
     Icons,
+    NixHash,
     Dist {
         #[arg(long)]
         target: Option<String>,
@@ -120,6 +122,7 @@ fn main() -> Result<()> {
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
         Cmd::Icons => icons::icons(&root()),
+        Cmd::NixHash => nixhash::run(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
         Cmd::SoapyBundleCheck { dir } => {
@@ -490,6 +493,7 @@ mod dev_command_tests {
 
 fn check(root: &Path) -> Result<()> {
     bundle::check_resources(root)?;
+    nixhash::check(root)?;
     check_toolchain_pins(root)?;
     check_windows_rs_alignment(root)?;
     check_baked_in_fixtures(root)?;

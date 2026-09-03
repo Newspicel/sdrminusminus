@@ -109,12 +109,18 @@ Run the matching task whenever its source changes:
 |---|---|---|
 | REST routes or wire types | `cargo xtask codegen` | `openapi.json`, `web/src/generated/schema.d.ts` |
 | Dependency lockfiles | `cargo xtask licenses` | `THIRD_PARTY_NOTICES.md`, embedded notices JSON |
+| `web/pnpm-lock.yaml` | `cargo xtask nix-hash` | The pnpm store hash in `packaging/nix/package.nix` |
 | Decoder reference signals | `cargo xtask fixtures` | SigMF pairs under `fixtures/` |
 | Band-plan source imports | `cargo xtask bandplan` | Embedded regional tables |
 | `assets/icon.svg` | `cargo xtask icons` | Desktop and web icon variants |
 
 Generated outputs are committed. `cargo xtask check` detects drift for the outputs that must match
 on every change.
+
+`nix-hash` is the one that cannot run everywhere: the hash covers a store only nix can build, so the
+task uses nix on Linux and a `nixos/nix` container elsewhere. `check` does not build anything — it
+compares a digest of the lockfile recorded beside the hash, which is enough to catch a lockfile that
+moved without the hash, and leaves proving the hash itself to the Nix job in CI.
 
 ## Desktop prerequisites
 
