@@ -169,6 +169,8 @@ pub enum RecordAction {
 pub struct RecordingInfo {
     pub id: i64,
     pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub device_id: String,
     pub device_label: String,
     pub center_hz: f64,
@@ -186,9 +188,12 @@ pub struct RecordingInfo {
 pub const MAX_RECORDING_TAGS: usize = 32;
 pub const MAX_RECORDING_TAG_LEN: usize = 48;
 pub const MAX_RECORDING_NOTE_LEN: usize = 4_000;
+pub const MAX_RECORDING_NAME_LEN: usize = 120;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingAnnotation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -200,6 +205,7 @@ pub enum AnnotationError {
     TagCount(usize),
     TagLen(usize),
     NoteLen(usize),
+    NameLen(usize),
 }
 
 impl std::fmt::Display for AnnotationError {
@@ -218,6 +224,10 @@ impl std::fmt::Display for AnnotationError {
             Self::NoteLen(n) => write!(
                 f,
                 "a {n}-character note is longer than the {MAX_RECORDING_NOTE_LEN} a note holds"
+            ),
+            Self::NameLen(n) => write!(
+                f,
+                "a {n}-character name is longer than the {MAX_RECORDING_NAME_LEN} a name holds"
             ),
         }
     }
@@ -253,7 +263,18 @@ impl RecordingAnnotation {
         {
             return Err(AnnotationError::NoteLen(note.chars().count()));
         }
+        let name = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        if let Some(name) = name
+            && name.chars().count() > MAX_RECORDING_NAME_LEN
+        {
+            return Err(AnnotationError::NameLen(name.chars().count()));
+        }
         Ok(Self {
+            name: name.map(str::to_owned),
             tags,
             note: note.map(str::to_owned),
         })

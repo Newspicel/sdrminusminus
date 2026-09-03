@@ -68,6 +68,12 @@ pub struct SigmfGlobal {
         skip_serializing_if = "Option::is_none"
     )]
     pub description: Option<String>,
+    #[serde(
+        rename = "sdrmm:name",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
     #[serde(rename = "sdrmm:tags", default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(
@@ -183,6 +189,7 @@ impl SigmfWriter {
                 recorder: Some(RECORDER_NAME.to_string()),
                 hw: Some(hw.to_string()),
                 description: None,
+                name: None,
                 tags: Vec::new(),
                 rx_stream: None,
             },
@@ -341,8 +348,14 @@ fn write_meta_synced(mut file: File, meta: &SigmfMeta) -> Result<(), SigmfError>
     Ok(())
 }
 
-pub fn annotate(stem: &Path, tags: &[String], note: Option<&str>) -> Result<SigmfMeta, SigmfError> {
+pub fn annotate(
+    stem: &Path,
+    name: Option<&str>,
+    tags: &[String],
+    note: Option<&str>,
+) -> Result<SigmfMeta, SigmfError> {
     let mut meta = read_meta(stem)?;
+    meta.global.name = name.map(str::to_owned);
     meta.global.tags = tags.to_vec();
     meta.global.description = note.map(str::to_owned);
     let tmp = tmp_meta_path(stem);
@@ -507,8 +520,15 @@ mod tests {
         assert_eq!(meta.global.description, None);
 
         let tags = vec!["airband".to_owned(), "tower".to_owned()];
-        annotate(&stem, &tags, Some("EDDF ground, 12:04 local")).unwrap();
+        annotate(
+            &stem,
+            Some("Tower watch"),
+            &tags,
+            Some("EDDF ground, 12:04 local"),
+        )
+        .unwrap();
         let reopened = SigmfReader::open(&stem).unwrap();
+        assert_eq!(reopened.meta().global.name.as_deref(), Some("Tower watch"));
         assert_eq!(reopened.meta().global.tags, tags);
         assert_eq!(
             reopened.meta().global.description.as_deref(),
@@ -516,9 +536,10 @@ mod tests {
         );
         assert_eq!(reopened.total_samples(), 64);
 
-        annotate(&stem, &[], None).unwrap();
+        annotate(&stem, None, &[], None).unwrap();
         let cleared = read_meta(&stem).unwrap();
         assert!(cleared.global.tags.is_empty());
+        assert_eq!(cleared.global.name, None);
         assert_eq!(cleared.global.description, None);
         assert!(!tmp_meta_path(&stem).exists());
     }
@@ -526,7 +547,7 @@ mod tests {
     #[test]
     fn annotating_a_stem_that_is_not_there_is_an_error() {
         let dir = TempDir::new().unwrap();
-        let err = annotate(&dir.path().join("absent"), &[], None).unwrap_err();
+        let err = annotate(&dir.path().join("absent"), None, &[], None).unwrap_err();
         assert!(
             matches!(&err, SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound),
             "{err}"
@@ -534,18 +555,19 @@ mod tests {
     }
 
     #[test]
-    fn tags_and_note_use_the_sigmf_global_keys() {
+    fn name_tags_and_note_use_the_sigmf_global_keys() {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("keyed");
         SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw")
             .unwrap()
             .finalize()
             .unwrap();
-        annotate(&stem, &["ism".to_owned()], Some("bench run")).unwrap();
+        annotate(&stem, Some("Bench"), &["ism".to_owned()], Some("bench run")).unwrap();
 
         let raw: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(meta_path(&stem)).unwrap()).unwrap();
         assert_eq!(raw["global"]["sdrmm:tags"][0], "ism");
+        assert_eq!(raw["global"]["sdrmm:name"], "Bench");
         assert_eq!(raw["global"]["core:description"], "bench run");
     }
 
@@ -785,6 +807,7 @@ mod tests {
                 recorder: Some("sdr--".to_string()),
                 hw: None,
                 description: None,
+                name: None,
                 tags: Vec::new(),
                 rx_stream: None,
             },

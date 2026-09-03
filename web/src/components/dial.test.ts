@@ -3,11 +3,11 @@ import {
   dialDigits,
   dialPlaces,
   formatStep,
+  inTuningRange,
   isTunable,
   parseFrequency,
   setDialDigit,
   stepDial,
-  inTuningRange,
   tuneTargetHz,
 } from "./dial";
 

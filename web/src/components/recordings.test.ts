@@ -12,6 +12,7 @@ import {
   parseTags,
   recordingElapsedS,
   recordingProvenance,
+  recordingTitle,
 } from "./recordings";
 
 function set(over: Partial<DeviceSet>): DeviceSet {
@@ -144,6 +145,11 @@ describe("matchesRecordingSearch", () => {
     note: "EDDF ground",
   } satisfies RecordingInfo;
 
+  it("matches the name an operator gave it", () => {
+    expect(matchesRecordingSearch({ ...recording, name: "Tower watch" }, "tower wat")).toBe(true);
+    expect(matchesRecordingSearch(recording, "tower watch")).toBe(false);
+  });
+
   it("matches a file name, a tag or a note, case-insensitively", () => {
     expect(matchesRecordingSearch(recording, "")).toBe(true);
     expect(matchesRecordingSearch(recording, "  ")).toBe(true);
@@ -191,5 +197,33 @@ describe("describeRecording", () => {
     expect(recordingProvenance({ ...recording, created_at: "whenever", tags: [] })).toBe(
       "Signal Generator",
     );
+  });
+});
+
+describe("recordingTitle", () => {
+  const recording = {
+    id: 1,
+    file: "siggen-20260809-120000",
+    device_id: "virtual:file:/recordings/siggen",
+    device_label: "Signal Generator",
+    center_hz: 100e6,
+    sample_rate: 2.048e6,
+    samples: 4,
+    bytes: 32,
+    duration_s: 1,
+    created_at: "2026-08-09T12:00:00Z",
+  } satisfies RecordingInfo;
+
+  it("prefers the name, and falls back to the file it was written as", () => {
+    expect(recordingTitle(recording)).toBe("siggen-20260809-120000");
+    expect(recordingTitle({ ...recording, name: "Tower watch" })).toBe("Tower watch");
+    expect(recordingTitle({ ...recording, name: "  " })).toBe("siggen-20260809-120000");
+  });
+
+  it("keeps the file name in the provenance line once a recording is named", () => {
+    expect(recordingProvenance({ ...recording, name: "Tower watch" })).toContain(
+      "siggen-20260809-120000",
+    );
+    expect(recordingProvenance(recording)).not.toContain("siggen-20260809-120000");
   });
 });

@@ -1,5 +1,6 @@
 import { refMatches } from "../canvas/binding";
 import type { DeviceInfo, DeviceRef, RecordingInfo } from "../lib/types";
+import { recordingTitle } from "./recordings";
 
 function deviceRank(device: DeviceInfo): number {
   return device.driver === "virtual" ? 1 : 0;
@@ -49,20 +50,36 @@ export function groupDevices(devices: readonly DeviceInfo[]): {
   };
 }
 
-export function recordingDetails(
-  recordings: readonly RecordingInfo[],
-): ReadonlyMap<string, RecordingInfo> {
-  return new Map(recordings.map((recording) => [recording.device_id, recording]));
+export interface RecordingChoice {
+  device: DeviceInfo;
+  info: RecordingInfo | null;
+  title: string;
 }
 
-export function filterRecordingDevices(
+export function recordingChoices(
   recordings: readonly DeviceInfo[],
+  library: readonly RecordingInfo[],
+): readonly RecordingChoice[] {
+  const details = new Map(library.map((recording) => [recording.device_id, recording]));
+  return recordings.map((device) => {
+    const info = details.get(deviceId(device)) ?? null;
+    return { device, info, title: info === null ? device.label : recordingTitle(info) };
+  });
+}
+
+export function filterRecordingChoices(
+  choices: readonly RecordingChoice[],
   query: string,
-): readonly DeviceInfo[] {
+): readonly RecordingChoice[] {
   const normalized = query.trim().toLowerCase();
-  return normalized === ""
-    ? recordings
-    : recordings.filter((recording) => recording.label.toLowerCase().includes(normalized));
+  if (normalized === "") {
+    return choices;
+  }
+  return choices.filter((choice) =>
+    [choice.title, choice.device.label, choice.info?.note ?? "", ...(choice.info?.tags ?? [])].some(
+      (field) => field.toLowerCase().includes(normalized),
+    ),
+  );
 }
 
 export function deviceId(device: DeviceInfo): string {

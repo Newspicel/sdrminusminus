@@ -321,15 +321,17 @@ async fn an_annotation_lands_in_the_sigmf_metadata_and_survives_a_reconcile() {
     let rec = recorded(&app).await;
     assert!(rec.tags.is_empty());
     assert_eq!(rec.note, None);
+    assert_eq!(rec.name, None);
 
     let (status, body) = annotate(
         &app,
         rec.id,
-        r#"{"tags":["  Airband ","airband","tower"],"note":"  EDDF ground  "}"#,
+        r#"{"name":"  Tower watch  ","tags":["  Airband ","airband","tower"],"note":"  EDDF ground  "}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     let annotated: sdrmm_wire::RecordingInfo = serde_json::from_slice(&body).expect("json");
+    assert_eq!(annotated.name.as_deref(), Some("Tower watch"));
     assert_eq!(annotated.tags, ["Airband", "tower"]);
     assert_eq!(annotated.note.as_deref(), Some("EDDF ground"));
     assert_eq!(annotated.id, rec.id);
@@ -340,17 +342,20 @@ async fn an_annotation_lands_in_the_sigmf_metadata_and_survives_a_reconcile() {
         .meta()
         .clone();
     assert_eq!(meta.global.tags, ["Airband", "tower"]);
+    assert_eq!(meta.global.name.as_deref(), Some("Tower watch"));
     assert_eq!(meta.global.description.as_deref(), Some("EDDF ground"));
 
     let listed = list_recordings(&app).await;
     assert_eq!(listed[0].tags, ["Airband", "tower"]);
+    assert_eq!(listed[0].name.as_deref(), Some("Tower watch"));
     assert_eq!(listed[0].note.as_deref(), Some("EDDF ground"));
 
-    let (status, _) = annotate(&app, rec.id, r#"{"tags":[],"note":null}"#).await;
+    let (status, _) = annotate(&app, rec.id, r#"{"tags":[],"note":null,"name":null}"#).await;
     assert_eq!(status, StatusCode::OK);
     let listed = list_recordings(&app).await;
     assert!(listed[0].tags.is_empty());
     assert_eq!(listed[0].note, None);
+    assert_eq!(listed[0].name, None);
 }
 
 #[tokio::test]
@@ -373,6 +378,10 @@ async fn annotation_error_mapping_over_http() {
 
     let long = "n".repeat(sdrmm_wire::MAX_RECORDING_NOTE_LEN + 1);
     let (status, _) = annotate(&app, rec.id, &format!(r#"{{"note":"{long}"}}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let long_name = "n".repeat(sdrmm_wire::MAX_RECORDING_NAME_LEN + 1);
+    let (status, _) = annotate(&app, rec.id, &format!(r#"{{"name":"{long_name}"}}"#)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, _) = annotate(&app, rec.id, r#"{"tags":"airband"}"#).await;

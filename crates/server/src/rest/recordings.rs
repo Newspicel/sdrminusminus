@@ -33,14 +33,14 @@ pub(super) async fn list_recordings(
     responses(
         (
             status = 200,
-            description = "The annotated recording. Tags and note replace what the recording \
-                           carried; both live in its SigMF metadata, so they travel with a \
-                           downloaded archive",
+            description = "The annotated recording. Name, tags and note replace what the \
+                           recording carried; all three live in its SigMF metadata, so they \
+                           travel with a downloaded archive",
             body = RecordingInfo,
         ),
         (
             status = 400,
-            description = "More tags, a longer tag or a longer note than a recording holds",
+            description = "More tags, or a longer tag, name or note than a recording holds",
             body = ApiError,
         ),
         (status = 404, description = "Recording not found", body = ApiError),
@@ -60,12 +60,13 @@ pub(super) async fn annotate_recording(
     let gate = state.recordings_gate.clone();
     let info = tokio::task::spawn_blocking(move || -> Result<RecordingInfo, AppError> {
         let _gate = lock_gate(&gate);
-        let name = store.recording_stem(id)?;
+        let stem = store.recording_stem(id)?;
         let dir = engine
             .recordings_dir()
             .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
         sdrmm_recorder::annotate(
-            &dir.join(&name),
+            &dir.join(&stem),
+            annotation.name.as_deref(),
             &annotation.tags,
             annotation.note.as_deref(),
         )
@@ -128,11 +129,11 @@ pub(super) async fn download_recording(
     };
     let export = tokio::task::spawn_blocking(move || -> Result<Export, AppError> {
         let _gate = lock_gate(&gate);
-        let name = store.recording_stem(id)?;
+        let stem = store.recording_stem(id)?;
         let dir = engine
             .recordings_dir()
             .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
-        Export::open(&dir.join(&name), kind).map_err(|err| export_error(id, err))
+        Export::open(&dir.join(&stem), kind).map_err(|err| export_error(id, err))
     })
     .await??;
 
@@ -207,10 +208,10 @@ pub(super) async fn delete_recording(
     let gate = state.recordings_gate.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         let _gate = lock_gate(&gate);
-        let name = store.recording_stem(id)?;
+        let stem = store.recording_stem(id)?;
         if let Some(dir) = engine.recordings_dir() {
-            let stem = dir.join(&name);
-            for path in [meta_path(&stem), data_path(&stem)] {
+            let pair = dir.join(&stem);
+            for path in [meta_path(&pair), data_path(&pair)] {
                 if let Err(err) = std::fs::remove_file(&path)
                     && err.kind() != std::io::ErrorKind::NotFound
                 {

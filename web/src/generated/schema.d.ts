@@ -4546,6 +4546,7 @@ export interface components {
         /** @enum {string} */
         RecordAction: "start" | "stop";
         RecordingAnnotation: {
+            name?: string | null;
             note?: string | null;
             tags?: string[];
         };
@@ -4564,6 +4565,7 @@ export interface components {
             file: string;
             /** Format: int64 */
             id: number;
+            name?: string | null;
             note?: string | null;
             /** Format: double */
             sample_rate: number;
@@ -7997,7 +7999,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The annotated recording. Tags and note replace what the recording carried; both live in its SigMF metadata, so they travel with a downloaded archive */
+            /** @description The annotated recording. Name, tags and note replace what the recording carried; all three live in its SigMF metadata, so they travel with a downloaded archive */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8006,7 +8008,7 @@ export interface operations {
                     "application/json": components["schemas"]["RecordingInfo"];
                 };
             };
-            /** @description More tags, a longer tag or a longer note than a recording holds */
+            /** @description More tags, or a longer tag, name or note than a recording holds */
             400: {
                 headers: {
                     [name: string]: unknown;

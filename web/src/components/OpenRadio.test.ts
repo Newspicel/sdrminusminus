@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { DeviceInfo, RecordingInfo } from "../lib/types";
 import {
   deviceId,
-  filterRecordingDevices,
+  filterRecordingChoices,
   groupDevices,
   isRecordingDevice,
   NETWORK_BACKENDS,
   networkDeviceId,
   rankDevices,
-  recordingDetails,
+  recordingChoices,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
@@ -135,34 +135,57 @@ describe("groupDevices", () => {
   });
 });
 
-describe("recordingDetails", () => {
-  it("keys the library by the id the device list reports", () => {
-    const airband = recording({ id: 1, device_id: "virtual:file:/recordings/airband" });
-    const details = recordingDetails([airband]);
+describe("recordingChoices", () => {
+  const devices = [
+    device("virtual", "file:/recordings/airband", "airband (recording)"),
+    device("virtual", "file:/recordings/weather", "weather (recording)"),
+  ];
 
-    expect(details.get(deviceId(device("virtual", "file:/recordings/airband")))).toBe(airband);
-    expect(details.get(deviceId(device("virtual", "file:/recordings/weather")))).toBeUndefined();
+  it("titles a device by the name its library row carries, or by the file", () => {
+    const choices = recordingChoices(devices, [
+      recording({ device_id: "virtual:file:/recordings/airband", name: "Tower watch" }),
+    ]);
+    expect(choices.map((choice) => choice.title)).toEqual(["Tower watch", "weather (recording)"]);
+    expect(choices[0]?.info?.name).toBe("Tower watch");
+    expect(choices[1]?.info).toBeNull();
   });
 });
 
-describe("filterRecordingDevices", () => {
-  const recordings = [
-    device("virtual", "file:/recordings/Airband", "Airband morning (recording)"),
-    device("virtual", "file:/recordings/weather", "Weather net (recording)"),
-  ];
+describe("filterRecordingChoices", () => {
+  const choices = recordingChoices(
+    [
+      device("virtual", "file:/recordings/Airband", "Airband morning (recording)"),
+      device("virtual", "file:/recordings/weather", "Weather net (recording)"),
+    ],
+    [
+      recording({
+        device_id: "virtual:file:/recordings/weather",
+        name: "Sunday net",
+        tags: ["hf"],
+        note: "80 m",
+      }),
+    ],
+  );
+  const titles = (query: string): string[] =>
+    filterRecordingChoices(choices, query).map((choice) => choice.title);
 
   it("matches labels without case sensitivity or surrounding whitespace", () => {
-    expect(filterRecordingDevices(recordings, "  AIRBAND ").map(deviceId)).toEqual([
-      "virtual:file:/recordings/Airband",
-    ]);
+    expect(titles("  AIRBAND ")).toEqual(["Airband morning (recording)"]);
+  });
+
+  it("matches the name, a tag or a note an operator wrote", () => {
+    expect(titles("sunday")).toEqual(["Sunday net"]);
+    expect(titles("hf")).toEqual(["Sunday net"]);
+    expect(titles("80 m")).toEqual(["Sunday net"]);
+    expect(titles("weather")).toEqual(["Sunday net"]);
   });
 
   it("returns every recording for an empty search", () => {
-    expect(filterRecordingDevices(recordings, " ")).toEqual(recordings);
+    expect(filterRecordingChoices(choices, " ")).toEqual(choices);
   });
 
   it("returns an empty list when no recording matches", () => {
-    expect(filterRecordingDevices(recordings, "marine")).toEqual([]);
+    expect(filterRecordingChoices(choices, "marine")).toEqual([]);
   });
 });
 

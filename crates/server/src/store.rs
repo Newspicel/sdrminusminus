@@ -262,6 +262,12 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX cps_codeplugs_model ON cps_codeplugs (model_id, updated_at DESC);
     ",
+    "
+    -- The name an operator gave a recording, kept beside its tags and note and mirrored from the
+    -- same SigMF metadata. Null is a recording nobody has named, which is every one taken before
+    -- this column.
+    ALTER TABLE recordings ADD COLUMN name TEXT;
+    ",
 ];
 
 pub const WORKSPACE_HISTORY_DEPTH: i64 = 100;
@@ -293,6 +299,7 @@ struct RecordedSettings<'a> {
 
 pub struct RecordingRow {
     pub stem: String,
+    pub name: Option<String>,
     pub created_at: String,
     pub device_label: String,
     pub center_hz: f64,
@@ -425,14 +432,17 @@ impl Store {
 
     pub fn upsert_recording(&self, row: &RecordingRow) -> Result<(), StoreError> {
         self.lock().execute(
-            "INSERT INTO recordings (stem, created_at, device_label, center_hz, sample_rate, \
-             samples, bytes, tags, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
-             ON CONFLICT(stem) DO UPDATE SET created_at = excluded.created_at, \
+            "INSERT INTO recordings (stem, name, created_at, device_label, center_hz, \
+             sample_rate, samples, bytes, tags, note) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             ON CONFLICT(stem) DO UPDATE SET name = excluded.name, \
+             created_at = excluded.created_at, \
              device_label = excluded.device_label, center_hz = excluded.center_hz, \
              sample_rate = excluded.sample_rate, samples = excluded.samples, \
              bytes = excluded.bytes, tags = excluded.tags, note = excluded.note",
             params![
                 row.stem,
+                row.name,
                 row.created_at,
                 row.device_label,
                 row.center_hz,
@@ -450,7 +460,7 @@ impl Store {
         let conn = self.lock();
         let mut stmt = conn.prepare(
             "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes, \
-             tags, note FROM recordings ORDER BY id",
+             tags, note, name FROM recordings ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
             let stem: String = row.get(1)?;
@@ -460,6 +470,7 @@ impl Store {
                 id: row.get(0)?,
                 device_id: format!("virtual:file:{}", dir.join(&stem).display()),
                 file: stem,
+                name: row.get(10)?,
                 created_at: row.get(2)?,
                 device_label: row.get(3)?,
                 center_hz: row.get(4)?,

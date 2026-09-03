@@ -112,6 +112,7 @@ test.describe("the workspace", () => {
             {
               id: 1,
               file: "capture-099",
+              name: "Tower watch",
               device_id: "virtual:file:/recordings/capture-099",
               device_label: "RTL-SDR 00000001",
               center_hz: 100e6,
@@ -148,10 +149,10 @@ test.describe("the workspace", () => {
     const recordingsDialog = page.getByRole("dialog", { name: "Recordings" });
     await expect(recordingsDialog).toBeVisible();
     await recordingsDialog.getByRole("searchbox", { name: "Search recordings" }).fill("099");
-    const capture = recordingsDialog.getByRole("button", { name: /capture-099/i });
+    const capture = recordingsDialog.getByRole("button", { name: /Tower watch/i });
     await expect(capture).toBeVisible();
     await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.8 MB");
-    await expect(capture).toContainText("RTL-SDR 00000001 · #airband");
+    await expect(capture).toContainText("RTL-SDR 00000001 · capture-099 · #airband");
     await expect(capture).toHaveAttribute("title", "EDDF ground");
     await expect(recordingsDialog.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
     await recordingsDialog.getByRole("button", { name: "Close" }).click();

@@ -21,8 +21,11 @@ import {
   formatBytes,
   formatDuration,
   formatTags,
+  MAX_RECORDING_NAME_LEN,
   matchesRecordingSearch,
   parseTags,
+  recordingProvenance,
+  recordingTitle,
 } from "./recordings";
 
 export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo) => void }) {
@@ -67,9 +70,12 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
         <div key={r.id} className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
-              <div className="truncate font-mono text-sm text-ink">{r.file}</div>
-              <div className="truncate font-mono text-[10px] tabular-nums text-ink-dim">
+              <div className="truncate font-mono text-ink text-sm">{recordingTitle(r)}</div>
+              <div className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
                 {describeRecording(r)}
+              </div>
+              <div className="truncate font-mono text-[10px] text-ink-faint">
+                {recordingProvenance(r)}
               </div>
             </div>
             <Button type="button" className={BTN} onClick={() => onOpen(r)}>
@@ -90,7 +96,7 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
               type="button"
               className={BTN}
               aria-expanded={editing === r.id}
-              title="Tags and a note, kept in the recording's own metadata"
+              title="A name, tags and a note, kept in the recording's own metadata"
               onClick={() => setEditing(editing === r.id ? null : r.id)}
             >
               Annotate
@@ -169,6 +175,7 @@ function AnnotationForm({
   onSave: (annotation: RecordingAnnotation) => void;
   onCancel: () => void;
 }) {
+  const [name, setName] = useState(recording.name ?? "");
   const [tags, setTags] = useState(() => formatTags(recording.tags ?? []));
   const [note, setNote] = useState(recording.note ?? "");
 
@@ -177,9 +184,21 @@ function AnnotationForm({
       className="flex flex-col gap-1.5 border-line border-l-2 pl-2"
       onSubmit={(e) => {
         e.preventDefault();
-        onSave({ tags: parseTags(tags), note: note.trim() === "" ? null : note.trim() });
+        onSave({
+          name: name.trim() === "" ? null : name.trim().slice(0, MAX_RECORDING_NAME_LEN),
+          tags: parseTags(tags),
+          note: note.trim() === "" ? null : note.trim(),
+        });
       }}
     >
+      <Input
+        className={FIELD}
+        placeholder="Name this recording"
+        maxLength={MAX_RECORDING_NAME_LEN}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label={`Name for ${recording.file}`}
+      />
       <Input
         className={FIELD}
         placeholder="Tags, comma separated"

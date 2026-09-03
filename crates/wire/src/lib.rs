@@ -138,12 +138,12 @@ pub use rest::{
     ChannelTypesResponse, ClientsResponse, CreateBookmarkRequest, CreateChannelRequest,
     CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, EventAudio, EventImage,
-    ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN,
-    MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport,
-    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint, RouteRequest,
-    RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NAME_LEN, MAX_RECORDING_NOTE_LEN,
+    MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver, ManeuverKind,
+    OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest,
+    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation,
+    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse, Route, RoutePoint,
+    RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,
@@ -262,6 +262,7 @@ mod contract_tests {
     #[test]
     fn an_annotation_normalizes_to_trimmed_unique_tags_and_a_note_or_nothing() {
         let annotation = RecordingAnnotation {
+            name: Some("  Tower watch  ".to_owned()),
             tags: vec![
                 "  airband ".to_owned(),
                 "AIRBAND".to_owned(),
@@ -273,8 +274,10 @@ mod contract_tests {
         let normalized = annotation.normalized().unwrap();
         assert_eq!(normalized.tags, ["airband", "tower"]);
         assert_eq!(normalized.note.as_deref(), Some("EDDF ground"));
+        assert_eq!(normalized.name.as_deref(), Some("Tower watch"));
 
         let blank = RecordingAnnotation {
+            name: Some(" ".to_owned()),
             tags: vec!["   ".to_owned()],
             note: Some("  ".to_owned()),
         };
@@ -284,6 +287,7 @@ mod contract_tests {
     #[test]
     fn an_oversized_annotation_is_refused_rather_than_truncated() {
         let long_tag = RecordingAnnotation {
+            name: None,
             tags: vec!["t".repeat(MAX_RECORDING_TAG_LEN + 1)],
             note: None,
         };
@@ -293,6 +297,7 @@ mod contract_tests {
         );
 
         let many = RecordingAnnotation {
+            name: None,
             tags: (0..=MAX_RECORDING_TAGS).map(|i| format!("t{i}")).collect(),
             note: None,
         };
@@ -302,12 +307,23 @@ mod contract_tests {
         );
 
         let long_note = RecordingAnnotation {
+            name: None,
             tags: Vec::new(),
             note: Some("n".repeat(MAX_RECORDING_NOTE_LEN + 1)),
         };
         assert_eq!(
             long_note.normalized(),
             Err(AnnotationError::NoteLen(MAX_RECORDING_NOTE_LEN + 1))
+        );
+
+        let long_name = RecordingAnnotation {
+            name: Some("n".repeat(MAX_RECORDING_NAME_LEN + 1)),
+            tags: Vec::new(),
+            note: None,
+        };
+        assert_eq!(
+            long_name.normalized(),
+            Err(AnnotationError::NameLen(MAX_RECORDING_NAME_LEN + 1))
         );
     }
 
@@ -321,6 +337,7 @@ mod contract_tests {
         .unwrap();
         assert!(info.tags.is_empty());
         assert_eq!(info.note, None);
+        assert_eq!(info.name, None);
     }
 
     #[test]

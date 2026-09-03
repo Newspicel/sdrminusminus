@@ -284,6 +284,7 @@ pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Resu
         };
         store.upsert_recording(&RecordingRow {
             stem: name.to_string(),
+            name: meta.global.name.clone(),
             created_at: recording_created_at(stem, meta),
             device_label: meta.global.hw.clone().unwrap_or_default(),
             center_hz: meta

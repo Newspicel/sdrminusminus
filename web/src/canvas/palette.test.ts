@@ -41,12 +41,7 @@ const TYPES: ChannelDescriptor[] = [
 describe("paletteGroups", () => {
   it("orders the sections and keeps every channel type in one list", () => {
     const groups = paletteGroups(CATALOG, TYPES);
-    expect(groups.map((group) => group.title)).toEqual([
-      "Sources",
-      "Decoders",
-      "Tools",
-      "Outputs",
-    ]);
+    expect(groups.map((group) => group.title)).toEqual(["Sources", "Decoders", "Tools", "Outputs"]);
     expect(groups[1]?.items).toEqual([
       { id: "channel:nfm", name: "NFM", kind: "channel", type: TYPES[0] },
       { id: "channel:adsb", name: "ADS-B (1090ES)", kind: "channel", type: TYPES[1] },

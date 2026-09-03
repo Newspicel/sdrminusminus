@@ -118,6 +118,7 @@ fn bookmark_crud_roundtrip() {
 fn recording_row(stem: &str, samples: u64) -> RecordingRow {
     RecordingRow {
         stem: stem.to_string(),
+        name: None,
         created_at: "2026-08-09T12:00:00Z".to_string(),
         device_label: "Signal Generator (virtual)".to_string(),
         center_hz: 100_000_000.0,
@@ -190,6 +191,7 @@ fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
     let store = Store::open(None).expect("open");
     let dir = Path::new("/tmp/recs");
     let annotated = RecordingRow {
+        name: Some("Tower watch".to_string()),
         tags: vec!["airband".to_string(), "tower".to_string()],
         note: Some("EDDF ground".to_string()),
         ..recording_row("rec_1_a", 48_000)
@@ -198,6 +200,7 @@ fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
     let listed = store.list_recordings(dir).expect("list");
     assert_eq!(listed[0].tags, ["airband", "tower"]);
     assert_eq!(listed[0].note.as_deref(), Some("EDDF ground"));
+    assert_eq!(listed[0].name.as_deref(), Some("Tower watch"));
 
     store
         .upsert_recording(&recording_row("rec_1_a", 48_000))
@@ -205,6 +208,7 @@ fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
     let listed = store.list_recordings(dir).expect("list");
     assert!(listed[0].tags.is_empty());
     assert_eq!(listed[0].note, None);
+    assert_eq!(listed[0].name, None);
 }
 
 fn adsb(icao: &str, callsign: &str) -> DecoderEvent {

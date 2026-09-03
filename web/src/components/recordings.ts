@@ -3,6 +3,7 @@ import { formatMhz } from "./format";
 
 export const MAX_RECORDING_TAGS = 32;
 export const MAX_RECORDING_TAG_LEN = 48;
+export const MAX_RECORDING_NAME_LEN = 120;
 
 export const downloadFormats: ReadonlyArray<{
   format: RecordingFormat;
@@ -59,12 +60,22 @@ export function formatTags(tags: readonly string[]): string {
   return tags.join(", ");
 }
 
+export function recordingTitle(recording: RecordingInfo): string {
+  const name = recording.name?.trim() ?? "";
+  return name === "" ? recording.file : name;
+}
+
 export function matchesRecordingSearch(recording: RecordingInfo, search: string): boolean {
   const needle = search.trim().toLowerCase();
   if (needle === "") {
     return true;
   }
-  const haystack = [recording.file, recording.note ?? "", ...(recording.tags ?? [])];
+  const haystack = [
+    recording.file,
+    recording.name ?? "",
+    recording.note ?? "",
+    ...(recording.tags ?? []),
+  ];
   return haystack.some((field) => field.toLowerCase().includes(needle));
 }
 
@@ -114,6 +125,7 @@ export function recordingProvenance(recording: RecordingInfo): string {
   return [
     ...(when === null ? [] : [when]),
     recording.device_label,
+    ...(recordingTitle(recording) === recording.file ? [] : [recording.file]),
     ...(recording.tags ?? []).map((tag) => `#${tag}`),
   ].join(" · ");
 }

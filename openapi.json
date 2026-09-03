@@ -3150,7 +3150,7 @@
         },
         "responses": {
           "200": {
-            "description": "The annotated recording. Tags and note replace what the recording carried; both live in its SigMF metadata, so they travel with a downloaded archive",
+            "description": "The annotated recording. Name, tags and note replace what the recording carried; all three live in its SigMF metadata, so they travel with a downloaded archive",
             "content": {
               "application/json": {
                 "schema": {
@@ -3160,7 +3160,7 @@
             }
           },
           "400": {
-            "description": "More tags, a longer tag or a longer note than a recording holds",
+            "description": "More tags, or a longer tag, name or note than a recording holds",
             "content": {
               "application/json": {
                 "schema": {
@@ -16101,6 +16101,12 @@
       "RecordingAnnotation": {
         "type": "object",
         "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "note": {
             "type": [
               "string",
@@ -16165,6 +16171,12 @@
           "id": {
             "type": "integer",
             "format": "int64"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "note": {
             "type": [

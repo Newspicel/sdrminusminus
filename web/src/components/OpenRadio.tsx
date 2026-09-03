@@ -7,11 +7,11 @@ import { Button, Form, Input } from "./BaseControls";
 import { BTN, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
 import {
   deviceId,
-  filterRecordingDevices,
+  filterRecordingChoices,
   groupDevices,
   NETWORK_BACKENDS,
   networkDeviceId,
-  recordingDetails,
+  recordingChoices,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
@@ -75,8 +75,10 @@ function RecordingChoices({
 }) {
   const [query, setQuery] = useState("");
   const library = useQuery(recordingsQuery());
-  const details = recordingDetails(library.data?.recordings ?? []);
-  const filtered = filterRecordingDevices(recordings, query);
+  const filtered = filterRecordingChoices(
+    recordingChoices(recordings, library.data?.recordings ?? []),
+    query,
+  );
 
   return (
     <Dialog.Root
@@ -107,33 +109,30 @@ function RecordingChoices({
             onChange={(event) => setQuery(event.target.value)}
           />
           <div className="mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto">
-            {filtered.map((device) => {
-              const info = details.get(deviceId(device)) ?? null;
-              return (
-                <Button
-                  key={deviceId(device)}
-                  type="button"
-                  className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
-                  title={info?.note ?? undefined}
-                  disabled={busy}
-                  onClick={() => onChoose(device)}
-                >
-                  <span className="flex w-full min-w-0 flex-col gap-0.5">
-                    <span className="truncate">{device.label}</span>
-                    {info !== null && (
-                      <>
-                        <span className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-                          {describeRecording(info)}
-                        </span>
-                        <span className="truncate font-mono text-[10px] text-ink-faint">
-                          {recordingProvenance(info)}
-                        </span>
-                      </>
-                    )}
-                  </span>
-                </Button>
-              );
-            })}
+            {filtered.map(({ device, info, title }) => (
+              <Button
+                key={deviceId(device)}
+                type="button"
+                className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
+                title={info?.note ?? undefined}
+                disabled={busy}
+                onClick={() => onChoose(device)}
+              >
+                <span className="flex w-full min-w-0 flex-col gap-0.5">
+                  <span className="truncate">{title}</span>
+                  {info !== null && (
+                    <>
+                      <span className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
+                        {describeRecording(info)}
+                      </span>
+                      <span className="truncate font-mono text-[10px] text-ink-faint">
+                        {recordingProvenance(info)}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </Button>
+            ))}
             {recordings.length === 0 && (
               <p className="py-3 text-center text-sm text-ink-dim">No recordings yet.</p>
             )}
