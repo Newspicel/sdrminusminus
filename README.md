@@ -74,18 +74,20 @@ fixture committed to this repository — `cargo xtask screenshots` regenerates t
 | ![POCSAG pager traffic](assets/screenshots/pocsag.png) | ![Broadcast FM with RDS](assets/screenshots/rds.png) |
 | POCSAG pager messages, forwarded to a webhook as they arrive | Broadcast FM with RDS: station, radiotext and alternate frequencies |
 
-## Why not SDR++, SDRangel, or GQRX?
+## Why not SDR++, SDRangel, GQRX, or GNU Radio?
 
-Those are good programs, and if you want a desktop receiver with a fixed layout and a long list of
-demodulators, they will serve you better today — they are mature, and most of this project's
-decoders are not yet (see below). sdr-- exists because four things are structural rather than
-features that could be added to them:
+Those are good programs. The first three are mature desktop receivers with a fixed layout and a
+long list of demodulators, and if that is what you want they will serve you better today — most of
+this project's decoders are not mature yet (see below). GNU Radio is the other kind of tool: a
+toolkit you build a receiver with rather than a receiver you operate. sdr-- exists because four
+things are structural rather than features that could be added to either kind:
 
 - **The signal path is a graph you build, not a fixed chain.** Devices, channels, scopes, scanners,
   recorders, maps, logs, and network sinks are nodes you wire together. One device can feed twelve
   channels; one channel can feed a speaker, a map, a log, and a UDP sink at once. Two decoders can
   share a device while a third records the raw IQ underneath them. In a fixed layout each of those
-  is a feature someone has to add; here it is a cable you drag.
+  is a feature someone has to add; here it is a cable you drag, on a receiver that keeps running —
+  not a flowgraph you edit in a design tool, regenerate, and restart.
 - **The receiver and its interface are separate programs.** The Rust server owns the hardware and
   the DSP; the interface is a browser client. Put a Pi in the attic next to the antenna and operate
   it from the sofa, a laptop, or a phone — no X forwarding, no VNC, no remote desktop. The same
@@ -95,15 +97,18 @@ features that could be added to them:
   a generated OpenAPI document, a WebSocket event stream, and an MCP server. Tuning, channels,
   scanning, recording, and decoded traffic are all reachable from a shell script, a bot, or an LLM
   agent, because they are the same endpoints the UI calls. There is no plugin to write and no
-  separate automation surface that lags behind the app.
+  separate automation surface that lags behind the app, and nothing to author first: the script
+  drives a running receiver over the network instead of being the receiver.
 - **One binary, no module hunt.** RTL-SDR, HackRF, and SDRplay drivers are compiled in; so are the
   decoders and the web UI. `docker compose up` or a single downloaded file gets you a working
-  receiver without installing SoapySDR modules, matching plugin ABIs, or tracking down which build
-  of which library your distribution shipped.
+  receiver without installing SoapySDR modules, matching plugin ABIs, tracking down which build of
+  which library your distribution shipped, or chasing the out-of-tree module — gr-adsb, gr-ais,
+  gr-satellites — that carries the mode you wanted.
 
 The honest trade: sdr-- is younger and has less on-air mileage. If you need a proven receiver
-right now, use SDR++. If you want a receiver you can wire up, put on the network, and drive from
-code, that is what this is for.
+right now, use SDR++. If you are building a novel DSP chain out of primitives, use GNU Radio. If
+you want a receiver you can wire up, put on the network, and drive from code, that is what this is
+for.
 
 ## How far each mode has been proven
 
