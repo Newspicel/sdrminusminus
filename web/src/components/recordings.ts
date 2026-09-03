@@ -1,4 +1,5 @@
 import type { DeviceSet, RecordingFormat, RecordingInfo, RecordingStatus } from "../lib/types";
+import { formatMhz } from "./format";
 
 export const MAX_RECORDING_TAGS = 32;
 export const MAX_RECORDING_TAG_LEN = 48;
@@ -90,6 +91,31 @@ export function formatBytes(bytes: number): string {
     return `${(bytes / 1e6).toFixed(1)} MB`;
   }
   return `${(bytes / 1e9).toFixed(2)} GB`;
+}
+
+export function formatRecordedAt(createdAt: string): string | null {
+  const at = Date.parse(createdAt);
+  return Number.isNaN(at)
+    ? null
+    : new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+export function describeRecording(recording: RecordingInfo): string {
+  return [
+    formatMhz(recording.center_hz),
+    `${(recording.sample_rate / 1e6).toFixed(3)} MS/s`,
+    formatDuration(recording.duration_s),
+    formatBytes(recording.bytes),
+  ].join(" · ");
+}
+
+export function recordingProvenance(recording: RecordingInfo): string {
+  const when = formatRecordedAt(recording.created_at);
+  return [
+    ...(when === null ? [] : [when]),
+    recording.device_label,
+    ...(recording.tags ?? []).map((tag) => `#${tag}`),
+  ].join(" · ");
 }
 
 function pad2(n: number): string {

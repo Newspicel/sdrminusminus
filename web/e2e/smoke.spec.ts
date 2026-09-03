@@ -105,6 +105,28 @@ test.describe("the workspace", () => {
         },
       }),
     );
+    await page.route("**/api/recordings", (route) =>
+      route.fulfill({
+        json: {
+          recordings: [
+            {
+              id: 1,
+              file: "capture-099",
+              device_id: "virtual:file:/recordings/capture-099",
+              device_label: "RTL-SDR 00000001",
+              center_hz: 100e6,
+              sample_rate: 2.048e6,
+              samples: 4_096_000,
+              bytes: 32_768_000,
+              duration_s: 2,
+              created_at: "2026-08-09T12:00:00Z",
+              tags: ["airband"],
+              note: "EDDF ground",
+            },
+          ],
+        },
+      }),
+    );
     const styleErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error" && message.text().includes("color expected")) {
@@ -126,11 +148,17 @@ test.describe("the workspace", () => {
     const recordingsDialog = page.getByRole("dialog", { name: "Recordings" });
     await expect(recordingsDialog).toBeVisible();
     await recordingsDialog.getByRole("searchbox", { name: "Search recordings" }).fill("099");
-    await expect(recordingsDialog.getByRole("button", { name: /capture-099/i })).toBeVisible();
+    const capture = recordingsDialog.getByRole("button", { name: /capture-099/i });
+    await expect(capture).toBeVisible();
+    await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.8 MB");
+    await expect(capture).toContainText("RTL-SDR 00000001 · #airband");
+    await expect(capture).toHaveAttribute("title", "EDDF ground");
     await expect(recordingsDialog.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
     await recordingsDialog.getByRole("button", { name: "Close" }).click();
     await expect(recordings).toBeFocused();
 
+    await expect(receiver.getByRole("button", { name: /signal generator/i })).toHaveCount(0);
+    await receiver.getByRole("button", { name: "Virtual radios (1)" }).click();
     await receiver.getByRole("button", { name: /signal generator/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
 
@@ -888,6 +916,62 @@ test.describe("the workspace", () => {
 
     await page.goto("/");
     await expect(page.locator('header img[src="/icon.svg"]')).toBeVisible();
+  });
+
+  test("names a radio that is not connected once, not again on the next edit", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const created = await page.request
+      .post("/api/workspaces", {
+        data: {
+          name: "Absent radio",
+          snapshot: {
+            version: 3,
+            graph: {
+              nodes: [
+                {
+                  id: "gone",
+                  kind: "device",
+                  position: { x: 0, y: 0 },
+                  data: { device: { backend: "rtlsdr", key: "deadbeef" } },
+                },
+                { id: "view", kind: "scope", position: { x: 440, y: 0 }, size: { w: 800, h: 420 } },
+              ],
+              edges: [],
+            },
+          },
+        },
+      })
+      .then((r) => r.json());
+    await page.request.post(`/api/workspaces/${created.id}/activate`);
+    await page.goto("/");
+
+    const missing = page.getByText(/its radio is not connected/);
+    await expect(missing).toHaveCount(1);
+
+    const header = await page.locator('.react-flow__node[data-id="view"] header').boundingBox();
+    if (header === null) {
+      throw new Error("a header to right-click");
+    }
+    await page.mouse.click(header.x + header.width / 2, header.y + header.height / 2, {
+      button: "right",
+    });
+    await page.getByRole("menu").getByRole("button", { name: "Reset size" }).click();
+    await expect
+      .poll(async () => {
+        const detail: WorkspaceDetail = await page.request
+          .get(`/api/workspaces/${created.id}`)
+          .then((r) => r.json());
+        const view = detail.snapshot.graph.nodes.find((node) => node.id === "view");
+        return view?.size ?? null;
+      })
+      .toBeNull();
+
+    await expect(missing).toHaveCount(1);
+    await expect(missing).not.toContainText("×");
+
+    await page.request.post(`/api/workspaces/${list.active}/activate`);
+    await page.request.delete(`/api/workspaces/${created.id}`);
   });
 
   test("takes a name for the first workspace on an empty desk", async ({ page }) => {

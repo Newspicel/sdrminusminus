@@ -1,19 +1,21 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { devicesQuery, doctorQuery } from "../lib/api";
+import { devicesQuery, doctorQuery, recordingsQuery } from "../lib/api";
 import type { DeviceInfo, DeviceRef } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
-import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
+import { BTN, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
 import {
   deviceId,
   filterRecordingDevices,
   groupDevices,
   NETWORK_BACKENDS,
   networkDeviceId,
+  recordingDetails,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
+import { describeRecording, recordingProvenance } from "./recordings";
 import { Select } from "./Select";
 
 function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: boolean }) {
@@ -72,6 +74,8 @@ function RecordingChoices({
   busy: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const library = useQuery(recordingsQuery());
+  const details = recordingDetails(library.data?.recordings ?? []);
   const filtered = filterRecordingDevices(recordings, query);
 
   return (
@@ -103,17 +107,33 @@ function RecordingChoices({
             onChange={(event) => setQuery(event.target.value)}
           />
           <div className="mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto">
-            {filtered.map((device) => (
-              <Button
-                key={deviceId(device)}
-                type="button"
-                className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
-                disabled={busy}
-                onClick={() => onChoose(device)}
-              >
-                <span className="truncate">{device.label}</span>
-              </Button>
-            ))}
+            {filtered.map((device) => {
+              const info = details.get(deviceId(device)) ?? null;
+              return (
+                <Button
+                  key={deviceId(device)}
+                  type="button"
+                  className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
+                  title={info?.note ?? undefined}
+                  disabled={busy}
+                  onClick={() => onChoose(device)}
+                >
+                  <span className="flex w-full min-w-0 flex-col gap-0.5">
+                    <span className="truncate">{device.label}</span>
+                    {info !== null && (
+                      <>
+                        <span className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
+                          {describeRecording(info)}
+                        </span>
+                        <span className="truncate font-mono text-[10px] text-ink-faint">
+                          {recordingProvenance(info)}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </Button>
+              );
+            })}
             {recordings.length === 0 && (
               <p className="py-3 text-center text-sm text-ink-dim">No recordings yet.</p>
             )}
@@ -127,6 +147,27 @@ function RecordingChoices({
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function RadioChoice({
+  device,
+  busy,
+  onChoose,
+}: {
+  device: DeviceInfo;
+  busy: boolean;
+  onChoose: (device: DeviceInfo) => void;
+}) {
+  return (
+    <Button
+      type="button"
+      className={`${BTN} justify-center`}
+      disabled={busy}
+      onClick={() => onChoose(device)}
+    >
+      <span className="truncate">{device.label}</span>
+    </Button>
   );
 }
 
@@ -146,24 +187,17 @@ export function DeviceChoices({
   const devices = useQuery(devicesQuery());
   const [showDoctor, setShowDoctor] = useState(false);
   const [showNetwork, setShowNetwork] = useState(false);
+  const [showVirtual, setShowVirtual] = useState(false);
   const visible = visibleDevices(devices.data?.devices ?? []);
   const found = unclaimedDevices(visible, claimed);
-  const { radios, recordings } = groupDevices(found);
+  const { radios, virtual, recordings } = groupDevices(found);
   const elsewhere = visible.length - found.length;
 
   return (
     <div className="flex w-full flex-col gap-2">
       <div className="flex flex-col gap-1">
-        {radios.map((device, index) => (
-          <Button
-            key={deviceId(device)}
-            type="button"
-            className={`${index === 0 ? BTN_PRIMARY : BTN} justify-center`}
-            disabled={busy}
-            onClick={() => onChoose(device)}
-          >
-            <span className="truncate">{device.label}</span>
-          </Button>
+        {radios.map((device) => (
+          <RadioChoice key={deviceId(device)} device={device} busy={busy} onChoose={onChoose} />
         ))}
       </div>
 
@@ -183,6 +217,31 @@ export function DeviceChoices({
       )}
 
       <RecordingChoices recordings={recordings} onChoose={onChoose} busy={busy} />
+
+      {virtual.length > 0 && (
+        <>
+          <Button
+            type="button"
+            className={`${BTN_QUIET} self-center`}
+            aria-expanded={showVirtual}
+            onClick={() => setShowVirtual(!showVirtual)}
+          >
+            {showVirtual ? "Hide virtual radios" : `Virtual radios (${virtual.length})`}
+          </Button>
+          {showVirtual && (
+            <div className="flex flex-col gap-1">
+              {virtual.map((device) => (
+                <RadioChoice
+                  key={deviceId(device)}
+                  device={device}
+                  busy={busy}
+                  onChoose={onChoose}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <Button
         type="button"

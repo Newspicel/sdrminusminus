@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppHotkeys } from "./appHotkeys";
+import { applyToasts } from "./canvas/applyToasts";
 import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
@@ -20,7 +21,7 @@ import { channelTypesQuery, patchCatalogQuery, stateQuery } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { watchDevicePosition } from "./lib/position";
 import { pushToast } from "./lib/toasts";
-import type { PatchGraph, WorkspaceSettings } from "./lib/types";
+import type { PatchApplyReport, PatchGraph, WorkspaceSettings } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
 import { useSdrSocket } from "./lib/useSdrSocket";
@@ -69,16 +70,15 @@ export function App() {
     }
     return watchDevicePosition(socket, deviceGpsNodeIds);
   }, [socket, deviceGpsNodeIds, workspace.active?.revision]);
+  const announced = useRef<PatchApplyReport | null>(null);
   useEffect(() => {
-    const named = (id: string): string => {
-      const node = graph.nodes.find((candidate) => candidate.id === id);
-      return node?.label ?? (node?.kind === "channel" ? node.data.channel_type.toUpperCase() : id);
-    };
-    for (const refusal of workspace.applied?.refused ?? []) {
-      pushToast(`${named(refusal.node)}: ${refusal.reason}`);
+    const report = workspace.applied;
+    if (report === null || report === announced.current) {
+      return;
     }
-    for (const node of workspace.applied?.absent ?? []) {
-      pushToast(`${named(node)}: its radio is not connected, so nothing on it was started`);
+    announced.current = report;
+    for (const message of applyToasts(report, graph.nodes)) {
+      pushToast(message);
     }
   }, [workspace.applied, graph.nodes]);
 

@@ -15,8 +15,8 @@ import { pushToast } from "../lib/toasts";
 import type { RecordingAnnotation, RecordingInfo } from "../lib/types";
 import { Button, Form, Input, Textarea } from "./BaseControls";
 import { BTN, BTN_SM, CHIP, FIELD } from "./controls";
-import { formatMhz } from "./format";
 import {
+  describeRecording,
   downloadFormats,
   formatBytes,
   formatDuration,
@@ -69,8 +69,7 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
             <div className="min-w-0 flex-1">
               <div className="truncate font-mono text-sm text-ink">{r.file}</div>
               <div className="truncate font-mono text-[10px] tabular-nums text-ink-dim">
-                {formatMhz(r.center_hz)} · {(r.sample_rate / 1e6).toFixed(3)} MS/s ·{" "}
-                {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
+                {describeRecording(r)}
               </div>
             </div>
             <Button type="button" className={BTN} onClick={() => onOpen(r)}>

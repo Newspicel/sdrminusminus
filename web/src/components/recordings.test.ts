@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DeviceSet, RecordingInfo, RecordingStatus } from "../lib/types";
 import {
   deriveRecordControl,
+  describeRecording,
   formatBytes,
   formatDuration,
   formatTags,
@@ -10,6 +11,7 @@ import {
   matchesRecordingSearch,
   parseTags,
   recordingElapsedS,
+  recordingProvenance,
 } from "./recordings";
 
 function set(over: Partial<DeviceSet>): DeviceSet {
@@ -155,5 +157,39 @@ describe("matchesRecordingSearch", () => {
     const bare = { ...recording, tags: [], note: null };
     expect(matchesRecordingSearch(bare, "airband")).toBe(false);
     expect(matchesRecordingSearch(bare, "siggen")).toBe(true);
+  });
+});
+
+describe("describeRecording", () => {
+  const recording = {
+    id: 1,
+    file: "siggen-20260809-120000",
+    device_id: "virtual:file:/recordings/siggen",
+    device_label: "Signal Generator",
+    center_hz: 100e6,
+    sample_rate: 2.048e6,
+    samples: 4_096_000,
+    bytes: 32_768_000,
+    duration_s: 2,
+    created_at: "2026-08-09T12:00:00Z",
+    tags: ["airband"],
+    note: "EDDF ground",
+  } satisfies RecordingInfo;
+
+  it("reads out what the capture holds", () => {
+    expect(describeRecording(recording)).toBe("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.8 MB");
+  });
+
+  it("names where and when it came from, with its tags", () => {
+    const provenance = recordingProvenance(recording);
+    expect(provenance).toContain("Signal Generator");
+    expect(provenance).toContain("#airband");
+    expect(provenance.startsWith("Signal Generator")).toBe(false);
+  });
+
+  it("leaves out a timestamp it cannot read", () => {
+    expect(recordingProvenance({ ...recording, created_at: "whenever", tags: [] })).toBe(
+      "Signal Generator",
+    );
   });
 });

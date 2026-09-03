@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceInfo } from "../lib/types";
+import type { DeviceInfo, RecordingInfo } from "../lib/types";
 import {
   deviceId,
   filterRecordingDevices,
@@ -8,12 +8,29 @@ import {
   NETWORK_BACKENDS,
   networkDeviceId,
   rankDevices,
+  recordingDetails,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
 
 function device(driver: string, key: string, label = `${driver} ${key}`): DeviceInfo {
   return { driver, key, label };
+}
+
+function recording(overrides: Partial<RecordingInfo>): RecordingInfo {
+  return {
+    id: 1,
+    file: "capture",
+    device_id: "virtual:file:/recordings/capture",
+    device_label: "RTL-SDR 0",
+    center_hz: 100e6,
+    sample_rate: 2.048e6,
+    samples: 2_048_000,
+    bytes: 16_384_000,
+    duration_s: 1,
+    created_at: "2026-08-09T12:00:00Z",
+    ...overrides,
+  };
 }
 
 describe("rankDevices", () => {
@@ -100,10 +117,11 @@ describe("groupDevices", () => {
     device("virtual", "file:/recordings/weather", "weather (recording)"),
   ];
 
-  it("keeps recordings out of the top-level device list", () => {
+  it("keeps recordings and virtual radios out of the top-level device list", () => {
     const grouped = groupDevices(devices);
 
-    expect(grouped.radios.map(deviceId)).toEqual(["rtlsdr:00000001", "virtual:siggen"]);
+    expect(grouped.radios.map(deviceId)).toEqual(["rtlsdr:00000001"]);
+    expect(grouped.virtual.map(deviceId)).toEqual(["virtual:siggen"]);
     expect(grouped.recordings.map(deviceId)).toEqual([
       "virtual:file:/recordings/airband",
       "virtual:file:/recordings/weather",
@@ -114,6 +132,16 @@ describe("groupDevices", () => {
     expect(isRecordingDevice(device("rtlsdr", "00000001"))).toBe(false);
     expect(isRecordingDevice(device("virtual", "file:/recordings/airband"))).toBe(true);
     expect(isRecordingDevice(device("virtual", "siggen"))).toBe(false);
+  });
+});
+
+describe("recordingDetails", () => {
+  it("keys the library by the id the device list reports", () => {
+    const airband = recording({ id: 1, device_id: "virtual:file:/recordings/airband" });
+    const details = recordingDetails([airband]);
+
+    expect(details.get(deviceId(device("virtual", "file:/recordings/airband")))).toBe(airband);
+    expect(details.get(deviceId(device("virtual", "file:/recordings/weather")))).toBeUndefined();
   });
 });
 

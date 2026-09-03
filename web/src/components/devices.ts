@@ -1,5 +1,5 @@
 import { refMatches } from "../canvas/binding";
-import type { DeviceInfo, DeviceRef } from "../lib/types";
+import type { DeviceInfo, DeviceRef, RecordingInfo } from "../lib/types";
 
 function deviceRank(device: DeviceInfo): number {
   return device.driver === "virtual" ? 1 : 0;
@@ -33,14 +33,26 @@ export function unclaimedDevices(
   return devices.filter((device) => !claimed.some((reference) => refMatches(reference, device)));
 }
 
+function isVirtualDevice(device: DeviceInfo): boolean {
+  return device.driver === "virtual" && !isRecordingDevice(device);
+}
+
 export function groupDevices(devices: readonly DeviceInfo[]): {
   radios: readonly DeviceInfo[];
+  virtual: readonly DeviceInfo[];
   recordings: readonly DeviceInfo[];
 } {
   return {
-    radios: devices.filter((device) => !isRecordingDevice(device)),
+    radios: devices.filter((device) => device.driver !== "virtual"),
+    virtual: devices.filter(isVirtualDevice),
     recordings: devices.filter(isRecordingDevice),
   };
+}
+
+export function recordingDetails(
+  recordings: readonly RecordingInfo[],
+): ReadonlyMap<string, RecordingInfo> {
+  return new Map(recordings.map((recording) => [recording.device_id, recording]));
 }
 
 export function filterRecordingDevices(
