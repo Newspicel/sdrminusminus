@@ -33,9 +33,8 @@
 
   --color-cat-source: oklch(0.62 0.07 228);
   --color-cat-channel: oklch(0.62 0.07 300);
-  --color-cat-display: oklch(0.62 0.05 200);
-  --color-cat-feature: oklch(0.62 0.07 60);
-  --color-cat-sink: oklch(0.58 0.03 80);
+  --color-cat-tool: oklch(0.62 0.07 60);
+  --color-cat-output: oklch(0.62 0.05 200);
 
   --color-band-ism: oklch(0.64 0.1 25);
   --color-band-broadcast: oklch(0.64 0.1 60);
@@ -79,9 +78,8 @@
 
     --color-cat-source: oklch(0.594 0.07 228);
     --color-cat-channel: oklch(0.603 0.07 300);
-    --color-cat-display: oklch(0.592 0.05 200);
-    --color-cat-feature: oklch(0.602 0.07 60);
-    --color-cat-sink: oklch(0.598 0.03 80);
+    --color-cat-tool: oklch(0.602 0.07 60);
+    --color-cat-output: oklch(0.592 0.05 200);
 
     --color-band-ism: oklch(0.55 0.15 25);
     --color-band-broadcast: oklch(0.58 0.11 60);

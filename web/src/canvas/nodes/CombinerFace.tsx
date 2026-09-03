@@ -46,7 +46,7 @@ export function CombinerFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Combiner"
-      category="channel"
+      category="tool"
       subtitle={`${settings.lanes} antennas · ${tierLabel(state?.cal)}`}
       live={verdict === "solved"}
     >

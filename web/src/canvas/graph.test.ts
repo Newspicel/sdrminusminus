@@ -101,19 +101,19 @@ const CATALOG: PatchCatalog = {
     {
       kind: "scope",
       name: "Scope",
-      category: "display",
+      category: "output",
       ports: [{ name: "iq", port_type: "iq", direction: "in", multi: false }],
     },
     {
       kind: "speaker",
       name: "Speaker",
-      category: "sink",
+      category: "output",
       ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
     },
     {
       kind: "scanner",
       name: "Scanner",
-      category: "feature",
+      category: "tool",
       ports: [{ name: "control", port_type: "control", direction: "out", multi: false }],
     },
   ],

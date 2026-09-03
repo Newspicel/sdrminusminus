@@ -16,12 +16,9 @@ export interface PaletteGroup {
 
 const SECTIONS: readonly { id: string; title: string }[] = [
   { id: "source", title: "Sources" },
-  { id: "mode", title: "Modes" },
-  { id: "decoder", title: "Decoders" },
-  { id: "channel", title: "Arrays" },
-  { id: "display", title: "Displays" },
-  { id: "sink", title: "Sinks" },
-  { id: "feature", title: "Tools" },
+  { id: "channel", title: "Decoders" },
+  { id: "tool", title: "Tools" },
+  { id: "output", title: "Outputs" },
 ];
 
 export function paletteGroups(
@@ -69,9 +66,7 @@ export function paletteGroups(
       continue;
     }
     if (entry.needs_channel_type === true) {
-      for (const group of channelGroups(channelTypes)) {
-        sections.get(group.id)?.push(...group.items);
-      }
+      sections.get("channel")?.push(...channelItems(channelTypes));
       continue;
     }
     sections.get(entry.category)?.push({
@@ -86,29 +81,21 @@ export function paletteGroups(
   })).filter((group) => group.items.length > 0);
 }
 
-function channelGroups(channelTypes: readonly ChannelDescriptor[]): PaletteGroup[] {
-  const items = new Map<string, PaletteItem[]>([
-    ["mode", []],
-    ["decoder", []],
-  ]);
-  for (const type of channelTypes) {
-    items.get(type.has_audio ? "mode" : "decoder")?.push({
-      id: `channel:${type.type_id}`,
-      name: type.name,
-      kind: "channel",
-      type,
-    });
-  }
-  return SECTIONS.map((section) => ({ ...section, items: items.get(section.id) ?? [] })).filter(
-    (group) => group.items.length > 0,
-  );
+function channelItems(channelTypes: readonly ChannelDescriptor[]): PaletteItem[] {
+  return channelTypes.map((type) => ({
+    id: `channel:${type.type_id}`,
+    name: type.name,
+    kind: "channel",
+    type,
+  }));
 }
 
 export function channelPicker(
   channelTypes: readonly ChannelDescriptor[],
   suggested: string,
 ): PaletteGroup[] {
-  const groups = channelGroups(channelTypes);
+  const items = channelItems(channelTypes);
+  const groups = items.length === 0 ? [] : [{ id: "channel", title: "Decoders", items }];
   const type = channelTypes.find((entry) => entry.type_id === suggested);
   if (type === undefined) {
     return groups;

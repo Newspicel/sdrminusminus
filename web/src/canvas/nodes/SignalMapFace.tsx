@@ -41,7 +41,7 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Signal survey"
-      category="display"
+      category="output"
       subtitle={set === null ? undefined : formatSignedKhz(node.data.offset_hz)}
       live={set !== null && position !== undefined}
     >

@@ -157,7 +157,7 @@ export function ScopeFace({ node }: { node: PatchNode }) {
       <NodeShell
         node={node}
         title="Scope"
-        category="display"
+        category="output"
         subtitle={`${tap.channel.settings.params.type} baseband`}
         live
         actions={actions}
@@ -182,7 +182,7 @@ export function ScopeFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Scope"
-      category="display"
+      category="output"
       subtitle={set?.device.label}
       live={set !== null}
       actions={actions}

@@ -5,16 +5,16 @@ import { channelPicker, filterPalette, firstPaletteItem, paletteGroups } from ".
 const CATALOG: PatchCatalog = {
   nodes: [
     { kind: "device", name: "Device", category: "source", ports: [] },
-    { kind: "array", name: "Array", category: "source", ports: [] },
+    { kind: "array", name: "Array", category: "tool", ports: [] },
     { kind: "gps", name: "GPS position", category: "source", ports: [] },
     { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
-    { kind: "scope", name: "Scope", category: "display", ports: [] },
-    { kind: "speaker", name: "Speaker", category: "sink", ports: [] },
-    { kind: "event_output", name: "Event output", category: "sink", ports: [] },
-    { kind: "scanner", name: "Scanner", category: "feature", ports: [] },
-    { kind: "df", name: "Direction finder", category: "channel", ports: [] },
-    { kind: "passive_radar", name: "Passive radar", category: "channel", ports: [] },
-    { kind: "combiner", name: "Combiner", category: "channel", ports: [] },
+    { kind: "scope", name: "Scope", category: "output", ports: [] },
+    { kind: "speaker", name: "Speaker", category: "output", ports: [] },
+    { kind: "event_output", name: "Event output", category: "output", ports: [] },
+    { kind: "scanner", name: "Scanner", category: "tool", ports: [] },
+    { kind: "df", name: "Direction finder", category: "tool", ports: [] },
+    { kind: "passive_radar", name: "Passive radar", category: "tool", ports: [] },
+    { kind: "combiner", name: "Combiner", category: "tool", ports: [] },
   ],
 };
 
@@ -39,26 +39,28 @@ const TYPES: ChannelDescriptor[] = [
 ];
 
 describe("paletteGroups", () => {
-  it("orders the sections and splits channels by what they produce", () => {
+  it("orders the sections and keeps every channel type in one list", () => {
     const groups = paletteGroups(CATALOG, TYPES);
     expect(groups.map((group) => group.title)).toEqual([
       "Sources",
-      "Modes",
       "Decoders",
-      "Arrays",
-      "Displays",
-      "Sinks",
       "Tools",
+      "Outputs",
     ]);
     expect(groups[1]?.items).toEqual([
       { id: "channel:nfm", name: "NFM", kind: "channel", type: TYPES[0] },
+      { id: "channel:adsb", name: "ADS-B (1090ES)", kind: "channel", type: TYPES[1] },
     ]);
-    expect(groups[2]?.items[0]?.id).toBe("channel:adsb");
-    expect(groups[3]?.items.map((item) => item.id)).toEqual(["df", "passive_radar", "combiner"]);
-    expect(groups[5]?.items.map((item) => item.id)).toContain("event_output");
+    expect(groups[2]?.items.map((item) => item.id)).toEqual([
+      "array",
+      "scanner",
+      "df",
+      "passive_radar",
+      "combiner",
+    ]);
+    expect(groups[3]?.items.map((item) => item.id)).toContain("event_output");
     expect(groups[0]?.items.map((item) => item.id)).toEqual([
       "device",
-      "array",
       "gps:fixed",
       "gps:gpsd",
       "gps:nmea",
@@ -77,22 +79,22 @@ describe("paletteGroups", () => {
 });
 
 describe("channelPicker", () => {
-  it("pins the suggested mode above the full split list", () => {
+  it("pins the suggested mode above the full list", () => {
     const groups = channelPicker(TYPES, "adsb");
-    expect(groups.map((group) => group.title)).toEqual(["Suggested", "Modes", "Decoders"]);
+    expect(groups.map((group) => group.title)).toEqual(["Suggested", "Decoders"]);
     expect(groups[0]?.items).toEqual([
       { id: "suggested:adsb", name: "ADS-B (1090ES)", kind: "channel", type: TYPES[1] },
     ]);
   });
 
   it("offers every type on a server that does not describe the suggested one", () => {
-    expect(channelPicker(TYPES, "atv").map((group) => group.id)).toEqual(["mode", "decoder"]);
+    expect(channelPicker(TYPES, "atv").map((group) => group.id)).toEqual(["channel"]);
   });
 
-  it("drops the half of the list the server offers nothing for", () => {
+  it("has only the suggestion to show when the server describes one type", () => {
     expect(channelPicker([TYPES[0]!], "nfm").map((group) => group.id)).toEqual([
       "suggested",
-      "mode",
+      "channel",
     ]);
   });
 });
@@ -127,7 +129,7 @@ describe("filterPalette", () => {
 
   it("matches names case-insensitively and drops emptied sections", () => {
     const hits = filterPalette(groups, "sc");
-    expect(hits.map((group) => group.title)).toEqual(["Displays", "Tools"]);
+    expect(hits.map((group) => group.title)).toEqual(["Tools", "Outputs"]);
   });
 
   it("offers every node the server describes, whatever its category", () => {

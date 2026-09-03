@@ -1461,7 +1461,7 @@ fn the_catalog_describes_every_node_kind_once() {
         .iter()
         .find(|node| node.kind == "signal_map")
         .expect("signal survey in the palette");
-    assert_eq!(signal_map.category, NodeCategory::Display);
+    assert_eq!(signal_map.category, NodeCategory::Output);
     assert_eq!(
         signal_map
             .ports
@@ -1520,7 +1520,7 @@ fn propagation_takes_decoder_events_and_a_station_position() {
         .iter()
         .find(|node| node.kind == "propagation")
         .expect("propagation map in the palette");
-    assert_eq!(propagation.category, NodeCategory::Display);
+    assert_eq!(propagation.category, NodeCategory::Output);
     assert_eq!(
         propagation
             .ports

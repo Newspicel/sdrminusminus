@@ -217,9 +217,8 @@ impl PortSpec {
 pub enum NodeCategory {
     Source,
     Channel,
-    Display,
-    Feature,
-    Sink,
+    Tool,
+    Output,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -600,30 +599,32 @@ impl NodeBody {
     #[must_use]
     pub const fn category(&self) -> NodeCategory {
         match self {
-            Self::Device(_) | Self::Array(_) | Self::Gps(_) => NodeCategory::Source,
-            Self::Channel(_) | Self::Df(_) | Self::PassiveRadar(_) | Self::Combiner(_) => {
-                NodeCategory::Channel
-            }
+            Self::Device(_) | Self::Gps(_) => NodeCategory::Source,
+            Self::Channel(_) => NodeCategory::Channel,
+            Self::Array(_)
+            | Self::Df(_)
+            | Self::PassiveRadar(_)
+            | Self::Combiner(_)
+            | Self::Scanner
+            | Self::Hunt(_)
+            | Self::DmrTrunk(_)
+            | Self::EventFilter(_)
+            | Self::Triangulation => NodeCategory::Tool,
             Self::Scope
             | Self::Map
             | Self::SignalMap(_)
             | Self::Propagation(_)
             | Self::Readout
             | Self::DecoderLog
-            | Self::Video => NodeCategory::Display,
-            Self::Scanner
-            | Self::Hunt(_)
-            | Self::DmrTrunk(_)
-            | Self::EventFilter(_)
-            | Self::Triangulation => NodeCategory::Feature,
-            Self::Speaker
+            | Self::Video
+            | Self::Speaker
             | Self::Recorder
             | Self::AudioRecorder
             | Self::BasebandRecorder
             | Self::TimeMachine(_)
             | Self::NetworkExport(_)
             | Self::EventOutput(_)
-            | Self::Export => NodeCategory::Sink,
+            | Self::Export => NodeCategory::Output,
         }
     }
 

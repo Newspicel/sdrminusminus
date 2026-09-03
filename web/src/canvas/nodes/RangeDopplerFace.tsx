@@ -38,7 +38,7 @@ export function RangeDopplerFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Passive radar"
-      category="channel"
+      category="tool"
       subtitle={`${settings.cpi_ms} ms · ${settings.max_range_bins} range bins`}
       live={detections.length > 0}
     >

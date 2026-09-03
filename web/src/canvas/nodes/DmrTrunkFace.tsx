@@ -65,7 +65,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="DMR trunk system"
-      category="feature"
+      category="tool"
       subtitle={
         onIq && !awaiting
           ? `${trunkProtocolLabel(protocol, detected)} · ${followers.length} following`

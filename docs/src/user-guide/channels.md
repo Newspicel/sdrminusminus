@@ -18,14 +18,10 @@ Connect the outputs you need:
 | `events` | Export | CSV or JSON download of stored rows |
 | `video` | Video | ATV frames, and an SSTV picture as it scans out |
 
-A channel face warns when its audio or video output goes nowhere. NFM is the exception: its event
-output is commonly unused unless CTCSS or DCS detection is enabled.
-
 ## Channel catalog
 
-The node palette splits channels into **Modes**, which produce audio, and **Decoders**, which
-produce events. The server reports the exact catalog for the running build; this is the current
-list.
+The node palette lists every channel type under **Decoders**, whether it produces audio or events.
+The server reports the exact catalog for the running build; this is the current list.
 
 | Group | Channels | Maturity |
 |---|---|---|

@@ -4110,7 +4110,7 @@ export interface components {
             kind: "triangulation";
         };
         /** @enum {string} */
-        NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
+        NodeCategory: "source" | "channel" | "tool" | "output";
         NodeTypeInfo: {
             category: components["schemas"]["NodeCategory"];
             kind: string;

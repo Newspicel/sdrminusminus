@@ -131,7 +131,7 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Speaker"
-      category="sink"
+      category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
       live={inputs.length > 0}
     >
@@ -257,7 +257,7 @@ export function MapFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Map"
-      category="display"
+      category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
       live={anything}
     >
@@ -330,7 +330,7 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Readout"
-      category="display"
+      category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
       live={readable.length > 0}
     >
@@ -374,7 +374,7 @@ export function VideoFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Video"
-      category="display"
+      category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
       live={inputs.length > 0}
     >
@@ -407,7 +407,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Decoder log"
-      category="display"
+      category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
       live={inputs.length > 0}
     >
@@ -476,7 +476,7 @@ export function ExportFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Export"
-      category="sink"
+      category="output"
       subtitle={kinds.length > 0 ? kinds.join(" · ") : undefined}
       live={inputs.length > 0}
     >
@@ -504,7 +504,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Recorder"
-      category="sink"
+      category="output"
       subtitle={set?.recording == null ? undefined : "recording"}
       live={set !== null}
     >
@@ -614,7 +614,7 @@ export function AudioRecorderFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Audio recorder"
-      category="sink"
+      category="output"
       subtitle={
         recording === 0
           ? undefined
@@ -705,7 +705,7 @@ export function BasebandRecorderFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Baseband recorder"
-      category="sink"
+      category="output"
       subtitle={
         recording === 0
           ? undefined
@@ -808,7 +808,7 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
     <NodeShell
       node={node}
       title="Signal hunt"
-      category="feature"
+      category="tool"
       subtitle={hunting ? "owns this radio" : undefined}
       live={set !== null}
     >
@@ -836,7 +836,7 @@ export function ScannerFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Scanner"
-      category="feature"
+      category="tool"
       subtitle={scanning ? "owns this radio" : undefined}
       live={set !== null}
     >

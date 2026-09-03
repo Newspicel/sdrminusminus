@@ -62,9 +62,8 @@ export function useFaceWheel(claim: WheelClaim): void {
 const CATEGORY_STRIP: Record<NodeCategory, string> = {
   source: "bg-cat-source",
   channel: "bg-cat-channel",
-  display: "bg-cat-display",
-  feature: "bg-cat-feature",
-  sink: "bg-cat-sink",
+  tool: "bg-cat-tool",
+  output: "bg-cat-output",
 };
 
 const PORT_COLOR: Record<PortType, string> = {

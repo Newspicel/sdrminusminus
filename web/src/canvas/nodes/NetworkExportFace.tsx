@@ -83,7 +83,7 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
     <NodeShell
       node={node}
       title={channel === null ? "Network IQ" : "Network baseband"}
-      category="sink"
+      category="output"
       subtitle={control.kind === "active" ? node.data.address : undefined}
       live={control.kind === "active"}
     >

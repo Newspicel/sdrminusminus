@@ -14613,9 +14613,8 @@
         "enum": [
           "source",
           "channel",
-          "display",
-          "feature",
-          "sink"
+          "tool",
+          "output"
         ]
       },
       "NodeTypeInfo": {

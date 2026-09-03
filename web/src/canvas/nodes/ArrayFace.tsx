@@ -44,7 +44,7 @@ export function ArrayFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title={node.label ?? "Array"}
-      category="source"
+      category="tool"
       subtitle={
         set === undefined && members.length < 2
           ? `${members.length} of 2 radios`

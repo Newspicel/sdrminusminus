@@ -98,7 +98,7 @@ export function PropagationFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Propagation map"
-      category="display"
+      category="output"
       subtitle={wired.length > 0 ? `${wired.length} in` : undefined}
       live={wired.length > 0 && receiver !== null}
     >

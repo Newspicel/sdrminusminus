@@ -39,7 +39,7 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
     <NodeShell
       node={node}
       title="Event output"
-      category="sink"
+      category="output"
       subtitle={SERVICE_LABELS[target.service]}
       live={inputs > 0 && configured}
     >

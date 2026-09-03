@@ -75,7 +75,7 @@ export function DfFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Direction finder"
-      category="channel"
+      category="tool"
       subtitle={`${elementCount(settings.geometry)} elements · ${tierLabel(state?.cal)}`}
       live={bearing !== null && bearing.confidence > 0}
     >

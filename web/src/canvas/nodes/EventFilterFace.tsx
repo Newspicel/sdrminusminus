@@ -67,7 +67,7 @@ function Face({ node }: { node: PatchNodeOf<"event_filter"> }) {
     <NodeShell
       node={node}
       title="Event filter"
-      category="feature"
+      category="tool"
       subtitle={sources.length > 0 ? filterSaid(settings) : undefined}
       live={sources.length > 0 && targets.length > 0}
     >

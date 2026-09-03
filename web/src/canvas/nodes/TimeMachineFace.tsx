@@ -58,7 +58,7 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
     <NodeShell
       node={node}
       title="Time machine"
-      category="sink"
+      category="output"
       subtitle={
         phase.kind === "capturing"
           ? "capturing"

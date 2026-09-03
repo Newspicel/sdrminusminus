@@ -24,7 +24,7 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
     <NodeShell
       node={node}
       title="Triangulation"
-      category="feature"
+      category="tool"
       subtitle={`${stations.length} of ${finders} reporting`}
       live={estimate !== null}
     >
