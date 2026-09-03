@@ -71,9 +71,13 @@ export function parseFrequency(text: string): number | null {
   return Math.round(value * scale);
 }
 
+export function inTuningRange(hz: number, range: Range): number | null {
+  return hz < range.min || hz > range.max ? null : hz;
+}
+
 export function tuneTargetHz(text: string, range: Range): number | null {
   const hz = parseFrequency(text);
-  return hz === null || hz < range.min || hz > range.max ? null : hz;
+  return hz === null ? null : inTuningRange(hz, range);
 }
 
 export const TUNE_STEPS_HZ = [10, 100, 1_000, 5_000, 12_500, 25_000, 100_000, 1_000_000] as const;

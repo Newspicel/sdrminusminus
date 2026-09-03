@@ -1,17 +1,16 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Button, Form, Input } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET, FIELD, ICON_BTN, LABEL } from "../../components/controls";
+import { Button } from "../../components/BaseControls";
+import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
 import { deviceId } from "../../components/devices";
-import { isTunable, type Range, tuneTargetHz, tuningRange } from "../../components/dial";
+import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { PlaybackTransport } from "../../components/PlaybackTransport";
-import { Popover } from "../../components/Popover";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
+import { TuneTo } from "../../components/TuneTo";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
@@ -76,7 +75,8 @@ function Tuner({
                       : `Type a frequency for ${dial.port}`
                   }
                   hz={dial.hz}
-                  range={range}
+                  hint={`Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`}
+                  resolve={(entered) => inTuningRange(entered, range)}
                   disabled={held}
                   onTune={(hz) => tune(dial.stream, hz)}
                 />
@@ -123,97 +123,6 @@ function LockGlyph({ locked }: { locked: boolean }) {
       <rect x="3.5" y="7" width="9" height="6.5" rx="1" />
       <path d={locked ? "M5.75 7V5a2.25 2.25 0 0 1 4.5 0v2" : "M5.75 7V5a2.25 2.25 0 0 1 4.5 0"} />
     </svg>
-  );
-}
-
-const KEYPAD_DOTS = [4, 8, 12].flatMap((cy) => [4, 8, 12].map((cx) => ({ cx, cy })));
-
-function KeypadGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden>
-      {KEYPAD_DOTS.map((dot) => (
-        <circle key={`${dot.cx}:${dot.cy}`} cx={dot.cx} cy={dot.cy} r="1.1" />
-      ))}
-    </svg>
-  );
-}
-
-function TuneTo({
-  title,
-  hz,
-  range,
-  disabled,
-  onTune,
-}: {
-  title: string;
-  hz: number;
-  range: Range;
-  disabled: boolean;
-  onTune: (hz: number) => void;
-}) {
-  return (
-    <Popover
-      label={<KeypadGlyph />}
-      title={title}
-      triggerClass={`${ICON_BTN} shrink-0`}
-      width="w-64"
-      align="end"
-      disabled={disabled}
-    >
-      {(close) => (
-        <TuneForm
-          hz={hz}
-          range={range}
-          onTune={(entered) => {
-            onTune(entered);
-            close();
-          }}
-        />
-      )}
-    </Popover>
-  );
-}
-
-function TuneForm({
-  hz,
-  range,
-  onTune,
-}: {
-  hz: number;
-  range: Range;
-  onTune: (hz: number) => void;
-}) {
-  const [text, setText] = useState(`${hz / 1e6}`);
-  const target = tuneTargetHz(text, range);
-  return (
-    <Form
-      className="flex flex-col gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (target !== null) {
-          onTune(target);
-        }
-      }}
-    >
-      <span className={LABEL}>Frequency (MHz)</span>
-      <span className="flex items-center gap-2">
-        <Input
-          className={`${FIELD} min-w-0 flex-1 tabular-nums ${target === null && text.trim() !== "" ? "border-danger" : ""}`}
-          value={text}
-          inputMode="decimal"
-          autoFocus
-          aria-label="Frequency to tune to"
-          aria-invalid={target === null}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <Button type="submit" className={BTN_PRIMARY} disabled={target === null}>
-          Set
-        </Button>
-      </span>
-      <span className="legend">
-        Reaches {formatMhz(range.min)} – {formatMhz(range.max)}
-      </span>
-    </Form>
   );
 }
 

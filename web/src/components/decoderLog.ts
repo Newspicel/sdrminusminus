@@ -1,4 +1,5 @@
 import { passesChain } from "../canvas/nodes/eventFilter";
+import { decoderLogExportUrl } from "../lib/api";
 import type { DecodedState } from "../lib/decoded";
 import type {
   DecodedRecord,
@@ -8,6 +9,7 @@ import type {
   DecoderLogFilter,
   EventFilterNode,
 } from "../lib/types";
+import type { DownloadChoice } from "./DownloadMenu";
 import { eventStation, eventSummary, hasPosition, hex2, hex5 } from "./eventFacts";
 
 export { eventStation, eventSummary, hasPosition, hex2, hex5 };
@@ -335,4 +337,11 @@ function signature(row: LogRow): string {
 function timeMs(at: string): number {
   const ms = Date.parse(at);
   return Number.isNaN(ms) ? 0 : ms;
+}
+
+export function logDownloads(filter: DecoderLogFilter): DownloadChoice[] {
+  return [
+    { label: "CSV", href: decoderLogExportUrl("csv", filter), hint: "One row per decoded frame" },
+    { label: "JSON", href: decoderLogExportUrl("json", filter), hint: "Every field of every row" },
+  ];
 }

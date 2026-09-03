@@ -4,7 +4,14 @@ import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
-import type { EventGate, WireScope } from "../../components/decoderLog";
+import { DownloadMenu } from "../../components/DownloadMenu";
+import {
+  DEFAULT_LOG_FILTER,
+  type EventGate,
+  logDownloads,
+  toQuery,
+  type WireScope,
+} from "../../components/decoderLog";
 import { HuntPanel } from "../../components/HuntPanel";
 import { DEFAULT_HUNT_SETTINGS } from "../../components/hunt";
 import { MapPanel } from "../../components/MapPanel";
@@ -20,7 +27,6 @@ import { Slider } from "../../components/Slider";
 import { VideoView } from "../../components/VideoView";
 import {
   callAudioUrl,
-  decoderLogExportUrl,
   recordChannelAudio,
   recordChannelBaseband,
   recordDeviceSet,
@@ -480,16 +486,10 @@ export function ExportFace({ node }: { node: PatchNode }) {
         </FaceEmpty>
       </FaceBody>
       <FaceFooter>
-        {(["csv", "json"] as const).map((format) => (
-          <a
-            key={format}
-            className={`${BTN} ${inputs.length === 0 ? "pointer-events-none opacity-45" : ""}`}
-            href={decoderLogExportUrl(format, wires)}
-            download
-          >
-            {format.toUpperCase()}
-          </a>
-        ))}
+        <DownloadMenu
+          choices={logDownloads(toQuery(DEFAULT_LOG_FILTER, wires))}
+          disabled={inputs.length === 0}
+        />
       </FaceFooter>
     </NodeShell>
   );

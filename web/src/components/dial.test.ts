@@ -7,6 +7,7 @@ import {
   parseFrequency,
   setDialDigit,
   stepDial,
+  inTuningRange,
   tuneTargetHz,
 } from "./dial";
 
@@ -134,5 +135,17 @@ describe("formatStep", () => {
     expect(formatStep(12_500)).toBe("12.5 kHz");
     expect(formatStep(100_000)).toBe("100 kHz");
     expect(formatStep(1_000_000)).toBe("1 MHz");
+  });
+});
+
+describe("inTuningRange", () => {
+  const range = { min: 24_000_000, max: 1_766_000_000 };
+
+  it("passes a frequency the radio reaches and refuses one it does not", () => {
+    expect(inTuningRange(145_500_000, range)).toBe(145_500_000);
+    expect(inTuningRange(range.min, range)).toBe(range.min);
+    expect(inTuningRange(range.max, range)).toBe(range.max);
+    expect(inTuningRange(10_000_000, range)).toBeNull();
+    expect(inTuningRange(2_400_000_000, range)).toBeNull();
   });
 });

@@ -1,16 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
-import {
-  callAudioUrl,
-  clearDecoderLog,
-  DECODER_LOG_KEY,
-  decoderLogExportUrl,
-  decoderLogQuery,
-} from "../lib/api";
+import { callAudioUrl, clearDecoderLog, DECODER_LOG_KEY, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
 import { Button, Input } from "./BaseControls";
 import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
+import { DownloadMenu } from "./DownloadMenu";
 import { eventDetail } from "./decoderDetail";
 import {
   buildRows,
@@ -26,6 +21,7 @@ import {
   LOG_COLUMNS,
   type LogFilter,
   type LogRow,
+  logDownloads,
   matchesFilter,
   passesGate,
   readColumnWidths,
@@ -270,12 +266,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
         </div>
       </FaceBody>
       <FaceFooter>
-        <a className={BTN} href={decoderLogExportUrl("csv", query)} download>
-          CSV
-        </a>
-        <a className={BTN} href={decoderLogExportUrl("json", query)} download>
-          JSON
-        </a>
+        <DownloadMenu choices={logDownloads(query)} />
         <Button
           type="button"
           className={`${BTN} hover:border-danger hover:text-danger ${

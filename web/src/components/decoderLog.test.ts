@@ -17,6 +17,7 @@ import {
   LOG_COLUMNS,
   type LogFilter,
   liveRow,
+  logDownloads,
   MAX_COLUMN_WIDTH,
   MIN_COLUMN_WIDTH,
   matchesFilter,
@@ -700,5 +701,18 @@ describe("column widths", () => {
     expect(Object.keys(widths)).toEqual(LOG_COLUMNS.map((column) => column.key));
 
     useStorage(undefined);
+  });
+});
+
+describe("logDownloads", () => {
+  it("offers both formats over the same filter", () => {
+    const choices = logDownloads({ limit: 200, nodes: "log", sources: "ch:1", q: "wx" });
+    expect(choices.map((choice) => choice.label)).toEqual(["CSV", "JSON"]);
+    for (const choice of choices) {
+      expect(choice.href).toContain("nodes=log");
+      expect(choice.href).toContain("q=wx");
+    }
+    expect(choices[0]?.href).toContain("csv");
+    expect(choices[1]?.href).toContain("json");
   });
 });
