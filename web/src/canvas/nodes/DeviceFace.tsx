@@ -1,11 +1,13 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Lock, LockOpen } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
+import { Icon } from "../../components/Icon";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { PlaybackTransport } from "../../components/PlaybackTransport";
 import { RadioSettings } from "../../components/RadioSettings";
@@ -112,17 +114,9 @@ function Tuner({
 
 function LockGlyph({ locked }: { locked: boolean }) {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      className={`size-4 ${locked ? "text-accent" : ""}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      aria-hidden
-    >
-      <rect x="3.5" y="7" width="9" height="6.5" rx="1" />
-      <path d={locked ? "M5.75 7V5a2.25 2.25 0 0 1 4.5 0v2" : "M5.75 7V5a2.25 2.25 0 0 1 4.5 0"} />
-    </svg>
+    <span className={locked ? "flex text-accent" : "flex"}>
+      <Icon glyph={locked ? Lock : LockOpen} size={16} />
+    </span>
   );
 }
 

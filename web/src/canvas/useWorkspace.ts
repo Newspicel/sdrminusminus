@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import {
   activateWorkspace,
   applyWorkspace,
+  cloneWorkspace,
   createWorkspace,
   deleteWorkspace,
   importWorkspace,
@@ -18,6 +19,7 @@ import type {
   WorkspaceDetail,
   WorkspaceInfo,
   WorkspaceSnapshot,
+  WorkspacesResponse,
 } from "../lib/types";
 import { pruneRack } from "./graph";
 import { WorkspaceDrafts } from "./workspaceDrafts";
@@ -30,6 +32,8 @@ export interface WorkspaceStore {
   save: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
   activate: (id: number) => void;
   create: (name: string) => void;
+  rename: (id: number, name: string) => void;
+  clone: (id: number) => void;
   importFile: (file: File) => void;
   remove: (id: number) => void;
   apply: () => void;
@@ -68,6 +72,31 @@ export function useWorkspace(): WorkspaceStore {
           : previous,
       );
     },
+  });
+  const revisionOf = useCallback(
+    (id: number): number =>
+      drafts.get(id)?.revision ??
+      queryClient.getQueryData<WorkspaceDetail>([...WORKSPACES_KEY, id])?.revision ??
+      queryClient
+        .getQueryData<WorkspacesResponse>(WORKSPACES_KEY)
+        ?.workspaces.find((entry) => entry.id === id)?.revision ??
+      0,
+    [drafts, queryClient],
+  );
+  const renameMut = useMutation({
+    mutationFn: (variables: { id: number; name: string }) =>
+      updateWorkspace(variables.id, { revision: revisionOf(variables.id), name: variables.name }),
+    onSuccess: (info, variables) => {
+      drafts.accepted(variables.id, info.revision);
+      queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], (previous) =>
+        previous ? { ...previous, ...info } : previous,
+      );
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+  });
+  const cloneMut = useMutation({
+    mutationFn: cloneWorkspace,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
   });
   const activateMut = useMutation({
     mutationFn: activateWorkspace,
@@ -195,6 +224,30 @@ export function useWorkspace(): WorkspaceStore {
   const undo = useCallback(() => step("undo"), [step]);
   const redo = useCallback(() => step("redo"), [step]);
 
+  const renameAsync = renameMut.mutateAsync;
+  const rename = useCallback(
+    (id: number, name: string) => {
+      const task = queue.current
+        .catch(() => undefined)
+        .then(() => renameAsync({ id, name }))
+        .catch(() => undefined);
+      finishQueue(task);
+    },
+    [finishQueue, renameAsync],
+  );
+
+  const cloneAsync = cloneMut.mutateAsync;
+  const clone = useCallback(
+    (id: number) => {
+      const task = queue.current
+        .catch(() => undefined)
+        .then(() => cloneAsync(id))
+        .catch(() => undefined);
+      finishQueue(task);
+    },
+    [cloneAsync, finishQueue],
+  );
+
   const applied = useRef<number | null>(null);
   const loaded = active?.id ?? null;
   useEffect(() => {
@@ -210,6 +263,8 @@ export function useWorkspace(): WorkspaceStore {
     error:
       errorOf(update.error) ??
       errorOf(createMut.error) ??
+      errorOf(renameMut.error) ??
+      errorOf(cloneMut.error) ??
       errorOf(importMut.error) ??
       errorOf(removeMut.error) ??
       errorOf(applyMut.error) ??
@@ -217,6 +272,8 @@ export function useWorkspace(): WorkspaceStore {
     save,
     activate: activateMut.mutate,
     create: createMut.mutate,
+    rename,
+    clone,
     importFile: importMut.mutate,
     remove: removeMut.mutate,
     apply,

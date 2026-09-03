@@ -18,6 +18,7 @@
     "@base-ui/react": "^1.7.0",
     "@tanstack/react-query": "5.102.8",
     "@xyflow/react": "^12.11.6",
+    "lucide-react": "1.40.0",
     "maplibre-gl": "6.6.0",
     "openapi-fetch": "0.17.0",
     "opus-decoder": "0.7.12",

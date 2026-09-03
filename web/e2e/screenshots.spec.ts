@@ -64,7 +64,7 @@ async function stage(page: Page, name: string, snapshot: WorkspaceSnapshot): Pro
   const report = await page.request.post(`/api/workspaces/${created.id}/apply`);
   expect(report.ok()).toBe(true);
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "+ Node" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add a node" })).toBeVisible();
 }
 
 async function deviceSet(page: Page, device: DeviceRef): Promise<DeviceSet> {

@@ -93,7 +93,7 @@ test.describe("field mode", () => {
     await page.getByRole("button", { name: /DF drive/ }).click();
     await expect(page.getByRole("img", { name: "Bearing relative to the vehicle" })).toBeVisible();
     await expect(page.getByText(/^\d{3}°$/)).toBeVisible({ timeout: 30_000 });
-    await page.getByRole("button", { name: "← Missions" }).click();
+    await page.getByRole("button", { name: "Missions" }).click();
     await expect(page.getByRole("button", { name: /DF drive/ })).toBeVisible();
   });
 });

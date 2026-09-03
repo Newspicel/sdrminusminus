@@ -1,6 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
+import { Circle } from "lucide-react";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER } from "../../components/controls";
+import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { formatBytes, formatDuration } from "../../components/recordings";
@@ -125,8 +127,8 @@ function TimeMachineNodeFace({ node }: { node: PatchNodeOf<"time_machine"> }) {
                   title="Write the buffered past to a SigMF pair and keep recording"
                   onClick={() => control.mutate("capture")}
                 >
-                  <span aria-hidden className="text-danger">
-                    ●
+                  <span className="flex text-danger">
+                    <Icon glyph={Circle} size={12} filled />
                   </span>
                   Capture
                 </Button>

@@ -1,20 +1,10 @@
+import { Keyboard } from "lucide-react";
 import { useState } from "react";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN_PRIMARY, FIELD, ICON_BTN, LABEL } from "./controls";
 import { parseFrequency } from "./dial";
+import { Icon } from "./Icon";
 import { Popover } from "./Popover";
-
-const KEYPAD_DOTS = [4, 8, 12].flatMap((cy) => [4, 8, 12].map((cx) => ({ cx, cy })));
-
-function KeypadGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden>
-      {KEYPAD_DOTS.map((dot) => (
-        <circle key={`${dot.cx}:${dot.cy}`} cx={dot.cx} cy={dot.cy} r="1.1" />
-      ))}
-    </svg>
-  );
-}
 
 export function TuneTo({
   title,
@@ -33,7 +23,7 @@ export function TuneTo({
 }) {
   return (
     <Popover
-      label={<KeypadGlyph />}
+      label={<Icon glyph={Keyboard} size={16} />}
       title={title}
       triggerClass={`${ICON_BTN} shrink-0`}
       width="w-64"

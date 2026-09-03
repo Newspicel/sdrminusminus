@@ -1,3 +1,4 @@
+import { Plus, X } from "lucide-react";
 import type { AudioAgcMode, AudioProcessing, ChannelSettings, NotchSettings } from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
@@ -11,6 +12,7 @@ import {
   withNotchRemoved,
 } from "./channelSettings";
 import { BTN_SM, ICON_BTN_SM, type Options } from "./controls";
+import { Icon } from "./Icon";
 import { NumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
 import { SettingGroup, SettingRow } from "./Settings";
@@ -79,7 +81,8 @@ export function AudioControls({
               }
             }}
           >
-            + notch
+            <Icon glyph={Plus} size={12} />
+            notch
           </Button>
         }
       >
@@ -249,7 +252,7 @@ function NotchRow({
         aria-label={`Remove notch ${index + 1}`}
         onClick={onRemove}
       >
-        ✕
+        <Icon glyph={X} size={12} />
       </Button>
     </SettingRow>
   );

@@ -531,6 +531,13 @@ export async function importWorkspace(document: WorkspaceExport): Promise<number
   return unwrap(await client.POST("/api/workspaces/import", { body: document })).id;
 }
 
+export async function cloneWorkspace(id: number): Promise<number> {
+  const document = unwrap(
+    await client.GET("/api/workspaces/{id}/export", { params: { path: { id } } }),
+  );
+  return importWorkspace(document);
+}
+
 export async function deleteWorkspace(id: number): Promise<void> {
   unwrap(await client.DELETE("/api/workspaces/{id}", { params: { path: { id } } }));
 }

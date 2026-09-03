@@ -1,8 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
+import { Check, Circle } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../../components/BaseControls";
 import { ALERT, BTN, BTN_DANGER, BTN_PRIMARY, CHIP, LABEL } from "../../components/controls";
 import { formatHz } from "../../components/format";
+import { Icon } from "../../components/Icon";
 import { Select } from "../../components/Select";
 import { runTool } from "../../lib/api";
 import type { NanoVnaCalibration, NanoVnaStandard, NanoVnaSweepState } from "../../lib/types";
@@ -242,7 +244,7 @@ function StepGroup({
                 aria-label={done ? `${entry.label} measured` : `${entry.label} not measured`}
                 className={`font-mono text-xs ${done ? "text-ok" : "text-ink-faint"}`}
               >
-                {done ? "✓" : "○"}
+                <Icon glyph={done ? Check : Circle} size={12} />
               </span>
               <span className="min-w-0 text-xs text-ink-dim">{entry.hint}</span>
             </li>

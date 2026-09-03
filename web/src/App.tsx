@@ -180,6 +180,8 @@ export function App() {
                 activeWorkspace={workspace.active?.id ?? null}
                 onActivate={workspace.activate}
                 onCreate={workspace.create}
+                onRename={workspace.rename}
+                onClone={workspace.clone}
                 onImport={workspace.importFile}
                 onRemove={workspace.remove}
                 onUndo={workspace.undo}

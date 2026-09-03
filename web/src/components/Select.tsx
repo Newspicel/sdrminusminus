@@ -1,5 +1,7 @@
 import { Select as Primitive } from "@base-ui/react/select";
+import { ChevronDown } from "lucide-react";
 import { FIELD, type Options, SURFACE, segment } from "./controls";
+import { Icon } from "./Icon";
 import { usePortalContainer } from "./PortalContainer";
 
 const TRIGGER = "w-full max-w-52";
@@ -39,7 +41,7 @@ export function Select<T extends string | number>({
       >
         <Primitive.Value className="truncate" />
         <Primitive.Icon aria-hidden className="shrink-0 text-ink-faint">
-          ▾
+          <Icon glyph={ChevronDown} size={12} />
         </Primitive.Icon>
       </Primitive.Trigger>
       <Primitive.Portal container={portalContainer} className="contents">

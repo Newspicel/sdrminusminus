@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   Fragment,
   type ReactNode,
@@ -44,6 +45,7 @@ import {
   type TargetSort,
   toneLabel,
 } from "./decoderViews";
+import { Icon } from "./Icon";
 
 const PANE = "flex flex-col gap-2 p-3";
 const EMPTY = "text-sm text-ink-dim";
@@ -205,7 +207,6 @@ function TargetTable({
   descending: boolean;
   onSort: (key: TargetSort) => void;
 }) {
-  const arrow = (key: TargetSort): string => (sort !== key ? "" : descending ? " ↓" : " ↑");
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex items-baseline gap-2">
@@ -220,7 +221,11 @@ function TargetTable({
             <thead>
               <tr className="border-b border-line">
                 <th className={TABLE_HEAD} scope="col">
-                  <SortButton label={idHeader + arrow("id")} onClick={() => onSort("id")} />
+                  <SortButton
+                    label={idHeader}
+                    sorted={sort === "id" ? (descending ? "down" : "up") : null}
+                    onClick={() => onSort("id")}
+                  />
                 </th>
                 <th className={TABLE_HEAD} scope="col">
                   {labelHeader}
@@ -235,7 +240,11 @@ function TargetTable({
                   Position
                 </th>
                 <th className={TABLE_HEAD} scope="col">
-                  <SortButton label={`Age${arrow("age")}`} onClick={() => onSort("age")} />
+                  <SortButton
+                    label="Age"
+                    sorted={sort === "age" ? (descending ? "down" : "up") : null}
+                    onClick={() => onSort("age")}
+                  />
                 </th>
               </tr>
             </thead>
@@ -258,10 +267,23 @@ function TargetTable({
   );
 }
 
-function SortButton({ label, onClick }: { label: string; onClick: () => void }) {
+function SortButton({
+  label,
+  sorted,
+  onClick,
+}: {
+  label: string;
+  sorted: "up" | "down" | null;
+  onClick: () => void;
+}) {
   return (
-    <Button type="button" className="uppercase tracking-wider hover:text-accent" onClick={onClick}>
+    <Button
+      type="button"
+      className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-accent"
+      onClick={onClick}
+    >
       {label}
+      {sorted !== null && <Icon glyph={sorted === "down" ? ChevronDown : ChevronUp} size={12} />}
     </Button>
   );
 }

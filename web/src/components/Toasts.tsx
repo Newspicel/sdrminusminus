@@ -1,6 +1,8 @@
 import { Toast } from "@base-ui/react/toast";
+import { X } from "lucide-react";
 import { type ToastData, toastManager } from "../lib/toasts";
 import { ICON_BTN } from "./controls";
+import { Icon } from "./Icon";
 
 const LIFETIME_MS = 12_000;
 
@@ -40,7 +42,7 @@ function ToastList() {
             {repeats > 0 && <span className="text-ink-faint"> ×{repeats + 1}</span>}
           </Toast.Title>
           <Toast.Close className={ICON_BTN} aria-label="Dismiss">
-            ×
+            <Icon glyph={X} />
           </Toast.Close>
         </Toast.Content>
       </Toast.Root>

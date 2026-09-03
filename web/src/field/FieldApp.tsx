@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/BaseControls";
 import { huntDeviceSet } from "../components/hunt";
+import { Icon } from "../components/Icon";
 import { Toasts } from "../components/Toasts";
 import { TokenGate } from "../components/TokenGate";
 import { aboutQuery, stateQuery, workspaceQuery, workspacesQuery } from "../lib/api";
@@ -83,7 +85,14 @@ export function FieldApp() {
             onClick={() => go("/field")}
             disabled={route.mission === null}
           >
-            {route.mission === null ? "Field mode" : "← Missions"}
+            {route.mission === null ? (
+              "Field mode"
+            ) : (
+              <>
+                <Icon glyph={ArrowLeft} size={16} />
+                Missions
+              </>
+            )}
           </Button>
           <Button type="button" className="text-xs text-ink-dim" onClick={toggle}>
             {full ? "Exit fullscreen" : "Fullscreen"}

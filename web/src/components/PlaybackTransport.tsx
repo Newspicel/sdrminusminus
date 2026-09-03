@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Pause, Play, RotateCcw, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { controlPlayback, STATE_KEY } from "../lib/api";
 import { pushToast } from "../lib/toasts";
@@ -6,6 +7,7 @@ import type { DeviceSet, PlaybackAction, PlaybackStatus } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
 import { Button } from "./BaseControls";
 import { ICON_BTN } from "./controls";
+import { Icon } from "./Icon";
 import {
   formatClock,
   isLooping,
@@ -45,7 +47,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         title={status.paused ? "Play" : "Pause"}
         onClick={() => drive.mutate({ action: status.paused ? "play" : "pause" })}
       >
-        {status.paused ? "▶" : "❚❚"}
+        <Icon glyph={status.paused ? Play : Pause} />
       </Button>
       <Button
         type="button"
@@ -54,7 +56,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         title="Stop and return to the start"
         onClick={() => drive.mutate({ action: "stop" })}
       >
-        ■
+        <Icon glyph={Square} />
       </Button>
       <Button
         type="button"
@@ -70,7 +72,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         }
         onClick={() => applyPatch(set.id, { extra: [{ name: LOOP_SETTING, value: !looping }] })}
       >
-        ↻
+        <Icon glyph={RotateCcw} />
       </Button>
       <Slider
         label="Playback position"

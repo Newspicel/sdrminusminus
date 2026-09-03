@@ -1,4 +1,6 @@
+import { X } from "lucide-react";
 import { Button } from "./BaseControls";
+import { Icon } from "./Icon";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   AttributionControl,
@@ -493,7 +495,7 @@ export function MapPanel({
               }}
               aria-label="Clear target selection"
             >
-              ×
+              <Icon glyph={X} size={12} />
             </Button>
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 px-2 py-1.5">

@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { FaceBody, FaceEmpty, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, startScan, startScanSession, stopScan, stopScanSession } from "../lib/api";
@@ -8,6 +9,7 @@ import type { DeviceSet, ScanMode, ScanSession } from "../lib/types";
 import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { BTN, BTN_DANGER, BTN_PRIMARY, ICON_BTN_SM } from "./controls";
+import { Icon } from "./Icon";
 import { NumberField } from "./NumberField";
 import { Readout, ReadoutRow } from "./Readout";
 import { Select } from "./Select";
@@ -172,7 +174,7 @@ export function ScannerPanel({
                           setRanges((current) => current.filter((other) => other.id !== range.id))
                         }
                       >
-                        ✕
+                        <Icon glyph={X} size={12} />
                       </Button>
                     )
                   }

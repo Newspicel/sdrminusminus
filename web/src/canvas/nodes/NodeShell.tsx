@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
+import { Maximize2, Minimize2, Pin, X } from "lucide-react";
 import {
   createContext,
   type ReactNode,
@@ -11,6 +12,7 @@ import {
 } from "react";
 import { Button } from "../../components/BaseControls";
 import { ICON_BTN_SM } from "../../components/controls";
+import { Icon } from "../../components/Icon";
 import { PortalContainerProvider } from "../../components/PortalContainer";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
@@ -103,38 +105,6 @@ function PortGlyph({ type }: { type: PortType }) {
   );
 }
 
-function FullGlyph({ full }: { full: boolean }) {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1"
-      className="pointer-events-none size-3"
-    >
-      {full ? <path d="M5 1v4H1M7 11V7h4" /> : <path d="M1 4V1h3M11 8v3H8" />}
-    </svg>
-  );
-}
-
-function PinGlyph({ pinned }: { pinned: boolean }) {
-  return (
-    <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3">
-      <rect
-        x="1.5"
-        y="1.5"
-        width="9"
-        height="9"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1"
-      />
-      {pinned && <rect x="4" y="4" width="4" height="4" fill="currentColor" />}
-    </svg>
-  );
-}
-
 export interface NodeShellProps {
   node: PatchNode;
   title: string;
@@ -209,7 +179,7 @@ export function NodeShell({
               className={`${ICON_BTN_SM} ${full ? "bg-accent/15 text-accent" : "text-ink-faint"}`}
               onClick={() => workspace.expand(full ? null : node.id)}
             >
-              <FullGlyph full={full} />
+              <Icon glyph={full ? Minimize2 : Maximize2} size={12} />
             </Button>
             <Button
               type="button"
@@ -226,7 +196,7 @@ export function NodeShell({
                 }))
               }
             >
-              <PinGlyph pinned={pinned} />
+              <Icon glyph={Pin} size={12} filled={pinned} />
             </Button>
             <Button
               type="button"
@@ -235,7 +205,7 @@ export function NodeShell({
               className={`${ICON_BTN_SM} text-ink-faint hover:text-danger`}
               onClick={remove}
             >
-              ✕
+              <Icon glyph={X} size={12} />
             </Button>
           </span>
         </header>

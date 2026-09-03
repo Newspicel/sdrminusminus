@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import type { BandIdentity } from "../../components/bandPlan";
@@ -11,6 +12,7 @@ import {
 } from "../../components/bandPlan";
 import { CHIP, LABEL, SURFACE } from "../../components/controls";
 import { formatHz } from "../../components/format";
+import { Icon } from "../../components/Icon";
 import { type SpectrumView, spanToOffset, viewWidth } from "../../components/spectrumView";
 import type { ChannelParams } from "../../lib/types";
 import { useBandPlan } from "../../lib/useBandPlan";
@@ -152,7 +154,7 @@ function IdentifyCard({
           aria-label="Close"
           onClick={onClose}
         >
-          ✕
+          <Icon glyph={X} />
         </Button>
       </div>
 

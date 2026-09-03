@@ -207,7 +207,7 @@ test.describe("the workspace", () => {
     await receiver.getByRole("button", { name: /signal generator/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
 
-    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Add a node" }).click();
     await page.getByRole("button", { name: "NFM", exact: true }).click();
     const channel = page.locator('.react-flow__node[data-id^="channel:"]');
     await expect(channel).toBeVisible();
@@ -428,7 +428,7 @@ test.describe("the workspace", () => {
     await node("device").getByRole("combobox", { name: "Sample rate" }).click();
     await page.getByRole("option", { name: "2.000 MS/s" }).click();
 
-    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Add a node" }).click();
     await page.getByRole("button", { name: "ADS-B (1090ES)" }).click();
     const adsb = page.locator('.react-flow__node[data-id^="channel:"]', { hasText: "ADS-B" });
     await fitPatch(page);
@@ -438,7 +438,7 @@ test.describe("the workspace", () => {
       adsb.locator('.react-flow__handle[data-handleid="iq"]'),
     );
 
-    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Add a node" }).click();
     await page.getByRole("button", { name: "Map", exact: true }).click();
     const map = page.locator('.react-flow__node[data-id^="map:"]');
     await fitPatch(page);
@@ -521,7 +521,7 @@ test.describe("the workspace", () => {
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
 
     const addGps = async (): Promise<Locator> => {
-      await page.getByRole("button", { name: "+ Node" }).click();
+      await page.getByRole("button", { name: "Add a node" }).click();
       await page.getByRole("button", { name: "GPS position", exact: true }).click();
       const added = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "no source" });
       await expect(added).toBeVisible();
@@ -712,7 +712,7 @@ test.describe("the workspace", () => {
     const undo = page.getByRole("button", { name: /^undo/i });
     const redo = page.getByRole("button", { name: /^redo/i });
 
-    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Add a node" }).click();
     await page.getByRole("button", { name: "Speaker", exact: true }).click();
     const added = page.locator('.react-flow__node[data-id^="speaker:"]');
     await expect(added).toBeVisible();
@@ -1073,6 +1073,11 @@ test.describe("the workspace", () => {
 
     await page.getByRole("button", { name: original.name, exact: true }).click();
     await page.getByRole("button", { name: `Delete ${original.name}` }).click();
+    await page.getByRole("button", { name: "Keep", exact: true }).click();
+    await expect(page.getByRole("button", { name: original.name, exact: true })).toHaveCount(2);
+
+    await page.getByRole("button", { name: `Delete ${original.name}` }).click();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
 
     const field = page.getByRole("textbox", { name: "Name for the new workspace" });
     await expect(field).toBeVisible();
@@ -1131,5 +1136,46 @@ test.describe("the workspace", () => {
     await page.request.post(`/api/workspaces/${list.active}/activate`);
     await page.request.delete(`/api/workspaces/${imported.id}`);
     await expect(page.getByRole("button", { name: original.name, exact: true })).toBeVisible();
+  });
+
+  test("renames a workspace in place and keeps a copy of it", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const original: WorkspaceDetail = await page.request
+      .get(`/api/workspaces/${list.active}`)
+      .then((r) => r.json());
+    const names = async (): Promise<string[]> => {
+      const after = await page.request.get("/api/workspaces").then((r) => r.json());
+      return after.workspaces.map((entry: { name: string }) => entry.name);
+    };
+
+    await page.getByRole("button", { name: original.name, exact: true }).click();
+    await page.getByRole("button", { name: `Rename ${original.name}` }).click();
+    const field = page.getByRole("textbox", { name: `New name for ${original.name}` });
+    await field.fill("Abandoned");
+    await field.press("Escape");
+    await expect.poll(names).toContain(original.name);
+
+    await page.getByRole("button", { name: `Rename ${original.name}` }).click();
+    await page.getByRole("textbox", { name: `New name for ${original.name}` }).fill("Bench two");
+    await page.getByRole("textbox", { name: `New name for ${original.name}` }).press("Enter");
+    await expect.poll(names).toContain("Bench two");
+
+    await page.getByRole("button", { name: "Duplicate Bench two" }).click();
+    await expect.poll(names).toContain("Bench two (2)");
+
+    const after = await page.request.get("/api/workspaces").then((r) => r.json());
+    expect(after.active).toBe(list.active);
+    const copy = after.workspaces.find((entry: { name: string }) => entry.name === "Bench two (2)");
+    const detail: WorkspaceDetail = await page.request
+      .get(`/api/workspaces/${copy.id}`)
+      .then((r) => r.json());
+    expect(detail.snapshot.graph.nodes).toEqual(original.snapshot.graph.nodes);
+
+    const renamed = after.workspaces.find((entry: { id: number }) => entry.id === list.active);
+    await page.request.put(`/api/workspaces/${list.active}`, {
+      data: { revision: renamed.revision, name: original.name },
+    });
+    await page.request.delete(`/api/workspaces/${copy.id}`);
   });
 });

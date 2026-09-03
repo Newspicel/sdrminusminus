@@ -1,5 +1,7 @@
+import { CircleQuestionMark, Plus, Redo2, Undo2 } from "lucide-react";
 import { Button } from "../components/BaseControls";
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
+import { Icon } from "../components/Icon";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
 import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
@@ -25,6 +27,8 @@ export function WorkspaceBar({
   activeWorkspace,
   onActivate,
   onCreate,
+  onRename,
+  onClone,
   onImport,
   onRemove,
   onUndo,
@@ -40,6 +44,8 @@ export function WorkspaceBar({
   activeWorkspace: number | null;
   onActivate: (id: number) => void;
   onCreate: (name: string) => void;
+  onRename: (id: number, name: string) => void;
+  onClone: (id: number) => void;
   onImport: (file: File) => void;
   onRemove: (id: number) => void;
   onUndo: () => void;
@@ -89,6 +95,8 @@ export function WorkspaceBar({
               onCreate(name);
               close();
             }}
+            onRename={onRename}
+            onClone={onClone}
             onImport={(file) => {
               onImport(file);
               close();
@@ -126,7 +134,17 @@ export function WorkspaceBar({
 
       <Rule />
 
-      <Popover label="+ Node" triggerClass={BTN_QUIET} width="w-[48rem]">
+      <Popover
+        label={
+          <>
+            <Icon glyph={Plus} />
+            Node
+          </>
+        }
+        title="Add a node"
+        triggerClass={BTN_QUIET}
+        width="w-[48rem]"
+      >
         {(close) => (
           <NodePalette
             onAdd={(kind, channelType) => {
@@ -146,7 +164,7 @@ export function WorkspaceBar({
             disabled={!canUndo}
             onClick={onUndo}
           >
-            ↶
+            <Icon glyph={Undo2} />
           </Button>
           <Button
             type="button"
@@ -155,7 +173,7 @@ export function WorkspaceBar({
             disabled={!canRedo}
             onClick={onRedo}
           >
-            ↷
+            <Icon glyph={Redo2} />
           </Button>
         </span>
         <Rule />
@@ -183,7 +201,7 @@ export function WorkspaceBar({
           aria-label="Keyboard shortcuts and licenses"
           onClick={onShowShortcuts}
         >
-          ?
+          <Icon glyph={CircleQuestionMark} />
         </Button>
       </span>
     </header>

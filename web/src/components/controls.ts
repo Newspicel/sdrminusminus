@@ -22,6 +22,10 @@ export const BTN_DANGER =
   `${INTERACTIVE} h-7 border border-line-strong bg-panel-2 px-2.5 text-xs text-ink ` +
   "hover:border-danger hover:bg-danger/10 hover:text-danger";
 
+export const BTN_DANGER_SM =
+  `${INTERACTIVE} h-5 border border-danger bg-danger/10 px-1.5 font-mono text-[10px] ` +
+  "tracking-[0.09em] uppercase text-danger hover:bg-danger/20";
+
 const ICON_BASE =
   `${INTERACTIVE} justify-center border border-transparent text-ink-dim ` +
   "hover:bg-panel-2 hover:text-ink";

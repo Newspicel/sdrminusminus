@@ -1,6 +1,8 @@
 import { Autocomplete as Primitive } from "@base-ui/react/autocomplete";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { commitText, FIELD, SURFACE } from "./controls";
+import { Icon } from "./Icon";
 import { usePortalContainer } from "./PortalContainer";
 
 export interface AutocompleteSuggestion {
@@ -60,7 +62,7 @@ export function TextAutocomplete({
           aria-label={`Show ${label.toLowerCase()} suggestions`}
           className="absolute inset-y-0 right-0 flex w-7 cursor-pointer items-center justify-center text-ink-faint hover:text-ink"
         >
-          ▾
+          <Icon glyph={ChevronDown} size={12} />
         </Primitive.Trigger>
       </Primitive.InputGroup>
       <Primitive.Portal container={portalContainer} className="contents">

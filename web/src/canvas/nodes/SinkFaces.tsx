@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { Circle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, CHIP } from "../../components/controls";
@@ -14,6 +15,7 @@ import {
 } from "../../components/decoderLog";
 import { HuntPanel } from "../../components/HuntPanel";
 import { DEFAULT_HUNT_SETTINGS } from "../../components/hunt";
+import { Icon } from "../../components/Icon";
 import { MapPanel } from "../../components/MapPanel";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import {
@@ -560,8 +562,8 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
             title="Record IQ to a SigMF pair"
             onClick={() => record.mutate("start")}
           >
-            <span aria-hidden className="text-danger">
-              ●
+            <span className="flex text-danger">
+              <Icon glyph={Circle} size={12} filled />
             </span>
             Record
           </Button>
@@ -660,8 +662,8 @@ function AudioRecordInput({ input }: { input: Input }) {
         >
           {status === null ? (
             <>
-              <span aria-hidden className="text-danger">
-                ●
+              <span className="flex text-danger">
+                <Icon glyph={Circle} size={12} filled />
               </span>
               Record
             </>
@@ -751,8 +753,8 @@ function BasebandRecordInput({ input }: { input: Input }) {
         >
           {status === null ? (
             <>
-              <span aria-hidden className="text-danger">
-                ●
+              <span className="flex text-danger">
+                <Icon glyph={Circle} size={12} filled />
               </span>
               Record
             </>
