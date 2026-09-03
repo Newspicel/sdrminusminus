@@ -8,7 +8,17 @@ overrides:
 
 # A version whose supply-chain trust evidence (provenance, signatures) is weaker than an
 # earlier-published one is refused rather than accepted quietly, on fresh resolution and on every
-# re-read of the lockfile. `minimumReleaseAge` is deliberately left at pnpm's 24-hour default:
-# raising it to a week would reject the pinned biome and oxlint releases until they age past the
-# cutoff, so it is a version-pinning decision, not a switch.
+# re-read of the lockfile.
 trustPolicy: no-downgrade
+
+# A release has to sit in the registry for a day before this repo will install it, so a
+# compromised publish has a window in which to be caught. Held at 24 hours rather than a week
+# because a week would reject the pinned biome and oxlint releases until they age past the
+# cutoff, so it is a version-pinning decision, not a switch. `cargo` runs the same gate over
+# crates — see `.cargo/config.toml`.
+minimumReleaseAge: 1440
+
+# Versions taken before they age out. Each one is a hole in the gate above: name the exact
+# version, and drop the entry once it is older than the cutoff.
+minimumReleaseAgeExclude:
+  - lucide-react@1.40.0
