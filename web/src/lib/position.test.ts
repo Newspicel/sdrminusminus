@@ -65,10 +65,6 @@ function browserGlobals() {
     failure = error;
     return 7;
   });
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout },
-  });
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: { geolocation: { watchPosition, clearWatch } },
@@ -91,8 +87,8 @@ function browserGlobals() {
         toJSON: () => ({}),
       });
     },
-    fail(message: string): void {
-      failure({ code: 2, message, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
+    fail(message: string, code = 2): void {
+      failure({ code, message, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
     },
   };
 }
@@ -165,11 +161,55 @@ describe("device position watch", () => {
     expect(socket.count("status")).toBe(0);
   });
 
-  it("reports a missing geolocation provider", async () => {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout },
+  it("sends an unchanged reading once however often the watch restarts", async () => {
+    const browser = browserGlobals();
+    const socket = new PositionSocket();
+    const { watchDevicePosition } = await import("./position");
+    const denied = "the browser will not share this device's location";
+
+    const first = watchDevicePosition(socket as unknown as SdrSocket, ["gps"]);
+    browser.fail(denied);
+    expect(socket.sent).toHaveLength(1);
+    first();
+
+    const second = watchDevicePosition(socket as unknown as SdrSocket, ["gps"]);
+    browser.fail(denied);
+    vi.advanceTimersByTime(200);
+    expect(socket.sent).toHaveLength(2);
+    second();
+  });
+
+  it("says plainly when the browser refuses to share a location", async () => {
+    const browser = browserGlobals();
+    const socket = new PositionSocket();
+    const { watchDevicePosition } = await import("./position");
+    const cleanup = watchDevicePosition(socket as unknown as SdrSocket, ["gps"]);
+
+    browser.fail("User denied Geolocation", 1);
+    expect(socket.sent.at(-1)).toMatchObject({
+      type: "PublishPosition",
+      data: { node: "gps", error: "location sharing is blocked for this browser" },
     });
+    cleanup();
+  });
+
+  it("publishes to every device node once per reading", async () => {
+    const browser = browserGlobals();
+    const socket = new PositionSocket();
+    const { watchDevicePosition } = await import("./position");
+    const cleanup = watchDevicePosition(socket as unknown as SdrSocket, ["here", "there"]);
+
+    browser.succeed(fix(52.52));
+    expect(socket.sent.map((command) => command.data)).toMatchObject([
+      { node: "here" },
+      { node: "there" },
+    ]);
+    browser.succeed(fix(52.52));
+    expect(socket.sent).toHaveLength(2);
+    cleanup();
+  });
+
+  it("reports a missing geolocation provider", async () => {
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
     const socket = new PositionSocket();
     const { watchDevicePosition } = await import("./position");

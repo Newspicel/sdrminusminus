@@ -850,34 +850,81 @@ async fn rotating_position_node_ids_share_one_connection_budget() {
         ServerEvent::Hello { .. }
     ));
 
+    const PUBLISHED: usize = 32;
+    for index in 0..PUBLISHED {
+        send(
+            &mut ws,
+            &ClientCommand::PublishPosition {
+                node: format!("node-{index}"),
+                fix: Some(position_fix(52.52)),
+                error: None,
+            },
+        )
+        .await;
+    }
+
+    let mut reached_the_hub = 0;
+    let mut limited = 0;
+    for _ in 0..PUBLISHED {
+        match next_event(&mut ws).await {
+            ServerEvent::Error { message } if message.contains("not a device GPS source") => {
+                reached_the_hub += 1;
+            }
+            ServerEvent::Error { message } if message.contains("per connection") => limited += 1,
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+    assert!(
+        reached_the_hub >= 8,
+        "a burst of nodes is allowed through, got {reached_the_hub}"
+    );
+    assert!(limited > 0, "sustained publishing is still limited");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_publish_per_device_gps_node_is_never_rate_limited() {
+    let (addr, state) = serve_ws(test_engine()).await;
+    activate_device_gps(&state);
+    let mut ws = dial(addr).await;
+    assert!(matches!(
+        next_event(&mut ws).await,
+        ServerEvent::Hello { .. }
+    ));
+    let _ = next_event(&mut ws).await;
+
+    let fix = position_fix(52.52);
+    for _ in 0..8 {
+        send(
+            &mut ws,
+            &ClientCommand::PublishPosition {
+                node: "position".to_owned(),
+                fix: Some(fix.clone()),
+                error: None,
+            },
+        )
+        .await;
+    }
     send(
         &mut ws,
         &ClientCommand::PublishPosition {
-            node: "first".to_owned(),
-            fix: Some(position_fix(52.52)),
+            node: String::new(),
+            fix: Some(fix),
             error: None,
         },
     )
     .await;
-    send(
-        &mut ws,
-        &ClientCommand::PublishPosition {
-            node: "second".to_owned(),
-            fix: Some(position_fix(52.53)),
-            error: None,
-        },
-    )
-    .await;
-    assert!(matches!(
-        next_event(&mut ws).await,
-        ServerEvent::Error { message }
-            if message.contains("not a device GPS source")
-    ));
-    assert!(matches!(
-        next_event(&mut ws).await,
-        ServerEvent::Error { message }
-            if message.contains("per connection")
-    ));
+
+    let mut fixes = 0;
+    let mut fenced = false;
+    while !(fenced && fixes == 1) {
+        match next_event(&mut ws).await {
+            ServerEvent::PositionChanged { fix: Some(_), .. } => fixes += 1,
+            ServerEvent::Error { message } if message.contains("invalid position node id") => {
+                fenced = true;
+            }
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

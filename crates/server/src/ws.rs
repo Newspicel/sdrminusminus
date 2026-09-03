@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, atomic},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use axum::{
@@ -29,7 +29,8 @@ const OUT_CHANNEL_CAP: usize = 256;
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
-const MIN_POSITION_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
+const POSITION_PUBLISH_RATE: f64 = 20.0;
+const POSITION_PUBLISH_BURST: f64 = 16.0;
 const MEDIA_ID_BASE: u16 = 0x8000;
 const SPECTRUM_ID_BASE: u16 = 0;
 
@@ -62,6 +63,36 @@ pub(crate) fn start_decoded_encoder(state: &AppState) {
     });
 }
 
+struct RateBudget {
+    tokens: f64,
+    capacity: f64,
+    per_second: f64,
+    refilled: Instant,
+}
+
+impl RateBudget {
+    fn new(capacity: f64, per_second: f64) -> Self {
+        Self {
+            tokens: capacity,
+            capacity,
+            per_second,
+            refilled: Instant::now(),
+        }
+    }
+
+    fn take(&mut self) -> bool {
+        let now = Instant::now();
+        let earned = now.duration_since(self.refilled).as_secs_f64() * self.per_second;
+        self.tokens = (self.tokens + earned).min(self.capacity);
+        self.refilled = now;
+        if self.tokens < 1.0 {
+            return false;
+        }
+        self.tokens -= 1.0;
+        true
+    }
+}
+
 struct Session {
     engine: Arc<Engine>,
     state: AppState,
@@ -74,7 +105,7 @@ struct Session {
     surfaces: HashMap<String, (u16, tokio::task::JoinHandle<()>)>,
     next_spectrum_id: u16,
     next_media_id: u16,
-    last_position_publish: Option<Instant>,
+    position_budget: RateBudget,
 }
 
 impl Session {
@@ -91,7 +122,7 @@ impl Session {
             surfaces: HashMap::new(),
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
-            last_position_publish: None,
+            position_budget: RateBudget::new(POSITION_PUBLISH_BURST, POSITION_PUBLISH_RATE),
         }
     }
 
@@ -527,10 +558,7 @@ impl Session {
         fix: Option<PositionFix>,
         error: Option<String>,
     ) {
-        let too_fast = self
-            .last_position_publish
-            .is_some_and(|last| last.elapsed() < MIN_POSITION_PUBLISH_INTERVAL);
-        self.last_position_publish = Some(Instant::now());
+        let too_fast = !self.position_budget.take();
         if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
             let _ = self
                 .out

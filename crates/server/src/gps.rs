@@ -357,6 +357,19 @@ impl GpsHub {
             );
         }
         validate_update(fix.as_ref(), error.as_deref())?;
+        let next = PositionState {
+            fix,
+            error: error.map(limit_error),
+        };
+        if self
+            .latest
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(node)
+            == Some(&next)
+        {
+            return Ok(());
+        }
         let too_fast = {
             let mut published = self
                 .device_publish_at
@@ -375,7 +388,7 @@ impl GpsHub {
         if too_fast {
             return Err("position updates are limited to 20 Hz per node".to_owned());
         }
-        self.publish_state(state, node, fix, error.map(limit_error));
+        self.publish_state(state, node, next.fix, next.error);
         Ok(())
     }
 
@@ -769,6 +782,7 @@ pub(crate) fn nmea_devices() -> Result<NmeaDevicesResponse, String> {
 }
 
 fn offered_ports(mut ports: Vec<NmeaDeviceInfo>) -> Vec<NmeaDeviceInfo> {
+    ports.retain(|port| receiver_rank(port) == RECEIVER || !describes(port, &PERIPHERAL_WORDS));
     ports.sort_by(|left, right| {
         receiver_rank(left)
             .cmp(&receiver_rank(right))
@@ -804,18 +818,38 @@ const GNSS_WORDS: [&str; 10] = [
     "gps", "gnss", "glonass", "galileo", "beidou", "u-blox", "ublox", "garmin", "sirf", "navilock",
 ];
 
+const PERIPHERAL_WORDS: [&str; 14] = [
+    "monitor",
+    "display",
+    "keyboard",
+    "mouse",
+    "trackpad",
+    "touchpad",
+    "webcam",
+    "camera",
+    "headset",
+    "speaker",
+    "microphone",
+    "printer",
+    "scanner",
+    "hub",
+];
+
 const RECEIVER: u8 = 0;
 
-fn receiver_rank(device: &NmeaDeviceInfo) -> u8 {
-    let described = device
+fn describes(device: &NmeaDeviceInfo, words: &[&str]) -> bool {
+    device
         .product
         .iter()
         .chain(device.manufacturer.iter())
         .any(|text| {
             let text = text.to_lowercase();
-            GNSS_WORDS.iter().any(|word| text.contains(word))
-        });
-    if described
+            words.iter().any(|word| text.contains(word))
+        })
+}
+
+fn receiver_rank(device: &NmeaDeviceInfo) -> u8 {
+    if describes(device, &GNSS_WORDS)
         || device
             .usb_vid
             .is_some_and(|vid| GNSS_USB_VIDS.contains(&vid))
@@ -1046,10 +1080,6 @@ mod tests {
         assert_eq!(receiver_rank(&port(Some("u-blox GNSS receiver"), None)), 0);
         assert_eq!(receiver_rank(&port(None, Some(0x1546))), 0);
         assert_eq!(
-            receiver_rank(&port(Some("LG Monitor Controls"), Some(1))),
-            1
-        );
-        assert_eq!(
             receiver_rank(&port(Some("STM32 Virtual ComPort"), Some(1))),
             1
         );
@@ -1070,20 +1100,51 @@ mod tests {
             usb_vid: Some(0x1234),
             usb_pid: None,
         };
-        let monitor = named("/dev/cu.usbmodem306", Some("LG Monitor Controls"));
         let board = named("/dev/cu.usbmodem9A4", Some("STM32 Virtual ComPort"));
+        let bare = named("/dev/cu.usbmodem7B2", None);
         let puck = named("/dev/cu.usbmodem11401", Some("u-blox GNSS receiver"));
 
         assert_eq!(
-            offered_ports(vec![monitor.clone(), board.clone(), puck.clone()])
+            offered_ports(vec![board.clone(), bare.clone(), puck.clone()])
                 .iter()
                 .map(|port| port.path.as_str())
                 .collect::<Vec<_>>(),
             ["/dev/cu.usbmodem11401"]
         );
 
-        assert_eq!(offered_ports(vec![monitor, board]).len(), 2);
+        assert_eq!(offered_ports(vec![board, bare]).len(), 2);
         assert!(offered_ports(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn a_screen_that_answers_on_a_serial_port_is_never_offered_as_a_receiver() {
+        let monitor = NmeaDeviceInfo {
+            path: "/dev/cu.usbmodem306NTQD8F3802".to_owned(),
+            product: Some("LG Monitor Controls".to_owned()),
+            manufacturer: Some("LG Electronics Inc.".to_owned()),
+            serial: Some("306NTQD8F380".to_owned()),
+            usb_vid: Some(0x043e),
+            usb_pid: Some(0x9a39),
+        };
+        let keyboard = NmeaDeviceInfo {
+            path: "/dev/cu.usbmodem4001".to_owned(),
+            product: Some("USB Keyboard".to_owned()),
+            manufacturer: None,
+            serial: None,
+            usb_vid: Some(0x1234),
+            usb_pid: None,
+        };
+        assert!(offered_ports(vec![monitor, keyboard]).is_empty());
+
+        let mapping = NmeaDeviceInfo {
+            path: "/dev/cu.usbmodem11401".to_owned(),
+            product: Some("Garmin GPSMAP Display".to_owned()),
+            manufacturer: None,
+            serial: None,
+            usb_vid: Some(0x1234),
+            usb_pid: None,
+        };
+        assert_eq!(offered_ports(vec![mapping]).len(), 1);
     }
 
     #[test]
@@ -1173,6 +1234,44 @@ mod tests {
             app.gps
                 .publish_device(&app, "other", None, Some("lost".to_owned()))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn republishing_an_unchanged_fix_costs_nothing() {
+        let store = crate::Store::open(None).expect("store");
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "position".to_owned(),
+            body: NodeBody::Gps(GpsNode {
+                source: Some(PositionSource::Device),
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        let workspace_id = store
+            .create_workspace("mobile", &snapshot)
+            .expect("workspace");
+        store
+            .activate_workspace(workspace_id)
+            .expect("activate workspace");
+        let app = crate::AppState::new(Engine::new(None), Arc::new(store));
+        app.gps.set_device_publish_interval(Duration::from_secs(60));
+        let denied = "the browser will not share this device's location".to_owned();
+        app.gps
+            .publish_device(&app, "position", None, Some(denied.clone()))
+            .expect("accepted");
+        for _ in 0..8 {
+            app.gps
+                .publish_device(&app, "position", None, Some(denied.clone()))
+                .expect("a repeat of what the server already knows is free");
+        }
+        assert!(
+            app.gps
+                .publish_device(&app, "position", None, Some("still nothing".to_owned()))
+                .is_err(),
+            "a changed value still pays the per-node rate"
         );
     }
 }

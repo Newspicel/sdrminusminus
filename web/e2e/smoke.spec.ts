@@ -596,6 +596,8 @@ test.describe("the workspace", () => {
 
     const own = await addGps();
     await own.getByRole("button", { name: "This device's location" }).click();
+    await expect(own.getByText("location sharing is blocked for this browser")).toBeVisible();
+    await expect(page.getByText(/limited to 20 Hz/)).toHaveCount(0);
     let deviceNode = "";
     await expect
       .poll(async () => {
