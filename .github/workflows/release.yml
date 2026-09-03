@@ -470,6 +470,7 @@ jobs:
             -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
             "$keychain" > /dev/null
+          # shellcheck disable=SC2086  # a keychain list is a list of arguments, not one word
           security list-keychains -d user -s "$keychain" $previous
           find apps/desktop/resources/soapy -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
             | xargs -0 codesign --force --timestamp --options runtime \
@@ -545,7 +546,13 @@ jobs:
       # `cargo xtask desktop --bundles` is the same build locally. CI goes through the action
       # because signing a macOS bundle needs the certificate imported into a temporary keychain
       # first, and that is the action's job.
-      - uses: tauri-apps/tauri-action@v1
+      # `continue-on-error` because of the retry below, and the pair of them only on macOS:
+      # the DMG bundler mounts an interstitial disk image, and `hdiutil attach` on the runners
+      # intermittently refuses — the app is built, signed and notarized by then, so the whole
+      # release dies on a step whose second attempt costs a re-bundle.
+      - id: bundle
+        uses: tauri-apps/tauri-action@v1
+        continue-on-error: ${{ runner.os == 'macOS' }}
         env:
           # macOS bundles are signed and notarized, which is what these six carry: the first
           # three are the Developer ID Application certificate, the last three are the notary
@@ -565,6 +572,46 @@ jobs:
           # means a release with no `.sig` files, which the collect step below refuses.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft
+      # A bundler that dies mid-DMG leaves the image attached — the runner kills the orphaned
+      # `diskimages-helper` at cleanup — and its read-write interstitial on disk. The second
+      # attempt names its own interstitial after its pid, so it is not the mount that matters
+      # here: the leftover is a `.dmg` two levels under `bundle/`, exactly what the collect step
+      # below globs, and it would ship as a release asset of its own.
+      - name: Clear what the failed DMG bundle left behind
+        if: runner.os == 'macOS' && steps.bundle.outcome == 'failure'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for volume in /Volumes/dmg.*; do
+            echo "detaching $volume"
+            hdiutil detach -force "$volume" || true
+          done
+          for image in "target/$TARGET/release/bundle/macos"/rw.*.dmg; do
+            echo "removing $image"
+            rm -f "$image"
+          done
+      # `TAURI_CLI_VERBOSITY` only here: the bundler runs `bundle_dmg.sh` with its output piped
+      # into a debug-level log, so at the default level a failed script reports nothing but its
+      # own name. If the retry fails too, this is the run that says why.
+      - name: Bundle again
+        if: runner.os == 'macOS' && steps.bundle.outcome == 'failure'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_CLI_VERBOSITY: 1
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,net-client,gpu-fft
