@@ -910,6 +910,8 @@ test.describe("the workspace", () => {
     await page.mouse.wheel(0, 200);
     await expect.poll(transform).not.toBe(panned);
 
+    // A pan can carry the scope's header up behind the workspace bar, where no click reaches it.
+    await fitPatch(page);
     await scope.getByRole("button", { name: "Show full screen" }).click();
     const enlarged = page.locator('[data-full="scope"]');
     await expect(enlarged).toBeVisible();

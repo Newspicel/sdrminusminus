@@ -1,14 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
-import type { PatchNode, WorkspaceSnapshot } from "../src/lib/types";
+import type { DeviceRef, PatchNode, StateSnapshot, WorkspaceSnapshot } from "../src/lib/types";
 
 const LANES = 4;
+const ARRAY: DeviceRef = { backend: "virtual", key: "array4" };
 
 function arrayPatch(): WorkspaceSnapshot {
   const nodes = [
     {
       id: "dev",
       kind: "device",
-      data: { device: { backend: "virtual", key: "array4" } },
+      data: { device: ARRAY },
       position: { x: 0, y: 0 },
       size: { w: 380, h: 420 },
     },
@@ -46,6 +47,8 @@ function arrayPatch(): WorkspaceSnapshot {
 /// Stages a four-lane virtual array and a direction finder, which is what makes the field client's
 /// DF drive mission have something to show. In a workspace of its own: every spec here shares one
 /// server, so staging into the active one hands the next test whatever the last one left behind.
+/// Staged before the client opens, because a page holding the outgoing workspace applies it once
+/// it loads, and that additive apply would put the radio it names back beside the array's.
 async function stageArray(page: Page, name: string): Promise<void> {
   const response = await page.request.post("/api/workspaces", {
     data: { name, snapshot: arrayPatch() },
@@ -58,8 +61,11 @@ async function stageArray(page: Page, name: string): Promise<void> {
   const applied = await page.request.post(`/api/workspaces/${created.id}/apply`, { data: {} });
   expect(applied.ok(), await applied.text()).toBeTruthy();
 
-  const state = await page.request.get("/api/state").then((r) => r.json());
-  const set = state.device_sets[0];
+  const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
+  const set = state.device_sets.find((candidate) => candidate.device.key === ARRAY.key);
+  if (set === undefined) {
+    throw new Error(`an open device set for ${ARRAY.key}`);
+  }
   const patched = await page.request.patch(`/api/devicesets/${set.id}/device`, {
     data: {
       center_hz: 300_000_000,
@@ -75,7 +81,6 @@ async function stageArray(page: Page, name: string): Promise<void> {
 
 test.describe("field mode", () => {
   test("offers the missions the workspace can drive", async ({ page }) => {
-    await page.goto("/");
     await stageArray(page, "Field missions");
     await page.goto("/field");
     await expect(page.getByRole("button", { name: /DF drive/ })).toBeVisible();
@@ -83,7 +88,6 @@ test.describe("field mode", () => {
   });
 
   test("drives a direction finder from a phone", async ({ page }) => {
-    await page.goto("/");
     await stageArray(page, "Field DF drive");
     await page.goto("/field");
     await page.getByRole("button", { name: /DF drive/ }).click();
