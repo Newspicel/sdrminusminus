@@ -1,0 +1,7 @@
+# A gate that compares wall-clock time against the signal's own duration measures the machine as
+# much as the code: on a four-core runner, three DVB-S2 decoders in neighbouring slots pushed the
+# 32APSK gate from under a second to 2.04 s of its 2.03 s budget. These take every test thread, so
+# each one times a decoder that has the runner to itself.
+[[profile.default.overrides]]
+filter = 'test(/_ahead_of_(the_channel_rate|realtime|the_audio_rate)/)'
+threads-required = "num-test-threads"
