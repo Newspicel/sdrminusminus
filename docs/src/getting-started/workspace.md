@@ -17,7 +17,7 @@ to pin or unpin it. Moving or resizing a face on the rack does not change its si
 
 | Group | Nodes | Role |
 |---|---|---|
-| Sources | Device, GPS position (device, fixed place, GPSD, or NMEA serial) | Radio IQ or a live station position |
+| Sources | Device, GPS position | Radio IQ or a live station position |
 | Decoders | AM, NFM, WFM, SSB, ADS-B, DMR, and the rest of the channel catalog | Select and process one signal from device IQ |
 | Tools | Array, Direction finder, Passive radar, Combiner, Scanner, Signal hunt, DMR trunk, Event filter, Triangulation | Drive a radio, combine several, or work over what the decoders report |
 | Outputs | Scope, Map, Signal survey, Readout, Decoder log, Video, Speaker, Recorder, Audio recorder, Baseband recorder, Time machine, Network IQ, Export | Watch it, hear it, or write it out |

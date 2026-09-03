@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  formatHz,
-  formatKhz,
-  formatMhz,
-  formatSignedKhz,
-  fractionDigits,
-  parseFrequencyHz,
-} from "./format";
+import { formatHz, formatKhz, formatMhz, formatSignedKhz, fractionDigits } from "./format";
 
 describe("frequency formats", () => {
   it("switches unit at 1 MHz and trims trailing zeros", () => {
@@ -40,35 +33,5 @@ describe("fractionDigits", () => {
     expect(fractionDigits(undefined)).toBe(6);
     expect(fractionDigits(0)).toBe(6);
     expect(fractionDigits(Number.NaN)).toBe(6);
-  });
-});
-
-describe("parseFrequencyHz", () => {
-  it("reads a bare number as megahertz", () => {
-    expect(parseFrequencyHz("433.92")).toBe(433_920_000);
-    expect(parseFrequencyHz(" 145 ")).toBe(145_000_000);
-  });
-
-  it("accepts a decimal comma", () => {
-    expect(parseFrequencyHz("433,92")).toBe(433_920_000);
-  });
-
-  it("honours an explicit unit, case and spacing free", () => {
-    expect(parseFrequencyHz("433920 kHz")).toBe(433_920_000);
-    expect(parseFrequencyHz("433920000hz")).toBe(433_920_000);
-    expect(parseFrequencyHz("1.2 GHZ")).toBe(1_200_000_000);
-  });
-
-  it("round-trips the shortest decimal form of a hertz value", () => {
-    expect(parseFrequencyHz(`${433_012_345 / 1e6}`)).toBe(433_012_345);
-  });
-
-  it("rejects anything that is not a positive frequency", () => {
-    expect(parseFrequencyHz("")).toBeNull();
-    expect(parseFrequencyHz("0")).toBeNull();
-    expect(parseFrequencyHz("-145")).toBeNull();
-    expect(parseFrequencyHz("1.2.3")).toBeNull();
-    expect(parseFrequencyHz("145 mhz extra")).toBeNull();
-    expect(parseFrequencyHz("145 furlongs")).toBeNull();
   });
 });

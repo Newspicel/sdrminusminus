@@ -17,7 +17,7 @@ const MISSIONS: Mission[] = [
   {
     id: "foxhunt",
     title: "Fox hunt",
-    blurb: "A radio parked on one frequency: warmer or colder, a click track and a trail.",
+    blurb: "A radio parked on one frequency: warmer or colder, and a click track to walk to it.",
     nodeKind: "hunt",
     component: () => null,
   },

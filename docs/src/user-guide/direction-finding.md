@@ -60,7 +60,8 @@ size of the error ellipse, the guidance, and every finder that has reported with
 last did. **Clear** throws away everything the grid has learned and starts again.
 
 Each finder needs a position of its own. A receiver that drives gets it from a GPS; one that never
-moves gets it from a **Fixed place** node — type the latitude and longitude once and everything
+moves gets it from a **GPS position** node set to a fixed place — type the latitude and longitude
+once and everything
 downstream treats it like any other fix.
 
 Without a triangulation node a direction finder still shows bearings and a compass, but there is

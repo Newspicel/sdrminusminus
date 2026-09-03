@@ -770,9 +770,10 @@ test.describe("the workspace", () => {
     const under = Number(
       /Frequency (\d+\.\d+) MHz/.exec((await menu.getAttribute("aria-label")) ?? "")?.[1] ?? "0",
     );
-    expect(under, "the frequency under the pointer sits left of the 100 MHz center").toBeGreaterThan(
-      99,
-    );
+    expect(
+      under,
+      "the frequency under the pointer sits left of the 100 MHz center",
+    ).toBeGreaterThan(99);
     expect(under).toBeLessThan(100);
 
     await menu.getByRole("button", { name: /^Mark this frequency/ }).click();

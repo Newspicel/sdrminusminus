@@ -10,12 +10,9 @@ import {
   huntSettingsOf,
   liveHunt,
 } from "../components/hunt";
-import { MapPanel } from "../components/MapPanel";
 import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
 import { useHuntStore } from "../lib/hunt";
-import { positionSourcesOf } from "../lib/position";
-import { useSignalSurveyStore } from "../lib/signalSurvey";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, PatchGraph } from "../lib/types";
 import type { MissionProps } from "./missions";
@@ -35,7 +32,6 @@ export function FoxHunt({
   const settings = status?.settings ?? huntSettingsOf(graph, node);
   const [clicks, setClicks] = useState(true);
   const clicker = useRef<Clicker | null>(null);
-  const positionNodes = positionSourcesOf(graph, node);
   const running = status !== null;
 
   useEffect(() => {
@@ -72,10 +68,9 @@ export function FoxHunt({
   const refusal =
     set === null ? "Wire this hunt's control out to a radio." : huntRefusal(set, settings.freq_hz);
   const busy = startMut.isPending || stopMut.isPending;
-  const samples = useSignalSurveyStore((store) => store.sessions[node]?.samples ?? []);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col justify-center">
       <div className="px-3 py-2 text-center">
         <p className="font-mono text-3xl tabular-nums">{formatHz(settings.freq_hz)}</p>
         <p className="text-xs text-ink-dim">
@@ -123,14 +118,6 @@ export function FoxHunt({
         >
           {clicks ? "Clicks on" : "Clicks off"}
         </Button>
-      </div>
-      <div className="min-h-0 flex-1">
-        <MapPanel
-          kinds={[]}
-          positionNodes={positionNodes}
-          signalSamples={samples}
-          className="h-full w-full"
-        />
       </div>
     </div>
   );

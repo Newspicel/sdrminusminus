@@ -22,7 +22,7 @@ address bar once stored.
 
 | Mission | Needs | What you get |
 |---|---|---|
-| Fox hunt | A channel | One large level meter, a click track that speeds up as the signal rises, and a trail on the map |
+| Fox hunt | A signal hunt | One large level meter, warmer or colder, a click track that speeds up as the signal rises, and start/stop for the hunt itself |
 | DF drive | A direction finder | A compass turned to the vehicle's heading, guidance, and the map underneath |
 | Radar watch | A passive radar | The range–Doppler surface fullscreen with what the tracker is following |
 

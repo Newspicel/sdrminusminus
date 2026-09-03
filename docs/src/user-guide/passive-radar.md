@@ -17,8 +17,7 @@ measured, so a shared clock is enough and phase is not needed.
 | `ref` | Pointed at the illuminator |
 | `surv` | Pointed at the sky the targets are in |
 
-3. Wire a **GPS position** or **Fixed place** node into `position` if you want the echoes drawn on
-   a map.
+3. Wire a **GPS position** node into `position` if you want the echoes drawn on a map.
 
 ## What it does with them
 
