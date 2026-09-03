@@ -2,16 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
-import { channelHasVideo, rateMismatch } from "../../components/channelSettings";
+import { rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow, Settings } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
 import { useLevelStore } from "../../lib/levels";
-import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
+import type { DeviceSet, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
-import { iqSourceOf, targetsOf } from "../binding";
+import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
@@ -57,7 +57,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const offsetHz = channel?.settings.offset_hz ?? 0;
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
-  const unwired = unwiredOutputs(workspace.graph, node.id, descriptor);
   const editRecording = (on: boolean) => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -101,11 +100,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               spanHz={set.settings.sample_rate ?? null}
               centerHz={centerHz}
             />
-            {unwired.map((reason) => (
-              <p key={reason} className="legend px-2 pb-2">
-                {reason}
-              </p>
-            ))}
             {keepsCalls(descriptor) && (
               <Settings className="border-t border-line p-2">
                 <SettingRow label="Record calls">
@@ -122,15 +116,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       </FaceBody>
     </NodeShell>
   );
-}
-
-function unwiredOutputs(
-  graph: PatchGraph,
-  node: string,
-  descriptor: ChannelDescriptor | undefined,
-): string[] {
-  const reaches = (port: string): boolean => targetsOf(graph, node, port).length > 0;
-  return channelHasVideo(descriptor) && !reaches("video") ? ["video out reaches no screen"] : [];
 }
 
 function RateMismatch({
