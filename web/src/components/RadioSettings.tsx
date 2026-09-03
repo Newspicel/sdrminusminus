@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
@@ -316,9 +316,9 @@ function ExtraControl({
         : "";
   const [draft, setDraft] = useState(authoritative);
   const [dirty, setDirty] = useState(false);
-  useEffect(() => {
-    if (!dirty) setDraft(authoritative);
-  }, [authoritative, dirty]);
+  if (!dirty && draft !== authoritative) {
+    setDraft(authoritative);
+  }
 
   const name = settingLabel(setting.name);
   switch (setting.kind) {

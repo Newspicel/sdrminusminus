@@ -132,6 +132,7 @@ function IdentifyCard({
         returnTo.focus();
       }
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- another frequency is another card, and focus follows it
   }, [hz]);
   return (
     <div

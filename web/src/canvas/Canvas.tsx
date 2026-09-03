@@ -87,7 +87,13 @@ export function Canvas() {
   const focus = workspace.selected;
   useEffect(() => {
     setNodes((previous) => focusNode(previous, focus));
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a redrawn graph loses the focus ring
   }, [focus, workspace.graph, setNodes]);
+
+  const flowRef = useRef<typeof nodes>([]);
+  useLayoutEffect(() => {
+    flowRef.current = nodes;
+  });
 
   const commitGeometry = useCallback(() => {
     workspace.edit((snapshot) => ({
@@ -116,11 +122,6 @@ export function Canvas() {
       },
     }));
   }, [workspace]);
-
-  const flowRef = useRef(nodes);
-  useLayoutEffect(() => {
-    flowRef.current = nodes;
-  });
 
   const { handleNodesChange, handleEdgesChange, onBeforeDelete } = useGraphChanges(
     workspace,

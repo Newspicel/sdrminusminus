@@ -69,6 +69,7 @@ export function App() {
       return;
     }
     return watchDevicePosition(socket, deviceGpsNodeIds);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a new revision can bind the same node to another radio
   }, [socket, deviceGpsNodeIds, workspace.active?.revision]);
   const announced = useRef<PatchApplyReport | null>(null);
   useEffect(() => {

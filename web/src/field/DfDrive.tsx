@@ -7,6 +7,7 @@ import { useDfStore } from "../lib/df";
 import { crossingsFedBy, dfOverlay } from "../lib/dfOverlay";
 import { positionSourcesOf, usePositionStore } from "../lib/position";
 import type { PatchGraph, Route, RoutePoint } from "../lib/types";
+import { useNow } from "../lib/useNow";
 import type { MissionProps } from "./missions";
 import {
   formatDistance,
@@ -19,6 +20,7 @@ import {
 } from "./nav";
 import { useVoice } from "./useFieldScreen";
 
+const OVERLAY_TICK_MS = 1_000;
 const SIZE = 200;
 const CENTRE = SIZE / 2;
 const RING = SIZE / 2 - 18;
@@ -100,7 +102,7 @@ export function DfDrive({
   const overlay = dfOverlay(
     { finders: [node], crossings },
     useDfStore((store) => store.byNode),
-    Date.now(),
+    useNow(OVERLAY_TICK_MS),
     here,
   );
   const bearing = state?.reading ?? null;

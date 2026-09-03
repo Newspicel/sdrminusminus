@@ -31,6 +31,7 @@ export function AudioSpectrogramView({
     try {
       renderer = attachWaterfall(canvas, setError);
     } catch (thrown) {
+      // oxlint-disable-next-line react/set-state-in-effect -- the WebGL context is the external system this effect attaches, and its refusal has to reach the face
       setError(thrown instanceof Error ? thrown.message : String(thrown));
       return;
     }

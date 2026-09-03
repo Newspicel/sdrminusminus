@@ -4,6 +4,7 @@ import {
   createContext,
   type ReactNode,
   type RefObject,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -44,19 +45,19 @@ export function useFaceActive(): boolean {
 
 export type WheelClaim = (event: WheelEvent) => boolean;
 
-const WheelClaimSlot = createContext<RefObject<WheelClaim | null> | null>(null);
+type WheelHold = (claim: WheelClaim | null) => void;
+
+const WheelClaimSlot = createContext<WheelHold | null>(null);
 
 export function useFaceWheel(claim: WheelClaim): void {
-  const slot = useContext(WheelClaimSlot);
+  const hold = useContext(WheelClaimSlot);
   useEffect(() => {
-    if (slot === null) {
+    if (hold === null) {
       return;
     }
-    slot.current = claim;
-    return () => {
-      slot.current = null;
-    };
-  }, [slot, claim]);
+    hold(claim);
+    return () => hold(null);
+  }, [hold, claim]);
 }
 
 const CATEGORY_STRIP: Record<NodeCategory, string> = {
@@ -163,6 +164,9 @@ export function NodeShell({
   const minimum = nodeMinSize(node.kind, ports);
   const portalContainer = useRef<HTMLDivElement>(null);
   const wheelClaim = useRef<WheelClaim | null>(null);
+  const holdWheel = useCallback<WheelHold>((claim) => {
+    wheelClaim.current = claim;
+  }, []);
   const full = workspace.expanded === node.id;
   useWheelRouting(portalContainer, wheelClaim);
 
@@ -238,7 +242,7 @@ export function NodeShell({
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag nopan">
           <Active value={active}>
-            <WheelClaimSlot value={wheelClaim}>{children}</WheelClaimSlot>
+            <WheelClaimSlot value={holdWheel}>{children}</WheelClaimSlot>
           </Active>
           {!active && (
             <span

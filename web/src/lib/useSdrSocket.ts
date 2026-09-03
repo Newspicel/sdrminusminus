@@ -93,6 +93,7 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
     videoHub.attach(s);
     surfaceHub.attach(s);
     audioEngine.attach(s);
+    // oxlint-disable-next-line react/set-state-in-effect -- the socket is the external system this effect installs, and every consumer reads it from state
     setSocket(s);
     s.connect();
     return () => {

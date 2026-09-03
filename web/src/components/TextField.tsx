@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Input } from "./BaseControls";
 import { FIELD } from "./controls";
 
@@ -16,7 +16,11 @@ export function TextField({
   onCommit: (value: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [shown, setShown] = useState(value);
+  if (shown !== value) {
+    setShown(value);
+    setDraft(value);
+  }
   const commit = () => {
     const next = draft.trim();
     setDraft(next);

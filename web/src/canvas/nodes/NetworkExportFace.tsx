@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, FIELD } from "../../components/controls";
 import {
@@ -45,8 +45,11 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
   const radio = iqSourceOf(workspace.graph, node.id);
   const channel = basebandSourceOf(workspace.graph, node.id, workspace.devices, workspace.channels);
   const [address, setAddress] = useState(node.data.address);
-
-  useEffect(() => setAddress(node.data.address), [node.data.address]);
+  const [shown, setShown] = useState(node.data.address);
+  if (shown !== node.data.address) {
+    setShown(node.data.address);
+    setAddress(node.data.address);
+  }
   const owner =
     channel === null
       ? set

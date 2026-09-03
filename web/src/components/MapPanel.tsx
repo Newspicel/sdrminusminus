@@ -135,7 +135,6 @@ export function MapPanel({
   const [detail, setDetail] = useState<TargetDetail | null>(null);
   const [basemap, setBasemap] = useState<BasemapKind>("pending");
   const [positionCount, setPositionCount] = useState(0);
-  const [signalCount, setSignalCount] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -274,7 +273,6 @@ export function MapPanel({
           map.getSource<GeoJSONSource>(SIGNAL_SOURCE),
           surveySamples,
         );
-        setSignalCount(collection.features.length);
         frameSignalOnce(map, collection, signalFramedRef);
       }
 
@@ -351,6 +349,7 @@ export function MapPanel({
         handler.disable();
       }
     }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a new basemap builds new handlers to tell again
   }, [active, basemap]);
 
   const kindsKey = kinds.join(" ");
@@ -398,9 +397,6 @@ export function MapPanel({
     }
     installSignalLayers(map, edgeRef.current, signalEnabled);
     signalDrawnRef.current = null;
-    if (!signalEnabled) {
-      setSignalCount(0);
-    }
   }, [signalEnabled]);
 
   const propagationLayer = propagation?.layer ?? null;
@@ -450,7 +446,7 @@ export function MapPanel({
             <div className="flex min-w-36 flex-col gap-1 font-mono text-[10px] tabular-nums">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-ink-dim">Signal cells</span>
-                <span className="text-ink">{signalCount}</span>
+                <span className="text-ink">{signalSamples.length}</span>
               </div>
               <div
                 className="h-1.5 w-full rounded-full"

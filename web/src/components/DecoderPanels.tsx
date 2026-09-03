@@ -279,6 +279,7 @@ function TextView({ kind, scope = {} }: { kind: "rtty" | "morse" | "psk"; scope?
     if (el !== null && stick.current) {
       el.scrollTop = el.scrollHeight;
     }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- new text is what scrolls the pane
   }, [text]);
 
   const copy = (): void => {

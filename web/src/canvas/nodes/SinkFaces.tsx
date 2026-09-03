@@ -54,6 +54,7 @@ import type {
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
+import { useNow } from "../../lib/useNow";
 import {
   type EventPath,
   eventPathsOf,
@@ -283,6 +284,8 @@ export function MapFace({ node }: { node: PatchNode }) {
   );
 }
 
+const OVERLAY_TICK_MS = 1_000;
+
 function Plot({
   kinds,
   positionNodes,
@@ -297,13 +300,14 @@ function Plot({
   radars: readonly RadarSource[];
 }) {
   const byNode = useDfStore((store) => store.byNode);
+  const now = useNow(OVERLAY_TICK_MS);
   const here = usePositionStore((store) =>
     positionNodes.length === 0 ? undefined : store.sources[positionNodes[0] ?? ""]?.fix,
   );
   const df = dfOverlay(
     { finders, crossings, radars },
     byNode,
-    Date.now(),
+    now,
     here === undefined || here === null ? null : { lat: here.latitude, lon: here.longitude },
   );
   return (

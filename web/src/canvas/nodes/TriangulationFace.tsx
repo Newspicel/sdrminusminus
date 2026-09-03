@@ -4,13 +4,17 @@ import { Readout, ReadoutRow } from "../../components/Readout";
 import { resetFusion } from "../../lib/api";
 import { useDfStore } from "../../lib/df";
 import type { PatchNode } from "../../lib/types";
+import { useNow } from "../../lib/useNow";
 import { useWorkspaceContext } from "../context";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 import { GUIDANCE_TEXT, spreadLabel, stationAge } from "./triangulation";
 
+const AGE_TICK_MS = 1_000;
+
 export function TriangulationFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const state = useDfStore((store) => store.byNode[node.id]);
+  const now = useNow(AGE_TICK_MS);
   if (node.kind !== "triangulation") {
     return null;
   }
@@ -58,7 +62,7 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
                 >
                   <span className="truncate">{station.station_id}</span>
                   <span className="text-ink-dim text-xs">
-                    {station.bearings} · {stationAge(station, Date.now())}
+                    {station.bearings} · {stationAge(station, now)}
                   </span>
                 </div>
               ))}

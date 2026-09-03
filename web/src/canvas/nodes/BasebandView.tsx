@@ -98,6 +98,7 @@ export function BasebandView({
       clearBasebandGrid(grid);
       bitmapRef.current?.invalidate();
     }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the settings are what the clear reacts to
   }, [view, eyeComponent, symbolRate, decimate]);
 
   useEffect(() => {

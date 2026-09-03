@@ -403,6 +403,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     try {
       renderer = attachWaterfall(canvas, setGlError);
     } catch (error) {
+      // oxlint-disable-next-line react/set-state-in-effect -- the WebGL context is the external system this effect attaches, and its refusal has to reach the face
       setGlError(error instanceof Error ? error.message : String(error));
       return;
     }

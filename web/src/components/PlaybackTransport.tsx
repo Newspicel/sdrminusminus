@@ -101,8 +101,7 @@ function useLivePosition(status: PlaybackStatus, sampleRate: number, looping: bo
   const [now, setNow] = useState(() => Date.now());
 
   if (anchor.position !== status.position_samples) {
-    setAnchor({ position: status.position_samples, at: Date.now() });
-    setNow(Date.now());
+    setAnchor({ position: status.position_samples, at: now });
   }
 
   useEffect(() => {

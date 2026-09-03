@@ -16,6 +16,11 @@ import { FACES, faceSize } from "./nodes";
 
 const SETTLE_MS = 500;
 
+interface Preview {
+  layout: RackLayout;
+  dropped: boolean;
+}
+
 interface Gesture {
   node: string;
   mode: "move" | "corner" | RackEdge;
@@ -28,24 +33,19 @@ export function Rack() {
   const workspace = useWorkspaceContext();
   const hostRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
-  const [preview, setPreview] = useState<RackLayout | null>(null);
-  const dropped = useRef(false);
+  const [preview, setPreview] = useState<Preview | null>(null);
+
+  if (preview?.dropped === true && sameRack(workspace.rack, preview.layout)) {
+    setPreview(null);
+  }
 
   useEffect(() => {
-    if (!dropped.current || preview === null) {
+    if (preview === null || !preview.dropped) {
       return;
     }
-    if (sameRack(workspace.rack, preview)) {
-      dropped.current = false;
-      setPreview(null);
-      return;
-    }
-    const settle = setTimeout(() => {
-      dropped.current = false;
-      setPreview(null);
-    }, SETTLE_MS);
+    const settle = setTimeout(() => setPreview(null), SETTLE_MS);
     return () => clearTimeout(settle);
-  }, [workspace.rack, preview]);
+  }, [preview]);
 
   const cellSize = useCallback(() => {
     const host = hostRef.current;
@@ -64,7 +64,11 @@ export function Rack() {
       const dx = Math.round((event.clientX - active.originX) / cell.w);
       const dy = Math.round((event.clientY - active.originY) / cell.h);
       const next = applyGesture(active, dx, dy);
-      setPreview((current) => (current !== null && sameRack(current, next) ? current : next));
+      setPreview((current) =>
+        current !== null && sameRack(current.layout, next)
+          ? current
+          : { layout: next, dropped: false },
+      );
     },
     [cellSize],
   );
@@ -84,8 +88,7 @@ export function Rack() {
         setPreview(null);
         return;
       }
-      dropped.current = true;
-      setPreview(applyGesture(active, dx, dy));
+      setPreview({ layout: applyGesture(active, dx, dy), dropped: true });
       workspace.edit((snapshot) => ({
         ...snapshot,
         rack: applyGesture({ ...active, base: snapshot.rack ?? {} }, dx, dy),
@@ -107,7 +110,7 @@ export function Rack() {
     };
   };
 
-  const slots = (preview ?? workspace.rack).slots ?? [];
+  const slots = (preview?.layout ?? workspace.rack).slots ?? [];
   if (slots.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-bg">
