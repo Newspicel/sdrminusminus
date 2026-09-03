@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button } from "../components/BaseControls";
+import { huntDeviceSet } from "../components/hunt";
 import { Toasts } from "../components/Toasts";
 import { TokenGate } from "../components/TokenGate";
 import { aboutQuery, stateQuery, workspaceQuery, workspacesQuery } from "../lib/api";
-import type { PatchGraph, StateSnapshot } from "../lib/types";
+import type { PatchGraph } from "../lib/types";
 import { useSdrSocket } from "../lib/useSdrSocket";
 import { DfDrive } from "./DfDrive";
 import { FoxHunt } from "./FoxHunt";
@@ -16,8 +17,8 @@ const MISSIONS: Mission[] = [
   {
     id: "foxhunt",
     title: "Fox hunt",
-    blurb: "One receiver and a directional antenna: a level meter, a click track and a trail.",
-    nodeKind: "channel",
+    blurb: "A radio parked on one frequency: warmer or colder, a click track and a trail.",
+    nodeKind: "hunt",
     component: () => null,
   },
   {
@@ -99,7 +100,7 @@ export function FieldApp() {
             <FoxHunt
               node={route.node}
               graph={graph}
-              binding={channelBinding(state.data ?? null, graph, route.node)}
+              set={huntDeviceSet(graph, state.data?.device_sets ?? [], route.node)}
             />
           ) : (
             <p className="p-4 text-sm text-ink-dim">No mission by that name.</p>
@@ -116,8 +117,8 @@ function Picker({ graph, onPick }: { graph: PatchGraph; onPick: (path: string) =
   if (targets.length === 0) {
     return (
       <p className="p-4 text-sm text-ink-dim">
-        Nothing in the active workspace can be driven from here yet. Add a channel to hunt with, or
-        a direction finder to drive to.
+        Nothing in the active workspace can be driven from here yet. Add a signal hunt to walk with,
+        or a direction finder to drive to.
       </p>
     );
   }
@@ -139,33 +140,4 @@ function Picker({ graph, onPick }: { graph: PatchGraph; onPick: (path: string) =
       ))}
     </ul>
   );
-}
-
-/// Which live channel a fox-hunt node is bound to, so the mission has a level to show.
-function channelBinding(
-  state: StateSnapshot | null,
-  graph: PatchGraph | undefined,
-  node: string,
-): { deviceSet: number; channel: number; freqHz: number } | null {
-  if (state === null || graph === undefined) {
-    return null;
-  }
-  const patch = graph.nodes.find((entry) => entry.id === node);
-  if (patch === undefined || patch.kind !== "channel") {
-    return null;
-  }
-  for (const set of state.device_sets) {
-    const channel = set.channels.find(
-      (candidate) => candidate.settings.params.type === patch.data.channel_type,
-    );
-    if (channel !== undefined) {
-      const centre = set.settings.center_hz ?? 0;
-      return {
-        deviceSet: set.id,
-        channel: channel.id,
-        freqHz: centre + (channel.settings.offset_hz ?? 0),
-      };
-    }
-  }
-  return null;
 }

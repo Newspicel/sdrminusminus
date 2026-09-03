@@ -79,6 +79,7 @@ test.describe("field mode", () => {
     await stageArray(page, "Field missions");
     await page.goto("/field");
     await expect(page.getByRole("button", { name: /DF drive/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Fox hunt/ })).toHaveCount(0);
   });
 
   test("drives a direction finder from a phone", async ({ page }) => {

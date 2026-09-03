@@ -8,7 +8,7 @@ const MISSIONS: Mission[] = [
     id: "foxhunt",
     title: "Fox hunt",
     blurb: "",
-    nodeKind: "channel",
+    nodeKind: "hunt",
     component: () => null,
   },
   { id: "df", title: "DF drive", blurb: "", nodeKind: "df", component: () => null },
@@ -18,6 +18,7 @@ function graph(): PatchGraph {
   return {
     nodes: [
       { id: "voice", kind: "channel", data: { channel_type: "nfm" }, position: { x: 0, y: 0 } },
+      { id: "walk", kind: "hunt", data: {}, position: { x: 0, y: 0 } },
       { id: "array", kind: "df", data: {}, label: "Roof array", position: { x: 0, y: 0 } },
       { id: "map", kind: "map", position: { x: 0, y: 0 } },
     ],
@@ -59,11 +60,21 @@ describe("missionTargets", () => {
   it("offers each mission only the nodes it can drive", () => {
     const targets = missionTargets(graph(), MISSIONS);
     expect(targets.map((target) => `${target.mission.id}:${target.node}`)).toEqual([
-      "foxhunt:voice",
+      "foxhunt:walk",
       "df:array",
     ]);
     expect(targets[1]?.label).toBe("Roof array");
-    expect(targets[0]?.label).toBe("voice");
+    expect(targets[0]?.label).toBe("walk");
+  });
+
+  it("leaves out a mission whose node the patch does not hold", () => {
+    const channelsOnly: PatchGraph = {
+      nodes: [
+        { id: "voice", kind: "channel", data: { channel_type: "nfm" }, position: { x: 0, y: 0 } },
+      ],
+      edges: [],
+    };
+    expect(missionTargets(channelsOnly, MISSIONS)).toEqual([]);
   });
 
   it("offers nothing for an empty patch", () => {

@@ -1,44 +1,45 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../components/BaseControls";
 import { formatHz } from "../components/format";
+import {
+  BEARING_LABEL,
+  bearing,
+  formatHuntDb,
+  huntRefusal,
+  huntSettingsOf,
+  liveHunt,
+} from "../components/hunt";
 import { MapPanel } from "../components/MapPanel";
+import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
-import { useLevelStore } from "../lib/levels";
+import { useHuntStore } from "../lib/hunt";
 import { positionSourcesOf } from "../lib/position";
 import { useSignalSurveyStore } from "../lib/signalSurvey";
-import type { ChannelLevel, PatchGraph } from "../lib/types";
+import { pushToast } from "../lib/toasts";
+import type { DeviceSet, PatchGraph } from "../lib/types";
 import type { MissionProps } from "./missions";
 
-const FLOOR_DB = -110;
-const CEILING_DB = -20;
-
-/// Where a level sits between "nothing" and "on top of it", which is what both the meter fill and
-/// the click rate are driven from.
-export function strengthOf(level: ChannelLevel | undefined): number {
-  if (level === undefined || !Number.isFinite(level.peak_db)) {
-    return 0;
-  }
-  return Math.min(1, Math.max(0, (level.peak_db - FLOOR_DB) / (CEILING_DB - FLOOR_DB)));
-}
+const INTERVAL_MS = 50;
 
 export function FoxHunt({
   node,
   graph,
-  binding,
-}: MissionProps & {
-  graph: PatchGraph;
-  binding: { deviceSet: number; channel: number; freqHz: number } | null;
-}) {
-  const level = useLevelStore((store) =>
-    binding === null ? undefined : store.byDeviceSet[binding.deviceSet]?.[binding.channel],
-  );
-  const strength = strengthOf(level);
+  set,
+}: MissionProps & { graph: PatchGraph; set: DeviceSet | null }) {
+  const queryClient = useQueryClient();
+  const pushed = useHuntStore((store) => (set === null ? undefined : store.byDeviceSet[set.id]));
+  const clearLive = useHuntStore((store) => store.clear);
+  const status = liveHunt(set, pushed);
+  const strength = status?.strength ?? 0;
+  const settings = status?.settings ?? huntSettingsOf(graph, node);
   const [clicks, setClicks] = useState(true);
   const clicker = useRef<Clicker | null>(null);
   const positionNodes = positionSourcesOf(graph, node);
+  const running = status !== null;
 
   useEffect(() => {
-    if (!clicks) {
+    if (!running || !clicks) {
       clicker.current?.stop();
       clicker.current = null;
       return;
@@ -48,21 +49,39 @@ export function FoxHunt({
       clicker.current?.stop();
       clicker.current = null;
     };
-  }, [clicks]);
+  }, [running, clicks]);
 
   useEffect(() => {
     clicker.current?.setStrength(strength);
   }, [strength]);
 
+  const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+  const startMut = useMutation({
+    mutationFn: async (deviceSet: number) =>
+      startHunt(deviceSet, { ...settings, interval_ms: INTERVAL_MS }),
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: invalidate,
+  });
+  const stopMut = useMutation({
+    mutationFn: stopHunt,
+    onSuccess: (_status, deviceSet) => clearLive(deviceSet),
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: invalidate,
+  });
+
+  const refusal =
+    set === null ? "Wire this hunt's control out to a radio." : huntRefusal(set, settings.freq_hz);
+  const busy = startMut.isPending || stopMut.isPending;
   const samples = useSignalSurveyStore((store) => store.sessions[node]?.samples ?? []);
+
   return (
     <div className="flex h-full flex-col">
       <div className="px-3 py-2 text-center">
-        <p className="font-mono text-3xl tabular-nums">
-          {binding === null ? "—" : formatHz(binding.freqHz)}
-        </p>
+        <p className="font-mono text-3xl tabular-nums">{formatHz(settings.freq_hz)}</p>
         <p className="text-xs text-ink-dim">
-          {level === undefined ? "waiting for the channel" : `${level.peak_db.toFixed(1)} dBFS`}
+          {status === null
+            ? "not hunting"
+            : `${formatHuntDb(status.smooth_db)} · ${BEARING_LABEL[bearing(status)]}`}
         </p>
       </div>
       <div className="px-3">
@@ -78,7 +97,25 @@ export function FoxHunt({
           />
         </div>
       </div>
-      <div className="flex justify-center px-3 py-2">
+      {refusal !== null && <p className="px-3 pt-2 text-center text-danger text-xs">{refusal}</p>}
+      <div className="flex justify-center gap-2 px-3 py-2">
+        <Button
+          type="button"
+          disabled={set === null || busy || (!running && refusal !== null)}
+          onClick={() => {
+            if (set === null) {
+              return;
+            }
+            if (running) {
+              stopMut.mutate(set.id);
+            } else {
+              startMut.mutate(set.id);
+            }
+          }}
+          className={`rounded px-4 py-3 text-sm ${running ? "border border-line" : "bg-accent text-bg"}`}
+        >
+          {running ? "Stop hunt" : "Start hunt"}
+        </Button>
         <Button
           type="button"
           onClick={() => setClicks((on) => !on)}

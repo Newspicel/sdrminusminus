@@ -1,10 +1,27 @@
-import type { DeviceSet, HuntSettings, HuntStatus } from "../lib/types";
+import { bindDevices, deviceNodeOf } from "../canvas/binding";
+import type { DeviceSet, HuntSettings, HuntStatus, PatchGraph } from "../lib/types";
 
 export const DEFAULT_HUNT_SETTINGS: HuntSettings = {
   freq_hz: 433_920_000,
   bw_hz: 12_500,
   interval_ms: 50,
 };
+
+export function huntSettingsOf(graph: PatchGraph, node: string): HuntSettings {
+  const found = graph.nodes.find((candidate) => candidate.id === node);
+  return found?.kind === "hunt"
+    ? (found.data.settings ?? DEFAULT_HUNT_SETTINGS)
+    : DEFAULT_HUNT_SETTINGS;
+}
+
+export function huntDeviceSet(
+  graph: PatchGraph,
+  sets: readonly DeviceSet[],
+  node: string,
+): DeviceSet | null {
+  const device = deviceNodeOf(graph, node);
+  return device === null ? null : (bindDevices(graph, sets).get(device) ?? null);
+}
 
 export function liveHunt(set: DeviceSet | null, pushed: HuntStatus | undefined): HuntStatus | null {
   if (!set?.hunt) {

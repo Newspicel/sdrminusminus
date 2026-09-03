@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceSet, HuntStatus } from "../lib/types";
-import { bearing, formatHuntDb, formatStrength, huntRefusal, liveHunt } from "./hunt";
+import type { DeviceSet, HuntStatus, PatchGraph } from "../lib/types";
+import {
+  bearing,
+  DEFAULT_HUNT_SETTINGS,
+  formatHuntDb,
+  formatStrength,
+  huntDeviceSet,
+  huntRefusal,
+  huntSettingsOf,
+  liveHunt,
+} from "./hunt";
 
 const HUNT: HuntStatus = {
   settings: { freq_hz: 433_920_000, bw_hz: 12_500, interval_ms: 50 },
@@ -90,5 +99,35 @@ describe("formatting", () => {
     expect(formatHuntDb(null)).toBe("—");
     expect(formatHuntDb(Number.NaN)).toBe("—");
     expect(formatHuntDb(-61.25)).toBe("-61.3 dB");
+  });
+});
+
+describe("a hunt node's own settings and radio", () => {
+  const settings = { freq_hz: 145_500_000, bw_hz: 25_000, interval_ms: 50 };
+  const graph: PatchGraph = {
+    nodes: [
+      {
+        id: "dev",
+        kind: "device",
+        position: { x: 0, y: 0 },
+        data: { device: { backend: "virtual", key: "siggen" } },
+      },
+      { id: "hunt", kind: "hunt", position: { x: 0, y: 0 }, data: { settings } },
+      { id: "bare", kind: "hunt", position: { x: 0, y: 0 }, data: {} },
+    ],
+    edges: [{ from: { node: "hunt", port: "control" }, to: { node: "dev", port: "control" } }],
+  };
+
+  it("reads the frequency the node was left on, or the default", () => {
+    expect(huntSettingsOf(graph, "hunt")).toEqual(settings);
+    expect(huntSettingsOf(graph, "bare")).toEqual(DEFAULT_HUNT_SETTINGS);
+    expect(huntSettingsOf(graph, "dev")).toEqual(DEFAULT_HUNT_SETTINGS);
+  });
+
+  it("finds the radio the hunt drives, and nothing for one wired to none", () => {
+    const set = deviceSet();
+    expect(huntDeviceSet(graph, [set], "hunt")).toBe(set);
+    expect(huntDeviceSet(graph, [set], "bare")).toBeNull();
+    expect(huntDeviceSet(graph, [], "hunt")).toBeNull();
   });
 });
