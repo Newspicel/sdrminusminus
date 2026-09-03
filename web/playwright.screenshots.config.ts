@@ -8,7 +8,7 @@ export default defineConfig({
   testMatch: "screenshots.spec.ts",
   retries: 0,
   workers: 1,
-  timeout: 240_000,
+  timeout: 420_000,
   use: {
     ...devices["Desktop Chrome"],
     baseURL: `http://127.0.0.1:${PORT}`,
@@ -16,6 +16,7 @@ export default defineConfig({
     deviceScaleFactor: 1.5,
     colorScheme: "dark",
     trace: "retain-on-failure",
+    launchOptions: { args: ["--autoplay-policy=no-user-gesture-required"] },
   },
   projects: [{ name: "chromium" }],
   webServer: {
@@ -24,7 +25,7 @@ export default defineConfig({
       `&& cp fixtures/*.sigmf-meta fixtures/*.sigmf-data web/${SCRATCH}/recordings/ ` +
       `&& cargo run -q -p sdrmm -- --bind 127.0.0.1:${PORT} ` +
       `--db web/${SCRATCH}/shots.db --recordings-dir web/${SCRATCH}/recordings ` +
-      `--playback-speed 20`,
+      `--playback-speed 4`,
     cwd: "..",
     url: `http://127.0.0.1:${PORT}/api/state`,
     reuseExistingServer: false,

@@ -11,7 +11,7 @@ tuning, visualization, and control. Run both together as a desktop app, serve th
 from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServer receivers.
 
 <p align="center">
-  <img src="assets/screenshots/patch.png" alt="A receiver built from device, scope, channel and speaker nodes">
+  <img src="assets/screenshots/patch.png" alt="One radio feeding three channels, a speaker, an audio recorder and a network baseband export">
 </p>
 
 ## What it can do
@@ -55,6 +55,24 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 
 The built-in signal generator means you can explore the complete receive path without owning an
 SDR.
+
+## What it looks like
+
+Every capture below is the application itself, driving the built-in signal generator or an IQ
+fixture committed to this repository — `cargo xtask screenshots` regenerates the whole set.
+
+| | |
+|---|---|
+| ![Spectrum and waterfall filling the rack](assets/screenshots/spectrum.png) | ![Three receivers tiled in the rack](assets/screenshots/rack.png) |
+| The scope pinned to the rack, with the tuned channel marked on the band | Three receivers on one desk: ships, pagers and a picture arriving together |
+| ![A busy FT8 slot](assets/screenshots/ft8.png) | ![An unknown signal identified](assets/screenshots/ident.png) |
+| A recorded 20 m FT8 slot, read callsign by callsign out of the noise | An unknown carrier measured, then ranked against candidate protocols |
+| ![Aircraft on the map](assets/screenshots/adsb.png) | ![A ship on the map](assets/screenshots/ais.png) |
+| ADS-B aircraft on the map, with every squitter in the decoder log | An AIS position report placed in Hamburg harbour |
+| ![An SSTV picture](assets/screenshots/sstv.png) | ![Amateur television](assets/screenshots/atv.png) |
+| A Robot 36 SSTV picture, scanned out line by line | 625-line amateur television arriving on a video node |
+| ![POCSAG pager traffic](assets/screenshots/pocsag.png) | ![Broadcast FM with RDS](assets/screenshots/rds.png) |
+| POCSAG pager messages, forwarded to a webhook as they arrive | Broadcast FM with RDS: station, radiotext and alternate frequencies |
 
 ## Why not SDR++, SDRangel, or GQRX?
 
@@ -106,13 +124,6 @@ transients, adjacent-channel splatter, or multipath. Treat a fixture-only mode a
 should work rather than one that is known to. Off-air captures that promote a mode to *tested on
 air* are among the most useful contributions the project can receive — see the
 [contribution guide](CONTRIBUTING.md).
-
-| | |
-|---|---|
-| ![Spectrum and waterfall](assets/screenshots/spectrum.png) | ![Aircraft positions on the map](assets/screenshots/adsb.png) |
-| Spectrum and waterfall, pinned to the rack | ADS-B aircraft on the map, with the decoder log |
-| ![An SSTV picture](assets/screenshots/sstv.png) | ![POCSAG pager traffic](assets/screenshots/pocsag.png) |
-| A Robot 36 SSTV picture, scanned out line by line | POCSAG pager messages as they arrive |
 
 ## Get started
 
