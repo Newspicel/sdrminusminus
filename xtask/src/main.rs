@@ -1172,12 +1172,6 @@ fn build_smoke_server(root: &Path) -> Result<()> {
 
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
-    run_with_env(
-        PNPM,
-        &["--dir", "web", "build"],
-        root,
-        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
-    )?;
     build_smoke_server(root)?;
     let soapy_root = root.join("target/hermetic-soapy");
     let modules = soapy_root.join("lib/SoapySDR/modules0.8");
@@ -1204,12 +1198,6 @@ fn smoke(root: &Path) -> Result<()> {
 
 fn screenshots(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
-    run_with_env(
-        PNPM,
-        &["--dir", "web", "build"],
-        root,
-        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
-    )?;
     build_smoke_server(root)?;
     let out = root.join("assets/screenshots");
     std::fs::create_dir_all(&out).context("create screenshot directory")?;
