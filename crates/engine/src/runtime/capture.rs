@@ -28,7 +28,7 @@ use crate::{
 };
 
 const RING_SECONDS: f64 = 0.1;
-const RING_MIN: usize = super::DSP_BLOCK * 2;
+const RING_MIN: usize = 1 << 17;
 const RING_MAX: usize = 1 << 23;
 
 pub(crate) fn ring_capacity(sample_rate: f64) -> usize {
@@ -486,8 +486,14 @@ mod tests {
     #[test]
     fn a_fast_radio_is_capped_and_a_slow_one_floored() {
         assert_eq!(ring_capacity(1_000_000_000.0), RING_MAX);
-        assert_eq!(ring_capacity(1_000.0), RING_MIN);
-        assert_eq!(ring_capacity(48_000.0), 4_800);
+        assert_eq!(ring_capacity(48_000.0), RING_MIN);
+        assert_eq!(ring_capacity(2_400_000.0), 240_000);
+    }
+
+    #[test]
+    fn the_floor_holds_two_of_the_largest_blocks_a_driver_pushes_at_once() {
+        let block = sdrmm_device::capture::CaptureConfig::new("ring", "ring").block_samples;
+        assert!(RING_MIN >= 2 * block.max(super::super::DSP_BLOCK));
     }
 
     #[test]

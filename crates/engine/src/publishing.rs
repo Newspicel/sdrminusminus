@@ -93,7 +93,6 @@ impl<T: Send + 'static> Publisher<T> {
                     while let Ok(mut packet) = pending.pop() {
                         packet.wait_for_predecessor();
                         observed.oldest(packet.queued);
-                        packet.wait_for_predecessor();
                         publish(&mut packet.packet);
                         observed.pop(1);
                         if recycled.push(packet.packet).is_err() {

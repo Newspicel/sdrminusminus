@@ -979,7 +979,10 @@ fn spawn_symbols(
                 Ok(mut block) => {
                     for _ in 0..128 {
                         match rx.try_recv() {
-                            Ok(next) => block = next,
+                            Ok(next) => {
+                                block = next;
+                                out_tx.dropped(1);
+                            }
                             Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
                             Err(_) => break,
                         }
@@ -1032,7 +1035,10 @@ fn spawn_iq(
                 Ok(mut block) => {
                     for _ in 0..128 {
                         match rx.try_recv() {
-                            Ok(next) => block = next,
+                            Ok(next) => {
+                                block = next;
+                                out_tx.dropped(1);
+                            }
                             Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
                             Err(_) => break,
                         }
@@ -1132,7 +1138,10 @@ fn spawn_video(
                 Ok(mut packet) => {
                     for _ in 0..128 {
                         match rx.try_recv() {
-                            Ok(next) => packet = next,
+                            Ok(next) => {
+                                packet = next;
+                                out_tx.dropped(1);
+                            }
                             Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
                             Err(_) => break,
                         }

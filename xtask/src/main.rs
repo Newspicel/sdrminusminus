@@ -1159,34 +1159,44 @@ fn perf(root: &Path) -> Result<()> {
         ],
         root,
     )?;
-    run(
-        "cargo",
-        &[
-            "test",
-            "-p",
-            "sdrmm-engine",
-            "--no-default-features",
-            "--release",
-            "--lib",
-            "runtime::tests",
-            "--",
-            "--test-threads=1",
-        ],
-        root,
-    )?;
-    run(
-        "cargo",
-        &[
-            "test",
-            "-p",
-            "sdrmm-engine",
-            "--no-default-features",
-            "--release",
-            "--lib",
-            "publishing::tests",
-        ],
-        root,
-    )
+    let mut engine = vec![
+        "test",
+        "-p",
+        "sdrmm-engine",
+        "--no-default-features",
+        "--release",
+        "--lib",
+        "--",
+    ];
+    engine.extend(ENGINE_PERF_TESTS.iter().map(|(filter, _)| *filter));
+    engine.push("--test-threads=1");
+    run("cargo", &engine, root)
+}
+
+const ENGINE_PERF_TESTS: &[(&str, &str)] = &[
+    (
+        "runtime::channel::tests",
+        "crates/engine/src/runtime/channel.rs",
+    ),
+    ("capture_ring::tests", "crates/engine/src/capture_ring.rs"),
+    ("publishing::tests", "crates/engine/src/publishing.rs"),
+];
+
+#[cfg(test)]
+mod perf_tests {
+    use super::*;
+
+    #[test]
+    fn every_engine_perf_filter_names_a_test_module_that_exists() {
+        for (filter, path) in ENGINE_PERF_TESTS {
+            let source = std::fs::read_to_string(root().join(path))
+                .unwrap_or_else(|error| panic!("{filter} moved away from {path}: {error}"));
+            assert!(
+                source.contains("mod tests {"),
+                "{path} no longer holds the {filter} module"
+            );
+        }
+    }
 }
 
 fn test(root: &Path) -> Result<()> {
