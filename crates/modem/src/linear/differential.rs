@@ -44,9 +44,10 @@ impl DifferentialDetector {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
     use crate::{
-        ber::rng::Rng,
         constellation::tables,
         symbolcode::{DifferentialSymbolDecoder, DifferentialSymbolEncoder},
     };

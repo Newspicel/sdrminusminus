@@ -122,15 +122,12 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
 
-    let arrays = sdrmm_engine::ArrayCatalog::new();
-    let engine = Engine::with_arrays(
-        sdrmm_engine::builtin_registry_with(
+    let engine = Engine::with_registry(
+        sdrmm_engine::builtin_registry_accelerated(
             Some(recordings_dir.clone()),
             args.playback_speed,
-            &arrays,
         ),
         Some(recordings_dir),
-        arrays,
     );
     let config = Config {
         bind: args.bind,

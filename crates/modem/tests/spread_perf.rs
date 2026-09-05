@@ -2,21 +2,21 @@
 
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::{
-        catalog::spread::{
-            self, CHIP_ALPHA, CHIP_SAMPLE_RATE, CHIP_SPAN, CHIP_SPS, CSS_BANDWIDTH, CSS_PREAMBLE,
-            LEAD, PREAMBLE, SEARCH, barker, css_payload, hop_sequence,
-        },
-        perf::{
-            CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf,
-            host_id, load_baselines, measure_throughput, save_baselines,
-        },
-    },
     constellation::tables,
     soft::Llr,
     spread::{
         CckDemod, CckMod, CckMode, CckParams, ChipShaper, CssDemod, CssMod, CssParams, DsssDemod,
         DsssMod, DsssParams, FhssDemod, FhssMod,
+    },
+};
+use sdrmm_modem_test_support::ber::{
+    catalog::spread::{
+        self, CHIP_ALPHA, CHIP_SAMPLE_RATE, CHIP_SPAN, CHIP_SPS, CSS_BANDWIDTH, CSS_PREAMBLE, LEAD,
+        PREAMBLE, SEARCH, barker, css_payload, hop_sequence,
+    },
+    perf::{
+        CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf, host_id,
+        load_baselines, measure_throughput, save_baselines,
     },
 };
 

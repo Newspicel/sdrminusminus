@@ -207,13 +207,14 @@ pub fn slice_amplitude(table: &Constellation, amplitude: f32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::{
+        impair::{Awgn, Impairment},
+        perf::assert_no_alloc,
+        rng::Rng,
+    };
+
     use super::*;
     use crate::{
-        ber::{
-            impair::{Awgn, Impairment},
-            perf::assert_no_alloc,
-            rng::Rng,
-        },
         constellation::tables,
         linear::LinearMod,
         pulse::{self, Norm},

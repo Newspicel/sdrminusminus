@@ -10,6 +10,8 @@ const HEADER_LEN: u64 = 44;
 const FORMAT_PCM: u16 = 1;
 const BITS_PER_SAMPLE: u16 = 16;
 const HEADER_REFRESH_FRAMES: u64 = 48_000;
+const MAX_DATA_BYTES: u64 = u32::MAX as u64 - (HEADER_LEN - 8);
+const SILENCE_BUFFER_BYTES: usize = 8192;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioInfo {
@@ -75,6 +77,7 @@ impl AudioWriter {
                 ),
             ));
         }
+        self.check_frame_capacity(interleaved.len() / channels)?;
         self.scratch.clear();
         self.scratch.reserve(interleaved.len() * 2);
         for &sample in interleaved {
@@ -87,15 +90,33 @@ impl AudioWriter {
     }
 
     pub fn write_silence(&mut self, frames: usize) -> io::Result<()> {
+        self.check_frame_capacity(frames)?;
         if frames == 0 {
             return Ok(());
         }
-        self.scratch.clear();
-        self.scratch
-            .resize(frames * usize::from(self.channels) * 2, 0);
-        self.file.write_all(&self.scratch)?;
-        self.frames += frames as u64;
-        self.refresh_header()
+        let frame_bytes = usize::from(self.channels) * AUDIO_BYTES_PER_SAMPLE as usize;
+        let chunk_frames = SILENCE_BUFFER_BYTES / frame_bytes;
+        let silence = [0u8; SILENCE_BUFFER_BYTES];
+        let mut remaining = frames;
+        while remaining > 0 {
+            let chunk = remaining.min(chunk_frames);
+            self.file.write_all(&silence[..chunk * frame_bytes])?;
+            self.frames += chunk as u64;
+            remaining -= chunk;
+            self.refresh_header()?;
+        }
+        Ok(())
+    }
+
+    fn check_frame_capacity(&self, additional: usize) -> io::Result<()> {
+        let max_frames = MAX_DATA_BYTES / (u64::from(self.channels) * AUDIO_BYTES_PER_SAMPLE);
+        if (additional as u64) > max_frames.saturating_sub(self.frames) {
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "audio recording reached the RIFF WAV size limit",
+            ));
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -132,8 +153,10 @@ impl AudioWriter {
 
     fn write_sizes(&mut self) -> io::Result<()> {
         let data_len = self.bytes_written();
-        let riff = u32::try_from(HEADER_LEN - 8 + data_len).unwrap_or(u32::MAX);
-        let data = u32::try_from(data_len).unwrap_or(u32::MAX);
+        let riff = u32::try_from(HEADER_LEN - 8 + data_len)
+            .map_err(|_| io::Error::from(io::ErrorKind::FileTooLarge))?;
+        let data =
+            u32::try_from(data_len).map_err(|_| io::Error::from(io::ErrorKind::FileTooLarge))?;
         self.file.seek(SeekFrom::Start(4))?;
         self.file.write_all(&riff.to_le_bytes())?;
         self.file.seek(SeekFrom::Start(HEADER_LEN - 4))?;
@@ -244,6 +267,64 @@ mod tests {
 
     fn u32_at(bytes: &[u8], at: usize) -> u32 {
         u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"))
+    }
+
+    #[test]
+    fn riff_limit_rejects_audio_and_silence_without_changing_the_file() {
+        for channels in [1, 2, 3, 255] {
+            let dir = TempDir::new().expect("tempdir");
+            let path = dir.path().join("limit.wav");
+            let mut writer = AudioWriter::create(&path, RATE, channels).expect("create");
+            let frame_bytes = u64::from(channels) * AUDIO_BYTES_PER_SAMPLE;
+            let max_frames = MAX_DATA_BYTES / frame_bytes;
+            writer.frames = max_frames - 1;
+            let initial_len = HEADER_LEN + writer.bytes_written();
+            writer.file.set_len(initial_len).expect("sparse file");
+            writer.file.seek(SeekFrom::End(0)).expect("seek");
+
+            let frame = vec![0.5; usize::from(channels)];
+            writer.write_frames(&frame).expect("last complete frame");
+            let len = fs::metadata(&path).expect("metadata").len();
+            assert_eq!(len, initial_len + frame_bytes);
+            assert_eq!(writer.frames_written(), max_frames);
+            for err in [
+                writer.write_frames(&frame).expect_err("audio limit"),
+                writer.write_silence(1).expect_err("silence limit"),
+                writer.write_silence(usize::MAX).expect_err("overflow"),
+            ] {
+                assert_eq!(err.kind(), io::ErrorKind::FileTooLarge);
+            }
+            assert_eq!(writer.frames_written(), max_frames);
+            assert_eq!(fs::metadata(&path).expect("metadata").len(), len);
+            writer.finalize().expect("finalize valid prefix");
+            let mut head = [0; HEADER_LEN as usize];
+            File::open(&path)
+                .expect("open")
+                .read_exact(&mut head)
+                .expect("header");
+            assert_eq!(u64::from(u32_at(&head, 4)), len - 8);
+            assert_eq!(u64::from(u32_at(&head, 40)), len - HEADER_LEN);
+        }
+    }
+
+    #[test]
+    fn long_silence_preserves_samples_and_whole_multichannel_frames() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("silence.wav");
+        let mut writer = AudioWriter::create(&path, RATE, 3).expect("create");
+        let frames = HEADER_REFRESH_FRAMES as usize + 17;
+        writer.write_frames(&[0.5; 3]).expect("leading frame");
+        writer.write_silence(frames).expect("silence");
+        writer.write_frames(&[-0.5; 3]).expect("trailing frame");
+        writer.finalize().expect("finalize");
+        let pcm = samples(&path);
+        assert_eq!(&pcm[..3], &[16_384; 3]);
+        assert!(pcm[3..pcm.len() - 3].iter().all(|&sample| sample == 0));
+        assert_eq!(&pcm[pcm.len() - 3..], &[-16_384; 3]);
+        assert_eq!(
+            read_audio_info(&path).expect("info").frames,
+            frames as u64 + 2
+        );
     }
 
     #[test]

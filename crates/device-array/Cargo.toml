@@ -13,8 +13,7 @@ workspace = true
 [dependencies]
 sdrmm-device.workspace = true
 sdrmm-wire.workspace = true
-num-complex.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
+num-complex.workspace = true
 sdrmm-device-virtual.workspace = true

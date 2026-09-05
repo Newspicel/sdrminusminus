@@ -1,22 +1,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
-use sdrmm_modem::{
-    analog::{
-        AmDemod, AmDetector, AmMod, AmMode, AmParams, AmRx, AngleDemod, AngleDetector, AngleKind,
-        AngleMod, AngleParams, AngleRx, Sideband, SsbDemod, SsbDetector, SsbMethod, SsbMod,
-        SsbParams,
+use sdrmm_modem::analog::{
+    AmDemod, AmDetector, AmMod, AmMode, AmParams, AmRx, AngleDemod, AngleDetector, AngleKind,
+    AngleMod, AngleParams, AngleRx, Sideband, SsbDemod, SsbDetector, SsbMethod, SsbMod, SsbParams,
+};
+use sdrmm_modem_test_support::ber::{
+    analog::tone,
+    catalog::analog::{
+        NFM_DEVIATION_HZ, TAPS, VOICE_BANDWIDTH, VOICE_RATE_HZ, WFM_DEVIATION_HZ, WIDE_BANDWIDTH,
+        WIDE_RATE_HZ,
     },
-    ber::{
-        analog::tone,
-        catalog::analog::{
-            NFM_DEVIATION_HZ, TAPS, VOICE_BANDWIDTH, VOICE_RATE_HZ, WFM_DEVIATION_HZ,
-            WIDE_BANDWIDTH, WIDE_RATE_HZ,
-        },
-        perf::{
-            CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf,
-            host_id, load_baselines, measure_throughput, save_baselines,
-        },
+    perf::{
+        CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf, host_id,
+        load_baselines, measure_throughput, save_baselines,
     },
 };
 

@@ -4,35 +4,33 @@ use std::path::PathBuf;
 
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::{
-        Curve,
-        catalog::{
-            FULL_ERRORS,
-            ofdm::{
-                BPSK_AWGN, BPSK_GENIE_AWGN, BPSK_GENIE_GRID, BPSK_GENIE_SEED, BPSK_GRID, BPSK_SEED,
-                COMB_GRID, COMB_LIMITS, COMB_SEED, DMT_AWGN, DMT_GENIE_AWGN, DMT_GENIE_GRID,
-                DMT_GENIE_SEED, DMT_GRID, DMT_OVERHEAD_DB, DMT_SEED, FULL_CAP, LEAD, LIMITS,
-                OVERHEAD_DB, QAM16_AWGN, QAM16_GENIE_AWGN, QAM16_GENIE_GRID, QAM16_GENIE_SEED,
-                QAM16_GRID, QAM16_SEED, QAM64_AWGN, QAM64_GENIE_AWGN, QAM64_GENIE_GRID,
-                QAM64_GENIE_SEED, QAM64_GRID, QAM64_SEED, QPSK_AWGN, QPSK_COMB_AWGN,
-                QPSK_GENIE_AWGN, QPSK_GENIE_GRID, QPSK_GENIE_SEED, QPSK_GRID, QPSK_SEED, RATE,
-                Receiver, SYMBOLS, bpsk_genie_link, bpsk_link, dmt_genie_link, dmt_link,
-                link_sized, qam16_genie_link, qam16_link, qam64_genie_link, qam64_link,
-                qpsk_comb_link, qpsk_genie_link, qpsk_link,
-            },
-        },
-        e2e::{Payloads, channel_at_margin, loopback},
-        impair::{
-            Cfo, ChannelSpec, ClockError, Drift, IqImbalance, Multipath, MultipathProfile,
-            TimingOffset,
-        },
-        limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
-        rng::Rng,
-        sweep::{self, Link},
-        theory,
-    },
     constellation::tables,
     ofdm::{ChannelEstimator, OfdmDemod, OfdmMod, OfdmParams},
+};
+use sdrmm_modem_test_support::ber::{
+    Curve,
+    catalog::{
+        FULL_ERRORS,
+        ofdm::{
+            BPSK_AWGN, BPSK_GENIE_AWGN, BPSK_GENIE_GRID, BPSK_GENIE_SEED, BPSK_GRID, BPSK_SEED,
+            COMB_GRID, COMB_LIMITS, COMB_SEED, DMT_AWGN, DMT_GENIE_AWGN, DMT_GENIE_GRID,
+            DMT_GENIE_SEED, DMT_GRID, DMT_OVERHEAD_DB, DMT_SEED, FULL_CAP, LEAD, LIMITS,
+            OVERHEAD_DB, QAM16_AWGN, QAM16_GENIE_AWGN, QAM16_GENIE_GRID, QAM16_GENIE_SEED,
+            QAM16_GRID, QAM16_SEED, QAM64_AWGN, QAM64_GENIE_AWGN, QAM64_GENIE_GRID,
+            QAM64_GENIE_SEED, QAM64_GRID, QAM64_SEED, QPSK_AWGN, QPSK_COMB_AWGN, QPSK_GENIE_AWGN,
+            QPSK_GENIE_GRID, QPSK_GENIE_SEED, QPSK_GRID, QPSK_SEED, RATE, Receiver, SYMBOLS,
+            bpsk_genie_link, bpsk_link, dmt_genie_link, dmt_link, link_sized, qam16_genie_link,
+            qam16_link, qam64_genie_link, qam64_link, qpsk_comb_link, qpsk_genie_link, qpsk_link,
+        },
+    },
+    e2e::{Payloads, channel_at_margin, loopback},
+    impair::{
+        Cfo, ChannelSpec, ClockError, Drift, IqImbalance, Multipath, MultipathProfile, TimingOffset,
+    },
+    limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
+    rng::Rng,
+    sweep::{self, Link},
+    theory,
 };
 
 fn baseline_path(stem: &str) -> PathBuf {

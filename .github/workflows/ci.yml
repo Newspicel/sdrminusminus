@@ -68,6 +68,18 @@ jobs:
       - name: cargo xtask check
         run: cargo xtask check
 
+  performance:
+    name: Rust performance gates (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: performance
+      - name: Throughput and allocation budgets
+        run: cargo xtask perf
+
   test:
     name: Rust + web tests (ubuntu)
     runs-on: ubuntu-24.04

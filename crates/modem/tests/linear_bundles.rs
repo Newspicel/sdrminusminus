@@ -4,21 +4,21 @@ use std::path::PathBuf;
 
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::{
-        Curve, MIN_ERRORS_PER_POINT,
-        catalog::{self, DRIFT_TOLERANCE_DB, Entry, Measurement, linear},
-        e2e::{Payloads, channel_at_margin, loopback},
-        impair::{Cfo, ChannelSpec, ClockError, Drift, IqImbalance, TimingOffset},
-        limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
-        perf::{self, PerfBaseline},
-        rng::Rng,
-        sweep::{self, Link},
-    },
     constellation::tables,
     linear::{
         CarrierLoop, EnvelopeDemod, EnvelopeTiming, LinearBurstDemod, LinearDemod, LinearMod,
         LinearParams, LinearTiming, PhaseDetector, TIMING_BW_CONTINUOUS,
     },
+};
+use sdrmm_modem_test_support::ber::{
+    Curve, MIN_ERRORS_PER_POINT,
+    catalog::{self, DRIFT_TOLERANCE_DB, Entry, Measurement, linear},
+    e2e::{Payloads, channel_at_margin, loopback},
+    impair::{Cfo, ChannelSpec, ClockError, Drift, IqImbalance, TimingOffset},
+    limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
+    perf::{self, PerfBaseline},
+    rng::Rng,
+    sweep::{self, Link},
 };
 
 fn baseline_path(stem: &str) -> PathBuf {

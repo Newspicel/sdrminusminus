@@ -159,6 +159,8 @@ impl Engine {
         ds: u32,
         settings: ScanSettings,
     ) -> Result<ScannerStatus, EngineError> {
+        let _edit = sdrmm_device::lock(&self.array_edits);
+        self.check_array_scan(ds)?;
         let mut session = scanner::session::start(self, &[ds], settings)?;
         session
             .members
@@ -173,6 +175,10 @@ impl Engine {
         device_sets: &[u32],
         settings: ScanSettings,
     ) -> Result<ScanSessionStatus, EngineError> {
+        let _edit = sdrmm_device::lock(&self.array_edits);
+        for &ds in device_sets {
+            self.check_array_scan(ds)?;
+        }
         scanner::session::start(self, device_sets, settings)
     }
 
@@ -190,6 +196,8 @@ impl Engine {
         ds: u32,
         settings: HuntSettings,
     ) -> Result<HuntStatus, EngineError> {
+        let _edit = sdrmm_device::lock(&self.array_edits);
+        self.check_array_scan(ds)?;
         hunt::start(self, ds, settings)
     }
 

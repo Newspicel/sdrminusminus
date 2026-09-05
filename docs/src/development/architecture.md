@@ -22,7 +22,8 @@ React client.
 | Crate | Responsibility |
 |---|---|
 | `sdrmm-dsp` | Allocation-free signal-processing primitives; no I/O or internal project dependencies |
-| `sdrmm-modem` | Reusable modem building blocks and measurement harness |
+| `sdrmm-modem` | Reusable modem algorithms depending only on DSP |
+| `sdrmm-modem-test-support` | Modem measurement catalogs, simulations, and baseline tooling; tests and developer tools only |
 | `sdrmm-wire` | Shared settings, DTOs, events, patch graph, and OpenAPI schemas |
 | `sdrmm-device` | Hardware-independent device traits, capabilities, settings, and registry |
 | `sdrmm-device-virtual` | Signal generators and SigMF playback |
@@ -30,7 +31,7 @@ React client.
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-net` | Direct `rtl_tcp` and SpyServer clients |
 | `sdrmm-device-cr8` | Dragon Labs CR-8 through the vendor SDK, loaded at runtime |
-| `sdrmm-device-array` | Separate radios framed as one multi-lane radio; counting only, no DSP |
+| `sdrmm-device-array` | Already-open streams composed as logical lanes; no hardware opens |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |
 | `sdrmm-recorder` | SigMF writing, reading, scanning, and export |
 | `sdrmm-engine` | Device supervision, channelization, scanning, streams, recording, and state snapshots |
@@ -83,10 +84,22 @@ A processor may hand back a set of per-lane weights. The aggregator sums the lan
 writes the result into an ordinary capture ring one past the radio's own lanes, so a channel,
 recorder or spectrum subscription works on a beam without knowing it is one.
 
-A patch **Array** node is framing rather than processing: the radios wired into it are opened as
-one composite device by `sdrmm-device-array`, which numbers their lanes and fans settings back
-out. Nothing above the device layer can tell a bank of receivers from a radio that came with
-lanes of its own.
+A patch **Array** node composes streams from existing Device nodes. `sdrmm-device-array` supplies
+logical ingress lanes; the engine forwards the members' corrected IQ through bounded rings and
+coordinates tuning. Device nodes retain ownership of their radios and channels. The engine handles
+membership changes and member recovery without opening hardware through the array adapter.
+
+Channel media, spectrum, recording blocks, and coherent results cross preallocated SPSC buffer
+pools before workers allocate transport payloads or call broadcast senders. Saturation never waits
+on the DSP thread: media loss is reported, and recordings fail explicitly. Worker shutdown drains
+pending buffers. Decoder algorithms may still allocate their own variable-sized results.
+
+`channels` depends on `dsp`, `modem`, and `wire`; protocol-independent modem algorithms stay in
+`modem`. `sdrmm-test-support` contains allocation and throughput measurement helpers.
+`modem-test-support` owns the modem measurement harness and JSON baseline tooling. Neither
+appears in the application's normal dependency graph. `cargo xtask check` enforces these boundaries;
+`cargo xtask perf` runs the DSP allocation and throughput gates, full-slot decoder search baselines,
+and engine publication checks.
 
 ## Workspaces and live engine state
 

@@ -14,6 +14,7 @@ use clap::{Parser, Subcommand};
 use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use num_complex::Complex;
 
+mod architecture;
 mod bandplan;
 mod ber;
 mod bundle;
@@ -43,6 +44,7 @@ enum Cmd {
     },
     Check,
     Test,
+    Perf,
     Audit,
     Smoke,
     Screenshots,
@@ -113,6 +115,7 @@ fn main() -> Result<()> {
         Cmd::Dev { watch } => dev(&root(), watch),
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
+        Cmd::Perf => perf(&root()),
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
         Cmd::Screenshots => screenshots(&root()),
@@ -492,6 +495,7 @@ mod dev_command_tests {
 }
 
 fn check(root: &Path) -> Result<()> {
+    architecture::check(root)?;
     bundle::check_resources(root)?;
     nixhash::check(root)?;
     check_toolchain_pins(root)?;
@@ -1115,6 +1119,66 @@ fn set_version(root: &Path, version: &str) -> Result<()> {
     run("cargo", &["update", "--workspace", "--offline"], root)?;
     println!("version: {version}");
     Ok(())
+}
+
+fn perf(root: &Path) -> Result<()> {
+    run(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "sdrmm-dsp",
+            "--release",
+            "--test",
+            "performance",
+        ],
+        root,
+    )?;
+    run(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "sdrmm-channels",
+            "--release",
+            "--test",
+            "channel_perf",
+            "--",
+            "--include-ignored",
+            "--skip",
+            "write_perf_baseline",
+            "--test-threads=1",
+        ],
+        root,
+    )?;
+    run(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "sdrmm-engine",
+            "--no-default-features",
+            "--release",
+            "--lib",
+            "runtime::tests",
+            "--",
+            "--test-threads=1",
+        ],
+        root,
+    )?;
+    run(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "sdrmm-engine",
+            "--no-default-features",
+            "--release",
+            "--lib",
+            "publishing::tests",
+        ],
+        root,
+    )
 }
 
 fn test(root: &Path) -> Result<()> {

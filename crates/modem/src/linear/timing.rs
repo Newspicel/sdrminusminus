@@ -78,12 +78,13 @@ pub fn resample_at(
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::{
+        impair::{Awgn, Impairment},
+        rng::Rng,
+    };
+
     use super::*;
     use crate::{
-        ber::{
-            impair::{Awgn, Impairment},
-            rng::Rng,
-        },
         constellation::{Constellation, tables},
         linear::LinearMod,
         pulse::{self, Norm},

@@ -34,9 +34,9 @@ jobs:
       # which on a runner would both race the compare test and quietly turn the gate into
       # measured-vs-just-measured. It is run deliberately, on the reference host only.
       - name: modem full gates
-        run: cargo test -p sdrmm-modem --release -- --ignored --skip write_perf_baseline
+        run: cargo test -p sdrmm-modem -p sdrmm-modem-test-support --release -- --ignored --skip write_perf_baseline
       - name: channels full baselines
-        run: cargo test -p sdrmm-channels --release -- --ignored
+        run: cargo test -p sdrmm-channels --release -- --ignored --skip write_perf_baseline
       # The harness calibration entry over its full 0–10 dB grid, written as JSON + CSV and
       # judged against the exact erfc form — a FAIL is a nonzero exit, no output parsing.
       - name: ber curves (full grid)

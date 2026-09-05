@@ -153,7 +153,7 @@ pub(super) fn bring_up(
     let engine = &app.engine;
     let mut report = PatchApplyReport::default();
     workspace::describe_arrays(engine, &snapshot.graph);
-    workspace::release_array_members(engine, &snapshot.graph);
+    engine.reconcile_arrays()?;
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
 
@@ -175,7 +175,7 @@ pub(super) fn bring_up(
 
     let mut attached: Option<Vec<DeviceInfo>> = None;
     for node in snapshot.graph.device_nodes() {
-        if snapshot.graph.array_holding(&node.id).is_some() {
+        if matches!(node.body, NodeBody::Array(_)) {
             continue;
         }
         let Some(reference) = node.body.device_ref(&node.id) else {
@@ -225,6 +225,10 @@ pub(super) fn bring_up(
             None => report.absent.push(node.id.clone()),
         }
     }
+
+    workspace::describe_arrays(engine, &snapshot.graph);
+    open_arrays(app, workspace, snapshot, saved, &mut report);
+    state = engine.snapshot();
 
     for binding in &report.bound {
         let Some(set) = state
@@ -314,6 +318,46 @@ pub(super) fn bring_up(
         }
     }
     Ok(report)
+}
+
+fn open_arrays(
+    app: &AppState,
+    workspace: i64,
+    snapshot: &WorkspaceSnapshot,
+    saved: &WorkspaceState,
+    report: &mut PatchApplyReport,
+) {
+    let engine = &app.engine;
+    for node in snapshot
+        .graph
+        .device_nodes()
+        .filter(|node| matches!(node.body, NodeBody::Array(_)))
+    {
+        if report.bound.iter().any(|bound| bound.node == node.id) {
+            continue;
+        }
+        let key = sdrmm_wire::patch::array_key(&node.id);
+        match engine.create_array_set(&key) {
+            Ok(id) => {
+                first_binding(app, workspace, &node.id, id);
+                match workspace::restore_device(engine, id, &node.id, saved) {
+                    Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
+                    Err(reason) => report.refused.push(PatchRefusal {
+                        node: node.id.clone(),
+                        reason,
+                    }),
+                }
+                report.bound.push(PatchBinding {
+                    node: node.id.clone(),
+                    device_set: id,
+                });
+            }
+            Err(error) => report.refused.push(PatchRefusal {
+                node: node.id.clone(),
+                reason: error.to_string(),
+            }),
+        }
+    }
 }
 
 #[utoipa::path(

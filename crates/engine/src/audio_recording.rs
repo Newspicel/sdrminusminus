@@ -2,7 +2,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -22,6 +22,7 @@ pub(crate) struct AudioRecordingShared {
     frames: AtomicU64,
     bytes: AtomicU64,
     error: OnceLock<String>,
+    publication_failed: AtomicBool,
 }
 
 impl AudioRecordingShared {
@@ -34,7 +35,11 @@ impl AudioRecordingShared {
     }
 
     pub(crate) fn error(&self) -> Option<String> {
-        self.error.get().cloned()
+        self.error.get().cloned().or_else(|| {
+            self.publication_failed
+                .load(Ordering::Relaxed)
+                .then(|| "audio publication queue overflow or worker stopped".to_owned())
+        })
     }
 
     pub(crate) fn fail(&self, message: String) {
@@ -49,6 +54,12 @@ pub(crate) struct AudioRecorderTap {
 }
 
 impl AudioRecorderTap {
+    pub(crate) fn publication_failed(&self) {
+        self.shared
+            .publication_failed
+            .store(true, Ordering::Relaxed);
+    }
+
     #[must_use]
     pub(crate) fn push(&self, block: PcmBlock) -> bool {
         match self.tx.try_send(block) {

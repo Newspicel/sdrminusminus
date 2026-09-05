@@ -30,7 +30,15 @@ const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 
 const formatFilter = (hz: number): string => (hz === 0 ? "Auto (match rate)" : formatHz(hz));
 
-export function RadioSettings({ active, className }: { active: DeviceSet; className?: string }) {
+export function RadioSettings({
+  active,
+  className,
+  sampleRateLocked = false,
+}: {
+  active: DeviceSet;
+  className?: string;
+  sampleRateLocked?: boolean;
+}) {
   const { applyPatch } = useDevicePatch();
   const caps = active.capabilities;
   const settings = active.settings;
@@ -55,8 +63,15 @@ export function RadioSettings({ active, className }: { active: DeviceSet; classN
   return (
     <Settings className={className}>
       <SettingRow label="Rate">
-        {caps.sample_rates.length === 1 && rateRange == null ? (
-          <span className="font-mono text-xs text-ink">{formatMsps(sampleRate)}</span>
+        {sampleRateLocked || (caps.sample_rates.length === 1 && rateRange == null) ? (
+          <span
+            className="font-mono text-xs text-ink"
+            title={
+              sampleRateLocked ? "Change the sample rate on the connected Array node" : undefined
+            }
+          >
+            {formatMsps(sampleRate)}
+          </span>
         ) : caps.sample_rates.length > 0 ? (
           <Select
             label="Sample rate"

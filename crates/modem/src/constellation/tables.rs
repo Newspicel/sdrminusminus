@@ -375,8 +375,9 @@ fn total_cost(labels: &[u32], weights: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::perf::assert_no_alloc;
+
     use super::*;
-    use crate::ber::perf::assert_no_alloc;
 
     fn mean_energy(c: &Constellation) -> f64 {
         c.points()

@@ -10,15 +10,13 @@ use num_complex::Complex;
 use sdrmm_channels::{
     ChannelCtx, ChannelOutputs, ChannelRx, DmrChannel, channel_filter, testgen::dv as tg,
 };
-use sdrmm_modem::{
-    ber::{
-        Curve,
-        impair::{Awgn, BurstModel, Cfo, ChannelSpec, ClockError, Drift, Impairment, TimingOffset},
-        limits::{self, Criterion, LimitRow, LimitsTable},
-        rng::Rng,
-        sweep::{self, Link},
-    },
-    cpm::{KnownSymbols, TIMING_BW_BURST, TIMING_BW_CONTINUOUS},
+use sdrmm_modem::cpm::{KnownSymbols, TIMING_BW_BURST, TIMING_BW_CONTINUOUS};
+use sdrmm_modem_test_support::ber::{
+    Curve,
+    impair::{Awgn, BurstModel, Cfo, ChannelSpec, ClockError, Drift, Impairment, TimingOffset},
+    limits::{self, Criterion, LimitRow, LimitsTable},
+    rng::Rng,
+    sweep::{self, Link},
 };
 use sdrmm_wire::{ChannelSettings, DecoderEvent, DvFrameKind};
 

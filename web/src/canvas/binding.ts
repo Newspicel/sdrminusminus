@@ -16,6 +16,7 @@ export interface Input {
 }
 
 import { portStream } from "./graph";
+import { arrayKey } from "./nodes/arrayNode";
 import type { WiredSource } from "./nodes/eventFilter";
 
 export function deviceRefOf(info: DeviceInfo): DeviceRef {
@@ -60,10 +61,15 @@ export function bindDevices(graph: PatchGraph, sets: readonly DeviceSet[]): Map<
   const bound = new Map<string, DeviceSet>();
   const claimed = new Set<number>();
   for (const node of graph.nodes) {
-    if (node.kind !== "device" || node.data.device == null) {
+    const reference =
+      node.kind === "array"
+        ? { backend: "array", key: arrayKey(node.id) }
+        : node.kind === "device"
+          ? node.data.device
+          : null;
+    if (reference == null) {
       continue;
     }
-    const reference = node.data.device;
     const set = sets.find(
       (candidate) => !claimed.has(candidate.id) && refMatches(reference, candidate.device),
     );

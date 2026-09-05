@@ -1,6 +1,5 @@
 import { Checkbox } from "../../components/Checkbox";
 import type { Options } from "../../components/controls";
-import { deviceId } from "../../components/devices";
 import { tuningRange } from "../../components/dial";
 import { FrequencyDial } from "../../components/FrequencyDial";
 import { RadioSettings } from "../../components/RadioSettings";
@@ -10,7 +9,7 @@ import type { ArrayNode, Coherence, PatchNode } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { arrayKey, arrayMembers } from "./arrayNode";
+import { arrayMembers } from "./arrayNode";
 import { deviceDialId, refLabel, tuneDelta, tunerDials } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
@@ -36,9 +35,7 @@ export function ArrayFace({ node }: { node: PatchNode }) {
     }));
   };
   const members = arrayMembers(workspace.graph, node.id);
-  const set = workspace.deviceSets.find(
-    (candidate) => deviceId(candidate.device) === `array:${arrayKey(node.id)}`,
-  );
+  const set = workspace.devices.get(node.id);
 
   return (
     <NodeShell

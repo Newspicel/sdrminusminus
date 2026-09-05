@@ -3,22 +3,20 @@
 use std::path::PathBuf;
 
 use sdrmm_dsp::Nco;
-use sdrmm_modem::{
-    ber::{
-        Curve,
-        catalog::{
-            self, DRIFT_TOLERANCE_DB, FULL_ERRORS, afsk, framing,
-            framing::{FULL_CAP, RATE},
-            gmsk, msk,
-        },
-        e2e::{Payloads, channel_at_margin, loopback},
-        impair::{Awgn, Cfo, ChannelSpec, ClockError, Drift, Impairment, TimingOffset},
-        limits::{self, Criterion, LimitRow, LimitsTable},
-        perf::{self, PerfBaseline},
-        rng::Rng,
-        sweep::{self, Link},
+use sdrmm_modem::cpm::{CpmDemod, MlseDetector, TIMING_BW_BURST};
+use sdrmm_modem_test_support::ber::{
+    Curve,
+    catalog::{
+        self, DRIFT_TOLERANCE_DB, FULL_ERRORS, afsk, framing,
+        framing::{FULL_CAP, RATE},
+        gmsk, msk,
     },
-    cpm::{CpmDemod, MlseDetector, TIMING_BW_BURST},
+    e2e::{Payloads, channel_at_margin, loopback},
+    impair::{Awgn, Cfo, ChannelSpec, ClockError, Drift, Impairment, TimingOffset},
+    limits::{self, Criterion, LimitRow, LimitsTable},
+    perf::{self, PerfBaseline},
+    rng::Rng,
+    sweep::{self, Link},
 };
 
 fn baseline_path(stem: &str) -> PathBuf {

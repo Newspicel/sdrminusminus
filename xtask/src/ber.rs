@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use sdrmm_modem::ber::{
+use sdrmm_modem_test_support::ber::{
     Curve,
     analog::{self as analog_harness, SinadCurve},
     catalog::{self, Entry, Measurement, analog as analog_catalog},
@@ -189,7 +189,7 @@ fn judge(root: &Path, m: &Measurement, curve: &Curve) -> std::result::Result<(),
     let mut faults = Vec::new();
 
     let path = root.join(m.artifact());
-    match sdrmm_modem::ber::sweep::load_json(&path) {
+    match sdrmm_modem_test_support::ber::sweep::load_json(&path) {
         Ok(committed) => match m.drift_db(curve, &committed) {
             Some(drift) => {
                 println!(

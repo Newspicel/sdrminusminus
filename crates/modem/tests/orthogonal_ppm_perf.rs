@@ -2,18 +2,18 @@
 
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::{
-        catalog::{
-            orthogonal::{self, SPS as MFSK_SPS},
-            ppm::{self as ppm_catalog, RATE as PPM_RATE, SLOT_SPS},
-        },
-        perf::{
-            CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf,
-            host_id, load_baselines, measure_throughput, save_baselines,
-        },
-    },
     orthogonal::MfskDemod,
     ppm::{PpmDemod, SlotDetector},
+};
+use sdrmm_modem_test_support::ber::{
+    catalog::{
+        orthogonal::{self, SPS as MFSK_SPS},
+        ppm::{self as ppm_catalog, RATE as PPM_RATE, SLOT_SPS},
+    },
+    perf::{
+        CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf, host_id,
+        load_baselines, measure_throughput, save_baselines,
+    },
 };
 
 #[global_allocator]

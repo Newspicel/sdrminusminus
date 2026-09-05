@@ -2,7 +2,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -32,6 +32,7 @@ pub(crate) struct RecordingShared {
     samples: AtomicU64,
     bytes: AtomicU64,
     error: OnceLock<String>,
+    publication_failed: AtomicBool,
 }
 
 #[derive(Clone, Debug)]
@@ -66,7 +67,11 @@ impl RecordingShared {
     }
 
     pub(crate) fn error(&self) -> Option<String> {
-        self.error.get().cloned()
+        self.error.get().cloned().or_else(|| {
+            self.publication_failed
+                .load(Ordering::Relaxed)
+                .then(|| "recording publication queue overflow or worker stopped".to_owned())
+        })
     }
 
     pub(crate) fn fail(&self, message: String) {
@@ -94,6 +99,16 @@ pub(crate) struct RecorderTap {
 }
 
 impl RecorderTap {
+    pub(crate) fn healthy(&self) -> bool {
+        self.shared.error.get().is_none() && !self.shared.publication_failed.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn publication_failed(&self) {
+        self.shared
+            .publication_failed
+            .store(true, Ordering::Relaxed);
+    }
+
     #[must_use]
     pub(crate) fn push(&self, slice: &[Complex<f32>], start_sample: u64, center_hz: f64) -> bool {
         if slice.is_empty() {

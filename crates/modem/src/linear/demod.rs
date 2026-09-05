@@ -234,9 +234,10 @@ fn assert_unit_energy(receive_filter: &[f32]) {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::{perf::assert_no_alloc, rng::Rng};
+
     use super::*;
     use crate::{
-        ber::{perf::assert_no_alloc, rng::Rng},
         constellation::{Constellation, tables},
         linear::{LinearMod, PhaseDetector},
         pulse::{self, Norm},

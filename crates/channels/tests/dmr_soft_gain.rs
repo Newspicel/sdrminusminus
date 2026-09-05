@@ -14,14 +14,12 @@ use sdrmm_dsp::{
     Bptc196,
     fec::conv::{CONFIDENT, Soft},
 };
-use sdrmm_modem::{
-    ber::{
-        Curve, CurvePoint,
-        impair::{Awgn, ChannelSpec, Impairment},
-        rng::Rng,
-        sweep,
-    },
-    cpm::TIMING_BW_BURST,
+use sdrmm_modem::cpm::TIMING_BW_BURST;
+use sdrmm_modem_test_support::ber::{
+    Curve, CurvePoint,
+    impair::{Awgn, ChannelSpec, Impairment},
+    rng::Rng,
+    sweep,
 };
 use serde::{Deserialize, Serialize};
 

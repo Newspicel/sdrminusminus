@@ -16,6 +16,7 @@ rustfft.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+sdrmm-test-support.workspace = true
 criterion.workspace = true
 
 [[bench]]

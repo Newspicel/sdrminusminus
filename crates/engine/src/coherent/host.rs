@@ -9,7 +9,7 @@ use sdrmm_wire::{CalState, CoherentParams, DfReading, RadarDetection};
 use tokio::sync::broadcast;
 
 use super::AlignedContext;
-use crate::runtime::DecodedSink;
+use crate::{publishing::coherent::CoherentPublisher, runtime::DecodedSink};
 
 /// How often the calibration state goes out on its own, so an operator watching a solve settle
 /// sees it move even while nothing is being reported.
@@ -52,10 +52,9 @@ pub(crate) struct CoherentHost {
     lanes: Vec<u32>,
     rx: Box<dyn CoherentRx>,
     outputs: CoherentOutputs,
-    sinks: CoherentSinks,
+    publisher: CoherentPublisher,
     needs_phase: bool,
     center_hz: f64,
-    seq: u32,
     freq_hz: f64,
     since_state: f64,
     state_samples: f64,
@@ -80,15 +79,17 @@ impl CoherentHost {
             )));
         }
         let rx = create_coherent(ctx, params)?;
+        let publisher = CoherentPublisher::new(node, sinks).map_err(|error| {
+            ChannelError::InvalidSettings(format!("start coherent publisher: {error}"))
+        })?;
         Ok(Box::new(Self {
             node,
             lanes,
             rx,
             outputs: CoherentOutputs::default(),
-            sinks,
+            publisher,
             needs_phase: descriptor.needs_phase,
             center_hz: ctx.center_hz,
-            seq: 0,
             freq_hz: ctx.center_hz,
             since_state: 0.0,
             state_samples: ctx.sample_rate * STATE_INTERVAL_S,
@@ -141,12 +142,9 @@ impl super::AlignedSink for CoherentHost {
         }
         if self.needs_phase && ctx.cal.phase_unknown {
             if due {
-                let _ = self.sinks.updates.send(CoherentUpdate {
-                    node: self.node,
-                    reading: None,
-                    detections: Vec::new(),
-                    cal: ctx.cal.clone(),
-                });
+                self.outputs.reset();
+                self.publisher
+                    .publish(&mut self.outputs, ctx.cal, self.freq_hz, true);
             }
             return;
         }
@@ -170,24 +168,7 @@ impl super::AlignedSink for CoherentHost {
         if let Some(weights) = self.outputs.weights.take() {
             self.weights = Some(reorder(&weights, &self.lanes));
         }
-        for event in self.outputs.events.drain(..) {
-            self.sinks.decoded.publish(self.freq_hz, event);
-        }
-        if let Some(surface) = self.outputs.surface.take() {
-            self.seq = self.seq.wrapping_add(1);
-            let _ = self.sinks.surfaces.send(SurfaceUpdate {
-                node: self.node,
-                seq: self.seq,
-                surface: Arc::new(surface),
-            });
-        }
-        if has_report {
-            let _ = self.sinks.updates.send(CoherentUpdate {
-                node: self.node,
-                reading: self.outputs.bearing.take(),
-                detections: std::mem::take(&mut self.outputs.detections),
-                cal: ctx.cal.clone(),
-            });
-        }
+        self.publisher
+            .publish(&mut self.outputs, ctx.cal, self.freq_hz, has_report);
     }
 }

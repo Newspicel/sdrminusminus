@@ -258,8 +258,9 @@ fn argmax_bin(energies: &[f32]) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
-    use crate::ber::rng::Rng;
 
     fn payload(n: usize, count: usize, seed: u32) -> Vec<u32> {
         let mut state = seed | 1;

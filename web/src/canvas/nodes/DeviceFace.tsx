@@ -40,22 +40,31 @@ function Tuner({
   scanning,
   locked,
   onLock,
+  arrayTuning,
 }: {
   node: string;
   set: DeviceSet;
   scanning: boolean;
   locked: boolean;
   onLock: (locked: boolean) => void;
+  arrayTuning: boolean;
 }) {
   const { applyPatch } = useDevicePatch();
   const active = useFaceActive();
   const range = tuningRange(set.capabilities);
   const pinned = !isTunable(range);
-  const held = scanning || pinned || locked;
+  const held = scanning || pinned || locked || arrayTuning;
   const tune = (stream: number, hz: number): void =>
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   return (
-    <div className="@container flex flex-col gap-1 border-b border-line p-2">
+    <div
+      className="@container flex flex-col gap-1 border-b border-line p-2"
+      title={
+        arrayTuning
+          ? "Tune the connected Array node to keep its member radios synchronized"
+          : undefined
+      }
+    >
       {tunerDials(set).map((dial, index) => (
         <div key={dial.stream} className="flex flex-col">
           {dial.port !== null && <span className="legend">{dial.port}</span>}
@@ -82,7 +91,7 @@ function Tuner({
                   disabled={held}
                   onTune={(hz) => tune(dial.stream, hz)}
                 />
-                {index === 0 && (
+                {index === 0 && !arrayTuning && (
                   <Button
                     type="button"
                     className={`${ICON_BTN} ${locked ? "bg-accent/15" : ""}`}
@@ -198,25 +207,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
-  const array = arrayHolding(workspace.graph, node.id);
-  if (array !== null) {
-    return (
-      <NodeShell
-        node={node}
-        title={reference === null ? "Device" : refLabel(reference)}
-        category="source"
-        subtitle="in an array"
-        live={false}
-      >
-        <FaceBody>
-          <p className="p-3 text-ink-dim text-sm">
-            Held by <span className="text-ink">{array}</span>. Unwire it to have it back.
-          </p>
-        </FaceBody>
-      </NodeShell>
-    );
-  }
-
   if (reference === null) {
     return (
       <NodeShell node={node} title="Device" category="source" subtitle="no radio" live={false}>
@@ -280,6 +270,8 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     );
   }
 
+  const array = arrayHolding(workspace.graph, node.id);
+  const arrayTuning = array !== null && workspace.devices.has(array);
   const scanning = scannerOwnsTuning(set);
   const overruns = set.overruns ?? 0;
 
@@ -295,13 +287,14 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           node={node.id}
           set={set}
           scanning={scanning}
+          arrayTuning={arrayTuning}
           locked={locked}
           onLock={(next) => editNode({ tuning_locked: next })}
         />
 
         {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
 
-        <RadioSettings active={set} className="p-2" />
+        <RadioSettings active={set} className="p-2" sampleRateLocked={arrayTuning} />
 
         {overruns > 0 && (
           <Readout>

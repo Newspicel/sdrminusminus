@@ -247,8 +247,10 @@ impl DsssDemod {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
-    use crate::{ber::rng::Rng, constellation::tables, spread::pn::PnSequence};
+    use crate::{constellation::tables, spread::pn::PnSequence};
 
     const SPS: usize = 4;
     const LEAD: usize = 53;

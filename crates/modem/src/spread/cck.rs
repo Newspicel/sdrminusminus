@@ -414,8 +414,9 @@ pub const CHIP_AMPLITUDE: f32 = FRAC_1_SQRT_2 * 0.5;
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
-    use crate::ber::rng::Rng;
 
     const SPS: usize = 4;
     const LEAD: usize = 41;

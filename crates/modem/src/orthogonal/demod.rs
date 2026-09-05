@@ -114,11 +114,12 @@ pub fn noise_var_from_energies(energies: &[f32], m: usize) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::{
         super::modulator::{MfskMod, TonePhase},
         *,
     };
-    use crate::ber::rng::Rng;
 
     const SPS: f64 = 10.0;
 

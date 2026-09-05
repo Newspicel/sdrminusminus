@@ -168,19 +168,14 @@ impl LaneFeed {
 /// Where the summed array lands: an ordinary capture ring with an ordinary dsp thread on it, so
 /// every decoder, recorder and spectrum subscription works on the beam without knowing it is one.
 pub(crate) struct BeamSink {
-    pub(crate) producer: Producer<Complex<f32>>,
+    pub(crate) producer: crate::capture_ring::CaptureProducer,
     pub(crate) waker: Arc<crate::runtime::Waker>,
     pub(crate) overruns: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl BeamSink {
-    pub(crate) fn push(&mut self, samples: &[Complex<f32>]) {
-        let take = self.producer.slots().min(samples.len());
-        if take > 0
-            && let Ok(chunk) = self.producer.write_chunk_uninit(take)
-        {
-            chunk.fill_from_iter(samples[..take].iter().copied());
-        }
+    pub(crate) fn push(&mut self, samples: &[Complex<f32>], index: u64) {
+        let take = self.producer.push(samples, index);
         if take < samples.len() {
             self.overruns.fetch_add(
                 (samples.len() - take) as u64,

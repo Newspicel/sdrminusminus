@@ -25,7 +25,7 @@ export default defineConfig({
     // whatever `web/dist` holds, so the UI has to be built here rather than by the caller.
     command:
       `pnpm --dir web build && rm -rf web/${SCRATCH} ` +
-      `&& cargo run -q -p sdrmm -- --bind 127.0.0.1:${PORT} ` +
+      `&& cargo run -q -p sdrmm --no-default-features -- --bind 127.0.0.1:${PORT} ` +
       `--db web/${SCRATCH}/e2e.db --recordings-dir web/${SCRATCH}/recordings`,
     cwd: "..",
     env: { VITE_ENABLE_SYNTHETIC_DEVICES: "true" },

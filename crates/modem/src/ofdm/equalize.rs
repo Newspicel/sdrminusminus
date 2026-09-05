@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn averaged_repeats_leave_half_the_noise_variance() {
-        use crate::ber::rng::Rng;
+        use sdrmm_modem_test_support::ber::rng::Rng;
         let mut rng = Rng::new(0x1e5);
         for &sigma2 in &[0.01f64, 0.1, 1.0] {
             let sigma = (sigma2 / 2.0).sqrt();

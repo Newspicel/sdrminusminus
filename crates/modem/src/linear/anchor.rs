@@ -147,14 +147,13 @@ impl PhaseAnchor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        ber::{
-            impair::{Awgn, Impairment},
-            rng::Rng,
-        },
-        constellation::tables,
+    use sdrmm_modem_test_support::ber::{
+        impair::{Awgn, Impairment},
+        rng::Rng,
     };
+
+    use super::*;
+    use crate::constellation::tables;
 
     fn known_word(n: usize, seed: u64) -> Vec<Complex<f32>> {
         let table = tables::qam_square(16).unwrap();

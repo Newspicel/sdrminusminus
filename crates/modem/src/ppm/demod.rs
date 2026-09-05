@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn a_noise_only_slot_reads_mean_n0() {
-        use crate::ber::rng::Rng;
+        use sdrmm_modem_test_support::ber::rng::Rng;
         for &sps in &[2.0, 7.0, 16.0] {
             let mut rng = Rng::new(0x9711);
             let sigma = (0.5f64).sqrt();

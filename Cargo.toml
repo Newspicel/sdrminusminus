@@ -1,9 +1,11 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/test-support",
     "crates/wire",
     "crates/dsp",
     "crates/modem",
+    "crates/modem-test-support",
     "crates/device",
     "crates/device-virtual",
     "crates/device-array",
@@ -26,9 +28,11 @@ members = [
 ]
 
 default-members = [
+    "crates/test-support",
     "crates/wire",
     "crates/dsp",
     "crates/modem",
+    "crates/modem-test-support",
     "crates/device",
     "crates/device-virtual",
     "crates/device-array",
@@ -58,10 +62,12 @@ repository = "https://github.com/newspicel/sdrminusminus"
 rust-version = "1.99"
 
 [workspace.dependencies]
+sdrmm-test-support = { path = "crates/test-support" }
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
 sdrmm-modem = { path = "crates/modem" }
+sdrmm-modem-test-support = { path = "crates/modem-test-support" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-array = { path = "crates/device-array" }
@@ -205,6 +211,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-modem]
+opt-level = 3
+
+[profile.dev.package.sdrmm-modem-test-support]
 opt-level = 3
 
 [profile.dev.package.sdrmm-channels]

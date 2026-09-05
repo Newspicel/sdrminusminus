@@ -2,23 +2,19 @@
 
 use std::path::PathBuf;
 
-use sdrmm_modem::{
-    analog::{AmDetector, AmMode},
-    ber::{
-        analog::{
-            AnalogLink, SinadCurve, save_json, sinad_metric, snr_at_sinad, sweep_sinad,
-            threshold_db, worst_shortfall_db, worst_shortfall_db_vs_curve,
-        },
-        catalog::analog::{
-            AM_LIMITS, AnalogMeasurement, ENTRIES, NFM_LIMITS, SSB_LIMITS, TRIALS, VOICE_GRID,
-            WFM_LIMITS, WIDE_GRID, am_envelope_link, am_link_at_taps, nfm_discriminator_link,
-            ssb_hilbert_link, wfm_link,
-        },
-        impair::{Cfo, ChannelSpec, ClockError, Drift, IqImbalance, PhaseNoise, TimingOffset},
-        limits::{
-            self, ANALOG_SINAD_DB, Criterion, LimitRow, LimitsTable, sinad_penalty_criterion,
-        },
+use sdrmm_modem::analog::{AmDetector, AmMode};
+use sdrmm_modem_test_support::ber::{
+    analog::{
+        AnalogLink, SinadCurve, save_json, sinad_metric, snr_at_sinad, sweep_sinad, threshold_db,
+        worst_shortfall_db, worst_shortfall_db_vs_curve,
     },
+    catalog::analog::{
+        AM_LIMITS, AnalogMeasurement, ENTRIES, NFM_LIMITS, SSB_LIMITS, TRIALS, VOICE_GRID,
+        WFM_LIMITS, WIDE_GRID, am_envelope_link, am_link_at_taps, nfm_discriminator_link,
+        ssb_hilbert_link, wfm_link,
+    },
+    impair::{Cfo, ChannelSpec, ClockError, Drift, IqImbalance, PhaseNoise, TimingOffset},
+    limits::{self, ANALOG_SINAD_DB, Criterion, LimitRow, LimitsTable, sinad_penalty_criterion},
 };
 
 fn baseline_path(stem: &str) -> PathBuf {
@@ -26,7 +22,7 @@ fn baseline_path(stem: &str) -> PathBuf {
 }
 
 fn load_curve(stem: &str) -> SinadCurve {
-    sdrmm_modem::ber::analog::load_json(&baseline_path(stem)).unwrap()
+    sdrmm_modem_test_support::ber::analog::load_json(&baseline_path(stem)).unwrap()
 }
 
 fn measurements() -> Vec<&'static AnalogMeasurement> {
@@ -195,7 +191,8 @@ fn the_fm_loop_tier_buys_sensitivity_rather_than_threshold() {
             "at {snr} dB the loop tier is {gain} dB ahead"
         );
     }
-    let oracle = |snr| sdrmm_modem::ber::theory::analog_sinad_db(1.041_666_666_666_666_7, snr);
+    let oracle =
+        |snr| sdrmm_modem_test_support::ber::theory::analog_sinad_db(1.041_666_666_666_666_7, snr);
     assert_eq!(
         threshold_db(&discriminator, oracle, KNEE_DROP_DB),
         threshold_db(&pll, oracle, KNEE_DROP_DB),

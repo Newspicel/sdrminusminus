@@ -299,15 +299,13 @@ impl std::fmt::Debug for OfdmDemod {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        ber::{
-            impair::{Awgn, Cfo, ChannelSpec, ClockError, Impairment, Multipath, MultipathProfile},
-            rng::Rng,
-        },
-        constellation::tables,
-        ofdm::modulator::OfdmMod,
+    use sdrmm_modem_test_support::ber::{
+        impair::{Awgn, Cfo, ChannelSpec, ClockError, Impairment, Multipath, MultipathProfile},
+        rng::Rng,
     };
+
+    use super::*;
+    use crate::{constellation::tables, ofdm::modulator::OfdmMod};
 
     const SYMBOLS: usize = 16;
 

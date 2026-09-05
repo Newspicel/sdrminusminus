@@ -14,14 +14,12 @@ use common::{
 };
 use num_complex::Complex;
 use sdrmm_channels::testgen::dv as tg;
-use sdrmm_modem::{
-    ber::{
-        Curve, CurvePoint,
-        impair::{Awgn, ChannelSpec, Impairment},
-        rng::Rng,
-        sweep,
-    },
-    cpm::TIMING_BW_BURST,
+use sdrmm_modem::cpm::TIMING_BW_BURST;
+use sdrmm_modem_test_support::ber::{
+    Curve, CurvePoint,
+    impair::{Awgn, ChannelSpec, Impairment},
+    rng::Rng,
+    sweep,
 };
 use serde::{Deserialize, Serialize};
 

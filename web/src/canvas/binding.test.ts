@@ -98,6 +98,26 @@ describe("binding", () => {
     };
   }
 
+  it("binds array lanes and their channels alongside the source devices", () => {
+    const source = set(1, rtl);
+    const array = set(2, info({ driver: "array", key: "bench-pair" }), [channel(7, "nfm", 1)]);
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("bench:pair", {
+          kind: "array",
+          data: { members: 2, coherence: "time_sync", shared_tuning: true },
+        }),
+        node("voice", { kind: "channel", data: { channel_type: "nfm" } }),
+      ],
+      edges: [{ from: { node: "bench:pair", port: "iq2" }, to: { node: "voice", port: "iq" } }],
+    };
+    const devices = bindDevices(g, [source, array]);
+    expect(devices.get("dev")?.id).toBe(1);
+    expect(devices.get("bench:pair")?.id).toBe(2);
+    expect(bindChannels(g, devices).get("voice")?.id).toBe(7);
+  });
+
   it("binds a device node to the set running its radio", () => {
     const devices = bindDevices(graph(), [set(2, other), set(1, rtl)]);
     expect(devices.get("dev")?.id).toBe(1);

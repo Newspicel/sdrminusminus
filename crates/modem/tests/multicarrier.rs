@@ -3,23 +3,21 @@
 use std::path::PathBuf;
 
 use num_complex::Complex;
-use sdrmm_modem::{
-    ber::{
-        Curve,
-        catalog::{
-            self, DRIFT_TOLERANCE_DB, FULL_ERRORS, Measurement,
-            multicarrier::{
-                CAP, GFDM_LIMITS, GFDM_OVERHEAD_DB, GFDM_ZF_SEED, OTFS_LIMITS, SYMBOLS, fbmc_link,
-                gfdm_amplification_db, gfdm_zf_link, ofdm_reference_link, otfs_link, ufmc_link,
-            },
-            ofdm::{LEAD, RATE},
+use sdrmm_modem::ofdm::OfdmParams;
+use sdrmm_modem_test_support::ber::{
+    Curve,
+    catalog::{
+        self, DRIFT_TOLERANCE_DB, FULL_ERRORS, Measurement,
+        multicarrier::{
+            CAP, GFDM_LIMITS, GFDM_OVERHEAD_DB, GFDM_ZF_SEED, OTFS_LIMITS, SYMBOLS, fbmc_link,
+            gfdm_amplification_db, gfdm_zf_link, ofdm_reference_link, otfs_link, ufmc_link,
         },
-        e2e::{Payloads, channel_at_margin, loopback},
-        impair::{Cfo, ChannelSpec, ClockError, Drift, IqImbalance, TimingOffset},
-        limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable, penalty_criterion},
-        sweep::{self, Link, sweep_ber},
+        ofdm::{LEAD, RATE},
     },
-    ofdm::OfdmParams,
+    e2e::{Payloads, channel_at_margin, loopback},
+    impair::{Cfo, ChannelSpec, ClockError, Drift, IqImbalance, TimingOffset},
+    limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable, penalty_criterion},
+    sweep::{self, Link, sweep_ber},
 };
 
 fn baseline_path(stem: &str) -> PathBuf {
@@ -85,7 +83,12 @@ fn every_oracle_row_sits_on_its_constellation() {
 #[test]
 fn the_zero_forcing_rows_distance_from_qpsk_is_its_own_prefix_and_inverse() {
     let curve = load_curve("multicarrier/gfdm_zf_awgn");
-    let measured = sweep::worst_penalty_db(&curve, sdrmm_modem::ber::theory::qpsk_ber, 6.0, 11.0);
+    let measured = sweep::worst_penalty_db(
+        &curve,
+        sdrmm_modem_test_support::ber::theory::qpsk_ber,
+        6.0,
+        11.0,
+    );
     let predicted = *GFDM_OVERHEAD_DB + gfdm_amplification_db();
     assert!(
         (measured - predicted).abs() < 0.15,
@@ -208,7 +211,7 @@ fn equalising_demodulator(
     response: &[Complex<f32>],
     precode: bool,
     mmse: bool,
-) -> sdrmm_modem::ber::sweep::DemodulateFn {
+) -> sdrmm_modem_test_support::ber::sweep::DemodulateFn {
     use sdrmm_modem::{multicarrier::OtfsPrecoder, ofdm::OfdmDemod};
     let params = OfdmParams::wifi_like();
     let mut demod = OfdmDemod::new(params.clone())

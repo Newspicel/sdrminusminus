@@ -47,6 +47,11 @@ impl Engine {
             .device_sets
             .get_mut(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        if state.rate_patches > 0 {
+            return Err(EngineError::Coherent(
+                "wait for the sample rate change before starting coherent processors".into(),
+            ));
+        }
         let tier = state.capabilities.coherence;
         if tier == Coherence::None {
             return Err(EngineError::Coherent(

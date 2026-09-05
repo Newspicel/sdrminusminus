@@ -22,9 +22,11 @@ use sdrmm_wire::{
 };
 use tokio::sync::broadcast;
 
+mod arrays;
 pub mod audio;
 pub mod audio_recording;
 mod capture_ops;
+mod capture_ring;
 mod channel_ops;
 pub mod coherent;
 mod coherent_ops;
@@ -39,6 +41,7 @@ mod network_export;
 pub mod occupancy;
 mod planning;
 mod position;
+mod publishing;
 pub mod recording;
 pub mod runtime;
 pub mod scanner;
@@ -88,7 +91,6 @@ const NET_PRIORITY: u8 = 30;
 
 /// A composite the operator described by hand beats anything discovered, because it is the only
 /// thing that knows those radios belong together.
-const ARRAY_PRIORITY: u8 = 40;
 const EVENT_CHANNEL_CAP: usize = 256;
 const DECODED_QUEUE_CAP: usize = 4096;
 const DECODED_CHANNEL_CAP: usize = 1024;
@@ -120,29 +122,6 @@ pub fn builtin_registry_accelerated(
     recordings_dir: Option<PathBuf>,
     playback_speed: f64,
 ) -> DeviceRegistry {
-    builtin_registry_with(recordings_dir, playback_speed, &ArrayCatalog::new())
-}
-
-/// The built-in drivers plus a composite driver over them, so a bank of radios the operator has
-/// wired together opens like any other multi-lane radio.
-#[must_use]
-pub fn builtin_registry_with(
-    recordings_dir: Option<PathBuf>,
-    playback_speed: f64,
-    arrays: &ArrayCatalog,
-) -> DeviceRegistry {
-    let mut registry = single_registry(recordings_dir.clone(), playback_speed);
-    registry.register(
-        ARRAY_PRIORITY,
-        Box::new(sdrmm_device_array::ArrayDriver::new(
-            arrays.clone(),
-            std::sync::Arc::new(single_registry(recordings_dir, playback_speed)),
-        )),
-    );
-    registry
-}
-
-fn single_registry(recordings_dir: Option<PathBuf>, playback_speed: f64) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
     let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
@@ -453,6 +432,7 @@ impl RecordingState {
 }
 
 struct DeviceSetState {
+    array: Option<arrays::ArrayBinding>,
     info: DeviceInfo,
     capabilities: Capabilities,
     settings: DeviceSettings,
@@ -642,6 +622,7 @@ impl Inner {
 }
 
 pub struct Engine {
+    array_edits: Mutex<()>,
     registry: DeviceRegistry,
     arrays: ArrayCatalog,
     inner: Mutex<Inner>,
@@ -664,9 +645,8 @@ pub struct Engine {
 impl Engine {
     #[must_use]
     pub fn new(recordings_dir: Option<PathBuf>) -> Arc<Self> {
-        let arrays = ArrayCatalog::new();
-        let registry = builtin_registry_with(recordings_dir.clone(), 1.0, &arrays);
-        Self::with_arrays(registry, recordings_dir, arrays)
+        let registry = builtin_registry(recordings_dir.clone());
+        Self::with_registry(registry, recordings_dir)
     }
 
     #[must_use]
@@ -674,8 +654,6 @@ impl Engine {
         Self::with_arrays(registry, recordings_dir, ArrayCatalog::new())
     }
 
-    /// The arrays this engine's composite driver opens. Written by whoever the operator edits
-    /// them through, read by the driver on every probe.
     #[must_use]
     pub fn arrays(&self) -> &ArrayCatalog {
         &self.arrays
@@ -696,6 +674,7 @@ impl Engine {
         let (trunk_tx, trunk_rx) = mpsc::channel();
         let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
+            array_edits: Mutex::new(()),
             registry,
             arrays,
             inner: Mutex::new(Inner::default()),
@@ -739,8 +718,24 @@ impl Engine {
             .name("sdrmm-decoded".to_string())
             .spawn(move || {
                 let mut lost_seen = 0u64;
-                while let Ok(raw) = decoded_rx.recv() {
+                loop {
+                    let raw = match decoded_rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(raw) => Some(raw),
+                        Err(mpsc::RecvTimeoutError::Timeout) => None,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    };
                     let Some(engine) = weak.upgrade() else { return };
+                    let lost = engine.decoded_dropped.load(Ordering::Relaxed);
+                    if lost > lost_seen {
+                        let count = lost - lost_seen;
+                        lost_seen = lost;
+                        tracing::warn!(
+                            count,
+                            "decoder or media frames dropped: control plane behind"
+                        );
+                        engine.emit(ServerEvent::DecodedLost { count });
+                    }
+                    let Some(raw) = raw else { continue };
                     let at = format!("{:.9}", jiff::Timestamp::now());
                     let record = DecodedRecord {
                         device_set: raw.device_set,
@@ -755,13 +750,6 @@ impl Engine {
                             .send(trunking::TrunkInput::Record(Box::new(record.clone())));
                     }
                     let _ = engine.decoded_tx_out.send(record);
-                    let lost = engine.decoded_dropped.load(Ordering::Relaxed);
-                    if lost > lost_seen {
-                        let count = lost - lost_seen;
-                        lost_seen = lost;
-                        tracing::warn!(count, "decoder frames dropped: control plane behind");
-                        engine.emit(ServerEvent::DecodedLost { count });
-                    }
                 }
             });
         if let Err(e) = spawned {
@@ -844,6 +832,12 @@ impl Engine {
     }
 
     fn mark_device_fault(&self, ds: u32, err: DeviceError) {
+        for array in self.arrays_using(ds) {
+            self.mark_device_fault(
+                array,
+                DeviceError::Io(format!("array member {ds} failed: {err}")),
+            );
+        }
         let mut inner = self.lock();
         if let Some(state) = inner.device_sets.get_mut(&ds) {
             state.status = DeviceSetStatus::Error;

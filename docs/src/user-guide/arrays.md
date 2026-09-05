@@ -42,12 +42,17 @@ finder, a combiner, a channel or a recorder wires to.
 
 ### What belongs to the array
 
-A radio an array has taken is opened and tuned by the array. Its own node says which array holds
-it instead of offering a tuner that would fight the array's, and unwiring it gives it back.
+Each Device node opens its own radio. The Array node combines those already-running IQ streams;
+it never opens or replaces a radio. Existing channels, recordings, and scopes on the Device nodes
+keep running when an array is connected or removed.
 
-What the array owns is the **centre frequency and sample rate** — they have to be shared or it is
-not an array. Everything inside that tuned span stays free: wire a channel, a recorder or a scope
-to any of the array's lanes and it works while the array runs.
+Set the member radios to the same sample rate before connecting them. With shared tuning, their
+centre frequencies must also match. Once connected, change frequency and sample rate through the
+Array node so its members stay consistent. Independently tuned arrays expose one frequency per
+lane. Scanning and hunting require disconnecting the array first.
+
+Removing an array leaves its radios running. Removing a member also removes the dependent array.
+A disconnected member faults the array; when all members recover, the array reconnects its streams.
 
 Two rules follow from the calibration rather than the plumbing:
 

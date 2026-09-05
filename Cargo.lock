@@ -4738,6 +4738,8 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-dsp",
  "sdrmm-modem",
+ "sdrmm-modem-test-support",
+ "sdrmm-test-support",
  "sdrmm-wire",
  "serde",
  "serde_json",
@@ -4805,7 +4807,6 @@ dependencies = [
  "sdrmm-device",
  "sdrmm-device-virtual",
  "sdrmm-wire",
- "tracing",
 ]
 
 [[package]]
@@ -4903,6 +4904,7 @@ dependencies = [
  "criterion",
  "num-complex",
  "rustfft",
+ "sdrmm-test-support",
  "thiserror 2.0.20",
 ]
 
@@ -4929,6 +4931,7 @@ dependencies = [
  "sdrmm-device-virtual",
  "sdrmm-dsp",
  "sdrmm-recorder",
+ "sdrmm-test-support",
  "sdrmm-wire",
  "serde_json",
  "tempfile",
@@ -4946,6 +4949,18 @@ dependencies = [
  "num-complex",
  "rustfft",
  "sdrmm-dsp",
+ "sdrmm-modem-test-support",
+ "sdrmm-test-support",
+]
+
+[[package]]
+name = "sdrmm-modem-test-support"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-dsp",
+ "sdrmm-modem",
+ "sdrmm-test-support",
  "serde",
  "serde_json",
 ]
@@ -4985,7 +5000,6 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-cps",
  "sdrmm-device",
- "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
@@ -5010,6 +5024,10 @@ dependencies = [
  "utoipa-axum",
  "utoipa-swagger-ui",
 ]
+
+[[package]]
+name = "sdrmm-test-support"
+version = "0.0.0"
 
 [[package]]
 name = "sdrmm-tools"
@@ -8111,7 +8129,7 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-device-virtual",
  "sdrmm-dsp",
- "sdrmm-modem",
+ "sdrmm-modem-test-support",
  "sdrmm-recorder",
  "sdrmm-server",
  "sdrmm-wire",

@@ -1,15 +1,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
-use sdrmm_modem::{
-    ber::{
-        catalog::mfsk::{PERF, RATE, mfsk4_burst, modulate},
-        perf::{
-            PerfBaseline, REGRESSION_FRACTION, compare_perf, host_id, load_baselines,
-            measure_throughput, save_baselines, test_dibits,
-        },
+use sdrmm_modem::cpm::CpmDemod;
+use sdrmm_modem_test_support::ber::{
+    catalog::mfsk::{PERF, RATE, mfsk4_burst, modulate},
+    perf::{
+        PerfBaseline, REGRESSION_FRACTION, compare_perf, host_id, load_baselines,
+        measure_throughput, save_baselines, test_dibits,
     },
-    cpm::CpmDemod,
 };
 
 fn reference_waveform() -> Vec<Complex<f32>> {

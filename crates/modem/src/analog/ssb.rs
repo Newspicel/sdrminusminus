@@ -292,8 +292,9 @@ impl SsbDemod {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::analog::{analyse_tone, tone};
+
     use super::*;
-    use crate::ber::analog::{analyse_tone, tone};
 
     const RATE: f64 = 48_000.0;
     const BANDWIDTH: f64 = 3_000.0 / RATE;

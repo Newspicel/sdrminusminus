@@ -1,17 +1,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
-use sdrmm_modem::{
-    ber::{
-        catalog::{multicarrier::gfdm_params, ofdm::RATE},
-        perf::{
-            CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf,
-            host_id, load_baselines, measure_throughput, save_baselines,
-        },
-    },
-    multicarrier::{
-        FbmcDemod, FbmcMod, FbmcParams, GfdmDemod, GfdmDetector, GfdmMod, OtfsGrid, OtfsPrecoder,
-        UfmcDemod, UfmcMod, UfmcParams,
+use sdrmm_modem::multicarrier::{
+    FbmcDemod, FbmcMod, FbmcParams, GfdmDemod, GfdmDetector, GfdmMod, OtfsGrid, OtfsPrecoder,
+    UfmcDemod, UfmcMod, UfmcParams,
+};
+use sdrmm_modem_test_support::ber::{
+    catalog::{multicarrier::gfdm_params, ofdm::RATE},
+    perf::{
+        CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf, host_id,
+        load_baselines, measure_throughput, save_baselines,
     },
 };
 

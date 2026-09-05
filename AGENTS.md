@@ -13,8 +13,10 @@
 6. Prefer self-written pure Rust. Use compatible open-source code or translate C/C++ only when necessary. Record required attribution and license notices.
 
 ## Coding structure
-- Respect crate boundaries: `dsp` has no I/O and no internal deps; `channels` depends only
-  on `dsp` + `wire`; device backends are feature-gated; `server` is a library.
+- Respect crate boundaries: `dsp` has no I/O and no internal deps; `modem` builds reusable
+  modulation algorithms on `dsp`; `channels` depends on `dsp`, `modem`, and `wire`.
+  Modem measurements and file I/O live in `modem-test-support`, used only by tests and
+  developer tooling. Device backends are feature-gated; `server` is a library.
 - Adding a decoder should touch: one module in `channels`, one settings struct in `wire`,
   optionally one React panel. If it needs more, reconsider the design.
 - One job, one node. Never two nodes, or a node and a device kind, that do the same thing: a radio

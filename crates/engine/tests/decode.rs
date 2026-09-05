@@ -671,14 +671,14 @@ async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
             params: ChannelParams::Rtty(params),
             audio: Default::default(),
         },
-        |event| matches!(event, DecoderEvent::Rtty(t) if t.text.contains("DL1ABC")),
+        |event| matches!(event, DecoderEvent::Rtty(t) if t.text.contains("CQ CQ DE DL1ABC")),
     )
     .await;
 
     let DecoderEvent::Rtty(text) = record.event else {
         unreachable!("filtered above")
     };
-    assert!(text.text.contains("CQ"), "decoded {:?}", text.text);
+    assert_eq!(text.text, "CQ CQ DE DL1ABC K\n");
 }
 
 #[tokio::test]

@@ -53,18 +53,25 @@ pub struct Detection {
 /// aircraft as four. Nothing here decides what a target is — it only refuses to count a single
 /// bright patch more than once.
 pub fn cluster(detections: &mut Vec<Detection>) {
-    detections.sort_by(|a, b| b.snr_db.total_cmp(&a.snr_db));
-    let mut kept: Vec<Detection> = Vec::with_capacity(detections.len());
-    for detection in detections.iter() {
-        let touching = kept.iter().any(|other| {
+    detections.sort_unstable_by(|a, b| {
+        b.snr_db
+            .total_cmp(&a.snr_db)
+            .then_with(|| a.doppler_bin.cmp(&b.doppler_bin))
+            .then_with(|| a.range_bin.cmp(&b.range_bin))
+    });
+    let mut kept = 0;
+    for index in 0..detections.len() {
+        let detection = detections[index];
+        let touching = detections[..kept].iter().any(|other| {
             other.range_bin.abs_diff(detection.range_bin) <= 1
                 && other.doppler_bin.abs_diff(detection.doppler_bin) <= 1
         });
         if !touching {
-            kept.push(*detection);
+            detections[kept] = detection;
+            kept += 1;
         }
     }
-    *detections = kept;
+    detections.truncate(kept);
 }
 
 /// Two-dimensional cell-averaging CFAR with a guard ring.

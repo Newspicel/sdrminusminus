@@ -2,13 +2,10 @@ import type { DeviceRef, PatchGraph } from "../../lib/types";
 import { streamPort } from "../graph";
 
 export interface ArrayMember {
-  /// The device node feeding this element.
   node: string;
   device: DeviceRef | null;
 }
 
-/// The radios wired into an array, in the order of the inputs they arrive on. That order is the
-/// element numbering, so re-wiring is how an operator corrects an array they cabled out of order.
 export function arrayMembers(graph: PatchGraph, node: string): ArrayMember[] {
   const found: ArrayMember[] = [];
   const entry = graph.nodes.find((candidate) => candidate.id === node);
@@ -28,7 +25,6 @@ export function arrayMembers(graph: PatchGraph, node: string): ArrayMember[] {
   return found;
 }
 
-/// Which array has taken a radio, if one has. A radio in an array is opened and tuned by it.
 export function arrayHolding(graph: PatchGraph, deviceNode: string): string | null {
   for (const node of graph.nodes) {
     if (node.kind !== "array") {

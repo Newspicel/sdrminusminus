@@ -60,8 +60,10 @@ impl ToneBank {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::{super::modulator::MfskMod, *};
-    use crate::{ber::rng::Rng, orthogonal::modulator::TonePhase};
+    use crate::orthogonal::modulator::TonePhase;
 
     fn tone(params: &MfskParams, index: u8, symbols: usize) -> Vec<Complex<f32>> {
         let mut m = MfskMod::new(params.clone(), TonePhase::Continuous);

@@ -132,12 +132,13 @@ impl LogSum {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ber::{
+    use sdrmm_modem_test_support::ber::{
         impair::{Awgn, Impairment},
         perf::assert_no_alloc,
         rng::Rng,
     };
+
+    use super::*;
 
     fn bpsk() -> Constellation {
         Constellation::from_points(

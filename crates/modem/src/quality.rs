@@ -125,8 +125,10 @@ pub fn measure_levels(symbols: &[f32], mapping: &Mapping) -> Option<Quality> {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
-    use crate::{ber::rng::Rng, constellation::tables};
+    use crate::constellation::tables;
 
     fn noisy(points: &[Complex<f32>], sigma: f64, seed: u64) -> Vec<Complex<f32>> {
         let mut rng = Rng::new(seed);

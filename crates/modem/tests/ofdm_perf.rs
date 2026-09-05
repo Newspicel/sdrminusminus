@@ -2,15 +2,15 @@
 
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::{
-        catalog::ofdm::{self, RATE, SEARCH, SYMBOLS},
-        perf::{
-            CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf,
-            host_id, load_baselines, measure_throughput, save_baselines,
-        },
-    },
     constellation::tables,
     ofdm::{ChannelEstimator, OfdmDemod, OfdmMod, OfdmParams},
+};
+use sdrmm_modem_test_support::ber::{
+    catalog::ofdm::{self, RATE, SEARCH, SYMBOLS},
+    perf::{
+        CountingAlloc, PerfBaseline, REGRESSION_FRACTION, assert_no_alloc, compare_perf, host_id,
+        load_baselines, measure_throughput, save_baselines,
+    },
 };
 
 #[global_allocator]
@@ -131,7 +131,7 @@ fn acquisition_allocates_nothing_on_either_tier() {
 #[test]
 fn the_soft_output_path_allocates_nothing() {
     let (params, mut wave) = frame();
-    let mut rng = sdrmm_modem::ber::rng::Rng::new(0x0f_06);
+    let mut rng = sdrmm_modem_test_support::ber::rng::Rng::new(0x0f_06);
     for s in &mut wave {
         *s += Complex::new((rng.normal() * 0.1) as f32, (rng.normal() * 0.1) as f32);
     }

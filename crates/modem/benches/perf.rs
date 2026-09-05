@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use num_complex::Complex;
 use sdrmm_dsp::{SymbolSync, design_rrc};
-use sdrmm_modem::ber::perf::{shaped_bpsk_iq, test_dibits};
+use sdrmm_modem_test_support::ber::perf::{shaped_bpsk_iq, test_dibits};
 
 fn symbol_sync_8sps(c: &mut Criterion) {
     let iq = shaped_bpsk_iq(4_096, 8.0, 0x0dd5);
@@ -163,7 +163,8 @@ fn afsk_filterbank_12k(c: &mut Criterion) {
 }
 
 fn mfsk4_filterbank_48k(c: &mut Criterion) {
-    use sdrmm_modem::{ber::catalog::orthogonal, orthogonal::MfskDemod};
+    use sdrmm_modem::orthogonal::MfskDemod;
+    use sdrmm_modem_test_support::ber::catalog::orthogonal;
     let symbols = orthogonal::filler(4, 1_200);
     let iq = orthogonal::modulate(4, &symbols);
     let demod = MfskDemod::new(orthogonal::params(4));
@@ -181,7 +182,8 @@ fn mfsk4_filterbank_48k(c: &mut Criterion) {
 }
 
 fn ppm2_matched_8m(c: &mut Criterion) {
-    use sdrmm_modem::{ber::catalog::ppm, ppm::SlotDetector};
+    use sdrmm_modem::ppm::SlotDetector;
+    use sdrmm_modem_test_support::ber::catalog::ppm;
     let symbols = ppm::filler(2, 2_048);
     let iq = ppm::modulate(2, &symbols);
     let demod = ppm::demod(2, symbols.len(), SlotDetector::MatchedFilter);
@@ -200,10 +202,10 @@ fn ppm2_matched_8m(c: &mut Criterion) {
 
 fn ofdm64_20m(c: &mut Criterion) {
     use sdrmm_modem::{
-        ber::catalog::ofdm::{LEAD, SEARCH, SYMBOLS},
         constellation::tables,
         ofdm::{OfdmDemod, OfdmMod, OfdmParams},
     };
+    use sdrmm_modem_test_support::ber::catalog::ofdm::{LEAD, SEARCH, SYMBOLS};
     let params = OfdmParams::wifi_like();
     let table = match tables::qam_square(4) {
         Ok(t) => t,

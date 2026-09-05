@@ -1,44 +1,38 @@
-use std::{
-    sync::{Arc, mpsc},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 
 use num_complex::Complex;
-use sdrmm_device::{DeviceRegistry, RxSink};
+use sdrmm_device::{DeviceRegistry, RxSink, lock};
 use sdrmm_device_virtual::VirtualDriver;
-use sdrmm_wire::{Coherence, StreamSettings};
+use sdrmm_wire::{Coherence, Range};
 
 use super::*;
 
-const RATE: f64 = 250_000.0;
-
-fn members() -> Arc<DeviceRegistry> {
-    let mut registry = DeviceRegistry::new();
-    registry.register(10, Box::new(VirtualDriver::new()));
-    Arc::new(registry)
-}
-
 fn definition(members: &[&str], coherence: Coherence) -> ArrayDefinition {
     ArrayDefinition {
-        key: "bench".to_owned(),
-        label: "Bench array".to_owned(),
-        members: members.iter().map(|member| (*member).to_owned()).collect(),
+        key: "bench".into(),
+        label: "Bench".into(),
+        members: members.iter().map(|id| (*id).into()).collect(),
         coherence,
         shared_tuning: true,
     }
 }
 
-fn driver(definition: ArrayDefinition) -> ArrayDriver {
-    let catalog = ArrayCatalog::new();
-    catalog.replace(vec![definition]);
-    ArrayDriver::new(catalog, members())
-}
-
-fn pair() -> ArrayDriver {
-    driver(definition(
-        &["virtual:siggen", "virtual:halfduplex"],
-        Coherence::TimeSync,
-    ))
+fn pair() -> (StreamArray, ArrayIngress) {
+    let mut registry = DeviceRegistry::new();
+    registry.register(10, Box::new(VirtualDriver::new()));
+    let (_, one) = registry.open("virtual:siggen").expect("first source");
+    let (_, two) = registry.open("virtual:halfduplex").expect("second source");
+    StreamArray::new(
+        &definition(
+            &["virtual:siggen", "virtual:halfduplex"],
+            Coherence::TimeSync,
+        ),
+        &[
+            (one.capabilities(), one.settings()),
+            (two.capabilities(), two.settings()),
+        ],
+    )
+    .expect("compose")
 }
 
 #[test]
@@ -68,158 +62,58 @@ fn a_definition_needs_at_least_two_named_radios_and_a_shared_clock() {
 }
 
 #[test]
-fn the_array_is_probed_only_once_every_member_is_attached() {
-    let present = pair();
-    let found = present.probe();
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].id(), "array:bench");
-    let profile = found[0].profile.as_ref().expect("a composite profile");
-    assert_eq!(profile.rx_streams, 2);
-
-    let absent = driver(definition(
-        &["virtual:siggen", "virtual:nosuchradio"],
-        Coherence::TimeSync,
-    ));
-    assert!(absent.probe().is_empty());
+fn composing_exposes_the_member_lanes_without_opening_any_radio() {
+    let (device, _) = pair();
+    assert_eq!(device.capabilities().rx_streams, 2);
+    assert_eq!(device.capabilities().tx_streams, 0);
+    assert_eq!(device.capabilities().coherence, Coherence::TimeSync);
 }
 
 #[test]
-fn opening_presents_one_radio_with_every_members_lanes() {
-    let driver = driver(definition(
-        &["virtual:array4", "virtual:halfduplex"],
-        Coherence::TimeSync,
-    ));
-    let info = driver.probe().into_iter().next().expect("probed");
-    let device = driver.open(&info).expect("opens");
-    let capabilities = device.capabilities();
-    assert_eq!(capabilities.rx_streams, 5, "four lanes plus one");
-    assert_eq!(capabilities.tx_streams, 0);
-    assert_eq!(capabilities.coherence, Coherence::TimeSync);
-    assert!(!capabilities.freq_ranges.is_empty());
-    assert!(!capabilities.sample_rates.is_empty());
-}
-
-#[test]
-fn settings_reach_every_member_and_a_lane_reaches_only_its_own() {
-    let driver = driver(ArrayDefinition {
-        shared_tuning: false,
-        ..definition(
-            &["virtual:transceiver", "virtual:halfduplex"],
-            Coherence::TimeSync,
-        )
-    });
-    let info = driver.probe().into_iter().next().expect("probed");
-    let mut device = driver.open(&info).expect("opens");
-    device
-        .apply(&DeviceSettings {
-            center_hz: Some(200_000_000.0),
-            sample_rate: Some(RATE),
-            ..DeviceSettings::default()
-        })
-        .expect("global settings reach every member");
-    assert_eq!(device.settings().sample_rate, Some(RATE));
-
-    device
-        .apply(&DeviceSettings {
-            streams: vec![StreamSettings {
-                stream: 1,
-                center_hz: Some(200_100_000.0),
-                ..StreamSettings::default()
-            }],
-            ..DeviceSettings::default()
-        })
-        .expect("a lane of a member that tunes per stream");
-    assert!(
-        device
-            .apply(&DeviceSettings {
-                streams: vec![StreamSettings {
-                    stream: 9,
-                    center_hz: Some(200_000_000.0),
-                    ..StreamSettings::default()
-                }],
-                ..DeviceSettings::default()
-            })
-            .is_err(),
-        "a lane this array does not have is refused"
-    );
-}
-
-#[test]
-fn every_lane_starts_together_and_carries_its_own_members_samples() {
-    let driver = pair();
-    let info = driver.probe().into_iter().next().expect("probed");
-    let mut device = driver.open(&info).expect("opens");
-    device
-        .apply(&DeviceSettings {
-            sample_rate: Some(RATE),
-            ..DeviceSettings::default()
-        })
-        .expect("rate");
-    let mut receivers = Vec::new();
+fn stream_gaps_survive_composition_and_stopping_detaches_the_inputs() {
+    let (mut device, ingress) = pair();
+    let seen = Arc::new(Mutex::new(Vec::new()));
     let sinks = (0..2)
-        .map(|_| {
-            let (tx, rx) = mpsc::channel::<(u64, usize)>();
-            receivers.push(rx);
-            RxSink::new(move |samples: &[Complex<f32>], index| {
-                let _ = tx.send((index, samples.len()));
-            })
+        .map(|lane| {
+            let seen = seen.clone();
+            RxSink::new(move |samples, index| lock(&seen).push((lane, index, samples[0].re)))
         })
         .collect();
-    device.rx_start(sinks).expect("starts");
-    for receiver in &receivers {
-        let (index, count) = receiver
-            .recv_timeout(Duration::from_secs(5))
-            .expect("every lane delivers");
-        assert_eq!(
-            index, 0,
-            "the first block of every lane is the first sample"
-        );
-        assert!(count > 0);
-    }
+    device.rx_start(sinks).expect("start");
+    let mut inputs = ingress.take();
+    inputs[0].push(&[Complex::new(1.0, 0.0); 4]);
+    inputs[1].push(&[Complex::new(2.0, 0.0); 4]);
+    inputs[0].push(&[Complex::new(3.0, 0.0); 4]);
+    inputs[0].dropped(7);
+    inputs[0].push(&[Complex::new(4.0, 0.0); 4]);
+    assert_eq!(*lock(&seen), [(1, 0, 2.0), (0, 0, 3.0), (0, 11, 4.0)]);
     device.rx_stop();
+    inputs[0].push(&[Complex::new(5.0, 0.0); 4]);
+    assert_eq!(lock(&seen).len(), 3);
+    device
+        .rx_start(vec![RxSink::new(|_, _| {}), RxSink::new(|_, _| {})])
+        .expect("restart");
+    inputs[0].push(&[Complex::new(6.0, 0.0); 4]);
+    assert_eq!(lock(&seen).len(), 3, "old inputs must stay detached");
 }
 
 #[test]
-fn a_member_that_dies_is_reported_on_the_lane_that_belongs_to_it() {
-    let driver = pair();
-    let info = driver.probe().into_iter().next().expect("probed");
-    let mut device = driver.open(&info).expect("opens");
-    let (tx, rx) = mpsc::channel::<String>();
-    let mut sinks = Vec::new();
-    for lane in 0..2 {
-        let report = tx.clone();
-        sinks.push(RxSink::with_fatal_handler(
-            |_: &[Complex<f32>], _| {},
-            move |error| {
-                let _ = report.send(format!("lane {lane}: {error}"));
-            },
-        ));
-    }
-    let handles: Vec<_> = sinks.iter_mut().map(RxSink::share_failure).collect();
-    handles[1].fail(DeviceError::Disconnected("unplugged".to_owned()));
-    let seen = rx.recv_timeout(Duration::from_secs(1)).expect("reported");
-    assert!(seen.starts_with("lane 1"), "{seen}");
-    device.rx_stop();
-}
-
-#[test]
-fn the_lanes_of_a_member_are_numbered_after_the_members_before_it() {
-    let registry = members();
-    let mut children: Vec<Box<dyn SdrDevice>> = Vec::new();
-    for member in ["virtual:array4", "virtual:halfduplex"] {
-        children.push(registry.open(member).expect("member opens").1);
-    }
-    let array = ArrayDevice::new(
-        definition(
-            &["virtual:array4", "virtual:halfduplex"],
-            Coherence::TimeSync,
-        ),
-        children,
-    );
-    assert_eq!(array.locate(0), Some((0, 0)));
-    assert_eq!(array.locate(3), Some((0, 3)));
-    assert_eq!(array.locate(4), Some((1, 0)));
-    assert_eq!(array.locate(5), None);
+fn a_member_failure_reaches_the_array() {
+    let (mut device, ingress) = pair();
+    let failures = Arc::new(Mutex::new(Vec::new()));
+    let sinks = (0..2)
+        .map(|lane| {
+            let failures = failures.clone();
+            RxSink::with_fatal_handler(
+                |_, _| {},
+                move |error| lock(&failures).push((lane, error.to_string())),
+            )
+        })
+        .collect();
+    device.rx_start(sinks).expect("start");
+    ingress.take()[1].fail(DeviceError::Io("lost member".into()));
+    assert_eq!(lock(&failures)[0].0, 1);
+    assert!(lock(&failures)[0].1.contains("lost member"));
 }
 
 #[test]
@@ -245,4 +139,50 @@ fn the_composite_reaches_only_what_every_member_reaches() {
         step: None,
     }];
     assert!(intersect(&[&narrow, &apart]).is_empty());
+}
+
+#[test]
+fn composed_settings_preserve_each_members_gain_and_antenna() {
+    let (device, _) = pair();
+    let mut caps = device.capabilities().clone();
+    caps.rx_streams = 1;
+    caps.gains = vec![sdrmm_wire::GainStage {
+        name: "RF".into(),
+        range: Range {
+            min: 0.0,
+            max: 40.0,
+            step: None,
+        },
+        values: Vec::new(),
+    }];
+    caps.antennas = vec!["A".into(), "B".into()];
+    caps.per_stream = Default::default();
+    let first = DeviceSettings {
+        gains: vec![sdrmm_wire::GainValue {
+            stage: "RF".into(),
+            value_db: 10.0,
+        }],
+        antenna: Some("A".into()),
+        ..device.settings().clone()
+    };
+    let second = DeviceSettings {
+        gains: vec![sdrmm_wire::GainValue {
+            stage: "RF".into(),
+            value_db: 20.0,
+        }],
+        antenna: Some("B".into()),
+        ..first.clone()
+    };
+    let (array, _) = StreamArray::new(
+        &definition(&["virtual:one", "virtual:two"], Coherence::TimeSync),
+        &[(&caps, &first), (&caps, &second)],
+    )
+    .expect("compose");
+    for (lane, original) in [first, second].into_iter().enumerate() {
+        let settings = array
+            .settings()
+            .for_stream(lane as u32, &array.capabilities().per_stream);
+        assert_eq!(settings.gains, original.gains);
+        assert_eq!(settings.antenna, original.antenna);
+    }
 }

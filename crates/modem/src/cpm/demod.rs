@@ -394,14 +394,13 @@ impl CpmDemod {
 mod tests {
     use std::f64::consts::TAU;
 
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::{
         super::{levels::KnownSymbols, modulator::CpmMod, params::Mapping},
         *,
     };
-    use crate::{
-        ber::rng::Rng,
-        pulse::{self, Norm},
-    };
+    use crate::pulse::{self, Norm};
 
     const RATE: f64 = 48_000.0;
     const BAUD: f64 = 4_800.0;
@@ -960,7 +959,9 @@ mod tests {
         soft.clear();
         demod.process(&iq, &mut soft);
         soft.clear();
-        crate::ber::perf::assert_no_alloc("CpmDemod::process", || demod.process(&iq, &mut soft));
+        sdrmm_modem_test_support::ber::perf::assert_no_alloc("CpmDemod::process", || {
+            demod.process(&iq, &mut soft)
+        });
         assert!(!soft.is_empty(), "the measured call recovered no symbols");
     }
 
@@ -983,7 +984,7 @@ mod tests {
         soft.clear();
         demod.process_real(&audio, &mut soft);
         soft.clear();
-        crate::ber::perf::assert_no_alloc("CpmDemod::process_real", || {
+        sdrmm_modem_test_support::ber::perf::assert_no_alloc("CpmDemod::process_real", || {
             demod.process_real(&audio, &mut soft);
         });
         assert!(!soft.is_empty(), "the measured call recovered no symbols");

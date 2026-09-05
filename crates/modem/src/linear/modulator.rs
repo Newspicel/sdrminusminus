@@ -83,9 +83,10 @@ impl LinearMod {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::{impair::signal_energy, rng::Rng};
+
     use super::*;
     use crate::{
-        ber::{impair::signal_energy, rng::Rng},
         constellation::tables,
         pulse::{self, Norm},
     };

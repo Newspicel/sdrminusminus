@@ -271,7 +271,7 @@ fn array_node_snapshot(members: &[&str]) -> WorkspaceSnapshot {
 }
 
 #[tokio::test]
-async fn an_array_drawn_on_the_canvas_opens_as_one_radio() {
+async fn an_array_drawn_on_the_canvas_composes_open_device_nodes() {
     let (app, state) = test_router_with_state();
     let snapshot = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
     let workspace = put_active_workspace(&app, &snapshot).await;
@@ -294,13 +294,13 @@ async fn an_array_drawn_on_the_canvas_opens_as_one_radio() {
 }
 
 #[tokio::test]
-async fn an_array_of_one_radio_opens_nothing() {
+async fn an_incomplete_array_keeps_its_device_node_live() {
     let (app, state) = test_router_with_state();
     let snapshot = array_node_snapshot(&["virtual:siggen"]);
     let workspace = put_active_workspace(&app, &snapshot).await;
     apply(&app, workspace).await;
     assert!(state.engine.arrays().all().is_empty());
-    assert!(state.engine.snapshot().device_sets.is_empty());
+    assert_eq!(state.engine.snapshot().device_sets.len(), 1);
 }
 
 #[tokio::test]
@@ -310,22 +310,26 @@ async fn a_radio_in_an_array_is_not_opened_a_second_time_on_its_own() {
     let workspace = put_active_workspace(&app, &snapshot).await;
     let report = apply(&app, workspace).await;
     assert!(report.refused.is_empty(), "{report:?}");
-    assert_eq!(
-        report
-            .bound
-            .iter()
-            .map(|bound| bound.node.as_str())
-            .collect::<Vec<_>>(),
-        vec!["bench"],
-        "the array holds the radios; nothing else opens them"
-    );
+    let mut bound: Vec<&str> = report
+        .bound
+        .iter()
+        .map(|binding| binding.node.as_str())
+        .collect();
+    bound.sort_unstable();
+    assert_eq!(bound, ["bench", "radio0", "radio1"]);
     let live = state.engine.snapshot();
-    assert_eq!(live.device_sets.len(), 1);
-    assert_eq!(live.device_sets[0].device.id(), "array:bench");
+    assert_eq!(live.device_sets.len(), 3);
+    assert_eq!(
+        live.device_sets
+            .iter()
+            .filter(|set| set.device.id() == "virtual:siggen")
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
-async fn a_radio_an_array_takes_is_freed_from_its_own_device_set() {
+async fn composing_an_array_preserves_the_original_device_set() {
     let (app, state) = test_router_with_state();
     let alone = virtual_snapshot("siggen", &[]);
     let workspace = put_active_workspace(&app, &alone).await;
@@ -336,15 +340,21 @@ async fn a_radio_an_array_takes_is_freed_from_its_own_device_set() {
         "the radio opens on its own first"
     );
 
+    let original = state.engine.snapshot().device_sets[0].id;
     let joined = array_node_snapshot(&["virtual:siggen", "virtual:halfduplex"]);
     let workspace = put_workspace_revision(&app, &joined, 2).await;
     let report = apply(&app, workspace).await;
     assert!(report.refused.is_empty(), "{report:?}");
     let live = state.engine.snapshot();
-    assert_eq!(live.device_sets.len(), 1);
-    assert_eq!(
-        live.device_sets[0].device.id(),
-        "array:bench",
-        "the array holds the radio the device node had"
+    assert_eq!(live.device_sets.len(), 3);
+    assert!(
+        live.device_sets
+            .iter()
+            .any(|set| set.id == original && set.device.id() == "virtual:siggen")
+    );
+    assert!(
+        live.device_sets
+            .iter()
+            .any(|set| set.device.id() == "array:bench")
     );
 }

@@ -4,7 +4,7 @@ use num_complex::Complex;
 use sdrmm_channels::{
     ChannelCtx, ChannelOutputs, Dvbs2Modulation as Modulation, Dvbs2Rate as Rate, testgen,
 };
-use sdrmm_modem::ber::perf::measure_throughput;
+use sdrmm_modem_test_support::ber::perf::measure_throughput;
 use sdrmm_wire::{
     ChannelParams, ChannelSettings, DatvCodeRate, DatvParams, DatvStandard, DecoderEvent,
 };

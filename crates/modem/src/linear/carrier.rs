@@ -151,11 +151,10 @@ fn wrap(theta: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::{perf::assert_no_alloc, rng::Rng};
+
     use super::*;
-    use crate::{
-        ber::{perf::assert_no_alloc, rng::Rng},
-        constellation::tables,
-    };
+    use crate::constellation::tables;
 
     fn stream(m: u32, n: usize, seed: u64, table: &Constellation) -> Vec<Complex<f32>> {
         let mut rng = Rng::new(seed);

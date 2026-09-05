@@ -155,14 +155,13 @@ pub(super) fn rotor(cfo: f64, n: usize) -> (Complex<f64>, Complex<f64>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        ber::{
-            impair::{Cfo, ChannelSpec, Impairment},
-            rng::Rng,
-        },
-        ofdm::modulator::OfdmMod,
+    use sdrmm_modem_test_support::ber::{
+        impair::{Cfo, ChannelSpec, Impairment},
+        rng::Rng,
     };
+
+    use super::*;
+    use crate::ofdm::modulator::OfdmMod;
 
     fn points(n: usize, seed: u32) -> Vec<Complex<f32>> {
         let mut state = seed | 1;
@@ -257,7 +256,9 @@ mod tests {
         for trial in 0..20u64 {
             let mut x = burst(29, 8, 0.004);
             ChannelSpec::default()
-                .awgn(crate::ber::impair::Awgn::with_sigma(0.12))
+                .awgn(sdrmm_modem_test_support::ber::impair::Awgn::with_sigma(
+                    0.12,
+                ))
                 .build()
                 .apply(&mut x, &mut Rng::new(0x0fd0 + trial));
             let a = s.acquire(&x, 160).unwrap();

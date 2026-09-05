@@ -1,22 +1,14 @@
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use sdrmm_device::{
-    DeviceDriver, DeviceError, DeviceRegistry, FatalHandle, RxSink, SdrDevice, lock,
-};
-use sdrmm_wire::{
-    ARRAY_DRIVER_ID, ArrayDefinition, Capabilities, DcArtifact, DeviceInfo, DeviceProfile,
-    DeviceSettings, Duplex, Range, StreamSettings,
-};
+use sdrmm_device::{DeviceError, RxSink, SdrDevice, lock};
+use sdrmm_wire::{ArrayDefinition, Capabilities, DeviceSettings, StreamSettings};
 
 mod caps;
+pub use caps::{composite, composite_profile, intersect};
 
-pub use caps::intersect;
-
-/// The array definitions the operator has written down, shared between whoever edits them and the
-/// driver that opens them.
 #[derive(Clone, Default)]
 pub struct ArrayCatalog(Arc<Mutex<Vec<ArrayDefinition>>>);
 
@@ -44,319 +36,186 @@ impl ArrayCatalog {
     }
 }
 
-/// Presents a bank of separate radios as one multi-lane radio.
-///
-/// Framing and counting only: no sample ever changes value here. Everything above the device
-/// layer — calibration, direction finding, passive radar — sees exactly what it sees for a radio
-/// that came with several lanes of its own.
-pub struct ArrayDriver {
-    catalog: ArrayCatalog,
-    members: Arc<DeviceRegistry>,
+#[derive(Clone, Default)]
+pub struct ArrayIngress {
+    sinks: Arc<Mutex<Vec<RxSink>>>,
+    enabled: Arc<AtomicBool>,
 }
 
-impl ArrayDriver {
-    #[must_use]
-    pub fn new(catalog: ArrayCatalog, members: Arc<DeviceRegistry>) -> Self {
-        Self { catalog, members }
+impl ArrayIngress {
+    pub fn pause(&self) {
+        self.enabled.store(false, Ordering::Release);
+    }
+    pub fn resume(&self) {
+        self.enabled.store(true, Ordering::Release);
     }
 
-    fn info(&self, definition: &ArrayDefinition, probed: &[DeviceInfo]) -> DeviceInfo {
-        let profiles: Vec<&DeviceProfile> = definition
-            .members
-            .iter()
-            .filter_map(|member| {
-                probed
-                    .iter()
-                    .find(|info| info.id() == *member)?
-                    .profile
-                    .as_ref()
-            })
-            .collect();
-        DeviceInfo {
-            driver: ARRAY_DRIVER_ID.to_owned(),
-            key: definition.key.clone(),
-            label: definition.label.clone(),
-            serial: None,
-            profile: (profiles.len() == definition.members.len())
-                .then(|| caps::composite_profile(&profiles, definition)),
-        }
+    pub fn take(&self) -> Vec<RxSink> {
+        std::mem::take(&mut *lock(&self.sinks))
     }
 }
 
-impl DeviceDriver for ArrayDriver {
-    fn id(&self) -> &'static str {
-        ARRAY_DRIVER_ID
-    }
-
-    fn probe(&self) -> Vec<DeviceInfo> {
-        let definitions = self.catalog.all();
-        if definitions.is_empty() {
-            return Vec::new();
-        }
-        let probed = self.members.probe_all();
-        definitions
-            .iter()
-            .filter(|definition| definition.valid())
-            .filter(|definition| {
-                definition
-                    .members
-                    .iter()
-                    .all(|member| probed.iter().any(|info| info.id() == *member))
-            })
-            .map(|definition| self.info(definition, &probed))
-            .collect()
-    }
-
-    fn resolve(&self, key: &str) -> Option<DeviceInfo> {
-        let definition = self.catalog.get(key).filter(ArrayDefinition::valid)?;
-        Some(self.info(&definition, &[]))
-    }
-
-    fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let definition = self
-            .catalog
-            .get(&info.key)
-            .filter(ArrayDefinition::valid)
-            .ok_or_else(|| DeviceError::NotFound(info.id()))?;
-        let mut children = Vec::with_capacity(definition.members.len());
-        for member in &definition.members {
-            let (_, device) = self.members.open(member)?;
-            children.push(device);
-        }
-        Ok(Box::new(ArrayDevice::new(definition, children)))
-    }
-}
-
-/// Holds every lane back until all of them are running.
-///
-/// Separate radios do not start together, and the head each one delivered before the last joined
-/// belongs to no common moment. Dropping it leaves the lanes within one block of each other,
-/// which the calibration can measure and correct; keeping it would leave an offset nothing could.
-struct Gate {
-    wanted: usize,
-    arrived: AtomicUsize,
-}
-
-impl Gate {
-    fn new(wanted: usize) -> Self {
-        Self {
-            wanted,
-            arrived: AtomicUsize::new(0),
-        }
-    }
-
-    fn arrive(&self) {
-        self.arrived.fetch_add(1, Ordering::AcqRel);
-    }
-
-    fn open(&self) -> bool {
-        self.arrived.load(Ordering::Acquire) >= self.wanted
-    }
-}
-
-pub struct ArrayDevice {
-    definition: ArrayDefinition,
+pub struct StreamArray {
     capabilities: Capabilities,
     settings: DeviceSettings,
-    children: Vec<Box<dyn SdrDevice>>,
-    /// How many lanes each member contributes, so a lane number can be traced back to a radio.
-    lanes: Vec<u32>,
+    ingress: ArrayIngress,
+    active: Arc<AtomicBool>,
 }
 
-impl ArrayDevice {
-    fn new(definition: ArrayDefinition, children: Vec<Box<dyn SdrDevice>>) -> Self {
-        let lanes: Vec<u32> = children
-            .iter()
-            .map(|child| child.capabilities().rx_streams.max(1))
-            .collect();
-        let capabilities = caps::composite(
-            &children
+impl StreamArray {
+    pub fn new(
+        definition: &ArrayDefinition,
+        members: &[(&Capabilities, &DeviceSettings)],
+    ) -> Result<(Self, ArrayIngress), DeviceError> {
+        if !definition.valid() || definition.members.len() != members.len() {
+            return Err(DeviceError::Unsupported(
+                "an array needs all its distinct member streams".into(),
+            ));
+        }
+        let first = members[0].1;
+        if first.sample_rate.is_none()
+            || members
                 .iter()
-                .map(|child| child.capabilities())
-                .collect::<Vec<_>>(),
-            &definition,
-        );
-        let settings = DeviceSettings {
-            center_hz: children
-                .first()
-                .and_then(|child| child.settings().center_hz),
-            sample_rate: children
-                .first()
-                .and_then(|child| child.settings().sample_rate),
-            ..DeviceSettings::default()
-        };
-        Self {
+                .any(|(_, settings)| settings.sample_rate != first.sample_rate)
+        {
+            return Err(DeviceError::Unsupported(
+                "array members must use the same sample rate".into(),
+            ));
+        }
+        let capabilities = composite(
+            &members.iter().map(|(caps, _)| *caps).collect::<Vec<_>>(),
             definition,
-            capabilities,
-            settings,
-            children,
-            lanes,
+        );
+        if capabilities.rx_streams > sdrmm_wire::MAX_STREAMS {
+            return Err(DeviceError::Unsupported(
+                "array has too many receive streams".into(),
+            ));
         }
-    }
-
-    /// Which member a lane belongs to, and which of that member's own lanes it is.
-    fn locate(&self, lane: u32) -> Option<(usize, u32)> {
-        let mut base = 0u32;
-        for (index, count) in self.lanes.iter().enumerate() {
-            if lane < base + count {
-                return Some((index, lane - base));
+        let mut settings = DeviceSettings {
+            sample_rate: first.sample_rate,
+            center_hz: first.center_hz,
+            gains: first.gains.clone(),
+            antenna: first.antenna.clone(),
+            bandwidth: first.bandwidth,
+            ppm: first.ppm,
+            ..Default::default()
+        };
+        let mut lane = 0;
+        for (caps, member) in members {
+            for stream in 0..caps.rx_streams {
+                let source = member.for_stream(stream, &caps.per_stream);
+                if definition.shared_tuning && source.center_hz != first.center_hz {
+                    return Err(DeviceError::Unsupported(
+                        "array members must be tuned to the same frequency".into(),
+                    ));
+                }
+                if capabilities.per_stream != Default::default() {
+                    settings.streams.push(StreamSettings {
+                        stream: lane,
+                        center_hz: (!definition.shared_tuning)
+                            .then_some(source.center_hz)
+                            .flatten(),
+                        gains: if capabilities.per_stream.gain {
+                            source.gains
+                        } else {
+                            Vec::new()
+                        },
+                        antenna: if capabilities.per_stream.antenna {
+                            source.antenna
+                        } else {
+                            None
+                        },
+                    });
+                }
+                lane += 1;
             }
-            base += count;
         }
-        None
-    }
-
-    /// Splits one settings table into one per member, so each radio is told only about itself.
-    fn fan_out(&self, settings: &DeviceSettings) -> Vec<DeviceSettings> {
-        let mut out: Vec<DeviceSettings> = self
-            .children
-            .iter()
-            .map(|_| DeviceSettings {
-                center_hz: settings.center_hz,
-                sample_rate: settings.sample_rate,
-                ppm: settings.ppm,
-                bandwidth: settings.bandwidth,
-                antenna: settings.antenna.clone(),
-                gains: settings.gains.clone(),
-                ..DeviceSettings::default()
-            })
-            .collect();
-        for entry in &settings.streams {
-            let Some((child, stream)) = self.locate(entry.stream) else {
-                continue;
-            };
-            let Some(target) = out.get_mut(child) else {
-                continue;
-            };
-            target.streams.push(StreamSettings {
-                stream,
-                ..entry.clone()
-            });
-        }
-        out
+        let ingress = ArrayIngress::default();
+        Ok((
+            Self {
+                capabilities,
+                settings,
+                ingress: ingress.clone(),
+                active: Arc::new(AtomicBool::new(false)),
+            },
+            ingress,
+        ))
     }
 }
 
-impl SdrDevice for ArrayDevice {
+impl SdrDevice for StreamArray {
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
     }
-
     fn settings(&self) -> &DeviceSettings {
         &self.settings
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         sdrmm_device::check_stream_settings(settings, &self.capabilities)?;
-        let fanned = self.fan_out(settings);
-        for (child, wanted) in self.children.iter_mut().zip(&fanned) {
-            child.apply(wanted)?;
-        }
         self.settings.merge_from(settings);
-        if let Some(first) = self.children.first() {
-            self.settings.sample_rate = first.settings().sample_rate;
-            if self.definition.shared_tuning {
-                self.settings.center_hz = first.settings().center_hz;
-            }
-        }
         Ok(())
     }
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
-        let expected = self.capabilities.rx_streams as usize;
-        if sinks.len() != expected {
+        if self.active.load(Ordering::Acquire) {
+            return Err(DeviceError::AlreadyStreaming);
+        }
+        let count = sinks.len();
+        if count != self.capabilities.rx_streams as usize {
             return Err(DeviceError::Unsupported(format!(
-                "this device has {expected} rx streams, got {} sinks",
-                sinks.len()
+                "array expects {} streams, got {count}",
+                self.capabilities.rx_streams
             )));
         }
-        let gate = Arc::new(Gate::new(expected));
-        let mut sinks = sinks;
-        let mut per_child: Vec<Vec<RxSink>> = Vec::with_capacity(self.children.len());
-        let mut handles: Vec<FatalHandle> = Vec::with_capacity(self.children.len());
-        for count in &self.lanes {
-            let mut forwarded = Vec::with_capacity(*count as usize);
-            let mut first: Option<FatalHandle> = None;
-            for _ in 0..*count {
-                let mut parent = sinks.remove(0);
-                let handle = parent.share_failure();
-                first.get_or_insert(handle);
-                forwarded.push(forwarding_sink(parent, gate.clone()));
-            }
-            handles.push(first.unwrap_or_else(|| RxSink::new(|_, _| {}).share_failure()));
-            per_child.push(forwarded);
-        }
-        for (index, (child, forwarded)) in self.children.iter_mut().zip(per_child).enumerate() {
-            let handle = handles[index].clone();
-            let armed = forwarded
-                .into_iter()
-                .map(|sink| with_relay(sink, handle.clone()))
-                .collect();
-            if let Err(error) = child.rx_start(armed) {
-                for started in self.children.iter_mut().take(index) {
-                    started.rx_stop();
-                }
-                return Err(error);
-            }
-        }
+        self.active = Arc::new(AtomicBool::new(true));
+        self.ingress.resume();
+        let arrived = Arc::new(AtomicUsize::new(0));
+        let inputs = sinks
+            .into_iter()
+            .map(|mut sink| {
+                let active = self.active.clone();
+                let enabled = self.ingress.enabled.clone();
+                let arrived = arrived.clone();
+                let mut first = true;
+                let mut next = None;
+                let failure = sink.share_failure();
+                RxSink::with_fatal_handler(
+                    move |samples, index| {
+                        if !active.load(Ordering::Acquire) || !enabled.load(Ordering::Acquire) {
+                            return;
+                        }
+                        if first {
+                            first = false;
+                            arrived.fetch_add(1, Ordering::AcqRel);
+                        }
+                        if arrived.load(Ordering::Acquire) != count {
+                            return;
+                        }
+                        if let Some(expected) = next {
+                            sink.dropped(index.saturating_sub(expected));
+                        }
+                        next = Some(index + samples.len() as u64);
+                        sink.push(samples);
+                    },
+                    move |error| failure.fail(error),
+                )
+            })
+            .collect();
+        *lock(&self.ingress.sinks) = inputs;
         Ok(())
     }
 
     fn rx_stop(&mut self) {
-        for child in &mut self.children {
-            child.rx_stop();
-        }
+        self.active.store(false, Ordering::Release);
+        lock(&self.ingress.sinks).clear();
     }
 }
 
-fn forwarding_sink(mut parent: RxSink, gate: Arc<Gate>) -> RxSink {
-    let mut arrived = false;
-    let mut open = false;
-    RxSink::new(move |samples, _index| {
-        if !open {
-            if !arrived {
-                arrived = true;
-                gate.arrive();
-            }
-            if !gate.open() {
-                return;
-            }
-            open = true;
-        }
-        parent.push(samples);
-    })
-}
-
-/// Wraps a forwarding sink so a member's fatal error reaches the engine through the parent's own
-/// handler rather than dying inside the child.
-fn with_relay(sink: RxSink, handle: FatalHandle) -> RxSink {
-    let mut sink = sink;
-    RxSink::with_fatal_handler(
-        move |samples, _index| sink.push(samples),
-        move |error| handle.fail(error),
-    )
-}
-
-/// A range every member can reach.
-#[must_use]
-pub fn intersect_range(a: Range, b: Range) -> Option<Range> {
-    let min = a.min.max(b.min);
-    let max = a.max.min(b.max);
-    (min <= max).then_some(Range {
-        min,
-        max,
-        step: a.step.or(b.step),
-    })
-}
-
-#[must_use]
-pub fn composite_duplex() -> Duplex {
-    Duplex::RxOnly
-}
-
-#[must_use]
-pub fn composite_dc_artifact() -> DcArtifact {
-    DcArtifact::Operator
+impl Drop for StreamArray {
+    fn drop(&mut self) {
+        self.rx_stop();
+    }
 }
 
 #[cfg(test)]

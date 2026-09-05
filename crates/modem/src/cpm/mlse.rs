@@ -396,11 +396,10 @@ fn model_mean_abs(taps: &[f32], mapping: &Mapping) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
-    use crate::{
-        ber::rng::Rng,
-        pulse::{self, Norm},
-    };
+    use crate::pulse::{self, Norm};
 
     const SPS: f64 = 10.0;
 
@@ -652,7 +651,7 @@ mod tests {
         detector.process(&observed, &mut got, &mut bits);
         got.clear();
         bits.clear();
-        crate::ber::perf::assert_no_alloc("MlseDetector::process", || {
+        sdrmm_modem_test_support::ber::perf::assert_no_alloc("MlseDetector::process", || {
             detector.process(&observed, &mut got, &mut bits);
         });
         assert!(!got.is_empty(), "the measured call decided nothing");

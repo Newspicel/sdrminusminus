@@ -2,30 +2,28 @@
 
 use std::path::PathBuf;
 
-use sdrmm_modem::{
-    ber::{
-        Curve,
-        catalog::{
-            FULL_ERRORS,
-            spread::{
-                BARKER11_AWGN, BARKER11_GRID, BARKER11_QPSK_AWGN, BARKER11_QPSK_GRID,
-                BARKER11_QPSK_SEED, BARKER11_SEED, CCK_LIMITS, CCK11_AWGN, CCK11_GRID, CCK11_SEED,
-                CCK55_AWGN, CCK55_GRID, CCK55_SEED, CHIP_SAMPLE_RATE, CHIP_SPS, CSS_BANDWIDTH,
-                CSS_LIMITS, CSS_PREAMBLE, CSS_SF7_AWGN, CSS_SF7_GRID, CSS_SF7_SEED, CSS_SF10_AWGN,
-                CSS_SF10_GRID, CSS_SF10_SEED, CSS_SF12_AWGN, CSS_SF12_GRID, CSS_SF12_SEED,
-                DSSS_LIMITS, DSSS_PAYLOAD, FHSS_AWGN, FHSS_GRID, FHSS_LIMITS, FHSS_SEED, FULL_CAP,
-                HOP_CHANNELS, M31_AWGN, M31_GRID, M31_LIMITS, M31_SEED, PREAMBLE, barker11_link,
-                barker11_qpsk_link, cck11_link, cck55_link, css_link, css_overhead_db, css_payload,
-                dsss_overhead_db, fhss_link, hop_sequence, m31_link,
-            },
+use sdrmm_modem::spread::FhssDemod;
+use sdrmm_modem_test_support::ber::{
+    Curve,
+    catalog::{
+        FULL_ERRORS,
+        spread::{
+            BARKER11_AWGN, BARKER11_GRID, BARKER11_QPSK_AWGN, BARKER11_QPSK_GRID,
+            BARKER11_QPSK_SEED, BARKER11_SEED, CCK_LIMITS, CCK11_AWGN, CCK11_GRID, CCK11_SEED,
+            CCK55_AWGN, CCK55_GRID, CCK55_SEED, CHIP_SAMPLE_RATE, CHIP_SPS, CSS_BANDWIDTH,
+            CSS_LIMITS, CSS_PREAMBLE, CSS_SF7_AWGN, CSS_SF7_GRID, CSS_SF7_SEED, CSS_SF10_AWGN,
+            CSS_SF10_GRID, CSS_SF10_SEED, CSS_SF12_AWGN, CSS_SF12_GRID, CSS_SF12_SEED, DSSS_LIMITS,
+            DSSS_PAYLOAD, FHSS_AWGN, FHSS_GRID, FHSS_LIMITS, FHSS_SEED, FULL_CAP, HOP_CHANNELS,
+            M31_AWGN, M31_GRID, M31_LIMITS, M31_SEED, PREAMBLE, barker11_link, barker11_qpsk_link,
+            cck11_link, cck55_link, css_link, css_overhead_db, css_payload, dsss_overhead_db,
+            fhss_link, hop_sequence, m31_link,
         },
-        e2e::{Payloads, channel_at_margin, loopback},
-        impair::{Cfo, ChannelSpec, ClockError, Drift, Interferer, IqImbalance, TimingOffset},
-        limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
-        sweep::{self, Link},
-        theory,
     },
-    spread::FhssDemod,
+    e2e::{Payloads, channel_at_margin, loopback},
+    impair::{Cfo, ChannelSpec, ClockError, Drift, Interferer, IqImbalance, TimingOffset},
+    limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
+    sweep::{self, Link},
+    theory,
 };
 
 fn baseline_path(stem: &str) -> PathBuf {

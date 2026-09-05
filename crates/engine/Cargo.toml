@@ -57,6 +57,7 @@ pollster = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]
+sdrmm-test-support.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 tempfile.workspace = true
 sdrmm-channels = { workspace = true, features = ["test-signals"] }

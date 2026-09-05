@@ -176,7 +176,7 @@ impl Beam {
         self.weights = weights;
     }
 
-    fn sum(&mut self, lanes: &[&[Complex<f32>]], count: usize) {
+    fn sum(&mut self, lanes: &[&[Complex<f32>]], count: usize, index: u64) {
         if self.weights.is_empty() || lanes.is_empty() {
             return;
         }
@@ -190,7 +190,7 @@ impl Beam {
                 *slot += sample * weight;
             }
         }
-        self.sink.push(&self.summed);
+        self.sink.push(&self.summed, index);
     }
 }
 
@@ -244,7 +244,7 @@ fn aggregate(
                     beam.steer(weights);
                 }
             }
-            calibrator.with_lanes(count, |lanes| beam.sum(lanes, count));
+            calibrator.with_lanes(count, |lanes| beam.sum(lanes, count, ctx.index));
         }
     }
     let mut taps = aligner.release();

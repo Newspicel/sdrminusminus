@@ -24,6 +24,21 @@ pub(crate) struct IqTap {
 }
 
 impl IqTap {
+    pub(crate) fn push_at(
+        &mut self,
+        input: &[Complex<f32>],
+        position: u64,
+        sample_rate: f32,
+        center_hz: f64,
+        emit: impl FnMut(IqBlock),
+    ) {
+        if self.position != position {
+            self.reset();
+            self.position = position;
+        }
+        self.push(input, sample_rate, center_hz, emit);
+    }
+
     pub(crate) fn new(sample_rate: f64) -> Self {
         Self {
             block: Vec::with_capacity(IQ_BLOCK_SAMPLES),

@@ -114,7 +114,7 @@ pub fn composite(members: &[&Capabilities], definition: &ArrayDefinition) -> Cap
         tx_streams: 0,
         per_stream: per_stream(definition, members),
         directional: None,
-        dc_artifact: sdrmm_wire::DcArtifact::Operator,
+        dc_artifact: sdrmm_wire::DcArtifact::None,
         hardware_sweep: false,
         coherence: definition.coherence,
     }

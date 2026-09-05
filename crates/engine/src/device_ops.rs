@@ -220,14 +220,20 @@ impl Engine {
                 .device_sets
                 .iter()
                 .filter(|(_, s)| {
-                    s.status == DeviceSetStatus::Running && !ids.contains(&s.info.id())
+                    s.array.is_none()
+                        && s.status == DeviceSetStatus::Running
+                        && !ids.contains(&s.info.id())
                 })
                 .map(|(id, _)| *id)
                 .collect();
             let returned = inner
                 .device_sets
                 .iter()
-                .filter(|(_, s)| s.status == DeviceSetStatus::Error && ids.contains(&s.info.id()))
+                .filter(|(_, s)| {
+                    s.array.is_none()
+                        && s.status == DeviceSetStatus::Error
+                        && ids.contains(&s.info.id())
+                })
                 .map(|(id, _)| *id)
                 .collect();
             (absent, returned)
@@ -242,6 +248,8 @@ impl Engine {
         for ds in returned {
             self.reconnect(ds);
         }
+
+        self.recover_arrays();
 
         let changed = known.as_ref().is_some_and(|prev| *prev != ids);
         *known = Some(ids);
@@ -261,14 +269,19 @@ impl Engine {
     /// seconds; a healthy machine never gets here.
     fn wants_a_deeper_look(&self, ids: &[String]) -> bool {
         let inner = self.lock();
-        inner.device_sets.values().any(|s| match s.status {
-            DeviceSetStatus::Running => !ids.contains(&s.info.id()),
-            DeviceSetStatus::Error => true,
-            DeviceSetStatus::Idle => false,
-        })
+        inner
+            .device_sets
+            .values()
+            .filter(|s| s.array.is_none())
+            .any(|s| match s.status {
+                DeviceSetStatus::Running => !ids.contains(&s.info.id()),
+                DeviceSetStatus::Error => true,
+                DeviceSetStatus::Idle => false,
+            })
     }
 
-    fn reconnect(&self, ds: u32) {
+    pub(crate) fn reconnect(&self, ds: u32) {
+        let _edit = sdrmm_device::lock(&self.array_edits);
         let stored = {
             let inner = self.lock();
             let Some(state) = inner.device_sets.get(&ds) else {
@@ -281,20 +294,29 @@ impl Engine {
                 state.info.id(),
                 state.settings.clone(),
                 state.channels.clone(),
+                state.array.clone(),
+                state.info.clone(),
             )
         };
-        let (device_id, stored_settings, stored_channels) = stored;
+        let (device_id, stored_settings, stored_channels, array, stored_info) = stored;
 
-        let opened = self
-            .registry
-            .open(&device_id)
-            .and_then(|(info, mut device)| {
-                let front_end =
-                    plan_front_end(device.capabilities(), &stored_settings, &stored_channels);
+        let opened = if let Some(binding) = &array {
+            self.reopen_array(binding)
+                .map(|(device, binding)| (stored_info, device, Some(binding)))
+        } else {
+            self.registry
+                .open(&device_id)
+                .map(|(info, device)| (info, device, None))
+        }
+        .and_then(|(info, mut device, array)| {
+            let front_end =
+                plan_front_end(device.capabilities(), &stored_settings, &stored_channels);
+            if array.is_none() {
                 device.apply(&stored_settings.to_hardware(front_end.lo_offset_hz))?;
-                Ok((info, device, front_end))
-            });
-        let (info, device, front_end) = match opened {
+            }
+            Ok((info, device, front_end, array))
+        });
+        let (info, device, front_end, array) = match opened {
             Ok(opened) => opened,
             Err(e) => {
                 self.note_reconnect_failure(ds, &e.to_string());
@@ -357,6 +379,7 @@ impl Engine {
             state.overruns = overruns;
             state.overruns_seen = 0;
             state.stalls = stalls;
+            state.array = array.clone();
             state.info = info;
             state.capabilities = capabilities;
             state.settings = settings;
@@ -382,6 +405,12 @@ impl Engine {
         lock_runtime(&old_runtime).stop();
         drop(old_runtime);
 
+        if let Some(binding) = &array
+            && let Err(error) = self.connect_array_inputs(ds, binding)
+        {
+            self.mark_device_fault(ds, DeviceError::Io(error.to_string()));
+            return;
+        }
         let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);
@@ -423,8 +452,20 @@ impl Engine {
     }
 
     pub fn create_device_set(&self, device_id: &str) -> Result<u32, EngineError> {
+        if let Some(key) = device_id.strip_prefix("array:") {
+            return self.create_array_set(key);
+        }
         self.refuse_reopen(device_id)?;
         let (info, device) = self.registry.open(device_id)?;
+        self.create_opened_set(info, device, None)
+    }
+
+    pub(crate) fn create_opened_set(
+        &self,
+        info: sdrmm_wire::DeviceInfo,
+        device: Box<dyn sdrmm_device::SdrDevice>,
+        array: Option<crate::arrays::ArrayBinding>,
+    ) -> Result<u32, EngineError> {
         if let Err(already) = self.refuse_reopen(&info.id()) {
             drop(device);
             return Err(already);
@@ -465,6 +506,7 @@ impl Engine {
             inner.device_sets.insert(
                 id,
                 DeviceSetState {
+                    array,
                     info,
                     capabilities,
                     settings,
@@ -511,7 +553,7 @@ impl Engine {
         Ok(id)
     }
 
-    fn refuse_reopen(&self, device_id: &str) -> Result<(), EngineError> {
+    pub(crate) fn refuse_reopen(&self, device_id: &str) -> Result<(), EngineError> {
         let inner = self.lock();
         match inner
             .device_sets
@@ -524,6 +566,14 @@ impl Engine {
     }
 
     pub fn remove_device_set(&self, ds: u32) -> Result<(), EngineError> {
+        let _edit = sdrmm_device::lock(&self.array_edits);
+        self.remove_set(ds)
+    }
+
+    pub(crate) fn remove_set(&self, ds: u32) -> Result<(), EngineError> {
+        for array in self.arrays_using(ds) {
+            self.remove_set(array)?;
+        }
         let removed = {
             let mut inner = self.lock();
             let removed = inner.device_sets.remove(&ds);
@@ -534,6 +584,7 @@ impl Engine {
             removed
         };
         let removed = removed.ok_or(EngineError::DeviceSetNotFound(ds))?;
+        self.detach_array(ds, removed.array.as_ref());
         let finalized = teardown_set(removed);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::All,
@@ -547,6 +598,7 @@ impl Engine {
     }
 
     pub fn shutdown(&self) {
+        let _edit = sdrmm_device::lock(&self.array_edits);
         let removed: Vec<DeviceSetState> = {
             let mut inner = self.lock();
             if inner.device_sets.is_empty() {
@@ -573,6 +625,16 @@ impl Engine {
     }
 
     pub fn patch_device(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
+        let _edit = sdrmm_device::lock(&self.array_edits);
+        if self
+            .lock()
+            .device_sets
+            .get(&ds)
+            .is_some_and(|state| state.array.is_some())
+        {
+            return self.patch_array(ds, delta);
+        }
+        self.check_array_member_patch(ds, &delta)?;
         self.patch_device_from(ds, delta, PatchOrigin::Client)
     }
 
@@ -641,49 +703,7 @@ impl Engine {
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            if origin == PatchOrigin::Client && (state.scanner.is_some() || state.hunt.is_some()) {
-                return Err(EngineError::Scan(
-                    "the device is being tuned by a running scan; stop the scan first".to_string(),
-                ));
-            }
-            let mut wanted = state.settings.clone();
-            wanted.merge_from(&delta);
-            let front_end = plan_front_end(&state.capabilities, &wanted, &state.channels);
-            let hardware = hardware_delta(
-                &delta,
-                &wanted,
-                front_end.lo_offset_hz,
-                state.front_end.lo_offset_hz,
-            );
-            validate_streams(&state.capabilities, &hardware)?;
-            let mut rate_change = false;
-            if let Some(new_rate) = delta.sample_rate
-                && new_rate != sample_rate_of(&state.settings)
-            {
-                if state.network_export.is_some() {
-                    return Err(EngineError::NetworkExport(
-                        "sample rate is locked while exporting; stop the export first".to_string(),
-                    ));
-                }
-                if state.recording.is_some() {
-                    return Err(EngineError::Recording(
-                        "sample rate is locked while recording; stop the recording first"
-                            .to_string(),
-                    ));
-                }
-                if state.time_machine.is_some() {
-                    return Err(EngineError::Recording(
-                        "sample rate is locked while the time machine holds history; disarm it \
-                         first"
-                            .to_string(),
-                    ));
-                }
-                for channel in &state.channels {
-                    let descriptor = descriptor_for(&channel.settings.params)?;
-                    validate_channel(&descriptor, &channel.settings, new_rate)?;
-                }
-                rate_change = true;
-            }
+            let (hardware, front_end, rate_change) = state.validate_patch(&delta, origin)?;
             let runtime = state.runtime.clone();
             let guard = rate_change.then(|| {
                 state.rate_patches += 1;
@@ -811,6 +831,95 @@ impl Engine {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn guard_device_patches<'a>(
+        &self,
+        patches: impl IntoIterator<Item = (u32, &'a DeviceSettings)>,
+    ) -> Result<Vec<RatePatchGuard<'_>>, EngineError> {
+        let mut inner = self.lock();
+        let mut changing = Vec::new();
+        for (ds, delta) in patches {
+            let state = inner
+                .device_sets
+                .get(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let (_, _, rate_change) = state.validate_patch(delta, PatchOrigin::Client)?;
+            if rate_change {
+                changing.push(ds);
+            }
+        }
+        let mut guards = Vec::with_capacity(changing.len());
+        for (ds, state) in &mut inner.device_sets {
+            if changing.contains(ds) {
+                state.rate_patches += 1;
+                guards.push(RatePatchGuard {
+                    engine: self,
+                    ds: *ds,
+                });
+            }
+        }
+        Ok(guards)
+    }
+}
+
+impl DeviceSetState {
+    fn validate_patch(
+        &self,
+        delta: &DeviceSettings,
+        origin: PatchOrigin,
+    ) -> Result<(DeviceSettings, FrontEndPlan, bool), EngineError> {
+        if origin == PatchOrigin::Client && (self.scanner.is_some() || self.hunt.is_some()) {
+            return Err(EngineError::Scan(
+                "the device is being tuned by a running scan; stop the scan first".to_string(),
+            ));
+        }
+        let mut wanted = self.settings.clone();
+        wanted.merge_from(delta);
+        let front_end = plan_front_end(&self.capabilities, &wanted, &self.channels);
+        let hardware = hardware_delta(
+            delta,
+            &wanted,
+            front_end.lo_offset_hz,
+            self.front_end.lo_offset_hz,
+        );
+        validate_streams(&self.capabilities, &hardware)?;
+        let rate_change = delta
+            .sample_rate
+            .is_some_and(|rate| rate != sample_rate_of(&self.settings));
+        if rate_change {
+            self.validate_rate_change(sample_rate_of(&wanted))?;
+        }
+        Ok((hardware, front_end, rate_change))
+    }
+
+    fn validate_rate_change(&self, new_rate: f64) -> Result<(), EngineError> {
+        if self.coherent.is_some() {
+            return Err(EngineError::Coherent(
+                "stop coherent processors before changing the sample rate".into(),
+            ));
+        }
+        if self.network_export.is_some() {
+            return Err(EngineError::NetworkExport(
+                "sample rate is locked while exporting; stop the export first".to_string(),
+            ));
+        }
+        if self.recording.is_some() {
+            return Err(EngineError::Recording(
+                "sample rate is locked while recording; stop the recording first".to_string(),
+            ));
+        }
+        if self.time_machine.is_some() {
+            return Err(EngineError::Recording(
+                "sample rate is locked while the time machine holds history; disarm it first"
+                    .to_string(),
+            ));
+        }
+        for channel in &self.channels {
+            let descriptor = descriptor_for(&channel.settings.params)?;
+            validate_channel(&descriptor, &channel.settings, new_rate)?;
         }
         Ok(())
     }

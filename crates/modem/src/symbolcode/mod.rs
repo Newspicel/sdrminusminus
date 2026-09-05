@@ -416,8 +416,9 @@ fn alignment_verdict(as_given: usize, slipped: usize) -> Alignment {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_modem_test_support::ber::rng::Rng;
+
     use super::*;
-    use crate::ber::rng::Rng;
 
     fn random_bits(rng: &mut Rng, len: usize) -> Vec<bool> {
         (0..len).map(|_| rng.next_u64() & 1 == 1).collect()

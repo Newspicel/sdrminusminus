@@ -60,6 +60,11 @@ impl Engine {
             )?;
             let stem = sigmf.stem().to_path_buf();
             let (tap, position, messages, shared) = recording::create_tap();
+            let publisher =
+                crate::publishing::recording::RecordingPublisher::new(crate::runtime::DSP_BLOCK)
+                    .map_err(|error| {
+                        EngineError::RecordingIo(format!("start recording publisher: {error}"))
+                    })?;
             let writer = recording::spawn_writer(sigmf, messages, shared.clone())?;
 
             let (aborted, patch_in_flight) = {
@@ -84,7 +89,7 @@ impl Engine {
                             samples_seen: 0,
                             error_seen: false,
                         });
-                        state.send_dsp(stream, DspCommand::StartRecording { tap });
+                        state.send_dsp(stream, DspCommand::StartRecording { tap, publisher });
                         inner.revision += 1;
                         (None, false)
                     }

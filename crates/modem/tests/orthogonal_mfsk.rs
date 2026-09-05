@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use sdrmm_modem::ber::{
+use sdrmm_modem_test_support::ber::{
     Curve,
     catalog::{
         FULL_ERRORS,

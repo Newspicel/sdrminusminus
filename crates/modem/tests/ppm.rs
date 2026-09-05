@@ -3,26 +3,24 @@
 use std::path::PathBuf;
 
 use num_complex::Complex;
-use sdrmm_modem::{
-    ber::{
-        Curve,
-        catalog::{
-            FULL_ERRORS, orthogonal,
-            ppm::{
-                ENVELOPE_GRID, ENVELOPE_LIMITS, ENVELOPE_SEED, FULL_CAP, M2_ENVELOPE_AWGN, M2_GRID,
-                M2_MATCHED_AWGN, M2_SEED, M4_GRID, M4_MATCHED_AWGN, M4_SEED, MATCHED_LIMITS,
-                ORACLE_TOLERANCE_DB, RATE, SLOT_SPS, link_sized, ppm2_envelope_link,
-                ppm2_matched_link, ppm4_matched_link, unique_word,
-            },
+use sdrmm_modem::ppm::{PpmDemod, PpmMod, SlotDetector};
+use sdrmm_modem_test_support::ber::{
+    Curve,
+    catalog::{
+        FULL_ERRORS, orthogonal,
+        ppm::{
+            ENVELOPE_GRID, ENVELOPE_LIMITS, ENVELOPE_SEED, FULL_CAP, M2_ENVELOPE_AWGN, M2_GRID,
+            M2_MATCHED_AWGN, M2_SEED, M4_GRID, M4_MATCHED_AWGN, M4_SEED, MATCHED_LIMITS,
+            ORACLE_TOLERANCE_DB, RATE, SLOT_SPS, link_sized, ppm2_envelope_link, ppm2_matched_link,
+            ppm4_matched_link, unique_word,
         },
-        e2e::{Payloads, channel_at_margin, loopback},
-        impair::{Cfo, ChannelSpec, ClockError, Drift, TimingOffset},
-        limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
-        rng::Rng,
-        sweep::{self, Link},
-        theory,
     },
-    ppm::{PpmDemod, PpmMod, SlotDetector},
+    e2e::{Payloads, channel_at_margin, loopback},
+    impair::{Cfo, ChannelSpec, ClockError, Drift, TimingOffset},
+    limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
+    rng::Rng,
+    sweep::{self, Link},
+    theory,
 };
 
 fn baseline_path(stem: &str) -> PathBuf {

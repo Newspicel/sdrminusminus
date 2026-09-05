@@ -10,7 +10,6 @@ use std::{
 
 use arc_swap::ArcSwap;
 use num_complex::Complex;
-use rtrb::RingBuffer;
 use sdrmm_channels::{
     AUDIO_RATE, AudioChain, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
     ClickProfile, DecodedImage,
@@ -27,19 +26,29 @@ use tokio::sync::broadcast;
 
 use crate::{
     FrontEndPlan,
-    audio::{PcmBlock, PcmPayload},
+    audio::PcmBlock,
     audio_recording::AudioRecorderTap,
+    capture_ring::{CaptureConsumer, capture_ring},
     coherent::CoherentTaps,
-    iq::{IqBlock, IqTap},
+    iq::IqBlock,
     network_export::NetworkExportTap,
+    publishing::{
+        channel::{ChannelPublisher, IQ_WANTED, SYMBOLS_WANTED},
+        recording::RecordingPublisher,
+        spectrum::SpectrumPublisher,
+    },
     recording::RecorderTap,
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
-    symbols::{SymbolBatcher, SymbolBlock},
+    symbols::SymbolBlock,
     time_machine::TimeMachineTap,
     video::VideoPacket,
 };
 
 const FFT_SIZE: usize = 4096;
+#[cfg(test)]
+mod capture_tests;
+
+pub(crate) const DSP_BLOCK: usize = 2048;
 const TARGET_FPS: f64 = 30.0;
 const RING_SECONDS: f64 = 0.25;
 pub(crate) const RING_MIN: usize = 1 << 20;
@@ -132,6 +141,10 @@ pub(crate) struct DecodedSink {
 }
 
 impl DecodedSink {
+    pub(crate) fn note_lost(&self, count: u64) {
+        self.dropped.fetch_add(count, Ordering::Relaxed);
+    }
+
     pub(crate) fn new(
         tx: mpsc::SyncSender<RawDecoded>,
         image_tx: mpsc::SyncSender<RawImage>,
@@ -169,7 +182,7 @@ impl DecodedSink {
         }
     }
 
-    fn publish_image(&self, freq_hz: f64, image: DecodedImage) {
+    pub(crate) fn publish_image(&self, freq_hz: f64, image: DecodedImage) {
         let raw = RawImage {
             device_set: self.device_set,
             channel: self.channel,
@@ -213,14 +226,12 @@ pub(crate) struct ChannelHost {
     audio_channels: u8,
     sinks: ChannelSinks,
     produces_video: bool,
-    video_seq: u32,
     offset_hz: f64,
     decoded: DecodedSink,
     decodes: bool,
     emits_events: bool,
     gated: Vec<Complex<f32>>,
-    iq_tap: IqTap,
-    symbol_batcher: SymbolBatcher,
+    publisher: ChannelPublisher,
     baseband_rec: Option<RecorderTap>,
     baseband_export: Option<NetworkExportTap>,
     baseband_pos: u64,
@@ -259,6 +270,13 @@ impl ChannelHost {
             SQUELCH_HOLD_S,
         );
         squelch.set_auto_margin_db(settings.squelch_auto_db);
+        let publisher = ChannelPublisher::new(
+            input_rate,
+            (DSP_BLOCK as f64 * input_rate / device_rate).ceil() as usize + 64,
+            sinks.clone(),
+            decoded.clone(),
+        )
+        .map_err(|error| ChannelError::InvalidSettings(format!("start publisher: {error}")))?;
         Ok(Box::new(Self {
             ddc,
             filter,
@@ -282,14 +300,12 @@ impl ChannelHost {
             audio_channels,
             sinks,
             produces_video: descriptor.has_video,
-            video_seq: 0,
             offset_hz: settings.offset_hz,
             decoded,
             decodes,
             emits_events,
             gated: Vec::new(),
-            iq_tap: IqTap::new(input_rate),
-            symbol_batcher: SymbolBatcher::new(),
+            publisher,
             baseband_rec: None,
             baseband_export: None,
             baseband_pos: 0,
@@ -300,6 +316,20 @@ impl ChannelHost {
     }
 
     fn process(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+        for block in input.chunks(DSP_BLOCK) {
+            self.process_block(block, center_hz, lo_offset_hz);
+        }
+    }
+
+    #[cfg(test)]
+    fn process_and_flush(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+        for block in input.chunks(DSP_BLOCK) {
+            self.process(block, center_hz, lo_offset_hz);
+            self.publisher.queue.flush();
+        }
+    }
+
+    fn process_block(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
         self.follow_lo_artifact(lo_offset_hz);
         self.ddc.process(input, &mut self.scratch);
         if self.scratch.is_empty() {
@@ -316,8 +346,8 @@ impl ChannelHost {
         self.sinks
             .peak_db
             .store(self.meter.peak_db().to_bits(), Ordering::Relaxed);
-        self.tap_baseband(center_hz);
-        self.sink_baseband(center_hz);
+        let baseband_start = self.baseband_pos;
+        self.sink_baseband();
         let open = match self.threshold_db {
             Some(_) => self.squelch.process(&self.filtered),
             None => true,
@@ -337,110 +367,72 @@ impl ChannelHost {
         } else {
             0
         };
+        self.outputs.reset();
+        let wanted = self.publisher.wanted();
+        self.outputs
+            .symbols
+            .set_wanted(wanted & SYMBOLS_WANTED != 0);
+        let mut silence = 0;
         if open {
-            self.outputs.reset();
-            self.arm_symbol_tap();
             self.rx.process(&self.filtered, &mut self.outputs);
-            self.publish_symbols();
-            self.publish_frames(center_hz, video_pos);
             if self.has_audio {
                 self.audio.process_audio(&mut self.outputs.audio_pcm);
-            }
-            if !self.outputs.audio_pcm.is_empty() {
-                let frames = self.outputs.audio_pcm.len() / usize::from(self.audio_channels);
-                let stamp = self
-                    .sinks
-                    .pcm_pos
-                    .fetch_add(frames as u64, Ordering::Relaxed);
-                let block = PcmBlock {
-                    start_frame: stamp,
-                    channels: self.audio_channels,
-                    payload: PcmPayload::Samples(Arc::from(self.outputs.audio_pcm.as_slice())),
-                };
-                self.record_audio(&block);
-                let _ = self.sinks.pcm_tx.send(block);
             }
         } else {
             if self.emits_events {
                 self.gated.clear();
                 self.gated
                     .resize(self.filtered.len(), Complex::new(0.0, 0.0));
-                self.outputs.reset();
-                self.arm_symbol_tap();
                 self.rx.process(&self.gated, &mut self.outputs);
-                self.publish_symbols();
-                self.publish_frames(center_hz, video_pos);
             }
             self.zero_carry += self.filtered.len() as f64 * self.pcm_per_input;
-            let zeros = self.zero_carry as usize;
-            if zeros > 0 {
-                self.zero_carry -= zeros as f64;
-                let stamp = self
-                    .sinks
-                    .pcm_pos
-                    .fetch_add(zeros as u64, Ordering::Relaxed);
-                let block = PcmBlock {
-                    start_frame: stamp,
-                    channels: self.audio_channels,
-                    payload: PcmPayload::Silence(zeros),
-                };
-                self.record_audio(&block);
-                let _ = self.sinks.pcm_tx.send(block);
+            self.outputs.audio_pcm.clear();
+            silence = self.zero_carry as usize;
+            self.zero_carry -= silence as f64;
+        }
+        let frames = if self.outputs.audio_pcm.is_empty() {
+            silence
+        } else {
+            self.outputs.audio_pcm.len() / usize::from(self.audio_channels)
+        };
+        let audio_start = self
+            .sinks
+            .pcm_pos
+            .fetch_add(frames as u64, Ordering::Relaxed);
+        let published = self.publisher.queue.submit(|packet| {
+            std::mem::swap(&mut packet.outputs, &mut self.outputs);
+            packet.iq_wanted = wanted & IQ_WANTED != 0;
+            packet.symbols_wanted = wanted & SYMBOLS_WANTED != 0;
+            packet.iq_start = baseband_start;
+            packet.input_len = self.filtered.len();
+            if packet.iq_wanted || self.baseband_rec.is_some() {
+                packet.iq.extend_from_slice(&self.filtered);
+            }
+            packet.audio_start = audio_start;
+            packet.silence = silence;
+            packet.channels = self.audio_channels;
+            packet.frequency = center_hz + self.offset_hz;
+            packet.video_position = video_pos;
+            packet.recorder = self.audio_rec.clone();
+            packet.baseband_recorder = self.baseband_rec.clone();
+        });
+        if !published {
+            self.decoded.dropped.fetch_add(1, Ordering::Relaxed);
+            if let Some(tap) = self.baseband_rec.take() {
+                tap.publication_failed();
+            }
+            if let Some(tap) = self.audio_rec.take() {
+                tap.publication_failed();
             }
         }
     }
 
-    fn record_audio(&mut self, block: &PcmBlock) {
-        if let Some(tap) = &self.audio_rec
-            && !tap.push(block.clone())
-        {
-            self.audio_rec = None;
-        }
-    }
-
-    fn arm_symbol_tap(&mut self) {
-        let wanted = self.sinks.symbol_tx.receiver_count() > 0;
-        if !wanted && self.outputs.symbols.wanted() {
-            self.symbol_batcher.reset();
-        }
-        self.outputs.symbols.set_wanted(wanted);
-    }
-
-    fn publish_symbols(&mut self) {
-        if !self.outputs.symbols.wanted() {
-            return;
-        }
-        let sinks = &self.sinks;
-        self.symbol_batcher.push(&self.outputs.symbols, |block| {
-            let _ = sinks.symbol_tx.send(block);
-        });
-    }
-
-    fn tap_baseband(&mut self, center_hz: f64) {
-        if self.sinks.iq_tx.receiver_count() == 0 {
-            self.iq_tap.reset();
-            return;
-        }
-        let rate = self.input_rate as f32;
-        let center = center_hz + self.offset_hz;
-        let sinks = &self.sinks;
-        self.iq_tap.push(&self.filtered, rate, center, |block| {
-            let _ = sinks.iq_tx.send(block);
-        });
-    }
-
-    fn sink_baseband(&mut self, center_hz: f64) {
-        let start = self.baseband_pos;
+    fn sink_baseband(&mut self) {
         self.baseband_pos += self.filtered.len() as u64;
         if self.baseband_rec.is_none() && self.baseband_export.is_none() {
             return;
         }
-        let center = center_hz + self.offset_hz;
-        if self
-            .baseband_rec
-            .as_ref()
-            .is_some_and(|tap| !tap.push(&self.filtered, start, center))
-        {
+        if self.baseband_rec.as_ref().is_some_and(|tap| !tap.healthy()) {
             self.baseband_rec = None;
         }
         if self
@@ -449,26 +441,6 @@ impl ChannelHost {
             .is_some_and(|tap| !tap.push(&self.filtered))
         {
             self.baseband_export = None;
-        }
-    }
-
-    fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
-        if !self.outputs.events.is_empty() || !self.outputs.images.is_empty() {
-            let freq_hz = center_hz + self.offset_hz;
-            for event in self.outputs.events.drain(..) {
-                self.decoded.publish(freq_hz, event);
-            }
-            for image in self.outputs.images.drain(..) {
-                self.decoded.publish_image(freq_hz, image);
-            }
-        }
-        for picture in self.outputs.video.drain(..) {
-            let _ = self.sinks.video_tx.send(VideoPacket {
-                seq: self.video_seq,
-                timestamp: video_pos,
-                picture: Arc::new(picture),
-            });
-            self.video_seq = self.video_seq.wrapping_add(1);
         }
     }
 
@@ -538,22 +510,65 @@ impl ChannelHost {
 }
 
 pub(crate) enum DspCommand {
-    AddChannel { id: u32, host: Box<ChannelHost> },
-    RemoveChannel { id: u32 },
-    Retune { id: u32, offset_hz: f64 },
-    ApplySettings { id: u32, settings: ChannelSettings },
-    PositionChanged { id: u32, fix: Option<PositionFix> },
-    StartRecording { tap: RecorderTap },
+    ConnectArray {
+        id: u32,
+        sink: RxSink,
+    },
+    DisconnectArray {
+        id: u32,
+    },
+    AddChannel {
+        id: u32,
+        host: Box<ChannelHost>,
+    },
+    RemoveChannel {
+        id: u32,
+    },
+    Retune {
+        id: u32,
+        offset_hz: f64,
+    },
+    ApplySettings {
+        id: u32,
+        settings: ChannelSettings,
+    },
+    PositionChanged {
+        id: u32,
+        fix: Option<PositionFix>,
+    },
+    StartRecording {
+        tap: RecorderTap,
+        publisher: RecordingPublisher,
+    },
     StopRecording,
-    StartChannelRecording { id: u32, tap: AudioRecorderTap },
-    StopChannelRecording { id: u32 },
-    StartBasebandRecording { id: u32, tap: RecorderTap },
-    StopBasebandRecording { id: u32 },
-    StartBasebandExport { id: u32, tap: NetworkExportTap },
-    StopBasebandExport { id: u32 },
-    StartNetworkExport { tap: NetworkExportTap },
+    StartChannelRecording {
+        id: u32,
+        tap: AudioRecorderTap,
+    },
+    StopChannelRecording {
+        id: u32,
+    },
+    StartBasebandRecording {
+        id: u32,
+        tap: RecorderTap,
+    },
+    StopBasebandRecording {
+        id: u32,
+    },
+    StartBasebandExport {
+        id: u32,
+        tap: NetworkExportTap,
+    },
+    StopBasebandExport {
+        id: u32,
+    },
+    StartNetworkExport {
+        tap: NetworkExportTap,
+    },
     StopNetworkExport,
-    StartTimeMachine { tap: Box<TimeMachineTap> },
+    StartTimeMachine {
+        tap: Box<TimeMachineTap>,
+    },
     StopTimeMachine,
 }
 
@@ -639,9 +654,7 @@ impl Waker {
 /// Everything a lane's DSP thread shares with the capture callback and the control plane.
 struct LaneShared {
     meta: Arc<ArcSwap<DspMeta>>,
-    spectrum_tx: broadcast::Sender<SpectrumSnapshot>,
     stop: Arc<AtomicBool>,
-    overruns: Arc<AtomicU64>,
     stalled_us: Arc<AtomicU64>,
     waker: Arc<Waker>,
 }
@@ -711,13 +724,13 @@ impl CaptureRuntime {
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
         let mut lanes: Vec<Lane> = Vec::with_capacity(total_lanes);
         let mut tails: Vec<(
-            rtrb::Consumer<Complex<f32>>,
+            CaptureConsumer,
             mpsc::Receiver<DspCommand>,
             SpectrumAnalyzer,
         )> = Vec::with_capacity(lane_count);
         let ring = ring_capacity(sample_rate);
         for stream in 0..total_lanes {
-            let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(ring);
+            let (mut producer, consumer) = capture_ring(ring);
             let overruns = Arc::new(AtomicU64::new(0));
             let stalled_us = Arc::new(AtomicU64::new(0));
             let waker = Arc::new(Waker::default());
@@ -739,13 +752,7 @@ impl CaptureRuntime {
                         if let Some(tap) = lane_tap.as_mut() {
                             tap.push(samples, index);
                         }
-                        let free = producer.slots();
-                        let take = free.min(samples.len());
-                        if take > 0
-                            && let Ok(chunk) = producer.write_chunk_uninit(take)
-                        {
-                            chunk.fill_from_iter(samples[..take].iter().copied());
-                        }
+                        let take = producer.push(samples, index);
                         if take < samples.len() {
                             ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
                         }
@@ -803,18 +810,18 @@ impl CaptureRuntime {
             let lane = &runtime.lanes[index];
             let shared = LaneShared {
                 meta: lane.meta.clone(),
-                spectrum_tx: lane.spectrum_tx.clone(),
                 stop: lane.stop.clone(),
-                overruns: lane.overruns.clone(),
                 stalled_us: lane.stalled_us.clone(),
                 waker: lane.waker.clone(),
             };
+            let publisher = SpectrumPublisher::new(lane.spectrum_tx.clone(), FFT_SIZE)
+                .map_err(|error| DeviceError::Io(format!("start spectrum publisher: {error}")))?;
             let spawned = std::thread::Builder::new()
                 .name(format!("sdrmm-dsp-{index}"))
                 .spawn(move || {
                     sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
                     shared.waker.adopt_current();
-                    dsp_loop(&mut consumer, &cmd_rx, &shared, analyzer);
+                    dsp_loop(&mut consumer, &cmd_rx, &shared, analyzer, publisher);
                 });
             match spawned {
                 Ok(handle) => runtime.lanes[index].dsp = Some(handle),
@@ -877,8 +884,11 @@ impl CaptureRuntime {
             .collect()
     }
 
-    pub fn set_meta(&self, settings: &DeviceSettings, front_end: FrontEndPlan) {
+    pub fn set_meta(&mut self, settings: &DeviceSettings, front_end: FrontEndPlan) {
         let sample_rate = crate::sample_rate_of(settings);
+        if let Some(taps) = &mut self.coherent {
+            taps.sample_rate = sample_rate;
+        }
         for (stream, lane) in self.lanes.iter().enumerate() {
             let center_hz = settings
                 .for_stream(stream as u32, &self.per_stream)
@@ -995,7 +1005,10 @@ impl CaptureRuntime {
             })
             .collect();
 
-        let sink = sweep_sink(taps[0].clone(), plan.sample_rate_hz, on_fatal);
+        let sink = match sweep_sink(taps[0].clone(), plan.sample_rate_hz, on_fatal) {
+            Ok(sink) => sink,
+            Err(error) => return Err((device, error)),
+        };
         if let Err(e) = device.sweep_start(plan, sink) {
             return Err((device, e));
         }
@@ -1015,13 +1028,15 @@ fn sweep_sink(
     tx: broadcast::Sender<SpectrumSnapshot>,
     sample_rate: f64,
     on_fatal: impl FnOnce(DeviceError) + Send + 'static,
-) -> SweepSink {
+) -> Result<SweepSink, DeviceError> {
+    let mut publisher = SpectrumPublisher::new(tx, FFT_SIZE)
+        .map_err(|error| DeviceError::Io(format!("start sweep publisher: {error}")))?;
     let mut analyzer = CpuSpectrumAnalyzer::new(FFT_SIZE);
     let mut db = vec![0.0f32; FFT_SIZE];
     let mut seq = 0u32;
     let mut timestamp = 0u64;
     let mut short = 0u64;
-    SweepSink::with_fatal_handler(
+    Ok(SweepSink::with_fatal_handler(
         move |center_hz, samples| {
             let Some(window) = samples.get(..FFT_SIZE) else {
                 short += 1;
@@ -1036,17 +1051,19 @@ fn sweep_sink(
             analyzer.power_db(window, &mut db);
             seq = seq.wrapping_add(1);
             timestamp += window.len() as u64;
-            let _ = tx.send(SpectrumSnapshot {
+            publisher.publish(
                 seq,
-                timestamp,
-                center_hz,
-                span_hz: sample_rate as f32,
-                lo_hz: center_hz,
-                db: Arc::from(db.as_slice()),
-            });
+                SpectrumFrame {
+                    timestamp,
+                    center_hz,
+                    span_hz: sample_rate as f32,
+                    lo_hz: center_hz,
+                },
+                &db,
+            );
         },
         on_fatal,
-    )
+    ))
 }
 
 impl Drop for CaptureRuntime {
@@ -1055,17 +1072,32 @@ impl Drop for CaptureRuntime {
     }
 }
 
+struct ArrayOutput {
+    id: u32,
+    sink: RxSink,
+    next: Option<u64>,
+}
+
+impl ArrayOutput {
+    fn push(&mut self, samples: &[Complex<f32>], index: u64) {
+        if let Some(next) = self.next {
+            self.sink.dropped(index.saturating_sub(next));
+        }
+        self.next = Some(index + samples.len() as u64);
+        self.sink.push(samples);
+    }
+}
+
 fn dsp_loop(
-    consumer: &mut rtrb::Consumer<Complex<f32>>,
+    consumer: &mut CaptureConsumer,
     commands: &mpsc::Receiver<DspCommand>,
     lane: &LaneShared,
     mut analyzer: SpectrumAnalyzer,
+    mut publisher: SpectrumPublisher,
 ) {
     let LaneShared {
         meta,
-        spectrum_tx: tx,
         stop,
-        overruns,
         stalled_us,
         ..
     } = lane;
@@ -1073,13 +1105,13 @@ fn dsp_loop(
     let mut window = vec![Complex::new(0.0, 0.0); FFT_SIZE];
     let mut db = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
+    let mut arrays: Vec<ArrayOutput> = Vec::new();
     let mut tap: Option<RecorderTap> = None;
+    let mut recording_publisher: Option<RecordingPublisher> = None;
     let mut network_tap: Option<NetworkExportTap> = None;
     let mut history: Option<TimeMachineTap> = None;
     let mut write_pos = 0usize;
     let mut since_last = 0usize;
-    let mut total: u64 = 0;
-    let mut dropped_seen: u64 = 0;
     let mut seq: u32 = 0;
     let mut served = Instant::now();
     let mut frontend = Frontend::new(*meta.load_full());
@@ -1091,30 +1123,23 @@ fn dsp_loop(
             &mut tap,
             &mut network_tap,
             &mut history,
+            &mut arrays,
+            &mut recording_publisher,
         );
-        let dropped = overruns.load(Ordering::Relaxed);
-        total += dropped - dropped_seen;
-        dropped_seen = dropped;
-        let avail = consumer.slots();
-        if avail == 0 {
-            std::thread::park_timeout(IDLE_PARK);
-            continue;
-        }
-        record_stall(stalled_us, &mut served);
         let snapshot = *meta.load_full();
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
-
-        let Ok(chunk) = consumer.read_chunk(avail) else {
-            continue;
-        };
-        let (a, b) = chunk.as_slices();
         frontend.follow(snapshot);
-        for raw in [a, b] {
+        let consumed = consumer.consume(DSP_BLOCK, |raw, mut total| {
+            record_stall(stalled_us, &mut served);
             let slice = frontend.apply(raw);
-            if tap
-                .as_ref()
-                .is_some_and(|t| !t.push(slice, total, snapshot.center_hz))
-            {
+            for array in &mut arrays {
+                array.push(slice, total);
+            }
+            if tap.as_ref().is_some_and(|t| {
+                recording_publisher
+                    .as_mut()
+                    .is_none_or(|publisher| !publisher.publish(t, slice, total, snapshot.center_hz))
+            }) {
                 tap = None;
             }
             if network_tap
@@ -1153,19 +1178,14 @@ fn dsp_loop(
                     };
                     if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
                         seq = seq.wrapping_add(1);
-                        let _ = tx.send(SpectrumSnapshot {
-                            seq,
-                            timestamp: completed.timestamp,
-                            center_hz: completed.center_hz,
-                            span_hz: completed.span_hz,
-                            lo_hz: completed.lo_hz,
-                            db: Arc::from(db.as_slice()),
-                        });
+                        publisher.publish(seq, completed, &db);
                     }
                 }
             }
+        });
+        if consumed == 0 {
+            std::thread::park_timeout(IDLE_PARK);
         }
-        chunk.commit_all();
     }
 }
 
@@ -1184,9 +1204,20 @@ fn drain_commands(
     tap: &mut Option<RecorderTap>,
     network_tap: &mut Option<NetworkExportTap>,
     history: &mut Option<TimeMachineTap>,
+    arrays: &mut Vec<ArrayOutput>,
+    recording_publisher: &mut Option<RecordingPublisher>,
 ) {
     while let Ok(cmd) = commands.try_recv() {
         match cmd {
+            DspCommand::ConnectArray { id, sink } => {
+                arrays.retain(|array| array.id != id);
+                arrays.push(ArrayOutput {
+                    id,
+                    sink,
+                    next: None,
+                });
+            }
+            DspCommand::DisconnectArray { id } => arrays.retain(|array| array.id != id),
             DspCommand::AddChannel { id, host } => {
                 channels.retain(|(existing, _)| *existing != id);
                 channels.push((id, host));
@@ -1216,8 +1247,17 @@ fn drain_commands(
                     tracing::debug!(id, "position for a channel no longer hosted");
                 }
             }
-            DspCommand::StartRecording { tap: armed } => *tap = Some(armed),
-            DspCommand::StopRecording => *tap = None,
+            DspCommand::StartRecording {
+                tap: armed,
+                publisher,
+            } => {
+                *tap = Some(armed);
+                *recording_publisher = Some(publisher);
+            }
+            DspCommand::StopRecording => {
+                *tap = None;
+                *recording_publisher = None;
+            }
             DspCommand::StartChannelRecording { id, tap: armed } => {
                 match channels.iter_mut().find(|(existing, _)| *existing == id) {
                     Some((_, host)) => host.set_audio_recording(Some(armed)),
@@ -1270,6 +1310,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::audio::PcmPayload;
 
     const RATE: f64 = 48_000.0;
     const BLOCK: usize = 480;
@@ -1338,7 +1379,7 @@ mod tests {
     ) -> Vec<PcmBlock> {
         let mut blocks = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, 0.0, 0.0);
             while let Ok(block) = rx.try_recv() {
                 blocks.push(block);
             }
@@ -1456,7 +1497,7 @@ mod tests {
 
         let mut audio: Vec<f32> = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, 0.0, 0.0);
             while let Ok(block) = rx.try_recv() {
                 if let PcmPayload::Samples(samples) = block.payload {
                     audio.extend_from_slice(&samples);
@@ -1487,12 +1528,12 @@ mod tests {
         .expect("host");
         let input = tone(1_000.0, 0.5, 24_000);
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, 0.0, 0.0);
         }
         let mut host = ChannelHost::build(RATE, &settings, sinks(pcm_tx, pos), DecodedSink::null())
             .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, 0.0, 0.0);
         }
 
         let mut expected = 0u64;
@@ -1510,6 +1551,27 @@ mod tests {
             expected, 48_000,
             "both hosts' PCM must be stamped end to end"
         );
+    }
+
+    #[test]
+    fn analog_media_publication_does_not_allocate_on_the_dsp_thread() {
+        for kind in ["am", "nfm", "wfm", "ssb"] {
+            let settings = ChannelSettings::default_for(kind).expect("registered analog channel");
+            let rate = 240_000.0;
+            let (pcm_tx, _pcm_rx) = broadcast::channel(128);
+            let media = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
+            let _iq_rx = media.iq_tx.subscribe();
+            let mut host =
+                ChannelHost::build(rate, &settings, media, DecodedSink::null()).expect("host");
+            let input = vec![Complex::new(0.25, 0.1); DSP_BLOCK];
+            for _ in 0..128 {
+                host.process_and_flush(&input, 100e6, 0.0);
+            }
+            for _ in 0..128 {
+                sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, 100e6, 0.0));
+                host.publisher.queue.flush();
+            }
+        }
     }
 
     #[test]
@@ -1562,7 +1624,7 @@ mod tests {
 
         let input = tone(3_000.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process(block, 100_000_000.0, 0.0);
+            host.process_and_flush(block, 100_000_000.0, 0.0);
         }
 
         let burst = rx.try_recv().expect("a subscribed tap sends bursts");
@@ -1589,7 +1651,7 @@ mod tests {
 
         let input = tone(0.0, 1e-6, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process(block, 100_000_000.0, 0.0);
+            host.process_and_flush(block, 100_000_000.0, 0.0);
         }
 
         assert!(
@@ -1608,7 +1670,7 @@ mod tests {
 
         let input = tone(0.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process(block, 100_000_000.0, 0.0);
+            host.process_and_flush(block, 100_000_000.0, 0.0);
         }
         assert_eq!(host.sinks.iq_tx.receiver_count(), 0);
         assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
@@ -1681,7 +1743,7 @@ mod tests {
             let (mut host, mut rx) = tapped_host(settings);
             let mut worst = 0.0f32;
             for chunk in input.chunks(BLOCK) {
-                host.process(chunk, 0.0, 0.0);
+                host.process_and_flush(chunk, 0.0, 0.0);
                 while let Ok(block) = rx.try_recv() {
                     if block.timestamp < 8_192 {
                         continue;

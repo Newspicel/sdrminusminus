@@ -2,7 +2,7 @@
 
 use std::hint::black_box;
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use num_complex::Complex;
 use sdrmm_dsp::{
     caf::{Caf, Surface},
@@ -235,11 +235,14 @@ fn cfar_cluster(c: &mut Criterion) {
     let mut group = c.benchmark_group("cfar_cluster");
     group.throughput(Throughput::Elements(detections.len() as u64));
     group.bench_function("256_hits", |b| {
-        b.iter(|| {
-            let mut working = detections.clone();
-            cluster(&mut working);
-            black_box(working.len())
-        });
+        b.iter_batched_ref(
+            || detections.clone(),
+            |working| {
+                cluster(black_box(working));
+                black_box(working.len())
+            },
+            BatchSize::SmallInput,
+        );
     });
     group.finish();
 }

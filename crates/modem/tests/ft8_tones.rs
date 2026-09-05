@@ -2,12 +2,12 @@
 
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::rng::Rng,
     cpm::{CpmMod, CpmParams, Mapping},
     orthogonal::{MfskDemod, MfskParams},
     pulse::{self, Norm},
     soft::argmax,
 };
+use sdrmm_modem_test_support::ber::rng::Rng;
 
 const RATE_HZ: f64 = 12_000.0;
 const TONE_SPACING_HZ: f64 = 6.25;
@@ -224,7 +224,7 @@ fn the_raw_symbol_error_rate_at_the_published_threshold_matches_theory() {
         }
     }
     let measured = f64::from(errors) / f64::from(trials);
-    let theory = sdrmm_modem::ber::theory::mfsk_noncoherent_ser(8, ebn0_db);
+    let theory = sdrmm_modem_test_support::ber::theory::mfsk_noncoherent_ser(8, ebn0_db);
     assert!(
         (measured / theory - 1.0).abs() < 0.15,
         "measured raw SER {measured:.4} vs exact noncoherent 8-FSK {theory:.4} at {ebn0_db:.2} dB"
