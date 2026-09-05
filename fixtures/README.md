@@ -1,18 +1,20 @@
-# fixtures/ — golden IQ fixture library
+# IQ fixture library
 
-IQ samples for decoder golden tests (): every decoder ships with short fixtures plus
-expected decoded output, and building this library *is* part of building each decoder. The
-library starts at M3 (record & replay); the wave-1 decoders landed at M4 and wave 2 (NAVTEX,
-ACARS, sub-GHz) after M6.
+This directory holds short IQ signals for decoder regression tests and playback in the app.
+Each fixture has a known expected output. Generated waveforms test the decoder against the
+project's modulators; recorded captures also exercise real transmitter and reception effects.
 
-## What `cargo xtask fixtures` writes
+Every IQ fixture is a single-channel SigMF pair: `<stem>.sigmf-meta` and `<stem>.sigmf-data`,
+using `cf32_le`. Open it as a `virtual:file:<stem>` source and add the channel with the offset
+listed below. Rates in the tables are samples per second; `k` means thousands and `M` means millions.
 
-One pair per decoder — and one per mode that scans out a picture — rendered by the same
-modulators the unit tests and the engine end-to-end run use — a fixture can therefore never drift from what the decoders are tested
-against. Most come from a `channels::testgen` encoder; a mode that ships a `ChannelTx` (APRS
-today) is keyed by that transmitter instead, at its own channel rate, and resampled to the
-device rate the fixture is written at. Each is meant to be *played*: open it as a `virtual:file:`
-device, add the named channel at the stated offset, and the decoder log fills up.
+## Generated fixtures
+
+Run `cargo xtask fixtures` to create these pairs. The task uses the same modulators as unit and
+engine tests. Most use `channels::testgen`; APRS uses its `ChannelTx` implementation and resamples
+to the fixture's device rate.
+
+Generated pairs are ignored by Git. Commit generator and expected-output changes together.
 
 | stem | rate | channel | expected |
 |---|---|---|---|
@@ -39,11 +41,14 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `gps_l1_ca_prn7_2m048` | 2.048 M | `gnss` / PRN 7 @ 0 Hz | +1 kHz Doppler, 158.3-chip code phase |
 | `dect_base_2m304` | 2.304 M | `dect` @ 0 Hz | RFPI `01234D5E6D`, class A, carrier 4, standard authentication and ciphering advertised |
 
-Eight pairs are **not** written by `cargo xtask fixtures` and are committed instead — five
-recorded off air and three frozen regression renders. `cargo xtask excerpt` cuts them: it reads a
-SigMF stem, a WAV, or a raw `cu8`/`cs8`/`cs16`/`cf32` capture, shifts and resamples through the
-same `Ddc` the engine feeds a channel with, and writes the window asked for with the source's
-SHA-256 in the annotation.
+## Committed fixtures
+
+These eight pairs are not regenerated: six are recordings and two are frozen synthetic waveforms.
+They retain cases that the current generators do not reproduce.
+
+`cargo xtask excerpt` trims a SigMF pair, WAV, or raw `cu8`/`cs8`/`cs16`/`cf32` capture. It shifts
+and resamples through the engine's `Ddc`, writes the requested window, and records the source
+SHA-256 in a SigMF annotation.
 
 | stem | rate | channel | expected |
 |---|---|---|---|
@@ -56,88 +61,91 @@ SHA-256 in the annotation.
 | `adsb_offair_2m` | 2 M | `adsb` @ 0 Hz | 17 Mode S replies from four aircraft — DF4/5/11/17/20/21, FL370 and squawk 5245 from 4D2256, a TC11 position and a TC19 velocity from 3FF91D |
 | `ft8_20m_busy_12k` | 12 k | `ft8` @ 0 Hz | 19 of the 20 decodes `ft8_lib` publishes for this slot |
 
-SSTV and ATV are the two whose output is a picture rather than a log line. ATV shows on the
-channel's own face; SSTV also lands in the picture store, so the decoder log gets one line per
-completed picture and `GET /api/images` serves the PNG.
+## Playback notes
 
-ADS-B and GNSS are device-rate fixtures: ADS-B accepts 2–4 Msps while GPS L1 C/A uses exactly
-2.048 Msps, and neither is carried through the resampling DDC.
+SSTV and ATV produce pictures. Connect their video output to a Video node. Completed SSTV pictures
+also enter the server's picture store, with one decoder-log event per picture; `GET /api/images`
+serves the PNGs.
 
-Every fixture is a SigMF pair — `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel
-`cf32_le` — readable by `sdrmm-recorder` and playable in-app as a `virtual:file:<stem>`
-device.
+ADS-B and GNSS process device-rate samples without the resampling DDC. ADS-B requires 2–4 MS/s;
+GNSS requires 2.048 MS/s.
 
-## Naming
+## Naming and review
 
-- Synthesized: `<source>_<rate>_<duration>`, e.g. `siggen_2m4_1s` = virtual siggen,
-  2.4 Msps, 1 s.
-- Recorded off-air (M4+): `<decoder>_<what>_<rate>`, e.g. `pocsag_weather_1m024` — named
-  when the decoder lands, alongside its expected-output file.
+Use `<decoder>_<description>_<rate>` for decoder fixtures. Signal-generator captures may also
+include duration, as in `siggen_2m4_1s` for 2.4 MS/s over one second.
 
-## Provenance
+Keep recorded captures short and restrict them to the relevant band. Include expected output,
+source provenance, and applicable license information. Committed IQ files require an explicit
+force-add because `.gitignore` excludes SigMF pairs.
 
-- **Generated fixtures are never committed.** They are deterministic renders of the virtual
-  siggen — regenerate with `cargo xtask fixtures`. The `.gitignore` here excludes all
-  `*.sigmf-*` so a generated pair can't land in a commit by accident.
-- **Recorded off-air captures** arrive with their M4+ decoders: kept to seconds, stripped
-  to the band of interest, and either committed case-by-case (small) or fetched by
-  `cargo xtask fixtures` (). Committing one means force-adding past the
-  `.gitignore` — that friction is the case-by-case review.
-- **A frozen render is committed when no generator still reproduces it.** `cargo xtask
-  fixtures` writes today's output, so a test that pins behaviour against an *older* render
-  cannot read a generated path — the generator would silently overwrite the artifact and end
-  up proving itself. Such a render is committed under its own stem, never one the table
-  above lists.
-- `dmr_call_48k` (1.7 s, 640 KB): a direct-mode DMR call on PMR446 channel 1, captured with an
-  RTL-SDR at 2.048 Msps and down-converted to the channel rate so only the 12.5 kHz that
-  matters is carried. It is committed because it is the only signal in the tree that keys off
-  between bursts the way a real TDMA transmitter does, and no generated one reproduces what
-  that costs a receiver — `dv::dmr::tests::decodes_a_recorded_call` reads it directly.
-- `dmr_tier3_control_48k` (2.3 s, 880 KB): the control channel of a Motorola Capacity Max site,
-  taken from a 2.4 Msps capture centred on 460.802929 MHz and down-converted to the channel rate
-  so only the 12.5 kHz that matters is carried. It is committed because it is the only signal in
-  the tree whose CSBKs do not carry the checksum ETSI describes — every block decodes with a
-  clean BPTC and a trailer that matches no CRC-16 of its own payload — and because it holds the
-  two channel grants a trunked site hands out, which nothing generated reproduces.
-  `dv::dmr::tests::decodes_a_recorded_tier_three_control_channel` reads it directly,
-  `dv::dmr::tests::a_live_control_channel_decodes_in_the_blocks_a_radio_delivers` replays it the
-  way the engine does, through the channel filter and in fixed blocks, and
-  `dv::dmr::tests::a_site_that_masks_its_checksums_is_read_without_being_asked_to_be` holds a
-  receiver on its defaults to it.
-- `dmr_capacity_plus_48k` (2.4 s, 900 KB): the rest channel of a Motorola Capacity Plus system,
-  cut from the same 2.4 Msps capture as the Capacity Max fixture but at 460.800 MHz. It is
-  committed because Capacity Plus was covered only by hand-built payloads until now, and because
-  no generator reproduces what a rest channel does across a hand-over: a talkgroup 101 call ends
-  on timeslot 1, the repeater reports itself idle, and the next call opens on timeslot 2 while
-  the rest channel moves from 4 to 3. Its channel-status CSBKs all check out against the ETSI
-  checksum, which is what makes it the counterpart to the Capacity Max fixture above. One
-  talkgroup is all this capture carries, so the address field's width is pinned by one value.
-  `dv::dmr::tests::decodes_a_recorded_capacity_plus_rest_channel` reads it directly.
-- `ais_position_pre_cpm_240k` (0.03 s, 50 KB): the AIS position burst as the pre-migration
-  generator rendered it, stepped envelope and all. It is committed because it is the only
-  evidence left that the general CPM engine decodes what the hand-written AIS chain produced —
-  `ais::tests::decodes_the_committed_fixture` reads it directly, and today's generator emits a
-  different waveform (6425 samples against this one's 6250).
-- `nxdn_addressed_48k` (0.69 s, 260 KB): a frozen reference-modulator render containing a
-  complete four-quarter SACCH message and FACCH call addressing. It is committed so the
-  decoder test cannot regenerate the samples it is about to verify.
-- `adsb_offair_2m` (0.2 s, 3.1 MB): 1090 MHz Mode S off air over the Eifel, cut from a 2 Msps
-  RTL-SDR recording. It is committed because nothing generated reproduces what a real sky costs a
-  receiver — overlapping replies, real amplitude spread, and roll-call replies whose address only
-  exists because an all-call squitter arrived first. The 200 ms window is the densest one in the
-  recording that carries all six downlink formats and four aircraft; at 2 Msps that costs 3.1 MB,
-  which is why it is 200 ms and not a second. `adsb::tests::decodes_a_recorded_sky` reads it
-  directly, and `a_recorded_squitter_places_its_aircraft_against_the_receiver` checks the local
-  CPR solution against the position the whole recording solves globally.
-- `ft8_20m_busy_12k` (15 s, 1.4 MB): one FT8 slot from a crowded 20 m band, recorded
-  2019-11-11 11:06:15 UTC, converted from the upstream 12 kHz mono WAV to `cf32_le` with a zero
-  quadrature component. It is committed because it comes with an independent decoder's published
-  answer — twenty messages — which is a stronger check than any render of our own modulator.
-  `weak_signal::tests::a_recorded_slot_reads_the_band_the_reference_decoder_published` reads it,
-  appends the quiet tail a live receiver would deliver so the sliding slot window closes, and
-  pins the one decode we do not reach.
-- `freedv_1600_8k` (3 s, 188 KB): the first three seconds of the FreeDV GUI project's
-  `wav/ve9qrp_1600.wav` receive test, converted from signed 16-bit mono audio to normalized
-  `cf32_le` with a zero quadrature component. The source file's SHA-256 is recorded in the SigMF
-  annotation with the pinned upstream commit and LGPL-2.1 license;
-  `dv::freedv::tests::decodes_the_upstream_receive_recording` reads it directly.
+Give frozen renders a separate stem from generated fixtures. Otherwise regeneration could overwrite
+the waveform a regression test is supposed to preserve.
+
+## Provenance and regression coverage
+
+### DMR direct mode: `dmr_call_48k`
+
+A 1.7-second PMR446 channel 1 call captured with an RTL-SDR at 2.048 MS/s, then down-converted to
+48 kS/s. It preserves transmitter keying gaps between TDMA bursts.
+`dv::dmr::tests::decodes_a_recorded_call` reads it directly.
+
+### DMR Tier III: `dmr_tier3_control_48k`
+
+A 2.3-second Motorola Capacity Max control-channel excerpt from a 2.4 MS/s capture centred on
+460.802929 MHz, down-converted to 48 kS/s. It contains two channel grants and CSBK trailers that
+do not match the standard payload CRC despite clean BPTC decoding.
+
+Tests cover direct decoding, delivery through the channel filter in engine-sized blocks, and
+reception with default settings:
+
+- `dv::dmr::tests::decodes_a_recorded_tier_three_control_channel`
+- `dv::dmr::tests::a_live_control_channel_decodes_in_the_blocks_a_radio_delivers`
+- `dv::dmr::tests::a_site_that_masks_its_checksums_is_read_without_being_asked_to_be`
+
+### DMR Capacity Plus: `dmr_capacity_plus_48k`
+
+A 2.4-second rest-channel excerpt at 460.800 MHz from the same source capture as the Tier III
+fixture. Talkgroup 101 moves from timeslot 1 to timeslot 2 while the rest channel changes from
+4 to 3. Its channel-status CSBKs pass the standard CRC. The capture contains only one talkgroup,
+so it does not establish the full address-field width.
+`dv::dmr::tests::decodes_a_recorded_capacity_plus_rest_channel` reads it directly.
+
+### AIS frozen render: `ais_position_pre_cpm_240k`
+
+A 0.03-second burst from the earlier AIS generator, including its stepped envelope.
+`ais::tests::decodes_the_committed_fixture` checks that the general CPM receiver still decodes it.
+The old render has 6,250 samples; the current generator produces 6,425.
+
+### NXDN frozen render: `nxdn_addressed_48k`
+
+A 0.69-second reference-modulator render containing a complete four-quarter SACCH message and
+FACCH call addressing. Keeping the waveform fixed prevents a decoder test from regenerating its
+own reference input.
+
+### ADS-B: `adsb_offair_2m`
+
+A 200 ms excerpt of a 2 MS/s RTL-SDR recording over the Eifel. It includes overlapping replies,
+amplitude variation, and roll-call replies whose addresses depend on earlier all-call messages.
+The window contains six downlink formats and four aircraft in about 3.1 MB.
+
+`adsb::tests::decodes_a_recorded_sky` reads it directly.
+`a_recorded_squitter_places_its_aircraft_against_the_receiver` checks local CPR positioning against
+the global position solved from the full recording.
+
+### FT8: `ft8_20m_busy_12k`
+
+A 15-second 20 m slot recorded on 2019-11-11 at 11:06:15 UTC. The source is the MIT-licensed
+`ft8_lib` test recording `191111_110615.wav`, pinned in the SigMF annotation. Its 12 kHz mono audio
+was converted to `cf32_le` with zero quadrature.
+
+The upstream expected output contains twenty messages; this integration decodes nineteen.
+`weak_signal::tests::a_recorded_slot_reads_the_band_the_reference_decoder_published` appends a
+quiet tail to close the sliding slot window and records the missing decode explicitly.
+
+### FreeDV: `freedv_1600_8k`
+
+The first three seconds of the FreeDV GUI project's `wav/ve9qrp_1600.wav` receive test recording.
+Signed 16-bit mono audio was converted to normalized `cf32_le` with zero quadrature. The SigMF
+annotation records the source SHA-256, pinned upstream commit, and LGPL-2.1 license.
+`dv::freedv::tests::decodes_the_upstream_receive_recording` reads it directly.

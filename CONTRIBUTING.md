@@ -1,76 +1,83 @@
 # Contributing to sdr--
 
-Thanks for helping improve sdr--. The project welcomes focused bug fixes, hardware support,
-decoder work, interface improvements, tests, and documentation.
+## Make a change
 
-## Start here
+1. Follow the [build and test guide](https://newspicel.github.io/sdrminusminus/development/building.html).
+2. Branch from the latest `main`.
+3. Keep the change focused and add tests that demonstrate the behaviour.
+4. Run the checks for the parts you changed.
+5. Open a pull request describing the result and how you verified it.
 
-1. Read the [build and test guide](https://newspicel.github.io/sdrminusminus/development/building.html).
-2. Create a branch from the latest `main`.
-3. Keep the change focused and add tests at the narrowest layer that proves the behavior.
-4. Run the relevant local gates.
-5. Open a pull request that explains the user-visible outcome, validation, and any hardware used.
+For a substantial new feature, discuss the behaviour and crate boundaries in an issue first.
 
-For substantial new features, open an issue first so the behavior and crate boundary can be agreed
-before implementation work grows around it.
+## Code boundaries
 
-## Design rules
-
-- Put shared REST, WebSocket, settings, and patch types in `crates/wire`; regenerate the OpenAPI
-  and TypeScript outputs instead of declaring parallel client types.
-- Keep I/O out of `crates/dsp`. The real-time signal path should avoid locks, allocation, async
-  work, and silent loss.
-- Keep hardware behind `sdrmm-device` traits and a feature-gated backend.
-- Surface faults and dropped data. An overrun, truncated recording, or missed decoder frame is
-  behavior the operator needs to see.
-- Prefer capabilities and descriptors supplied by the server over device-name or channel-name
-  tables in the frontend.
-- Do not require real hardware in automated tests. Use `sdrmm-device-virtual`, protocol test
-  generators, and short reviewed IQ fixtures.
+- Define shared REST, WebSocket, settings, and patch types in `crates/wire`. Generate OpenAPI and
+  TypeScript declarations from them.
+- Keep `crates/dsp` free of I/O and internal dependencies. Reusable modem algorithms belong in
+  `crates/modem`; measurement and file tooling belongs in `crates/modem-test-support`.
+- Keep locks, allocation, and async work out of the hot DSP path. Send settings through command
+  queues and publish state through snapshot channels.
+- Open radios through Device nodes and feature-gated backends. Nodes that combine devices use
+  existing Device streams.
+- Report overruns, dropped frames, truncated recordings, and other failures to the operator.
+- Build frontend controls from server capabilities and descriptors.
+- Prefer clear names and small functions. Reserve comments for rare, non-obvious constraints.
+- Prefer Rust implementations. Preserve attribution and license notices for reused code or tables.
 
 The [architecture guide](https://newspicel.github.io/sdrminusminus/development/architecture.html)
-explains the boundaries and data flow in more detail.
+describes the crate dependencies and runtime data flow.
 
-## Validation
+## Tests and checks
 
-The normal code gates are:
+Use the narrowest test that demonstrates the change:
+
+| Changed area | Required coverage |
+|---|---|
+| DSP primitives | Analytic or golden-vector tests, plus relevant performance gates |
+| Decoders | IQ fixture and expected decoded output |
+| Engine | End-to-end tests through `device-virtual` |
+| Server | Handler tests, OpenAPI snapshot, and codegen drift |
+| Client | Unit tests and affected browser flows |
+| Documentation | `mdbook build docs`, local links, and heading anchors |
+
+Automated tests must not require or enumerate real hardware. Use virtual devices and reviewed fixtures.
+Format, lint, check, and test the changed code. The full code gates are:
 
 ```sh
 cargo xtask check
 cargo xtask test
 ```
 
-Run additional checks when the affected surface needs them:
+Additional checks depend on the change:
 
-```sh
-cargo xtask smoke      # browser flow
-cargo xtask desktop    # Tauri shell
-cargo xtask audit      # dependency advisories
-mdbook build docs      # documentation site
-```
+| Command | Use for |
+|---|---|
+| `cargo xtask smoke` | Browser workflows |
+| `cargo xtask desktop` | Tauri shell |
+| `cargo xtask perf` | DSP allocation and throughput |
+| `cargo xtask audit` | Dependency changes |
 
-Hardware changes should include the receiver model, driver and module versions, operating system,
-test duration, reconnect result, and any overrun or underflow observations in the pull request.
+For manual hardware tests, record the receiver model, driver and module versions, operating system,
+test duration, reconnect result, and overrun or underflow counts in the pull request.
 
-## Generated output
+## Generated files
 
-Run `cargo xtask codegen` after API or wire-type changes and `cargo xtask licenses` after dependency
-changes. A change to `web/pnpm-lock.yaml` also moves the hash the Nix package pins the fetched pnpm
-store by: `cargo xtask nix-hash` retakes it, through nix on Linux or a `nixos/nix` container
-anywhere else, and `cargo xtask check` refuses a lockfile that has moved past the recorded one. Decoder fixtures, band plans, and icons have their own `xtask` commands documented in the
-[development guide](https://newspicel.github.io/sdrminusminus/development/building.html#generated-files).
-Commit generated outputs with the source change.
+Commit generated output with its source change:
+
+- API or wire types: `cargo xtask codegen`.
+- Dependencies: `cargo xtask licenses`.
+- `web/pnpm-lock.yaml`: `cargo xtask nix-hash` to update the Nix pnpm store hash. This requires
+  Nix on Linux or a `nixos/nix` container elsewhere.
+
+The [generated-file reference](https://newspicel.github.io/sdrminusminus/development/building.html#generated-files)
+also covers decoder fixtures, band plans, and icons. `cargo xtask check` detects stale generated
+contracts and a changed pnpm lockfile whose recorded digest was not updated.
 
 ## Pull requests
 
-A useful pull request description answers three questions:
+Explain what changed, why it belongs in the chosen layer, and how you tested it. Include any
+remaining limitations. Keep unrelated cleanup in a separate change.
 
-- What changes for an operator or contributor?
-- Why is this the right layer and design?
-- How was it verified?
-
-Keep unrelated cleanup separate. Review is much easier when the diff, tests, and explanation all
-describe one coherent outcome.
-
-By contributing, you agree that your contribution is licensed under the repository's
+Contributions are licensed under the repository's
 [GNU General Public License, version 3 or later](LICENSE).

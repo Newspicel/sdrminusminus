@@ -4,163 +4,110 @@
 
 # sdr--
 
-A modular software-defined radio receiver for the desktop, the browser, and small remote servers.
+sdr-- is a software-defined radio application with a visual signal path. Connect devices,
+decoders, displays, and recorders on a canvas, then pin the controls you use to a rack.
 
-sdr-- keeps radio hardware and real-time DSP in a Rust server while a React interface handles
-tuning, visualization, and control. Run both together as a desktop app, serve the same interface
-from a Raspberry Pi or home server.
+A Rust server handles the radio and signal processing. The React interface runs in a desktop
+window or browser. You can run both on one computer, or leave the server beside the antenna and
+connect over the network. A built-in signal generator lets you try it without an SDR.
 
 <p align="center">
-  <img src="assets/screenshots/patch.png" alt="One radio feeding three channels, a speaker, an audio recorder and a network baseband export">
+  <img src="assets/screenshots/patch.png" alt="A device connected to three channels, a speaker, an audio recorder, and a network IQ output">
 </p>
 
-## What it can do
+## Status
 
-- Build a receiver visually from device, channel, display, scanner, recorder, and output nodes.
-- Listen to AM, narrowband FM, broadcast FM with RDS, and SSB.
-- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, PSK31–PSK250, Morse, CCIR/ZVEI/EEA
-  selective calling, DCF77/WWVB/MSF/JJY radio clocks, educational GPS L1 C/A acquisition and NAV
-  telemetry, sub-GHz frames, and several digital voice modes.
-- Pull weak amateur traffic out of the noise with FT8, FT4, and WSPR.
-- Follow DMR trunked systems: Capacity Plus, Hytera XPT, and Tier III. And keep every call as
-  replayable audio.
-- Survey a DECT network: every base station's RFPI and access rights class, the carrier and slot it
-  keeps, what it advertises for authentication and ciphering, and whether encryption was actually
-  negotiated on the air.
-- Identify an unknown signal from its bandwidth, symbol rate, and deviation, with ranked protocol
-  candidates and the reason behind each one.
-- Acquire DAB/DAB+, narrow-band DVB-S/S2 DATV, and DRM30/DRM+ carriers with lock, SNR, and
-  frequency-error diagnostics.
-- Receive SSTV in twelve scanning modes, watch each picture build up line by line, and keep every
-  one that arrives in the server's picture store.
-- Take bearings on a coherent array — a receiver that came with several lanes, or separate radios
-  you wired to one clock — cross them from several stations, and drive to the transmitter with
-  turn-by-turn navigation on a phone.
-- Point the array's beam at what it found and listen to it, combine antennas for a few more dB, or
-  null a local noise source against a reference antenna.
-- Borrow a broadcast transmitter for passive radar: a range–Doppler surface, echoes followed from
-  one integration to the next, and the ellipse each one could have come off drawn on the map.
-- Display live spectrum and waterfall views, decoded readouts, position maps, band occupancy,
-  logs, and ATV video.
-- Scan frequency ranges, save workspaces, presets, and bookmarks, search regional band plans, and
-  record IQ as SigMF, channel baseband, or audio for later playback.
-- Rewind the last seconds of live reception, stream IQ or baseband to other software over UDP or
-  TCP, and forward decoded traffic to any webhook, a Matrix room, or an MQTT broker.
-- Sweep an antenna with a NanoVNA, size a new one with the antenna calculator, and take station
-  position from a GPS or NMEA source.
-- Read, edit and write handheld codeplugs over their own serial protocols, keep several radios and
-  operators side by side, and copy a codeplug from one radio to another with a report of what the
-  target could not hold.
-- Automate the receiver through a typed REST API, WebSocket events, OpenAPI, or MCP.
+sdr-- is under active development. Most decoders have been tested with generated IQ fixtures;
+only some have been verified on air. The [channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
+lists the evidence for each mode and its limitations. Experimental modes may provide acquisition
+or measurements without decoded audio or video.
 
-The built-in signal generator means you can explore the complete receive path without owning an
-SDR.
+## What you can do
 
-## What it looks like
+- Listen to AM, NFM, broadcast FM with stereo and RDS, SSB, and supported digital voice modes.
+- Decode aircraft, ship, amateur, pager, sensor, and other radio traffic. See the
+  [full channel list](https://newspicel.github.io/sdrminusminus/user-guide/channels.html).
+- View spectrum, waterfalls, decoded messages, position maps, and received images.
+- Scan frequencies and save workspaces, presets, and bookmarks.
+- Record device IQ, channel baseband, or audio; replay IQ through the same decoders.
+- Use coherent receivers for direction finding, antenna combining, beamforming, and passive radar.
+- Export IQ over UDP or TCP and forward decoded events to webhooks, Matrix, or MQTT.
+- Control the running receiver through REST, WebSocket, or MCP.
 
-Every capture below is the application itself, driving the built-in signal generator or an IQ
-fixture committed to this repository — `cargo xtask screenshots` regenerates the whole set.
+## Install
 
-| | |
-|---|---|
-| ![Spectrum and waterfall filling the rack](assets/screenshots/spectrum.png) | ![Three receivers tiled in the rack](assets/screenshots/rack.png) |
-| The scope pinned to the rack, with the tuned channel marked on the band | Three receivers on one desk: ships, pagers and a picture arriving together |
-| ![A busy FT8 slot](assets/screenshots/ft8.png) | ![An unknown signal identified](assets/screenshots/ident.png) |
-| A recorded 20 m FT8 slot, read callsign by callsign out of the noise | An unknown carrier measured, then ranked against candidate protocols |
-| ![Aircraft on the map](assets/screenshots/adsb.png) | ![A ship on the map](assets/screenshots/ais.png) |
-| ADS-B aircraft on the map, with every squitter in the decoder log | An AIS position report placed in Hamburg harbour |
-| ![An SSTV picture](assets/screenshots/sstv.png) | ![Amateur television](assets/screenshots/atv.png) |
-| A Robot 36 SSTV picture, scanned out line by line | 625-line amateur television arriving on a video node |
-| ![POCSAG pager traffic](assets/screenshots/pocsag.png) | ![Broadcast FM with RDS](assets/screenshots/rds.png) |
-| POCSAG pager messages, forwarded to a webhook as they arrive | Broadcast FM with RDS: station, radiotext and alternate frequencies |
+Download a desktop installer or portable server from
+[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
+[Installation instructions](https://newspicel.github.io/sdrminusminus/getting-started/install.html)
+cover each package, Homebrew, Nix, and containers.
 
-## Why not SDR++, SDRangel, GQRX, or GNU Radio?
-
-Those are good programs. The first three are mature desktop receivers with a fixed layout and a
-long list of demodulators, and if that is what you want they will serve you better today — most of
-this project's decoders are not mature yet (see below). GNU Radio is the other kind of tool: a
-toolkit you build a receiver with rather than a receiver you operate. sdr-- exists because four
-things are structural rather than features that could be added to either kind:
-
-- **The signal path is a graph you build, not a fixed chain.** Devices, channels, scopes, scanners,
-  recorders, maps, logs, and network sinks are nodes you wire together. One device can feed twelve
-  channels; one channel can feed a speaker, a map, a log, and a UDP sink at once. Two decoders can
-  share a device while a third records the raw IQ underneath them. In a fixed layout each of those
-  is a feature someone has to add; here it is a cable you drag, on a receiver that keeps running —
-  not a flowgraph you edit in a design tool, regenerate, and restart.
-- **The receiver and its interface are separate programs.** The Rust server owns the hardware and
-  the DSP; the interface is a browser client. Put a Pi in the attic next to the antenna and operate
-  it from the sofa, a laptop, or a phone — no X forwarding, no VNC, no remote desktop. The same
-  build runs headless on the Pi and as a desktop app on your workstation, and several people can
-  watch one receiver at the same time.
-- **Everything the interface can do, a script can do.** The UI is a client of a typed REST API with
-  a generated OpenAPI document, a WebSocket event stream, and an MCP server. Tuning, channels,
-  scanning, recording, and decoded traffic are all reachable from a shell script, a bot, or an LLM
-  agent, because they are the same endpoints the UI calls. There is no plugin to write and no
-  separate automation surface that lags behind the app, and nothing to author first: the script
-  drives a running receiver over the network instead of being the receiver.
-- **One binary, no module hunt.** RTL-SDR, HackRF, and SDRplay drivers are compiled in; so are the
-  decoders and the web UI. `docker compose up` or a single downloaded file gets you a working
-  receiver without installing SoapySDR modules, matching plugin ABIs, tracking down which build of
-  which library your distribution shipped, or chasing the out-of-tree module — gr-adsb, gr-ais,
-  gr-satellites — that carries the mode you wanted.
-
-The honest trade: sdr-- is younger and has less on-air mileage. If you need a proven receiver
-right now, use SDR++. If you are building a novel DSP chain out of primitives, use GNU Radio. If
-you want a receiver you can wire up, put on the network, and drive from code, that is what this is
-for.
-
-## How far each mode has been proven
-
-Everything above is implemented and covered by tests, but "tested" does not mean the same thing
-for every mode. Each entry in the
-[channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
-carries a maturity label — *tested on air*, *fixture-only* or *experimental*, and most decoders are
-fixture-only today. The
-[maturity labels](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#what-the-maturity-labels-mean)
-say what each one promises.
-
-## Get started
-
-Download the desktop installer or portable server for your platform from
-[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases). Nightly builds are
-available from the rolling [nightly release](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly).
-
-### Homebrew
+On macOS, install the desktop app with Homebrew:
 
 ```sh
-brew trust newspicel/tap
 brew tap newspicel/tap
-brew install sdrminusminus
-brew install sdrmm
+brew install --cask sdrminusminus
 ```
 
-### Docker
+For the headless server, use `brew install sdrmm`.
 
-To try the server with Docker:
+To run the server with Docker Compose on Linux:
 
 ```sh
+git clone https://github.com/Newspicel/sdrminusminus.git
+cd sdrminusminus
 docker compose up -d
 ```
 
-Open <http://localhost:8080>. In the starter workspace, choose **Signal Generator (virtual)** on
-the Device node. The existing Scope will immediately show synthetic signals. Add an NFM channel,
-wire the Device's IQ output to it, wire its audio output to the Speaker, and tune the channel to
-`+300 kHz` for a 1 kHz test tone.
+Open <http://localhost:8080>. The server has no authentication by default; see
+[configuration and security](https://newspicel.github.io/sdrminusminus/server/configuration.html)
+when setting up network access.
 
-For a real receiver, choose it instead of the signal generator. RTL-SDR, HackRF and SDRplay RSP
-receivers have built-in drivers and need no SoapySDR module. SDRplay is the one exception that
-needs SDRplay's own API installed, because its licence covers use with genuine SDRplay hardware
-rather than redistribution. Desktop installers and containers additionally bundle SoapySDR support
-for Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and SoapyRemote. See the
-[hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
-troubleshooting.
+## Try a receiver
+
+1. On the starter **Device** node, choose **Signal Generator (virtual)**. The connected Scope
+   shows the generated signals.
+2. Choose **+ Node** and add an **NFM** channel.
+3. Connect Device `IQ` to NFM `IQ`, then NFM `audio` to Speaker `audio`.
+4. Set the channel offset to `+300 kHz` and start audio on the Speaker. You should hear a 1 kHz tone.
+
+[Your first receiver](https://newspicel.github.io/sdrminusminus/getting-started/first-receiver.html)
+walks through the controls and switching to hardware.
+
+Standard builds include native RTL-SDR, HackRF, SDRplay, and CR-8 drivers. SDRplay and CR-8 also
+require their vendor libraries. Desktop installers and containers bundle SoapySDR modules for
+Airspy/AirspyHF, bladeRF, LimeSDR, PlutoSDR, and SoapyRemote. See the
+[hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for requirements.
+
+## Screenshots
+
+These captures use the built-in signal generator or repository IQ fixtures. Regenerate them with
+`cargo xtask screenshots`.
+
+| Spectrum and waterfall | Rack view |
+|---|---|
+| ![Spectrum with the tuned channel marked](assets/screenshots/spectrum.png) | ![Three receivers in the rack](assets/screenshots/rack.png) |
+
+| FT8 decoding | Signal identification |
+|---|---|
+| ![Decoded messages from a recorded 20 m FT8 slot](assets/screenshots/ft8.png) | ![Signal measurements and candidate protocols](assets/screenshots/ident.png) |
+
+| Aircraft positions | Ship positions |
+|---|---|
+| ![ADS-B aircraft and decoder log](assets/screenshots/adsb.png) | ![AIS position in Hamburg harbour](assets/screenshots/ais.png) |
+
+| Slow-scan television | Amateur television |
+|---|---|
+| ![Robot 36 SSTV picture](assets/screenshots/sstv.png) | ![625-line ATV test image](assets/screenshots/atv.png) |
+
+| Pager messages | Broadcast FM |
+|---|---|
+| ![POCSAG messages with webhook output](assets/screenshots/pocsag.png) | ![RDS station name, text, and alternate frequencies](assets/screenshots/rds.png) |
 
 ## Build from source
 
-You need the pinned Rust toolchain, a C/C++ compiler, CMake, Node 26, pnpm 11, and SoapySDR 0.8
-development files. On Debian or Ubuntu, install `build-essential cmake libsoapysdr-dev`; on macOS,
-run `xcode-select --install` and `brew install cmake soapysdr`.
+You need the repository's pinned Rust toolchain, a C/C++ compiler, CMake, Node 26, pnpm 11, and
+SoapySDR 0.8 development files. The [build guide](https://newspicel.github.io/sdrminusminus/development/building.html)
+lists platform prerequisites.
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
@@ -170,64 +117,53 @@ pnpm --dir web build
 cargo run -p sdrmm
 ```
 
-Then open <http://localhost:8080>. For development, `cargo xtask dev` runs the Rust server and a
-Vite dev server with hot reload at <http://localhost:5173>; add `--watch` to also restart the Rust
-server when backend inputs change.
+Open <http://localhost:8080>. For development, `cargo xtask dev` starts the server and a frontend
+with hot reload at <http://localhost:5173>. Add `--watch` to restart the backend when its files
+change.
 
-A virtual and network-only build does not require SoapySDR:
+To build with only virtual sources and network receivers:
 
 ```sh
 cargo run -p sdrmm --no-default-features --features net-client
 ```
 
-## Project layout
+## Development
 
 | Path | Purpose |
 |---|---|
-| `apps/sdrmm` | Headless server binary with the web UI embedded |
-| `apps/desktop` | Tauri desktop shell around the same server and UI |
-| `crates/engine` | Real-time device, DSP, channel, scanner, and recording orchestration |
+| `apps/sdrmm` | Headless server binary |
+| `apps/desktop` | Tauri desktop shell |
+| `crates/dsp`, `crates/modem` | Signal-processing primitives and reusable modem algorithms |
+| `crates/engine` | Device and signal-processing orchestration |
 | `crates/channels` | Demodulators and protocol decoders |
-| `crates/device-*` | SoapySDR, network, and virtual device backends |
-| `crates/wire` | Shared REST, WebSocket, settings, and generated-client types |
+| `crates/device-*` | Native, SoapySDR, network, virtual, and array backends |
+| `crates/wire` | Shared API, WebSocket, and settings types |
 | `crates/server` | HTTP, WebSocket, MCP, persistence, and embedded frontend |
 | `web` | React application |
 | `docs` | mdBook documentation |
 
-## Development commands
-
-`cargo xtask` is the local entry point for the same gates used in CI.
-
 | Command | Purpose |
 |---|---|
-| `cargo xtask dev` | Run the server and frontend dev server (`--watch` restarts the server on backend changes) |
 | `cargo xtask check` | Format, lint, type-check, build, and check generated-code drift |
-| `cargo xtask test` | Run Rust and frontend tests without real hardware |
-| `cargo xtask smoke` | Run the Playwright flow against the real server binary |
-| `cargo xtask screenshots` | Regenerate `assets/screenshots` from the fixture library |
+| `cargo xtask test` | Run Rust and frontend tests without hardware |
+| `cargo xtask smoke` | Run the browser test against the server |
 | `cargo xtask codegen` | Regenerate OpenAPI and TypeScript API types |
-| `cargo xtask audit` | Check dependencies with `cargo-deny` |
-| `cargo xtask fixtures` | Regenerate synthesized decoder fixtures |
-| `cargo xtask licenses` | Regenerate third-party notices |
-| `cargo xtask dist` | Build a portable server archive for the current target |
-| `cargo xtask desktop` | Check or bundle the Tauri desktop app |
+| `cargo xtask audit` | Check dependencies with cargo-deny |
 
-See the [development guide](https://newspicel.github.io/sdrminusminus/development/building.html)
-for prerequisites, architecture, testing, and release workflows.
+See [Contributing](CONTRIBUTING.md) and the
+[development guide](https://newspicel.github.io/sdrminusminus/development/building.html)
+for testing, generated files, and releases.
 
 ## Documentation and API
 
 - [User and developer guide](https://newspicel.github.io/sdrminusminus/)
-- [Contribution guide](CONTRIBUTING.md)
-- [Feature roadmap](FEATURES.md)
-- Swagger UI at `/api/docs` on any running server
-- Generated OpenAPI document at `/api/openapi.json` or [in the repository](openapi.json)
+- Swagger UI: `/api/docs` on a running server
+- OpenAPI: `/api/openapi.json` or the checked-in [openapi.json](openapi.json)
 
 ## License
 
 Copyright (C) 2026 sdr-- contributors.
 
-sdr-- is free software licensed under the [GNU General Public License, version 3 or
-later](LICENSE). Distributed dependencies and bundled hardware components are documented in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); their complete license texts are also available
-from the app's About panel.
+sdr-- is licensed under the [GNU General Public License, version 3 or later](LICENSE).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists distributed dependencies and bundled
+hardware components. Their license texts are also available in the app's About panel.
