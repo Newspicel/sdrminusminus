@@ -4,56 +4,32 @@
 
 # Welcome to sdr--
 
-sdr-- is a modular software-defined radio receiver. It turns an SDR, a network receiver, or a
-recording into a visual signal-processing workspace you can operate from a desktop app or web
-browser.
+sdr-- receives and decodes radio signals. Connect an SDR, a network receiver, or an IQ recording
+to channels and displays on a canvas. Use the rack view for the controls you operate regularly.
 
-The project separates the real-time radio work from the interface:
+The Rust server runs the hardware, signal processing, decoders, and recordings. The desktop app
+and browser use the same interface to control it:
 
 ```text
-SDR or recording → Rust DSP server → REST, WebSocket, and MCP → desktop app or browser
+SDR or recording → Rust server → desktop app or browser
 ```
 
-The server owns hardware access, tuning, channelization, demodulation, decoding, spectrum,
-scanning, and recording. The client renders the server's capabilities and connects those pieces
-on a patch canvas. This design lets a small computer sit beside the antenna while you operate it
-from somewhere more comfortable.
+Run the server on your computer or on a separate machine near the antenna. All connected clients
+share the active receiver. A built-in signal generator lets you learn the controls without hardware.
 
-## Highlights
+## Start here
 
-- **Visual receiver building.** Connect a radio to channels, scopes, speakers, maps, logs,
-  recorders, scanners, and exports.
-- **Useful on the first launch.** The built-in signal generator exercises the entire receive
-  path without radio hardware.
-- **Analog and digital reception.** Listen to common analog modes and decode aviation, marine,
-  amateur, paging, telemetry, sub-GHz, video, and digital voice signals.
-- **Repeatable setups.** Workspaces save the whole bench; templates configure common activities;
-  presets and bookmarks capture settings you want to reuse.
-- **Record once, inspect again.** Capture device IQ as SigMF and reopen it as a source through the
-  same processing graph.
-- **Automation-ready.** A typed REST API, WebSocket event stream, generated OpenAPI document, and
-  MCP server expose the same engine used by the interface.
-
-## Choose a path
-
-If this is your first time using sdr--, start with [Install sdr--](getting-started/install.md) and
-[Your first receiver](getting-started/first-receiver.md).
-
-If you are deploying a receiver beside an antenna, read
-[Configuration and security](server/configuration.md) and
-[Containers and remote radios](server/deployment.md).
-
-If you want to contribute, begin with [Build and test](development/building.md), then read the
-[architecture guide](development/architecture.md).
+- [Install sdr--](getting-started/install.md), then build [your first receiver](getting-started/first-receiver.md).
+- For a remote installation, read [Configuration and security](server/configuration.md) and
+  [Containers and remote radios](server/deployment.md).
+- To contribute, start with [Build and test](development/building.md) and
+  [Architecture](development/architecture.md).
 
 ## Project status
 
-sdr-- is under active development. Nightly builds track the latest `main` branch and can change
-without migration guarantees. Stable releases are the better choice for saved stations and
-unattended deployments. The repository's [feature roadmap](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md)
-distinguishes shipped work from future ideas, and the
-[channel catalog](user-guide/channels.md#channel-catalog) records how far each mode has been
-proven — most decoders are tested against generated fixtures rather than a real transmitter.
+sdr-- is under active development. The [channel catalog](user-guide/channels.md#channel-catalog)
+lists supported modes and their maturity. Most decoders are tested with generated fixtures;
+that does not establish how well they handle signals from real transmitters.
 
-Always follow the radio regulations that apply where you operate, especially around restricted
-traffic, recording, and transmission. sdr-- currently focuses on reception.
+Nightly builds follow `main` and may change saved-data formats without migration guarantees.
+Use stable releases for persistent installations.

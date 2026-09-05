@@ -1,8 +1,7 @@
 # Architecture
 
-sdr-- has one real-time receiver engine and several thin delivery shells. The headless binary and
-desktop app both construct the same server library; the browser and desktop window run the same
-React client.
+The headless binary and desktop app use the same Rust server library and receiver engine.
+The browser and desktop window run the same React client.
 
 ```text
                          control and state
@@ -27,6 +26,8 @@ React client.
 | `sdrmm-wire` | Shared settings, DTOs, events, patch graph, and OpenAPI schemas |
 | `sdrmm-device` | Hardware-independent device traits, capabilities, settings, and registry |
 | `sdrmm-device-virtual` | Signal generators and SigMF playback |
+| `sdrmm-device-rtlsdr` | Native RTL-SDR driver |
+| `sdrmm-device-hackrf` | Native HackRF driver |
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
 | `sdrmm-device-net` | Direct `rtl_tcp` and SpyServer clients |
@@ -38,10 +39,9 @@ React client.
 | `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, and embedded assets |
 
 `apps/sdrmm` handles CLI configuration and process lifetime. `apps/desktop` binds the server to an
-ephemeral loopback port and points a Tauri WebView at it. Both call
-`sdrmm_device_soapy::enable_isolated_probes` before anything else, which re-executes them as a
-short-lived probe helper whenever the engine looks for radios: vendor SoapySDR modules open USB
-devices while searching, and a faulty one must cost a probe rather than the application.
+ephemeral loopback port and points a Tauri WebView at it. With SoapySDR enabled, both call
+`sdrmm_device_soapy::enable_isolated_probes` during startup. Discovery re-executes the binary as
+a short-lived probe helper, isolating the application from crashes in vendor discovery code.
 
 ## One source of truth for wire types
 
@@ -68,21 +68,20 @@ and structure suit it; audio is Opus-compressed before crossing to the browser.
 
 ## Coherent processing
 
-An ordinary channel reads one lane. A coherent processor reads every lane of one radio at the same
-moment, which needs a path of its own beside the per-lane one.
+An ordinary channel reads one lane. A coherent processor needs aligned samples from every lane
+of one source.
 
-Every capture callback carries the index of its block's first sample, and a driver advances that
-index by what the hardware reports dropped, so a device-side gap reaches the engine as a jump
-rather than a silently shortened lane. When a coherent node is running, each lane also writes into
-a tap ring with an explicit record of the samples it could not keep. The aggregator takes the
-largest range every lane agrees on, discards up to the next common index when one of them lost
-samples, applies the per-lane delay and weight the calibration solved, and hands the aligned
-slices to the processors. It is subject to the same rules as `dsp_loop`: no locks, no allocation,
-no async.
+Each capture block carries its first sample index. Drivers advance the index over hardware-reported
+losses, preserving gaps. While coherent processing is active, each lane also writes to a tap ring
+that records any samples it cannot retain.
 
-A processor may hand back a set of per-lane weights. The aggregator sums the lanes with them and
-writes the result into an ordinary capture ring one past the radio's own lanes, so a channel,
-recorder or spectrum subscription works on a beam without knowing it is one.
+The aggregator finds the largest sample range common to all lanes. After a gap, it discards samples
+up to the next common index, then applies calibrated delays and complex weights. Like `dsp_loop`,
+it runs without locks, allocation, or async work.
+
+Processors can return beamforming weights. The aggregator sums the weighted lanes into an ordinary
+capture ring after the source's physical lanes. Channels, recorders, and spectrum subscriptions
+consume this beam through the normal single-lane path.
 
 A patch **Array** node composes streams from existing Device nodes. `sdrmm-device-array` supplies
 logical ingress lanes; the engine forwards the members' corrected IQ through bounded rings and
@@ -133,28 +132,25 @@ decoder or cross-layer workflow needs it.
 
 ## Standard tables and their provenance
 
-Some decoders carry constants that a specification dictates rather than a derivation produces:
-the DAB puncturing vectors and protection profiles (`crates/channels/src/dab/protection.rs`),
-the DAB phase-reference table (`crates/channels/src/dab/ofdm.rs`), the DVB-S puncturing
-patterns and Reed-Solomon parameters (`crates/channels/src/datv/dvbs.rs`), the DVB-S2 LDPC
-accumulator addresses (`crates/channels/src/datv/dvbs2/tables/`), and the VL-SNR header
-sequence (`crates/channels/src/datv/dvbs2/vlsnr.rs`).
+Some decoder constants come directly from specifications:
 
-Those values come from the published standards — ETSI EN 300 401 for DAB, ETSI TS 102 563 for
-DAB+, ETSI EN 300 421 for DVB-S, ETSI EN 302 307-1 and -2 for DVB-S2 and S2X, ETSI TS 102 606
-for GSE, ETSI ES 201 980 for DRM — and were cross-checked against
-[welle.io](https://github.com/AlbrechtL/welle.io) (GPL-2.0-or-later) and GNU Radio's
-[gr-dtv](https://github.com/gnuradio/gnuradio) (GPL-3.0-or-later), whose transcriptions of the
-same tables are the widely deployed references. sdr-- is GPL-3.0-or-later, so that lineage is
-compatible; no code was copied, only the standards' constants were confirmed against them. The
-DVB-S2 accumulator tables are the one case where the numbers were transformed mechanically
-rather than read, because there are 7 378 of them. The VL-SNR header runs the other way: its
-896-bit seed and the Walsh-Hadamard rows that fold it into sixteen patterns were typed from the
-standard, and the patterns they generate match gr-dtv's transcription bit for bit, which is how
-two independent readings are known to agree.
+| Constants | Location |
+|---|---|
+| DAB puncturing and protection profiles | `crates/channels/src/dab/protection.rs` |
+| DAB phase reference | `crates/channels/src/dab/ofdm.rs` |
+| DVB-S puncturing and Reed–Solomon parameters | `crates/channels/src/datv/dvbs.rs` |
+| DVB-S2 LDPC accumulator addresses | `crates/channels/src/datv/dvbs2/tables/` |
+| VL-SNR header sequence | `crates/channels/src/datv/dvbs2/vlsnr.rs` |
 
-Each such table is covered by a test that checks it against a property the standard states
-independently of the table itself — monotonic puncturing density, a generator polynomial that
-vanishes at every root, a published CRC check value, a parity-check matrix that annihilates
-every word its own encoder produces — so a transcription slip fails the suite rather than the
-air.
+Sources are ETSI EN 300 401 (DAB), TS 102 563 (DAB+), EN 300 421 (DVB-S), EN 302 307-1 and -2
+(DVB-S2/S2X), TS 102 606 (GSE), and ES 201 980 (DRM).
+
+Table values were cross-checked against [welle.io](https://github.com/AlbrechtL/welle.io)
+(GPL-2.0-or-later) and GNU Radio's [gr-dtv](https://github.com/gnuradio/gnuradio)
+(GPL-3.0-or-later). This attribution concerns table verification, not copied decoder code.
+The 7,378 DVB-S2 accumulator addresses were transformed mechanically. The VL-SNR 896-bit seed
+and Walsh–Hadamard rows were transcribed from the standard; their sixteen generated patterns
+match gr-dtv's tables.
+
+Tests check independent properties such as puncturing density, polynomial roots, published CRC
+values, and parity checks on encoded words. These checks help detect transcription errors.

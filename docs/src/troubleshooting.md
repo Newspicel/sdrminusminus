@@ -36,25 +36,24 @@ URLs may send the same value as the `token` query parameter.
 
 1. Confirm it appears in the operating system.
 2. Run `sdrmm --doctor`.
-3. If using the host runtime, run `SoapySDRUtil --find`.
-4. Confirm the Soapy module ABI is `0.8` and the module is in a reported search path.
+3. For a SoapySDR receiver using the host runtime, run `SoapySDRUtil --find`.
+4. For SoapySDR modules, confirm ABI `0.8` and a directory in the reported search path.
 5. On Linux, check the USB node permissions and reconnect after installing udev rules.
 6. Stop other SDR programs; most devices can be claimed by only one process.
 
-Desktop installers and containers use a private SoapySDR tree and search the host's default module
-directories after it. A module in a directory neither list names is found by pointing
-`SDRMM_SOAPY_MODULE_PATH` at it; `sdrmm --doctor` prints the search path actually in use.
+Desktop installers and containers use their bundled SoapySDR modules. To load an additional
+host module, set `SDRMM_SOAPY_MODULE_PATH` to its directory. Explicit paths are searched before
+the bundled directory. `sdrmm --doctor` prints the active search path.
 
 ## An SDRplay receiver does not appear
 
-sdr-- speaks to RSP receivers through SDRplay's own API, which is not part of this package.
-Install it from [SDRplay](https://www.sdrplay.com/downloads/), make sure `sdrplay_apiService` is
-running, and check `sdrmm --doctor`: the **SDRplay API** entry names the library it loaded, or
-says what stopped it. Nothing else is affected while it is missing. An RSPduo held by another
-application offers only the modes still free, so it may be listed as Slave alone — see
-[SDRplay](hardware.md#sdrplay). In a container the API stays on the host and reaches the service
-over shared memory, which needs both a mounted library and a shared IPC namespace — see
-[SDRplay receivers](server/deployment.md#sdrplay-receivers).
+Install the vendor API from [SDRplay](https://www.sdrplay.com/downloads/) and confirm
+`sdrplay_apiService` is running. In `sdrmm --doctor`, **SDRplay API** reports the loaded library
+or the reason loading failed.
+
+An RSPduo in use by another application lists only its available modes, possibly Slave alone.
+See [SDRplay](hardware.md#sdrplay). Container access also requires the host library and shared
+IPC namespace; see [SDRplay receivers](server/deployment.md#sdrplay-receivers).
 
 ## A device is present but a saved node is disconnected
 
@@ -105,4 +104,4 @@ Those samples are lost, so spectrum, audio, recordings, and decoders can all con
 
 Use `cargo xtask dev`, which starts the backend with development CORS and configures Vite to proxy
 the API and WebSocket. If starting the pieces manually, pass `--dev-cors` only for a trusted local
-development origin; it deliberately relaxes CORS broadly.
+development origin, since it permits cross-origin requests broadly.

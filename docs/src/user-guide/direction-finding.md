@@ -1,85 +1,73 @@
 # Direction finding
 
-A direction finder reads the phase differences between the elements of a
-[coherent array](arrays.md) and says which way a signal arrived. It answers with a bearing, a
-confidence, and the whole circle it read that bearing off, so you can see whether the peak it
-picked was the only one.
+A Direction finder estimates a signal's arrival direction from phase differences across a
+[coherent array](arrays.md). It displays a bearing, confidence, and angular response so you can
+see competing peaks.
 
 ## Wire one up
 
-1. Have a coherent radio: one Device node for a radio with several lanes, or an
-   [Array node](arrays.md#radios-you-wired-together-yourself) for radios you cabled together.
-2. Add a **Direction finder** and wire every element into it: `iq`, `iq2`, `iq3`… Every lane must
-   come from the same radio, and a half-wired array is refused by name when you apply the patch.
-3. Wire a **GPS position** node into its `position` input. Bearings without a place are just
-   angles; with one they become rays on the map and can be crossed.
-4. Set **Geometry** to what you built — a circle of a given radius, a line of a given spacing, or
-   explicit element positions — and **Elements** to how many there are. The node's inputs follow
-   that number.
-
-Set **Offset** and **Bandwidth** to the signal you are after inside the tuned span.
+1. Add a multi-lane **Device**, or an [Array node](arrays.md#radios-you-wired-together-yourself)
+   for separate radios sharing a clock.
+2. Add a **Direction finder**. Set **Geometry** to your antenna layout: a circle with a radius,
+   a line with element spacing, or explicit element positions. Set **Elements** to the antenna count.
+3. Connect every source lane to the corresponding `iq`, `iq2`, `iq3`… input. All lanes must come
+   from the same Device or Array. Applying an incomplete set of connections reports an error.
+4. Connect a **GPS position** source to `position` to place bearings on a map or use triangulation.
+5. Set **Offset** and **Bandwidth** to select the signal within the source's tuned span.
 
 ## Algorithm
 
 | Algorithm | Behaviour |
 |---|---|
-| Beamformer | Blunt, and it always answers. The baseline when the covariance is too short for MUSIC. |
-| MUSIC | Far sharper, and it needs the source count to be right. |
+| Beamformer | Broader angular response; useful as a baseline with limited covariance data |
+| MUSIC | Sharper peaks; depends on an accurate source count |
 
-**Sources** tells MUSIC how many arrivals to assume. One is right far more often than not.
+**Sources** sets the number of arrivals MUSIC should assume. Start with one for a single source.
 
 ## The compass and what it is telling you
 
-The face draws the pseudospectrum on a compass rose with the bearing over it, the confidence
-beside it, and a per-lane calibration quality strip below. Bearings are compass bearings: zero due
-north, running clockwise.
+The compass shows the angular response, selected bearing, and confidence. A strip below it shows
+calibration quality for each lane. Bearings run clockwise from north at 0°.
 
-If the calibration readout says phase is unknown, no bearing is drawn and none is emitted. That is
-the array telling you its tier and calibration source cannot justify one.
+When calibration reports **phase unknown**, the node neither displays nor publishes a bearing.
+Check the array's clock connections and calibration reference.
 
 ## The beam output
 
-A direction finder also sums its elements towards a bearing and writes the result onto a `beam`
-output. Wire a channel to it and you listen to whatever the array is pointed at.
+The `beam` output sums the elements toward a selected bearing. Connect it to a channel to listen
+in that direction.
 
 | Beam | Behaviour |
 |---|---|
-| Follow bearing | The beam tracks whatever bearing the array is currently finding |
-| Fixed azimuth | The beam stays where you put it |
+| Follow bearing | Tracks the current estimated bearing |
+| Fixed azimuth | Holds a chosen direction |
 
-Choosing a fixed azimuth starts from wherever the beam is pointing now, so pinning it holds the
-direction the array just found.
+Switching to fixed azimuth starts at the beam's current direction.
 
 ## Crossing bearings from several finders
 
-One finder says which way; two say where. Add a **Triangulation** node and wire the `events`
-output of every direction finder into it.
+Add a **Triangulation** node and connect each Direction finder's `events` output. Bearings from
+different positions constrain the transmitter's estimated location.
 
-The triangulation node holds the grid where those bearings cross. Its face shows the estimate, the
-size of the error ellipse, the guidance, and every finder that has reported with how long ago it
-last did. **Clear** throws away everything the grid has learned and starts again.
+Each finder needs its own position source. Use GPS for a moving receiver, or a **GPS position**
+node with fixed latitude and longitude for a stationary one.
 
-Each finder needs a position of its own. A receiver that drives gets it from a GPS; one that never
-moves gets it from a **GPS position** node set to a fixed place — type the latitude and longitude
-once and everything
-downstream treats it like any other fix.
+The Triangulation node shows the position estimate, error ellipse, guidance, and the age of each
+finder's latest report. **Clear** resets the accumulated estimate.
 
-Without a triangulation node a direction finder still shows bearings and a compass, but there is
-no estimate, no guidance, and no event when a fix converges.
+A Direction finder works without triangulation, but then provides no position estimate, driving
+guidance, or event announcing a converged fix.
 
 ## On the map
 
-Wire a finder's `events` into a **Map** to draw its bearing rays, which fade with age. Wire a
-triangulation node's `events` in as well and the map adds the fused estimate, its uncertainty
-ellipse, the contributing stations, and the leg to the next place worth driving to.
+Connect a Direction finder's `events` output to a **Map** to draw bearing rays that fade with age.
+Connect Triangulation events to add the combined position estimate, uncertainty ellipse,
+contributing stations, and suggested next waypoint.
 
 ## Guidance
 
-While the estimate is a long thin ellipse, the guidance tells you to drive **across** the current
-bearing — two bearings from the same place say nothing, and two from different places cross. Once
-the ellipse closes up it switches to **approach** and points at the estimate.
+When the estimate has a long, narrow error ellipse, guidance suggests moving **across** the bearing
+to improve the intersection angle. Once the estimate converges, it switches to **approach**.
 
-The first time a fix converges, a decoded event is published, so any webhook, MQTT or Matrix
-[event output](channels.md) you have wired fires on it.
-
-Driving all of this from a phone is [field mode](field-mode.md).
+The first converged fix publishes a decoded event. Connected webhook, MQTT, or Matrix outputs can
+forward it. Use [field mode](field-mode.md) for the phone interface and navigation.

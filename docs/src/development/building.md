@@ -59,8 +59,8 @@ cargo xtask dev --watch
 
 ## Backend feature flags
 
-Normal builds enable `soapy` and `net-client`. A virtual-only build is useful for backend work on a
-machine without SoapySDR:
+The default features are `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `net-client`, and `gpu-fft`.
+Disable defaults to build with virtual sources only:
 
 ```sh
 cargo run -p sdrmm --no-default-features
@@ -117,10 +117,9 @@ Run the matching task whenever its source changes:
 Generated outputs are committed. `cargo xtask check` detects drift for the outputs that must match
 on every change.
 
-`nix-hash` is the one that cannot run everywhere: the hash covers a store only nix can build, so the
-task uses nix on Linux and a `nixos/nix` container elsewhere. `check` does not build anything — it
-compares a digest of the lockfile recorded beside the hash, which is enough to catch a lockfile that
-moved without the hash, and leaves proving the hash itself to the Nix job in CI.
+`cargo xtask nix-hash` uses Nix on Linux and a `nixos/nix` container elsewhere to compute the pnpm
+store hash. `cargo xtask check` compares the lockfile digest recorded beside that hash; it does
+not rebuild the store. The Nix CI job verifies the store hash itself.
 
 ## Desktop prerequisites
 
@@ -131,8 +130,8 @@ installers, install the Tauri CLI and the platform prerequisites, then follow
 
 ## Before opening a pull request
 
-Run the checks proportional to the change. Documentation-only work should at minimum build the
-mdBook and validate its links. Code changes should normally run:
+Run the checks proportional to the change. For documentation changes, build the book with
+`mdbook build docs` and validate local links and heading anchors. Code changes should normally run:
 
 ```sh
 cargo xtask check

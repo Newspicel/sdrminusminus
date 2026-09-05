@@ -6,8 +6,8 @@ working.
 
 ## Built-in drivers
 
-RTL-SDR, HackRF and SDRplay RSP receivers are driven by sdr-- itself. They need no SoapySDR module
-and work in every build, including the minimal one.
+Standard builds include native drivers for RTL-SDR, HackRF, SDRplay RSP, and Dragon Labs CR-8.
+These drivers do not require SoapySDR modules. Custom builds can omit them through feature flags.
 
 | Receiver | Extra software |
 |---|---|
@@ -37,9 +37,9 @@ UHD is not bundled because of its size. Other modules may work if they match the
 module ABI, but they are not part of the release test matrix; a module built against a different
 SoapySDR generation is refused and logged rather than loaded.
 
-A bundled installation loads only its own modules, so a radio can never be served by two copies of
-the same driver. Portable headless archives and source builds use the host's SoapySDR installation
-for these modules instead. Built-in drivers work either way.
+Bundled installations use their own modules unless you add an explicit search path. Portable
+archives and source builds use the host's SoapySDR installation. Native drivers are independent
+of this module selection.
 
 To load a module the bundle does not carry, point `SDRMM_SOAPY_MODULE_PATH` at the directory
 holding it. Those directories are searched before the bundled ones.
@@ -77,21 +77,19 @@ On a host SoapySDR installation, its own utility is also worth running:
 ```sh
 SoapySDRUtil --info
 SoapySDRUtil --find
-SoapySDRUtil --probe="driver=rtlsdr"
+SoapySDRUtil --probe="driver=airspy"
 ```
 
-If `SoapySDRUtil` cannot find the receiver, fix the driver or permission problem before looking at
-sdr--.
+For a receiver using SoapySDR, fix discovery or permission errors here before starting sdr--.
+Use `sdrmm --doctor` for receivers handled by native drivers.
 
 ## How radios are discovered
 
-Vendor SoapySDR modules open USB devices while searching, and a faulty one can take down the
-process it runs in. sdr-- therefore searches in a short-lived child process, so a driver that
-crashes, hangs or leaks costs one search — logged as a warning — instead of the application.
+SoapySDR discovery runs in a short-lived child process because vendor modules can crash or hang
+while probing hardware. A failed probe produces a warning without terminating the application.
 
-Searches run whenever the set of attached USB devices changes, and once a minute so that network
-radios are still found. Set `SDRMM_SOAPY_PROBE=in-process` to search in the application process
-instead; this is only useful when debugging a driver.
+Discovery runs when attached USB devices change and once a minute to find network radios.
+For driver debugging, `SDRMM_SOAPY_PROBE=in-process` runs discovery in the application process.
 
 ## Linux USB permissions
 
@@ -131,21 +129,17 @@ The built-in driver exposes:
 | `agc` | R82xx tuner AGC |
 | `direct_sampling` | `off`, `i`, or `q` |
 
-**Gain.** The tuner's gain table is not evenly spaced, so it is published as a table rather than as
-a step. The slider walks the 29 real settings. A value requested from elsewhere — the API, a saved
-workspace — is snapped to the nearest entry, and the snapped value is what the driver reports back:
-asking for 20 dB on an R820T reads back as 19.7 dB.
+**Gain.** The slider uses the tuner's actual gain table. Values from the API or saved settings
+are rounded to the nearest supported entry; for example, an R820T request for 20 dB returns 19.7 dB.
 
-**Sample rate.** The RTL2832U resamples across two windows, 225–300 kHz and 900 kHz–3.2 MHz, and
-aliases between them. Both are published, so a rate in the gap is refused rather than silently
-accepted. The familiar rate menu is published alongside them and is what the picker offers.
+**Sample rate.** The RTL2832U supports 225–300 kHz and 900 kHz–3.2 MHz. Rates in the gap are
+rejected. The picker also offers a menu of common rates.
 
-**IF filter.** The R82xx IF filter is continuous, so it is published as a 0–8 MHz window. `0`
-selects the automatic width that tracks the sample rate.
+**IF filter.** The R82xx driver exposes a 0–8 MHz setting. Use `0` for automatic bandwidth matched
+to the sample rate.
 
-**Direct sampling** is available on every board except the RTL-SDR Blog V4. That board reaches HF
-through an upconverter in front of the tuner rather than a tuner bypass, so tune below 28.8 MHz
-with no setting changed.
+**Direct sampling.** This is available except on RTL-SDR Blog V4 boards. The V4 uses an upconverter
+for HF; tune below 28.8 MHz without changing the direct-sampling setting.
 
 ## HackRF
 
@@ -158,8 +152,7 @@ Three gain stages and one switch:
 | `AMP` | the switched +14 dB RF amplifier, rendered as a switch |
 | `bias_tee` | phantom power on the antenna port |
 
-`AMP` is modelled as a gain stage rather than a plain boolean so that it appears in the gain
-budget with the other two.
+`AMP` appears as a switch and contributes to the displayed total gain.
 
 ## SDRplay
 
@@ -171,9 +164,9 @@ redistributed, so you install it yourself:
    newer is required.
 2. Plug in the RSP. It appears in the device list.
 
-sdr-- resolves the vendor library at runtime from wherever the installer put it — `/usr/local/lib`
-on Linux and macOS, `C:\Program Files\SDRplay\API` on Windows. It is never linked and never
-bundled, so a machine without it simply lists no RSP. `sdrmm --doctor` reports what it found under
+sdr-- loads the vendor library at runtime from the install location, usually `/usr/local/lib`
+on Linux and macOS or `C:\Program Files\SDRplay\API` on Windows. The library is not bundled.
+Without it, no RSP appears in the device list. `sdrmm --doctor` reports the result under
 **SDRplay API**.
 
 The API also runs a background service (`sdrplay_apiService`). If the service is stopped, the
@@ -222,13 +215,12 @@ come from the same document.
 
 ## Dragon Labs CR-8
 
-The CR-8 is an eight-channel receiver whose lanes share a clock and a synthesizer, so it arrives
-as one radio with eight `phase_coherent` lanes: one Device node, `iq` through `iq8`, and no
-[Array node](user-guide/arrays.md). Everything above the device layer — calibration, direction
-finding, the beam, passive radar — works on it unchanged.
+The CR-8 provides eight `phase_coherent` lanes sharing a clock and synthesizer. Add one Device
+node and use `iq` through `iq8`; no Array node is needed. These lanes support calibration,
+direction finding, beamforming, and passive radar.
 
-Its vendor library is loaded at runtime and never linked, exactly like the SDRplay API. Without it
-installed, no CR-8 is found and nothing else is affected. `sdr-- doctor` says whether it loaded.
+The vendor library is loaded at runtime and must be installed separately. Run `sdrmm --doctor`
+to check whether it loaded. Without it, no CR-8 is discovered.
 
 | Setting | Behaviour |
 |---|---|
@@ -239,8 +231,7 @@ installed, no CR-8 is found and nothing else is affected. `sdr-- doctor` says wh
 
 If the library is somewhere the loader will not look, point `SDRMM_DLCR_LIBRARY` at it.
 
-The tuning range sdr-- reports for the CR-8 is taken from the receiver's documentation rather than
-from its SDK, which carries no range at all.
+The reported CR-8 tuning range comes from its documentation; the SDK does not expose that range.
 
 ## Before an unattended deployment
 

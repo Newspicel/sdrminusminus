@@ -41,46 +41,38 @@ The server reports the exact catalog for the running build; this is the current 
 | Utility | Signal identifier, Iridium bursts, DECT base station survey | fixture-only |
 | Utility | GNSS lab (GPS L1 C/A) | experimental |
 
-Coverage varies by protocol. A listed mode means the signal path and the documented frame layers
-are implemented; it does not mean every optional signalling service, trunking system or vendor
-extension is supported. The [feature roadmap](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md)
-records known gaps.
+Coverage varies by protocol. The catalog lists implemented signal paths, but optional services,
+trunking variants, and vendor extensions may be unsupported. Check the mode-specific limits below.
 
 ## What the maturity labels mean
 
-| Label | What it means |
+| Label | Evidence |
 |---|---|
-| **tested on air** | Decoded live from a real transmitter, through the whole stack from the receiver to the decoder log. |
-| **fixture-only** | Decodes a golden IQ fixture rendered by sdr--'s own modulator, plus the worked examples the standard publishes. The frame layers are proven; the receiver has not been held against a real transmitter. |
-| **experimental** | Acquisition, lock, or measurement only — no payload decoded — or a lab implementation rather than an operational one. |
+| **tested on air** | Verified with a real transmitter through the receiver and decoder integration |
+| **fixture-only** | Tested with generated IQ and, where available, published reference vectors; this integration has not been verified on air |
+| **experimental** | Partial acquisition, decoding, or measurement support; not an operational receiver for the full service |
 
-Most decoders are fixture-only. A fixture proves that the decoder undoes what our own modulator
-did, which catches real bugs but says nothing about transmitter drift, keying transients,
-adjacent-channel splatter, or multipath. Treat a fixture-only mode as a decoder that should work
-rather than one that is known to.
+Generated fixtures catch decoding errors, but do not establish tolerance to transmitter drift,
+keying transients, adjacent-channel interference, or multipath. Most decoders have only this coverage.
 
-Two of the on-air modes also carry a committed capture, so the proof survives as a regression
-test. DMR reads `dmr_call_48k`, a direct-mode call on PMR446 captured with an RTL-SDR, which is
-the only signal in the tree that keys off between bursts the way a real TDMA transmitter does.
-FreeDV 1600 reads the FreeDV project's own receive test recording. The rest were confirmed against
-live traffic — broadcast FM with its RDS station identity, ADS-B aircraft with solved positions,
-and commercial POCSAG paging — but a capture of that traffic is not redistributable, so it is not
-committed.
+Committed recordings add regression coverage for DMR, ADS-B, FreeDV 1600, and a busy FT8 slot.
+Their origins and expected output are listed in the
+[fixture library](https://github.com/Newspicel/sdrminusminus/blob/main/fixtures/README.md).
+A recording test does not necessarily verify the whole live receive path, and a maturity label
+applies only to the services tested.
 
-Where a standard publishes worked examples — ADS-B position and identification frames, the APRS
-compressed-position examples, the CCIR 476 alphabet, the radio-clock golden minutes — the decoders
-are checked against those too, but a published vector is still not a transmitter.
+Some decoders also use worked examples from their standards, including ADS-B frames, APRS compressed
+positions, CCIR 476 characters, and radio-clock minutes. Iridium tests use an off-air bit sequence
+with a synthetic waveform, which tests real framing but not real RF conditions.
 
-Iridium is a middle case: its test replays a bit sequence taken off the air, re-modulated by the
-project's own transmitter, so the framing is real traffic while the waveform is synthetic. VDL
-Mode 2, HFDL, Inmarsat Classic Aero, Inmarsat STD-C and Digital Selective Calling use decoders
-from the [xng](https://github.com/airframesio/xng) project, which are exercised against real
-traffic upstream; the label describes this integration, not that work.
+VDL Mode 2, HFDL, Inmarsat Classic Aero, Inmarsat STD-C, and Digital Selective Calling use decoders
+from [xng](https://github.com/airframesio/xng). Their labels describe the sdr-- integration,
+separately from upstream testing.
 
 ## ISM sensors
 
-A Sub-GHz channel reads named sensor payloads as well as raw frames. Ten devices are recognised
-across five pulse codings:
+A Sub-GHz channel decodes known sensor payloads and displays raw frames for other signals.
+Supported devices are grouped by pulse coding:
 
 | Coding | Devices |
 |---|---|
@@ -90,58 +82,47 @@ across five pulse codings:
 | Pulse code (FSK) | Ambient Weather WH31E, Renault TPMS, Toyota TPMS |
 | Differential Manchester | WT450-TH |
 
-Beyond temperature and humidity a reading can carry soil moisture, wind speed and direction,
-rainfall, tyre pressure, and power, so a weather mast, a soil probe and a tyre sensor all land in
-the same decoder log. Two of the tyre sensors stack a second coding on top of their bits —
-Manchester for the Renault, differential Manchester for the Toyota — which is undone after
-framing, the way the flexible decoder in rtl_433 expresses it.
+Readings can include temperature, humidity, soil moisture, wind speed and direction, rainfall,
+tyre pressure, and power. Renault TPMS adds Manchester coding after framing; Toyota TPMS adds
+differential Manchester.
 
-Each device is matched on its own pulse timings, then accepted only if its checksum, digest or
-parity closes, so an unrecognised burst still falls through to the raw timing view rather than
-being reported as a reading. FSK sensors clock at 55-58 µs a bit, which is finer than the
-default minimum pulse width the channel debounces at; the default is set low enough to admit
-them.
+The decoder checks pulse timings and the device's checksum, digest, or parity before reporting
+a reading. Unrecognised bursts remain available in the raw timing view. FSK sensors use bit periods
+of 55–58 µs; the default minimum pulse width admits these signals.
 
-The pulse slicers, ISM sensor payload layouts, their validation heuristics, and the CRC and LFSR
-digest routines those layouts check with follow [rtl_433](https://github.com/merbanan/rtl_433)
-(GPL-2.0-or-later), which documents the pulse timings and field positions each of these sensors
-transmits.
+Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines follow
+[rtl_433](https://github.com/merbanan/rtl_433), licensed GPL-2.0-or-later.
 
-The wideband digital channels stop below the media. DAB reads the FIC and the MSC and hands over
-CRC-checked DAB+ access units; DATV reads DVB-S and DVB-S2 down to transport packets and a
-programme table, or to whole datagrams where the carrier holds a generic stream instead. None of
-them produce sound or pictures: the audio and video codecs above them are not implemented. DRM is
-still acquisition only — it reports waveform lock, SNR and frequency error, and reads no FAC, SDC
-or MSC at all, so a missing service label there means the multiplex was not decoded rather than
-that the station has no name.
+## Experimental mode limits
 
-The GNSS lab acquires GPS L1 C/A and reads NAV telemetry for study; it is not a positioning
-receiver. VOR and ILS report a radial and a difference in depth of modulation rather than decoding
-a frame, and both are so far checked only against analytically generated signals.
+| Mode | Available output | Missing or limited functionality |
+|---|---|---|
+| DAB / DAB+ | FIC and MSC decoding, CRC-checked DAB+ access units | No audio codec or playback |
+| DATV | DVB-S/S2 transport packets and programme tables, or generic-stream datagrams | No audio or video codec output |
+| DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
+| GNSS lab | GPS L1 C/A acquisition and NAV telemetry | No position solution |
+| VOR / ILS | Radial or difference in depth of modulation | Tested only against analytically generated signals |
 
-An off-air capture that promotes a mode to *tested on air* is among the most useful contributions
-the project can receive. Keep it to a few seconds, stripped to the band of interest, and pair it
-with the decoded output it should produce — see
-[Build and test](../development/building.md) and the
+To add on-air coverage, contribute a short IQ capture restricted to the relevant band, with its
+expected decoded output. See [Build and test](../development/building.md) and the
 [contribution guide](https://github.com/Newspicel/sdrminusminus/blob/main/CONTRIBUTING.md).
 
 ## Pager text
 
-POCSAG carries an alphanumeric page as seven-bit characters, and networks outside the English
-speaking world put their own letters where ASCII keeps brackets. German networks follow DIN 66003:
-`[`, `\` and `]` carry Ä, Ö and Ü, and `{`, `|`, `}` and `~` carry ä, ö, ü and ß. There is no
-setting for it. A page is read as German when those code points sit inside a word, next to a
-lowercase letter — `M}nchen`, `Stra~e` — and is left as plain ASCII otherwise, so a dispatch that
-really means `[ALARM]` keeps its brackets. A page written entirely in capitals offers nothing to
-judge by and stays ASCII.
+POCSAG uses seven-bit characters. Some German networks use DIN 66003, which replaces ASCII
+brackets and related punctuation with umlauts and ß.
+
+sdr-- applies this mapping when the affected character appears inside a word beside a lowercase
+letter: `M}nchen` becomes `München`, and `Stra~e` becomes `Straße`. Otherwise it keeps ASCII, so
+`[ALARM]` retains its brackets. Entirely uppercase pages remain ASCII. There is no manual setting.
 
 ## Sample rate and passband
 
 A channel's occupied band must fit inside its source device's current passband. If it does not,
 move the channel closer to center, raise the device sample rate, or retune the device.
 
-Most channels are resampled to whatever rate they prefer, so the device rate does not matter. A few
-decode the device's own samples and constrain it:
+Most channels resample device IQ to their processing rate, provided their occupied band fits in
+the device passband. The following channels process samples at the device rate and require:
 
 | Channel | Required device rate |
 |---|---|
@@ -167,16 +148,14 @@ current sample rate cannot reach are rejected, and the reachable span is shown b
 Audio channels can gate their output with squelch. A lower threshold opens more easily; turning
 squelch off passes audio continuously.
 
-**Auto** hands the threshold to the channel: it measures the channel's own noise floor and holds
-the gate a chosen number of decibels above it, so a quiet channel and a noisy one are configured
-the same way. The level meter draws a notch where the gate currently sits. Two limits are worth
-knowing:
+**Auto** sets the threshold a chosen number of decibels above the channel's measured noise floor.
+The level meter marks the current threshold.
 
-- The floor is learned while the channel is quiet. A channel that is never quiet has no floor to
-  find, so the gate only opens on something louder than what is already there.
-- The floor is never raised while the gate is open, so a long transmission cannot squelch itself.
+The channel learns the noise floor during quiet periods. A continuous signal may be mistaken for
+the floor, requiring a stronger signal to open the gate. Once the gate opens, the floor cannot rise
+and suppress a long transmission.
 
-The manual threshold is kept, and the gate returns to it when auto is switched off.
+Disabling Auto restores the saved manual threshold.
 
 NFM adds tone squelch:
 
@@ -184,39 +163,33 @@ NFM adds tone squelch:
 - **CTCSS** opens only for a selected standard tone.
 - **DCS** opens only for a selected standard code.
 
-**Compander** expands the audio 2:1 about a fixed reference, undoing the 2:1 compression that
-commercial and trunked NFM gear applies before it transmits. Every decibel a quiet passage sat
-below the reference on the air is turned back into two, which puts the hiss between syllables back
-down where the transmitter's compressor found it. Turn it on only for a link that is actually
-compandered: on plain NFM it widens the dynamic range that was never narrowed, so quiet speech
-falls away. The same switch compresses on transmit, so two channels set the same way are a matched
-pair. Expansion stops 20 dB below the reference, and the sub-audible tone is kept out of the level
-the expander follows whether or not tone squelch is in use.
+**Compander** applies 2:1 audio expansion to receive signals transmitted with matching compression.
+Enable it only for a companded NFM link; ordinary NFM speech can become too quiet with expansion.
+The corresponding transmit setting applies compression. Expansion stops 20 dB below the reference
+level, and sub-audible tones are excluded from level tracking.
 
 ## Audio processing
 
-Every channel that produces audio has the same processing chain in its **Audio** block. All of it
-is off by default except AGC on AM and SSB, which have no levelling of their own.
+Audio channels share an **Audio** block. Processing is off by default except for AGC on AM and SSB.
+The stages run in the order shown below.
 
-| Stage | What it does |
+| Stage | Effect and controls |
 |---|---|
-| **AGC** | Levels audio to a fixed target at one of three speeds. *Slow* suits SSB speech, *fast* suits tuning across a band, *medium* is a reasonable default. |
-| **Blanker** | Cuts impulse noise — ignition, switching supplies — out of the IQ before the channel filter, while a pulse is still a pulse. The threshold is a multiple of the channel's average level: lower blanks more, and low enough blanks the signal too. |
-| **De-click** | Removes impulses created after the demodulator: FM discriminator clicks and the static crashes an AM or SSB detector passes through. A sample must stand out both from the audio's level and from its neighbours before it is replaced, so loud speech is left alone. The click width is set per mode and is not a control. |
-| **Denoise** | Spectral noise reduction. It tracks what each part of the spectrum does at its quietest, decides bin by bin whether anything is speaking over that, and holds down the rest. Strength sets how far a quiet bin may be pulled: nothing at 0, 20 dB at 100. It gives up gain gradually rather than in steps, so what is left sounds like steady hiss instead of the warbling that a hard subtraction leaves behind. Anything genuinely unchanging counts as noise, including an unbroken carrier. |
-| **Auto notch** | Removes steady carriers, such as an adjacent heterodyne, without being told where they are. Several at once cost no more than one. |
-| **Passband** | A low and high cut on the audio. Narrow it until only the voice is left. |
-| **Notches** | Up to four operator-placed nulls, each with its own frequency and width. A narrow one removes a whistle and leaves the voice around it. |
+| **Blanker** | Removes IQ impulses before the channel filter. Lower thresholds remove more impulses but can also damage the wanted signal. |
+| **De-click** | Removes short audio impulses after demodulation. Detection compares each sample with the surrounding level and neighbours; width is set by mode. |
+| **Passband** | Sets low and high audio cutoffs. Narrow the range to the audio you need. |
+| **Notches** | Removes up to four selected frequencies, each with an adjustable width. |
+| **Auto notch** | Suppresses steady carriers without manual frequency selection. |
+| **Denoise** | Tracks the noise floor in each spectral bin and attenuates bins without a detected signal. Strength ranges from no attenuation at 0 to 20 dB at 100. Continuous carriers can be treated as noise. |
+| **AGC** | Levels audio. Slow suits SSB speech, fast suits tuning, and medium provides an intermediate response. |
 
-The chain runs in that signal order: blanker on the IQ, then de-click, passband, notches, auto
-notch, denoise and AGC on the audio. Impulses are removed first, because a filter turns one into
-ringing.
+The blanker runs on IQ; the remaining stages run on audio. Removing impulses before filtering
+reduces the ringing they would otherwise cause.
 
 ## Slow-scan television
 
-An SSTV picture scans out over 36 seconds to four and a half minutes, so the channel behaves more
-like a video source than a log line. Tune it as you would any audio-band mode: put the dial on the
-SSB carrier, and the channel takes the 1000–2600 Hz above it where the video subcarrier lives.
+An SSTV picture takes 36 seconds to four and a half minutes to receive, depending on mode.
+Tune to the SSB carrier; the channel processes the 1000–2600 Hz video subcarrier above it.
 
 A transmission names its own mode in the VIS header that precedes it. **Follow VIS**, the default,
 reads that header and recognizes Robot 36 and 72, Martin M1 and M2, Scottie S1, S2 and DX, PD50,
@@ -237,10 +210,9 @@ store holds 24 hours of pictures, capped at 512 of them.
 
 ## Surveying a DECT network
 
-The `dect` channel listens to one DECT carrier and reports what the base stations on it say about
-themselves. It reads the A-field of every burst — the 64-bit control field each slot carries
-alongside its traffic — and never touches the B-field, so it recovers identity, configuration and
-security posture but no call audio and no user data.
+The `dect` channel surveys base stations on one DECT carrier. It reads the 64-bit A-field in each
+burst for identity, configuration, and authentication or ciphering signalling. It does not decode
+the B-field containing call audio and user data.
 
 A DECT carrier is 1.728 MHz wide and the channel runs at 2.304 MHz, so the receiver needs at least
 that much bandwidth and must reach the band: 1880–1900 MHz in Europe, 1920–1930 MHz in the US.
@@ -272,34 +244,29 @@ several base stations sharing one carrier stay apart, and folds each one into a 
   keyed variant.
 - **Handsets** — the PMIDs seen in encryption handshakes, plus the FMID of the fixed part.
 
-Every A-field is checked against the R-CRC before anything is believed, and bursts that fail are
-counted rather than dropped quietly — the burst and error counts sit next to each station.
+Each A-field must pass its R-CRC check. Burst and error counts appear beside each station.
 
-A base that advertises ciphering is not necessarily using it, and a base that advertises neither is
-sending its calls in the clear. That distinction is the point of the survey: the capability bits
-say what the equipment can do, the encryption state says what it did.
+Advertised ciphering support does not establish whether a call uses encryption. The reported
+encryption state follows observed request, confirm, and grant messages; missing signalling is
+not proof that a call is unencrypted.
 
 ## Following a DMR trunk system
 
-The **DMR trunk system** node turns a control channel into the traffic channels it grants. Wire a
-radio's `iq` output into it, name the control channel in MHz, and choose the system type, or leave
-it on auto-detect and let the signalling identify itself. The node runs its own decoders, so no DMR
-channel has to be drawn for it.
+Add a **DMR trunk system** node, connect a Device's `iq` output, and enter the control-channel
+frequency in MHz. Select a system type or use auto-detect. The node manages its own DMR decoders.
 
-| System | How it is followed |
+| System | Channel discovery |
 |---|---|
-| Tier III (including Capacity Max) | Logical channels are learned from the system's own channel definitions; a receiver opens when a voice grant names one. |
-| Capacity Plus | No frequency is granted, so every repeater output is itself a traffic channel. List them under **Repeater outputs**, or turn on **Search** and let the node find them: a carrier that names the same rest channel as the one you pointed it at, and moves to the next one with it, is another repeater of the same system. Both timeslots of each are followed. |
-| Hytera XPT | As Capacity Plus, using XPT's own signalling. |
+| Tier III, including Capacity Max | Learns logical channel definitions and opens traffic channels named in voice grants |
+| Capacity Plus | Uses **Repeater outputs**, or **Search** to find carriers that announce and follow the same rest-channel changes; follows both timeslots |
+| Hytera XPT | Uses the same approach as Capacity Plus with XPT signalling |
 
-The receivers it opens belong to the server, not to the patch, so following continues while no
-browser is connected. They obey the same passband rule as any other channel: a traffic channel
-outside the radio's current sample rate cannot be opened, and the node says so rather than failing
-quietly. Widen the sample rate, retune so the traffic channels fall inside it, or give the system a
-second radio.
+Following runs on the server even when no browser is connected. Traffic channels must fit in the
+source radio's passband. If a grant falls outside it, the node reports the failure. Increase the
+sample rate or retune to include the required frequencies.
 
-With **Record calls** on, completed calls are buffered in memory, audio included. Encrypted
-transmissions keep only their metadata. Turn it off to follow traffic without buffering any audio.
+Enable **Record calls** to buffer completed calls and their audio in memory. Encrypted calls retain
+metadata only. Disable it to follow traffic without buffering audio.
 
 ## Where decoder output goes
 

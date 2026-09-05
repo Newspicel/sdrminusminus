@@ -1,8 +1,7 @@
 # Understand the workspace
 
-A workspace is a saved receiver bench. Its patch records which devices and processing nodes you
-want, how they are connected, where they are placed, which faces are pinned to the rack, and which
-regional band plan is active.
+A workspace saves your receiver setup: nodes, connections, positions, rack layout, and regional
+band plan.
 
 ## Patch and rack
 
@@ -10,7 +9,7 @@ The **Patch** view is where you build and troubleshoot signal flow. Ports are ty
 only permits meaningful connections: IQ feeds channels, scopes, and recorders; audio feeds a
 speaker; decoder events feed maps, readouts, logs, and exports; scanner control drives a device.
 
-The **Rack** view is an operating surface for the nodes you use most. Select a node and press `p`
+The **Rack** view collects the controls and displays you use most. Select a node and press `p`
 to pin or unpin it. Moving or resizing a face on the rack does not change its signal connections.
 
 ## Node types
@@ -19,39 +18,39 @@ to pin or unpin it. Moving or resizing a face on the rack does not change its si
 |---|---|---|
 | Sources | Device, GPS position | Radio IQ or a live station position |
 | Decoders | AM, NFM, WFM, SSB, ADS-B, DMR, and the rest of the channel catalog | Select and process one signal from device IQ |
-| Tools | Array, Direction finder, Passive radar, Combiner, Scanner, Signal hunt, DMR trunk, Event filter, Triangulation | Drive a radio, combine several, or work over what the decoders report |
-| Outputs | Scope, Map, Signal survey, Readout, Decoder log, Video, Speaker, Recorder, Audio recorder, Baseband recorder, Time machine, Network IQ, Export | Watch it, hear it, or write it out |
+| Tools | Array, Direction finder, Passive radar, Combiner, Scanner, Signal hunt, DMR trunk, Event filter, Triangulation | Control radios, process arrays, or filter decoder events |
+| Outputs | Scope, Map, Signal survey, Readout, Decoder log, Video, Speaker, Recorder, Audio recorder, Baseband recorder, Time machine, Network IQ, Export | Display, play, record, or export signals and events |
 
-The server supplies the palette and channel catalog. If a build gains or loses a backend or
-channel type, the interface follows it rather than maintaining a second hard-coded catalog.
+The server supplies the node palette and channel catalog, so the interface shows the options
+available in the running build.
 
 ## Live position wiring
 
-Position is a typed stream in the patch, not a workspace setting. Add a **GPS position** node and
-pick a source on its face the way a Device node picks a radio; **Forget source** hands the node
-back to the picker. Wire its **position** output only to the consumers that need it:
+Add a **GPS position** node and select a source. Sources read by the server use hardware or network
+endpoints reachable from the server machine. Browser location uses the device displaying the UI.
 
-- The **receivers listed** are the serial devices detected on the machine running the `sdrmm`
-  server, searchable by path or by what the receiver calls itself. The node reads checked GGA and
-  RMC sentences from the one chosen. Baud and the maximum live update rate are configurable once
-  it is picked; the rate limits published fixes because NMEA receivers push sentences rather than
-  being polled. **Receiver not listed?** takes a path for devices the operating system does not
-  enumerate. The device is on the server machine, not the machine displaying a remote browser.
-- **This device's location** uses the browser or desktop WebView's own location provider, and is
-  offered only where that provider exists. The application requests high-accuracy, continuously
-  updated fixes.
-- **GPS on the network?** connects to a gpsd JSON endpoint. The default is `127.0.0.1:2947`.
-- **Receiver that never moves?** takes a latitude and longitude typed in once, for a station that
-  runs no GPS at all.
+| Choice | Source |
+|---|---|
+| Listed receiver | A detected serial NMEA receiver, searchable by path or device name |
+| **Receiver not listed?** | A manually entered serial device path |
+| **This device's location** | Browser or desktop WebView location, where available |
+| **GPS on the network?** | A gpsd JSON endpoint; default `127.0.0.1:2947` |
+| **Receiver that never moves?** | Fixed latitude and longitude |
 
-An ADS-B position input supplies the moving local CPR reference without writing each fix into its
-channel settings. A map position input draws the current station, its bounded route, and a heat
-map of the places visited. The GPS face shows the current six-character Maidenhead grid locator.
-A recorder position input writes latitude, longitude, altitude, and fix time into SigMF capture
-segments while IQ is recorded. One GPS output can fan out to all of these consumers.
+For serial sources, configure baud rate and maximum published update rate after selecting the
+receiver. The node validates GGA and RMC sentences. The update limit controls publication of fixes;
+NMEA receivers send sentences without polling. Browser location requests continuous high-accuracy
+updates. **Forget source** returns to the source picker.
 
-When a provider loses its fix, its node reports the reason and consumers stop using the previous
-coordinate. Reconnects are automatic for gpsd and NMEA serial sources.
+Connect `position` to the nodes that need it:
+
+- **ADS-B** uses it as the local CPR position reference.
+- **Map** shows the station position, recent route, and visited-location heatmap.
+- **Recorder** writes latitude, longitude, altitude, and fix time into SigMF capture segments.
+
+One position output can feed several nodes. The GPS display also shows a six-character Maidenhead
+locator. When a source loses its fix, the node reports why and consumers stop using the stale
+coordinate. Serial and gpsd sources reconnect automatically.
 
 ## Drive a signal survey
 

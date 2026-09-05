@@ -15,7 +15,7 @@ sdrmm [OPTIONS]
 | `--db <PATH>` | Platform data directory | SQLite database for workspaces, presets, bookmarks, recording index, and decoder log |
 | `--recordings-dir <PATH>` | Platform data directory | Directory containing SigMF recording pairs |
 | `--token <TOKEN>` | None | Require one shared bearer token for API, WebSocket, and MCP requests |
-| `--routing-backend <NAME>` | `open-route-service` | Which routing service field mode's turn-by-turn proxies to: `open-route-service` or `graph-hopper` |
+| `--routing-backend <NAME>` | `open-route-service` | Routing service: `open-route-service` or `graph-hopper` |
 | `--routing-url <URL>` | The backend's own service | Base URL, for a self-hosted instance |
 | `--routing-key <KEY>` | None | API key for that service |
 | `--dev-cors` | Off | Allow a separate frontend development origin |
@@ -23,9 +23,8 @@ sdrmm [OPTIONS]
 | `--help` | | Show CLI help |
 | `--version` | | Show the build version |
 
-Relative database and recording paths are resolved to absolute paths when the server starts. For
-services and containers, explicit absolute paths make backups and permissions easier to reason
-about.
+Relative database and recording paths are resolved at startup. Use absolute paths for services
+and containers so storage does not depend on the working directory.
 
 ## Persistent data
 
@@ -99,16 +98,15 @@ read-only roles, and every authenticated client can change the active receiver.
 
 ## Turn-by-turn routing
 
-[Field mode](../user-guide/field-mode.md) can draw a driving route to whatever the direction
-finding is pointing at. Routes come from an online service, proxied through the server so the key
-stays here: it goes out in an `Authorization` header and never reaches the browser or a URL.
+[Field mode](../user-guide/field-mode.md) can request driving routes to direction-finding waypoints.
+The server proxies requests to OpenRouteService or GraphHopper and sends the API key in an
+`Authorization` header. The key is not sent to the browser or included in URLs.
 
-Both supported backends are OpenStreetMap-based, so the geometry they return may be drawn on any
-map. `--routing-key` alone is enough for the hosted service; add `--routing-url` for a self-hosted
-one.
+Set `--routing-key` for the hosted backend. Use `--routing-backend` to choose the service and
+`--routing-url` for a self-hosted instance.
 
-Set none of it and nothing breaks: field mode falls back to heading guidance and the phone's own
-navigation app, and says which it is doing.
+Without a configured or reachable backend, field mode reports that routing is unavailable and
+uses heading guidance. The phone's navigation app remains available through **Navigate in Maps**.
 
 ## Development CORS
 

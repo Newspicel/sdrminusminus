@@ -15,11 +15,9 @@ the installer for your platform from [GitHub Releases](https://github.com/Newspi
 | Windows | `.msi` and `.exe` installers |
 
 The app starts its receiver server on a private loopback port and opens the interface in a native
-window. Desktop installers include a private SoapySDR runtime and the supported hardware modules,
-so installing a second system-wide copy of SoapySDR is unnecessary. SDRplay receivers need one
-extra step: their vendor API is licensed for genuine SDRplay hardware and is installed from
-[the SDRplay downloads page](https://www.sdrplay.com/downloads/), not by this installer — see
-[SDRplay receivers](../hardware.md#sdrplay).
+window. Desktop installers include SoapySDR and the supported hardware modules. SDRplay receivers also
+require the separately installed vendor API; see [SDRplay receivers](../hardware.md#sdrplay).
+CR-8 receivers need the [vendor library](../hardware.md#dragon-labs-cr-8).
 
 ## Portable server
 
@@ -33,8 +31,9 @@ from another browser. Unpack the archive and run:
 The server listens on every interface at port `8080` by default. Open `http://<server>:8080` from
 a browser on the same network.
 
-Portable archives use the host's SoapySDR 0.8 runtime. Install the core library and the module for
-your receiver before starting sdr--. Run `sdrmm --doctor` to confirm what the binary can see.
+Portable archives require the host's SoapySDR 0.8 runtime. Receivers handled through SoapySDR also
+need their hardware module; native drivers do not. Run `sdrmm --doctor` to check available drivers
+and devices.
 
 ## Homebrew
 
@@ -71,7 +70,7 @@ packages for each system. From a checkout, the following creates `result/bin/sdr
 nix --extra-experimental-features 'nix-command flakes' build
 ```
 
-The package links to Nixpkgs' SoapySDR core but deliberately bundles no hardware modules. On NixOS,
+The package links to Nixpkgs' SoapySDR core and bundles no SoapySDR hardware modules. On NixOS,
 select the modules and device permissions in your system configuration. For example, with this
 repository declared as the `sdrminusminus` flake input:
 
@@ -121,9 +120,8 @@ updates to stable installations.
 
 ## Build from source
 
-Building is the right choice when you are contributing, need a specialized backend selection, or
-want to package sdr-- for another environment. Follow [Build and test](../development/building.md)
-for the complete toolchain and commands.
+To contribute, choose a custom set of backends, or package another platform, follow
+[Build and test](../development/building.md).
 
 ## Next step
 

@@ -53,12 +53,10 @@ volumes:
 ipc: host
 ```
 
-`ipc: host` is the part that is easy to miss: the API reaches `sdrplay_apiService` through POSIX
-shared memory, so a container with its own IPC namespace fails to open the API even though the
-library is right there. It is also the part to think about twice: sharing the host IPC namespace
-drops that isolation for the whole container, which reaches every other host IPC object as well.
-Use it only where the image and the host are both trusted, never for a multi-tenant deployment. Without the API at all no RSP is listed, and every other radio works as
-before.
+`ipc: host` lets the library communicate with `sdrplay_apiService` through POSIX shared memory.
+Without it, the API cannot open even when its library is mounted. This also exposes the host's
+other IPC objects to the container, so use it only with a trusted image and host, outside
+multi-tenant deployments. If the API is missing, no RSP appears; other drivers still work.
 
 ### Data and authentication
 

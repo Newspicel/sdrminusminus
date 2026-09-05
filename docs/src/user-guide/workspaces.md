@@ -1,97 +1,79 @@
 # Workspaces, templates, and presets
 
-sdr-- provides several ways to save receiver state. They overlap deliberately, but each answers a
-different question.
+Choose what to save according to how much of the receiver you want to restore.
 
-| Tool | Saves | Best for |
+| Tool | Saves | Use for |
 |---|---|---|
-| Workspace | Patch, rack, device references and settings, band-plan choice | A complete operating bench |
-| Template | Built-in graph and radio configuration | Starting a common activity quickly |
-| Preset | A named snapshot of the current workspace and bound device settings | Returning to a known station setup |
-| Bookmark | A frequency and label | Tuning a selected device without replacing the graph |
+| Workspace | Patch, rack, device references and settings, band-plan choice | A complete receiver layout |
+| Template | Built-in graph and radio configuration | Setting up a common activity |
+| Preset | Named snapshot of a workspace and bound device settings | Restoring a tuned setup |
+| Bookmark | Frequency and label | Retuning a selected device |
 
 ## Workspaces
 
 Use the workspace name in the top bar to switch, create, or delete workspaces. The first workspace
-on a new database includes a starter Device, Scope, and Speaker. Later workspaces begin empty.
+in a new database contains a Device, Scope, and Speaker. Later workspaces start empty.
 
-Workspace changes are saved on the server, including node position, rack layout, and regional band
-plan. One workspace is active at a time across every connected client.
+Changes are saved on the server, including node positions, rack layout, and band-plan region.
+All connected clients share one active workspace.
 
 ### Export and import
 
-The ↓ button beside a workspace in the menu downloads it as a JSON file: its name, the patch and
-rack it draws, the band-plan choice, and the settings each node was left on. Nothing server-local
-travels with it — no id, revision, or undo history — so the file describes a bench rather than one
-database's row.
+The ↓ button beside a workspace downloads a JSON file containing its name, patch, rack, band-plan
+choice, and node settings. The file excludes the database ID, revision, and undo history.
 
-**Import a workspace file** reads one back. The import always lands as a new workspace and never
-overwrites the one you are on; a name already in use gains a copy number. The imported workspace
-becomes the active one, and the radios it names are opened where this machine has them. A radio it
-names that is not attached here is reported absent by the apply report, and the node waits for it —
-pick a different radio on the Device node to run the same bench on other hardware.
+**Import a workspace file** creates and activates a new workspace. It never overwrites an existing
+one; duplicate names receive a copy number. Available radios are opened with the imported settings.
+Missing radios appear in the apply report, and their Device nodes wait for them. Select a replacement
+radio to use different hardware.
 
-A file written by a newer build is refused rather than half-read, so the workspace you exported is
-the workspace you get back.
+Files from a newer, unsupported format version are rejected.
 
 ### Undo and redo
 
-The arrow buttons in the top bar step the workspace back through its changes, or forward again.
-`Ctrl`/`⌘ Z` and `Ctrl`/`⌘ Shift Z` do the same from the keyboard.
+Use the top-bar arrows, `Ctrl`/`⌘ Z`, or `Ctrl`/`⌘ Shift Z`. Each workspace stores its last 100
+layouts on the server, so undo and redo affect every connected client. Editing after undo discards
+the redo history.
 
-The history is stored with the workspace rather than in the browser, so every connected client
-shares one list: undoing in one window undoes for all of them, and a step another operator takes
-is the one your buttons offer next. Each workspace keeps its last 100 arrangements, and editing
-after an undo discards the steps that were ahead of it.
-
-A step brings the hardware with it. Undoing a change that added a channel closes that channel, and
-redoing it opens it again with the settings it had. Where a radio is tuned is not part of the
-history — undo restores what the workspace draws, not the dial.
+Undo also updates the running graph. Undoing an added channel closes it; redo recreates it with
+its saved settings. Radio tuning is excluded from this history.
 
 ### Copy and paste
 
-`Ctrl`/`⌘ C` copies the selected nodes on the patch, together with the wires that run between
-them. `Ctrl`/`⌘ V` pastes them beside the originals and selects the copies, so the next drag moves
-what was just pasted. Pasting again leaves a second copy rather than stacking one on the other.
+`Ctrl`/`⌘ C` copies selected nodes and the wires between them. `Ctrl`/`⌘ V` pastes and selects
+the copies beside the originals. Repeated pastes are offset so they remain separate.
 
-Wires leaving the selection are not copied — they name nodes the copy does not carry. A copied
-Device names no radio: a radio is opened once and belongs to one node, so choose the radio for the
-new Device node yourself. The clipboard lasts as long as the browser tab, so a chain copied from
-one workspace can be pasted into another.
+Connections to nodes outside the selection are excluded. A copied Device has no radio assigned;
+select one before using it. The clipboard lasts for the browser tab's lifetime and works across
+workspaces.
 
 ## Templates
 
-Open **Library → Templates** after selecting a Device node. A template retunes that radio, sets an
-appropriate sample rate, adds its channels, and merges the necessary displays or outputs into the
-workspace.
+Select a Device, then open **Library → Templates**. Applying a template immediately retunes that
+radio, sets its sample rate, and merges channels and compatible displays or outputs into the workspace.
+The apply button identifies the target radio.
 
-Built-in templates cover FM broadcast, civil airband, ADS-B, ACARS, AIS, APRS, POCSAG, NAVTEX,
-radio clocks, GNSS, 2 m amateur radio, marine VHF, PMR446, 70 cm digital voice, the 433 MHz ISM
-band, DAB blocks, and the 20 m HF digital, keyboard and SSTV segments. A template wires each of
-its channels only to the sinks that channel can feed, so a decoder that has no audio never lands
-on a speaker. The server disables templates that the selected radio cannot tune or sample
-correctly.
+Templates cover broadcast FM, airband, ADS-B, ACARS, AIS, APRS, paging, NAVTEX, radio clocks, GNSS,
+marine VHF, PMR446, digital voice, ISM, DAB, and common amateur bands. Templates that the selected
+radio cannot tune or sample are disabled.
 
-Applying a template changes live device and channel configuration immediately. The button names
-the target radio because this is not a preview: undo removes the nodes the template merged in, but
-the radio keeps the sample rate and tuning the template gave it.
+Undo removes the added nodes, but does not restore the radio's previous tuning or sample rate.
 
 ## Presets
 
-Create a preset after arranging and tuning a workspace you want to recall. Applying it reconciles
-the saved graph and device settings with currently attached radios. Durable device identities are
-used where possible, and the apply report explains anything that could not be restored.
+Save a preset after arranging and tuning a workspace. Applying it restores the graph and device
+settings using durable radio identities where available. The apply report lists anything that
+could not be restored.
 
-Presets are writable and local to the server database; templates are read-only and ship with the
-application.
+Presets are editable and stored in the server database. Templates are read-only and ship with the app.
 
 ## Bookmarks and band plans
 
-A bookmark records a useful frequency and label. Applying one tunes the selected Device without
-rebuilding the rest of the workspace.
+A bookmark saves a frequency and label. Applying it tunes the selected Device and keeps the graph.
 
-The **Bands** section searches the active regional allocation data. Set the region from the
-workspace menu and choose whether Scope nodes draw the allocation ruler. Hovering the ruler names
-what is allocated under the pointer; clicking it tunes there, with the band's usual mode when the
-plan knows one. Automatic location detection requires HTTPS or localhost because browsers block
-geolocation on an insecure LAN origin; choosing the region manually always works.
+**Bands** searches the active regional allocation data. Choose the region from the workspace menu
+and enable the allocation ruler on Scope nodes if needed. Hover over the ruler for allocation
+details; click to tune, using the band's usual mode when the data includes one.
+
+Automatic region detection uses browser location and requires HTTPS or localhost. You can always
+choose the region manually.

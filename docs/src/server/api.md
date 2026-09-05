@@ -1,8 +1,7 @@
 # API and automation
 
-The server exposes the same receiver state used by the web interface through REST, WebSocket, and
-MCP. The wire types live in one Rust crate and generate both the OpenAPI document and the
-TypeScript client, which keeps the three surfaces aligned.
+REST, WebSocket, and MCP control the same receiver as the web interface. Shared types in
+`crates/wire` define the API contract and generate OpenAPI schemas and TypeScript declarations.
 
 ## Interactive reference
 
@@ -66,8 +65,8 @@ tools can:
 - start or stop recordings;
 - query decoded history;
 - capture a spectrum snapshot;
-- list the bench tools this build carries;
-- cut an antenna for a frequency;
+- list available measurement tools;
+- calculate antenna dimensions for a frequency;
 - discover, interrogate, sweep, and calibrate a NanoVNA.
 
 Configure an MCP client for streamable HTTP at `http://<server>:8080/mcp` and attach the same

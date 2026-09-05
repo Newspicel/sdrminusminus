@@ -3,9 +3,8 @@
 Network IQ sends a live stream to another analysis program without first recording it.
 
 1. Add a **Network IQ** node.
-2. Wire either a Device `IQ` output into it — on a multi-stream radio, the chosen output selects
-   the exported stream — or a Channel `baseband` output. One node carries one or the other; the
-   canvas refuses both wires at once.
+2. Connect one Device `IQ` output or one channel `baseband` output. For multi-stream radios,
+   choose the lane to export. A node cannot accept both source types at once.
 3. Choose UDP or TCP, the sample encoding, and a `host:port` destination.
 4. Start the receiving tool first, then press **Start export**.
 
@@ -14,11 +13,9 @@ bytes, datagram/write count, capture overruns, and writer errors. The sample rat
 export is active because the raw stream has no in-band rate-change message. Retuning remains
 available; update the receiver's center-frequency setting after a retune.
 
-A channel's baseband is the same wire contract at a far lower rate: the channel's own samples,
-down-converted to the channel's center and filtered to its width, which is what makes a decoder
-in another program practical over a link that could never carry the whole radio. Each channel
-takes one export of its own, and it is independent of the device-wide export — a radio can send
-its full stream to one tool while one of its channels feeds another.
+Channel baseband uses the same format at the channel's lower sample rate, after frequency
+translation and filtering. This reduces network bandwidth when another tool only needs one signal.
+Each channel supports one export, independently of device-wide export.
 
 ## Wire contract
 
@@ -37,14 +34,14 @@ metadata file; the node reports the rate and center frequency separately.
 
 UDP uses payloads of at most 1,400 bytes, below a normal 1,500-byte Ethernet MTU after IP and
 UDP headers. Each datagram contains a whole number of complex samples. There is no sequence
-header, so a receiver should treat UDP as best-effort: sdr-- can report loss before the socket,
-but only the receiver can detect loss in the network. GNU Radio's **UDP Source** should use
+header, so the stream cannot reliably identify missing or reordered datagrams. sdr-- reports
+loss before the socket, but cannot report network delivery loss. GNU Radio's **UDP Source** should use
 header `None`, the matching data type, and a payload size of 1,400.
 
 TCP connects outward to the destination and writes one continuous byte stream. The receiving
 program must be listening before export starts. TCP avoids datagram loss and reordering, but a
 receiver that cannot keep up eventually fills the bounded export queue; sdr-- then stops the
-writer and surfaces the error rather than leaving an unmarked hole.
+writer and reports the error.
 
 ## Security
 
@@ -53,20 +50,14 @@ megabits per second. Keep the server restricted to trusted callers. In particula
 [shared token](../server/configuration.md#shared-token-authentication) and appropriate network
 access controls whenever the HTTP server is reachable beyond the local desktop.
 
-## Standards and conventions
+## Protocol compatibility
 
-There is no universal “raw IQ over UDP” standard. GNU Radio's network blocks deliberately let
-the two endpoints agree on item type, payload size, and an optional header. The contract above
-is the widely supported raw convention and is intentionally named as such.
+This output is raw IQ. Configure the receiving program with the same encoding, sample rate, and
+centre frequency; the stream carries no timestamps, stream IDs, or radio metadata.
 
-[VITA Radio Transport (VITA 49)](https://www.vita.com/page-1855484) is the formal packet family
-for samples plus stream identity, timestamps, and radio context. The current
-[DIFI standard](https://dificonsortium.org/standards/) is an interoperability profile of VITA
-49.2. sdr-- does not label this output VITA-49 or DIFI: a compliant stream needs context such as
-timing and calibrated reference-level information that many attached receivers do not expose.
-Adding a partial header would look standardized while still requiring proprietary receiver
-assumptions.
+It is not a [VITA 49](https://www.vita.com/page-1855484) or
+[DIFI](https://dificonsortium.org/standards/) stream. Receivers expecting either protocol need
+framing and context that this output does not provide.
 
-`rtl_tcp` is also not this TCP mode. It is a remote-radio protocol in which the client controls
-the source's tuning, rate, and gain; a push-only analysis sink cannot implement those semantics.
-sdr-- supports `rtl_tcp` separately when opening a network radio.
+It is also separate from `rtl_tcp`, which lets a client control a remote radio's tuning, sample
+rate, and gain. sdr-- supports `rtl_tcp` as a network Device source.

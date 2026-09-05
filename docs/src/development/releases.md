@@ -90,7 +90,7 @@ ghcr.io/newspicel/sdrminusminus:latest
 ```
 
 Nightlies update only the `nightly` tag. Image smoke tests run the binary, inspect Soapy modules,
-start the server, and verify that the embedded UI—not the build placeholder—is served.
+start the server, and verify that it serves the built frontend.
 
 ## Homebrew tap
 
@@ -106,12 +106,11 @@ cargo xtask homebrew-tap \
   --out ../homebrew-tap
 ```
 
-The digests come from the release's own `SHA256SUMS`; an artifact the release does not carry is an
-error rather than a formula pointing at a missing download. Publishing needs a `HOMEBREW_TAP_TOKEN`
-secret with write access to the tap. Without it the job skips and the release still ships.
+The generator reads digests from the release's `SHA256SUMS` and fails if a required artifact is
+missing. Updating the tap requires `HOMEBREW_TAP_TOKEN` with write access. Without that secret,
+the tap job is skipped while the release continues.
 
-Nightlies never reach the tap. Before pushing a change to what the generator writes, check it with
-Homebrew itself:
+The tap publishes stable releases only. Validate generator changes with Homebrew:
 
 ```sh
 brew style newspicel/tap

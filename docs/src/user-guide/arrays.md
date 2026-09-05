@@ -1,94 +1,78 @@
 # Coherent arrays
 
-Several antennas are worth more than one only if their samples belong to the same moment. What
-they share decides what you can measure, so sdr-- makes that a property of the radio rather than
-an assumption:
+An array processes samples from several antennas together. Direction finding and beamforming
+need stable phase relationships; passive radar needs aligned sample timing. The hardware's
+shared clocks determine which operations are available.
 
-| Tier | What the hardware shares | What it buys |
+| Tier | Shared hardware | Supported measurements |
 |---|---|---|
-| `phase_coherent` | Reference clock and synthesizer | Bearings, beamforming, and everything below |
-| `time_sync` | Reference clock only | Delay between elements: passive radar, and bearings only with a phase reference |
-| `none` | Nothing | Nothing coherent; a bank of separate receivers |
+| `phase_coherent` | Reference clock and synthesizer | Bearings, beamforming, combining, and passive radar |
+| `time_sync` | Reference clock | Passive radar; phase-dependent operations also need a calibration reference |
+| `none` | No shared reference | Independent reception only |
 
-A time-synced bank has a real, constant delay between its elements, but each retune leaves the
-phase between its tuners at a new random value. That is why bearings on such a bank need something
-known to solve against — an injected noise source, or a continuous pilot carrier named in the
-calibration settings. Without one the direction finder reports `phase unknown` and emits no
-bearings at all, rather than plausible ones that are wrong.
-
-Radios that do not share a reference clock drift apart continuously. They can be a bank of
-receivers; they can never be an array.
+Retuning a `time_sync` array changes the relative tuner phases. Use an injected noise source or
+a known pilot carrier to calibrate them. Without that reference, the direction finder reports
+`phase unknown` and produces no bearings. Receivers without a shared clock drift apart and cannot
+form a coherent array.
 
 ## Radios that are already an array
 
-A receiver whose lanes come out of one device — a Dragon Labs CR-8, an RSPduo in dual-tuner mode,
-a multi-channel SoapySDR device — needs nothing special. Add one **Device** node and wire its
-`iq`, `iq2`, `iq3`… outputs wherever they are going. The driver declares its own tier.
+For a multi-lane receiver such as a Dragon Labs CR-8, an RSPduo in dual-tuner mode, or a
+multi-channel SoapySDR device, add one **Device** node. Connect its `iq`, `iq2`, `iq3`… outputs
+to the processing nodes. The driver reports the receiver's coherence tier.
 
 ## Radios you wired together yourself
 
-Two or more separate receivers on a shared clock become one array with an **Array** node.
+Use an **Array** node for separate receivers connected to a shared clock.
 
-1. Add a **Device** node per radio and pick its receiver, as usual.
-2. Add an **Array** node and wire each radio's `iq` into one of its inputs. The array always draws
-   one input more than it has radios, so there is somewhere to put the next one.
-3. Set **Wired as** to what you actually cabled: shared clock, or shared clock and LO.
+1. Add a **Device** node for each radio and select its receiver.
+2. Set the radios to the same sample rate. For shared tuning, their centre frequencies must match.
+3. Add an **Array** node and connect each Device's `iq` output to an array input. A spare input
+   appears as you add members.
+4. Set **Wired as** to match the physical connections: shared clock, or shared clock and LO.
 
-The order of the inputs is the element numbering. If the antennas were cabled in a different order
-than you expected, move the wires rather than editing a list anywhere.
+Input order determines antenna element numbering. Move the wires if that order is wrong.
+Connect the Array's output lanes to a direction finder, combiner, channel, or recorder.
 
-The array hands every element back out as a lane on its own `iq` outputs. That is what a direction
-finder, a combiner, a channel or a recorder wires to.
+### Tuning and membership
 
-### What belongs to the array
+Once connected, change frequency and sample rate through the Array node to keep its members
+consistent. Independently tuned arrays have a frequency control for each lane. Disconnect the
+array before scanning or hunting.
 
-Each Device node opens its own radio. The Array node combines those already-running IQ streams;
-it never opens or replaces a radio. Existing channels, recordings, and scopes on the Device nodes
-keep running when an array is connected or removed.
+Each Device node retains its radio and existing channels, scopes, and recordings. Removing the
+Array leaves those running. Removing a member removes the dependent array. If a member disconnects,
+the array reports a fault and reconnects its streams when all members recover.
 
-Set the member radios to the same sample rate before connecting them. With shared tuning, their
-centre frequencies must also match. Once connected, change frequency and sample rate through the
-Array node so its members stay consistent. Independently tuned arrays expose one frequency per
-lane. Scanning and hunting require disconnecting the array first.
-
-Removing an array leaves its radios running. Removing a member also removes the dependent array.
-A disconnected member faults the array; when all members recover, the array reconnects its streams.
-
-Two rules follow from the calibration rather than the plumbing:
-
-- Do not run AGC on an element. A gain that moves invalidates the calibration continuously.
-- Fixed gains that differ between elements are fine. Calibration measures each lane's amplitude
-  and phase and corrects them.
+Use fixed gain on each element. AGC changes the amplitude relationship and invalidates calibration.
+Fixed gains may differ: calibration measures and corrects each lane's amplitude and phase.
 
 ## Calibration
 
-Every coherent node has a **Calibrate** button and a calibration readout. Calibration measures a
-delay and a complex weight per lane and corrects them before any processor sees the samples.
+Press **Calibrate** on the coherent node. Calibration measures a delay and complex weight for
+each lane, then applies those corrections before processing.
 
-| Cal source | Use it when |
+| Cal source | When to use it |
 |---|---|
-| Signal | Any strong signal every element can hear, which is the ordinary case on the air |
-| Noise | A noise burst injected through a splitter, for a bench calibration with nothing on |
+| Signal | A strong signal received by every element |
+| Noise | A noise burst injected through a splitter for bench calibration |
 
-Phase is only solved against something known: an injected noise source, or the pilot frequency you
-name. On a `phase_coherent` radio phase is meaningful without either, and calibration only trims
-what the cabling added.
+A `time_sync` array needs injected noise or a specified pilot frequency to solve relative phase.
+On `phase_coherent` hardware, calibration corrects the additional differences from cabling.
 
-The readout says which of three states the array is in: solved, still solving, or phase unknown.
-The last means the tier and the calibration source together cannot justify a bearing.
+The readout shows **solved**, **still solving**, or **phase unknown**. Phase unknown means the
+hardware tier and calibration source do not provide enough information for a bearing.
 
 ## Combining antennas
 
-A **Combiner** node takes the lanes of one coherent radio and writes their sum onto the beam lane,
-where an ordinary channel decodes it. It has two modes:
+A **Combiner** sums the lanes of one coherent source and sends the result to a beam lane. Connect
+an ordinary channel to that lane to decode the combined signal.
 
-| Mode | What it does |
+| Mode | Effect |
 |---|---|
-| Combine | Turns every antenna into step and adds them. Two antennas are worth about 3 dB. |
-| Cancel | Keeps the first antenna and subtracts what the others hear. |
+| Combine | Aligns and sums antenna signals. Two antennas can improve SNR by about 3 dB under suitable conditions. |
+| Cancel | Uses the other antennas as noise references and subtracts their contribution from the first. |
 
-Cancel is how a reference antenna takes a local noise source out of a receiver you cannot move
-away from it: point the first antenna at what you want and the others at the noise. Both modes
-solve their weights from the covariance between the antennas, so nothing is tuned by hand.
-
-Both need phase, so a time-synced bank needs its pilot or noise reference here too.
+For cancellation, use the first antenna for the wanted signal and the others to receive the local
+noise source. Both modes calculate weights from the covariance between lanes and require known
+relative phase. A `time_sync` array therefore needs a pilot or noise reference.

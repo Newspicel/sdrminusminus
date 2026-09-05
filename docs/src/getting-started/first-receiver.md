@@ -1,8 +1,7 @@
 # Your first receiver
 
-This walkthrough uses the built-in signal generator. It verifies device capture, spectrum,
-channelization, demodulation, WebSocket streaming, and browser audio without requiring an SDR or
-antenna.
+Build an NFM receiver using the built-in signal generator. You will see its spectrum and hear
+a test tone without an SDR or antenna.
 
 ## 1. Open the signal generator
 
@@ -37,12 +36,6 @@ audio tone.
 
 Use the Speaker node's control. Your browser may require a click before it permits audio playback.
 Adjust the channel squelch if the tone stays muted.
-
-You now have a complete receiver:
-
-```text
-signal generator → spectrum + NFM demodulator → Opus stream → browser speaker
-```
 
 ## 4. Explore the interface
 

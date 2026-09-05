@@ -1,69 +1,62 @@
 # Field mode
 
-sdr-- is a desktop application. Field mode is the deliberate exception: one touch-first route,
-served by the same server from the same workspace, for the times the receiver is in a car and you
-are not at the desk.
-
-Open `/field` in any browser on the same network. There is no separate application and nothing
-extra to install.
+Field mode is a phone interface for signal hunting, direction finding, and passive radar.
+It uses the active workspace on the same server. Build the workspace in the desktop interface,
+then open `/field` from a browser that can reach the server.
 
 ## Get it onto a phone
 
-**Library ▸ Field** shows a QR code. Point the phone's camera at it and it opens field mode
-already carrying the token.
+Open **Library → Field** and scan the QR code with the phone's camera. The link includes the
+server token. Field mode stores it and removes it from the address bar.
 
-If you are browsing on `localhost`, that address means nothing to a phone, so the QR offers one of
-this machine's LAN addresses instead. The token arrives in the URL and is stripped out of the
-address bar once stored.
+When the desktop browser uses `localhost`, the QR code offers a server LAN address that the phone
+can reach instead.
 
 ## Missions
 
-`/field` lists what the active workspace can drive. Each mission runs against one node.
+`/field` lists the missions available from nodes in the active workspace. Each mission controls
+one node.
 
-| Mission | Needs | What you get |
+| Mission | Required node | Controls and displays |
 |---|---|---|
-| Fox hunt | A signal hunt | One large level meter, warmer or colder, a click track that speeds up as the signal rises, and start/stop for the hunt itself |
-| DF drive | A direction finder | A compass turned to the vehicle's heading, guidance, and the map underneath |
-| Radar watch | A passive radar | The range–Doppler surface fullscreen with what the tracker is following |
+| Fox hunt | Signal hunt | Signal level, rising/falling indication, variable-rate click track, start/stop |
+| DF drive | Direction finder | Compass, guidance, and map |
+| Radar watch | Passive radar | Range–Doppler surface and tracked echoes |
 
-The screen stays awake while a mission is open, there is a fullscreen toggle, and the layout keeps
-clear of the phone's own cutouts.
+Missions offer fullscreen mode and keep the screen awake where the browser supports it.
 
 ## Driving to a signal
 
-DF drive shows the live bearing on a compass rotated to your course over ground, which comes from
-the GPS rather than from the phone's own sensors. Under it is what to do next: cross the bearing
-while the estimate is a long ellipse, close in once it has tightened.
+DF drive rotates the compass to the vehicle's GPS course over ground. It does not use the phone's
+compass sensor. Guidance suggests crossing the bearing while the estimate is uncertain, then
+approaching it after convergence.
 
-Guidance comes from the [triangulation node](direction-finding.md#crossing-bearings-from-several-finders)
-the finder is wired into. Without one the compass still works and the mission says so.
+Guidance requires a connected [Triangulation node](direction-finding.md#crossing-bearings-from-several-finders).
+Without one, the bearing compass still works and the screen reports that guidance is unavailable.
 
 ### Turn-by-turn
 
-If the server has a routing backend configured, the mission draws the route, shows the next
-manoeuvre with a distance countdown, and speaks it. Voice arms itself on your first touch, which
-is what phones require.
+With a routing backend configured, DF drive shows a route, the next manoeuvre, and its distance.
+Spoken directions become available after the first touch interaction.
 
-It asks for a new route only when something actually changed: you left the road, the target moved,
-or the guidance switched between crossing and closing. Never on a timer, so a free-tier key is not
-a problem.
+The mission requests a new route when you leave the route, the target moves, or guidance changes
+between crossing and approaching. It does not poll for routes on a timer.
 
 | Nav mode | Behaviour |
 |---|---|
-| Auto | Crossing waypoint until the fix converges, then the estimate |
-| Direct | Always the current estimate |
-| Off | Compass and arrow only |
+| Auto | Route to a crossing waypoint until the fix converges, then to the estimate |
+| Direct | Route to the current estimate |
+| Off | Compass and direction arrow only |
 
-With no routing backend, no internet, or a backend that is down, the mission falls back to heading
-guidance and says so. **Navigate in Maps** hands the current target to the phone's own navigation
-app; it re-arms whenever the target changes, because a browser cannot re-open it on its own while
-the native app is in front.
+If routing is unconfigured or unavailable, the mission reports the problem and uses heading
+guidance. **Navigate in Maps** opens the current target in the phone's navigation app. Use it again
+when the target changes; the browser cannot update the foreground native app automatically.
 
-See [server configuration](../server/configuration.md) for the routing backend and its key, which
-stays on the server.
+See [server configuration](../server/configuration.md#turn-by-turn-routing) for backend options.
+The routing API key stays on the server.
 
 ## Maps without internet
 
-Put a `.pmtiles` archive next to the database in the data directory and field mode draws a basemap
-from it with no network at all. Without one it uses the online style, and without that a blank
-background — the bearings, route and markers are drawn either way.
+Place an archive named `basemap.pmtiles` beside the database to use an offline basemap.
+Otherwise, field mode uses the online map style. If neither is available, bearings, routes, and
+markers remain visible on a blank background.

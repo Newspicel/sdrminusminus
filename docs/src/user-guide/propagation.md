@@ -1,87 +1,74 @@
 # Propagation map
 
-The Propagation map node turns your own FT8, FT4 and WSPR decodes into a picture of where the
-ionosphere is reflecting right now, and derives a measured MUF from what you actually heard. It
-is receive-only and adds no DSP: everything it draws comes from decodes the weak-signal channels
-already produce.
+The Propagation map uses FT8, FT4, and WSPR decodes to show reception paths and estimate a lower
+bound on maximum usable frequency (MUF). It processes decoder events and adds no DSP load.
+The reflection points and MUF values are estimates based on a configurable ionospheric layer model.
 
 ## Build one
 
-1. Add one or more FT8, FT4 or WSPR channels and let them decode.
+1. Add one or more FT8, FT4, or WSPR channels.
 2. Add a **GPS position** source and a **Propagation map** from **+ Node**.
-3. Wire each decoder's `events` output into the map's `events` input.
-4. Wire the GPS `position` output into the map's `position` input.
+3. Connect each channel's `events` output to the map's `events` input.
+4. Connect GPS `position` to the map's `position` input.
 
-The position input is not optional. Every path has two ends, and the map measures from where the
-receiver stands. If you have no GPS receiver, a GPSD or NMEA source pointed at a fixed
-configuration works, since the station does not move.
+A receiver position is required to calculate paths. For a stationary receiver without GPS, choose
+**Receiver that never moves?** on the GPS position node and enter its latitude and longitude.
 
-On mount the node also reads the last six hours out of the decoder log for the channels wired
-into it, so the map is populated the moment you open a workspace rather than starting empty.
+When opened, the map also loads the last six hours of decoder-log history for its connected channels.
 
 ## What is plotted
 
-Each decode that carries a grid square gives a path from your station to that square. The map
-splits the path into the hops it must have taken and marks each reflection point — for a path
-short enough to be a single hop, that is the midpoint.
+A decode containing a Maidenhead grid square defines a path from your receiver to that square.
+The model divides the path into hops and estimates their reflection points. For a single hop,
+the reflection point is the midpoint.
 
-Reflection points are gathered into their own Maidenhead squares. Each square accumulates a
-weight that decays exponentially: a decode contributes half as much after one half-life, a
-quarter after two. The half-life is a setting, from five minutes for watching a band open to
-twelve hours for a whole-day picture.
+Reflection points are grouped into Maidenhead squares. Each decode adds weight that decays with
+age: half remains after one **Half-life**, a quarter after two. Set the half-life between five
+minutes and twelve hours depending on how much history you want to see.
 
-Not every decode carries a grid. Signal reports, `RRR`, `RR73` and `73` do not, so a busy QSO
-contributes only its opening call. This is a property of the mode, not a limitation of the map.
+Messages without a grid square do not add a path. This includes signal reports, `RRR`, `RR73`,
+and `73`, so many messages in an ongoing contact contribute no new map data.
 
 ## Measured MUF
 
-A decode at frequency *f* over a path of length *D* proves that the path supported *f*. That is a
-lower bound on the maximum usable frequency for that path, and it can be projected onto the
-standard 3000 km reference hop:
+Receiving a signal at frequency *f* shows that its path supported that frequency at that time.
+The model scales this observation to a 3000 km reference hop:
 
-    MUF(3000) ≥ f × M(3000) / M(D / hops)
+```text
+MUF(3000) ≥ f × M(3000) / M(D / hops)
+```
 
-`M` is the obliquity factor of a thin reflecting layer, `sec φ`, computed for a spherical earth at
-the configured layer height. At the default 300 km, `M(3000)` comes out at 3.28, matching the
-`M(3000)F2` the ionosonde network publishes. A path exactly 3000 km long therefore reports its own
-frequency; a shorter hop implies a much higher MUF, and a long multi-hop path implies one only
-slightly above the band in use.
+Here, *D* is path length and `M` is the obliquity factor (`sec φ`) for a thin reflecting layer over
+a spherical Earth. At the default layer height of 300 km, `M(3000)` is about 3.28. A 3000 km
+single-hop path therefore reports the received frequency; shorter hops scale it upward.
 
-Two limits are deliberate:
+Read this as a model-dependent lower bound, not a measurement of the highest open band:
 
-- Paths shorter than 500 km are excluded from the MUF estimate. Those are ground wave or
-  near-vertical incidence, and inverting them as if they were an F2 hop would produce a wildly
-  high number. They still count towards the activity heatmap.
-- The result is always a **floor**. It is the highest frequency you actually decoded, so the real
-  MUF sits at or above it. If you were not listening on 10 m, the map cannot know 10 m was open.
-  Read a negative difference against the forecast as "I was not listening higher", not as "the
-  forecast is wrong".
-
-The layer height is a setting because the assumption changes the answer. Leave it at 300 km for
-ordinary F2 work; drop it to 110 km when you are looking at sporadic-E.
+- Paths shorter than 500 km contribute to activity but are excluded from MUF estimates. Ground-wave
+  and near-vertical paths do not fit this calculation reliably.
+- The estimate depends on which bands you monitored. No 10 m decodes cannot establish that 10 m
+  was closed. A value below the forecast does not by itself disprove the forecast.
+- The assumed layer height changes the result. Use 300 km for F2 estimates or 110 km when modelling
+  sporadic-E.
 
 ## Comparing against the ionosonde network
 
-With **Ionosondes** enabled the server fetches the current MUF(3000 km) from the
-[GIRO](https://giro.uml.edu/) and INGV sounding network, aggregated by
-[prop.kc2g.com](https://prop.kc2g.com/), and caches it for fifteen minutes — the interval that
-map is rebuilt on. Each sounding site is drawn with its own reading, and every square with a
-measured MUF is compared against an inverse-distance interpolation of the sites within 3000 km of
-it. The footer reports how many squares sit above the forecast and the median difference.
+Enable **Ionosondes** to fetch sounding data from GIRO and INGV through the
+[prop.kc2g.com feed](https://prop.kc2g.com/). The server caches the response for fifteen minutes.
+The map shows each station's MUF(3000 km) and compares each measured square with an
+inverse-distance interpolation of sounding sites within 3000 km. The footer gives the number of
+squares above the forecast and the median difference.
 
-The fetch is the only outbound request the propagation map makes, and it is made by the server,
-not the browser. A server with no route to the feed answers with an empty station list and the
-reason, and the map carries on showing what this receiver measured on its own. Turn the toggle
-off to make no request at all.
+If the feed is unreachable, the map reports the reason and continues displaying local decodes.
+Disable **Ionosondes** to stop these feed requests. Basemap requests are separate.
 
 ## Reading the map
 
-The **Activity** layer is a decayed heatmap of reflection points: where the ionosphere is putting
-signals down for you, weighted by how recently. The **MUF** layer replaces it with one dot per
-square coloured and labelled by the measured MUF floor.
+| Layer | Display |
+|---|---|
+| **Activity** | Estimated reflection points, weighted by decode count and age |
+| **MUF** | One labelled point per square showing its estimated MUF lower bound |
+| **Paths** | Great-circle paths to stations, one per station and band, newest first |
 
-**Paths** draws the great-circle line to each station heard, one per station and band, newest
-first. It is off by default because a busy FT8 band draws a lot of lines.
-
-The table below the map ranks squares by weight, so the top row is where propagation is most
-active rather than merely most distant.
+**Paths** is off by default to keep busy bands readable. The table below the map ranks squares by
+activity weight.

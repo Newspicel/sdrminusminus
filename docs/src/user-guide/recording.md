@@ -19,61 +19,49 @@ finalizes the pair; forcibly killing the process can leave an incomplete capture
 
 ## Record a channel's audio
 
-An Audio recorder node records what a channel *sounds* like, after everything the channel does to
-it — squelch, filters, noise reduction, AGC.
+An **Audio recorder** saves channel audio after squelch, filtering, noise reduction, and AGC.
 
-1. Add an Audio recorder node.
-2. Wire one or more Channel `audio` outputs into its `audio` input.
-3. Press **Record** beside a channel to start its own file, **Stop** to finish it.
+1. Add an **Audio recorder**.
+2. Connect one or more channel `audio` outputs to its `audio` input.
+3. Press **Record** beside a channel to start its file, then **Stop** to finish it.
 
-Each wired channel writes its own 16-bit PCM WAV at 48 kHz, so a net followed across several
-receivers stays separable afterwards. A closed squelch writes silence rather than nothing: the file
-is a timeline, and a gap in it is as long as the quiet that made it. Recording survives a mode or
-sample-rate change on the radio underneath, and removing the channel finishes the file rather than
-abandoning it. A recording is finalized as it goes, so a server that is killed still leaves a file
-that plays up to the last second it captured.
+Each channel gets a separate 16-bit PCM WAV at 48 kHz. Closed squelch writes silence, preserving
+the timing of quiet periods. Recording continues through mode and device sample-rate changes;
+removing the channel finishes its file. WAV headers are updated during recording so an interrupted
+file remains playable up to the last finalized data.
 
-Channel audio and device IQ are independent: a radio can be recording its raw stream while one of
-its channels records audio, and either can be started or stopped without the other.
+Audio and device IQ recording operate independently. You can run both and stop either one separately.
 
 ## Record a channel's baseband
 
-A Baseband recorder node records what a channel *receives*: its own IQ, down-converted to the
-channel's center, filtered to the channel's width, and at the channel's own sample rate — a few
-tens of kHz rather than the radio's megahertz.
+A **Baseband recorder** saves channel IQ after frequency translation and filtering, at the channel's
+sample rate. This uses less storage than recording the full device bandwidth.
 
-1. Add a Baseband recorder node.
-2. Wire one or more Channel `baseband` outputs into its `baseband` input.
-3. Press **Record** beside a channel to start its own pair, **Stop** to finish it.
+1. Add a **Baseband recorder**.
+2. Connect one or more channel `baseband` outputs to its `baseband` input.
+3. Press **Record** beside a channel to start its SigMF pair, then **Stop** to finish it.
 
-Each wired channel writes its own SigMF pair, centred on the channel (the radio's center plus the
-channel offset), which is what lets a 12.5 kHz channel be kept for hours where the wideband stream
-would fill a disk in minutes. The tap sits before the squelch, so a closed gate still records —
-the file is what arrived at the channel, not what got through it.
+Each pair records the channel's absolute centre frequency: device centre plus channel offset.
+The recording tap is before squelch, so closed squelch does not interrupt capture.
 
-The finished pair lands in the same library as a device recording and can be reopened as a
-playback source. Because SigMF cannot change sample rate mid-file, anything that rebuilds the
-channel — a mode change, or a rate change on the radio underneath — finishes the file rather than
-splicing a second rate into it; removing the channel does the same.
+Completed pairs appear in the IQ recording library and can be opened as playback sources.
+A change that rebuilds the channel, including a mode or device sample-rate change, finishes the
+file because the recording cannot change sample rate mid-file. Removing the channel also finishes it.
 
 ## The IQ time machine
 
-A Time machine node holds the last few seconds of a radio's IQ in memory so a signal can be
-recorded *after* it has already been heard.
+A **Time machine** keeps recent device IQ in memory. Use it to capture a signal after hearing it.
 
-1. Add a Time machine node.
-2. Wire a Device `IQ` output into it, and optionally a GPS `position` output.
-3. Set how many seconds to hold, then press **Arm**. The rolling buffer starts filling.
-4. Press **Capture** when something interesting has just gone past. The buffered seconds are
-   written to a new SigMF pair, and live samples keep appending to it.
-5. Press **Stop** to finalize that pair while staying armed, or **Disarm** to release the memory.
+1. Add a **Time machine** and connect Device `IQ`. Optionally connect GPS `position`.
+2. Set the buffer duration and press **Arm**.
+3. Press **Capture** to write the buffered samples to a SigMF pair and continue recording live IQ.
+4. Press **Stop** to finish the pair and stay armed, or **Disarm** to release the buffer.
 
-The window costs `seconds × sample rate × 8` bytes of memory, which the face shows; the server
-refuses a window above 1 GiB and names the number of seconds that fits at the current rate. The
-sample rate is locked while the buffer is armed, because a buffer measured in samples cannot
-change what a sample means underneath. Retuning stays available: a retune inside the window lands
-in the capture as its own SigMF capture segment, and the first segment is stamped with the wall
-clock of the *oldest held sample*, not the moment the button was pressed.
+Memory use is `seconds × sample rate × 8` bytes. The node shows the required memory and the
+maximum duration allowed by the server's 1 GiB limit.
+
+The sample rate is locked while armed. Retuning remains available and creates a new SigMF capture
+segment. The recording's first timestamp belongs to the oldest buffered sample.
 
 ## Storage
 
@@ -90,15 +78,12 @@ remain the source of truth.
 
 ## Tags and notes
 
-Open **Library → Recordings** and press **Annotate** on a capture to give it tags and a note —
-what was on the air, and what to remember about it. Tags are comma separated; a repeat of one
-already on the recording is folded into the first spelling.
+Open **Library → Recordings** and press **Annotate**. Enter comma-separated tags and a note.
+Duplicate tags are merged, keeping the first spelling.
 
-Both live in the recording's own `.sigmf-meta`, as `core:description` and `sdrmm:tags`, not only
-in the server's index. An annotated capture keeps its tags when it is downloaded as a SigMF
-archive, when the database is thrown away and rebuilt from the files, and when it is read by
-another tool. The search box above the library filters on file name, tags and note together, and
-clicking a tag searches for it.
+Annotations are stored in `.sigmf-meta` as `sdrmm:tags` and `core:description`. They stay with
+SigMF downloads and survive rebuilding the database index. Library search matches file names,
+tags, and notes; clicking a tag searches for it.
 
 ## Download and export
 
@@ -108,9 +93,8 @@ Open **Library → Recordings** to inspect captures. A recording can be download
 - a stereo floating-point WAV with I and Q as its two channels for tools such as HDSDR, SDR#, or
   Audacity. WAV keeps the samples but only part of the SigMF metadata.
 
-Channel audio is listed in the same drawer, under **Channel audio**, and downloads as the WAV it
-was recorded as. Audio recordings live beside the IQ library, in an `audio` directory under the
-recordings directory; there is no index behind them, because a WAV describes itself.
+Audio recordings appear under **Channel audio** in the same drawer and download as WAV files.
+They are stored in the `audio` subdirectory of the recordings directory and listed directly from disk.
 
 Large downloads include a content length and stream from disk. If an export fails, the response
 is aborted instead of returning a silently truncated file.
