@@ -48,7 +48,6 @@ pub(crate) enum TrunkInput {
     Carriers { device_set: u32, heard: Vec<Heard> },
 }
 
-/// A signal the band is carrying: where it sits and how far it stands above the noise.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Heard {
     pub freq_hz: u64,
@@ -256,7 +255,6 @@ impl Follower {
         }
     }
 
-    /// Reports whether the burst asks for the plan to be redrawn before the next tick.
     fn observe(&mut self, record: &DecodedRecord) -> bool {
         let Some(engine) = self.engine.upgrade() else {
             return false;
@@ -300,7 +298,6 @@ impl Follower {
         self.publish();
     }
 
-    /// Reports whether the burst asks for the plan to be redrawn before the next tick.
     fn prospect(
         &mut self,
         engine: &Engine,
@@ -739,8 +736,6 @@ impl Follower {
         }
     }
 
-    /// Capacity Plus and XPT grant no frequency, so the plan is the traffic list: the carrier the
-    /// operator named, whatever they entered beside it, and whatever the search has since placed.
     fn repeaters_of(&self, carrier: &Carrier) -> Vec<u64> {
         let mut freqs = vec![carrier.freq_hz];
         let entries = self

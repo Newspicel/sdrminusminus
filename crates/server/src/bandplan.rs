@@ -88,22 +88,22 @@ pub(crate) struct Annotation {
 }
 
 static LAYER_DOCS: &[(&str, &str)] = &[
-    ("world", include_str!("../../data/bandplan/world.json")),
-    ("itu-r1", include_str!("../../data/bandplan/itu-r1.json")),
-    ("itu-r2", include_str!("../../data/bandplan/itu-r2.json")),
-    ("itu-r3", include_str!("../../data/bandplan/itu-r3.json")),
-    ("cept", include_str!("../../data/bandplan/cept.json")),
-    ("de", include_str!("../../data/bandplan/de.json")),
+    ("world", include_str!("../data/bandplan/world.json")),
+    ("itu-r1", include_str!("../data/bandplan/itu-r1.json")),
+    ("itu-r2", include_str!("../data/bandplan/itu-r2.json")),
+    ("itu-r3", include_str!("../data/bandplan/itu-r3.json")),
+    ("cept", include_str!("../data/bandplan/cept.json")),
+    ("de", include_str!("../data/bandplan/de.json")),
     (
         "de-sonstige",
-        include_str!("../../data/bandplan/de-sonstige.json"),
+        include_str!("../data/bandplan/de-sonstige.json"),
     ),
-    ("gb", include_str!("../../data/bandplan/gb.json")),
-    ("us", include_str!("../../data/bandplan/us.json")),
-    ("iaru-r1", include_str!("../../data/bandplan/iaru-r1.json")),
+    ("gb", include_str!("../data/bandplan/gb.json")),
+    ("us", include_str!("../data/bandplan/us.json")),
+    ("iaru-r1", include_str!("../data/bandplan/iaru-r1.json")),
 ];
 
-static ANNOTATIONS_DOC: &str = include_str!("../../data/bandplan/annotations.json");
+static ANNOTATIONS_DOC: &str = include_str!("../data/bandplan/annotations.json");
 
 #[expect(clippy::expect_used, reason = "compiled-in constant; see above")]
 static ANNOTATIONS: LazyLock<Vec<Annotation>> = LazyLock::new(|| {

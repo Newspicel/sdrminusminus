@@ -24,23 +24,17 @@ pub(crate) use host::CoherentSinks;
 pub use host::{CoherentUpdate, SurfaceUpdate};
 pub(crate) use tap::{BeamSink, CoherentTaps, lane_taps};
 
-/// Backstop only: the aggregator has samples to chew on almost every pass.
 const IDLE_PARK: Duration = Duration::from_millis(5);
 
-/// What every lane's range shares: where it sits in the stream, what the front end was doing when
-/// it was captured, and what the calibration currently believes.
 #[derive(Clone, Copy, Debug)]
 pub struct AlignedContext<'a> {
     pub index: u64,
     pub sample_rate: f64,
     pub center_hz: f64,
-    /// Set once after every realignment, so a processor with internal history can start over
-    /// rather than average across a discontinuity it cannot see.
     pub realigned: bool,
     pub cal: &'a CalState,
 }
 
-/// Something the aggregator drives with lanes that are already lined up and calibrated.
 pub(crate) trait AlignedSink: Send {
     fn process(&mut self, lanes: &[&[Complex<f32>]], ctx: AlignedContext<'_>);
 }
@@ -55,11 +49,6 @@ pub(crate) enum CoherentCommand {
     Recalibrate,
 }
 
-/// The cross-lane home the per-lane `DspCommand` queues deliberately are not.
-///
-/// One OS thread per device set pops the largest range every lane covers, solves and applies the
-/// calibration once for everyone, and hands the result to whatever coherent processors are
-/// running. Same rules as the per-lane dsp threads: no locks, no allocation, no async.
 pub struct CoherentRuntime {
     cmd_tx: mpsc::Sender<CoherentCommand>,
     stop: Arc<AtomicBool>,
@@ -133,8 +122,6 @@ impl CoherentRuntime {
         self.realignments.load(Ordering::Relaxed)
     }
 
-    /// Stops the aggregator and hands the taps back, so the next coherent node can pick them up
-    /// without the capture stream ever being touched.
     pub(crate) fn stop(mut self) -> Option<CoherentTaps> {
         self.stop.store(true, Ordering::Release);
         self.armed.store(false, Ordering::Release);
@@ -152,11 +139,6 @@ impl Drop for CoherentRuntime {
     }
 }
 
-/// Sums the lanes into one, pointed wherever the last steering said.
-///
-/// Nothing downstream knows: the beam arrives in an ordinary capture ring with an ordinary dsp
-/// thread on it, so a channel, a recorder or a spectrum subscription works on the array's
-/// combined output exactly as it works on one antenna.
 struct Beam {
     sink: BeamSink,
     weights: Vec<Complex<f32>>,

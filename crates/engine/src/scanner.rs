@@ -127,7 +127,6 @@ enum Halt {
     Failed(String),
 }
 
-/// A frequency the scan decided to stop on, and the level it has to keep to stay there.
 #[derive(Clone, Copy, Debug)]
 struct Call {
     hz: f64,
@@ -184,8 +183,6 @@ impl Scan {
         }
     }
 
-    /// One pass of the radio's own sweep: the blocks arrive stamped with the frequency each was
-    /// taken at, so nothing here retunes and every target is read as its block goes past.
     fn firmware_pass(&mut self, engine: &Arc<Engine>, rate: f64) -> Result<(), Halt> {
         if !self.in_sweep {
             let plan = SweepPlan::new(
@@ -237,10 +234,6 @@ impl Scan {
         }
     }
 
-    /// Reads every target this block covers, answering with the first one over the threshold.
-    ///
-    /// A block spans one tuning out of a plan that may hold thousands of targets, so the sorted
-    /// list is cut down to that span before anything is measured.
     fn read_block(&mut self, engine: &Arc<Engine>, snapshot: &SpectrumSnapshot) -> Option<Call> {
         if self.settings.mode == ScanMode::CloseCall {
             let call = self.call_in(snapshot)?;
@@ -273,7 +266,6 @@ impl Scan {
         None
     }
 
-    /// The loudest carrier in a block, and the level it has to keep to stay held.
     fn call_in(&mut self, snapshot: &SpectrumSnapshot) -> Option<Call> {
         let margin = self.settings.margin_db;
         let peak = self.close_call.strongest(snapshot, margin)?;
@@ -291,7 +283,6 @@ impl Scan {
         status.hits += 1;
     }
 
-    /// Puts the receive stream back, holds on what the sweep found, and returns to sweeping.
     fn hit(&mut self, engine: &Arc<Engine>, call: Call, center_hz: f64) -> Result<(), Halt> {
         sweep::leave(engine, self.ds).map_err(|e| Halt::Failed(e.to_string()))?;
         self.in_sweep = false;
@@ -346,8 +337,6 @@ impl Scan {
         Ok(())
     }
 
-    /// Watches one tuning for the loudest thing standing clear of the noise, rather than reading
-    /// frequencies someone had to name in advance.
     fn watch(
         &mut self,
         engine: &Arc<Engine>,
@@ -494,7 +483,6 @@ impl Scan {
     }
 }
 
-/// The stretch of a sorted target list that a block could hold a reading for.
 fn covered<'a>(targets: &'a [f64], snapshot: &SpectrumSnapshot, bw_hz: f64) -> &'a [f64] {
     let half = f64::from(snapshot.span_hz) / 2.0 + bw_hz / 2.0;
     let low = snapshot.center_hz - half;
