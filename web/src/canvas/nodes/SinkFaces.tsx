@@ -192,7 +192,12 @@ function AudioInput({ input }: { input: Input }) {
         channel={input.channel.id}
         playing={audio.playing}
       />
-      <AudioHealth lostFrames={audio.lostFrames} underruns={audio.underruns} />
+      <AudioHealth
+        lostFrames={audio.lostFrames}
+        underruns={audio.underruns}
+        bufferedMs={audio.bufferedMs}
+        trimmedMs={audio.trimmedMs}
+      />
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">
           {audio.error}
@@ -205,15 +210,32 @@ function AudioInput({ input }: { input: Input }) {
 function AudioHealth({
   lostFrames,
   underruns,
-  show = import.meta.env.DEV,
+  bufferedMs = 0,
+  trimmedMs = 0,
+  show = true,
 }: {
   lostFrames: number;
   underruns: number;
+  bufferedMs?: number;
+  trimmedMs?: number;
   show?: boolean;
 }) {
-  if (!show || (lostFrames === 0 && underruns === 0)) return null;
+  if (!show || (lostFrames === 0 && underruns === 0 && bufferedMs === 0 && trimmedMs === 0))
+    return null;
   return (
     <span className="flex flex-wrap gap-1">
+      {bufferedMs > 0 && (
+        <span className={CHIP} title="Audio waiting for playback">
+          <span className="legend">Buffer</span>
+          {bufferedMs.toFixed(0)} ms
+        </span>
+      )}
+      {trimmedMs > 0 && (
+        <span className={CHIP} title="Old audio discarded to stay live">
+          <span className="legend">Trimmed</span>
+          {trimmedMs.toFixed(0)} ms
+        </span>
+      )}
       {lostFrames > 0 && (
         <span
           className={CHIP}

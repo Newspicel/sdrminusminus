@@ -16,6 +16,8 @@ export interface ChannelAudio {
   setVolume: (v: number) => void;
   lostFrames: number;
   underruns: number;
+  bufferedMs?: number;
+  trimmedMs?: number;
 }
 
 export const audioEngine = new AudioEngine(createWebAudioSink);
@@ -54,6 +56,13 @@ export function useChannelAudio(
     audioEngine.getUnderruns(deviceSet, channelId),
   );
 
+  const bufferedMs = useSyncExternalStore(audioEngine.subscribe, () =>
+    audioEngine.getBufferedMs(deviceSet, channelId),
+  );
+  const trimmedMs = useSyncExternalStore(audioEngine.subscribe, () =>
+    audioEngine.getTrimmedMs(deviceSet, channelId),
+  );
+
   const start = useCallback(() => {
     if (!socket) {
       return;
@@ -90,5 +99,7 @@ export function useChannelAudio(
     setVolume,
     lostFrames,
     underruns,
+    bufferedMs,
+    trimmedMs,
   };
 }

@@ -7514,6 +7514,32 @@
               "data": {
                 "type": "object",
                 "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SubscribeDiagnostics"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
                   "device_set",
                   "fps",
                   "bins"
@@ -15141,6 +15167,49 @@
           }
         }
       },
+      "PipelineQueue": {
+        "type": "object",
+        "required": [
+          "device_set",
+          "stream",
+          "stage",
+          "health"
+        ],
+        "properties": {
+          "channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "health": {
+            "$ref": "#/components/schemas/QueueHealth"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/PipelineStage"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PipelineStage": {
+        "type": "string",
+        "enum": [
+          "capture",
+          "spectrum",
+          "channel"
+        ]
+      },
       "PlaybackAction": {
         "type": "string",
         "enum": [
@@ -15690,6 +15759,36 @@
           },
           "text": {
             "type": "string"
+          }
+        }
+      },
+      "QueueHealth": {
+        "type": "object",
+        "required": [
+          "queued",
+          "capacity",
+          "oldest_ms",
+          "dropped"
+        ],
+        "properties": {
+          "capacity": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "oldest_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -16947,6 +17046,39 @@
       },
       "ServerEvent": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "queues",
+                  "websocket"
+                ],
+                "properties": {
+                  "queues": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PipelineQueue"
+                    }
+                  },
+                  "websocket": {
+                    "$ref": "#/components/schemas/QueueHealth"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "PipelineHealth"
+                ]
+              }
+            }
+          },
           {
             "type": "object",
             "required": [

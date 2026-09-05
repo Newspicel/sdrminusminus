@@ -277,3 +277,11 @@ describe("JitterBuffer", () => {
     ]);
   });
 });
+
+it("counts trimmed audio when the playback backlog exceeds its budget", () => {
+  const jitter = new JitterBuffer(4, 12, 1);
+  jitter.push(new Float32Array(10));
+  jitter.push(new Float32Array(10));
+  expect(jitter.buffered).toBeLessThanOrEqual(12);
+  expect(jitter.trimmed).toBeGreaterThan(0);
+});

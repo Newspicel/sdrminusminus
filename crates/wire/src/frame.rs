@@ -30,104 +30,6 @@ impl FrameKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct SpectrumFrame<'a> {
-    pub stream_id: u16,
-    pub seq: u32,
-    pub timestamp: u64,
-    pub center_hz: f64,
-    pub span_hz: f32,
-    pub db_min: f32,
-    pub db_max: f32,
-    pub bins: &'a [u8],
-}
-
-impl SpectrumFrame<'_> {
-    #[must_use]
-    pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 8 + 4 + 4 + 4 + 2 + self.bins.len()
-    }
-
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        buf.push(PROTOCOL_VERSION);
-        buf.push(FrameKind::Spectrum as u8);
-        buf.extend_from_slice(&self.stream_id.to_le_bytes());
-        buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.timestamp.to_le_bytes());
-        buf.extend_from_slice(&self.center_hz.to_le_bytes());
-        buf.extend_from_slice(&self.span_hz.to_le_bytes());
-        buf.extend_from_slice(&self.db_min.to_le_bytes());
-        buf.extend_from_slice(&self.db_max.to_le_bytes());
-        buf.extend_from_slice(&(self.bins.len() as u16).to_le_bytes());
-        buf.extend_from_slice(self.bins);
-        buf
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AudioFrame<'a> {
-    pub stream_id: u16,
-    pub seq: u32,
-    pub timestamp: u64,
-    pub ch_layout: u8,
-    pub opus: &'a [u8],
-}
-
-impl AudioFrame<'_> {
-    #[must_use]
-    pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 1 + self.opus.len()
-    }
-
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        buf.push(PROTOCOL_VERSION);
-        buf.push(FrameKind::AudioOpus as u8);
-        buf.extend_from_slice(&self.stream_id.to_le_bytes());
-        buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.timestamp.to_le_bytes());
-        buf.push(self.ch_layout);
-        buf.extend_from_slice(self.opus);
-        buf
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct IqFrame<'a> {
-    pub stream_id: u16,
-    pub seq: u32,
-    pub timestamp: u64,
-    pub sample_rate: f32,
-    pub center_hz: f64,
-    pub samples: &'a [f32],
-}
-
-impl IqFrame<'_> {
-    #[must_use]
-    pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 8 + 4 + self.samples.len() * 4
-    }
-
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        buf.push(PROTOCOL_VERSION);
-        buf.push(FrameKind::IqF32 as u8);
-        buf.extend_from_slice(&self.stream_id.to_le_bytes());
-        buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.timestamp.to_le_bytes());
-        buf.extend_from_slice(&self.center_hz.to_le_bytes());
-        buf.extend_from_slice(&self.sample_rate.to_le_bytes());
-        for sample in self.samples {
-            buf.extend_from_slice(&sample.to_le_bytes());
-        }
-        buf
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SymbolPlane {
@@ -143,93 +45,6 @@ impl SymbolPlane {
             1 => Some(Self::Level),
             _ => None,
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SymbolFrame<'a> {
-    pub stream_id: u16,
-    pub seq: u32,
-    pub timestamp: u64,
-    pub plane: SymbolPlane,
-    pub symbol_rate: f32,
-    pub evm: f32,
-    pub mer_db: f32,
-    pub margin: f32,
-    pub freq_error_hz: f32,
-    pub reference: &'a [f32],
-    pub symbols: &'a [f32],
-}
-
-impl SymbolFrame<'_> {
-    #[must_use]
-    pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 1 + 4 * 5 + 2 + self.reference.len() * 4 + self.symbols.len() * 4
-    }
-
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        buf.push(PROTOCOL_VERSION);
-        buf.push(FrameKind::Symbols as u8);
-        buf.extend_from_slice(&self.stream_id.to_le_bytes());
-        buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.timestamp.to_le_bytes());
-        buf.push(self.plane as u8);
-        buf.extend_from_slice(&self.symbol_rate.to_le_bytes());
-        buf.extend_from_slice(&self.evm.to_le_bytes());
-        buf.extend_from_slice(&self.mer_db.to_le_bytes());
-        buf.extend_from_slice(&self.margin.to_le_bytes());
-        buf.extend_from_slice(&self.freq_error_hz.to_le_bytes());
-        buf.extend_from_slice(&(self.reference.len() as u16).to_le_bytes());
-        for value in self.reference {
-            buf.extend_from_slice(&value.to_le_bytes());
-        }
-        for value in self.symbols {
-            buf.extend_from_slice(&value.to_le_bytes());
-        }
-        buf
-    }
-}
-
-/// A range–Doppler surface: one byte per cell over a stated dB window, laid out row by row from
-/// the most negative Doppler upwards, the same quantisation the spectrum already uses.
-#[derive(Clone, Debug, PartialEq)]
-pub struct RangeDopplerFrame<'a> {
-    pub stream_id: u16,
-    pub seq: u32,
-    pub timestamp: u64,
-    pub ranges: u16,
-    pub dopplers: u16,
-    pub range_step_us: f32,
-    pub doppler_step_hz: f32,
-    pub db_min: f32,
-    pub db_max: f32,
-    pub cells: &'a [u8],
-}
-
-impl RangeDopplerFrame<'_> {
-    #[must_use]
-    pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 2 + 2 + 4 * 4 + self.cells.len()
-    }
-
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        buf.push(PROTOCOL_VERSION);
-        buf.push(FrameKind::RangeDoppler as u8);
-        buf.extend_from_slice(&self.stream_id.to_le_bytes());
-        buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.timestamp.to_le_bytes());
-        buf.extend_from_slice(&self.ranges.to_le_bytes());
-        buf.extend_from_slice(&self.dopplers.to_le_bytes());
-        buf.extend_from_slice(&self.range_step_us.to_le_bytes());
-        buf.extend_from_slice(&self.doppler_step_hz.to_le_bytes());
-        buf.extend_from_slice(&self.db_min.to_le_bytes());
-        buf.extend_from_slice(&self.db_max.to_le_bytes());
-        buf.extend_from_slice(self.cells);
-        buf
     }
 }
 
@@ -254,36 +69,128 @@ impl<'a> VideoData<'a> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct VideoFrame<'a> {
-    pub stream_id: u16,
-    pub seq: u32,
-    pub timestamp: u64,
-    pub width: u16,
-    pub height: u16,
-    pub data: VideoData<'a>,
+mod schema;
+pub use schema::typescript_frames;
+
+macro_rules! field_type {
+    ($life:lifetime, bytes) => { &$life [u8] };
+    ($life:lifetime, bytes16) => { &$life [u8] };
+    ($life:lifetime, floats) => { &$life [f32] };
+    ($life:lifetime, floats16) => { &$life [f32] };
+    ($life:lifetime, plane) => { SymbolPlane };
+    ($life:lifetime, video) => { VideoData<$life> };
+    ($life:lifetime, $scalar:ty) => { $scalar };
 }
 
-impl VideoFrame<'_> {
-    #[must_use]
-    pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 2 + 2 + self.data.bytes().len()
-    }
-
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(self.encoded_len());
-        buf.push(PROTOCOL_VERSION);
-        buf.push(self.data.kind() as u8);
-        buf.extend_from_slice(&self.stream_id.to_le_bytes());
-        buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.timestamp.to_le_bytes());
-        buf.extend_from_slice(&self.width.to_le_bytes());
-        buf.extend_from_slice(&self.height.to_le_bytes());
-        buf.extend_from_slice(self.data.bytes());
-        buf
-    }
+macro_rules! write_field {
+    ($buf:ident, $value:expr, bytes) => {
+        $buf.extend_from_slice($value)
+    };
+    ($buf:ident, $value:expr, bytes16) => {{
+        $buf.extend_from_slice(&($value.len() as u16).to_le_bytes());
+        $buf.extend_from_slice($value);
+    }};
+    ($buf:ident, $value:expr, floats) => {
+        for value in $value {
+            $buf.extend_from_slice(&value.to_le_bytes());
+        }
+    };
+    ($buf:ident, $value:expr, floats16) => {{
+        $buf.extend_from_slice(&($value.len() as u16).to_le_bytes());
+        for value in $value {
+            $buf.extend_from_slice(&value.to_le_bytes());
+        }
+    }};
+    ($buf:ident, $value:expr, plane) => {
+        $buf.push($value as u8)
+    };
+    ($buf:ident, $value:expr, video) => {
+        $buf.extend_from_slice($value.bytes())
+    };
+    ($buf:ident, $value:expr, $scalar:ty) => {
+        $buf.extend_from_slice(&$value.to_le_bytes())
+    };
 }
+
+macro_rules! field_len {
+    ($value:expr, bytes) => {
+        $value.len()
+    };
+    ($value:expr, bytes16) => {
+        2 + $value.len()
+    };
+    ($value:expr, floats) => {
+        $value.len() * 4
+    };
+    ($value:expr, floats16) => {
+        2 + $value.len() * 4
+    };
+    ($value:expr, plane) => {
+        1
+    };
+    ($value:expr, video) => {
+        $value.bytes().len()
+    };
+    ($value:expr, $scalar:ty) => {
+        std::mem::size_of::<$scalar>()
+    };
+}
+
+macro_rules! frame_kind {
+    (Video, $frame:ident) => {
+        $frame.data.kind()
+    };
+    ($kind:ident, $frame:ident) => {
+        FrameKind::$kind
+    };
+}
+
+macro_rules! define_frame {
+    ($name:ident, $kind:ident, {$($field:ident: $ty:ident),* $(,)?}) => {
+        #[derive(Clone, Debug, PartialEq)]
+        pub struct $name<'a> {
+            pub stream_id: u16,
+            pub seq: u32,
+            pub timestamp: u64,
+            $(pub $field: field_type!('a, $ty),)*
+        }
+        impl $name<'_> {
+            #[must_use]
+            pub fn encoded_len(&self) -> usize {
+                HEADER_LEN $(+ field_len!(self.$field, $ty))*
+            }
+            #[must_use]
+            pub fn encode(&self) -> Vec<u8> {
+                let mut buf = Vec::with_capacity(self.encoded_len());
+                buf.push(PROTOCOL_VERSION);
+                buf.push(frame_kind!($kind, self) as u8);
+                buf.extend_from_slice(&self.stream_id.to_le_bytes());
+                buf.extend_from_slice(&self.seq.to_le_bytes());
+                buf.extend_from_slice(&self.timestamp.to_le_bytes());
+                $(write_field!(buf, self.$field, $ty);)*
+                buf
+            }
+            fn fields() -> &'static [(&'static str, &'static str)] {
+                &[$((stringify!($field), stringify!($ty))),*]
+            }
+        }
+    };
+}
+
+define_frame!(SpectrumFrame, Spectrum, {
+    center_hz: f64, span_hz: f32, db_min: f32, db_max: f32, bins: bytes16,
+});
+define_frame!(AudioFrame, AudioOpus, { ch_layout: u8, opus: bytes });
+define_frame!(IqFrame, IqF32, { center_hz: f64, sample_rate: f32, samples: floats });
+define_frame!(SymbolFrame, Symbols, {
+    plane: plane, symbol_rate: f32, evm: f32, mer_db: f32, margin: f32,
+    freq_error_hz: f32, reference: floats16, symbols: floats,
+});
+define_frame!(RangeDopplerFrame, RangeDoppler, {
+    ranges: u16, dopplers: u16, range_step_us: f32, doppler_step_hz: f32,
+    db_min: f32, db_max: f32, cells: bytes,
+});
+define_frame!(VideoFrame, Video, { width: u16, height: u16, data: video });
 
 #[cfg(test)]
 mod tests {

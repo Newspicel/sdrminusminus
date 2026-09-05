@@ -1,5 +1,5 @@
 use sdrmm_device::RxSink;
-use sdrmm_wire::{ChannelSettings, PositionFix};
+use sdrmm_wire::PositionFix;
 
 use super::ChannelHost;
 use crate::{
@@ -22,14 +22,6 @@ pub(crate) enum DspCommand {
     },
     RemoveChannel {
         id: u32,
-    },
-    Retune {
-        id: u32,
-        offset_hz: f64,
-    },
-    ApplySettings {
-        id: u32,
-        settings: ChannelSettings,
     },
     PositionChanged {
         id: u32,

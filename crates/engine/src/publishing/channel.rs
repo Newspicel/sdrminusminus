@@ -4,7 +4,9 @@ use std::sync::{
 };
 
 use num_complex::Complex;
-use sdrmm_channels::ChannelOutputs;
+use rtrb::{Consumer, Producer, RingBuffer};
+use sdrmm_channels::{ChannelCtx, ChannelOutputs, ChannelRx};
+use sdrmm_wire::ChannelSettings;
 
 use super::Publisher;
 use crate::{
@@ -39,15 +41,27 @@ pub(crate) struct ChannelPacket {
 pub(crate) struct ChannelPublisher {
     pub(crate) queue: Publisher<ChannelPacket>,
     wanted: Arc<AtomicU8>,
+    retired_rx: Producer<Box<dyn ChannelRx>>,
+    fresh_rx: Consumer<Box<dyn ChannelRx>>,
 }
 
 impl ChannelPublisher {
     pub(crate) fn new(
         rate: f64,
+        settings: &ChannelSettings,
         iq_capacity: usize,
         sinks: ChannelSinks,
         decoded: DecodedSink,
     ) -> std::io::Result<Self> {
+        let settings = settings.clone();
+        let make_rx = move || sdrmm_channels::create(ChannelCtx { input_rate: rate }, &settings);
+        let (retired_rx, mut old_rx) = RingBuffer::<Box<dyn ChannelRx>>::new(1);
+        let (mut ready_rx, fresh_rx) = RingBuffer::new(1);
+        let fresh = make_rx().map_err(std::io::Error::other)?;
+        if ready_rx.push(fresh).is_err() {
+            return Err(std::io::Error::other("receiver pool initialization failed"));
+        }
+        let mut rebuild_rx = false;
         let wanted = Arc::new(AtomicU8::new(subscriptions(&sinks)));
         let poll_wanted = wanted.clone();
         let poll_sinks = sinks.clone();
@@ -55,7 +69,8 @@ impl ChannelPublisher {
         let mut symbols = SymbolBatcher::new();
         let mut video_seq = 0u32;
         let mut previous_end = 0;
-        let queue = Publisher::new(
+        let metrics = sinks.publication.clone();
+        let queue = Publisher::with_metrics(
             "sdrmm-publish",
             64,
             || ChannelPacket {
@@ -127,9 +142,44 @@ impl ChannelPublisher {
                 packet.outputs.reset();
                 packet.iq.clear();
             },
-            move || poll_wanted.store(subscriptions(&poll_sinks), Ordering::Relaxed),
+            move || {
+                poll_wanted.store(subscriptions(&poll_sinks), Ordering::Relaxed);
+                if let Ok(old) = old_rx.pop() {
+                    drop(old);
+                    rebuild_rx = true;
+                }
+                if rebuild_rx {
+                    match make_rx() {
+                        Ok(rx) => {
+                            rebuild_rx = ready_rx.push(rx).is_err();
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, "receiver recovery preparation failed")
+                        }
+                    }
+                }
+            },
+            metrics,
         )?;
-        Ok(Self { queue, wanted })
+        Ok(Self {
+            queue,
+            wanted,
+            retired_rx,
+            fresh_rx,
+        })
+    }
+
+    pub(crate) fn recover(&mut self, receiver: &mut Box<dyn ChannelRx>) -> bool {
+        if self.retired_rx.slots() == 0 {
+            return false;
+        }
+        let Ok(mut fresh) = self.fresh_rx.pop() else {
+            return false;
+        };
+        std::mem::swap(receiver, &mut fresh);
+        let result = self.retired_rx.push(fresh);
+        debug_assert!(result.is_ok());
+        true
     }
 
     pub(crate) fn wanted(&self) -> u8 {

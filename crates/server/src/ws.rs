@@ -21,11 +21,13 @@ use sdrmm_wire::{
     AudioFrame, ClientCommand, IqFrame, PositionFix, RangeDopplerFrame, ServerEvent, SpectrumFrame,
     StateScope, StreamKind, SymbolFrame, VideoData, VideoFrame,
 };
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
+
+mod outbox;
+use outbox::Outbox;
 
 use crate::AppState;
 
-const OUT_CHANNEL_CAP: usize = 256;
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
@@ -96,7 +98,7 @@ impl RateBudget {
 struct Session {
     engine: Arc<Engine>,
     state: AppState,
-    out: mpsc::Sender<Message>,
+    out: Outbox,
     spectra: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
@@ -106,10 +108,11 @@ struct Session {
     next_spectrum_id: u16,
     next_media_id: u16,
     position_budget: RateBudget,
+    diagnostics: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Session {
-    fn new(engine: Arc<Engine>, state: AppState, out: mpsc::Sender<Message>) -> Self {
+    fn new(engine: Arc<Engine>, state: AppState, out: Outbox) -> Self {
         Self {
             engine,
             state,
@@ -122,6 +125,7 @@ impl Session {
             surfaces: HashMap::new(),
             next_spectrum_id: SPECTRUM_ID_BASE,
             next_media_id: MEDIA_ID_BASE,
+            diagnostics: None,
             position_budget: RateBudget::new(POSITION_PUBLISH_BURST, POSITION_PUBLISH_RATE),
         }
     }
@@ -135,6 +139,15 @@ impl Session {
             return;
         };
         match command {
+            ClientCommand::SubscribeDiagnostics { enabled } => {
+                if let Some(task) = self.diagnostics.take() {
+                    task.abort();
+                }
+                if enabled {
+                    self.diagnostics =
+                        Some(spawn_diagnostics(self.engine.clone(), self.out.clone()));
+                }
+            }
             ClientCommand::SubscribeSpectrum {
                 device_set,
                 fps,
@@ -235,6 +248,9 @@ impl Session {
     }
 
     fn abort_streams(self) {
+        if let Some(task) = self.diagnostics {
+            task.abort();
+        }
         for (_, (_, task)) in self.spectra {
             task.abort();
         }
@@ -607,16 +623,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let live = state.clients.fetch_add(1, atomic::Ordering::Relaxed) + 1;
     tracing::debug!(clients = live, "client connected");
     engine.emit_scope(StateScope::Clients);
-    let (mut ws_tx, mut ws_rx) = socket.split();
-    let (out_tx, mut out_rx) = mpsc::channel::<Message>(OUT_CHANNEL_CAP);
+    let (ws_tx, mut ws_rx) = socket.split();
+    let (out_tx, out_rx) = outbox::channel();
 
-    let writer = tokio::spawn(async move {
-        while let Some(msg) = out_rx.recv().await {
-            if ws_tx.send(msg).await.is_err() {
-                break;
-            }
-        }
-    });
+    let mut writer = tokio::spawn(write_output(ws_tx, out_rx));
 
     let event_rx = engine.subscribe_events();
     let decoded_rx = state.decoded_text.subscribe();
@@ -644,7 +654,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     let mut session = Session::new(engine.clone(), state.clone(), out_tx.clone());
 
-    while let Some(Ok(msg)) = ws_rx.next().await {
+    loop {
+        let msg = tokio::select! {
+            _ = &mut writer => break,
+            message = ws_rx.next() => message,
+        };
+        let Some(Ok(msg)) = msg else {
+            break;
+        };
         match msg {
             Message::Text(text) => session.dispatch(&text).await,
             Message::Close(_) => break,
@@ -698,7 +715,7 @@ fn alloc_stream_id(
 
 fn spawn_events(
     mut event_rx: broadcast::Receiver<ServerEvent>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -725,7 +742,7 @@ fn spawn_events(
 
 fn spawn_decoded(
     mut decoded_rx: broadcast::Receiver<Utf8Bytes>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -749,7 +766,7 @@ fn spawn_decoded(
 
 fn spawn_positions(
     mut position_rx: broadcast::Receiver<ServerEvent>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -815,7 +832,7 @@ fn spawn_spectrum(
     fps: u16,
     bins: u16,
     mut rx: broadcast::Receiver<SpectrumSnapshot>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
     engine: Arc<Engine>,
 ) -> tokio::task::JoinHandle<()> {
     let SpectrumLane {
@@ -834,7 +851,14 @@ fn spawn_spectrum(
 
         loop {
             match rx.recv().await {
-                Ok(snap) => {
+                Ok(mut snap) => {
+                    for _ in 0..128 {
+                        match rx.try_recv() {
+                            Ok(next) => snap = next,
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+                            Err(_) => break,
+                        }
+                    }
                     if !throttle.admit(snap.timestamp, snap.span_hz) {
                         continue;
                     }
@@ -859,7 +883,10 @@ fn spawn_spectrum(
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    out_tx.dropped(count);
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     let engine = engine.clone();
                     let resubscribed =
@@ -884,12 +911,18 @@ fn spawn_spectrum(
 fn spawn_audio(
     stream_id: u16,
     mut rx: broadcast::Receiver<AudioPacket>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(packet) => {
+                    if packet.created_at.elapsed() > std::time::Duration::from_millis(100)
+                        || rx.len() >= 5
+                    {
+                        out_tx.dropped(1);
+                        continue;
+                    }
                     let frame = AudioFrame {
                         stream_id,
                         seq: packet.seq,
@@ -903,7 +936,10 @@ fn spawn_audio(
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    out_tx.dropped(count);
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
@@ -935,12 +971,19 @@ fn media_id_live(
 fn spawn_symbols(
     stream_id: u16,
     mut rx: broadcast::Receiver<SymbolBlock>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
-                Ok(block) => {
+                Ok(mut block) => {
+                    for _ in 0..128 {
+                        match rx.try_recv() {
+                            Ok(next) => block = next,
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+                            Err(_) => break,
+                        }
+                    }
                     let frame = SymbolFrame {
                         stream_id,
                         seq: block.seq,
@@ -960,7 +1003,10 @@ fn spawn_symbols(
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    out_tx.dropped(count);
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
@@ -977,13 +1023,20 @@ fn spawn_symbols(
 fn spawn_iq(
     stream_id: u16,
     mut rx: broadcast::Receiver<IqBlock>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interleaved: Vec<f32> = Vec::new();
         loop {
             match rx.recv().await {
-                Ok(block) => {
+                Ok(mut block) => {
+                    for _ in 0..128 {
+                        match rx.try_recv() {
+                            Ok(next) => block = next,
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+                            Err(_) => break,
+                        }
+                    }
                     interleaved.clear();
                     interleaved.reserve(block.samples.len() * 2);
                     for sample in block.samples.iter() {
@@ -1004,7 +1057,10 @@ fn spawn_iq(
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    out_tx.dropped(count);
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
@@ -1023,7 +1079,7 @@ fn spawn_surface(
     stream_id: u16,
     node: u32,
     mut rx: broadcast::Receiver<SurfaceUpdate>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
@@ -1048,7 +1104,10 @@ fn spawn_surface(
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    out_tx.dropped(count);
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
@@ -1065,12 +1124,19 @@ fn spawn_surface(
 fn spawn_video(
     stream_id: u16,
     mut rx: broadcast::Receiver<VideoPacket>,
-    out_tx: mpsc::Sender<Message>,
+    out_tx: Outbox,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
-                Ok(packet) => {
+                Ok(mut packet) => {
+                    for _ in 0..128 {
+                        match rx.try_recv() {
+                            Ok(next) => packet = next,
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+                            Err(_) => break,
+                        }
+                    }
                     let frame = VideoFrame {
                         stream_id,
                         seq: packet.seq,
@@ -1089,7 +1155,10 @@ fn spawn_video(
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    out_tx.dropped(count);
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => {
                     let stopped = ServerEvent::StreamStopped {
                         stream_id,
@@ -1116,3 +1185,36 @@ fn encode_event(ev: &ServerEvent) -> Utf8Bytes {
 
 #[cfg(test)]
 mod tests;
+
+fn spawn_diagnostics(engine: Arc<Engine>, out: Outbox) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let engine = engine.clone();
+            let Ok(queues) = tokio::task::spawn_blocking(move || engine.pipeline_health()).await
+            else {
+                break;
+            };
+            let event = ServerEvent::PipelineHealth {
+                queues,
+                websocket: out.health(),
+            };
+            if out.send(text_event(&event)).await.is_err() {
+                break;
+            }
+        }
+    })
+}
+
+async fn write_output<S: futures::Sink<Message> + Unpin>(mut sink: S, mut output: outbox::Output) {
+    while let Some(message) = output.recv().await {
+        if !matches!(
+            tokio::time::timeout(outbox::WRITE_TIMEOUT, sink.send(message)).await,
+            Ok(Ok(()))
+        ) {
+            break;
+        }
+    }
+}

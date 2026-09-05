@@ -40,6 +40,9 @@ interface ChannelEntry {
   lost: number;
   underruns: number;
   sinkUnderruns: number;
+  decoderDroppedFrames: number;
+  bufferedFrames: number;
+  trimmedFrames: number;
 }
 
 const US_PER_FRAME = 1_000_000 / SAMPLE_RATE;
@@ -312,7 +315,10 @@ export class AudioEngine {
         loss: new LossTracker(MAX_GAP_FRAMES),
         lost: 0,
         underruns: 0,
+        bufferedFrames: 0,
+        trimmedFrames: 0,
         sinkUnderruns: 0,
+        decoderDroppedFrames: 0,
       };
       this.entries.set(key, entry);
     }
@@ -357,6 +363,9 @@ export class AudioEngine {
         }
         entry.sink = sink;
         entry.sinkUnderruns = 0;
+        entry.decoderDroppedFrames = 0;
+        entry.bufferedFrames = 0;
+        entry.trimmedFrames = 0;
         sink.setVolume(entry.volume);
         this.sendSubscribe(entry);
       })
@@ -381,13 +390,27 @@ export class AudioEngine {
     });
   }
 
+  getBufferedMs(deviceSet: number, channel: number): number {
+    return (
+      ((this.entries.get(entryKey(deviceSet, channel))?.bufferedFrames ?? 0) * 1000) / SAMPLE_RATE
+    );
+  }
+
+  getTrimmedMs(deviceSet: number, channel: number): number {
+    return (
+      ((this.entries.get(entryKey(deviceSet, channel))?.trimmedFrames ?? 0) * 1000) / SAMPLE_RATE
+    );
+  }
+
   private observe(entry: ChannelEntry, report: WorkletReport): void {
+    const decoderDropped = report.decoderDroppedFrames ?? entry.decoderDroppedFrames;
+    entry.lost += Math.max(0, decoderDropped - entry.decoderDroppedFrames);
+    entry.decoderDroppedFrames = decoderDropped;
     const since = report.underruns - entry.sinkUnderruns;
-    if (since <= 0) {
-      return;
-    }
+    entry.bufferedFrames = report.bufferedFrames ?? entry.bufferedFrames;
+    entry.trimmedFrames = report.trimmedFrames ?? entry.trimmedFrames;
     entry.sinkUnderruns = report.underruns;
-    entry.underruns += since;
+    entry.underruns += Math.max(0, since);
     this.notify();
   }
 
@@ -401,6 +424,7 @@ export class AudioEngine {
   private teardown(entry: ChannelEntry): void {
     entry.sink?.close();
     entry.sink = null;
+    entry.bufferedFrames = 0;
   }
 
   private dropLiveStreams(): void {

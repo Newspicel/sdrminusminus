@@ -14,6 +14,7 @@ import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { TuneTo } from "../../components/TuneTo";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
+import { usePipelineHealth } from "../../lib/pipeline";
 import { pushToast } from "../../lib/toasts";
 import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { useDevicePatch } from "../../lib/useDevicePatch";
@@ -296,6 +297,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
         <RadioSettings active={set} className="p-2" sampleRateLocked={arrayTuning} />
 
+        <PipelineReadout deviceSet={set.id} />
         {overruns > 0 && (
           <Readout>
             <ReadoutRow
@@ -321,5 +323,23 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         </Button>
       </FaceFooter>
     </NodeShell>
+  );
+}
+
+function PipelineReadout({ deviceSet }: { deviceSet: number }) {
+  const health = usePipelineHealth((state) => state.health);
+  const queues = health?.queues.filter((queue) => queue.device_set === deviceSet) ?? [];
+  if (queues.length === 0) return null;
+  const oldest = Math.max(...queues.map((queue) => queue.health.oldest_ms));
+  const detail = queues
+    .map(
+      (queue) =>
+        `${queue.stage} ${queue.stream}${queue.channel === null ? "" : `/${queue.channel}`}: ${queue.health.queued}/${queue.health.capacity}, ${queue.health.oldest_ms.toFixed(1)} ms, ${queue.health.dropped} dropped`,
+    )
+    .join("\n");
+  return (
+    <span className="legend" title={detail}>
+      Queue {oldest.toFixed(0)} ms
+    </span>
   );
 }

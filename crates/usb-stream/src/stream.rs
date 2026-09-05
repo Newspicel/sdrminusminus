@@ -3,7 +3,7 @@ use std::{
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError},
     },
     thread::JoinHandle,
     time::Duration,
@@ -73,6 +73,13 @@ impl Shared {
 pub struct Block {
     bytes: Vec<u8>,
     recycle: Sender<Vec<u8>>,
+    missing_bytes: u64,
+}
+
+impl Block {
+    pub fn missing_bytes(&self) -> u64 {
+        self.missing_bytes
+    }
 }
 
 impl Deref for Block {
@@ -173,12 +180,19 @@ pub fn start<B: BulkIn>(mut bulk_in: B, config: StreamConfig) -> Result<RxStream
     let shared = Arc::new(Shared::default());
     let (tx, rx) = mpsc::sync_channel(config.channel_depth);
     let (recycle_tx, recycle_rx) = mpsc::channel();
+    for _ in 0..=config.channel_depth {
+        recycle_tx
+            .send(Vec::with_capacity(config.transfer_size))
+            .map_err(|_| StreamError::Config("buffer pool initialization failed"))?;
+    }
     let pump = Pump {
         bulk_in,
         policy: TransferPolicy::new(u32::try_from(config.queue_depth).unwrap_or(u32::MAX)),
         shared: shared.clone(),
         recycle_tx,
         recycle_rx,
+        transfer_size: config.transfer_size,
+        missing_bytes: 0,
         queue_depth: config.queue_depth,
         poll_interval: config.poll_interval,
     };
@@ -214,6 +228,8 @@ struct Pump<B: BulkIn> {
     recycle_tx: Sender<Vec<u8>>,
     recycle_rx: Receiver<Vec<u8>>,
     queue_depth: usize,
+    transfer_size: usize,
+    missing_bytes: u64,
     poll_interval: Duration,
 }
 
@@ -246,6 +262,7 @@ impl<B: BulkIn> Pump<B> {
                 Step::Ended
             }
             Action::Resubmit => {
+                self.missing_bytes = self.missing_bytes.saturating_add(self.transfer_size as u64);
                 self.shared.dropped.fetch_add(1, Ordering::Relaxed);
                 if status == Err(TransferError::Cancelled) {
                     tracing::debug!("usb transfer cancelled by a fault ahead of it; resubmitting");
@@ -264,17 +281,30 @@ impl<B: BulkIn> Pump<B> {
                     self.bulk_in.submit(completion.buffer);
                     return Step::Progress;
                 }
-                let mut bytes = self.recycle_rx.try_recv().unwrap_or_default();
+                let Ok(mut bytes) = self.recycle_rx.try_recv() else {
+                    self.missing_bytes = self.missing_bytes.saturating_add(len as u64);
+                    self.shared.dropped.fetch_add(1, Ordering::Relaxed);
+                    self.bulk_in.submit(completion.buffer);
+                    return Step::Progress;
+                };
                 bytes.clear();
                 bytes.extend_from_slice(&completion.buffer[..len]);
                 self.bulk_in.submit(completion.buffer);
-                self.shared.processed.fetch_add(1, Ordering::Relaxed);
                 let block = Block {
                     bytes,
                     recycle: self.recycle_tx.clone(),
+                    missing_bytes: self.missing_bytes,
                 };
-                if tx.send(block).is_err() {
-                    return Step::Ended;
+                match tx.try_send(block) {
+                    Ok(()) => {
+                        self.missing_bytes = 0;
+                        self.shared.processed.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(TrySendError::Full(_)) => {
+                        self.missing_bytes = self.missing_bytes.saturating_add(len as u64);
+                        self.shared.dropped.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(TrySendError::Disconnected(_)) => return Step::Ended,
                 }
                 Step::Progress
             }
@@ -420,6 +450,11 @@ mod tests {
         }
         let (recycle_tx, recycle_rx) = mpsc::channel();
         let (tx, rx) = mpsc::sync_channel(DEPTH);
+        for _ in 0..=DEPTH {
+            recycle_tx
+                .send(Vec::with_capacity(TRANSFER_SIZE))
+                .expect("pool");
+        }
         let pump = Pump {
             bulk_in,
             policy: TransferPolicy::new(DEPTH as u32),
@@ -427,9 +462,32 @@ mod tests {
             recycle_tx,
             recycle_rx,
             queue_depth: DEPTH,
+            transfer_size: TRANSFER_SIZE,
+            missing_bytes: 0,
             poll_interval: Duration::from_millis(1),
         };
         (pump, tx, rx)
+    }
+
+    #[test]
+    fn congestion_keeps_usb_running_and_marks_the_gap_after_buffered_data() {
+        let fake = FakeBulkIn::default();
+        let (mut pump, tx, rx) = pump(fake.clone());
+        for value in 0..DEPTH + 3 {
+            fake.push_data([value as u8; 4]);
+            assert_eq!(pump.step(&tx), Step::Progress);
+            assert_eq!(fake.state().queued.len(), DEPTH);
+        }
+        assert_eq!(pump.shared.stats().dropped, 3);
+        for _ in 0..DEPTH {
+            assert_eq!(rx.try_recv().expect("buffered block").missing_bytes(), 0);
+        }
+        fake.push_data([99; 4]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(rx.try_recv().expect("after gap").missing_bytes(), 12);
+        fake.push_data([100; 4]);
+        assert_eq!(pump.step(&tx), Step::Progress);
+        assert_eq!(rx.try_recv().expect("continuous").missing_bytes(), 0);
     }
 
     #[test]
@@ -540,18 +598,18 @@ mod tests {
     #[test]
     fn dropped_blocks_are_recycled_instead_of_reallocated() {
         let fake = FakeBulkIn::default();
-        fake.push_data([7, 7]);
-        fake.push_data([8, 8]);
+        for _ in 0..DEPTH + 2 {
+            fake.push_data([7, 8]);
+        }
         let (mut pump, tx, rx) = pump(fake);
-
-        assert_eq!(pump.step(&tx), Step::Progress);
-        let first = rx.try_recv().expect("first block");
-        let address = first.as_ptr();
-        drop(first);
-
-        assert_eq!(pump.step(&tx), Step::Progress);
-        let second = rx.try_recv().expect("second block");
-        assert_eq!(second.as_ptr(), address, "pump must not allocate per block");
+        let mut addresses = Vec::new();
+        for _ in 0..DEPTH + 2 {
+            assert_eq!(pump.step(&tx), Step::Progress);
+            let block = rx.try_recv().expect("block");
+            assert_eq!(block.bytes.capacity(), TRANSFER_SIZE);
+            addresses.push(block.as_ptr());
+        }
+        assert_eq!(addresses[0], addresses[DEPTH + 1]);
     }
 
     #[test]

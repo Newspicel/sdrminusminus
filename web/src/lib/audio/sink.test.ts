@@ -113,6 +113,7 @@ describe("createWebAudioSink", () => {
     createDecoder.mockResolvedValue({
       channels: 1,
       decode: vi.fn(),
+      reset: vi.fn(),
       close: vi.fn(),
     });
     const sinkModule = await importSink();
@@ -142,6 +143,7 @@ describe("createWebAudioSink", () => {
     createDecoder.mockResolvedValue({
       channels: 1,
       decode: vi.fn(),
+      reset: vi.fn(),
       close: vi.fn(),
     });
     FakeAudioContext.initialState = "suspended";
@@ -168,6 +170,7 @@ describe("createWebAudioSink", () => {
     createDecoder.mockResolvedValue({
       channels: 1,
       decode: vi.fn(),
+      reset: vi.fn(),
       close: vi.fn(),
     });
     const { createWebAudioSink } = await importSink();
@@ -252,6 +255,7 @@ describe("createWebAudioSink", () => {
     createDecoder.mockResolvedValue({
       channels: 1,
       decode: vi.fn(),
+      reset: vi.fn(),
       close: vi.fn(),
     });
     const { createWebAudioSink, gainForVolume } = await importSink();

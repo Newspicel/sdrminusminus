@@ -10,6 +10,7 @@ import {
   processorUrl,
   SAMPLE_RATE,
   TARGET_FRAMES,
+  targetFramesForHost,
 } from "./worklet";
 
 const VOLUME_RANGE_DB = 60;
@@ -125,15 +126,23 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     numberOfOutputs: 1,
     outputChannelCount: [CHANNELS],
     processorOptions: {
-      targetFrames: TARGET_FRAMES,
+      targetFrames:
+        typeof location === "undefined" ? TARGET_FRAMES : targetFramesForHost(location.hostname),
       maxFrames: MAX_FRAMES,
       channels: CHANNELS,
     },
   });
   const gain = new GainNode(context, { gain: gainForVolume(volume) });
   node.connect(gain).connect(context.destination);
+  let lastReport: WorkletReport = { underruns: 0 };
+  let decoderDroppedFrames = 0;
+  const onDropped = (frames: number): void => {
+    decoderDroppedFrames += frames;
+    onReport({ ...lastReport, decoderDroppedFrames });
+  };
   node.port.onmessage = (event: MessageEvent<WorkletReport>) => {
-    onReport(event.data);
+    lastReport = event.data;
+    onReport({ ...lastReport, decoderDroppedFrames });
   };
 
   let closed = false;
@@ -149,7 +158,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
 
   let decoder: OpusPacketDecoder;
   try {
-    decoder = await createOpusPacketDecoder(1, emit(1), onError);
+    decoder = await createOpusPacketDecoder(1, emit(1), onError, onDropped);
   } catch (err) {
     post(node, "close");
     node.disconnect();
@@ -163,7 +172,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       return;
     }
     swapping = true;
-    createOpusPacketDecoder(channels, emit(channels), onError)
+    createOpusPacketDecoder(channels, emit(channels), onError, onDropped)
       .then((next) => {
         swapping = false;
         if (closed) {
@@ -197,6 +206,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       gain.gain.setTargetAtTime(gainForVolume(v), context.currentTime, VOLUME_RAMP_SECONDS);
     },
     reset() {
+      decoder.reset();
       post(node, "reset");
     },
     close() {

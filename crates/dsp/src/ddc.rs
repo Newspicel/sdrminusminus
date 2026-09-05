@@ -71,6 +71,18 @@ impl Ddc {
         })
     }
 
+    pub fn reset(&mut self) {
+        self.nco.reset();
+        for stage in &mut self.stages {
+            stage.reset();
+        }
+        if let Some(resampler) = &mut self.resamp {
+            resampler.reset();
+        }
+        self.work_in.clear();
+        self.work_out.clear();
+    }
+
     pub fn set_offset(&mut self, offset_hz: f64) {
         self.nco
             .set_freq((-offset_hz) as f32, self.input_rate as f32);
@@ -163,6 +175,22 @@ mod tests {
             sum += f64::from((pair[1] * pair[0].conj()).arg());
         }
         sum / (out.len() - 1) as f64 * rate / std::f64::consts::TAU
+    }
+
+    #[test]
+    fn reset_does_not_splice_old_filter_history_into_a_fresh_signal() {
+        for (input_rate, output_rate) in [(240_000.0, 48_000.0), (240_000.0, 44_100.0)] {
+            let mut used = Ddc::new(input_rate, output_rate, 1234.0).expect("rates");
+            let mut fresh = used.clone();
+            let mut actual = Vec::new();
+            used.process(&vec![Complex::new(1.0, 0.5); 4001], &mut actual);
+            used.reset();
+            let signal = tone_at_rate(5678.0, input_rate, 4096);
+            used.process(&signal, &mut actual);
+            let mut expected = Vec::new();
+            fresh.process(&signal, &mut expected);
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]

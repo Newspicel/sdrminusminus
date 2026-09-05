@@ -35,6 +35,10 @@ impl FirC {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.core.process(input, out);
     }

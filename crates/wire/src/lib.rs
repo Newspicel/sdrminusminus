@@ -10,6 +10,8 @@ pub mod doctor;
 pub mod event_output;
 pub mod filter;
 pub mod frame;
+mod pipeline;
+pub use pipeline::{PipelineQueue, PipelineStage, QueueHealth};
 pub mod hunt;
 pub mod network;
 pub mod patch;
@@ -101,7 +103,7 @@ pub use filter::{
 };
 pub use frame::{
     AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, RangeDopplerFrame, SpectrumFrame,
-    SymbolFrame, SymbolPlane, VideoData, VideoFrame,
+    SymbolFrame, SymbolPlane, VideoData, VideoFrame, typescript_frames,
 };
 pub use hunt::{HuntAction, HuntRequest, HuntSettings, HuntStatus};
 pub use network::{

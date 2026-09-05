@@ -1,4 +1,5 @@
 #![allow(clippy::expect_used)]
+mod frame_fixtures;
 
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -167,6 +168,13 @@ fn root() -> PathBuf {
 }
 
 fn codegen(root: &Path) -> Result<()> {
+    std::fs::write(
+        root.join("web/src/generated/frame-fixtures.json"),
+        serde_json::to_string_pretty(&frame_fixtures::frames())?,
+    )
+    .context("write binary frame fixtures")?;
+    let frames = root.join("web/src/generated/frame.ts");
+    std::fs::write(&frames, sdrmm_wire::typescript_frames()).context("write binary frame codec")?;
     let spec = sdrmm_server::openapi()
         .to_pretty_json()
         .context("serialize OpenAPI")?;

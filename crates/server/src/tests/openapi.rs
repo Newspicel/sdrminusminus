@@ -133,3 +133,14 @@ fn router_builds_outside_a_tokio_runtime() {
         &ServerOptions::default(),
     );
 }
+
+#[test]
+fn openapi_matches_the_committed_snapshot() {
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../openapi.json")).expect("snapshot");
+    let actual = serde_json::to_value(openapi()).expect("OpenAPI");
+    assert_eq!(
+        actual, expected,
+        "regenerate the wire schema with cargo xtask codegen"
+    );
+}

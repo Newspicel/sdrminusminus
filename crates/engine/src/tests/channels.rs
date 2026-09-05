@@ -309,3 +309,76 @@ async fn ring_overrun_surfaces_in_state_and_emits_event() {
     );
     engine.remove_device_set(ds).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn virtual_capture_recovers_from_a_stalled_dsp_with_an_audio_timestamp_gap() {
+    let engine = virtual_engine();
+    let ds = engine
+        .create_device_set("virtual:siggen")
+        .expect("virtual radio");
+    let ch = engine
+        .add_channel(ds, 0, nfm_settings(0.0))
+        .expect("channel");
+    let mut audio = engine.subscribe_audio(ds, ch).expect("audio");
+    let first = tokio::time::timeout(Duration::from_secs(5), audio.recv())
+        .await
+        .expect("audio starts")
+        .expect("packet");
+    let (entered, waiting) = std::sync::mpsc::channel();
+    let (release, resume) = std::sync::mpsc::channel();
+    let mut once = true;
+    let command = engine.lock().device_sets[&ds].cmd_txs[0].clone();
+    command
+        .send(DspCommand::ConnectArray {
+            id: 999,
+            sink: RxSink::new(move |_, _| {
+                if once {
+                    once = false;
+                    entered.send(()).expect("DSP entered barrier");
+                    resume
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("release DSP");
+                }
+            }),
+        })
+        .expect("install barrier");
+    tokio::task::spawn_blocking(move || waiting.recv_timeout(Duration::from_secs(5)))
+        .await
+        .expect("wait task")
+        .expect("DSP blocked");
+    let overloaded = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if engine.snapshot().device_sets[0].overruns > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    release.send(()).expect("resume DSP");
+    overloaded.expect("capture must report congestion");
+    let mut previous = first.timestamp;
+    let gap = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let packet = match audio.recv().await {
+                Ok(packet) => packet,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(error) => panic!("audio ended: {error}"),
+            };
+            if packet.timestamp > previous + 960 {
+                break packet.timestamp - previous - 960;
+            }
+            previous = packet.timestamp;
+        }
+    })
+    .await;
+    let health = engine.pipeline_health();
+    engine.remove_device_set(ds).expect("shutdown");
+    assert!(gap.expect("audio must preserve the capture gap") > 0);
+    assert!(
+        health
+            .iter()
+            .any(|queue| queue.stage == sdrmm_wire::PipelineStage::Capture
+                && queue.health.dropped > 0)
+    );
+}

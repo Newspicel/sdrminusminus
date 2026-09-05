@@ -733,12 +733,13 @@ fn throttle_reanchors_when_the_capture_restarts() {
 #[tokio::test(flavor = "multi_thread")]
 async fn audio_forwarder_sheds_oldest_and_delivers_newest() {
     let (tx, rx) = broadcast::channel::<AudioPacket>(4);
-    let (out_tx, mut out_rx) = mpsc::channel::<Message>(1);
+    let (out_tx, mut out_rx) = outbox::channel();
     let task = spawn_audio(MEDIA_ID_BASE, rx, out_tx);
 
     let last_seq = 20u32;
     for seq in 0..=last_seq {
         tx.send(AudioPacket {
+            created_at: Instant::now(),
             seq,
             timestamp: u64::from(seq) * 960,
             channels: 1,
@@ -797,11 +798,12 @@ async fn audio_forwarder_sheds_oldest_and_delivers_newest() {
 #[tokio::test(flavor = "multi_thread")]
 async fn audio_frames_carry_each_packets_channel_layout() {
     let (tx, rx) = broadcast::channel::<AudioPacket>(4);
-    let (out_tx, mut out_rx) = mpsc::channel::<Message>(4);
+    let (out_tx, mut out_rx) = outbox::channel();
     let task = spawn_audio(MEDIA_ID_BASE, rx, out_tx);
 
     for (seq, channels) in [(0u32, 1u8), (1, 2)] {
         tx.send(AudioPacket {
+            created_at: Instant::now(),
             seq,
             timestamp: u64::from(seq) * 960,
             channels,
@@ -1287,7 +1289,7 @@ async fn event_forwarder_lag_synthesizes_full_invalidation() {
         })
         .expect("send");
     }
-    let (out_tx, mut out_rx) = mpsc::channel::<Message>(16);
+    let (out_tx, mut out_rx) = outbox::channel();
     let task = spawn_events(rx, out_tx);
 
     let first = timeout(WAIT, out_rx.recv())
@@ -1322,4 +1324,86 @@ async fn event_forwarder_lag_synthesizes_full_invalidation() {
             },
         ]
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnostics_report_capture_and_connection_queues_only_when_subscribed() {
+    let engine = test_engine();
+    let ds = engine.create_device_set("virtual:siggen").expect("radio");
+    let mut socket = connect(engine.clone()).await;
+    send(
+        &mut socket,
+        &ClientCommand::SubscribeDiagnostics { enabled: true },
+    )
+    .await;
+    let event = timeout(WAIT, async {
+        loop {
+            let event = next_event(&mut socket).await;
+            if matches!(event, ServerEvent::PipelineHealth { .. }) {
+                break event;
+            }
+        }
+    })
+    .await
+    .expect("diagnostics");
+    let ServerEvent::PipelineHealth { queues, websocket } = event else {
+        panic!("health");
+    };
+    assert!(queues.iter().any(|queue| queue.device_set == ds
+        && queue.stage == sdrmm_wire::PipelineStage::Capture
+        && queue.health.capacity > 0));
+    assert!(websocket.queued <= websocket.capacity);
+    send(
+        &mut socket,
+        &ClientCommand::SubscribeDiagnostics { enabled: false },
+    )
+    .await;
+    socket.close(None).await.expect("close");
+    engine.remove_device_set(ds).expect("remove");
+}
+
+#[tokio::test]
+async fn audio_forwarder_discards_packets_older_than_the_live_budget() {
+    let (tx, rx) = broadcast::channel(8);
+    let (out, mut output) = outbox::channel();
+    let observed = out.clone();
+    let task = spawn_audio(MEDIA_ID_BASE, rx, out);
+    tx.send(AudioPacket {
+        created_at: Instant::now() - Duration::from_secs(1),
+        seq: 0,
+        timestamp: 0,
+        channels: 1,
+        opus: Arc::from([0u8; 4]),
+    })
+    .expect("stale");
+    tx.send(AudioPacket {
+        created_at: Instant::now(),
+        seq: 1,
+        timestamp: 960,
+        channels: 1,
+        opus: Arc::from([1u8; 4]),
+    })
+    .expect("live");
+    let Some(Message::Binary(bytes)) = timeout(WAIT, output.recv()).await.expect("frame") else {
+        panic!("binary audio");
+    };
+    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().expect("seq")), 1);
+    assert_eq!(observed.health().dropped, 1);
+    drop(tx);
+    task.await.expect("forwarder");
+}
+
+#[tokio::test]
+async fn a_stalled_socket_writer_expires_and_closes_its_output_queue() {
+    let (out, output) = outbox::channel();
+    out.send(Message::Text("queued".into()))
+        .await
+        .expect("queued");
+    let sink = Box::pin(futures::sink::unfold((), |(), _: Message| {
+        futures::future::pending::<Result<(), ()>>()
+    }));
+    timeout(outbox::WRITE_TIMEOUT * 4, write_output(sink, output))
+        .await
+        .expect("writer must stop");
+    assert!(out.send(Message::Text("after close".into())).await.is_err());
 }

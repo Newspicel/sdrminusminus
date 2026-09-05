@@ -11,7 +11,9 @@ use arc_swap::ArcSwap;
 use num_complex::Complex;
 use sdrmm_device::RxSink;
 
-use super::{ChannelHost, DSP_BLOCK, DspCommand, DspMeta, FFT_SIZE, frontend::Frontend};
+use super::{
+    ChannelHost, DSP_BLOCK, DspCommand, DspMeta, FFT_SIZE, frontend::Frontend, retire::Reclaimer,
+};
 use crate::{
     capture_ring::CaptureConsumer,
     network_export::NetworkExportTap,
@@ -62,12 +64,31 @@ impl ArrayOutput {
     }
 }
 
+pub(super) enum Retired {
+    Channel(Box<ChannelHost>),
+    Recording(Option<RecorderTap>, Option<RecordingPublisher>),
+    Network(NetworkExportTap),
+    History(TimeMachineTap),
+}
+
+impl Retired {
+    pub(super) fn release(self) {
+        match self {
+            Self::Channel(host) => drop(host),
+            Self::Recording(tap, publisher) => drop((tap, publisher)),
+            Self::Network(tap) => drop(tap),
+            Self::History(tap) => drop(tap),
+        }
+    }
+}
+
 pub(super) fn dsp_loop(
     consumer: &mut CaptureConsumer,
     commands: &mpsc::Receiver<DspCommand>,
     lane: &LaneShared,
     mut analyzer: SpectrumAnalyzer,
     mut publisher: SpectrumPublisher,
+    mut retirement: Reclaimer<Retired>,
 ) {
     let LaneShared {
         meta,
@@ -87,6 +108,7 @@ pub(super) fn dsp_loop(
     let mut write_pos = 0usize;
     let mut since_last = 0usize;
     let mut seq: u32 = 0;
+    let mut next_input = None;
     let mut served = Instant::now();
     let mut frontend = Frontend::new(*meta.load_full());
 
@@ -94,69 +116,80 @@ pub(super) fn dsp_loop(
         drain_commands(
             commands,
             &mut channels,
-            &mut tap,
-            &mut network_tap,
-            &mut history,
             &mut arrays,
-            &mut recording_publisher,
+            CommandSinks {
+                tap: &mut tap,
+                network_tap: &mut network_tap,
+                history: &mut history,
+                recording_publisher: &mut recording_publisher,
+            },
+            &mut retirement,
         );
         let snapshot = *meta.load_full();
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
         frontend.follow(snapshot);
-        let consumed = consumer.consume(DSP_BLOCK, |raw, mut total| {
-            record_stall(stalled_us, &mut served);
-            let slice = frontend.apply(raw);
-            for array in &mut arrays {
-                array.push(slice, total);
-            }
-            if tap.as_ref().is_some_and(|t| {
-                recording_publisher
-                    .as_mut()
-                    .is_none_or(|publisher| !publisher.publish(t, slice, total, snapshot.center_hz))
-            }) {
-                tap = None;
-            }
-            if network_tap
-                .as_mut()
-                .is_some_and(|network| !network.push(slice))
-            {
-                network_tap = None;
-            }
-            if history
-                .as_mut()
-                .is_some_and(|keeper| !keeper.push(slice, snapshot.center_hz))
-            {
-                history = None;
-            }
-            for (_, host) in &mut channels {
-                host.process(slice, snapshot.center_hz, snapshot.lo_offset_hz);
-            }
-            for &s in slice {
-                hist[write_pos] = s;
-                write_pos += 1;
-                if write_pos == FFT_SIZE {
+        let consumed =
+            consumer.consume_fresh(DSP_BLOCK, Duration::from_millis(100), |raw, mut total| {
+                record_stall(stalled_us, &mut served);
+                if next_input.is_some_and(|next| next != total) {
+                    frontend.reset();
+                    hist.fill(Complex::new(0.0, 0.0));
                     write_pos = 0;
-                }
-                total += 1;
-                since_last += 1;
-                if since_last >= hop {
                     since_last = 0;
-                    for (i, w) in window.iter_mut().enumerate() {
-                        *w = hist[(write_pos + i) % FFT_SIZE];
+                }
+                next_input = Some(total + raw.len() as u64);
+                let slice = frontend.apply(raw);
+                for array in &mut arrays {
+                    array.push(slice, total);
+                }
+                if tap.as_ref().is_some_and(|t| {
+                    recording_publisher.as_mut().is_none_or(|publisher| {
+                        !publisher.publish(t, slice, total, snapshot.center_hz)
+                    })
+                }) {
+                    tap = None;
+                }
+                if network_tap
+                    .as_mut()
+                    .is_some_and(|network| !network.push(slice))
+                {
+                    network_tap = None;
+                }
+                if history
+                    .as_mut()
+                    .is_some_and(|keeper| !keeper.push(slice, snapshot.center_hz))
+                {
+                    history = None;
+                }
+                for (_, host) in &mut channels {
+                    host.process_at(slice, total, snapshot.center_hz, snapshot.lo_offset_hz);
+                }
+                for &s in slice {
+                    hist[write_pos] = s;
+                    write_pos += 1;
+                    if write_pos == FFT_SIZE {
+                        write_pos = 0;
                     }
-                    let frame = SpectrumFrame {
-                        timestamp: total,
-                        center_hz: snapshot.center_hz,
-                        span_hz: snapshot.sample_rate as f32,
-                        lo_hz: snapshot.lo_hz(),
-                    };
-                    if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
-                        seq = seq.wrapping_add(1);
-                        publisher.publish(seq, completed, &db);
+                    total += 1;
+                    since_last += 1;
+                    if since_last >= hop {
+                        since_last = 0;
+                        for (i, w) in window.iter_mut().enumerate() {
+                            *w = hist[(write_pos + i) % FFT_SIZE];
+                        }
+                        let frame = SpectrumFrame {
+                            timestamp: total,
+                            center_hz: snapshot.center_hz,
+                            span_hz: snapshot.sample_rate as f32,
+                            lo_hz: snapshot.lo_hz(),
+                        };
+                        if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
+                            seq = seq.wrapping_add(1);
+                            publisher.publish(seq, completed, &db);
+                        }
                     }
                 }
-            }
-        });
+            });
         if consumed == 0 {
             std::thread::park_timeout(IDLE_PARK);
         }
@@ -170,16 +203,33 @@ fn record_stall(stalled_us: &AtomicU64, served: &mut Instant) {
     stalled_us.fetch_max(gap, Ordering::Relaxed);
 }
 
+struct CommandSinks<'a> {
+    tap: &'a mut Option<RecorderTap>,
+    network_tap: &'a mut Option<NetworkExportTap>,
+    history: &'a mut Option<TimeMachineTap>,
+    recording_publisher: &'a mut Option<RecordingPublisher>,
+}
+
 fn drain_commands(
     commands: &mpsc::Receiver<DspCommand>,
     channels: &mut Vec<(u32, Box<ChannelHost>)>,
-    tap: &mut Option<RecorderTap>,
-    network_tap: &mut Option<NetworkExportTap>,
-    history: &mut Option<TimeMachineTap>,
     arrays: &mut Vec<ArrayOutput>,
-    recording_publisher: &mut Option<RecordingPublisher>,
+    sinks: CommandSinks<'_>,
+    retirement: &mut Reclaimer<Retired>,
 ) {
-    while let Ok(cmd) = commands.try_recv() {
+    let CommandSinks {
+        tap,
+        network_tap,
+        history,
+        recording_publisher,
+    } = sinks;
+    for _ in 0..64 {
+        if !retirement.available() {
+            break;
+        }
+        let Ok(cmd) = commands.try_recv() else {
+            break;
+        };
         match cmd {
             DspCommand::ConnectArray { id, sink } => {
                 arrays.retain(|array| array.id != id);
@@ -190,23 +240,20 @@ fn drain_commands(
                 });
             }
             DspCommand::DisconnectArray { id } => arrays.retain(|array| array.id != id),
-            DspCommand::AddChannel { id, host } => {
-                channels.retain(|(existing, _)| *existing != id);
-                channels.push((id, host));
-            }
-            DspCommand::RemoveChannel { id } => channels.retain(|(existing, _)| *existing != id),
-            DspCommand::Retune { id, offset_hz } => {
-                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
-                    host.set_offset(offset_hz);
+            DspCommand::AddChannel { id, mut host } => {
+                if let Some((_, previous)) =
+                    channels.iter_mut().find(|(existing, _)| *existing == id)
+                {
+                    host.inherit(previous);
+                    std::mem::swap(previous, &mut host);
+                    retirement.retire(Retired::Channel(host));
                 } else {
-                    tracing::debug!(id, "retune for a channel no longer hosted");
+                    channels.push((id, host));
                 }
             }
-            DspCommand::ApplySettings { id, settings } => {
-                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
-                    host.apply(settings);
-                } else {
-                    tracing::debug!(id, "settings for a channel no longer hosted");
+            DspCommand::RemoveChannel { id } => {
+                if let Some(index) = channels.iter().position(|(existing, _)| *existing == id) {
+                    retirement.retire(Retired::Channel(channels.remove(index).1));
                 }
             }
             DspCommand::PositionChanged { id, fix } => {
@@ -220,12 +267,13 @@ fn drain_commands(
                 tap: armed,
                 publisher,
             } => {
-                *tap = Some(armed);
-                *recording_publisher = Some(publisher);
+                retirement.retire(Retired::Recording(
+                    tap.replace(armed),
+                    recording_publisher.replace(publisher),
+                ));
             }
             DspCommand::StopRecording => {
-                *tap = None;
-                *recording_publisher = None;
+                retirement.retire(Retired::Recording(tap.take(), recording_publisher.take()));
             }
             DspCommand::StartChannelRecording { id, tap: armed } => {
                 match channels.iter_mut().find(|(existing, _)| *existing == id) {
@@ -262,10 +310,26 @@ fn drain_commands(
                     host.set_baseband_export(None);
                 }
             }
-            DspCommand::StartNetworkExport { tap: armed } => *network_tap = Some(armed),
-            DspCommand::StopNetworkExport => *network_tap = None,
-            DspCommand::StartTimeMachine { tap: armed } => *history = Some(*armed),
-            DspCommand::StopTimeMachine => *history = None,
+            DspCommand::StartNetworkExport { tap: armed } => {
+                if let Some(old) = network_tap.replace(armed) {
+                    retirement.retire(Retired::Network(old));
+                }
+            }
+            DspCommand::StopNetworkExport => {
+                if let Some(old) = network_tap.take() {
+                    retirement.retire(Retired::Network(old));
+                }
+            }
+            DspCommand::StartTimeMachine { tap: armed } => {
+                if let Some(old) = history.replace(*armed) {
+                    retirement.retire(Retired::History(old));
+                }
+            }
+            DspCommand::StopTimeMachine => {
+                if let Some(old) = history.take() {
+                    retirement.retire(Retired::History(old));
+                }
+            }
         }
     }
 }
@@ -377,6 +441,7 @@ mod tests {
                 &shared,
                 SpectrumPlan::new(FFT_SIZE, 1).analyzer(),
                 publisher,
+                Reclaimer::new(Retired::release).expect("retirement"),
             );
         });
         let initial = output

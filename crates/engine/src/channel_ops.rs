@@ -1,4 +1,3 @@
-use sdrmm_channels::ChannelCtx;
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{ChannelInfo, ChannelSettings, DeviceSettings, ServerEvent, StateScope};
 
@@ -220,15 +219,11 @@ impl Engine {
                 sample_rate_of(&state.settings),
             )
         };
-        let mut need_host = old.params.type_id() != settings.params.type_id();
-        if !need_host {
-            drop(sdrmm_channels::create(
-                ChannelCtx {
-                    input_rate: descriptor.input_rate_hz,
-                },
-                &settings,
-            )?);
-        }
+        let mut need_host = old.offset_hz != settings.offset_hz
+            || old.params != settings.params
+            || old.squelch_db != settings.squelch_db
+            || old.squelch_auto_db != settings.squelch_auto_db
+            || old.audio != settings.audio;
         let mut orphaned: Option<ChannelAudioRecording> = None;
         let mut orphaned_baseband = BasebandSinks::default();
         let staged = loop {
@@ -260,54 +255,25 @@ impl Engine {
             let Some(info) = state.channels.iter_mut().find(|c| c.id == ch) else {
                 break Err(EngineError::ChannelNotFound(ch, ds));
             };
-            if info.settings.params.type_id() != settings.params.type_id() && host.is_none() {
+            if info.settings != old && host.is_none() {
                 need_host = true;
                 continue;
             }
             let stream = info.stream;
             let prev = std::mem::replace(&mut info.settings, settings.clone());
-            match host {
-                Some(mut host) => {
-                    if let Some(media) = state.media.get(&ch) {
-                        host.position_changed(media.position.as_ref());
-                    }
+            if let Some(mut host) = host {
+                if let Some(media) = state.media.get(&ch) {
+                    host.position_changed(media.position.as_ref());
+                }
+                if prev.params.type_id() != settings.params.type_id() {
                     orphaned_baseband = state.release_baseband_sinks(ch, stream);
                     state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
-                    state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
-                    if descriptor.has_audio {
-                        state.rearm_audio_recording(ch, stream);
-                    } else {
-                        orphaned = state.audio_recordings.remove(&ch);
-                    }
                 }
-                None => {
-                    if prev.offset_hz != settings.offset_hz {
-                        state.send_dsp(
-                            stream,
-                            DspCommand::Retune {
-                                id: ch,
-                                offset_hz: settings.offset_hz,
-                            },
-                        );
-                    }
-                    if prev.params != settings.params
-                        || prev.squelch_db != settings.squelch_db
-                        || prev.squelch_auto_db != settings.squelch_auto_db
-                        || prev.audio != settings.audio
-                    {
-                        state.send_dsp(
-                            stream,
-                            DspCommand::ApplySettings {
-                                id: ch,
-                                settings: settings.clone(),
-                            },
-                        );
-                        let fix = state
-                            .media
-                            .get(&ch)
-                            .and_then(|media| media.position.clone());
-                        state.send_dsp(stream, DspCommand::PositionChanged { id: ch, fix });
-                    }
+                state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
+                if descriptor.has_audio {
+                    state.rearm_audio_recording(ch, stream);
+                } else {
+                    orphaned = state.audio_recordings.remove(&ch);
                 }
             }
             inner.revision += 1;

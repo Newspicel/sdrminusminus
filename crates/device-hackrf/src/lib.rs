@@ -263,7 +263,8 @@ impl SdrDevice for HackRfDevice {
             self.radio.clone(),
             convert::converter(),
             sink,
-            CaptureConfig::new("sdrmm-hackrf-rx", DRIVER_ID),
+            CaptureConfig::new("sdrmm-hackrf-rx", DRIVER_ID)
+                .with_sample_rate(self.settings.sample_rate),
         );
         if started.is_err() {
             lock(&self.duplex).release(Direction::Rx);

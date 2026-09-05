@@ -1,12 +1,15 @@
+import type { DecoderRequest, DecoderResponse } from "./workerProtocol";
 import { SAMPLE_RATE } from "./worklet";
 
 export interface OpusPacketDecoder {
   readonly channels: number;
   decode(packet: Uint8Array, timestampUs: number): boolean;
+  reset(): void;
   close(): void;
 }
 
-const MAX_DECODE_QUEUE = 64;
+const MAX_DECODE_QUEUE = 5;
+const MAX_DECODE_AGE_MS = 150;
 
 function config(channels: number): AudioDecoderConfig {
   return { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: channels };
@@ -37,21 +40,30 @@ export async function createOpusPacketDecoder(
   channels: number,
   onPcm: (pcm: Float32Array) => void,
   onError: (err: unknown) => void,
+  onDropped: (frames: number) => void = () => {},
 ): Promise<OpusPacketDecoder> {
   if (await webCodecsSupported(channels)) {
-    return createWebCodecsDecoder(channels, onPcm, onError);
+    return createWebCodecsDecoder(channels, onPcm, onError, onDropped);
   }
-  return createWasmDecoder(channels, onPcm, onError);
+  return createWasmDecoder(channels, onPcm, onError, onDropped);
 }
 
 function createWebCodecsDecoder(
   channels: number,
   onPcm: (pcm: Float32Array) => void,
   onError: (err: unknown) => void,
+  onDropped: (frames: number) => void,
 ): OpusPacketDecoder {
+  const pending = new Map<number, number>();
   const decoder = new AudioDecoder({
     output: (data) => {
       try {
+        const started = pending.get(data.timestamp);
+        pending.delete(data.timestamp);
+        if (started === undefined || performance.now() - started > MAX_DECODE_AGE_MS) {
+          onDropped(data.numberOfFrames);
+          return;
+        }
         const pcm = new Float32Array(data.numberOfFrames * channels);
         const plane = new Float32Array(data.numberOfFrames);
         for (let c = 0; c < channels; c++) {
@@ -71,11 +83,19 @@ function createWebCodecsDecoder(
   return {
     channels,
     decode(packet, timestampUs) {
-      if (decoder.state !== "configured" || decoder.decodeQueueSize > MAX_DECODE_QUEUE) {
+      if (decoder.state !== "configured" || pending.size >= MAX_DECODE_QUEUE) {
         return false;
       }
+      pending.set(timestampUs, performance.now());
       decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: packet }));
       return true;
+    },
+    reset() {
+      if (decoder.state !== "closed") {
+        pending.clear();
+        decoder.reset();
+        decoder.configure(config(channels));
+      }
     },
     close() {
       if (decoder.state !== "closed") {
@@ -89,51 +109,84 @@ async function createWasmDecoder(
   channels: number,
   onPcm: (pcm: Float32Array) => void,
   onError: (err: unknown) => void,
+  onDropped: (frames: number) => void,
 ): Promise<OpusPacketDecoder> {
-  const { OpusDecoder } = await import("opus-decoder");
-  const decoder = new OpusDecoder({
-    channels,
-    streamCount: 1,
-    coupledStreamCount: channels === 2 ? 1 : 0,
-    channelMappingTable: channels === 2 ? [0, 1] : [0],
-  });
-  await decoder.ready;
+  const worker = new Worker(new URL("./opusWorker.ts", import.meta.url), { type: "module" });
+  const pending = new Map<number, number>();
   let closed = false;
+  let epoch = 0;
+  let sequence = 0;
+  const post = (message: DecoderRequest, transfer: Transferable[] = []): void => {
+    worker.postMessage(message, transfer);
+  };
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      worker.terminate();
+      reject(new Error("Opus decoder initialization timed out"));
+    }, 10_000);
+    worker.onerror = (event) => {
+      clearTimeout(timer);
+      worker.terminate();
+      closed = true;
+      reject(new Error(event.message));
+      onError(new Error(event.message));
+    };
+    worker.onmessage = (event: MessageEvent<DecoderResponse>) => {
+      const message = event.data;
+      if (message.type === "ready") {
+        clearTimeout(timer);
+        resolve();
+        return;
+      }
+      if (closed) {
+        return;
+      }
+      if (message.type === "error" && message.id === undefined) {
+        clearTimeout(timer);
+        worker.terminate();
+        closed = true;
+        reject(new Error(message.message));
+        return;
+      }
+      const started = message.id === undefined ? undefined : pending.get(message.id);
+      if (message.id !== undefined) {
+        pending.delete(message.id);
+      }
+      if (message.epoch !== epoch) {
+        return;
+      }
+      if (message.type === "error") {
+        onError(new Error(message.message));
+      } else if (started !== undefined) {
+        if (performance.now() - started <= MAX_DECODE_AGE_MS) {
+          onPcm(message.pcm);
+        } else {
+          onDropped(message.pcm.length / channels);
+        }
+      }
+    };
+    post({ type: "init", channels });
+  });
   return {
     channels,
     decode(packet) {
-      if (closed) {
+      if (closed || pending.size >= MAX_DECODE_QUEUE) {
         return false;
       }
-      try {
-        const { channelData, samplesDecoded, errors } = decoder.decodeFrame(packet);
-        if (errors.length > 0) {
-          onError(new Error(errors.map((e) => e.message).join("; ")));
-          return false;
-        }
-        if (samplesDecoded <= 0) {
-          return false;
-        }
-        const pcm = new Float32Array(samplesDecoded * channels);
-        for (let c = 0; c < channels; c++) {
-          const plane = channelData[c];
-          if (!plane) {
-            return false;
-          }
-          for (let f = 0; f < samplesDecoded; f++) {
-            pcm[f * channels + c] = plane[f] ?? 0;
-          }
-        }
-        onPcm(pcm);
-        return true;
-      } catch (err) {
-        onError(err);
-        return false;
-      }
+      const id = sequence++;
+      const owned = packet.slice();
+      pending.set(id, performance.now());
+      post({ type: "decode", id, epoch, packet: owned }, [owned.buffer]);
+      return true;
+    },
+    reset() {
+      epoch++;
+      post({ type: "reset" });
     },
     close() {
       closed = true;
-      decoder.free();
+      pending.clear();
+      worker.terminate();
     },
   };
 }

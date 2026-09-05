@@ -5,13 +5,23 @@ export const PROCESSOR_NAME = "sdr-audio-playback";
 export const SAMPLE_RATE = 48_000;
 export const CHANNELS = 2;
 export const TARGET_FRAMES = 4_800;
-export const MAX_FRAMES = 48_000;
+export const MAX_FRAMES = 19_200;
+
+export function targetFramesForHost(hostname: string): number {
+  return ["localhost", "127.0.0.1", "[::1]", "::1", "tauri.localhost"].includes(hostname)
+    ? 2_880
+    : TARGET_FRAMES;
+}
 export const MAX_GAP_FRAMES = 19_200;
 
 export type WorkletMessage = Float32Array | "reset" | "close";
 
 export interface WorkletReport {
   underruns: number;
+  bufferedFrames?: number;
+  targetFrames?: number;
+  trimmedFrames?: number;
+  decoderDroppedFrames?: number;
 }
 
 const processorSource = `
@@ -24,6 +34,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     this.jitter = new JitterBuffer(targetFrames, maxFrames, channels);
     this.ended = false;
     this.reported = 0;
+    this.reportAfter = 0;
     this.port.onmessage = (event) => {
       const data = event.data;
       if (data === "close") {
@@ -39,10 +50,11 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     const channels = outputs[0];
     if (channels && channels.length > 0) {
       this.jitter.read(channels);
-      // Only on change, so the steady state posts nothing at all from the audio thread.
-      if (this.jitter.underruns !== this.reported) {
+      this.reportAfter += channels[0].length;
+      if (this.jitter.underruns !== this.reported || this.reportAfter >= ${SAMPLE_RATE / 2}) {
+        this.reportAfter = 0;
         this.reported = this.jitter.underruns;
-        this.port.postMessage({ underruns: this.reported });
+        this.port.postMessage({ underruns: this.reported, bufferedFrames: this.jitter.buffered, targetFrames: this.jitter.targetDepth, trimmedFrames: this.jitter.trimmed });
       }
     }
     return !this.ended;

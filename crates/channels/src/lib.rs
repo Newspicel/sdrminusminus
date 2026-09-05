@@ -184,6 +184,14 @@ pub enum ChannelFilter {
 }
 
 impl ChannelFilter {
+    pub fn reset(&mut self) {
+        match self {
+            Self::Symmetric(filter) => filter.reset(),
+            Self::Sideband(filter) => filter.reset(),
+            Self::Passthrough => {}
+        }
+    }
+
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         match self {
             Self::Symmetric(f) => f.process(input, out),

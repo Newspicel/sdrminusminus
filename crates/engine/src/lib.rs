@@ -37,6 +37,7 @@ mod hotplug;
 mod hunt;
 pub mod image;
 pub mod iq;
+mod metrics;
 mod network_export;
 pub mod occupancy;
 mod planning;
@@ -294,6 +295,7 @@ impl ChannelMedia {
         let encoder = audio::spawn_encoder(channels, pcm_rx, audio_tx.clone())?;
         Ok(Self {
             sinks: ChannelSinks {
+                publication: Arc::new(crate::metrics::QueueMetrics::default()),
                 pcm_tx,
                 pcm_pos: Arc::new(AtomicU64::new(0)),
                 video_tx,

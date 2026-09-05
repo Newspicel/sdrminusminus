@@ -8,6 +8,7 @@ import {
 } from "../listeners";
 import type { ClientCommand, ServerEvent, StreamKind } from "../types";
 import { AudioEngine, type AudioSink, type AudioSocket, type SinkFactory } from "./engine";
+import type { WorkletReport } from "./worklet";
 
 class FakeSocket implements AudioSocket {
   sent: ClientCommand[] = [];
@@ -43,7 +44,7 @@ class FakeSink implements AudioSink {
   resets = 0;
   closed = false;
   accept = true;
-  report: (report: { underruns: number }) => void = () => {};
+  report: (report: WorkletReport) => void = () => {};
 
   constructor(
     volume: number,
@@ -413,6 +414,24 @@ describe("AudioEngine", () => {
     await flush();
     sinks[1]?.report({ underruns: 1 });
     expect(engine.getUnderruns(1, 2)).toBe(4);
+  });
+
+  it("reports buffer and discarded audio, and clears the buffer when stopped", async () => {
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 10));
+    sinks[0]?.report({
+      underruns: 0,
+      bufferedFrames: 2880,
+      decoderDroppedFrames: 960,
+      trimmedFrames: 480,
+    });
+    expect(engine.getBufferedMs(1, 2)).toBe(60);
+    expect(engine.getTrimmedMs(1, 2)).toBe(10);
+    expect(engine.getLostFrames(1, 2)).toBe(960);
+
+    engine.stop(1, 2);
+    expect(engine.getBufferedMs(1, 2)).toBe(0);
   });
 
   it("retain stops the channels the canvas can no longer reach, and only those", async () => {

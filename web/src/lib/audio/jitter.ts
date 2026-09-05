@@ -20,6 +20,7 @@ export class JitterBuffer {
   private cleanFrames = 0;
   private trimStreak = 0;
   underruns = 0;
+  trimmed = 0;
 
   constructor(targetFrames: number, maxFrames: number, channels: number) {
     this.channels = channels;
@@ -51,6 +52,7 @@ export class JitterBuffer {
     const frames = Math.floor(chunk.length / ch);
     const start = frames > cap ? frames - cap : 0;
     const n = frames - start;
+    this.trimmed += start;
     if (this.length + n > cap) {
       this.dropOldest(this.length + n - this.target);
       this.trimStreak = 0;
@@ -191,6 +193,7 @@ export class JitterBuffer {
     if (drop <= 0) {
       return;
     }
+    this.trimmed += drop;
     this.readPos = (this.readPos + drop) % this.capacity;
     this.length -= drop;
   }

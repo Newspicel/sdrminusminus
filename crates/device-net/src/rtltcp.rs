@@ -203,7 +203,8 @@ impl SdrDevice for RtlTcpDevice {
             self.radio.clone(),
             stream::converter(),
             single_rx_sink(sinks)?,
-            CaptureConfig::new("sdrmm-rtltcp-rx", DRIVER_ID),
+            CaptureConfig::new("sdrmm-rtltcp-rx", DRIVER_ID)
+                .with_sample_rate(self.settings.sample_rate),
         )
     }
 

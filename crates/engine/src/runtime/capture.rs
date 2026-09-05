@@ -16,6 +16,7 @@ use tokio::sync::broadcast;
 
 use super::{
     DspCommand, DspMeta, FFT_SIZE, SpectrumSnapshot, Waker,
+    retire::Reclaimer,
     worker::{LaneShared, dsp_loop},
 };
 use crate::{
@@ -26,8 +27,8 @@ use crate::{
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
 };
 
-const RING_SECONDS: f64 = 0.25;
-const RING_MIN: usize = 1 << 20;
+const RING_SECONDS: f64 = 0.1;
+const RING_MIN: usize = super::DSP_BLOCK * 2;
 const RING_MAX: usize = 1 << 23;
 
 pub(crate) fn ring_capacity(sample_rate: f64) -> usize {
@@ -45,6 +46,8 @@ struct Lane {
     waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     dsp: Option<JoinHandle<()>>,
+    capture_metrics: Arc<crate::metrics::QueueMetrics>,
+    spectrum_metrics: Arc<crate::metrics::QueueMetrics>,
 }
 
 pub struct CaptureRuntime {
@@ -57,6 +60,26 @@ pub struct CaptureRuntime {
 }
 
 impl CaptureRuntime {
+    pub(crate) fn queue_health(&self, device_set: u32) -> Vec<sdrmm_wire::PipelineQueue> {
+        self.lanes
+            .iter()
+            .enumerate()
+            .flat_map(|(stream, lane)| {
+                [
+                    (sdrmm_wire::PipelineStage::Capture, &lane.capture_metrics),
+                    (sdrmm_wire::PipelineStage::Spectrum, &lane.spectrum_metrics),
+                ]
+                .map(|(stage, metrics)| sdrmm_wire::PipelineQueue {
+                    device_set,
+                    stream: stream as u32,
+                    channel: None,
+                    stage,
+                    health: metrics.snapshot(),
+                })
+            })
+            .collect()
+    }
+
     pub fn start(
         device: Box<dyn SdrDevice>,
         settings: &DeviceSettings,
@@ -165,6 +188,8 @@ impl CaptureRuntime {
                 waker,
                 stop: Arc::new(AtomicBool::new(false)),
                 dsp: None,
+                capture_metrics: consumer.metrics.clone(),
+                spectrum_metrics: Arc::new(crate::metrics::QueueMetrics::default()),
             });
             tails.push((consumer, cmd_rx, spectrum_plan.analyzer()));
         }
@@ -187,14 +212,27 @@ impl CaptureRuntime {
                 stalled_us: lane.stalled_us.clone(),
                 waker: lane.waker.clone(),
             };
-            let publisher = SpectrumPublisher::new(lane.spectrum_tx.clone(), FFT_SIZE)
-                .map_err(|error| DeviceError::Io(format!("start spectrum publisher: {error}")))?;
+            let publisher = SpectrumPublisher::with_metrics(
+                lane.spectrum_tx.clone(),
+                FFT_SIZE,
+                lane.spectrum_metrics.clone(),
+            )
+            .map_err(|error| DeviceError::Io(format!("start spectrum publisher: {error}")))?;
+            let retirement = Reclaimer::new(super::worker::Retired::release)
+                .map_err(|error| DeviceError::Io(format!("start retirement worker: {error}")))?;
             let spawned = std::thread::Builder::new()
                 .name(format!("sdrmm-dsp-{index}"))
                 .spawn(move || {
                     sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
                     shared.waker.adopt_current();
-                    dsp_loop(&mut consumer, &cmd_rx, &shared, analyzer, publisher);
+                    dsp_loop(
+                        &mut consumer,
+                        &cmd_rx,
+                        &shared,
+                        analyzer,
+                        publisher,
+                        retirement,
+                    );
                 });
             match spawned {
                 Ok(handle) => runtime.lanes[index].dsp = Some(handle),
@@ -358,6 +396,8 @@ impl CaptureRuntime {
                     waker: Arc::new(Waker::default()),
                     stop: Arc::new(AtomicBool::new(false)),
                     dsp: None,
+                    capture_metrics: Arc::new(crate::metrics::QueueMetrics::default()),
+                    spectrum_metrics: Arc::new(crate::metrics::QueueMetrics::default()),
                 }
             })
             .collect();
@@ -446,7 +486,8 @@ mod tests {
     #[test]
     fn a_fast_radio_is_capped_and_a_slow_one_floored() {
         assert_eq!(ring_capacity(1_000_000_000.0), RING_MAX);
-        assert_eq!(ring_capacity(48_000.0), RING_MIN);
+        assert_eq!(ring_capacity(1_000.0), RING_MIN);
+        assert_eq!(ring_capacity(48_000.0), 4_800);
     }
 
     #[test]

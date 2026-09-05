@@ -2,6 +2,7 @@ mod capture;
 mod channel;
 mod command;
 mod frontend;
+mod retire;
 mod spectrum;
 mod worker;
 

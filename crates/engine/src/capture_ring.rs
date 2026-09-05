@@ -1,5 +1,9 @@
+use std::{sync::Arc, time::Duration};
+
 use num_complex::Complex;
 use rtrb::{Consumer, Producer, RingBuffer};
+
+use crate::metrics::QueueMetrics;
 
 const SPAN_CAPACITY: usize = 4096;
 
@@ -7,57 +11,88 @@ const SPAN_CAPACITY: usize = 4096;
 struct Span {
     start: u64,
     len: usize,
+    queued: u64,
 }
 
 pub(crate) struct CaptureProducer {
     samples: Producer<Complex<f32>>,
     spans: Producer<Span>,
+    metrics: Arc<QueueMetrics>,
+    next: Option<u64>,
 }
 
 pub(crate) struct CaptureConsumer {
     samples: Consumer<Complex<f32>>,
     spans: Consumer<Span>,
     pending: Option<Span>,
+    pub(crate) metrics: Arc<QueueMetrics>,
 }
 
 pub(crate) fn capture_ring(capacity: usize) -> (CaptureProducer, CaptureConsumer) {
+    let metrics = Arc::new(QueueMetrics::default());
+    metrics.capacity(capacity);
     let (samples_tx, samples_rx) = RingBuffer::new(capacity);
     let (spans_tx, spans_rx) = RingBuffer::new(capacity.min(SPAN_CAPACITY));
     (
         CaptureProducer {
             samples: samples_tx,
             spans: spans_tx,
+            metrics: metrics.clone(),
+            next: None,
         },
         CaptureConsumer {
             samples: samples_rx,
             spans: spans_rx,
             pending: None,
+            metrics,
         },
     )
 }
 
 impl CaptureProducer {
     pub(crate) fn push(&mut self, samples: &[Complex<f32>], start: u64) -> usize {
+        if let Some(next) = self.next {
+            self.metrics.dropped(start.saturating_sub(next) as usize);
+        }
+        self.next = Some(start + samples.len() as u64);
         let len = samples.len().min(self.samples.slots());
         if len == 0 {
+            self.metrics.dropped(samples.len());
             return 0;
         }
         let Ok(span) = self.spans.write_chunk_uninit(1) else {
+            self.metrics.dropped(samples.len());
             return 0;
         };
         let Ok(chunk) = self.samples.write_chunk_uninit(len) else {
             return 0;
         };
+        self.metrics.push(len);
+        self.metrics.dropped(samples.len() - len);
         chunk.fill_from_iter(samples[..len].iter().copied());
-        span.fill_from_iter([Span { start, len }]);
+        span.fill_from_iter([Span {
+            start,
+            len,
+            queued: self.metrics.now(),
+        }]);
         len
     }
 }
 
 impl CaptureConsumer {
+    #[cfg(test)]
     pub(crate) fn consume(
         &mut self,
         limit: usize,
+        receive: impl FnMut(&[Complex<f32>], u64),
+    ) -> usize {
+        self.consume_fresh(limit, Duration::MAX, receive)
+    }
+
+    pub(crate) fn consume_fresh(
+        &mut self,
+        limit: usize,
+        max_age: Duration,
         mut receive: impl FnMut(&[Complex<f32>], u64),
     ) -> usize {
         let Some(mut span) = self.pending.take().or_else(|| self.spans.pop().ok()) else {
@@ -68,13 +103,20 @@ impl CaptureConsumer {
             self.pending = Some(span);
             return 0;
         };
+        self.metrics.oldest(span.queued);
+        let fresh =
+            u128::from(self.metrics.now().saturating_sub(span.queued)) <= max_age.as_micros();
+        if !fresh {
+            self.metrics.dropped(len);
+        }
         let (a, b) = chunk.as_slices();
-        if !a.is_empty() {
+        if fresh && !a.is_empty() {
             receive(a, span.start);
         }
-        if !b.is_empty() {
+        if fresh && !b.is_empty() {
             receive(b, span.start + a.len() as u64);
         }
+        self.metrics.pop(len);
         chunk.commit_all();
         span.start += len as u64;
         span.len -= len;
@@ -111,6 +153,28 @@ mod tests {
 
     fn expected(indices: impl Iterator<Item = u64>) -> Vec<(u64, f32)> {
         indices.map(|index| (index, index as f32)).collect()
+    }
+
+    #[test]
+    fn stale_capture_is_counted_and_discarded_before_dsp() {
+        let (mut producer, mut consumer) = capture_ring(8);
+        producer.push(&ramp(0, 4), 0);
+        let span = consumer.spans.pop().expect("span");
+        consumer.pending = Some(span);
+        while consumer.metrics.now() == span.queued {
+            std::hint::spin_loop();
+        }
+        let mut delivered = 0;
+        assert_eq!(
+            consumer.consume_fresh(8, Duration::ZERO, |samples, _| delivered += samples.len()),
+            4
+        );
+        assert_eq!(delivered, 0);
+        let metrics = consumer.metrics.snapshot();
+        assert_eq!(metrics.queued, 0);
+        assert_eq!(metrics.dropped, 4);
+        producer.push(&ramp(4, 2), 4);
+        assert_eq!(drain(&mut consumer, 8), expected(4..6));
     }
 
     #[test]

@@ -40,6 +40,9 @@ pub trait CaptureStream: Send + 'static {
     fn stop_handle(&self) -> Self::Stop;
     fn next_block(&self, timeout: Duration) -> Next<Self::Block>;
     fn dropped(&self) -> u64;
+    fn block_gap(&self, _block: &Self::Block) -> Option<u64> {
+        None
+    }
     fn failure(&self) -> StreamFailure;
 }
 
@@ -56,6 +59,7 @@ pub struct CaptureConfig {
     pub thread_name: &'static str,
     pub radio: &'static str,
     pub block_samples: usize,
+    pub sample_rate: f64,
     pub poll: Duration,
     pub silence_timeout: Duration,
     pub restart: RestartPolicy,
@@ -63,11 +67,20 @@ pub struct CaptureConfig {
 
 impl CaptureConfig {
     #[must_use]
+    pub fn with_sample_rate(mut self, rate: Option<f64>) -> Self {
+        self.sample_rate = rate
+            .filter(|rate| rate.is_finite() && *rate > 0.0)
+            .unwrap_or(0.0);
+        self
+    }
+
+    #[must_use]
     pub fn new(thread_name: &'static str, radio: &'static str) -> Self {
         Self {
             thread_name,
             radio,
             block_samples: 32_768,
+            sample_rate: 0.0,
             poll: Duration::from_millis(100),
             silence_timeout: SILENT_STREAM_TIMEOUT,
             restart: RestartPolicy::default(),
@@ -176,7 +189,7 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
     let mut dropped = 0u64;
     loop {
         let started = Instant::now();
-        let Some(failure) = drain(
+        let Some((failure, quiet)) = drain(
             &stream,
             running,
             &mut sink,
@@ -208,6 +221,7 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
             reason = %failure.reason,
             "stream failed; restarting in place"
         );
+        let recovering = Instant::now();
         drop(stream);
         std::thread::sleep(delay);
         converter.reset();
@@ -221,6 +235,10 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
                     break;
                 }
                 tracing::info!(radio = config.radio, attempt, "stream restarted");
+                let lost = ((quiet + recovering.elapsed()).as_secs_f64() * config.sample_rate)
+                    .ceil() as u64;
+                sink.dropped(lost);
+                dropped = 0;
                 stream = fresh;
             }
             Err(DeviceError::Disconnected(reason)) => {
@@ -243,17 +261,22 @@ fn drain<S: CaptureStream, C: SampleConverter>(
     converter: &mut C,
     dropped: &mut u64,
     config: &CaptureConfig,
-) -> Option<StreamFailure> {
+) -> Option<(StreamFailure, Duration)> {
     let chunk_size = config.block_samples.max(1);
     let mut last_block = Instant::now();
     while running.load(Ordering::Acquire) {
         match stream.next_block(config.poll) {
             Next::Block(block) => {
                 last_block = Instant::now();
+                let gap = stream.block_gap(&block);
+                if let Some(lost) = gap.filter(|lost| *lost > 0) {
+                    converter.reset();
+                    sink.dropped(lost);
+                }
                 let samples = converter.convert(&block);
                 let per_transfer = samples.len() as u64;
                 let total = stream.dropped();
-                if total > *dropped {
+                if gap.is_none() && total > *dropped {
                     let lost = (total - *dropped) * per_transfer;
                     tracing::warn!(
                         radio = config.radio,
@@ -270,13 +293,16 @@ fn drain<S: CaptureStream, C: SampleConverter>(
             }
             Next::Idle => {
                 if last_block.elapsed() >= config.silence_timeout {
-                    return Some(StreamFailure {
-                        reason: format!("no samples for {:?}", config.silence_timeout),
-                        gone: false,
-                    });
+                    return Some((
+                        StreamFailure {
+                            reason: format!("no samples for {:?}", config.silence_timeout),
+                            gone: false,
+                        },
+                        last_block.elapsed(),
+                    ));
                 }
             }
-            Next::Ended => return Some(stream.failure()),
+            Next::Ended => return Some((stream.failure(), last_block.elapsed())),
         }
     }
     None

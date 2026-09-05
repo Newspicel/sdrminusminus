@@ -19,6 +19,7 @@ import { useDfStore } from "./df";
 import { useHuntStore } from "./hunt";
 import { iqHub } from "./iq";
 import { useLevelStore } from "./levels";
+import { usePipelineHealth } from "./pipeline";
 import { usePositionStore } from "./position";
 import { useScannerStore } from "./scanner";
 import { spectrumHub } from "./spectrum";
@@ -79,8 +80,11 @@ export function useSdrSocket(queryClient: QueryClient, workspaceError: string | 
       if (up && !now) {
         pushToast("Lost the server — reconnecting");
       }
+      if (now) s.send({ type: "SubscribeDiagnostics", data: { enabled: true } });
+      else usePipelineHealth.getState().reset();
       up = now;
     });
+    s.on("event", usePipelineHealth.getState().observe);
     s.on("event", useDecodedStore.getState().observe);
     s.on("event", useScannerStore.getState().observe);
     s.on("event", useHuntStore.getState().observe);

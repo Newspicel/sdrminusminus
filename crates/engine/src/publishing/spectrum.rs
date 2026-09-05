@@ -24,10 +24,18 @@ impl SpectrumPublisher {
         tx: broadcast::Sender<SpectrumSnapshot>,
         size: usize,
     ) -> std::io::Result<Self> {
+        Self::with_metrics(tx, size, Arc::new(crate::metrics::QueueMetrics::default()))
+    }
+
+    pub(crate) fn with_metrics(
+        tx: broadcast::Sender<SpectrumSnapshot>,
+        size: usize,
+        metrics: Arc<crate::metrics::QueueMetrics>,
+    ) -> std::io::Result<Self> {
         let dropped = Arc::new(AtomicU64::new(0));
         let count = dropped.clone();
         let mut seen = 0;
-        let queue = Publisher::new(
+        let queue = Publisher::with_metrics(
             "sdrmm-spectrum-publish",
             8,
             || SpectrumPacket {
@@ -61,6 +69,7 @@ impl SpectrumPublisher {
                     seen = now;
                 }
             },
+            metrics,
         )?;
         Ok(Self { queue, dropped })
     }

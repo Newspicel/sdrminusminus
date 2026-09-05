@@ -38,6 +38,11 @@ impl Frontend {
         }
     }
 
+    pub(super) fn reset(&mut self) {
+        self.blocker.reset();
+        self.nco.reset();
+    }
+
     pub(super) fn follow(&mut self, meta: DspMeta) {
         if meta == self.meta {
             return;

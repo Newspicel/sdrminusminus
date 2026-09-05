@@ -26,6 +26,10 @@ impl CaptureStream for RxStream {
         }
     }
 
+    fn block_gap(&self, block: &Block) -> Option<u64> {
+        Some(block.missing_bytes().div_ceil(2))
+    }
+
     fn dropped(&self) -> u64 {
         self.stats().dropped
     }

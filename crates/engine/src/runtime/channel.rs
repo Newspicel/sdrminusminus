@@ -10,7 +10,7 @@ use sdrmm_channels::{
     ClickProfile, DecodedImage,
 };
 use sdrmm_dsp::{Ddc, LevelMeter, Squelch};
-use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent, PositionFix};
+use sdrmm_wire::{ChannelSettings, DecoderEvent, PositionFix};
 use tokio::sync::broadcast;
 
 use super::DSP_BLOCK;
@@ -108,6 +108,7 @@ impl DecodedSink {
 
 #[derive(Clone)]
 pub(crate) struct ChannelSinks {
+    pub(crate) publication: Arc<crate::metrics::QueueMetrics>,
     pub(crate) pcm_tx: broadcast::Sender<PcmBlock>,
     pub(crate) pcm_pos: Arc<AtomicU64>,
     pub(crate) video_tx: broadcast::Sender<VideoPacket>,
@@ -122,7 +123,6 @@ pub(crate) struct ChannelSinks {
 pub(crate) struct ChannelHost {
     ddc: Ddc,
     filter: ChannelFilter,
-    params: ChannelParams,
     squelch: Squelch,
     threshold_db: Option<f32>,
     audio_rec: Option<AudioRecorderTap>,
@@ -139,7 +139,6 @@ pub(crate) struct ChannelHost {
     produces_video: bool,
     offset_hz: f64,
     decoded: DecodedSink,
-    decodes: bool,
     emits_events: bool,
     gated: Vec<Complex<f32>>,
     publisher: ChannelPublisher,
@@ -147,6 +146,12 @@ pub(crate) struct ChannelHost {
     baseband_export: Option<NetworkExportTap>,
     baseband_pos: u64,
     input_rate: f64,
+    device_rate: f64,
+    next_input: Option<u64>,
+    recovering: bool,
+    gap_baseband: f64,
+    gap_audio: f64,
+    position: Option<PositionFix>,
     meter: LevelMeter,
     lo_artifact_hz: Option<f64>,
 }
@@ -183,6 +188,7 @@ impl ChannelHost {
         squelch.set_auto_margin_db(settings.squelch_auto_db);
         let publisher = ChannelPublisher::new(
             input_rate,
+            settings,
             (DSP_BLOCK as f64 * input_rate / device_rate).ceil() as usize + 64,
             sinks.clone(),
             decoded.clone(),
@@ -191,7 +197,6 @@ impl ChannelHost {
         Ok(Box::new(Self {
             ddc,
             filter,
-            params: settings.params.clone(),
             squelch,
             threshold_db: settings.squelch_db,
             audio_rec: None,
@@ -213,7 +218,6 @@ impl ChannelHost {
             produces_video: descriptor.has_video,
             offset_hz: settings.offset_hz,
             decoded,
-            decodes,
             emits_events,
             gated: Vec::new(),
             publisher,
@@ -221,9 +225,70 @@ impl ChannelHost {
             baseband_export: None,
             baseband_pos: 0,
             input_rate,
+            device_rate,
+            next_input: None,
+            recovering: false,
+            gap_baseband: 0.0,
+            gap_audio: 0.0,
+            position: None,
             meter: LevelMeter::new(input_rate),
             lo_artifact_hz: None,
         }))
+    }
+
+    pub(super) fn inherit(&mut self, previous: &mut Self) {
+        self.publisher.queue.follow(&previous.publisher.queue);
+        self.audio_rec = previous.audio_rec.take();
+        self.baseband_rec = previous.baseband_rec.take();
+        self.baseband_export = previous.baseband_export.take();
+        self.baseband_pos = previous.baseband_pos;
+        self.next_input = previous.next_input;
+        self.gap_audio = previous.gap_audio;
+        self.gap_baseband = previous.gap_baseband;
+    }
+
+    pub(super) fn process_at(
+        &mut self,
+        input: &[Complex<f32>],
+        index: u64,
+        center_hz: f64,
+        lo_offset_hz: f64,
+    ) {
+        if let Some(next) = self.next_input
+            && next != index
+        {
+            self.skip_input(index.saturating_sub(next));
+            self.recovering = true;
+        }
+        self.next_input = Some(index.saturating_add(input.len() as u64));
+        if self.recovering {
+            if !self.publisher.recover(&mut self.rx) {
+                self.skip_input(input.len() as u64);
+                return;
+            }
+            self.rx.position_changed(self.position.as_ref());
+            self.ddc.reset();
+            self.filter.reset();
+            self.audio.reset();
+            self.squelch.reset();
+            self.lo_artifact_hz = None;
+            self.recovering = false;
+        }
+        self.process(input, center_hz, lo_offset_hz);
+    }
+
+    fn skip_input(&mut self, count: u64) {
+        self.gap_baseband += count as f64 * self.input_rate / self.device_rate;
+        let baseband = self.gap_baseband as u64;
+        self.gap_baseband -= baseband as f64;
+        self.baseband_pos = self.baseband_pos.saturating_add(baseband);
+        self.gap_audio += count as f64 * f64::from(AUDIO_RATE) / self.device_rate;
+        let audio = self.gap_audio as u64;
+        self.gap_audio -= audio as f64;
+        self.sinks.pcm_pos.fetch_add(audio, Ordering::Relaxed);
+        if self.produces_video {
+            self.sinks.video_pos.fetch_add(baseband, Ordering::Relaxed);
+        }
     }
 
     pub(super) fn process(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
@@ -355,38 +420,6 @@ impl ChannelHost {
         }
     }
 
-    pub(super) fn apply(&mut self, settings: ChannelSettings) {
-        self.offset_hz = settings.offset_hz;
-        self.threshold_db = settings.squelch_db;
-        if let Some(db) = settings.squelch_db {
-            self.squelch.set_threshold_db(db);
-        }
-        self.squelch.set_auto_margin_db(settings.squelch_auto_db);
-        if settings.params != self.params {
-            match sdrmm_channels::channel_filter(&settings.params) {
-                Ok(filter) => {
-                    self.filter = filter;
-                    self.params = settings.params.clone();
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "validated channel filter rejected on dsp thread");
-                }
-            }
-        }
-        let channels = sdrmm_channels::audio_channels(&settings.params);
-        self.audio.configure(
-            channels,
-            &settings.audio,
-            ClickProfile::for_params(&settings.params),
-        );
-        if let Err(e) = self.rx.apply(settings) {
-            tracing::error!(error = %e, "validated channel settings rejected on dsp thread");
-        } else {
-            self.audio_channels = channels;
-        }
-        self.emits_events = self.decodes && self.rx.needs_gated_input();
-    }
-
     fn follow_lo_artifact(&mut self, lo_offset_hz: f64) {
         let at = -(lo_offset_hz + self.offset_hz);
         let inside = at.abs() < self.input_rate / 2.0;
@@ -398,16 +431,11 @@ impl ChannelHost {
     }
 
     pub(crate) fn position_changed(&mut self, fix: Option<&PositionFix>) {
+        self.position = fix.cloned();
         self.rx.position_changed(fix);
     }
 
-    pub(super) fn set_offset(&mut self, offset_hz: f64) {
-        self.ddc.set_offset(offset_hz);
-        self.offset_hz = offset_hz;
-        self.rx.retuned();
-        self.retuned();
-    }
-
+    #[cfg(test)]
     pub(crate) fn retuned(&mut self) {
         self.audio.reset();
         self.squelch.reset();
@@ -431,7 +459,8 @@ mod tests {
     use std::f64::consts::TAU;
 
     use sdrmm_wire::{
-        AudioAgcMode, AudioProcessing, NfmParams, NoiseBlankerSettings, Sideband, SsbParams,
+        AudioAgcMode, AudioProcessing, ChannelParams, NfmParams, NoiseBlankerSettings, Sideband,
+        SsbParams,
     };
 
     use super::*;
@@ -452,6 +481,7 @@ mod tests {
 
     fn sinks(pcm_tx: broadcast::Sender<PcmBlock>, pcm_pos: Arc<AtomicU64>) -> ChannelSinks {
         ChannelSinks {
+            publication: Arc::new(crate::metrics::QueueMetrics::default()),
             pcm_tx,
             pcm_pos,
             video_tx: broadcast::channel(8).0,
@@ -540,6 +570,38 @@ mod tests {
             );
         }
         assert!(seen > 0, "no settled blocks to judge");
+    }
+
+    #[test]
+    fn a_gap_resets_the_receiver_and_advances_pcm_and_iq_timestamps() {
+        let (mut used, mut received) = host(&nfm_settings(None));
+        let first = tone(1200.0, 0.5, BLOCK);
+        used.process_at(&first, 0, 100e6, 0.0);
+        used.publisher.queue.flush();
+        let before = received.try_recv().expect("first PCM");
+        let before_len = match before.payload {
+            PcmPayload::Samples(ref samples) => samples.len(),
+            PcmPayload::Silence(n) => n,
+        };
+        let signal = tone(3400.0, 0.25, BLOCK);
+        used.process_at(&signal, BLOCK as u64 + 4800, 100e6, 0.0);
+        used.publisher.queue.flush();
+        let after = received.try_recv().expect("post-gap PCM");
+        assert_eq!(
+            after.start_frame,
+            before.start_frame + before_len as u64 + 4800
+        );
+        assert_eq!(used.baseband_pos, (BLOCK * 2 + 4800) as u64);
+        let (mut fresh, mut fresh_pcm) = host(&nfm_settings(None));
+        fresh.process_at(&signal, 0, 100e6, 0.0);
+        fresh.publisher.queue.flush();
+        let reference = fresh_pcm.try_recv().expect("fresh PCM");
+        match (after.payload, reference.payload) {
+            (PcmPayload::Samples(after), PcmPayload::Samples(reference)) => {
+                assert_eq!(after, reference)
+            }
+            _ => panic!("expected decoded PCM"),
+        }
     }
 
     #[test]
@@ -895,15 +957,22 @@ mod tests {
     }
 
     #[test]
-    fn apply_switches_a_stage_on_in_place() {
+    fn prepared_replacement_switches_a_stage_and_keeps_recording_positions() {
         let (mut host, mut rx) = host(&nfm_settings(None));
         let quiet = fm_tone(1_000.0, 250.0, 96_000);
         run(&mut host, &mut rx, &quiet);
-        host.apply(nfm_audio_settings(AudioProcessing {
+        let settings = nfm_audio_settings(AudioProcessing {
             agc: AudioAgcMode::Fast,
             ..AudioProcessing::default()
-        }));
+        });
+        let mut replacement =
+            ChannelHost::build(RATE, &settings, host.sinks.clone(), DecodedSink::null())
+                .expect("prepared host");
+        replacement.inherit(&mut host);
+        let before = host.sinks.pcm_pos.load(Ordering::Relaxed);
+        host = replacement;
         let lifted = samples(&run(&mut host, &mut rx, &quiet));
+        assert!(host.sinks.pcm_pos.load(Ordering::Relaxed) > before);
         let level = rms(&lifted[48_000..]);
         assert!((0.18..0.32).contains(&level), "levelled to {level}");
     }

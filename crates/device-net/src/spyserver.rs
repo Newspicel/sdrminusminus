@@ -265,7 +265,8 @@ impl SdrDevice for SpyServerDevice {
             self.radio.clone(),
             SpyConverter::new(self.radio.coding.clone()),
             single_rx_sink(sinks)?,
-            CaptureConfig::new("sdrmm-spyserver-rx", DRIVER_ID),
+            CaptureConfig::new("sdrmm-spyserver-rx", DRIVER_ID)
+                .with_sample_rate(self.settings.sample_rate),
         )
     }
 

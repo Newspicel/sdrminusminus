@@ -27,6 +27,7 @@ pub enum PcmPayload {
 
 #[derive(Clone, Debug)]
 pub struct AudioPacket {
+    pub created_at: std::time::Instant,
     pub seq: u32,
     pub timestamp: u64,
     pub channels: u8,
@@ -119,6 +120,7 @@ fn encode_loop(
                     {
                         Ok(len) => {
                             let _ = audio_tx.send(AudioPacket {
+                                created_at: std::time::Instant::now(),
                                 seq,
                                 timestamp: pending_start,
                                 channels: encoder.channels,

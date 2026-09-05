@@ -199,6 +199,11 @@ where
         }
     }
 
+    pub(crate) fn reset(&mut self) {
+        self.buf.clear();
+        self.buf.resize(self.rev_taps.len() - 1, T::zero());
+    }
+
     pub(crate) fn process(&mut self, input: &[T], out: &mut Vec<T>) {
         out.clear();
         self.buf.extend_from_slice(input);

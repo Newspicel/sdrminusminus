@@ -17,6 +17,10 @@ impl Nco {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.phase = 0.0;
+    }
+
     pub fn set_freq(&mut self, freq_hz: f32, sample_rate: f32) {
         self.step = wrap_pi(2.0 * PI * freq_hz / sample_rate);
     }

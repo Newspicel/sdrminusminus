@@ -16,6 +16,38 @@ use crate::{
 };
 
 impl Engine {
+    pub fn pipeline_health(&self) -> Vec<sdrmm_wire::PipelineQueue> {
+        let (runtimes, mut queues): (Vec<_>, Vec<_>) = {
+            let inner = self.lock();
+            let runtimes = inner
+                .device_sets
+                .iter()
+                .map(|(id, state)| (*id, state.runtime.clone()))
+                .collect();
+            let queues = inner
+                .device_sets
+                .iter()
+                .flat_map(|(device_set, state)| {
+                    state.channels.iter().filter_map(|channel| {
+                        let media = state.media.get(&channel.id)?;
+                        Some(sdrmm_wire::PipelineQueue {
+                            device_set: *device_set,
+                            stream: channel.stream,
+                            channel: Some(channel.id),
+                            stage: sdrmm_wire::PipelineStage::Channel,
+                            health: media.sinks.publication.snapshot(),
+                        })
+                    })
+                })
+                .collect();
+            (runtimes, queues)
+        };
+        for (id, runtime) in runtimes {
+            queues.extend(lock_runtime(&runtime).queue_health(id));
+        }
+        queues
+    }
+
     pub fn subscribe_audio(
         &self,
         ds: u32,

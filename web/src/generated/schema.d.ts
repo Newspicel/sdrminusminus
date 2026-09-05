@@ -2195,6 +2195,12 @@ export interface components {
         };
         ClientCommand: {
             data: {
+                enabled: boolean;
+            };
+            /** @enum {string} */
+            type: "SubscribeDiagnostics";
+        } | {
+            data: {
                 /** Format: int32 */
                 bins: number;
                 /** Format: int32 */
@@ -4271,6 +4277,18 @@ export interface components {
             node: string;
             reason: string;
         };
+        PipelineQueue: {
+            /** Format: int32 */
+            channel?: number | null;
+            /** Format: int32 */
+            device_set: number;
+            health: components["schemas"]["QueueHealth"];
+            stage: components["schemas"]["PipelineStage"];
+            /** Format: int32 */
+            stream: number;
+        };
+        /** @enum {string} */
+        PipelineStage: "capture" | "spectrum" | "channel";
         /** @enum {string} */
         PlaybackAction: "play" | "pause" | "stop" | "seek";
         PlaybackRequest: {
@@ -4430,6 +4448,16 @@ export interface components {
         PskText: {
             baud: components["schemas"]["PskBaud"];
             text: string;
+        };
+        QueueHealth: {
+            /** Format: int64 */
+            capacity: number;
+            /** Format: int64 */
+            dropped: number;
+            /** Format: double */
+            oldest_ms: number;
+            /** Format: int64 */
+            queued: number;
         };
         RackCell: {
             /** Format: int32 */
@@ -4797,6 +4825,13 @@ export interface components {
         /** @enum {string} */
         SelcallSystem: "ccir1" | "zvei1";
         ServerEvent: {
+            data: {
+                queues: components["schemas"]["PipelineQueue"][];
+                websocket: components["schemas"]["QueueHealth"];
+            };
+            /** @enum {string} */
+            type: "PipelineHealth";
+        } | {
             data: {
                 /** Format: int64 */
                 revision: number;

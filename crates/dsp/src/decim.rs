@@ -15,6 +15,10 @@ impl Decimator {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         self.core.process(input, out);
     }
@@ -31,6 +35,10 @@ impl RealDecimator {
         Self {
             core: StreamFir::new(taps, factor),
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.core.reset();
     }
 
     pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
