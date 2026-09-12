@@ -14,8 +14,6 @@ export function applyToasts(
   }
   return [
     ...(report.refused ?? []).map((refusal) => `${named(nodes, refusal.node)}: ${refusal.reason}`),
-    ...(report.absent ?? []).map(
-      (node) => `${named(nodes, node)}: its radio is not connected, so nothing on it was started`,
-    ),
+    ...(report.absent ?? []).map((node) => `${named(nodes, node)}: radio not connected`),
   ];
 }

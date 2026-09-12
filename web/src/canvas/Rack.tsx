@@ -114,9 +114,7 @@ export function Rack() {
   if (slots.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-bg">
-        <p className="text-sm text-ink-dim">
-          Nothing pinned. Pin a node's face on the canvas to operate it here.
-        </p>
+        <p className="text-sm text-ink-dim">Nothing pinned.</p>
       </div>
     );
   }

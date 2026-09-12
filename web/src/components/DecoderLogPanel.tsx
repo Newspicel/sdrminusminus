@@ -259,7 +259,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
                   ? "Loading…"
                   : isFiltered(filter)
                     ? "No rows match this filter."
-                    : "Nothing logged yet from the decoders wired in."}
+                    : "Nothing logged yet."}
               </div>
             )}
           </div>

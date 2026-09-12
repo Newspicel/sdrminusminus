@@ -264,7 +264,7 @@ test.describe("the workspace", () => {
       })
       .toEqual(["wfm"]);
     await expect(channel).toHaveCount(1);
-    await expect(channel.getByText(/nothing feeds this channel|not been created/i)).toHaveCount(0);
+    await expect(channel.getByRole("meter")).toBeVisible();
 
     await expect(channel.locator('.react-flow__handle[data-handleid="video"]')).toHaveCount(0);
     for (const port of ["iq", "audio"]) {
@@ -310,7 +310,7 @@ test.describe("the workspace", () => {
     await squelch.click();
     await expect(threshold).toBeDisabled();
 
-    await expect(node("scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
+    await expect(node("scope").getByText(/MHz/).first()).toBeVisible();
 
     const staleGet = deferred();
     const releaseStaleGet = deferred();
@@ -364,7 +364,7 @@ test.describe("the workspace", () => {
         .getByText(/\d\.\d{4} MHz/)
         .count(),
     ).toBeGreaterThan(0);
-    await expect(rackNode(page, "scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
+    await expect(rackNode(page, "scope").getByText(/MHz/).first()).toBeVisible();
 
     const scopePlot = rackNode(page, "scope");
     const tunedTo = async (): Promise<string> => {
@@ -418,8 +418,8 @@ test.describe("the workspace", () => {
     await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
     await expect(node("device").locator('[id^="frequency-dial"]')).toBeVisible();
     await expect(
-      page.locator('.react-flow__node[data-id^="channel:"]').getByText(/nothing feeds/i),
-    ).toHaveCount(0);
+      page.locator('.react-flow__node[data-id^="channel:"]').getByRole("meter"),
+    ).toBeVisible();
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
 
@@ -794,7 +794,7 @@ test.describe("the workspace", () => {
     await page.goto("/");
     const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
     const scope = node("scope");
-    await expect(scope.getByText(/waiting for the first frame/i)).toHaveCount(0);
+    await expect(scope.getByText(/MHz/).first()).toBeVisible();
     await fitPatch(page);
 
     const sources = scope.getByRole("group", { name: "Scope source" });
@@ -1008,6 +1008,60 @@ test.describe("the workspace", () => {
     await expect(page.locator('header img[src="/icon.svg"]')).toBeVisible();
   });
 
+  test("a channel with no radio still shows its settings and holds an edit", async ({ page }) => {
+    await page.goto("/");
+    const list = await page.request.get("/api/workspaces").then((r) => r.json());
+    const created = await page.request
+      .post("/api/workspaces", {
+        data: {
+          name: "Offline channel",
+          snapshot: {
+            version: 3,
+            graph: {
+              nodes: [
+                { id: "dev", kind: "device", position: { x: 0, y: 0 }, data: {} },
+                {
+                  id: "voice",
+                  kind: "channel",
+                  position: { x: 440, y: 0 },
+                  data: { channel_type: "nfm" },
+                },
+              ],
+              edges: [{ from: { node: "dev", port: "iq" }, to: { node: "voice", port: "iq" } }],
+            },
+          },
+        },
+      })
+      .then((r) => r.json());
+    await page.request.post(`/api/workspaces/${created.id}/activate`);
+    await page.goto("/");
+
+    const channel = page.locator('.react-flow__node[data-id="voice"]');
+    await expect(channel.getByRole("combobox", { name: /bandwidth/i })).toBeVisible();
+    await activate(channel);
+    await channel.getByRole("button", { name: "+5k", exact: true }).click();
+
+    await expect
+      .poll(async () => {
+        const detail = await page.request
+          .get(`/api/workspaces/${created.id}`)
+          .then((r) => r.json());
+        return detail.state?.devices
+          ?.flatMap(
+            (device: { channels?: { node: string; settings: { offset_hz: number } }[] }) =>
+              device.channels ?? [],
+          )
+          .find((held: { node: string }) => held.node === "voice")?.settings.offset_hz;
+      })
+      .toBe(5_000);
+
+    await page.reload();
+    await expect(channel.getByLabel(/offset/i)).toHaveValue("5");
+
+    await page.request.post(`/api/workspaces/${list.active}/activate`);
+    await page.request.delete(`/api/workspaces/${created.id}`);
+  });
+
   test("names a radio that is not connected once, not again on the next edit", async ({ page }) => {
     await page.goto("/");
     const list = await page.request.get("/api/workspaces").then((r) => r.json());
@@ -1036,7 +1090,7 @@ test.describe("the workspace", () => {
     await page.request.post(`/api/workspaces/${created.id}/activate`);
     await page.goto("/");
 
-    const missing = page.getByText(/its radio is not connected/);
+    const missing = page.getByText("rtlsdr · deadbeef");
     await expect(missing).toHaveCount(1);
 
     const header = await page.locator('.react-flow__node[data-id="view"] header').boundingBox();

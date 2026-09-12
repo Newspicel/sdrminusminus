@@ -98,6 +98,34 @@ impl WorkspaceState {
         }
     }
 
+    /// Records what a channel node is set to while no radio carries it, hung off the device node
+    /// that feeds it so it is replayed the moment that radio opens.
+    pub fn put_channel(&mut self, device_node: &str, node: &str, settings: ChannelSettings) {
+        let at = match self
+            .devices
+            .iter()
+            .position(|held| held.node == device_node)
+        {
+            Some(at) => at,
+            None => {
+                self.devices.push(WorkspaceDevice {
+                    node: device_node.to_string(),
+                    settings: DeviceSettings::default(),
+                    channels: Vec::new(),
+                });
+                self.devices.len() - 1
+            }
+        };
+        let device = &mut self.devices[at];
+        match device.channels.iter_mut().find(|held| held.node == node) {
+            Some(held) => held.settings = settings,
+            None => device.channels.push(WorkspaceChannel {
+                node: node.to_string(),
+                settings,
+            }),
+        }
+    }
+
     pub fn retain_nodes(&mut self, present: impl Fn(&str) -> bool) {
         self.devices.retain(|device| present(&device.node));
         for device in &mut self.devices {

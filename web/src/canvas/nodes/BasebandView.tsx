@@ -204,7 +204,10 @@ export function BasebandView({
   const period = frame === null ? 0 : samplesPerSymbol(frame.sampleRate, symbolRate);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg">
+    <div
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg"
+      title={waiting(view, frame, symbols) ?? undefined}
+    >
       <canvas ref={canvasRef} className="h-full w-full min-h-0 flex-1" />
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
@@ -285,12 +288,6 @@ export function BasebandView({
       <span className="pointer-events-none absolute inset-x-0 top-0 p-1.5 text-plot-ink-dim legend">
         {label}
       </span>
-
-      {waiting(view, frame, symbols) !== null && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center pb-12 text-sm text-plot-ink-dim">
-          {waiting(view, frame, symbols)}
-        </p>
-      )}
     </div>
   );
 }
@@ -328,10 +325,10 @@ export function waiting(
   block: SymbolFrame | null,
 ): string | null {
   if (view === "quality" || view === "drift" || view === "states") {
-    return block === null ? "This channel's decoder does not report symbols." : null;
+    return block === null ? "This decoder reports no symbols" : null;
   }
   if (frame === null && block === null) {
-    return "Waiting for the first burst…";
+    return "No burst yet";
   }
   return null;
 }

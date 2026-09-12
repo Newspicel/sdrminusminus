@@ -3923,6 +3923,77 @@
         }
       }
     },
+    "/api/workspaces/{id}/channels/{node}": {
+      "put": {
+        "operationId": "put_workspace_channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "node",
+            "in": "path",
+            "description": "Channel node id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Settings held against the node until a radio carries it"
+          },
+          "400": {
+            "description": "No such channel node, no radio wired into it, or settings of another channel type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{id}/export": {
       "get": {
         "operationId": "export_workspace",
@@ -6393,6 +6464,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "defaults": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChannelSettings",
+                "description": "What a fresh channel of this type starts on, so a node can show and edit its settings\nbefore any radio is open to carry it."
+              }
             ]
           },
           "exact_rate_only": {
@@ -19391,6 +19473,9 @@
               },
               "snapshot": {
                 "$ref": "#/components/schemas/WorkspaceSnapshot"
+              },
+              "state": {
+                "$ref": "#/components/schemas/WorkspaceState"
               }
             }
           }

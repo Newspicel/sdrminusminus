@@ -110,20 +110,11 @@ export interface NodeShellProps {
   title: string;
   category: NodeCategory;
   subtitle?: ReactNode;
-  live?: boolean;
   actions?: ReactNode;
   children: ReactNode;
 }
 
-export function NodeShell({
-  node,
-  title,
-  category,
-  subtitle,
-  live = true,
-  actions,
-  children,
-}: NodeShellProps) {
+export function NodeShell({ node, title, category, subtitle, actions, children }: NodeShellProps) {
   const workspace = useWorkspaceContext();
   const surface = useContext(Surface);
   const remove = useRemoveNode(node);
@@ -146,7 +137,7 @@ export function NodeShell({
       style={surface === "canvas" ? { minHeight: minimum.h } : undefined}
       className={`relative flex h-full min-h-0 w-full flex-col border bg-panel ${
         selected ? "border-accent" : "border-line"
-      } ${live ? "" : "opacity-60"}`}
+      }`}
     >
       <PortalContainerProvider container={portalContainer}>
         {surface === "canvas" && isResizable(node.kind) && (
@@ -314,9 +305,18 @@ function PortHandle({ port, label, offset }: { port: PortSpec; label: string; of
   );
 }
 
-export function FaceBody({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
+export function FaceBody({
+  children,
+  scroll = true,
+  title,
+}: {
+  children: ReactNode;
+  scroll?: boolean;
+  title?: string;
+}) {
   return (
     <div
+      title={title}
       className={`flex min-h-0 flex-1 flex-col overflow-x-hidden ${scroll ? "overflow-y-auto" : ""}`}
     >
       {children}
@@ -324,8 +324,8 @@ export function FaceBody({ children, scroll = true }: { children: ReactNode; scr
   );
 }
 
-export function FaceEmpty({ children }: { children: ReactNode }) {
-  return <p className="p-3 text-sm text-ink-dim">{children}</p>;
+export function FaceEmpty({ hint }: { hint?: string }) {
+  return <div className="min-h-12 flex-1" title={hint} />;
 }
 
 export function FaceFooter({ children }: { children: ReactNode }) {

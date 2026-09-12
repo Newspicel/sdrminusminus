@@ -71,7 +71,6 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
           ? `${trunkProtocolLabel(protocol, detected)} · ${followers.length} following`
           : undefined
       }
-      live={onIq && !awaiting && !stalled}
     >
       <FaceBody>
         <Settings className="border-b border-line p-2">
@@ -103,11 +102,6 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
             />
           </SettingRow>
         </Settings>
-        {!onIq && (
-          <p className="border-b border-line p-2 text-xs text-ink-dim">
-            Wire a radio into the IQ input.
-          </p>
-        )}
         {awaiting && (
           <p role="alert" className="border-b border-line p-2 text-xs text-warning">
             The radio stays untuned until you name the control channel.

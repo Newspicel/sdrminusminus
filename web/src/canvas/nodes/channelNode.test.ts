@@ -3,7 +3,7 @@ import type { DeviceInfo, PatchGraph, PatchNode } from "../../lib/types";
 import {
   channelBinding,
   channelBindingAction,
-  channelBindingLabel,
+  channelBindingHint,
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
@@ -61,8 +61,8 @@ describe("channelBinding", () => {
     expect(channelBindingAction("unwired")).toBeNull();
   });
 
-  it("labels each state for the node header", () => {
-    expect(channelBindingLabel("radio-absent")).toBe("radio disconnected");
-    expect(channelBindingLabel("not-started")).toBe("not started");
+  it("hints at each state without putting prose on the face", () => {
+    expect(channelBindingHint("radio-absent")).toBe("Its radio is not connected");
+    expect(channelBindingHint("unwired")).toBe("Wire a device's IQ in");
   });
 });

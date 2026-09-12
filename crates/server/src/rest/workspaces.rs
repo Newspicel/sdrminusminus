@@ -757,3 +757,69 @@ pub(super) async fn reconcile_gps(state: AppState) -> Result<(), AppError> {
     tokio::task::spawn_blocking(move || state.gps.reconcile(&state)).await?;
     Ok(())
 }
+
+#[utoipa::path(
+    put, path = "/api/workspaces/{id}/channels/{node}",
+    params(
+        ("id" = i64, Path, description = "Workspace id"),
+        ("node" = String, Path, description = "Channel node id"),
+    ),
+    request_body = ChannelSettings,
+    responses(
+        (status = 204, description = "Settings held against the node until a radio carries it"),
+        (
+            status = 400,
+            description = "No such channel node, no radio wired into it, or settings of another \
+                           channel type",
+            body = ApiError,
+        ),
+        (status = 404, description = "Workspace not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+pub(super) async fn put_workspace_channel(
+    State(state): State<AppState>,
+    Path((id, node)): Path<(i64, String)>,
+    Json(settings): Json<ChannelSettings>,
+) -> Result<StatusCode, AppError> {
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        let _serialized = state
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let graph = state.store.workspace(id)?.snapshot.graph;
+        let device_node = channel_holder(&graph, &node, &settings)?;
+        let mut saved = state.store.workspace_state(id)?;
+        saved.put_channel(&device_node, &node, settings);
+        state.store.put_workspace_state(id, &saved)?;
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The device node a channel node hangs off, refusing settings that do not belong to it.
+fn channel_holder(
+    graph: &PatchGraph,
+    node: &str,
+    settings: &ChannelSettings,
+) -> Result<String, AppError> {
+    let Some(patch) = graph.node(node) else {
+        return Err(AppError::bad_request(format!("no node {node:?}")));
+    };
+    let NodeBody::Channel(channel) = &patch.body else {
+        return Err(AppError::bad_request(format!("{node:?} is not a channel")));
+    };
+    if channel.channel_type != settings.params.type_id() {
+        return Err(AppError::bad_request(format!(
+            "{node:?} is a {} channel, not {}",
+            channel.channel_type,
+            settings.params.type_id()
+        )));
+    }
+    graph
+        .sources_of(node, "iq")
+        .next()
+        .map(str::to_string)
+        .ok_or_else(|| AppError::bad_request(format!("nothing feeds {node:?}")))
+}

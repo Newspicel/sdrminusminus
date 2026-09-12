@@ -18,10 +18,10 @@ import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
-import { RADIO_IDLE } from "./faceCopy";
-import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 const LEVEL_REFRESH_MS = 200;
+const NO_POSITIONS: readonly string[] = [];
 const MAX_OFFSET_HZ = 1_000_000_000_000;
 
 export function SignalMapFace({ node }: { node: PatchNode }) {
@@ -43,26 +43,15 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
       title="Signal survey"
       category="output"
       subtitle={set === null ? undefined : formatSignedKhz(node.data.offset_hz)}
-      live={set !== null && position !== undefined}
     >
       <FaceBody scroll={false}>
-        {set === null || iq === null || positionNode === undefined ? (
-          <FaceEmpty>
-            {iq !== null && set === null
-              ? RADIO_IDLE
-              : set === null || iq === null
-                ? "Wire a device's IQ and a GPS position in to survey signal strength."
-                : "Wire a GPS position in to place signal readings on the map."}
-          </FaceEmpty>
-        ) : (
-          <SignalSurvey
-            node={node}
-            deviceSet={set.id}
-            stream={iq.stream}
-            positionNode={positionNode}
-            position={position}
-          />
-        )}
+        <SignalSurvey
+          node={node}
+          deviceSet={set?.id ?? null}
+          stream={iq?.stream ?? 0}
+          positionNode={positionNode ?? null}
+          position={position}
+        />
       </FaceBody>
     </NodeShell>
   );
@@ -76,9 +65,9 @@ function SignalSurvey({
   position,
 }: {
   node: PatchNodeOf<"signal_map">;
-  deviceSet: number;
+  deviceSet: number | null;
   stream: number;
-  positionNode: string;
+  positionNode: string | null;
   position: PositionSample | undefined;
 }) {
   const workspace = useWorkspaceContext();
@@ -112,46 +101,47 @@ function SignalSurvey({
     bandwidthRef.current = node.data.bandwidth_hz;
   });
 
-  useEffect(
-    () =>
-      spectrumHub.subscribe(deviceSet, stream, (frame: SpectrumFrame) => {
-        const targetHz = Math.round(frame.centerHz + offsetRef.current);
-        const measured = measureSignalDbfs(frame, targetHz, bandwidthRef.current);
-        const now = performance.now();
-        if (now - lastLevelRenderRef.current >= LEVEL_REFRESH_MS || measured === null) {
-          lastLevelRenderRef.current = now;
-          setLive({ level: measured, targetHz, centerHz: frame.centerHz, spanHz: frame.spanHz });
-        }
+  useEffect(() => {
+    if (deviceSet === null) {
+      return;
+    }
+    return spectrumHub.subscribe(deviceSet, stream, (frame: SpectrumFrame) => {
+      const targetHz = Math.round(frame.centerHz + offsetRef.current);
+      const measured = measureSignalDbfs(frame, targetHz, bandwidthRef.current);
+      const now = performance.now();
+      if (now - lastLevelRenderRef.current >= LEVEL_REFRESH_MS || measured === null) {
+        lastLevelRenderRef.current = now;
+        setLive({ level: measured, targetHz, centerHz: frame.centerHz, spanHz: frame.spanHz });
+      }
 
-        const fix = positionRef.current;
-        const surveyFrequency = surveyFrequencyRef.current;
-        if (surveyFrequency !== undefined && targetHz !== surveyFrequency) {
-          if (recordingRef.current) {
-            recordingRef.current = false;
-            setRecording(node.id, false);
-          }
-          return;
+      const fix = positionRef.current;
+      const surveyFrequency = surveyFrequencyRef.current;
+      if (surveyFrequency !== undefined && targetHz !== surveyFrequency) {
+        if (recordingRef.current) {
+          recordingRef.current = false;
+          setRecording(node.id, false);
         }
-        if (
-          !recordingRef.current ||
-          measured === null ||
-          fix === undefined ||
-          fix.receivedAt === lastRecordedRef.current
-        ) {
-          return;
-        }
-        lastRecordedRef.current = fix.receivedAt;
-        observe(node.id, {
-          latitude: fix.latitude,
-          longitude: fix.longitude,
-          frequencyHz: targetHz,
-          levelDbfs: measured,
-          measuredAt: Date.now(),
-          ...(fix.accuracy_m == null ? {} : { accuracyM: fix.accuracy_m }),
-        });
-      }),
-    [deviceSet, node.id, observe, setRecording, stream],
-  );
+        return;
+      }
+      if (
+        !recordingRef.current ||
+        measured === null ||
+        fix === undefined ||
+        fix.receivedAt === lastRecordedRef.current
+      ) {
+        return;
+      }
+      lastRecordedRef.current = fix.receivedAt;
+      observe(node.id, {
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        frequencyHz: targetHz,
+        levelDbfs: measured,
+        measuredAt: Date.now(),
+        ...(fix.accuracy_m == null ? {} : { accuracyM: fix.accuracy_m }),
+      });
+    });
+  }, [deviceSet, node.id, observe, setRecording, stream]);
 
   const updateSettings = (offsetHz: number, bandwidthHz: number): void => {
     workspace.edit((snapshot) => ({
@@ -271,7 +261,7 @@ function SignalSurvey({
       </div>
       <MapPanel
         kinds={[]}
-        positionNodes={[positionNode]}
+        positionNodes={positionNode === null ? NO_POSITIONS : [positionNode]}
         signalSamples={samples}
         active={active}
         className="min-h-0 w-full flex-1"

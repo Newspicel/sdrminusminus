@@ -6,7 +6,7 @@ import { NumberField } from "../../components/NumberField";
 import { Select } from "../../components/Select";
 import { SettingGroup, SettingRow, Settings } from "../../components/Settings";
 import type { EventFilterNode, PatchNode, PatchNodeOf } from "../../lib/types";
-import { eventSourcesOf, targetsOf, wiredSourcesOf } from "../binding";
+import { eventSourcesOf, wiredSourcesOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import {
@@ -24,7 +24,7 @@ import {
   type TriState,
   toTriState,
 } from "./eventFilter";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, NodeShell } from "./NodeShell";
 
 const TRI_STATES = [
   { value: "any", label: "Either" },
@@ -43,7 +43,6 @@ function Face({ node }: { node: PatchNodeOf<"event_filter"> }) {
   const workspace = useWorkspaceContext();
   const settings: EventFilterNode = node.data ?? {};
   const sources = eventSourcesOf(workspace.graph, node.id);
-  const targets = targetsOf(workspace.graph, node.id, "events");
   const offered = kindsOffered(
     wiredSourcesOf(workspace.graph, node.id),
     workspace.context.channelTypes,
@@ -69,69 +68,70 @@ function Face({ node }: { node: PatchNodeOf<"event_filter"> }) {
       title="Event filter"
       category="tool"
       subtitle={sources.length > 0 ? filterSaid(settings) : undefined}
-      live={sources.length > 0 && targets.length > 0}
     >
-      <FaceBody>
-        {sources.length === 0 ? (
-          <FaceEmpty>Wire decoder events into the events input.</FaceEmpty>
-        ) : offered.length === 0 ? (
-          <FaceEmpty>Nothing wired in emits events.</FaceEmpty>
-        ) : (
-          <>
-            {offered.length > 1 && (
-              <div className="flex flex-col gap-1.5 border-b border-line p-2">
-                <span className={LABEL}>Kinds</span>
-                <ul className="flex flex-wrap gap-1">
-                  {offered.map((kind) => (
-                    <li key={kind}>
-                      <label className={`${CHIP} cursor-pointer gap-1.5`}>
-                        <Checkbox
-                          label={kindLabel(kind)}
-                          checked={kinds.includes(kind)}
-                          onChange={(on) =>
-                            edit({
-                              kinds: on
-                                ? [...kinds, kind].toSorted()
-                                : kinds.filter((held) => held !== kind),
-                            })
-                          }
-                        />
-                        {kindLabel(kind)}
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <Settings className="p-2">
-              {sections.map((section) => (
-                <SettingGroup
-                  key={section.key}
-                  label={
-                    <>
-                      {section.title}
-                      {section.applies.length > 0 && (
-                        <span className="font-normal normal-case tracking-normal text-ink-faint">
-                          {section.applies.join(" · ")}
-                        </span>
-                      )}
-                    </>
-                  }
-                >
-                  {section.predicates.map((predicate) => (
-                    <Predicate
-                      key={predicate}
-                      which={predicate}
-                      settings={settings}
-                      kinds={narrowed}
-                      edit={edit}
-                    />
-                  ))}
-                </SettingGroup>
-              ))}
-            </Settings>
-          </>
-        )}
+      <FaceBody
+        title={
+          sources.length === 0
+            ? "Wire decoder events in"
+            : offered.length === 0
+              ? "Nothing wired in emits events"
+              : undefined
+        }
+      >
+        <>
+          {offered.length > 1 && (
+            <div className="flex flex-col gap-1.5 border-b border-line p-2">
+              <span className={LABEL}>Kinds</span>
+              <ul className="flex flex-wrap gap-1">
+                {offered.map((kind) => (
+                  <li key={kind}>
+                    <label className={`${CHIP} cursor-pointer gap-1.5`}>
+                      <Checkbox
+                        label={kindLabel(kind)}
+                        checked={kinds.includes(kind)}
+                        onChange={(on) =>
+                          edit({
+                            kinds: on
+                              ? [...kinds, kind].toSorted()
+                              : kinds.filter((held) => held !== kind),
+                          })
+                        }
+                      />
+                      {kindLabel(kind)}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <Settings className="p-2">
+            {sections.map((section) => (
+              <SettingGroup
+                key={section.key}
+                label={
+                  <>
+                    {section.title}
+                    {section.applies.length > 0 && (
+                      <span className="font-normal normal-case tracking-normal text-ink-faint">
+                        {section.applies.join(" · ")}
+                      </span>
+                    )}
+                  </>
+                }
+              >
+                {section.predicates.map((predicate) => (
+                  <Predicate
+                    key={predicate}
+                    which={predicate}
+                    settings={settings}
+                    kinds={narrowed}
+                    edit={edit}
+                  />
+                ))}
+              </SettingGroup>
+            ))}
+          </Settings>
+        </>
       </FaceBody>
     </NodeShell>
   );

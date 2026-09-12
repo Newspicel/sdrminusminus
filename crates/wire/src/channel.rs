@@ -27,6 +27,10 @@ pub struct ChannelDescriptor {
     pub can_transmit: bool,
     #[serde(default)]
     pub needs_position: bool,
+    /// What a fresh channel of this type starts on, so a node can show and edit its settings
+    /// before any radio is open to carry it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defaults: Option<ChannelSettings>,
 }
 
 impl ChannelDescriptor {
@@ -54,6 +58,7 @@ impl Default for ChannelDescriptor {
             native_rate_max_hz: None,
             can_transmit: false,
             needs_position: false,
+            defaults: None,
         }
     }
 }

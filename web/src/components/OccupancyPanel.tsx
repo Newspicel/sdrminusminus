@@ -35,11 +35,7 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {active === null && (
-        <span className="text-sm text-ink-dim">
-          Nothing to tune: select a device node on the canvas first.
-        </span>
-      )}
+      {active === null && <span className="text-sm text-ink-dim">Select a device node first.</span>}
 
       <div className="flex items-center gap-1">
         {SORTS.map((entry) => (
@@ -65,10 +61,7 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
 
       {report.isLoading && <span className="text-sm text-ink-dim">Reading the statistics…</span>}
       {!report.isLoading && !hasOccupancy(report.data ?? null) && (
-        <span className="text-sm text-ink-dim">
-          Nothing measured yet. Occupancy builds from whatever the receivers are tuned to, so leave
-          one running — or start a scan — and come back.
-        </span>
+        <span className="text-sm text-ink-dim">Nothing measured yet.</span>
       )}
 
       {rows.length > 0 && (

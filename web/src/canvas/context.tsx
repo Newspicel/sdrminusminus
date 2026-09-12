@@ -1,6 +1,7 @@
 import { createContext, type ReactNode, useContext } from "react";
 import type {
   ChannelInfo,
+  ChannelSettings,
   DeviceSet,
   PatchGraph,
   RackLayout,
@@ -23,6 +24,8 @@ export interface Workspace {
   trunks: readonly TrunkSystemStatus[];
   devices: ReadonlyMap<string, DeviceSet>;
   channels: ReadonlyMap<string, ChannelInfo>;
+  savedChannels: ReadonlyMap<string, ChannelSettings>;
+  saveChannel: (node: string, settings: ChannelSettings) => void;
   selected: string | null;
   select: (node: string | null) => void;
   expanded: string | null;

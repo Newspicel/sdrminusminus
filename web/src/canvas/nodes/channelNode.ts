@@ -39,21 +39,12 @@ export function channelBinding(input: {
   return input.attached ? "radio-closed" : "radio-absent";
 }
 
-const LABELS: Record<ChannelBinding, string> = {
-  unwired: "no device",
-  "no-radio": "no radio",
-  "radio-absent": "radio disconnected",
-  "radio-closed": "radio not open",
-  "not-started": "not started",
-};
-
-const SAID: Record<ChannelBinding, string> = {
-  unwired: "Nothing feeds this channel. Wire a device's IQ output into its input.",
-  "no-radio": "The device node feeding this channel has no radio chosen yet. Pick one there.",
-  "radio-absent":
-    "Its radio is not connected. Plug it back in and open it — this channel starts with these settings as soon as the radio runs.",
-  "radio-closed": "Its radio is plugged in but not open. Opening it starts this channel too.",
-  "not-started": "The radio is running, but this channel has not started on it yet.",
+const HINTS: Record<ChannelBinding, string> = {
+  unwired: "Wire a device's IQ in",
+  "no-radio": "Pick a radio on the device node",
+  "radio-absent": "Its radio is not connected",
+  "radio-closed": "Its radio is not open",
+  "not-started": "Not started on the radio yet",
 };
 
 const ACTIONS: Partial<Record<ChannelBinding, string>> = {
@@ -61,12 +52,8 @@ const ACTIONS: Partial<Record<ChannelBinding, string>> = {
   "not-started": "Start channel",
 };
 
-export function channelBindingLabel(binding: ChannelBinding): string {
-  return LABELS[binding];
-}
-
-export function channelBindingSaid(binding: ChannelBinding): string {
-  return SAID[binding];
+export function channelBindingHint(binding: ChannelBinding): string {
+  return HINTS[binding];
 }
 
 export function channelBindingAction(binding: ChannelBinding): string | null {

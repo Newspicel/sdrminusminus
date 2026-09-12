@@ -5,9 +5,16 @@ import { NODE_SIZE } from "./graph";
 
 const ASSUMED_HEIGHT = 320;
 
+/// A channel face stacks the whole settings set for its mode, so it stands far taller than the
+/// faces that only carry a readout. The widest of them, NFM with its audio chain, measures 589.
+const ASSUMED_CHANNEL_HEIGHT = 600;
+
 export function dropSize(kind: NodeKind): { w: number; h: number } {
   const size = NODE_SIZE[kind];
-  return { w: size.w, h: size.h ?? ASSUMED_HEIGHT };
+  if (size.h !== undefined) {
+    return { w: size.w, h: size.h };
+  }
+  return { w: size.w, h: kind === "channel" ? ASSUMED_CHANNEL_HEIGHT : ASSUMED_HEIGHT };
 }
 
 export interface PlacementRect {

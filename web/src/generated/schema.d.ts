@@ -1204,6 +1204,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{id}/channels/{node}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_workspace_channel"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{id}/export": {
         parameters: {
             query?: never;
@@ -1936,6 +1952,7 @@ export interface components {
             bandwidth_hz: number;
             can_transmit?: boolean;
             decoder_kind?: string | null;
+            defaults?: null | components["schemas"]["ChannelSettings"];
             exact_rate_only?: boolean;
             has_audio?: boolean;
             has_video?: boolean;
@@ -5440,6 +5457,7 @@ export interface components {
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             history?: components["schemas"]["WorkspaceHistory"];
             snapshot: components["schemas"]["WorkspaceSnapshot"];
+            state?: components["schemas"]["WorkspaceState"];
         };
         WorkspaceDevice: {
             channels?: components["schemas"]["WorkspaceChannel"][];
@@ -8741,6 +8759,60 @@ export interface operations {
             };
             /** @description Workspace not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_workspace_channel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+                /** @description Channel node id */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelSettings"];
+            };
+        };
+        responses: {
+            /** @description Settings held against the node until a radio carries it */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such channel node, no radio wired into it, or settings of another channel type */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

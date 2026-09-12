@@ -57,19 +57,11 @@ import type {
   VoiceCall,
 } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
-import {
-  type EventPath,
-  eventPathsOf,
-  type Input,
-  inputsOf,
-  iqSourceOf,
-  targetsOf,
-} from "../binding";
+import { type EventPath, eventPathsOf, type Input, inputsOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
 import { AudioSpectrogramView } from "./AudioSpectrogramView";
-import { RADIO_IDLE, useFaceEmptyText } from "./faceCopy";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 function useInputs(node: string, port: string): Input[] {
@@ -129,18 +121,17 @@ function eventGate(inputs: readonly Input[], paths: readonly EventPath[]): Event
 
 export function SpeakerFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
-  const empty = useFaceEmptyText(node.id, "audio", "Wire a channel's audio out to this speaker.");
+
   return (
     <NodeShell
       node={node}
       title="Speaker"
       category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={inputs.length > 0}
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>{empty}</FaceEmpty>
+          <FaceEmpty hint="Wire a channel's audio in" />
         ) : (
           inputs.map((input) => <AudioInput key={input.node} input={input} />)
         )}
@@ -267,42 +258,21 @@ export function MapFace({ node }: { node: PatchNode }) {
   const finders = dfSourcesOf(workspace.graph, node.id);
   const crossings = crossingSourcesOf(workspace.graph, node.id);
   const radars = radarSourcesOf(workspace.graph, node.id);
-  const empty = useFaceEmptyText(
-    node.id,
-    "events",
-    "Wire decoder events or a GPS position in to plot them.",
-  );
-  const anything =
-    kinds.length > 0 ||
-    positions.length > 0 ||
-    finders.length > 0 ||
-    crossings.length > 0 ||
-    radars.length > 0;
   return (
     <NodeShell
       node={node}
       title="Map"
       category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={anything}
     >
       <FaceBody scroll={false}>
-        {inputs.length === 0 && positions.length === 0 ? (
-          <FaceEmpty>{empty}</FaceEmpty>
-        ) : anything ? (
-          <Plot
-            kinds={kinds}
-            positionNodes={positions}
-            finders={finders}
-            crossings={crossings}
-            radars={radars}
-          />
-        ) : (
-          <FaceEmpty>
-            Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to be
-            drawn.
-          </FaceEmpty>
-        )}
+        <Plot
+          kinds={kinds}
+          positionNodes={positions}
+          finders={finders}
+          crossings={crossings}
+          radars={radars}
+        />
       </FaceBody>
     </NodeShell>
   );
@@ -349,27 +319,18 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
   const readable = useWiredDecoders(inputs).filter((wired) => hasDecoderView(wired.kind));
-  const empty = useFaceEmptyText(
-    node.id,
-    "events",
-    "Wire a decoder's events output in. Decoders that build up a picture, like SSTV or VOR, show it here.",
-  );
   return (
     <NodeShell
       node={node}
       title="Readout"
       category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={readable.length > 0}
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>{empty}</FaceEmpty>
+          <FaceEmpty hint="Wire a decoder's events in" />
         ) : readable.length === 0 ? (
-          <FaceEmpty>
-            None of the wired decoders builds up a picture — they all decode to messages. Read those
-            in a decoder-log node.
-          </FaceEmpty>
+          <FaceEmpty hint="No wired decoder builds up a picture" />
         ) : (
           readable.map(({ input, kind }) => (
             <div key={input.node} className="border-b border-line last:border-b-0">
@@ -393,22 +354,16 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
 
 export function VideoFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "video");
-  const empty = useFaceEmptyText(
-    node.id,
-    "video",
-    "Wire a video channel's picture out to watch it.",
-  );
   return (
     <NodeShell
       node={node}
       title="Video"
       category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={inputs.length > 0}
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>{empty}</FaceEmpty>
+          <FaceEmpty hint="Wire a video channel's picture in" />
         ) : (
           inputs.map((input) => (
             <VideoView
@@ -426,26 +381,14 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
   const paths = eventPathsOf(workspace.graph, node.id);
-  const empty = useFaceEmptyText(
-    node.id,
-    "events",
-    "Wire decoders in; their frames are what this log holds.",
-  );
   return (
     <NodeShell
       node={node}
       title="Decoder log"
       category="output"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={inputs.length > 0}
     >
-      {inputs.length === 0 ? (
-        <FaceBody scroll={false}>
-          <FaceEmpty>{empty}</FaceEmpty>
-        </FaceBody>
-      ) : (
-        <DecoderLogPanel wires={wireScope(inputs, paths)} />
-      )}
+      <DecoderLogPanel wires={wireScope(inputs, paths)} />
     </NodeShell>
   );
 }
@@ -495,23 +438,17 @@ export function ExportFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const kinds = useWiredKinds(inputs);
   const wires = wireScope(inputs);
-  const empty = useFaceEmptyText(
-    node.id,
-    "events",
-    "Wire decoders in; their stored rows are what gets exported.",
-  );
   return (
     <NodeShell
       node={node}
       title="Export"
       category="output"
       subtitle={kinds.length > 0 ? kinds.join(" · ") : undefined}
-      live={inputs.length > 0}
     >
       <FaceBody>
-        <FaceEmpty>
-          {inputs.length === 0 ? empty : "Every row these decoders have logged, as one file."}
-        </FaceEmpty>
+        <FaceEmpty
+          hint={inputs.length === 0 ? "Wire decoders in" : "Every logged row, as one file"}
+        />
       </FaceBody>
       <FaceFooter>
         <DownloadMenu
@@ -527,46 +464,45 @@ export function RecorderFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
-  const empty = useFaceEmptyText(node.id, "iq", "Wire a device's IQ out to record it.");
   return (
     <NodeShell
       node={node}
       title="Recorder"
       category="output"
       subtitle={set?.recording == null ? undefined : "recording"}
-      live={set !== null}
     >
-      {set === null ? (
-        <FaceBody>
-          <FaceEmpty>{empty}</FaceEmpty>
-        </FaceBody>
-      ) : (
-        <RecordControl set={set} stream={stream} />
-      )}
+      <RecordControl set={set} stream={stream} />
     </NodeShell>
   );
 }
 
-function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
+function RecordControl({ set, stream }: { set: DeviceSet | null; stream: number }) {
   const record = useMutation({
-    mutationFn: (action: RecordAction) => recordDeviceSet(set.id, action, stream),
+    mutationFn: (action: RecordAction) =>
+      set === null
+        ? Promise.reject(new Error("no radio"))
+        : recordDeviceSet(set.id, action, stream),
     onError: (error: Error) => pushToast(error.message),
   });
-  const control = deriveRecordControl(set);
-  const status = control.kind === "idle" ? null : control.status;
-  const canStart = control.kind === "idle" && control.canStart;
+  const control = set === null ? null : deriveRecordControl(set);
+  const status = control === null || control.kind === "idle" ? null : control.status;
+  const canStart = control?.kind === "idle" && control.canStart;
   return (
     <>
       <FaceBody>
         {status === null ? (
-          <FaceEmpty>
-            {canStart
-              ? "Ready. Recording writes a SigMF pair beside the server's other captures."
-              : "The radio has to be running before it can be recorded."}
-          </FaceEmpty>
+          <FaceEmpty
+            hint={
+              set === null
+                ? "Wire a device's IQ in"
+                : canStart
+                  ? "Writes a SigMF pair beside the server's captures"
+                  : undefined
+            }
+          />
         ) : (
           <>
-            <RecordingReadout status={status} sampleRate={set.settings.sample_rate ?? 0} />
+            <RecordingReadout status={status} sampleRate={set?.settings.sample_rate ?? 0} />
             {status.error != null && (
               <p role="alert" className="border-t border-line p-2 text-xs text-danger">
                 {status.error}
@@ -633,11 +569,6 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
 export function AudioRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
   const recording = inputs.filter((input) => input.channel.audio_recording != null).length;
-  const empty = useFaceEmptyText(
-    node.id,
-    "audio",
-    "Wire a channel's audio out to record what it sounds like.",
-  );
   return (
     <NodeShell
       node={node}
@@ -650,11 +581,10 @@ export function AudioRecorderFace({ node }: { node: PatchNode }) {
             ? "1 channel recording"
             : `${recording} channels recording`
       }
-      live={inputs.length > 0}
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>{empty}</FaceEmpty>
+          <FaceEmpty hint="Wire a channel's audio in" />
         ) : (
           inputs.map((input) => <AudioRecordInput key={input.node} input={input} />)
         )}
@@ -724,11 +654,6 @@ function AudioRecordingReadout({ status }: { status: AudioRecordingStatus }) {
 export function BasebandRecorderFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "baseband");
   const recording = inputs.filter((input) => input.channel.baseband_recording != null).length;
-  const empty = useFaceEmptyText(
-    node.id,
-    "baseband",
-    "Wire a channel's baseband out to write its own IQ — down-converted, filtered and at the channel's rate — as a SigMF pair.",
-  );
   return (
     <NodeShell
       node={node}
@@ -741,11 +666,10 @@ export function BasebandRecorderFace({ node }: { node: PatchNode }) {
             ? "1 channel recording"
             : `${recording} channels recording`
       }
-      live={inputs.length > 0}
     >
       <FaceBody>
         {inputs.length === 0 ? (
-          <FaceEmpty>{empty}</FaceEmpty>
+          <FaceEmpty hint="Wire a channel's baseband in" />
         ) : (
           inputs.map((input) => <BasebandRecordInput key={input.node} input={input} />)
         )}
@@ -838,7 +762,6 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
       title="Signal hunt"
       category="tool"
       subtitle={hunting ? "owns this radio" : undefined}
-      live={set !== null}
     >
       <HuntPanel
         active={set}
@@ -846,11 +769,7 @@ function HuntNodeFace({ node }: { node: PatchNodeOf<"hunt"> }) {
         clicks={node.data.clicks ?? true}
         onSettings={(settings) => remember({ settings })}
         onClicks={(clicks) => remember({ clicks })}
-        empty={
-          targetsOf(workspace.graph, node.id, "control").length > 0
-            ? RADIO_IDLE
-            : "Wire this node's control out to a device; the hunt then parks that radio on one frequency."
-        }
+        hint="Wire this node's control out to a device"
       />
     </NodeShell>
   );
@@ -866,17 +785,12 @@ export function ScannerFace({ node }: { node: PatchNode }) {
       title="Scanner"
       category="tool"
       subtitle={scanning ? "owns this radio" : undefined}
-      live={set !== null}
     >
       <ScannerPanel
         active={set}
         others={workspace.deviceSets}
         session={workspace.scanSession}
-        empty={
-          targetsOf(workspace.graph, node.id, "control").length > 0
-            ? RADIO_IDLE
-            : "Wire this node's control out to a device; the scanner then drives that radio's tuning."
-        }
+        hint="Wire this node's control out to a device"
       />
     </NodeShell>
   );

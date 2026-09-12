@@ -41,7 +41,6 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
       title="Event output"
       category="output"
       subtitle={SERVICE_LABELS[target.service]}
-      live={inputs > 0 && configured}
     >
       <FaceBody>
         <Settings className="border-b border-line p-2">
@@ -59,22 +58,22 @@ function EventOutputNodeFace({ node }: { node: PatchNodeOf<"event_output"> }) {
           </SettingRow>
           <TargetFields target={target} onEdit={editTarget} />
         </Settings>
-        <FaceEmpty>{emptyText(inputs, configured, target)}</FaceEmpty>
+        <FaceEmpty hint={emptyHint(inputs, configured, target)} />
       </FaceBody>
     </NodeShell>
   );
 }
 
-function emptyText(inputs: number, configured: boolean, target: EventOutputTarget) {
+function emptyHint(inputs: number, configured: boolean, target: EventOutputTarget) {
   if (inputs === 0) {
-    return "Wire an Events output from any decoder or DMR trunk into this sink.";
+    return "Wire a decoder or DMR trunk's events in";
   }
   if (!configured) {
-    return "Enter the destination credentials to start sending events.";
+    return "Enter the destination credentials";
   }
   return carriesAudio(target)
-    ? "Each event is sent once; completed calls include metadata and WAV audio."
-    : "Each event is sent once, as one JSON object per decode.";
+    ? "One send per event; completed calls carry WAV audio"
+    : "One send per event, as one JSON object";
 }
 
 function carriesAudio(target: EventOutputTarget) {

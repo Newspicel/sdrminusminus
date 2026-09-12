@@ -205,7 +205,7 @@ export function DeviceChoices({
         <p className="text-sm text-ink-dim">
           {elsewhere > 0
             ? "Every radio found is already open on another node. Plug one in, open a recording, or move that node's wires here."
-            : "No radios found. Plug one in, open a recording, or check the diagnostics below."}
+            : "No radios found."}
         </p>
       )}
 

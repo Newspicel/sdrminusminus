@@ -38,11 +38,7 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {active === null && (
-        <span className="text-sm text-ink-dim">
-          Nothing to tune or save from: select a device node on the canvas first.
-        </span>
-      )}
+      {active === null && <span className="text-sm text-ink-dim">Select a device node first.</span>}
       <Form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {

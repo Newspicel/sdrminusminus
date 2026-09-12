@@ -30,13 +30,16 @@ import {
   usePropagationStore,
 } from "../../lib/propagation";
 import type { DecodedRecord, PatchNode, PatchNodeOf, ServerEvent } from "../../lib/types";
-import { hasWire, type Input, inputsOf } from "../binding";
+import { type Input, inputsOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { CHANNEL_IDLE } from "./faceCopy";
-import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 const REDRAW_MS = 2_000;
+
+const NO_POSITIONS: readonly string[] = [];
+
+const NO_RECEIVER: readonly [number, number] = [0, 0];
 
 const HISTORY_HOURS = 6;
 
@@ -100,26 +103,14 @@ export function PropagationFace({ node }: { node: PatchNode }) {
       title="Propagation map"
       category="output"
       subtitle={wired.length > 0 ? `${wired.length} in` : undefined}
-      live={wired.length > 0 && receiver !== null}
     >
       <FaceBody scroll={false}>
-        {wired.length === 0 ? (
-          <FaceEmpty>
-            {inputs.length > 0
-              ? "Nothing wired in carries a grid square. FT8, FT4 and WSPR do; the rest give no far end to draw a path to."
-              : hasWire(workspace.graph, node.id, "events")
-                ? CHANNEL_IDLE
-                : "Wire an FT8, FT4 or WSPR decoder's events in. Those carry the transmitting station's grid square, which is what a path is drawn from."}
-          </FaceEmpty>
-        ) : positionNode === undefined || receiver === null ? (
-          <FaceEmpty>
-            {positionNode === undefined
-              ? "Wire a GPS position in. Every path is measured from where this receiver stands, so the map needs that end of it."
-              : "Waiting for a position fix."}
-          </FaceEmpty>
-        ) : (
-          <Propagation node={node} inputs={wired} positionNode={positionNode} receiver={receiver} />
-        )}
+        <Propagation
+          node={node}
+          inputs={wired}
+          positionNode={positionNode ?? null}
+          receiver={receiver}
+        />
       </FaceBody>
     </NodeShell>
   );
@@ -133,8 +124,8 @@ function Propagation({
 }: {
   node: PatchNodeOf<"propagation">;
   inputs: readonly Input[];
-  positionNode: string;
-  receiver: readonly [number, number];
+  positionNode: string | null;
+  receiver: readonly [number, number] | null;
 }) {
   const workspace = useWorkspaceContext();
   const active = useFaceActive();
@@ -150,7 +141,7 @@ function Propagation({
   const halfLifeMinutes = settings.half_life_minutes;
   const sources = inputs.map((input) => `${input.deviceSet}:${input.channel.id}`).join(",");
   const nodes = inputs.map((input) => input.node).join(",");
-  const [latitude, longitude] = receiver;
+  const [latitude, longitude] = receiver ?? NO_RECEIVER;
   const station = useMemo<[number, number]>(() => [latitude, longitude], [latitude, longitude]);
   const options = useMemo(() => ({ halfLifeMinutes, nowMs: tick }), [halfLifeMinutes, tick]);
 
@@ -160,8 +151,9 @@ function Propagation({
   }, []);
 
   const socket = workspace.socket;
+  const located = receiver !== null;
   useEffect(() => {
-    if (socket === null) {
+    if (socket === null || !located) {
       return;
     }
     const wanted = new Set(sources === "" ? [] : sources.split(","));
@@ -178,7 +170,7 @@ function Propagation({
         .filter((observation): observation is PathObservation => observation !== null);
       observe(node.id, observations);
     });
-  }, [socket, sources, station, heightKm, node.id, observe]);
+  }, [socket, located, sources, station, heightKm, node.id, observe]);
 
   const [since] = useState(() => new Date(Date.now() - HISTORY_HOURS * 3_600_000).toISOString());
   const stored = useQueries({
@@ -337,7 +329,7 @@ function Propagation({
 
       <MapPanel
         kinds={[]}
-        positionNodes={[positionNode]}
+        positionNodes={positionNode === null ? NO_POSITIONS : [positionNode]}
         propagation={overlay}
         active={active}
         className="min-h-0 w-full flex-1"
@@ -417,10 +409,7 @@ function PathTable({
   const plain = compareForecast ? [] : cells.slice(0, 12);
   if (rows.length === 0 && plain.length === 0) {
     return (
-      <p className="px-2 py-2 font-mono text-[10px] text-ink-faint">
-        No reflection points yet. A path needs a decode that carries a grid square — reports and 73s
-        do not.
-      </p>
+      <p className="px-2 py-2 font-mono text-[10px] text-ink-faint">No reflection points yet.</p>
     );
   }
   return (

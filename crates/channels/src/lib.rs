@@ -623,6 +623,7 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
             let mut descriptor = (r.descriptor)().clone();
             descriptor.exact_rate_only = exact_rate_only(&descriptor);
             descriptor.can_transmit = r.create_tx.is_some();
+            descriptor.defaults = ChannelSettings::default_for(&descriptor.type_id);
             descriptor
         })
         .collect()

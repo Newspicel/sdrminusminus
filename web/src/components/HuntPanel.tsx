@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { FaceBody, FaceEmpty, FaceFooter } from "../canvas/nodes/NodeShell";
+import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, startHunt, stopHunt } from "../lib/api";
 import { type Clicker, startClicker } from "../lib/geiger";
 import { useHuntStore } from "../lib/hunt";
@@ -25,14 +25,14 @@ const INTERVAL_MS = 50;
 
 export function HuntPanel({
   active,
-  empty,
+  hint,
   settings,
   clicks,
   onSettings,
   onClicks,
 }: {
   active: DeviceSet | null;
-  empty: string;
+  hint: string;
   settings: HuntSettings;
   clicks: boolean;
   onSettings: (settings: HuntSettings) => void;
@@ -85,21 +85,13 @@ export function HuntPanel({
     onSettled: invalidate,
   });
 
-  if (active === null) {
-    return (
-      <FaceBody>
-        <FaceEmpty>{empty}</FaceEmpty>
-      </FaceBody>
-    );
-  }
-
-  const refusal = huntRefusal(active, Math.round(freqMhz * 1e6));
+  const refusal = active === null ? null : huntRefusal(active, Math.round(freqMhz * 1e6));
   const busy = startMut.isPending || stopMut.isPending;
   const heading = bearing(status);
 
   return (
     <>
-      <FaceBody>
+      <FaceBody title={active === null ? hint : undefined}>
         {status !== null ? (
           <>
             <div className="p-2">
@@ -176,23 +168,19 @@ export function HuntPanel({
                 </SettingRow>
               </SettingGroup>
             </Settings>
-            <Readout>
-              <ReadoutRow label="How it works">
-                Walk with the radio. The clicks and the bar speed up as the signal gets stronger;
-                the range they span is whatever ground you have covered so far.
-              </ReadoutRow>
-              {refusal !== null && (
+            {refusal !== null && (
+              <Readout>
                 <ReadoutRow label="Refused">
                   <span className="text-danger">{refusal}</span>
                 </ReadoutRow>
-              )}
-            </Readout>
+              </Readout>
+            )}
           </>
         )}
       </FaceBody>
 
       <FaceFooter>
-        {status !== null ? (
+        {status !== null && active !== null ? (
           <Button
             type="button"
             className={BTN_DANGER}
@@ -205,8 +193,8 @@ export function HuntPanel({
           <Button
             type="button"
             className={BTN_PRIMARY}
-            disabled={busy || refusal !== null}
-            onClick={() => startMut.mutate(active.id)}
+            disabled={active === null || busy || refusal !== null}
+            onClick={() => active !== null && startMut.mutate(active.id)}
           >
             Start hunt
           </Button>

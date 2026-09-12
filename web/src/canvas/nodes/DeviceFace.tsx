@@ -210,7 +210,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   if (reference === null) {
     return (
-      <NodeShell node={node} title="Device" category="source" subtitle="no radio" live={false}>
+      <NodeShell node={node} title="Device" category="source">
         <FaceBody>
           <div className="flex flex-col gap-2 p-2">
             <DeviceChoices
@@ -233,15 +233,9 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         title="Device"
         category="source"
         subtitle={onBus ? "not open" : "disconnected"}
-        live={false}
       >
         <FaceBody>
-          <p className="p-3 text-sm text-ink-dim">
-            <span className="font-mono text-ink">{refLabel(reference)}</span>{" "}
-            {onBus
-              ? "is plugged in but not open. Open it to start the channels wired to this node."
-              : "is not connected. Plug it back in and open it here — the wires and settings on this node are kept until then."}
-          </p>
+          <p className="p-3 font-mono text-sm text-ink">{refLabel(reference)}</p>
         </FaceBody>
         <FaceFooter>
           <Button

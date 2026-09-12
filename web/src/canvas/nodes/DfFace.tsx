@@ -27,7 +27,7 @@ import {
   tierLabel,
   withCount,
 } from "./df";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, NodeShell } from "./NodeShell";
 
 const ALGORITHMS: Options<DfAlgorithm> = [
   { value: "correlative", label: "Beamformer" },
@@ -77,40 +77,37 @@ export function DfFace({ node }: { node: PatchNode }) {
       title="Direction finder"
       category="tool"
       subtitle={`${elementCount(settings.geometry)} elements · ${tierLabel(state?.cal)}`}
-      live={bearing !== null && bearing.confidence > 0}
     >
       <FaceBody>
-        {state === undefined ? (
-          <FaceEmpty>
-            Wire every element of the array to one coherent radio, then apply the patch.
-          </FaceEmpty>
-        ) : (
-          <div className="flex flex-col items-center gap-2 p-2">
-            <CompassRose
-              spectrum={bearing?.pseudospectrum ?? []}
-              bearingDeg={bearing?.bearing_deg ?? null}
-            />
-            <Readout>
-              <ReadoutRow label="Bearing">
-                {bearing === null ? "—" : bearingLabel(bearing.bearing_deg)}
-              </ReadoutRow>
-              <ReadoutRow label="Confidence">
-                {bearing === null ? "—" : `${Math.round(bearing.confidence * 100)}%`}
-              </ReadoutRow>
-              <ReadoutRow label="Calibration">{CAL_VERDICT_TEXT[verdict]}</ReadoutRow>
-            </Readout>
-            <LaneStrip cal={state.cal} />
-            <Button
-              className={BTN}
-              type="button"
-              onClick={() => {
-                void calibrateCoherent(node.id);
-              }}
-            >
-              Calibrate
-            </Button>
-          </div>
-        )}
+        <div
+          className="flex flex-col items-center gap-2 p-2"
+          title={state === undefined ? "Wire every array element to one coherent radio" : undefined}
+        >
+          <CompassRose
+            spectrum={bearing?.pseudospectrum ?? []}
+            bearingDeg={bearing?.bearing_deg ?? null}
+          />
+          <Readout>
+            <ReadoutRow label="Bearing">
+              {bearing === null ? "—" : bearingLabel(bearing.bearing_deg)}
+            </ReadoutRow>
+            <ReadoutRow label="Confidence">
+              {bearing === null ? "—" : `${Math.round(bearing.confidence * 100)}%`}
+            </ReadoutRow>
+            <ReadoutRow label="Calibration">{CAL_VERDICT_TEXT[verdict]}</ReadoutRow>
+          </Readout>
+          {state !== undefined && <LaneStrip cal={state.cal} />}
+          <Button
+            className={BTN}
+            type="button"
+            disabled={state === undefined}
+            onClick={() => {
+              void calibrateCoherent(node.id);
+            }}
+          >
+            Calibrate
+          </Button>
+        </div>
         <DfSettings
           settings={settings}
           bearingDeg={bearing?.bearing_deg ?? null}

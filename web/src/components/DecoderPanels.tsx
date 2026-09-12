@@ -447,9 +447,7 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   if (latest === undefined) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>
-          Nothing analysed yet — point the channel at a signal and wait one report interval.
-        </span>
+        <span className={EMPTY}>Nothing analysed yet.</span>
       </div>
     );
   }

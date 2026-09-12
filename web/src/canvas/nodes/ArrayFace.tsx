@@ -11,7 +11,7 @@ import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { arrayMembers } from "./arrayNode";
 import { deviceDialId, refLabel, tuneDelta, tunerDials } from "./deviceNode";
-import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
+import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 const TIERS: Options<Coherence> = [
   { value: "time_sync", label: "Shared clock" },
@@ -47,12 +47,8 @@ export function ArrayFace({ node }: { node: PatchNode }) {
           ? `${members.length} of 2 radios`
           : `${members.length} elements`
       }
-      live={set !== undefined}
     >
       <FaceBody>
-        {members.length === 0 && (
-          <FaceEmpty>Wire a radio into an input. Each one becomes an element.</FaceEmpty>
-        )}
         {set !== undefined && (
           <div className="flex flex-col gap-1 border-line border-b p-2">
             {tunerDials(set).map((dial) => (

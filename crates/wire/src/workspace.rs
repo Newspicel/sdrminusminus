@@ -300,6 +300,8 @@ pub struct WorkspaceDetail {
     pub snapshot: WorkspaceSnapshot,
     #[serde(default)]
     pub history: WorkspaceHistory,
+    #[serde(default = "WorkspaceState::new")]
+    pub state: WorkspaceState,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

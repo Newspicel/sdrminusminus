@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
-import { rateMismatch } from "../../components/channelSettings";
+import { mergeChannelSettings, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
@@ -10,6 +10,7 @@ import { SettingRow, Settings } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
 import { useLevelStore } from "../../lib/levels";
 import type { DeviceSet, PatchNode } from "../../lib/types";
+import { type ChannelEdit, useChannelPatch } from "../../lib/useChannelPatch";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
@@ -20,18 +21,18 @@ import {
   type ChannelBinding,
   channelBinding,
   channelBindingAction,
-  channelBindingLabel,
-  channelBindingSaid,
+  channelBindingHint,
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
-import { FaceBody, NodeShell } from "./NodeShell";
+import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
   const levels = useLevelStore((state) => (set === null ? undefined : state.byDeviceSet[set.id]));
   const attached = useQuery(devicesQuery());
+  const { applyEdit } = useChannelPatch();
   if (node.kind !== "channel") {
     return null;
   }
@@ -54,7 +55,22 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       ? null
       : (forStream(set.settings, source?.stream ?? 0, set.capabilities.per_stream).center_hz ??
         null);
-  const offsetHz = channel?.settings.offset_hz ?? 0;
+  const live = channel === null || set === null ? null : { deviceSet: set.id, id: channel.id };
+  const settings =
+    channel?.settings ?? workspace.savedChannels.get(node.id) ?? descriptor?.defaults ?? null;
+  const onEdit = (edit: ChannelEdit): void => {
+    if (live !== null) {
+      applyEdit(live.deviceSet, live.id, edit);
+      return;
+    }
+    if (settings !== null) {
+      workspace.saveChannel(
+        node.id,
+        mergeChannelSettings(settings, typeof edit === "function" ? edit(settings) : edit),
+      );
+    }
+  };
+  const offsetHz = settings?.offset_hz ?? 0;
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
   const editRecording = (on: boolean) => {
@@ -74,44 +90,41 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       title={name}
       category="channel"
       subtitle={
-        channel === null ? (
-          channelBindingLabel(binding)
-        ) : (
-          <span className="font-mono tabular-nums">{readout}</span>
-        )
+        channel === null ? undefined : <span className="font-mono tabular-nums">{readout}</span>
       }
-      live={channel !== null}
     >
       <FaceBody>
         {wantedRate !== null && set !== null && (
           <RateMismatch name={name} set={set} wanted={wantedRate} />
         )}
-        {channel === null || set === null ? (
+        <div className="px-2 pt-2">
+          <LevelMeter
+            level={channel === null ? undefined : levels?.[channel.id]}
+            squelchDb={settings?.squelch_db}
+          />
+        </div>
+        {settings !== null && (
+          <ChannelControls
+            settings={settings}
+            descriptor={descriptor}
+            spanHz={set?.settings.sample_rate ?? null}
+            centerHz={centerHz}
+            onEdit={onEdit}
+          />
+        )}
+        {keepsCalls(descriptor) && (
+          <Settings className="border-t border-line p-2">
+            <SettingRow label="Record calls">
+              <Checkbox
+                label="Record calls"
+                checked={node.data.record_calls ?? false}
+                onChange={editRecording}
+              />
+            </SettingRow>
+          </Settings>
+        )}
+        {(channel === null || set === null) && (
           <Unbound binding={binding} onApply={workspace.apply} />
-        ) : (
-          <>
-            <div className="px-2 pt-2">
-              <LevelMeter level={levels?.[channel.id]} squelchDb={channel.settings.squelch_db} />
-            </div>
-            <ChannelControls
-              deviceSet={set.id}
-              channel={channel}
-              descriptor={descriptor}
-              spanHz={set.settings.sample_rate ?? null}
-              centerHz={centerHz}
-            />
-            {keepsCalls(descriptor) && (
-              <Settings className="border-t border-line p-2">
-                <SettingRow label="Record calls">
-                  <Checkbox
-                    label="Record calls"
-                    checked={node.data.record_calls ?? false}
-                    onChange={editRecording}
-                  />
-                </SettingRow>
-              </Settings>
-            )}
-          </>
         )}
       </FaceBody>
     </NodeShell>
@@ -175,14 +188,14 @@ function mhz(hz: number): string {
 
 function Unbound({ binding, onApply }: { binding: ChannelBinding; onApply: () => void }) {
   const action = channelBindingAction(binding);
+  if (action === null) {
+    return <FaceEmpty hint={channelBindingHint(binding)} />;
+  }
   return (
-    <div className="flex flex-col items-start gap-2 p-3">
-      <p className="text-sm text-ink-dim">{channelBindingSaid(binding)}</p>
-      {action !== null && (
-        <Button type="button" className={BTN_PRIMARY} onClick={onApply}>
-          {action}
-        </Button>
-      )}
+    <div className="flex flex-col items-start p-2" title={channelBindingHint(binding)}>
+      <Button type="button" className={BTN_PRIMARY} onClick={onApply}>
+        {action}
+      </Button>
     </div>
   );
 }

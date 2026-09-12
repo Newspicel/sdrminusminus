@@ -32,8 +32,8 @@ describe("applyToasts", () => {
       ),
     ).toEqual([
       "NFM: no room left",
-      "RTL-SDR 0: its radio is not connected, so nothing on it was started",
-      "device:bare: its radio is not connected, so nothing on it was started",
+      "RTL-SDR 0: radio not connected",
+      "device:bare: radio not connected",
     ]);
   });
 });

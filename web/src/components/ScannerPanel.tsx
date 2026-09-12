@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useState } from "react";
-import { FaceBody, FaceEmpty, FaceFooter } from "../canvas/nodes/NodeShell";
+import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { STATE_KEY, startScan, startScanSession, stopScan, stopScanSession } from "../lib/api";
 import { useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
@@ -35,12 +35,12 @@ const DEFAULT_MARGIN_DB = 12;
 
 export function ScannerPanel({
   active,
-  empty,
+  hint,
   others = [],
   session = null,
 }: {
   active: DeviceSet | null;
-  empty: string;
+  hint: string;
   others?: readonly DeviceSet[];
   session?: ScanSession | null;
 }) {
@@ -111,17 +111,9 @@ export function ScannerPanel({
   const patchRange = (id: string, patch: Partial<RangeInput>): void =>
     setRanges((current) => current.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
-  if (active === null) {
-    return (
-      <FaceBody>
-        <FaceEmpty>{empty}</FaceEmpty>
-      </FaceBody>
-    );
-  }
-
   return (
     <>
-      <FaceBody>
+      <FaceBody title={active === null ? hint : undefined}>
         {status !== null ? (
           <Readout separated={false}>
             <ReadoutRow label="State">
@@ -255,7 +247,7 @@ export function ScannerPanel({
                     <span className="legend">dB</span>
                   </SettingRow>
                 )}
-                {active.capabilities.hardware_sweep === true && (
+                {active?.capabilities.hardware_sweep === true && (
                   <SettingRow label="Firmware sweep">
                     <Checkbox
                       label="Let the radio sweep itself"
@@ -320,7 +312,7 @@ export function ScannerPanel({
       </FaceBody>
 
       <FaceFooter>
-        {status !== null ? (
+        {status !== null && active !== null ? (
           <Button
             type="button"
             className={BTN_DANGER}
@@ -341,8 +333,8 @@ export function ScannerPanel({
             <Button
               type="button"
               className={BTN_PRIMARY}
-              disabled={busy || typeof parsed === "string" || refusal !== null}
-              onClick={() => startMut.mutate(active.id)}
+              disabled={active === null || busy || typeof parsed === "string" || refusal !== null}
+              onClick={() => active !== null && startMut.mutate(active.id)}
             >
               Start scan
             </Button>

@@ -20,7 +20,6 @@ export function AudioSpectrogramView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<WaterfallView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [drawing, setDrawing] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -48,20 +47,12 @@ export function AudioSpectrogramView({
       return;
     }
     const spectrogram = new AudioSpectrogram();
-    let announced = false;
     const stop = watchAudio(monitorKey(deviceSet, channel), (pcm, channels) => {
       spectrogram.push(pcm, channels, (row) => {
         rendererRef.current?.pushRow(row);
       });
-      if (!announced) {
-        announced = true;
-        setDrawing(true);
-      }
     });
-    return () => {
-      stop();
-      setDrawing(false);
-    };
+    return stop;
   }, [deviceSet, channel, playing]);
 
   return (
@@ -81,13 +72,6 @@ export function AudioSpectrogramView({
       {error !== null && (
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center px-2 text-center legend text-danger">
           {error}
-        </span>
-      )}
-      {error === null && (!playing || !drawing) && (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center px-2 text-center legend text-plot-ink-dim">
-          {playing
-            ? "Waiting for audio…"
-            : `Play this channel to see its audio up to ${(audioNyquistHz() / 1000).toFixed(0)} kHz.`}
         </span>
       )}
     </div>

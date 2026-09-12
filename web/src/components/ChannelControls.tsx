@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
-import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
+import type { ChannelDescriptor, ChannelParams, ChannelSettings } from "../lib/types";
+import type { ChannelEdit } from "../lib/useChannelPatch";
 import { AudioControls } from "./AudioControls";
 import { Checkbox } from "./Checkbox";
 import {
@@ -187,21 +187,18 @@ const RADIO_CLOCK_STANDARDS: Options<NonNullable<ChannelParamsOf<"radio_clock">[
 ];
 
 export function ChannelControls({
-  deviceSet,
-  channel,
+  settings,
   descriptor,
   spanHz,
   centerHz,
+  onEdit,
 }: {
-  deviceSet: number;
-  channel: ChannelInfo;
+  settings: ChannelSettings;
   descriptor: ChannelDescriptor | undefined;
   spanHz: number | null;
   centerHz: number | null;
+  onEdit: (edit: ChannelEdit) => void;
 }) {
-  const { applyEdit } = useChannelPatch();
-  const onEdit = (edit: ChannelEdit): void => applyEdit(deviceSet, channel.id, edit);
-  const settings = channel.settings;
   const offsetHz = settings.offset_hz ?? 0;
   const squelchDb = settings.squelch_db ?? null;
   const autoMarginDb = settings.squelch_auto_db ?? null;

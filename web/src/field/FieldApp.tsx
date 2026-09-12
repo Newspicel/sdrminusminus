@@ -124,12 +124,7 @@ export function FieldApp() {
 function Picker({ graph, onPick }: { graph: PatchGraph; onPick: (path: string) => void }) {
   const targets = missionTargets(graph, MISSIONS);
   if (targets.length === 0) {
-    return (
-      <p className="p-4 text-sm text-ink-dim">
-        Nothing in the active workspace can be driven from here yet. Add a signal hunt to walk with,
-        or a direction finder to drive to.
-      </p>
-    );
+    return <p className="p-4 text-sm text-ink-dim">Nothing to drive from here.</p>;
   }
   return (
     <ul className="flex flex-col gap-2 p-3">

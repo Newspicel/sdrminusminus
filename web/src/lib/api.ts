@@ -488,6 +488,19 @@ export function workspacesQuery() {
   });
 }
 
+export async function putWorkspaceChannel(
+  id: number,
+  node: string,
+  settings: ChannelSettings,
+): Promise<void> {
+  unwrap(
+    await client.PUT("/api/workspaces/{id}/channels/{node}", {
+      params: { path: { id, node } },
+      body: settings,
+    }),
+  );
+}
+
 export function workspaceQuery(id: number | null) {
   return queryOptions({
     queryKey: [...WORKSPACES_KEY, id] as const,

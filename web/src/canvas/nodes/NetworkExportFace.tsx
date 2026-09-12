@@ -14,11 +14,10 @@ import { formatBytes } from "../../components/recordings";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
-import { basebandSourceOf, hasWire, iqSourceOf } from "../binding";
+import { basebandSourceOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { deviceSetOf } from "../workspaceDevice";
-import { CHANNEL_IDLE, RADIO_IDLE } from "./faceCopy";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell } from "./NodeShell";
 
 const TRANSPORTS = [
@@ -88,7 +87,6 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
       title={channel === null ? "Network IQ" : "Network baseband"}
       category="output"
       subtitle={control.kind === "active" ? node.data.address : undefined}
-      live={control.kind === "active"}
     >
       <FaceBody>
         <Settings className="border-b border-line p-2">
@@ -129,13 +127,7 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
           </SettingRow>
         </Settings>
         {target === null ? (
-          <FaceEmpty>
-            {hasWire(workspace.graph, node.id, "iq")
-              ? RADIO_IDLE
-              : hasWire(workspace.graph, node.id, "baseband")
-                ? CHANNEL_IDLE
-                : "Wire a device's IQ or a channel's baseband out into this sink."}
-          </FaceEmpty>
+          <FaceEmpty hint="Wire a device's IQ or a channel's baseband in" />
         ) : control.kind === "active" ? (
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 p-2 font-mono text-xs tabular-nums">
             <span className="text-ink-dim">Rate</span>
@@ -157,15 +149,15 @@ function NetworkExportNodeFace({ node }: { node: PatchNodeOf<"network_export"> }
             )}
           </div>
         ) : (
-          <FaceEmpty>
-            {control.kind === "busy"
-              ? channel === null
-                ? "Another network sink is already using this radio."
-                : "Another network sink is already using this channel."
-              : control.kind === "ready"
-                ? "Raw interleaved I/Q. Set the same rate and format in the receiving tool."
-                : "The radio has to be running before it can export."}
-          </FaceEmpty>
+          <FaceEmpty
+            hint={
+              control.kind === "busy"
+                ? "Another network sink already uses this input"
+                : control.kind === "ready"
+                  ? "Raw interleaved I/Q at the rate and format set above"
+                  : undefined
+            }
+          />
         )}
       </FaceBody>
       <FaceFooter>

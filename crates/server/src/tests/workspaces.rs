@@ -964,3 +964,88 @@ async fn an_import_forgets_tuning_for_nodes_the_document_never_draws() {
         .collect();
     assert_eq!(nodes, vec!["device"]);
 }
+
+#[tokio::test]
+async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
+    let app = test_router();
+    let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+
+    let mut settings = sdrmm_wire::ChannelSettings::default_for("nfm").expect("nfm is built in");
+    settings.offset_hz = 12_500.0;
+    settings.squelch_db = Some(-70.0);
+    let (status, _) = request(
+        app.clone(),
+        "PUT",
+        &format!("/api/workspaces/{workspace}/channels/voice"),
+        Some(&serde_json::to_string(&settings).expect("settings serialize")),
+    )
+    .await;
+    assert_eq!(status, 204);
+
+    let held = workspace_detail(&app, workspace)
+        .await
+        .state
+        .channel("voice")
+        .expect("the node holds what it was set to")
+        .settings
+        .clone();
+    assert_eq!(held.offset_hz, 12_500.0);
+    assert_eq!(held.squelch_db, Some(-70.0));
+
+    apply(&app, workspace).await;
+    let live = get_state(&app).await;
+    let channel = live.device_sets[0]
+        .channels
+        .iter()
+        .find(|channel| channel.settings.params.type_id() == "nfm")
+        .expect("the channel opened with the radio");
+    assert_eq!(
+        channel.settings.offset_hz, 12_500.0,
+        "settings held while there was no radio are what the channel starts on"
+    );
+    assert_eq!(channel.settings.squelch_db, Some(-70.0));
+}
+
+#[tokio::test]
+async fn settings_of_another_channel_type_are_refused() {
+    let app = test_router();
+    let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+
+    let settings = sdrmm_wire::ChannelSettings::default_for("am").expect("am is built in");
+    let (status, _) = request(
+        app.clone(),
+        "PUT",
+        &format!("/api/workspaces/{workspace}/channels/voice"),
+        Some(&serde_json::to_string(&settings).expect("settings serialize")),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    let (status, _) = request(
+        app.clone(),
+        "PUT",
+        &format!("/api/workspaces/{workspace}/channels/device"),
+        Some(&serde_json::to_string(&settings).expect("settings serialize")),
+    )
+    .await;
+    assert_eq!(status, 400, "a device node is not a channel");
+}
+
+#[tokio::test]
+async fn every_channel_type_offers_the_settings_a_node_starts_on() {
+    let app = test_router();
+    let (status, body) = request(app.clone(), "GET", "/api/channeltypes", None).await;
+    assert_eq!(status, 200);
+    let types: sdrmm_wire::ChannelTypesResponse =
+        serde_json::from_slice(&body).expect("channel types");
+    assert!(!types.types.is_empty());
+    for descriptor in &types.types {
+        let defaults = descriptor
+            .defaults
+            .as_ref()
+            .unwrap_or_else(|| panic!("{} offers no defaults", descriptor.type_id));
+        assert_eq!(defaults.params.type_id(), descriptor.type_id);
+    }
+}

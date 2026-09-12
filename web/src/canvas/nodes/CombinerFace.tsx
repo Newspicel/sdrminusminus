@@ -48,7 +48,6 @@ export function CombinerFace({ node }: { node: PatchNode }) {
       title="Combiner"
       category="tool"
       subtitle={`${settings.lanes} antennas · ${tierLabel(state?.cal)}`}
-      live={verdict === "solved"}
     >
       <FaceBody>
         <div className="flex flex-col gap-2 p-2">

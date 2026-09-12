@@ -75,9 +75,9 @@ describe("formatMeasurement", () => {
 
 describe("waiting", () => {
   it("says a trend needs a decoder that reports symbols", () => {
-    expect(waiting("quality", null, null)).toContain("does not report symbols");
-    expect(waiting("drift", null, null)).toContain("does not report symbols");
-    expect(waiting("states", null, null)).toContain("does not report symbols");
+    expect(waiting("quality", null, null)).toContain("reports no symbols");
+    expect(waiting("drift", null, null)).toContain("reports no symbols");
+    expect(waiting("states", null, null)).toContain("reports no symbols");
   });
 
   it("clears once symbols arrive", () => {
@@ -87,8 +87,8 @@ describe("waiting", () => {
   });
 
   it("waits on the first burst for the views baseband can draw", () => {
-    expect(waiting("spectrum", null, null)).toContain("first burst");
-    expect(waiting("constellation", null, null)).toContain("first burst");
+    expect(waiting("spectrum", null, null)).toContain("No burst yet");
+    expect(waiting("constellation", null, null)).toContain("No burst yet");
   });
 
   it("draws a symbol view from symbols alone when there is no burst yet", () => {

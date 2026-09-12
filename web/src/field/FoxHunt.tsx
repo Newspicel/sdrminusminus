@@ -65,8 +65,7 @@ export function FoxHunt({
     onSettled: invalidate,
   });
 
-  const refusal =
-    set === null ? "Wire this hunt's control out to a radio." : huntRefusal(set, settings.freq_hz);
+  const refusal = set === null ? "No radio wired in." : huntRefusal(set, settings.freq_hz);
   const busy = startMut.isPending || stopMut.isPending;
 
   return (

@@ -184,7 +184,7 @@ test("one radio feeding several channels", async ({ page }) => {
   await tune(page, SIGGEN, { nfm: 300_000, am: -300_000, wfm: 600_000 });
   await fitPatch(page);
 
-  await expect(face(page, "scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
+  await expect(face(page, "scope").getByText(/MHz/).first()).toBeVisible();
   await listen(page, "speaker");
   await capture(page, "patch", 10);
 });
@@ -199,7 +199,7 @@ test("the spectrum and waterfall", async ({ page }) => {
   await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" }).click();
   const scope = page.locator('.grid > [data-id="scope"]');
   await expect(scope).toBeVisible();
-  await expect(scope.getByText(/waiting for the first frame/i)).toHaveCount(0);
+  await expect(scope.getByText(/MHz/).first()).toBeVisible();
 
   await scope.getByRole("button", { name: /^classic$/i }).click();
   await page.getByRole("button", { name: /^viridis$/i }).click();

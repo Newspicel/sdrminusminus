@@ -32,11 +32,7 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {active === null && (
-        <span className="text-sm text-ink-dim">
-          Nothing to tune: select a device node on the canvas first.
-        </span>
-      )}
+      {active === null && <span className="text-sm text-ink-dim">Select a device node first.</span>}
 
       <Input
         className={FIELD}

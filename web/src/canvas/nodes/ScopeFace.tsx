@@ -68,7 +68,7 @@ import type { Bookmark, ChannelInfo, ChannelParams, DeviceSet, PatchNode } from 
 import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
-import { basebandSourceOf, channelNodesOf, hasWire, iqSourceOf } from "../binding";
+import { basebandSourceOf, channelNodesOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { addEdge, addNode, newNodeId, patchNode, streamPort } from "../graph";
 import { useNodePlacement } from "../placement";
@@ -78,7 +78,7 @@ import { BasebandView } from "./BasebandView";
 import { ChannelPicker } from "./ChannelPicker";
 import { tuneDelta } from "./deviceNode";
 import { type TrunkChannelOwner, trunkChannelRoles } from "./dmrTrunk";
-import { FaceBody, FaceEmpty, NodeShell, useFaceActive, useFaceWheel } from "./NodeShell";
+import { FaceBody, NodeShell, useFaceActive, useFaceWheel } from "./NodeShell";
 import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
 import {
   bookmarkDraft,
@@ -97,6 +97,10 @@ const DRAG_SLOP_PX = 4;
 const GRAB_PX = 12;
 const TUNE_THROTTLE_MS = 150;
 const BINS_DEBOUNCE_MS = 300;
+
+const NO_CHANNELS: readonly ChannelInfo[] = [];
+
+const NO_OWNERS: ReadonlyMap<number, TrunkChannelOwner> = new Map();
 const COLORMAP_KEY = "sdrmm.colormap";
 const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
@@ -159,7 +163,6 @@ export function ScopeFace({ node }: { node: PatchNode }) {
         title="Scope"
         category="output"
         subtitle={`${tap.channel.settings.params.type} baseband`}
-        live
         actions={actions}
       >
         <FaceBody scroll={false}>
@@ -184,33 +187,32 @@ export function ScopeFace({ node }: { node: PatchNode }) {
       title="Scope"
       category="output"
       subtitle={set?.device.label}
-      live={set !== null}
       actions={actions}
     >
       <FaceBody scroll={false}>
-        {set === null ? (
-          <FaceEmpty>
-            {source !== null
-              ? "No spectrum: the radio this scope watches is not connected. Plug it in and the trace comes back."
-              : hasWire(workspace.graph, node.id, "baseband")
-                ? "No baseband: the channel this scope taps is not running. Start it from its node."
-                : "Wire a device's IQ out to watch its spectrum, or a channel's baseband out to watch one channel."}
-          </FaceEmpty>
-        ) : (
-          <Spectrum
-            key={`${set.id}:${source?.stream ?? 0}`}
-            node={node}
-            set={set}
-            stream={source?.stream ?? 0}
-          />
-        )}
+        <Spectrum
+          key={`${set?.id ?? "none"}:${source?.stream ?? 0}`}
+          node={node}
+          set={set}
+          stream={source?.stream ?? 0}
+        />
       </FaceBody>
     </NodeShell>
   );
 }
 
-function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stream: number }) {
+function Spectrum({
+  node,
+  set,
+  stream,
+}: {
+  node: PatchNode;
+  set: DeviceSet | null;
+  stream: number;
+}) {
   const workspace = useWorkspaceContext();
+  const setId = set?.id ?? null;
+  const channels = set?.channels ?? NO_CHANNELS;
   const { applyPatch } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
@@ -222,7 +224,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const traceRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<WaterfallView | null>(null);
-  const [seedFrame] = useState<SpectrumFrame | null>(() => spectrumHub.latest(set.id, stream));
+  const [seedFrame] = useState<SpectrumFrame | null>(() =>
+    setId === null ? null : spectrumHub.latest(setId, stream),
+  );
   const frameRef = useRef<SpectrumFrame | null>(seedFrame);
   const gestureRef = useRef<Gesture | null>(null);
   const liveDbRef = useRef<Float32Array | null>(null);
@@ -286,14 +290,14 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       }
     }
   }
-  const owners = trunkChannelRoles(workspace.trunks, set.id);
+  const owners = setId === null ? NO_OWNERS : trunkChannelRoles(workspace.trunks, setId);
   for (const [channel, owner] of owners) {
     faces.set(channel, owner.node);
   }
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
-    workspaceChannel ?? (set.channels.some((channel) => channel.id === picked) ? picked : null);
+    workspaceChannel ?? (channels.some((channel) => channel.id === picked) ? picked : null);
   const tunableChannel =
     selectedChannel !== null && !owners.has(selectedChannel) ? selectedChannel : null;
 
@@ -305,26 +309,30 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     }
   };
 
-  const tuneCenter = (hz: number): void =>
-    applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
-  const tuneChannel = (channel: number, offsetHz: number): void => {
-    if (owners.has(channel)) {
+  const tuneCenter = (hz: number): void => {
+    if (set === null) {
       return;
     }
-    applyEdit(set.id, channel, { offset_hz: offsetHz });
+    applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
+  };
+  const tuneChannel = (channel: number, offsetHz: number): void => {
+    if (setId === null || owners.has(channel)) {
+      return;
+    }
+    applyEdit(setId, channel, { offset_hz: offsetHz });
   };
 
   const tuneToBand = (hz: number, suggested: ChannelParams | null): void => {
     const params = suggested === null ? {} : { params: suggested };
-    if (tunableChannel === null) {
+    if (setId === null || tunableChannel === null) {
       tuneCenter(hz);
       return;
     }
     if (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2) {
       tuneCenter(hz);
-      applyEdit(set.id, tunableChannel, { offset_hz: 0, ...params });
+      applyEdit(setId, tunableChannel, { offset_hz: 0, ...params });
     } else {
-      applyEdit(set.id, tunableChannel, {
+      applyEdit(setId, tunableChannel, {
         offset_hz: Math.round(hz - meta.centerHz),
         ...params,
       });
@@ -392,10 +400,13 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   );
 
   useEffect(() => {
+    if (setId === null) {
+      return;
+    }
     for (const [channel, face] of faces) {
       const offsetHz = takeCreationTune(face);
       if (offsetHz !== undefined) {
-        editRef.current(set.id, channel, { offset_hz: offsetHz });
+        editRef.current(setId, channel, { offset_hz: offsetHz });
       }
     }
   });
@@ -429,7 +440,10 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   }, [view]);
 
   useEffect(() => {
-    const past = spectrumHub.history(set.id, stream);
+    if (setId === null) {
+      return;
+    }
+    const past = spectrumHub.history(setId, stream);
     if (past.count > 0) {
       rendererRef.current?.seed(
         seedRows(past, frameRef.current, lockRef.current),
@@ -454,7 +468,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         if (action.kind === "shift") {
           rendererRef.current?.shiftRows(action.delta);
         } else if (frozenRef.current === null) {
-          const rows = spectrumHub.history(set.id, stream);
+          const rows = spectrumHub.history(setId, stream);
           if (rows.count > 0) {
             rendererRef.current?.seed(
               alignHistory(rows, { centerHz: frame.centerHz, spanHz: frame.spanHz }, held),
@@ -485,7 +499,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     };
     listenerRef.current = listener;
     const drop = spectrumHub.subscribe(
-      set.id,
+      setId,
       stream,
       listener,
       binsForView(viewWidth(viewRef.current)),
@@ -496,17 +510,17 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       }
       drop();
     };
-  }, [set.id, stream]);
+  }, [setId, stream]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       const listener = listenerRef.current;
-      if (listener !== null) {
-        spectrumHub.setBins(set.id, stream, listener, binsForView(viewWidth(view)));
+      if (listener !== null && setId !== null) {
+        spectrumHub.setBins(setId, stream, listener, binsForView(viewWidth(view)));
       }
     }, BINS_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [view, set.id, stream]);
+  }, [view, setId, stream]);
 
   useEffect(() => {
     let raf = 0;
@@ -588,7 +602,10 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   };
 
   const reseed = (held: DbWindow | null): void => {
-    const past = spectrumHub.history(set.id, stream);
+    if (setId === null) {
+      return;
+    }
+    const past = spectrumHub.history(setId, stream);
     if (past.count === 0) {
       return;
     }
@@ -616,7 +633,10 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       reseed(lockRef.current);
       return;
     }
-    const captured = spectrumHub.history(set.id, stream);
+    if (setId === null) {
+      return;
+    }
+    const captured = spectrumHub.history(setId, stream);
     frozenRef.current = captured;
     setFrozen(captured);
     setScrub(Math.max(0, frozenLength(captured) - 1));
@@ -644,8 +664,8 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     const rect = plotRef.current.getBoundingClientRect();
     const at = pointerFraction(event.clientX);
     const grabbed =
-      markerFrom(event.target, set.channels) ??
-      markerAt(set.channels, view, spanHz, at, GRAB_PX / rect.width);
+      markerFrom(event.target, channels) ??
+      markerAt(channels, view, spanHz, at, GRAB_PX / rect.width);
     if (grabbed !== null) {
       selectChannel(grabbed.id);
     }
@@ -753,7 +773,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const suggestedType = (hz: number): string =>
     channelTypeAt(
       plan === null ? null : suggestedAt(identify(plan, hz)),
-      set.channels.find((channel) => channel.id === tunableChannel),
+      channels.find((channel) => channel.id === tunableChannel),
     );
 
   const onContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
@@ -830,7 +850,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
 
       {meta !== null && (
         <Markers
-          channels={set.channels}
+          channels={channels}
           view={view}
           spanHz={meta.spanHz}
           selected={selectedChannel}
@@ -996,12 +1016,6 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
             waterfall unavailable: {glError}
           </span>
         </div>
-      )}
-
-      {meta === null && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center pb-12 text-sm text-plot-ink-dim">
-          Waiting for the first frame…
-        </p>
       )}
     </div>
   );

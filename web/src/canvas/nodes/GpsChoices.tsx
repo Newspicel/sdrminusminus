@@ -56,9 +56,7 @@ export function GpsChoices({ onChoose }: { onChoose: (source: PositionSource) =>
       {devices.isPending && <p className="text-ink-dim text-sm">Looking for receivers…</p>}
       {!devices.isPending && found.length === 0 && (
         <p className="text-ink-dim text-sm">
-          {listed.length > 0
-            ? "No receiver matches that."
-            : "No serial receiver found. Plug one in, take this device's own location, or type a place."}
+          {listed.length > 0 ? "No receiver matches that." : "No serial receiver found."}
         </p>
       )}
       {devices.isError && (

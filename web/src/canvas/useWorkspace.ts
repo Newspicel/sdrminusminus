@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   activateWorkspace,
   applyWorkspace,
@@ -7,6 +7,7 @@ import {
   createWorkspace,
   deleteWorkspace,
   importWorkspace,
+  putWorkspaceChannel,
   STATE_KEY,
   stepWorkspace,
   updateWorkspace,
@@ -14,7 +15,9 @@ import {
   workspaceQuery,
   workspacesQuery,
 } from "../lib/api";
+import { pushToast } from "../lib/toasts";
 import type {
+  ChannelSettings,
   PatchApplyReport,
   WorkspaceDetail,
   WorkspaceInfo,
@@ -22,6 +25,7 @@ import type {
   WorkspacesResponse,
 } from "../lib/types";
 import { pruneRack } from "./graph";
+import { savedChannelsOf, withSavedChannel } from "./savedChannels";
 import { WorkspaceDrafts } from "./workspaceDrafts";
 import { parseWorkspaceExport } from "./workspaceExport";
 
@@ -44,6 +48,9 @@ export interface WorkspaceStore {
   canRedo: boolean;
   pending: boolean;
   unreachable: string | null;
+  /// What each channel node is set to while no radio carries it.
+  savedChannels: ReadonlyMap<string, ChannelSettings>;
+  saveChannel: (node: string, settings: ChannelSettings) => void;
 }
 
 export function useWorkspace(): WorkspaceStore {
@@ -129,6 +136,27 @@ export function useWorkspace(): WorkspaceStore {
   const stepAsync = stepMut.mutateAsync;
 
   const queried = detail.data ?? null;
+  const savedChannels = useMemo(() => savedChannelsOf(queried), [queried]);
+  const saveChannelMut = useMutation({
+    mutationFn: (variables: { id: number; node: string; settings: ChannelSettings }) =>
+      putWorkspaceChannel(variables.id, variables.node, variables.settings),
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: (_data, _error, variables) =>
+      void queryClient.invalidateQueries({ queryKey: [...WORKSPACES_KEY, variables.id] }),
+  });
+  const saveChannelAsync = saveChannelMut.mutate;
+  const saveChannel = useCallback(
+    (node: string, settings: ChannelSettings): void => {
+      if (activeId === null) {
+        return;
+      }
+      queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, activeId], (held) =>
+        held === undefined ? held : withSavedChannel(held, node, settings),
+      );
+      saveChannelAsync({ id: activeId, node, settings });
+    },
+    [activeId, queryClient, saveChannelAsync],
+  );
   const draft = queried === null ? undefined : drafts.get(queried.id);
   const active =
     queried !== null && draft !== undefined ? { ...queried, snapshot: draft.snapshot } : queried;
@@ -284,6 +312,8 @@ export function useWorkspace(): WorkspaceStore {
     canRedo: queried?.history?.can_redo ?? false,
     pending: list.isPending || (activeId !== null && detail.isPending),
     unreachable: errorOf(list.error),
+    savedChannels,
+    saveChannel,
   };
 }
 

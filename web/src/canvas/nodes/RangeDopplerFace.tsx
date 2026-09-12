@@ -10,7 +10,7 @@ import { surfaceHub } from "../../lib/surface";
 import type { PassiveRadarParams, PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, NodeShell } from "./NodeShell";
 import { DEFAULT_ILLUMINATOR, DEFAULT_RADAR_PARAMS, dopplerAxisHz, rangeAxisKm } from "./radar";
 
 export function RangeDopplerFace({ node }: { node: PatchNode }) {
@@ -40,7 +40,6 @@ export function RangeDopplerFace({ node }: { node: PatchNode }) {
       title="Passive radar"
       category="tool"
       subtitle={`${settings.cpi_ms} ms · ${settings.max_range_bins} range bins`}
-      live={detections.length > 0}
     >
       <FaceBody scroll={false}>
         <RangeDopplerView node={node.id} />
@@ -96,9 +95,6 @@ export function RangeDopplerView({ node }: { node: string }) {
     }
   }, [detections]);
 
-  if (frame.current === null) {
-    return <FaceEmpty>Waiting for the first coherent processing interval…</FaceEmpty>;
-  }
   return (
     <div className="relative min-h-40 flex-1">
       <canvas ref={canvas} className="absolute inset-0 h-full w-full" />

@@ -177,11 +177,7 @@ export function LibraryPanel({
 
       <section className="flex min-h-0 flex-col gap-1">
         <h3 className={LABEL}>Codeplugs</h3>
-        {codeplugs.length === 0 && (
-          <p className="py-1 text-xs text-ink-dim">
-            Nothing stored yet. Read a radio, or build one and copy it across.
-          </p>
-        )}
+        {codeplugs.length === 0 && <p className="py-1 text-xs text-ink-dim">Nothing stored yet.</p>}
         {codeplugs.map((info) => (
           <CodeplugRow
             key={info.id}

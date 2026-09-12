@@ -1038,6 +1038,7 @@ fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreEr
         info,
         snapshot: parse_workspace_snapshot(&json)?,
         history: read_history(conn, id, at)?,
+        state: read_workspace_state(conn, id)?,
     })
 }
 

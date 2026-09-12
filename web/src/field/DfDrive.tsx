@@ -132,7 +132,7 @@ export function DfDrive({
       <div className="px-3 pb-2 text-center">
         <p className="text-sm">
           {crossings.length === 0
-            ? "No guidance: wire this finder's events into a Triangulation node."
+            ? "No guidance"
             : guidance === null
               ? "Drive until a bearing comes in."
               : guidance.mode === "cross"

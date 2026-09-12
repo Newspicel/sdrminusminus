@@ -6,7 +6,7 @@ import { useDfStore } from "../../lib/df";
 import type { PatchNode } from "../../lib/types";
 import { useNow } from "../../lib/useNow";
 import { useWorkspaceContext } from "../context";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, NodeShell } from "./NodeShell";
 import { GUIDANCE_TEXT, spreadLabel, stationAge } from "./triangulation";
 
 const AGE_TICK_MS = 1_000;
@@ -30,55 +30,53 @@ export function TriangulationFace({ node }: { node: PatchNode }) {
       title="Triangulation"
       category="tool"
       subtitle={`${stations.length} of ${finders} reporting`}
-      live={estimate !== null}
     >
       <FaceBody>
-        {finders === 0 ? (
-          <FaceEmpty>Wire the events of two or more direction finders in.</FaceEmpty>
-        ) : (
-          <div className="flex flex-col gap-2 p-2">
-            <Readout>
-              <ReadoutRow label="Estimate">
-                {estimate === null ? "—" : `${estimate.lat.toFixed(5)}, ${estimate.lon.toFixed(5)}`}
-              </ReadoutRow>
-              <ReadoutRow
-                label="Spread"
-                title="The long and short axes of the error ellipse the crossing bearings leave"
-              >
-                {spreadLabel(estimate)}
-              </ReadoutRow>
-              <ReadoutRow label="Guidance">
-                {fusion?.guidance === undefined || fusion.guidance === null
-                  ? "—"
-                  : `${GUIDANCE_TEXT[fusion.guidance.mode]} · ${Math.round(fusion.guidance.heading_deg)}°`}
-              </ReadoutRow>
-              <ReadoutRow label="Bearings">{fusion?.samples ?? 0}</ReadoutRow>
-            </Readout>
-            <div className="flex flex-col gap-1">
-              {stations.map((station) => (
-                <div
-                  key={station.station_id}
-                  className="flex items-baseline justify-between gap-2 text-sm"
-                >
-                  <span className="truncate">{station.station_id}</span>
-                  <span className="text-ink-dim text-xs">
-                    {station.bearings} · {stationAge(station, now)}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <Button
-              className={BTN}
-              type="button"
-              title="Throw away every bearing the grid holds and start crossing again"
-              onClick={() => {
-                void resetFusion(node.id);
-              }}
+        <div
+          className="flex flex-col gap-2 p-2"
+          title={finders === 0 ? "Wire in two or more direction finders" : undefined}
+        >
+          <Readout>
+            <ReadoutRow label="Estimate">
+              {estimate === null ? "—" : `${estimate.lat.toFixed(5)}, ${estimate.lon.toFixed(5)}`}
+            </ReadoutRow>
+            <ReadoutRow
+              label="Spread"
+              title="The long and short axes of the error ellipse the crossing bearings leave"
             >
-              Clear
-            </Button>
+              {spreadLabel(estimate)}
+            </ReadoutRow>
+            <ReadoutRow label="Guidance">
+              {fusion?.guidance === undefined || fusion.guidance === null
+                ? "—"
+                : `${GUIDANCE_TEXT[fusion.guidance.mode]} · ${Math.round(fusion.guidance.heading_deg)}°`}
+            </ReadoutRow>
+            <ReadoutRow label="Bearings">{fusion?.samples ?? 0}</ReadoutRow>
+          </Readout>
+          <div className="flex flex-col gap-1">
+            {stations.map((station) => (
+              <div
+                key={station.station_id}
+                className="flex items-baseline justify-between gap-2 text-sm"
+              >
+                <span className="truncate">{station.station_id}</span>
+                <span className="text-ink-dim text-xs">
+                  {station.bearings} · {stationAge(station, now)}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
+          <Button
+            className={BTN}
+            type="button"
+            title="Throw away every bearing the grid holds and start crossing again"
+            onClick={() => {
+              void resetFusion(node.id);
+            }}
+          >
+            Clear
+          </Button>
+        </div>
       </FaceBody>
     </NodeShell>
   );

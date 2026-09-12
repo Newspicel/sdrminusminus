@@ -163,6 +163,8 @@ export function App() {
               trunks,
               devices,
               channels,
+              savedChannels: workspace.savedChannels,
+              saveChannel: workspace.saveChannel,
               selected,
               select: setSelected,
               expanded,

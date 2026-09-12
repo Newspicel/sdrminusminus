@@ -35,13 +35,7 @@ export function GpsFace({ node }: { node: PatchNode }) {
   const fix = state?.fix ?? null;
   if (source === null) {
     return (
-      <NodeShell
-        node={node}
-        title="GPS position"
-        category="source"
-        subtitle="no source"
-        live={false}
-      >
+      <NodeShell node={node} title="GPS position" category="source" subtitle="no source">
         <FaceBody>
           <div className="flex flex-col gap-2 p-2">
             <GpsChoices onChoose={setSource} />
@@ -51,21 +45,17 @@ export function GpsFace({ node }: { node: PatchNode }) {
     );
   }
   return (
-    <NodeShell
-      node={node}
-      title="GPS position"
-      category="source"
-      subtitle={sourceName(source)}
-      live={fix !== null}
-    >
+    <NodeShell node={node} title="GPS position" category="source" subtitle={sourceName(source)}>
       <FaceBody>
         <Settings className="p-2">
           <SourceSettings source={source} onChange={setSource} />
         </Settings>
         {fix === null ? (
-          <p className="border-t border-line p-2 text-xs text-ink-dim">
-            {state?.error ?? "Waiting for a fix…"}
-          </p>
+          state?.error != null && (
+            <p role="alert" className="border-t border-line p-2 text-xs text-danger">
+              {state.error}
+            </p>
+          )
         ) : (
           <Readout>
             <ReadoutRow label="Position">
