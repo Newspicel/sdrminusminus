@@ -93,8 +93,8 @@ the engine finalizes active recordings during shutdown.
 
 ## Connect to a network receiver
 
-sdr-- can operate radios that already expose IQ over the network. Add a Device node, open
-**Radio on the network?**, then select:
+sdr-- can operate radios that already expose IQ over the network. Add a Device node, open the
+**Network** tab, then select:
 
 - `rtl_tcp`, default port `1234`;
 - SpyServer, default port `5555`.

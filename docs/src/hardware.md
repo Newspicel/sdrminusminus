@@ -46,7 +46,7 @@ holding it. Those directories are searched before the bundled ones.
 
 ## Network receivers
 
-On an unbound Device node, open **Radio on the network?** and enter a hostname or address. Ports
+On an unbound Device node, open the **Network** tab and enter a hostname or address. Ports
 default to `1234` for `rtl_tcp` and `5555` for SpyServer. Both protocols are built in and work
 without SoapySDR.
 

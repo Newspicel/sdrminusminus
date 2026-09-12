@@ -95,4 +95,4 @@ export function commitText(
   return next !== value && !onCommit(next) ? value : next;
 }
 
-export type Options<T> = readonly { value: T; label: string }[];
+export type Options<T> = readonly { value: T; label: string; title?: string }[];

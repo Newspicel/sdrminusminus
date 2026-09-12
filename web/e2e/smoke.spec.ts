@@ -187,23 +187,19 @@ test.describe("the workspace", () => {
     await expect(node("speaker")).toBeVisible();
 
     await activate(receiver);
-    const recordings = receiver.getByRole("button", { name: "Recordings (100)" });
+    const source = receiver.getByRole("group", { name: "Radio source" });
     await expect(receiver.getByRole("button", { name: /capture-099/i })).toHaveCount(0);
-    await recordings.click();
-    const recordingsDialog = page.getByRole("dialog", { name: "Recordings" });
-    await expect(recordingsDialog).toBeVisible();
-    await recordingsDialog.getByRole("searchbox", { name: "Search recordings" }).fill("099");
-    const capture = recordingsDialog.getByRole("button", { name: /Tower watch/i });
+    await source.getByText("Recordings (100)").click();
+    await receiver.getByRole("searchbox", { name: "Search recordings" }).fill("099");
+    const capture = receiver.getByRole("button", { name: /Tower watch/i });
     await expect(capture).toBeVisible();
     await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.8 MB");
     await expect(capture).toContainText("RTL-SDR 00000001 · capture-099 · #airband");
     await expect(capture).toHaveAttribute("title", "EDDF ground");
-    await expect(recordingsDialog.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
-    await recordingsDialog.getByRole("button", { name: "Close" }).click();
-    await expect(recordings).toBeFocused();
+    await expect(receiver.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
 
     await expect(receiver.getByRole("button", { name: /signal generator/i })).toHaveCount(0);
-    await receiver.getByRole("button", { name: "Virtual radios (1)" }).click();
+    await source.getByText("Virtual (1)").click();
     await receiver.getByRole("button", { name: /signal generator/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
 
@@ -582,7 +578,7 @@ test.describe("the workspace", () => {
       );
 
     const gpsd = await addGps();
-    await gpsd.getByRole("button", { name: "GPS on the network?" }).click();
+    await gpsd.getByRole("group", { name: "Position source" }).getByText("Network").click();
     const typedAddress = gpsd.getByRole("textbox", { name: "GPSD address" });
     await typedAddress.fill("not-an-endpoint");
     await expect(gpsd.getByRole("button", { name: "Read" })).toBeDisabled();
@@ -595,7 +591,8 @@ test.describe("the workspace", () => {
     await expect(address).toHaveValue("127.0.0.1:2947");
 
     const own = await addGps();
-    await own.getByRole("button", { name: "This device's location" }).click();
+    await own.getByRole("group", { name: "Position source" }).getByText("This device").click();
+    await own.getByRole("button", { name: "Use this device's location" }).click();
     await expect(own.getByText("location sharing is blocked for this browser")).toBeVisible();
     await expect(page.getByText(/limited to 20 Hz/)).toHaveCount(0);
     let deviceNode = "";
@@ -674,7 +671,7 @@ test.describe("the workspace", () => {
     await expect(deviceGps.getByText("JO62qm")).toBeVisible();
 
     await deviceGps.getByRole("button", { name: "Forget source" }).click();
-    await expect(deviceGps.getByRole("button", { name: "This device's location" })).toBeVisible();
+    await expect(deviceGps.getByRole("group", { name: "Position source" })).toBeVisible();
   });
 
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {

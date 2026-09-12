@@ -9,6 +9,7 @@ import {
   networkDeviceId,
   rankDevices,
   recordingChoices,
+  sourceTabs,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
@@ -132,6 +133,31 @@ describe("groupDevices", () => {
     expect(isRecordingDevice(device("rtlsdr", "00000001"))).toBe(false);
     expect(isRecordingDevice(device("virtual", "file:/recordings/airband"))).toBe(true);
     expect(isRecordingDevice(device("virtual", "siggen"))).toBe(false);
+  });
+});
+
+describe("sourceTabs", () => {
+  const groups = groupDevices([
+    device("rtlsdr", "00000001", "RTL-SDR 00000001"),
+    device("virtual", "file:/recordings/airband", "airband (recording)"),
+    device("virtual", "file:/recordings/weather", "weather (recording)"),
+    device("virtual", "siggen", "Signal Generator"),
+  ]);
+
+  it("counts what each tab holds and explains each one on hover", () => {
+    const tabs = sourceTabs(groups);
+    expect(tabs.map((tab) => [tab.value, tab.label])).toEqual([
+      ["radios", "Radios"],
+      ["recordings", "Recordings (2)"],
+      ["network", "Network"],
+      ["virtual", "Virtual (1)"],
+    ]);
+    expect(tabs.every((tab) => (tab.title ?? "") !== "")).toBe(true);
+  });
+
+  it("offers no virtual tab in a build without virtual radios", () => {
+    const tabs = sourceTabs({ ...groups, virtual: [], recordings: [] });
+    expect(tabs.map((tab) => tab.label)).toEqual(["Radios", "Recordings", "Network"]);
   });
 });
 

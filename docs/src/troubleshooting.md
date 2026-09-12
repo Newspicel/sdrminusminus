@@ -6,8 +6,8 @@ Start with the built-in diagnostic report:
 sdrmm --doctor
 ```
 
-In the interface, the same checks are under **Hardware not showing up?** on an unbound Device
-node. Diagnostics identify backend, module, permission, device-discovery, database, and recording
+In the interface, the same checks are under **Check hardware** on the Radios tab of an unbound
+Device node. Diagnostics identify backend, module, permission, device-discovery, database, and recording
 path problems before the engine claims any hardware.
 
 ## The page does not open

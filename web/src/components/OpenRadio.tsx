@@ -1,28 +1,37 @@
-import { Dialog } from "@base-ui/react/dialog";
+import { Collapsible } from "@base-ui/react/collapsible";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { devicesQuery, doctorQuery, recordingsQuery } from "../lib/api";
 import type { DeviceInfo, DeviceRef } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
-import { BTN, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
+import { BTN, BTN_QUIET, FIELD, LABEL } from "./controls";
 import {
   deviceId,
   filterRecordingChoices,
   groupDevices,
   NETWORK_BACKENDS,
   networkDeviceId,
+  type RecordingChoice,
   recordingChoices,
+  type SourceTab,
+  sourceTabs,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
 import { describeRecording, recordingProvenance } from "./recordings";
+import { Segmented } from "./Segmented";
 import { Select } from "./Select";
+
+const SEARCH_FROM = 4;
+
+type Choose = (device: DeviceInfo) => void;
 
 function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: boolean }) {
   const [driver, setDriver] = useState<string>(NETWORK_BACKENDS[0].driver);
   const [address, setAddress] = useState("");
   const backend = NETWORK_BACKENDS.find((b) => b.driver === driver) ?? NETWORK_BACKENDS[0];
   const id = networkDeviceId(driver, address);
+  const port = backend.placeholder.split(":").pop();
 
   return (
     <Form
@@ -48,6 +57,7 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
           className={`${FIELD} w-full`}
           type="text"
           aria-label="Radio address"
+          title={`Host or address of the ${backend.label} server; without a port it uses ${port}`}
           placeholder={backend.placeholder}
           value={address}
           onChange={(event) => setAddress(event.target.value)}
@@ -56,22 +66,50 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
           Add
         </Button>
       </div>
-      <p className="text-xs text-ink-dim">
-        The port may be left off — {backend.label} defaults to{" "}
-        {backend.placeholder.split(":").pop()}.
-      </p>
     </Form>
   );
 }
 
-function RecordingChoices({
-  recordings,
-  onChoose,
+function RecordingRow({
+  device,
+  info,
+  title,
   busy,
+  onChoose,
+}: RecordingChoice & { busy: boolean; onChoose: Choose }) {
+  return (
+    <Button
+      type="button"
+      className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
+      title={info?.note ?? undefined}
+      disabled={busy}
+      onClick={() => onChoose(device)}
+    >
+      <span className="flex w-full min-w-0 flex-col gap-0.5">
+        <span className="truncate">{title}</span>
+        {info !== null && (
+          <>
+            <span className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
+              {describeRecording(info)}
+            </span>
+            <span className="truncate font-mono text-[10px] text-ink-faint">
+              {recordingProvenance(info)}
+            </span>
+          </>
+        )}
+      </span>
+    </Button>
+  );
+}
+
+function Recordings({
+  recordings,
+  busy,
+  onChoose,
 }: {
   recordings: readonly DeviceInfo[];
-  onChoose: (device: DeviceInfo) => void;
   busy: boolean;
+  onChoose: Choose;
 }) {
   const [query, setQuery] = useState("");
   const library = useQuery(recordingsQuery());
@@ -81,92 +119,90 @@ function RecordingChoices({
   );
 
   return (
-    <Dialog.Root
-      onOpenChange={(open) => {
-        if (!open) setQuery("");
-      }}
-    >
-      <Dialog.Trigger className={`${BTN} justify-center`} disabled={busy}>
-        Recordings ({recordings.length})
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-bg/70" />
-        <Dialog.Popup
-          className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[80vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
-        >
-          <Dialog.Title className="text-base font-medium text-ink">Recordings</Dialog.Title>
-          <Dialog.Description className="mt-1 text-xs text-ink-dim">
-            Choose a saved IQ recording to open as a source.
-          </Dialog.Description>
-          <Input
-            className={`${FIELD} mt-3 w-full shrink-0`}
-            type="search"
-            name="recording-filter"
-            placeholder="Search recordings"
-            aria-label="Search recordings"
-            autoFocus
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <div className="mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto">
-            {filtered.map(({ device, info, title }) => (
-              <Button
-                key={deviceId(device)}
-                type="button"
-                className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
-                title={info?.note ?? undefined}
-                disabled={busy}
-                onClick={() => onChoose(device)}
-              >
-                <span className="flex w-full min-w-0 flex-col gap-0.5">
-                  <span className="truncate">{title}</span>
-                  {info !== null && (
-                    <>
-                      <span className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-                        {describeRecording(info)}
-                      </span>
-                      <span className="truncate font-mono text-[10px] text-ink-faint">
-                        {recordingProvenance(info)}
-                      </span>
-                    </>
-                  )}
-                </span>
-              </Button>
-            ))}
-            {recordings.length === 0 && (
-              <p className="py-3 text-center text-sm text-ink-dim">No recordings yet.</p>
-            )}
-            {recordings.length > 0 && filtered.length === 0 && (
-              <p className="py-3 text-center text-sm text-ink-dim">No matching recordings.</p>
-            )}
-          </div>
-          <div className="mt-4 flex shrink-0 justify-end">
-            <Dialog.Close className={BTN}>Close</Dialog.Close>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <>
+      {recordings.length >= SEARCH_FROM && (
+        <Input
+          className={`${FIELD} w-full`}
+          type="search"
+          name="recording-filter"
+          placeholder="Search recordings"
+          aria-label="Search recordings"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      )}
+      <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+        {filtered.map((choice) => (
+          <RecordingRow key={deviceId(choice.device)} {...choice} busy={busy} onChoose={onChoose} />
+        ))}
+      </div>
+      {recordings.length === 0 && <p className="text-sm text-ink-dim">No recordings yet.</p>}
+      {recordings.length > 0 && filtered.length === 0 && (
+        <p className="text-sm text-ink-dim">No recording matches that.</p>
+      )}
+    </>
   );
 }
 
-function RadioChoice({
-  device,
+function RadioList({
+  devices,
   busy,
   onChoose,
 }: {
-  device: DeviceInfo;
+  devices: readonly DeviceInfo[];
   busy: boolean;
-  onChoose: (device: DeviceInfo) => void;
+  onChoose: Choose;
 }) {
   return (
-    <Button
-      type="button"
-      className={`${BTN} justify-center`}
-      disabled={busy}
-      onClick={() => onChoose(device)}
-    >
-      <span className="truncate">{device.label}</span>
-    </Button>
+    <div className="flex flex-col gap-1">
+      {devices.map((device) => (
+        <Button
+          key={deviceId(device)}
+          type="button"
+          className={`${BTN} justify-center`}
+          disabled={busy}
+          onClick={() => onChoose(device)}
+        >
+          <span className="truncate">{device.label}</span>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function Radios({
+  radios,
+  pending,
+  elsewhere,
+  busy,
+  onChoose,
+}: {
+  radios: readonly DeviceInfo[];
+  pending: boolean;
+  elsewhere: number;
+  busy: boolean;
+  onChoose: Choose;
+}) {
+  return (
+    <>
+      <RadioList devices={radios} busy={busy} onChoose={onChoose} />
+      {pending && <p className="text-sm text-ink-dim">Looking for radios…</p>}
+      {!pending && radios.length === 0 && (
+        <p
+          className="text-sm text-ink-dim"
+          title={
+            elsewhere > 0
+              ? "Plug another radio in, or move that node's wires here"
+              : "Plug a radio in, or pick a recording or a network radio above"
+          }
+        >
+          {elsewhere > 0
+            ? "Every radio found is already open on another node."
+            : "No radios found."}
+        </p>
+      )}
+      <HardwareCheck />
+    </>
   );
 }
 
@@ -177,37 +213,23 @@ export function DeviceChoices({
   error = null,
   claimed = [],
 }: {
-  onChoose: (device: DeviceInfo) => void;
+  onChoose: Choose;
   onAddNetwork: (deviceId: string) => void;
   busy?: boolean;
   error?: string | null;
   claimed?: readonly DeviceRef[];
 }) {
   const devices = useQuery(devicesQuery());
-  const [showDoctor, setShowDoctor] = useState(false);
-  const [showNetwork, setShowNetwork] = useState(false);
-  const [showVirtual, setShowVirtual] = useState(false);
+  const [tab, setTab] = useState<SourceTab>("radios");
   const visible = visibleDevices(devices.data?.devices ?? []);
   const found = unclaimedDevices(visible, claimed);
-  const { radios, virtual, recordings } = groupDevices(found);
-  const elsewhere = visible.length - found.length;
+  const groups = groupDevices(found);
+  const tabs = sourceTabs(groups);
+  const shown = tabs.some((option) => option.value === tab) ? tab : "radios";
 
   return (
     <div className="flex w-full flex-col gap-2">
-      <div className="flex flex-col gap-1">
-        {radios.map((device) => (
-          <RadioChoice key={deviceId(device)} device={device} busy={busy} onChoose={onChoose} />
-        ))}
-      </div>
-
-      {devices.isPending && <p className="text-sm text-ink-dim">Looking for devices…</p>}
-      {!devices.isPending && radios.length === 0 && (
-        <p className="text-sm text-ink-dim">
-          {elsewhere > 0
-            ? "Every radio found is already open on another node. Plug one in, open a recording, or move that node's wires here."
-            : "No radios found."}
-        </p>
-      )}
+      <Segmented label="Radio source" value={shown} options={tabs} onChange={setTab} fill />
 
       {error !== null && (
         <p role="alert" className="font-mono text-xs text-danger">
@@ -215,51 +237,39 @@ export function DeviceChoices({
         </p>
       )}
 
-      <RecordingChoices recordings={recordings} onChoose={onChoose} busy={busy} />
-
-      {virtual.length > 0 && (
-        <>
-          <Button
-            type="button"
-            className={`${BTN_QUIET} self-center`}
-            aria-expanded={showVirtual}
-            onClick={() => setShowVirtual(!showVirtual)}
-          >
-            {showVirtual ? "Hide virtual radios" : `Virtual radios (${virtual.length})`}
-          </Button>
-          {showVirtual && (
-            <div className="flex flex-col gap-1">
-              {virtual.map((device) => (
-                <RadioChoice
-                  key={deviceId(device)}
-                  device={device}
-                  busy={busy}
-                  onChoose={onChoose}
-                />
-              ))}
-            </div>
-          )}
-        </>
+      {shown === "radios" && (
+        <Radios
+          radios={groups.radios}
+          pending={devices.isPending}
+          elsewhere={visible.length - found.length}
+          busy={busy}
+          onChoose={onChoose}
+        />
       )}
-
-      <Button
-        type="button"
-        className={`${BTN_QUIET} self-center`}
-        onClick={() => setShowNetwork(!showNetwork)}
-      >
-        {showNetwork ? "Hide network radio" : "Radio on the network?"}
-      </Button>
-      {showNetwork && <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />}
-
-      <Button
-        type="button"
-        className={`${BTN_QUIET} self-center`}
-        onClick={() => setShowDoctor(!showDoctor)}
-      >
-        {showDoctor ? "Hide diagnostics" : "Hardware not showing up?"}
-      </Button>
-      {showDoctor && <Doctor />}
+      {shown === "recordings" && (
+        <Recordings recordings={groups.recordings} busy={busy} onChoose={onChoose} />
+      )}
+      {shown === "network" && <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />}
+      {shown === "virtual" && (
+        <RadioList devices={groups.virtual} busy={busy} onChoose={onChoose} />
+      )}
     </div>
+  );
+}
+
+function HardwareCheck() {
+  return (
+    <Collapsible.Root>
+      <Collapsible.Trigger
+        className={BTN_QUIET}
+        title="Run the checks behind sdrmm --doctor: drivers, permissions, and what the USB bus reports"
+      >
+        Check hardware
+      </Collapsible.Trigger>
+      <Collapsible.Panel className="pt-2">
+        <Doctor />
+      </Collapsible.Panel>
+    </Collapsible.Root>
   );
 }
 

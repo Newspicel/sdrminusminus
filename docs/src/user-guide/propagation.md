@@ -11,8 +11,8 @@ The reflection points and MUF values are estimates based on a configurable ionos
 3. Connect each channel's `events` output to the map's `events` input.
 4. Connect GPS `position` to the map's `position` input.
 
-A receiver position is required to calculate paths. For a stationary receiver without GPS, choose
-**Receiver that never moves?** on the GPS position node and enter its latitude and longitude.
+A receiver position is required to calculate paths. For a stationary receiver without GPS, open the
+**Fixed** tab on the GPS position node and enter its latitude and longitude.
 
 When opened, the map also loads the last six hours of decoder-log history for its connected channels.
 

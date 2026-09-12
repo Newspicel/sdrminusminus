@@ -7,17 +7,19 @@ export function Segmented<T extends string | number>({
   value,
   options,
   onChange,
+  fill = false,
 }: {
   label: string;
   value: T;
   options: Options<T>;
   onChange: (value: T) => void;
+  fill?: boolean;
 }) {
   return (
     <ToggleGroup
       data-hotkeys="off"
       aria-label={label}
-      className="flex overflow-hidden rounded-[3px] border border-line"
+      className={`flex overflow-hidden rounded-[3px] border border-line ${fill ? "w-full" : ""}`}
       value={[String(value)]}
       onValueChange={(next) => {
         const picked = options.find((option) => String(option.value) === next[0]);
@@ -30,7 +32,12 @@ export function Segmented<T extends string | number>({
         <Toggle
           key={String(option.value)}
           value={String(option.value)}
-          className={(state) => `${segment(state.pressed)} rounded-none font-mono tabular-nums`}
+          title={option.title}
+          className={(state) =>
+            `${segment(state.pressed)} rounded-none font-mono tabular-nums ${
+              fill ? "flex-auto justify-center whitespace-nowrap" : ""
+            }`
+          }
         >
           {option.label}
         </Toggle>

@@ -1,25 +1,47 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { Button, Form, Input } from "../../components/BaseControls";
-import { BTN, BTN_QUIET, FIELD, LABEL } from "../../components/controls";
+import { BTN, FIELD, LABEL } from "../../components/controls";
 import { NumberField } from "../../components/NumberField";
+import { Segmented } from "../../components/Segmented";
 import { nmeaDevicesQuery } from "../../lib/api";
 import type { PositionSource } from "../../lib/types";
-import { filterNmeaDevices, nmeaDetail, nmeaSource, validGpsdAddress } from "./gpsSource";
+import {
+  filterNmeaDevices,
+  type GpsTab,
+  gpsTabs,
+  nmeaDetail,
+  nmeaSource,
+  validGpsdAddress,
+} from "./gpsSource";
 
 const SEARCH_FROM = 4;
 
-export function GpsChoices({ onChoose }: { onChoose: (source: PositionSource) => void }) {
+type Choose = (source: PositionSource) => void;
+
+export function GpsChoices({ onChoose }: { onChoose: Choose }) {
+  const [tab, setTab] = useState<GpsTab>("receiver");
+  const tabs = gpsTabs(navigator.geolocation !== undefined);
+
+  return (
+    <div className="flex w-full flex-col gap-2">
+      <Segmented label="Position source" value={tab} options={tabs} onChange={setTab} fill />
+      {tab === "receiver" && <ReceiverChoices onChoose={onChoose} />}
+      {tab === "network" && <GpsdForm onChoose={onChoose} />}
+      {tab === "fixed" && <FixedForm onChoose={onChoose} />}
+      {tab === "device" && <DeviceLocation onChoose={onChoose} />}
+    </div>
+  );
+}
+
+function ReceiverChoices({ onChoose }: { onChoose: Choose }) {
   const devices = useQuery(nmeaDevicesQuery());
   const [query, setQuery] = useState("");
-  const [showFixed, setShowFixed] = useState(false);
-  const [showNetwork, setShowNetwork] = useState(false);
-  const [showPath, setShowPath] = useState(false);
   const listed = devices.data?.devices ?? [];
   const found = filterNmeaDevices(listed, query);
 
   return (
-    <div className="flex w-full flex-col gap-2">
+    <>
       {listed.length >= SEARCH_FROM && (
         <Input
           className={`${FIELD} w-full`}
@@ -65,75 +87,12 @@ export function GpsChoices({ onChoose }: { onChoose: (source: PositionSource) =>
         </p>
       )}
 
-      {navigator.geolocation !== undefined && (
-        <Button
-          type="button"
-          className={`${BTN} justify-center`}
-          onClick={() => onChoose({ type: "device" })}
-        >
-          This device's location
-        </Button>
-      )}
-
-      <Disclosure
-        open={showPath}
-        onToggle={() => setShowPath(!showPath)}
-        closed="Receiver not listed?"
-        opened="Hide serial path"
-      >
-        <SerialPathForm onChoose={onChoose} />
-      </Disclosure>
-
-      <Disclosure
-        open={showNetwork}
-        onToggle={() => setShowNetwork(!showNetwork)}
-        closed="GPS on the network?"
-        opened="Hide network GPS"
-      >
-        <GpsdForm onChoose={onChoose} />
-      </Disclosure>
-
-      <Disclosure
-        open={showFixed}
-        onToggle={() => setShowFixed(!showFixed)}
-        closed="Receiver that never moves?"
-        opened="Hide fixed place"
-      >
-        <FixedForm onChoose={onChoose} />
-      </Disclosure>
-    </div>
-  );
-}
-
-function Disclosure({
-  open,
-  onToggle,
-  closed,
-  opened,
-  children,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  closed: string;
-  opened: string;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      <Button
-        type="button"
-        className={`${BTN_QUIET} self-center`}
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        {open ? opened : closed}
-      </Button>
-      {open && children}
+      <SerialPathForm onChoose={onChoose} />
     </>
   );
 }
 
-function SerialPathForm({ onChoose }: { onChoose: (source: PositionSource) => void }) {
+function SerialPathForm({ onChoose }: { onChoose: Choose }) {
   const [path, setPath] = useState("");
   const trimmed = path.trim();
   return (
@@ -146,10 +105,12 @@ function SerialPathForm({ onChoose }: { onChoose: (source: PositionSource) => vo
         }
       }}
     >
+      <span className={LABEL}>Path</span>
       <Input
         className={`${FIELD} w-full`}
         type="text"
         aria-label="Serial device path"
+        title="The serial port of a receiver that is not listed above"
         placeholder="/dev/ttyUSB0"
         value={path}
         onChange={(event) => setPath(event.target.value)}
@@ -161,12 +122,12 @@ function SerialPathForm({ onChoose }: { onChoose: (source: PositionSource) => vo
   );
 }
 
-function GpsdForm({ onChoose }: { onChoose: (source: PositionSource) => void }) {
+function GpsdForm({ onChoose }: { onChoose: Choose }) {
   const [address, setAddress] = useState("127.0.0.1:2947");
   const valid = validGpsdAddress(address.trim());
   return (
     <Form
-      className="flex flex-col gap-2"
+      className="flex items-center gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         if (valid) {
@@ -174,27 +135,24 @@ function GpsdForm({ onChoose }: { onChoose: (source: PositionSource) => void }) 
         }
       }}
     >
-      <div className="flex items-center gap-2">
-        <Input
-          className={`${FIELD} w-full`}
-          type="text"
-          aria-label="GPSD address"
-          placeholder="127.0.0.1:2947"
-          value={address}
-          onChange={(event) => setAddress(event.target.value)}
-        />
-        <Button type="submit" className={BTN} disabled={!valid}>
-          Read
-        </Button>
-      </div>
-      <p className="text-ink-dim text-xs">
-        A gpsd daemon on this machine or another one, host and port.
-      </p>
+      <span className={LABEL}>gpsd</span>
+      <Input
+        className={`${FIELD} w-full`}
+        type="text"
+        aria-label="GPSD address"
+        title="Host and port of a gpsd daemon, on this machine or another one"
+        placeholder="127.0.0.1:2947"
+        value={address}
+        onChange={(event) => setAddress(event.target.value)}
+      />
+      <Button type="submit" className={BTN} disabled={!valid}>
+        Read
+      </Button>
     </Form>
   );
 }
 
-function FixedForm({ onChoose }: { onChoose: (source: PositionSource) => void }) {
+function FixedForm({ onChoose }: { onChoose: Choose }) {
   const [lat, setLat] = useState(0);
   const [lon, setLon] = useState(0);
   return (
@@ -227,9 +185,22 @@ function FixedForm({ onChoose }: { onChoose: (source: PositionSource) => void })
           className="w-24 text-center"
         />
       </div>
-      <Button type="submit" className={`${BTN} justify-center`}>
-        Stand here
+      <Button type="submit" className={`${BTN} self-start`}>
+        Use this place
       </Button>
     </Form>
+  );
+}
+
+function DeviceLocation({ onChoose }: { onChoose: Choose }) {
+  return (
+    <Button
+      type="button"
+      className={`${BTN} self-start`}
+      title="Follow the location this computer reports; the browser asks for permission first"
+      onClick={() => onChoose({ type: "device" })}
+    >
+      Use this device's location
+    </Button>
   );
 }

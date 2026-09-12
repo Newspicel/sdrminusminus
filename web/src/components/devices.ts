@@ -1,5 +1,6 @@
 import { refMatches } from "../canvas/binding";
 import type { DeviceInfo, DeviceRef, RecordingInfo } from "../lib/types";
+import type { Options } from "./controls";
 import { recordingTitle } from "./recordings";
 
 function deviceRank(device: DeviceInfo): number {
@@ -48,6 +49,36 @@ export function groupDevices(devices: readonly DeviceInfo[]): {
     virtual: devices.filter(isVirtualDevice),
     recordings: devices.filter(isRecordingDevice),
   };
+}
+
+export type SourceTab = "radios" | "recordings" | "network" | "virtual";
+
+function counted(label: string, count: number): string {
+  return count > 0 ? `${label} (${count})` : label;
+}
+
+export function sourceTabs(groups: {
+  radios: readonly DeviceInfo[];
+  virtual: readonly DeviceInfo[];
+  recordings: readonly DeviceInfo[];
+}): Options<SourceTab> {
+  const tabs: { value: SourceTab; label: string; title: string }[] = [
+    { value: "radios", label: "Radios", title: "Radios attached to this machine" },
+    {
+      value: "recordings",
+      label: counted("Recordings", groups.recordings.length),
+      title: "Saved IQ recordings, played back like a radio",
+    },
+    { value: "network", label: "Network", title: "A radio served over rtl_tcp or SpyServer" },
+  ];
+  if (groups.virtual.length > 0) {
+    tabs.push({
+      value: "virtual",
+      label: counted("Virtual", groups.virtual.length),
+      title: "Synthetic radios for development and tests",
+    });
+  }
+  return tabs;
 }
 
 export interface RecordingChoice {

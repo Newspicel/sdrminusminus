@@ -26,16 +26,16 @@ available in the running build.
 
 ## Live position wiring
 
-Add a **GPS position** node and select a source. Sources read by the server use hardware or network
-endpoints reachable from the server machine. Browser location uses the device displaying the UI.
+Add a **GPS position** node and pick a source from its tabs. Sources read by the server use hardware
+or network endpoints reachable from the server machine. Browser location uses the device displaying
+the UI.
 
-| Choice | Source |
+| Tab | Source |
 |---|---|
-| Listed receiver | A detected serial NMEA receiver, searchable by path or device name |
-| **Receiver not listed?** | A manually entered serial device path |
-| **This device's location** | Browser or desktop WebView location, where available |
-| **GPS on the network?** | A gpsd JSON endpoint; default `127.0.0.1:2947` |
-| **Receiver that never moves?** | Fixed latitude and longitude |
+| **Receiver** | A detected serial NMEA receiver, searchable by path or device name, or a serial device path typed into **Path** |
+| **Network** | A gpsd JSON endpoint; default `127.0.0.1:2947` |
+| **Fixed** | Fixed latitude and longitude |
+| **This device** | Browser or desktop WebView location, where available |
 
 For serial sources, configure baud rate and maximum published update rate after selecting the
 receiver. The node validates GGA and RMC sentences. The update limit controls publication of fixes;

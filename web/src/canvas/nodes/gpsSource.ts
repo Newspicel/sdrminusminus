@@ -1,5 +1,32 @@
+import type { Options } from "../../components/controls";
 import type { AutocompleteSuggestion } from "../../components/TextAutocomplete";
 import type { NmeaDeviceInfo, PositionSource } from "../../lib/types";
+
+export type GpsTab = "receiver" | "network" | "fixed" | "device";
+
+export function gpsTabs(hasGeolocation: boolean): Options<GpsTab> {
+  const tabs: { value: GpsTab; label: string; title: string }[] = [
+    {
+      value: "receiver",
+      label: "Receiver",
+      title: "A GPS receiver on a serial or USB port, read as NMEA",
+    },
+    { value: "network", label: "Network", title: "A gpsd daemon on this machine or another one" },
+    {
+      value: "fixed",
+      label: "Fixed",
+      title: "A place typed in once, for a station that never moves",
+    },
+  ];
+  if (hasGeolocation) {
+    tabs.push({
+      value: "device",
+      label: "This device",
+      title: "The location this computer or phone reports",
+    });
+  }
+  return tabs;
+}
 
 export function validGpsdAddress(address: string): boolean {
   const separator = address.lastIndexOf(":");

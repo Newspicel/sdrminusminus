@@ -1,11 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
   filterNmeaDevices,
+  gpsTabs,
   nmeaDetail,
   nmeaSource,
   nmeaSuggestion,
   validGpsdAddress,
 } from "./gpsSource";
+
+describe("gpsTabs", () => {
+  it("offers this device's own location only where the browser can report one", () => {
+    expect(gpsTabs(true).map((tab) => tab.value)).toEqual([
+      "receiver",
+      "network",
+      "fixed",
+      "device",
+    ]);
+    expect(gpsTabs(false).map((tab) => tab.value)).toEqual(["receiver", "network", "fixed"]);
+  });
+
+  it("explains every source on hover", () => {
+    expect(gpsTabs(true).every((tab) => (tab.title ?? "") !== "")).toBe(true);
+  });
+});
 
 describe("validGpsdAddress", () => {
   it("accepts host and bracketed IPv6 endpoints", () => {

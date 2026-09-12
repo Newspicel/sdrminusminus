@@ -58,5 +58,5 @@ On the Device node, choose **Forget this radio**, then select the attached recei
 controls are built from the capabilities reported by its driver, so gain stages, antennas,
 sample rates, bandwidths, and advanced settings vary by model.
 
-Run `sdrmm --doctor` or expand **Hardware not showing up?** in the device picker if your receiver
-is missing. The [hardware guide](../hardware.md) covers supported modules and USB setup.
+Run `sdrmm --doctor` or press **Check hardware** on an unbound Device node if your receiver is
+missing. The [hardware guide](../hardware.md) covers supported modules and USB setup.
