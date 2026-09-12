@@ -311,6 +311,34 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    fn stream_stopped(stream_id: u16) -> Message {
+        let event = sdrmm_wire::ServerEvent::StreamStopped {
+            stream_id,
+            kind: sdrmm_wire::StreamKind::Spectrum,
+        };
+        Message::Text(serde_json::to_string(&event).expect("json").into())
+    }
+
+    #[tokio::test]
+    async fn a_stream_stops_behind_its_own_frames_and_ahead_of_everyone_else_s() {
+        let (tx, mut rx) = channel();
+        tx.send(media(FrameKind::Spectrum, 7, 1))
+            .await
+            .expect("send");
+        tx.send(media(FrameKind::Spectrum, 8, 2))
+            .await
+            .expect("send");
+        tx.send(stream_stopped(7)).await.expect("send");
+        tx.send(Message::Text("control".into()))
+            .await
+            .expect("send");
+
+        assert_eq!(rx.recv().await, Some(Message::Text("control".into())));
+        assert_eq!(rx.recv().await, Some(media(FrameKind::Spectrum, 7, 1)));
+        assert_eq!(rx.recv().await, Some(stream_stopped(7)));
+        assert_eq!(rx.recv().await, Some(media(FrameKind::Spectrum, 8, 2)));
+    }
+
     #[test]
     fn stale_audio_is_discarded_and_control_congestion_closes_the_connection() {
         let mut queue = Queue::default();

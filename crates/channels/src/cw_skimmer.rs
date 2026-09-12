@@ -22,6 +22,9 @@ const TRACK_MISSES: u16 = 150;
 const CHANNEL_TAPS: usize = 257;
 const TRACK_TAPS: usize = 129;
 const MAX_SIGNALS: u16 = 128;
+/// No receiver hears a station this far under the loudest one in its passband; a peak that deep is
+/// the analysis window's own skirt, not another operator.
+const SPUR_RANGE_DB: f32 = 80.0;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "cw_skimmer".to_owned(),
@@ -224,6 +227,10 @@ impl CwSkimmerChannel {
         }
         self.candidates
             .sort_by(|left, right| right.1.total_cmp(&left.1));
+        if let Some(&(_, loudest)) = self.candidates.first() {
+            self.candidates
+                .retain(|&(_, snr)| snr >= loudest - SPUR_RANGE_DB);
+        }
         for track in &mut self.tracks {
             track.misses = track.misses.saturating_add(1);
         }
@@ -329,6 +336,43 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    fn spots(channel: &mut CwSkimmerChannel, iq: &[Complex<f32>]) -> Vec<CwSkimmerSpot> {
+        let mut out = ChannelOutputs::default();
+        for chunk in iq.chunks(2_047) {
+            channel.process(chunk, &mut out);
+        }
+        out.events
+            .iter()
+            .filter_map(|event| match event {
+                DecoderEvent::CwSkimmer(spot) => Some(spot.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_windows_own_skirt_is_never_reported_as_a_station() {
+        let iq = testgen::morse::transmission("VVV VVV CQ DE DL1AAA K", 20.0, 3_500.0, RATE);
+        let mut channel = channel(CwSkimmerParams {
+            bandwidth_hz: 16_000.0,
+            threshold_db: 8.0,
+            max_signals: 8,
+            wpm: None,
+        })
+        .unwrap();
+        let all = spots(&mut channel, &iq);
+        assert!(
+            all.iter().any(|spot| spot.text.contains('V')),
+            "the station itself is still heard"
+        );
+        let deep: Vec<f32> = all
+            .iter()
+            .map(|spot| spot.offset_hz)
+            .filter(|offset| (offset - 3_500.0).abs() > 1_500.0)
+            .collect();
+        assert!(deep.is_empty(), "stations that are not there: {deep:?}");
     }
 
     #[test]

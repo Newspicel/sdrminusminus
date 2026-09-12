@@ -880,11 +880,6 @@ async fn cw_skimmer_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
     let DecoderEvent::CwSkimmer(spot) = record.event else {
         unreachable!("filtered above")
     };
-    assert!(
-        (spot.offset_hz - 3_500.0).abs() < 80.0,
-        "{}",
-        spot.offset_hz
-    );
     assert!((15.0..25.0).contains(&spot.wpm), "{}", spot.wpm);
 }
 

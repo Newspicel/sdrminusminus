@@ -105,7 +105,11 @@ impl SinkRoom {
     }
 
     pub fn took(&self, samples: usize) {
-        self.free.fetch_sub(samples, Ordering::AcqRel);
+        self.free
+            .update(Ordering::AcqRel, Ordering::Acquire, |free| {
+                debug_assert!(free >= samples, "took {samples} of {free} free");
+                free.saturating_sub(samples)
+            });
     }
 
     pub fn freed(&self, samples: usize) {
