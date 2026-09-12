@@ -5,7 +5,7 @@ import { Button } from "../../components/BaseControls";
 import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
-import { FrequencyDial } from "../../components/FrequencyDial";
+import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
 import { Icon } from "../../components/Icon";
 import { DeviceChoices } from "../../components/OpenRadio";
@@ -23,14 +23,7 @@ import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
 import { arrayHolding } from "./arrayNode";
-import {
-  deviceDialId,
-  faultSaid,
-  refLabel,
-  scannerOwnsTuning,
-  tuneDelta,
-  tunerDials,
-} from "./deviceNode";
+import { faultSaid, refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 type DeviceNodeData = PatchNodeOf<"device">["data"];
@@ -71,7 +64,7 @@ function Tuner({
           {dial.port !== null && <span className="legend">{dial.port}</span>}
           <div className="flex min-w-0 items-center gap-1">
             <FrequencyDial
-              id={deviceDialId(node, dial.stream)}
+              id={dialId(node, dial.stream)}
               hz={dial.hz}
               range={range}
               disabled={held}

@@ -1,9 +1,9 @@
 import { isPinned, patchNode, pin, unpin } from "./canvas/graph";
-import { deviceDialId } from "./canvas/nodes/deviceNode";
 import { useHotkeys } from "./canvas/useHotkeys";
 import type { WorkspaceStore } from "./canvas/useWorkspace";
 import type { View } from "./canvas/WorkspaceBar";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
+import { dialId } from "./components/FrequencyDial";
 import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "./lib/types";
 import type { useChannelPatch } from "./lib/useChannelPatch";
 import type { useDevicePatch } from "./lib/useDevicePatch";
@@ -50,7 +50,7 @@ export function useAppHotkeys(b: AppHotkeys) {
     },
     focusDial: () => {
       if (b.selectedDevice !== null) {
-        document.getElementById(deviceDialId(b.selectedDevice))?.focus();
+        document.getElementById(dialId(b.selectedDevice))?.focus();
       }
     },
     cycleMode: (direction) => {

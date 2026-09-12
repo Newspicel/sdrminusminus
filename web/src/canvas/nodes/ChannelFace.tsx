@@ -9,6 +9,8 @@ import {
   reachesHz,
 } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
+import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
+import { dialId } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow, Settings } from "../../components/Settings";
@@ -125,6 +127,9 @@ export function ChannelFace({ node }: { node: PatchNode }) {
             descriptor={descriptor}
             spanHz={set?.settings.sample_rate ?? null}
             centerHz={centerHz}
+            range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
+            dialId={dialId(node.id)}
+            wheelTunes={workspace.selected === node.id}
             onEdit={onEdit}
           />
         )}

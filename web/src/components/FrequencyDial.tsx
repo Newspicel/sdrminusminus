@@ -13,6 +13,11 @@ import {
 
 export const DIAL_ID = "frequency-dial";
 
+/// Scopes the dial to the node drawing it, so several faces can each carry one.
+export function dialId(node: string, stream = 0): string {
+  return stream === 0 ? `${DIAL_ID}:${node}` : `${DIAL_ID}:${node}:${stream}`;
+}
+
 const DIGIT_SIZE =
   "text-[16px] @min-[17rem]:text-[20px] @min-[22rem]:text-[26px] @min-[28rem]:text-[34px]";
 

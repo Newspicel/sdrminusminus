@@ -1,7 +1,7 @@
 import { Checkbox } from "../../components/Checkbox";
 import type { Options } from "../../components/controls";
 import { tuningRange } from "../../components/dial";
-import { FrequencyDial } from "../../components/FrequencyDial";
+import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
@@ -10,7 +10,7 @@ import { useDevicePatch } from "../../lib/useDevicePatch";
 import { useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
 import { arrayMembers } from "./arrayNode";
-import { deviceDialId, refLabel, tuneDelta, tunerDials } from "./deviceNode";
+import { refLabel, tuneDelta, tunerDials } from "./deviceNode";
 import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 const TIERS: Options<Coherence> = [
@@ -54,7 +54,7 @@ export function ArrayFace({ node }: { node: PatchNode }) {
             {tunerDials(set).map((dial) => (
               <FrequencyDial
                 key={dial.stream}
-                id={deviceDialId(node.id, dial.stream)}
+                id={dialId(node.id, dial.stream)}
                 hz={dial.hz}
                 range={tuningRange(set.capabilities)}
                 wheelTunes={active}

@@ -11,8 +11,9 @@ import {
   radioWindowHz,
 } from "./channelSettings";
 import type { Options } from "./controls";
-import { FrequencyStepper } from "./FrequencyStepper";
-import { formatKhz } from "./format";
+import { inTuningRange, type Range } from "./dial";
+import { FrequencyDial } from "./FrequencyDial";
+import { formatKhz, formatMhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
 import { Select } from "./Select";
@@ -20,6 +21,7 @@ import { SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
 import { withCurrent } from "./selectOptions";
 import { TextAutocomplete } from "./TextAutocomplete";
+import { TuneTo } from "./TuneTo";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const DEFAULT_SQUELCH_DB = -60;
@@ -191,12 +193,18 @@ export function ChannelControls({
   descriptor,
   spanHz,
   centerHz,
+  range,
+  dialId,
+  wheelTunes,
   onEdit,
 }: {
   settings: ChannelSettings;
   descriptor: ChannelDescriptor | undefined;
   spanHz: number | null;
   centerHz: number | null;
+  range: Range;
+  dialId: string;
+  wheelTunes: boolean;
   onEdit: (edit: ChannelEdit) => void;
 }) {
   const frequencyHz = settings.frequency_hz;
@@ -205,92 +213,112 @@ export function ChannelControls({
   const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
   const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
   const marginSlider = useDebouncedCommit((db) => onEdit({ squelch_auto_db: db }));
-  const window = radioWindowHz(centerHz, spanHz, descriptor);
+  const heard = radioWindowHz(centerHz, spanHz, descriptor);
 
   return (
-    <Settings className="p-2">
-      <SettingRow label="Frequency (MHz)">
-        <FrequencyStepper
-          frequencyHz={frequencyHz}
-          window={window}
+    <>
+      <div className="@container flex min-w-0 items-center gap-1 border-b border-line p-2">
+        <FrequencyDial
+          id={dialId}
+          hz={frequencyHz}
+          range={range}
+          wheelTunes={wheelTunes}
           onTune={(frequency_hz) => onEdit({ frequency_hz })}
         />
-      </SettingRow>
-
-      <SettingRow label="Squelch">
-        <Checkbox
-          label="Squelch"
-          checked={squelchDb !== null}
-          onChange={(on) => {
-            if (on) {
-              onEdit({ squelch_db: offSquelchDb });
-            } else {
-              setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
-              squelchSlider.cancel();
-              onEdit({ squelch_db: null });
+        <span className="ml-auto shrink-0">
+          <TuneTo
+            title="Type a frequency to listen on"
+            hz={frequencyHz}
+            hint={
+              heard === null
+                ? `Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`
+                : `The radio hears ${formatMhz(heard.lowHz)} – ${formatMhz(heard.highHz)}`
             }
-          }}
-        />
-        <Slider
-          label="Squelch threshold (dB)"
-          className="min-w-0 flex-1"
-          disabled={squelchDb === null || autoMarginDb !== null}
-          min={-120}
-          max={0}
-          step={1}
-          value={squelchSlider.pending ?? squelchDb ?? offSquelchDb}
-          onChange={squelchSlider.change}
-        />
-        <span
-          className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
-            squelchDb === null || autoMarginDb !== null ? "text-ink-faint opacity-45" : "text-ink"
-          }`}
-        >
-          {(squelchSlider.pending ?? squelchDb ?? offSquelchDb).toFixed(0)}{" "}
-          <span className="text-ink-faint">dB</span>
+            resolve={(entered) => inTuningRange(entered, range)}
+            onTune={(frequency_hz) => onEdit({ frequency_hz })}
+          />
         </span>
-      </SettingRow>
+      </div>
 
-      <SettingRow label="Auto">
-        <Checkbox
-          label="Track the noise floor"
-          checked={autoMarginDb !== null}
-          disabled={squelchDb === null}
-          onChange={(on) => {
-            marginSlider.cancel();
-            onEdit({
-              squelch_auto_db: on
-                ? (marginSlider.pending ?? AUDIO_DEFAULTS.squelchAutoMarginDb)
-                : null,
-            });
-          }}
-        />
-        <Slider
-          label="Decibels above the noise floor the gate opens at"
-          className="min-w-0 flex-1"
-          disabled={squelchDb === null || autoMarginDb === null}
-          min={AUDIO_LIMITS.squelchAutoMarginDb.min}
-          max={AUDIO_LIMITS.squelchAutoMarginDb.max}
-          step={1}
-          value={marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb}
-          onChange={marginSlider.change}
-        />
-        <span
-          className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
-            autoMarginDb === null ? "text-ink-faint opacity-45" : "text-ink"
-          }`}
-        >
-          +{(marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb).toFixed(0)}{" "}
-          <span className="text-ink-faint">dB</span>
-        </span>
-      </SettingRow>
+      <Settings className="p-2">
+        <SettingRow label="Squelch">
+          <Checkbox
+            label="Squelch"
+            checked={squelchDb !== null}
+            onChange={(on) => {
+              if (on) {
+                onEdit({ squelch_db: offSquelchDb });
+              } else {
+                setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
+                squelchSlider.cancel();
+                onEdit({ squelch_db: null });
+              }
+            }}
+          />
+          <Slider
+            label="Squelch threshold (dB)"
+            className="min-w-0 flex-1"
+            disabled={squelchDb === null || autoMarginDb !== null}
+            min={-120}
+            max={0}
+            step={1}
+            value={squelchSlider.pending ?? squelchDb ?? offSquelchDb}
+            onChange={squelchSlider.change}
+          />
+          <span
+            className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
+              squelchDb === null || autoMarginDb !== null ? "text-ink-faint opacity-45" : "text-ink"
+            }`}
+          >
+            {(squelchSlider.pending ?? squelchDb ?? offSquelchDb).toFixed(0)}{" "}
+            <span className="text-ink-faint">dB</span>
+          </span>
+        </SettingRow>
 
-      <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
+        <SettingRow label="Auto">
+          <Checkbox
+            label="Track the noise floor"
+            checked={autoMarginDb !== null}
+            disabled={squelchDb === null}
+            onChange={(on) => {
+              marginSlider.cancel();
+              onEdit({
+                squelch_auto_db: on
+                  ? (marginSlider.pending ?? AUDIO_DEFAULTS.squelchAutoMarginDb)
+                  : null,
+              });
+            }}
+          />
+          <Slider
+            label="Decibels above the noise floor the gate opens at"
+            className="min-w-0 flex-1"
+            disabled={squelchDb === null || autoMarginDb === null}
+            min={AUDIO_LIMITS.squelchAutoMarginDb.min}
+            max={AUDIO_LIMITS.squelchAutoMarginDb.max}
+            step={1}
+            value={marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb}
+            onChange={marginSlider.change}
+          />
+          <span
+            className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
+              autoMarginDb === null ? "text-ink-faint opacity-45" : "text-ink"
+            }`}
+          >
+            +
+            {(marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb).toFixed(
+              0,
+            )}{" "}
+            <span className="text-ink-faint">dB</span>
+          </span>
+        </SettingRow>
 
-      {channelHasAudio(descriptor) && (
-        <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
-      )}
-    </Settings>
+        <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
+
+        {channelHasAudio(descriptor) && (
+          <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
+        )}
+      </Settings>
+    </>
   );
 }
 

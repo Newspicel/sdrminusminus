@@ -1,11 +1,6 @@
-import { DIAL_ID } from "../../components/FrequencyDial";
 import type { Capabilities, DeviceRef, DeviceSet, DeviceSettings } from "../../lib/types";
 import { forStream } from "../../lib/useDevicePatch";
 import { rxStreamCount, streamLabel } from "../graph";
-
-export function deviceDialId(node: string, stream = 0): string {
-  return stream === 0 ? `${DIAL_ID}:${node}` : `${DIAL_ID}:${node}:${stream}`;
-}
 
 export interface TunerDial {
   stream: number;

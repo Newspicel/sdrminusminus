@@ -8,10 +8,13 @@ export interface Range {
   max: number;
 }
 
+/// What a control accepts when no tuner has said what it can reach.
+export const ANY_FREQUENCY: Range = { min: 0, max: 6e9 };
+
 export function tuningRange(caps: Capabilities): Range {
   const ranges = caps.freq_ranges;
   if (ranges.length === 0) {
-    return { min: 0, max: 6e9 };
+    return ANY_FREQUENCY;
   }
   return {
     min: Math.min(...ranges.map((r) => r.min)),

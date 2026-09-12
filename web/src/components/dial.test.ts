@@ -10,6 +10,7 @@ import {
   stepDial,
   tuneTargetHz,
 } from "./dial";
+import { dialId } from "./FrequencyDial";
 
 const WIDE = { min: 0, max: 6e9 };
 
@@ -147,5 +148,17 @@ describe("inTuningRange", () => {
     expect(inTuningRange(range.max, range)).toBe(range.max);
     expect(inTuningRange(10_000_000, range)).toBeNull();
     expect(inTuningRange(2_400_000_000, range)).toBeNull();
+  });
+});
+
+describe("dialId", () => {
+  it("scopes a dial to the node drawing it, so two faces never collide", () => {
+    expect(dialId("radio")).toBe("frequency-dial:radio");
+    expect(dialId("voice")).not.toBe(dialId("radio"));
+  });
+
+  it("names each lane of a multi-stream radio apart", () => {
+    expect(dialId("radio", 1)).toBe("frequency-dial:radio:1");
+    expect(dialId("radio", 0)).toBe(dialId("radio"));
   });
 });
