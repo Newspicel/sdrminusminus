@@ -157,36 +157,34 @@ function FixedForm({ onChoose }: { onChoose: Choose }) {
   const [lon, setLon] = useState(0);
   return (
     <Form
-      className="flex flex-col gap-2"
+      className="flex items-center gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         onChoose({ type: "fixed", lat, lon });
       }}
     >
-      <div className="flex items-center gap-2">
-        <span className={LABEL}>Lat</span>
-        <NumberField
-          label="Latitude in degrees"
-          value={lat}
-          min={-90}
-          max={90}
-          step={0.00001}
-          onCommit={setLat}
-          className="w-24 text-center"
-        />
-        <span className={LABEL}>Lon</span>
-        <NumberField
-          label="Longitude in degrees"
-          value={lon}
-          min={-180}
-          max={180}
-          step={0.00001}
-          onCommit={setLon}
-          className="w-24 text-center"
-        />
-      </div>
-      <Button type="submit" className={`${BTN} self-start`}>
-        Use this place
+      <span className={LABEL}>Lat</span>
+      <NumberField
+        label="Latitude in degrees"
+        value={lat}
+        min={-90}
+        max={90}
+        step={0.00001}
+        onCommit={setLat}
+        className="w-24 text-center"
+      />
+      <span className={LABEL}>Lon</span>
+      <NumberField
+        label="Longitude in degrees"
+        value={lon}
+        min={-180}
+        max={180}
+        step={0.00001}
+        onCommit={setLon}
+        className="w-24 text-center"
+      />
+      <Button type="submit" className={BTN} title="Use these coordinates as the position">
+        Set
       </Button>
     </Form>
   );
