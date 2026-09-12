@@ -163,6 +163,25 @@ fn write_perf_baseline() {
 }
 
 #[test]
+fn the_cw_skimmer_allocates_nothing_while_it_searches_an_empty_band() {
+    let settings = ChannelSettings::default_for("cw_skimmer").expect("settings");
+    let descriptor = sdrmm_channels::descriptors()
+        .into_iter()
+        .find(|descriptor| descriptor.type_id == "cw_skimmer")
+        .expect("descriptor");
+    let rate = descriptor.input_rate_hz;
+    let mut rx =
+        sdrmm_channels::create(ChannelCtx { input_rate: rate }, &settings).expect("receiver");
+    let mut iq = vec![Complex::new(0.0, 0.0); (rate as usize).max(BLOCK)];
+    sdrmm_channels::testgen::add_noise(&mut iq, 0x5EED, NOISE_AMPLITUDE);
+    let mut outputs = ChannelOutputs::default();
+    for _ in 0..4 {
+        drive(rx.as_mut(), &iq, &mut outputs);
+    }
+    assert_no_alloc("cw_skimmer", || drive(rx.as_mut(), &iq, &mut outputs));
+}
+
+#[test]
 fn analog_channels_allocate_nothing_after_warmup_and_exceed_realtime() {
     for type_id in ["am", "nfm", "wfm", "ssb"] {
         let settings = ChannelSettings::default_for(type_id).expect("settings");

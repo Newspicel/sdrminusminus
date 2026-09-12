@@ -34,7 +34,7 @@ use crate::ChannelTx;
 pub fn shift(iq: &mut [Complex<f32>], freq_hz: f64, rate: f64) {
     let step = TAU * freq_hz / rate;
     for (k, s) in iq.iter_mut().enumerate() {
-        let phase = (step * k as f64) as f32;
+        let phase = (step * k as f64).rem_euclid(TAU) as f32;
         *s *= Complex::from_polar(1.0, phase);
     }
 }
@@ -126,7 +126,7 @@ pub fn ook(key: &[f32], tone_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let step = TAU * tone_hz / rate;
     key.iter()
         .enumerate()
-        .map(|(k, &env)| Complex::from_polar(env, (step * k as f64) as f32))
+        .map(|(k, &env)| Complex::from_polar(env, (step * k as f64).rem_euclid(TAU) as f32))
         .collect()
 }
 
@@ -142,6 +142,24 @@ mod tests {
         for s in &iq {
             assert!((s.norm() - 1.0).abs() < 1e-3, "magnitude {}", s.norm());
         }
+    }
+
+    #[test]
+    fn a_long_carrier_holds_its_phase_step_to_the_end() {
+        let rate = 48_000.0;
+        let tone = 3_500.0;
+        let iq = ook(&vec![1.0f32; rate as usize * 6], tone, rate);
+        let step = (TAU * tone / rate) as f32;
+        let worst = iq
+            .windows(2)
+            .map(|pair| {
+                let advance = (pair[1] * pair[0].conj()).arg();
+                (advance - step)
+                    .rem_euclid(TAU as f32)
+                    .min((step - advance).rem_euclid(TAU as f32))
+            })
+            .fold(0.0f32, f32::max);
+        assert!(worst < 1e-4, "phase step drifted by {worst} rad");
     }
 
     #[test]

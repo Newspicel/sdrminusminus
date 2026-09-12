@@ -24,6 +24,7 @@ const WPM_MAX: f32 = 80.0;
 const IDLE_FLUSH_S: f64 = 3.0;
 const MAX_CHUNK_CHARS: usize = 64;
 const MAX_ELEMENTS: u8 = 8;
+const FIT_ALPHA: f32 = 0.15;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "morse".to_owned(),
@@ -139,6 +140,7 @@ pub struct MorseChannel {
     overflow: bool,
     started: bool,
     pending_space: bool,
+    fit: f32,
     text: String,
 }
 
@@ -255,6 +257,7 @@ impl MorseChannel {
                 return;
             }
             self.started = true;
+            self.score_fit(len);
             let dash = len >= DASH_MIN_DOTS * dot;
             if self.elements < MAX_ELEMENTS {
                 self.pattern = self.pattern * 2 + u16::from(dash);
@@ -273,6 +276,14 @@ impl MorseChannel {
         } else {
             self.track(len);
         }
+    }
+
+    fn score_fit(&mut self, len: f32) {
+        let Some(dot) = self.dot else { return };
+        let units = len / dot;
+        let nearest = if units < DASH_MIN_DOTS { 1.0 } else { 3.0 };
+        let error = (units - nearest).abs() / nearest;
+        self.fit += FIT_ALPHA * (error.min(1.0) - self.fit);
     }
 
     fn track(&mut self, observed_dot: f32) {
@@ -322,6 +333,14 @@ impl MorseChannel {
             text: std::mem::take(&mut self.text),
             wpm: self.wpm(),
         }));
+    }
+
+    /// How closely the marks seen so far land on the one-dot and three-dot lengths a hand or a
+    /// keyer produces. Filtered noise sliced into runs lands anywhere, so this separates a station
+    /// from a patch of band that merely crossed the detection threshold.
+    #[must_use]
+    pub fn element_fit(&self) -> f32 {
+        self.fit
     }
 
     fn wpm(&self) -> f32 {
@@ -374,6 +393,7 @@ impl ChannelRx for MorseChannel {
             overflow: false,
             started: false,
             pending_space: false,
+            fit: 1.0,
             text: String::new(),
         })
     }
@@ -562,6 +582,31 @@ mod tests {
         let mut out = ChannelOutputs::default();
         channel(None).process(&iq, &mut out);
         assert!(out.events.is_empty(), "noise decoded to {:?}", out.events);
+    }
+
+    #[test]
+    fn element_fit_separates_a_keyed_carrier_from_sliced_noise() {
+        let mut keyed = channel(None);
+        let mut out = ChannelOutputs::default();
+        keyed.process(&burst(CALL, 20.0, 0.0), &mut out);
+        assert!(
+            keyed.element_fit() < 0.1,
+            "a keyed carrier scored {}",
+            keyed.element_fit()
+        );
+
+        let mut iq = testgen::silence((20.0 * RATE) as usize);
+        testgen::add_noise(&mut iq, 0x0c0f_fee1, 0.3);
+        let mut noisy = channel(None);
+        let mut out = ChannelOutputs::default();
+        for block in iq.chunks(1_024) {
+            noisy.process(block, &mut out);
+        }
+        assert!(
+            noisy.element_fit() > 0.5,
+            "noise scored {}",
+            noisy.element_fit()
+        );
     }
 
     #[test]

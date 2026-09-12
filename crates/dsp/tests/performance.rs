@@ -2,7 +2,7 @@ use std::hint::black_box;
 
 use num_complex::Complex;
 use sdrmm_dsp::{
-    FracResampler, SpectrumAnalyzer,
+    FracResampler, NoiseFloor, SpectrumAnalyzer,
     cfar::{Detection, cluster},
 };
 use sdrmm_test_support::{CountingAlloc, assert_no_alloc, measure_throughput};
@@ -33,6 +33,24 @@ fn spectrum_processing_reuses_scratch_and_meets_the_display_budget() {
     assert!(
         msps > 1.0,
         "spectrum must handle eight 30 Hz displays: {msps} Msamples/s"
+    );
+}
+
+#[test]
+fn the_local_noise_floor_reuses_scratch_and_keeps_up_with_the_skimmer() {
+    let mut noise = NoiseFloor::new(48, 8);
+    let input: Vec<f32> = (0..4096)
+        .map(|bin| -90.0 + (bin % 17) as f32 - (bin % 5) as f32)
+        .collect();
+    let mut floor = Vec::new();
+    noise.estimate(&input, &mut floor);
+    assert_no_alloc("noise floor", || noise.estimate(&input, &mut floor));
+    let msps = measure_throughput(30, input.len() as u64, || {
+        noise.estimate(black_box(&input), black_box(&mut floor))
+    });
+    assert!(
+        msps > 1.0,
+        "a skimmer needs a floor every 2048 samples: {msps} Msamples/s"
     );
 }
 

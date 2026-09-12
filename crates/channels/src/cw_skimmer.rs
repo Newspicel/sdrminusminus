@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Ddc, Decimator, SpectrumAnalyzer, design_lowpass};
+use sdrmm_dsp::{Ddc, Decimator, NoiseFloor, SpectrumAnalyzer, design_lowpass};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, CwSkimmerParams, CwSkimmerSpot,
     DecoderEvent, MorseParams,
@@ -22,6 +22,16 @@ const TRACK_MISSES: u16 = 150;
 const CHANNEL_TAPS: usize = 257;
 const TRACK_TAPS: usize = 129;
 const MAX_SIGNALS: u16 = 128;
+const FLOOR_HALF_BINS: usize = 48;
+const FLOOR_STRIDE_BINS: usize = 8;
+const INIT_HITS: u8 = 6;
+const INIT_FRAMES: u8 = 24;
+const PROVE_CHUNKS: u8 = 3;
+const PROVE_FRAMES: u16 = 240;
+/// Timing this far off the one-dot and three-dot lengths came from a slicer chewing on noise, not
+/// from a hand or a keyer.
+const FIT_MAX: f32 = 0.35;
+const ECHO_MARGIN_DB: f32 = 6.0;
 /// No receiver hears a station this far under the loudest one in its passband; a peak that deep is
 /// the analysis window's own skirt, not another operator.
 const SPUR_RANGE_DB: f32 = 80.0;
@@ -40,6 +50,10 @@ struct Track {
     frequency_hz: f32,
     snr_db: f32,
     misses: u16,
+    age: u16,
+    chunks: u8,
+    proven: bool,
+    held: Vec<CwSkimmerSpot>,
     ddc: Ddc,
     filter: Decimator,
     morse: MorseChannel,
@@ -64,6 +78,10 @@ impl Track {
             frequency_hz: 0.0,
             snr_db: 0.0,
             misses: 0,
+            age: 0,
+            chunks: 0,
+            proven: false,
+            held: Vec::new(),
             ddc: Ddc::new(RATE, MORSE_RATE, 0.0)
                 .map_err(|error| ChannelError::InvalidSettings(error.to_string()))?,
             filter: Decimator::new(&design_lowpass(TRACK_TAPS, 250.0 / MORSE_RATE), 1),
@@ -86,6 +104,10 @@ impl Track {
             frequency_hz,
             snr_db,
             misses: 0,
+            age: 0,
+            chunks: 0,
+            proven: false,
+            held: Vec::with_capacity(usize::from(PROVE_CHUNKS)),
             ddc,
             filter: self.filter.clone(),
             morse: self.morse.clone(),
@@ -95,6 +117,10 @@ impl Track {
         }
     }
 
+    fn spent(&self) -> bool {
+        !self.proven && (self.chunks >= PROVE_CHUNKS || self.age >= PROVE_FRAMES)
+    }
+
     fn tune(&mut self, frequency_hz: f32, snr_db: f32) {
         self.frequency_hz = self.frequency_hz * 0.8 + frequency_hz * 0.2;
         self.snr_db = self.snr_db * 0.8 + snr_db * 0.2;
@@ -102,7 +128,7 @@ impl Track {
         self.misses = 0;
     }
 
-    fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+    fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<CwSkimmerSpot>) {
         self.ddc.process(iq, &mut self.mixed);
         self.filter.process(&self.mixed, &mut self.narrow);
         self.output.reset();
@@ -111,14 +137,35 @@ impl Track {
             let DecoderEvent::Morse(message) = event else {
                 continue;
             };
-            out.events.push(DecoderEvent::CwSkimmer(CwSkimmerSpot {
+            let spot = CwSkimmerSpot {
                 offset_hz: self.frequency_hz,
                 text: message.text,
                 wpm: message.wpm,
                 snr_db: self.snr_db,
-            }));
+            };
+            if self.proven {
+                out.push(spot);
+                continue;
+            }
+            self.chunks = self.chunks.saturating_add(1);
+            if self.morse.element_fit() <= FIT_MAX {
+                self.proven = true;
+                out.append(&mut self.held);
+                out.push(spot);
+            } else if self.chunks >= PROVE_CHUNKS {
+                self.held.clear();
+            } else {
+                self.held.push(spot);
+            }
         }
     }
+}
+
+struct Pending {
+    frequency_hz: f32,
+    snr_db: f32,
+    hits: u8,
+    age: u8,
 }
 
 pub struct CwSkimmerChannel {
@@ -127,10 +174,13 @@ pub struct CwSkimmerChannel {
     max_signals: u16,
     prototype: Track,
     analyzer: SpectrumAnalyzer,
+    noise: NoiseFloor,
     samples: Vec<Complex<f32>>,
     power: Vec<f32>,
     floor: Vec<f32>,
     candidates: Vec<(f32, f32)>,
+    pending: Vec<Pending>,
+    spots: Vec<CwSkimmerSpot>,
     tracks: Vec<Track>,
 }
 
@@ -174,6 +224,35 @@ fn check_params(params: &CwSkimmerParams) -> Result<(), ChannelError> {
     Ok(())
 }
 
+/// A hard-keyed station's key clicks carry its own keying across kilohertz of band, so a weaker
+/// track can decode the same characters in the same instant. Two operators never do.
+fn publish(spots: &mut Vec<CwSkimmerSpot>, out: &mut ChannelOutputs) {
+    spots.sort_unstable_by(|left, right| right.snr_db.total_cmp(&left.snr_db));
+    let mut kept = 0;
+    for index in 0..spots.len() {
+        let echo = spots[..kept].iter().any(|louder| {
+            louder.text == spots[index].text
+                && louder.snr_db - spots[index].snr_db >= ECHO_MARGIN_DB
+        });
+        if !echo {
+            spots.swap(kept, index);
+            kept += 1;
+        }
+    }
+    spots.truncate(kept);
+    for spot in spots.drain(..) {
+        out.events.push(DecoderEvent::CwSkimmer(spot));
+    }
+}
+
+fn pending_limit(max_signals: u16) -> usize {
+    usize::from(max_signals) * 4
+}
+
+fn spot_limit(max_signals: u16) -> usize {
+    usize::from(max_signals) * usize::from(PROVE_CHUNKS + 1)
+}
+
 pub(crate) fn occupied_band(params: &CwSkimmerParams) -> (f64, f64) {
     let half = params.bandwidth_hz / 2.0;
     (-half, half)
@@ -193,6 +272,9 @@ impl CwSkimmerChannel {
         self.threshold_db = params.threshold_db;
         self.max_signals = params.max_signals;
         self.prototype = Track::prototype(params.wpm)?;
+        self.pending.clear();
+        self.pending.reserve(pending_limit(self.max_signals));
+        self.spots.reserve(spot_limit(self.max_signals));
         self.tracks.truncate(usize::from(self.max_signals));
         Ok(())
     }
@@ -200,29 +282,29 @@ impl CwSkimmerChannel {
     fn analyze(&mut self) {
         self.analyzer
             .power_db(&self.samples[..FFT_SIZE], &mut self.power);
-        self.floor.clear();
-        self.floor
-            .extend(self.power.iter().copied().filter(|value| value.is_finite()));
-        let floor = if self.floor.is_empty() {
-            return;
-        } else {
-            let at = self.floor.len() / 4;
-            let (_, value, _) = self.floor.select_nth_unstable_by(at, f32::total_cmp);
-            *value
-        };
-        self.candidates.clear();
         let bin_hz = RATE as f32 / FFT_SIZE as f32;
-        let half_band = self.bandwidth_hz as f32 / 2.0;
-        for index in 2..FFT_SIZE - 2 {
-            let frequency = (index as f32 - FFT_SIZE as f32 / 2.0) * bin_hz;
+        let centre = FFT_SIZE / 2;
+        let half_bins = (self.bandwidth_hz as f32 / 2.0 / bin_hz) as usize;
+        let low = centre.saturating_sub(half_bins).max(2);
+        let high = (centre + half_bins + 1).min(FFT_SIZE - 2);
+        if high <= low {
+            return;
+        }
+        self.noise.estimate(&self.power[low..high], &mut self.floor);
+        if self.floor.len() != high - low {
+            return;
+        }
+        self.candidates.clear();
+        for index in low..high {
             let power = self.power[index];
-            if frequency.abs() <= half_band
-                && power >= floor + self.threshold_db
+            let floor = self.floor[index - low];
+            if power >= floor + self.threshold_db
                 && power > self.power[index - 1]
                 && power >= self.power[index + 1]
                 && power - self.power[index - 2].max(self.power[index + 2]) >= 3.0
             {
-                self.candidates.push((frequency, power - floor));
+                self.candidates
+                    .push(((index as f32 - centre as f32) * bin_hz, power - floor));
             }
         }
         self.candidates
@@ -233,8 +315,13 @@ impl CwSkimmerChannel {
         }
         for track in &mut self.tracks {
             track.misses = track.misses.saturating_add(1);
+            track.age = track.age.saturating_add(1);
         }
-        for &(frequency, snr) in &self.candidates {
+        for entry in &mut self.pending {
+            entry.age = entry.age.saturating_add(1);
+        }
+        for index in 0..self.candidates.len() {
+            let (frequency, snr) = self.candidates[index];
             if let Some(track) = self
                 .tracks
                 .iter_mut()
@@ -248,17 +335,71 @@ impl CwSkimmerChannel {
                 track.tune(frequency, snr);
                 continue;
             }
-            if self.tracks.len() >= usize::from(self.max_signals)
-                || self
-                    .tracks
-                    .iter()
-                    .any(|track| (track.frequency_hz - frequency).abs() < TRACK_SEPARATION_HZ)
+            if self
+                .tracks
+                .iter()
+                .any(|track| (track.frequency_hz - frequency).abs() < TRACK_SEPARATION_HZ)
             {
                 continue;
             }
-            self.tracks.push(self.prototype.spawn(frequency, snr));
+            self.confirm(frequency, snr);
         }
-        self.tracks.retain(|track| track.misses < TRACK_MISSES);
+        self.pending
+            .retain(|entry| entry.hits < INIT_HITS && entry.age < INIT_FRAMES);
+        self.tracks
+            .retain(|track| track.misses < TRACK_MISSES && !track.spent());
+    }
+
+    /// A single frame's peak is as likely to be the noise the threshold lets through as a station,
+    /// so a frequency has to keep showing up before it gets a decoder of its own.
+    fn confirm(&mut self, frequency_hz: f32, snr_db: f32) {
+        let matched = self
+            .pending
+            .iter_mut()
+            .min_by(|left, right| {
+                (left.frequency_hz - frequency_hz)
+                    .abs()
+                    .total_cmp(&(right.frequency_hz - frequency_hz).abs())
+            })
+            .filter(|entry| (entry.frequency_hz - frequency_hz).abs() <= MATCH_HZ);
+        let entry = match matched {
+            Some(entry) => {
+                entry.frequency_hz = entry.frequency_hz * 0.5 + frequency_hz * 0.5;
+                entry.snr_db = entry.snr_db.max(snr_db);
+                entry.hits = entry.hits.saturating_add(1);
+                entry
+            }
+            None => {
+                if self.pending.len() >= pending_limit(self.max_signals) {
+                    return;
+                }
+                self.pending.push(Pending {
+                    frequency_hz,
+                    snr_db,
+                    hits: 1,
+                    age: 0,
+                });
+                return;
+            }
+        };
+        if entry.hits < INIT_HITS {
+            return;
+        }
+        let (frequency_hz, snr_db) = (entry.frequency_hz, entry.snr_db);
+        if self.tracks.len() < usize::from(self.max_signals) {
+            self.tracks.push(self.prototype.spawn(frequency_hz, snr_db));
+            return;
+        }
+        let weakest = self
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| !track.proven && track.snr_db < snr_db)
+            .min_by(|(_, left), (_, right)| left.snr_db.total_cmp(&right.snr_db))
+            .map(|(index, _)| index);
+        if let Some(index) = weakest {
+            self.tracks[index] = self.prototype.spawn(frequency_hz, snr_db);
+        }
     }
 }
 
@@ -277,10 +418,13 @@ impl ChannelRx for CwSkimmerChannel {
             max_signals: params.max_signals,
             prototype: Track::prototype(params.wpm)?,
             analyzer: SpectrumAnalyzer::new(FFT_SIZE),
+            noise: NoiseFloor::new(FLOOR_HALF_BINS, FLOOR_STRIDE_BINS),
             samples: Vec::with_capacity(FFT_SIZE + FFT_HOP),
             power: vec![0.0; FFT_SIZE],
             floor: Vec::with_capacity(FFT_SIZE),
             candidates: Vec::with_capacity(usize::from(params.max_signals) * 4),
+            pending: Vec::with_capacity(pending_limit(params.max_signals)),
+            spots: Vec::with_capacity(spot_limit(params.max_signals)),
             tracks: Vec::with_capacity(usize::from(params.max_signals)),
         })
     }
@@ -293,13 +437,16 @@ impl ChannelRx for CwSkimmerChannel {
 
     fn retuned(&mut self) {
         self.samples.clear();
+        self.pending.clear();
         self.tracks.clear();
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+        self.spots.clear();
         for track in &mut self.tracks {
-            track.process(iq, out);
+            track.process(iq, &mut self.spots);
         }
+        publish(&mut self.spots, out);
         self.samples.extend_from_slice(iq);
         while self.samples.len() >= FFT_SIZE {
             self.analyze();
@@ -352,27 +499,165 @@ mod tests {
             .collect()
     }
 
+    fn loud(mut iq: Vec<Complex<f32>>, snr_db: f32, seed: u32) -> Vec<Complex<f32>> {
+        let gain = 10f32.powf(snr_db / 20.0);
+        for sample in &mut iq {
+            *sample *= gain;
+        }
+        testgen::add_noise(&mut iq, seed, 1.0);
+        iq
+    }
+
     #[test]
-    fn the_windows_own_skirt_is_never_reported_as_a_station() {
-        let iq = testgen::morse::transmission("VVV VVV CQ DE DL1AAA K", 20.0, 3_500.0, RATE);
+    fn a_hard_keyed_station_is_the_only_station_its_key_clicks_produce() {
+        let iq = loud(
+            testgen::morse::hard_keyed(
+                "VVV VVV CQ DE DL1AAA K VVV VVV CQ DE DL1AAA K",
+                20.0,
+                3_500.0,
+                RATE,
+            ),
+            55.0,
+            7,
+        );
         let mut channel = channel(CwSkimmerParams {
             bandwidth_hz: 16_000.0,
-            threshold_db: 8.0,
-            max_signals: 8,
-            wpm: None,
+            ..CwSkimmerParams::default()
         })
         .unwrap();
         let all = spots(&mut channel, &iq);
-        assert!(
-            all.iter().any(|spot| spot.text.contains('V')),
-            "the station itself is still heard"
-        );
-        let deep: Vec<f32> = all
+        let heard: String = all
             .iter()
-            .map(|spot| spot.offset_hz)
-            .filter(|offset| (offset - 3_500.0).abs() > 1_500.0)
+            .filter(|spot| (spot.offset_hz - 3_500.0).abs() <= 150.0)
+            .map(|spot| spot.text.as_str())
             .collect();
-        assert!(deep.is_empty(), "stations that are not there: {deep:?}");
+        assert!(heard.contains("DL1AAA"), "{heard:?}");
+        let elsewhere: Vec<(f32, &str)> = all
+            .iter()
+            .filter(|spot| (spot.offset_hz - 3_500.0).abs() > 150.0)
+            .map(|spot| (spot.offset_hz, spot.text.as_str()))
+            .collect();
+        assert!(
+            elsewhere.is_empty(),
+            "stations that are not there: {elsewhere:?}"
+        );
+    }
+
+    #[test]
+    fn key_clicks_never_become_a_second_station_even_wide_open() {
+        let iq = loud(
+            testgen::morse::hard_keyed(
+                "VVV VVV CQ DE DL1AAA K VVV VVV CQ DE DL1AAA K",
+                20.0,
+                3_500.0,
+                RATE,
+            ),
+            55.0,
+            19,
+        );
+        let mut channel = channel(CwSkimmerParams {
+            bandwidth_hz: 16_000.0,
+            threshold_db: 6.0,
+            ..CwSkimmerParams::default()
+        })
+        .unwrap();
+        let all = spots(&mut channel, &iq);
+        let heard: String = all
+            .iter()
+            .filter(|spot| (spot.offset_hz - 3_500.0).abs() <= 150.0)
+            .map(|spot| spot.text.as_str())
+            .collect();
+        assert!(heard.contains("DL1AAA"), "{heard:?}");
+        let ghosts: Vec<(f32, &str)> = all
+            .iter()
+            .filter(|spot| (spot.offset_hz - 3_500.0).abs() > 150.0)
+            .map(|spot| (spot.offset_hz, spot.text.as_str()))
+            .collect();
+        assert!(
+            ghosts.is_empty(),
+            "key clicks reported as stations: {ghosts:?}"
+        );
+    }
+
+    #[test]
+    fn two_stations_sending_the_same_words_are_both_reported() {
+        let text = "CQ DE TEST K CQ DE TEST K";
+        let mut iq = testgen::morse::transmission(text, 20.0, -2_000.0, RATE);
+        for (destination, source) in iq
+            .iter_mut()
+            .zip(testgen::morse::transmission(text, 20.0, 2_000.0, RATE))
+        {
+            *destination += source;
+        }
+        let iq = loud(iq, 30.0, 5);
+        let mut channel = channel(CwSkimmerParams {
+            bandwidth_hz: 16_000.0,
+            ..CwSkimmerParams::default()
+        })
+        .unwrap();
+        let all = spots(&mut channel, &iq);
+        for offset in [-2_000.0f32, 2_000.0] {
+            let heard: String = all
+                .iter()
+                .filter(|spot| (spot.offset_hz - offset).abs() <= 150.0)
+                .map(|spot| spot.text.as_str())
+                .collect();
+            assert!(heard.contains("TEST"), "at {offset} Hz: {heard:?}");
+        }
+    }
+
+    #[test]
+    fn a_real_station_takes_the_slot_a_noise_track_is_sitting_on() {
+        let mut iq = loud(
+            testgen::morse::transmission("CQ DE G4BBB K", 22.0, 2_000.0, RATE),
+            25.0,
+            5,
+        );
+        iq.extend(testgen::silence(RATE as usize));
+        let mut channel = channel(CwSkimmerParams {
+            bandwidth_hz: 16_000.0,
+            threshold_db: 3.0,
+            max_signals: 1,
+            wpm: None,
+        })
+        .unwrap();
+        let heard: String = spots(&mut channel, &iq)
+            .iter()
+            .map(|spot| spot.text.as_str())
+            .collect();
+        assert!(heard.contains("G4BBB"), "{heard:?}");
+    }
+
+    #[test]
+    fn an_empty_band_is_reported_empty_even_at_the_loosest_threshold() {
+        let iq = loud(vec![Complex::new(0.0, 0.0); RATE as usize * 20], 0.0, 3);
+        let mut channel = channel(CwSkimmerParams {
+            threshold_db: 3.0,
+            ..CwSkimmerParams::default()
+        })
+        .unwrap();
+        let all = spots(&mut channel, &iq);
+        assert!(all.is_empty(), "noise decoded as {all:?}");
+    }
+
+    #[test]
+    fn a_station_that_starts_after_the_band_was_quiet_still_gets_a_decoder() {
+        let mut iq = vec![Complex::new(0.0, 0.0); RATE as usize * 10];
+        iq.extend(testgen::morse::transmission(
+            "CQ DE G4BBB K CQ DE G4BBB K",
+            22.0,
+            2_000.0,
+            RATE,
+        ));
+        iq.extend(testgen::silence(RATE as usize * 2));
+        let iq = loud(iq, 25.0, 11);
+        let mut channel = channel(CwSkimmerParams::default()).unwrap();
+        let heard: String = spots(&mut channel, &iq)
+            .iter()
+            .filter(|spot| (spot.offset_hz - 2_000.0).abs() <= 150.0)
+            .map(|spot| spot.text.as_str())
+            .collect();
+        assert!(heard.contains("G4BBB"), "{heard:?}");
     }
 
     #[test]

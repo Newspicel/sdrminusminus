@@ -56,6 +56,91 @@ impl SpectrumAnalyzer {
     }
 }
 
+/// A noise floor measured from each bin's own neighbourhood rather than from one figure for the
+/// whole span.
+///
+/// A global percentile is only the noise floor when the span is mostly noise. One strong signal
+/// drags a wide skirt of its own keying energy across the span, and every bin of that skirt then
+/// stands far above the global figure even though nothing is transmitting there.
+pub struct NoiseFloor {
+    half: usize,
+    stride: usize,
+    cells: Vec<f32>,
+    knots: Vec<f32>,
+}
+
+/// The median of exponentially distributed power sits `ln 2` below the mean, and a detection
+/// threshold quoted in dB over the noise is understood against the mean.
+const MEDIAN_TO_MEAN_DB: f32 = 1.591_745_2;
+
+impl NoiseFloor {
+    #[must_use]
+    pub fn new(half: usize, stride: usize) -> Self {
+        let half = half.max(1);
+        Self {
+            half,
+            stride: stride.max(1),
+            cells: Vec::with_capacity(2 * half + 1),
+            knots: Vec::new(),
+        }
+    }
+
+    /// Writes the estimated mean noise power in dB for every bin of `power_db`.
+    pub fn estimate(&mut self, power_db: &[f32], out: &mut Vec<f32>) {
+        out.clear();
+        if power_db.is_empty() {
+            return;
+        }
+        out.resize(power_db.len(), f32::NEG_INFINITY);
+        let last = power_db.len() - 1;
+        self.knots.clear();
+        let mut centre = 0;
+        while centre < last {
+            let value = self.median_at(power_db, centre);
+            self.knots.push(value);
+            centre += self.stride;
+        }
+        let value = self.median_at(power_db, last);
+        self.knots.push(value);
+        let spans = self.knots.len() - 1;
+        if spans == 0 {
+            out.fill(self.knots[0]);
+            return;
+        }
+        for span in 0..spans {
+            let start = span * self.stride;
+            let end = if span + 1 == spans {
+                last
+            } else {
+                (span + 1) * self.stride
+            };
+            let (from, to) = (self.knots[span], self.knots[span + 1]);
+            let width = (end - start) as f32;
+            for (offset, slot) in out[start..=end].iter_mut().enumerate() {
+                *slot = from + (to - from) * offset as f32 / width;
+            }
+        }
+    }
+
+    fn median_at(&mut self, power_db: &[f32], centre: usize) -> f32 {
+        let low = centre.saturating_sub(self.half);
+        let high = (centre + self.half + 1).min(power_db.len());
+        self.cells.clear();
+        self.cells.extend(
+            power_db[low..high]
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite()),
+        );
+        if self.cells.is_empty() {
+            return f32::NEG_INFINITY;
+        }
+        let at = self.cells.len() / 2;
+        let (_, median, _) = self.cells.select_nth_unstable_by(at, f32::total_cmp);
+        *median + MEDIAN_TO_MEAN_DB
+    }
+}
+
 pub fn decimate_max(db: &[f32], out: &mut [f32]) {
     let bins = out.len();
     assert!(bins > 0, "need at least one output bin");
@@ -237,6 +322,68 @@ mod tests {
             let (min, max) = adaptive_db_window(&bins, &mut scratch);
             assert!(max > min, "degenerate window {min}..{max}");
         }
+    }
+
+    fn exponential_power_db(len: usize, mean_db: f32, seed: u64) -> Vec<f32> {
+        let mut state = seed | 1;
+        (0..len)
+            .map(|_| {
+                state ^= state >> 12;
+                state ^= state << 25;
+                state ^= state >> 27;
+                let unit = ((state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 + 0.5)
+                    / (1u32 << 24) as f32;
+                mean_db + 10.0 * (-unit.ln()).log10()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_local_floor_reads_the_mean_power_of_noise() {
+        for mean_db in [-90.0f32, -20.0, 12.0] {
+            let power = exponential_power_db(4_096, mean_db, 0x5EED);
+            let mut floor = Vec::new();
+            NoiseFloor::new(48, 8).estimate(&power, &mut floor);
+            assert_eq!(floor.len(), power.len());
+            let worst = floor
+                .iter()
+                .map(|value| (value - mean_db).abs())
+                .fold(0.0f32, f32::max);
+            assert!(worst < 2.0, "mean {mean_db} dB read off by {worst} dB");
+        }
+    }
+
+    #[test]
+    fn a_carrier_does_not_lift_the_floor_it_stands_on() {
+        let mut power = exponential_power_db(4_096, -80.0, 0x1234);
+        let mut plain = Vec::new();
+        NoiseFloor::new(48, 8).estimate(&power, &mut plain);
+        for cell in &mut power[2_046..2_050] {
+            *cell = 0.0;
+        }
+        let mut lifted = Vec::new();
+        NoiseFloor::new(48, 8).estimate(&power, &mut lifted);
+        let worst = plain
+            .iter()
+            .zip(&lifted)
+            .map(|(before, after)| (after - before).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst < 1.0,
+            "an 80 dB carrier moved the floor by {worst} dB"
+        );
+    }
+
+    #[test]
+    fn the_floor_follows_a_raised_shoulder_instead_of_averaging_it_away() {
+        let mut power = exponential_power_db(4_096, -80.0, 0xABCD);
+        for cell in &mut power[2_048..3_072] {
+            *cell += 30.0;
+        }
+        let mut floor = Vec::new();
+        NoiseFloor::new(48, 8).estimate(&power, &mut floor);
+        assert!((floor[2_600] - -50.0).abs() < 2.0, "{}", floor[2_600]);
+        assert!((floor[1_000] - -80.0).abs() < 2.0, "{}", floor[1_000]);
     }
 
     #[test]

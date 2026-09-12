@@ -109,6 +109,11 @@ pub fn transmission(text: &str, wpm: f32, tone_hz: f64, rate: f64) -> Vec<Comple
     ook(&shape_edges(&key, wpm, rate), tone_hz, rate)
 }
 
+#[must_use]
+pub fn hard_keyed(text: &str, wpm: f32, tone_hz: f64, rate: f64) -> Vec<Complex<f32>> {
+    ook(&envelope(text, wpm, rate), tone_hz, rate)
+}
+
 fn shape_edges(key: &[f32], wpm: f32, rate: f64) -> Vec<f32> {
     let dot = 1.2 * rate / f64::from(wpm);
     let taps = ((RISE_S * rate).min(dot / 4.0).round() as usize).max(1) | 1;
