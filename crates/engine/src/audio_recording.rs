@@ -13,9 +13,8 @@ use sdrmm_recorder::{AUDIO_SUFFIX, AudioWriter};
 use crate::{
     EngineError,
     audio::{PcmBlock, PcmPayload},
+    recording::queue_depth,
 };
-
-const AUDIO_REC_CHANNEL_CAP: usize = 64;
 
 #[derive(Debug, Default)]
 pub(crate) struct AudioRecordingShared {
@@ -78,12 +77,14 @@ impl AudioRecorderTap {
     }
 }
 
-pub(crate) fn create_tap() -> (
+pub(crate) fn create_tap(
+    device_rate: f64,
+) -> (
     AudioRecorderTap,
     mpsc::Receiver<PcmBlock>,
     Arc<AudioRecordingShared>,
 ) {
-    let (tx, rx) = mpsc::sync_channel(AUDIO_REC_CHANNEL_CAP);
+    let (tx, rx) = mpsc::sync_channel(queue_depth(device_rate));
     let shared = Arc::new(AudioRecordingShared::default());
     (
         AudioRecorderTap {
@@ -217,7 +218,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("rec.wav");
         let writer = AudioWriter::create(&path, RATE, 1).expect("create");
-        let (tap, blocks, shared) = create_tap();
+        let (tap, blocks, shared) = create_tap(48_000.0);
         let handle = spawn_writer(writer, blocks, shared.clone()).expect("spawn");
 
         assert!(tap.push(samples(0, 1, 480)));
@@ -237,7 +238,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("layout.wav");
         let writer = AudioWriter::create(&path, RATE, 1).expect("create");
-        let (tap, blocks, shared) = create_tap();
+        let (tap, blocks, shared) = create_tap(48_000.0);
         let handle = spawn_writer(writer, blocks, shared.clone()).expect("spawn");
 
         assert!(tap.push(samples(0, 1, 480)));
@@ -262,7 +263,7 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("gap.wav");
         let writer = AudioWriter::create(&path, RATE, 1).expect("create");
-        let (tap, blocks, shared) = create_tap();
+        let (tap, blocks, shared) = create_tap(48_000.0);
         let handle = spawn_writer(writer, blocks, shared.clone()).expect("spawn");
 
         assert!(tap.push(samples(0, 1, 480)));
@@ -276,8 +277,8 @@ mod tests {
 
     #[test]
     fn a_full_queue_surfaces_overflow_instead_of_dropping_audio() {
-        let (tap, _blocks, shared) = create_tap();
-        for i in 0..AUDIO_REC_CHANNEL_CAP as u64 {
+        let (tap, _blocks, shared) = create_tap(48_000.0);
+        for i in 0..queue_depth(48_000.0) as u64 {
             assert!(tap.push(samples(i * 480, 1, 480)));
         }
         assert!(!tap.push(samples(0, 1, 480)));
@@ -286,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_dead_writer_surfaces_instead_of_dropping_audio() {
-        let (tap, blocks, shared) = create_tap();
+        let (tap, blocks, shared) = create_tap(48_000.0);
         drop(blocks);
         assert!(!tap.push(samples(0, 1, 480)));
         assert_eq!(

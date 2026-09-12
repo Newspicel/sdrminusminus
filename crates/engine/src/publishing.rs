@@ -316,8 +316,8 @@ mod tests {
 
     #[test]
     fn recording_publication_failures_are_reported_without_allocating() {
-        let (audio, _audio_blocks, audio_state) = crate::audio_recording::create_tap();
-        let (iq, _position, _iq_blocks, iq_state) = crate::recording::create_tap();
+        let (audio, _audio_blocks, audio_state) = crate::audio_recording::create_tap(48_000.0);
+        let (iq, _position, _iq_blocks, iq_state) = crate::recording::create_tap(48_000.0);
         assert_no_alloc("recording failure reporting", || {
             audio.publication_failed();
             iq.publication_failed();

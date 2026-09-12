@@ -28,7 +28,7 @@ use crate::{
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
 };
 
-const RING_SECONDS: f64 = 0.1;
+pub(crate) const RING_SECONDS: f64 = 0.1;
 const LIVE_MAX_AGE: Duration = Duration::from_millis(100);
 const RING_MIN: usize = 1 << 17;
 const RING_MAX: usize = 1 << 23;

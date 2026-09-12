@@ -59,12 +59,11 @@ impl Engine {
                 &hw,
             )?;
             let stem = sigmf.stem().to_path_buf();
-            let (tap, position, messages, shared) = recording::create_tap();
+            let (tap, position, messages, shared) = recording::create_tap(rate);
             let publisher =
-                crate::publishing::recording::RecordingPublisher::new(crate::runtime::DSP_BLOCK)
-                    .map_err(|error| {
-                        EngineError::RecordingIo(format!("start recording publisher: {error}"))
-                    })?;
+                crate::publishing::recording::RecordingPublisher::new(rate).map_err(|error| {
+                    EngineError::RecordingIo(format!("start recording publisher: {error}"))
+                })?;
             let writer = recording::spawn_writer(sigmf, messages, shared.clone())?;
 
             let (aborted, patch_in_flight) = {
@@ -173,7 +172,7 @@ impl Engine {
         ch: u32,
     ) -> Result<AudioRecordingStatus, EngineError> {
         loop {
-            let (stream, channels) = {
+            let (stream, channels, device_rate) = {
                 let inner = self.lock();
                 let state = inner
                     .device_sets
@@ -203,6 +202,7 @@ impl Engine {
                 (
                     channel.stream,
                     sdrmm_channels::audio_channels(&channel.settings.params),
+                    sample_rate_of(&state.settings),
                 )
             };
             let Some(dir) = self.audio_recordings_dir() else {
@@ -227,7 +227,7 @@ impl Engine {
                 .and_then(|name| name.to_str())
                 .unwrap_or_default()
                 .to_owned();
-            let (tap, blocks, shared) = audio_recording::create_tap();
+            let (tap, blocks, shared) = audio_recording::create_tap(device_rate);
             let thread = audio_recording::spawn_writer(writer, blocks, shared.clone())?;
 
             let committed = {

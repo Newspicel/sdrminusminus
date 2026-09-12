@@ -1,4 +1,4 @@
-mod capture;
+pub(crate) mod capture;
 mod channel;
 mod command;
 mod frontend;

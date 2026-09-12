@@ -73,6 +73,7 @@ impl ChannelBasebandRecording {
 pub(crate) struct BasebandPlan {
     stream: u32,
     sample_rate: f64,
+    device_rate: f64,
     center_hz: f64,
     hardware: String,
 }
@@ -116,9 +117,11 @@ impl DeviceSetState {
             .for_stream(channel.stream, &self.capabilities.per_stream)
             .center_hz
             .unwrap_or(DEFAULT_CENTER_HZ);
+        let device_rate = sample_rate_of(&self.settings);
         Ok(BasebandPlan {
             stream: channel.stream,
-            sample_rate: channel_input_rate(&descriptor, sample_rate_of(&self.settings)),
+            sample_rate: channel_input_rate(&descriptor, device_rate),
+            device_rate,
             center_hz: center + channel.settings.offset_hz,
             hardware: self.info.label.clone(),
         })
@@ -197,7 +200,7 @@ impl Engine {
                 &plan.hardware,
             )?;
             let stem = sigmf.stem().to_path_buf();
-            let (tap, position, messages, shared) = recording::create_tap();
+            let (tap, position, messages, shared) = recording::create_tap(plan.device_rate);
             drop(position);
             let writer = recording::spawn_writer(sigmf, messages, shared.clone())?;
 

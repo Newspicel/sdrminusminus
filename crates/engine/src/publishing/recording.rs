@@ -1,7 +1,10 @@
 use num_complex::Complex;
 
 use super::Publisher;
-use crate::recording::RecorderTap;
+use crate::{
+    recording::{RecorderTap, queue_depth},
+    runtime::DSP_BLOCK,
+};
 
 struct RecordingPacket {
     samples: Vec<Complex<f32>>,
@@ -13,12 +16,12 @@ struct RecordingPacket {
 pub(crate) struct RecordingPublisher(Publisher<RecordingPacket>);
 
 impl RecordingPublisher {
-    pub(crate) fn new(capacity: usize) -> std::io::Result<Self> {
+    pub(crate) fn new(sample_rate: f64) -> std::io::Result<Self> {
         Publisher::new(
             "sdrmm-iq-publish",
-            64,
+            queue_depth(sample_rate),
             || RecordingPacket {
-                samples: Vec::with_capacity(capacity),
+                samples: Vec::with_capacity(DSP_BLOCK),
                 start: 0,
                 center: 0.0,
                 recorder: None,

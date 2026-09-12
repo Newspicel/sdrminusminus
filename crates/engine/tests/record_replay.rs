@@ -50,6 +50,10 @@ async fn record_siggen(engine: &Engine, rate: f64, min_samples: u64) -> Finalize
             break;
         }
         assert!(
+            recording.as_ref().is_none_or(|r| r.error.is_none()),
+            "recording failed at {recording:?}"
+        );
+        assert!(
             Instant::now() < deadline,
             "recording stalled at {recording:?}"
         );

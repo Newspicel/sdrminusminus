@@ -12,9 +12,16 @@ use num_complex::Complex;
 use sdrmm_recorder::{SigmfError, SigmfWriter, meta_path};
 use sdrmm_wire::PositionFix;
 
-use crate::EngineError;
+use crate::{EngineError, runtime::DSP_BLOCK};
 
-const REC_CHANNEL_CAP: usize = 64;
+const REC_QUEUE_SECONDS: f64 = 0.5;
+const REC_QUEUE_MIN_BLOCKS: usize = 64;
+const REC_QUEUE_MAX_BLOCKS: usize = 1 << 11;
+
+pub(crate) fn queue_depth(sample_rate: f64) -> usize {
+    ((sample_rate * REC_QUEUE_SECONDS / DSP_BLOCK as f64) as usize)
+        .clamp(REC_QUEUE_MIN_BLOCKS, REC_QUEUE_MAX_BLOCKS)
+}
 
 #[derive(Clone, Debug)]
 pub struct FinalizedRecording {
@@ -134,13 +141,15 @@ impl RecorderTap {
     }
 }
 
-pub(crate) fn create_tap() -> (
+pub(crate) fn create_tap(
+    sample_rate: f64,
+) -> (
     RecorderTap,
     RecordingPosition,
     mpsc::Receiver<RecMessage>,
     Arc<RecordingShared>,
 ) {
-    let (tx, rx) = mpsc::sync_channel(REC_CHANNEL_CAP);
+    let (tx, rx) = mpsc::sync_channel(queue_depth(sample_rate));
     let shared = Arc::new(RecordingShared::default());
     let position = RecordingPosition { tx: tx.clone() };
     (
@@ -245,7 +254,7 @@ pub(crate) fn create_writer(
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_recorder::{SigmfReader, data_path};
+    use sdrmm_recorder::{BYTES_PER_SAMPLE, SigmfReader, data_path};
     use tempfile::TempDir;
 
     use super::*;
@@ -261,7 +270,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("rec");
         let writer = SigmfWriter::create(&stem, 48_000.0, 100_000_000.0, "hw").unwrap();
-        let (tap, position, messages, shared) = create_tap();
+        let (tap, position, messages, shared) = create_tap(48_000.0);
         let handle = spawn_writer(writer, messages, shared.clone()).unwrap();
 
         let samples = block(16);
@@ -288,7 +297,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("mobile");
         let writer = SigmfWriter::create(&stem, 48_000.0, 100_000_000.0, "hw").unwrap();
-        let (tap, position, messages, shared) = create_tap();
+        let (tap, position, messages, shared) = create_tap(48_000.0);
         let handle = spawn_writer(writer, messages, shared).unwrap();
         position
             .update(Some(PositionFix {
@@ -319,7 +328,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("ordered-position");
         let writer = SigmfWriter::create(&stem, 48_000.0, 100_000_000.0, "hw").unwrap();
-        let (tap, position, messages, shared) = create_tap();
+        let (tap, position, messages, shared) = create_tap(48_000.0);
         let handle = spawn_writer(writer, messages, shared).unwrap();
         assert!(tap.push(&block(16), 0, 100_000_000.0));
         position
@@ -354,19 +363,68 @@ mod tests {
 
     #[test]
     fn full_queue_surfaces_overflow_instead_of_dropping() {
-        let (tap, position, _messages, shared) = create_tap();
+        let (tap, position, _messages, shared) = create_tap(48_000.0);
         let samples = block(4);
-        for i in 0..REC_CHANNEL_CAP as u64 {
+        for i in 0..REC_QUEUE_MIN_BLOCKS as u64 {
             assert!(tap.push(&samples, i * 4, 1_000_000.0));
         }
         assert_eq!(position.update(None), Err(PositionUpdateError::Full));
-        assert!(!tap.push(&samples, REC_CHANNEL_CAP as u64 * 4, 1_000_000.0));
+        assert!(!tap.push(&samples, REC_QUEUE_MIN_BLOCKS as u64 * 4, 1_000_000.0));
         assert!(shared.error().unwrap().contains("overflow"));
     }
 
     #[test]
+    fn a_stalled_writer_absorbs_half_a_second_of_iq_before_it_overflows() {
+        let rate = 2_400_000.0;
+        let (tap, position, _messages, shared) = create_tap(rate);
+        drop(position);
+        let samples = block(DSP_BLOCK);
+        let mut absorbed = 0u64;
+        while tap.push(&samples, absorbed, 1_000_000.0) {
+            absorbed += DSP_BLOCK as u64;
+        }
+        assert_eq!(absorbed, (queue_depth(rate) * DSP_BLOCK) as u64);
+        assert!(
+            absorbed as f64 / rate > 0.49,
+            "a writer that never drains took only {} s of IQ",
+            absorbed as f64 / rate
+        );
+        assert!(shared.error().unwrap().contains("overflow"));
+    }
+
+    #[test]
+    fn every_rate_queues_more_slack_than_the_capture_ring_holds() {
+        for rate in [48_000.0, 250_000.0, 2_400_000.0, 10_000_000.0, 20_000_000.0] {
+            let seconds = (queue_depth(rate) * DSP_BLOCK) as f64 / rate;
+            assert!(
+                seconds >= crate::runtime::capture::RING_SECONDS,
+                "{rate} S/s left only {seconds} s of queue"
+            );
+        }
+        assert_eq!(
+            queue_depth(2_400_000.0),
+            (2_400_000.0 * REC_QUEUE_SECONDS / DSP_BLOCK as f64) as usize
+        );
+    }
+
+    #[test]
+    fn a_rate_that_is_not_a_number_still_sizes_a_queue() {
+        assert_eq!(queue_depth(48_000.0), REC_QUEUE_MIN_BLOCKS);
+        assert_eq!(queue_depth(0.0), REC_QUEUE_MIN_BLOCKS);
+        assert_eq!(queue_depth(f64::NAN), REC_QUEUE_MIN_BLOCKS);
+        assert_eq!(queue_depth(-1.0), REC_QUEUE_MIN_BLOCKS);
+        assert_eq!(queue_depth(f64::INFINITY), REC_QUEUE_MAX_BLOCKS);
+    }
+
+    #[test]
+    fn the_deepest_queue_stays_inside_its_memory_budget() {
+        let bytes = REC_QUEUE_MAX_BLOCKS * DSP_BLOCK * BYTES_PER_SAMPLE as usize;
+        assert!(bytes <= 32 << 20, "{bytes} bytes of queued IQ");
+    }
+
+    #[test]
     fn dead_writer_surfaces_instead_of_dropping() {
-        let (tap, position, messages, shared) = create_tap();
+        let (tap, position, messages, shared) = create_tap(48_000.0);
         drop(position);
         drop(messages);
         assert!(!tap.push(&block(4), 0, 1_000_000.0));
