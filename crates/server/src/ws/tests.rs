@@ -123,8 +123,7 @@ async fn next_frame_header(ws: &mut WsClient) -> (u8, u16) {
 fn nfm_channel(offset_hz: f64) -> ChannelSettings {
     ChannelSettings {
         frequency_hz: 100_000_000.0 + offset_hz,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Nfm(NfmParams::default()),
         audio: Default::default(),
     }
@@ -133,8 +132,7 @@ fn nfm_channel(offset_hz: f64) -> ChannelSettings {
 fn atv_channel() -> ChannelSettings {
     ChannelSettings {
         frequency_hz: 100_000_000.0,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Atv(sdrmm_wire::AtvParams::default()),
         audio: Default::default(),
     }

@@ -4,6 +4,8 @@ import type {
   ChannelParams,
   ChannelSettings,
   NotchSettings,
+  ParamLimit,
+  Squelch,
 } from "../lib/types";
 
 export type ChannelTypeId = ChannelParams["type"];
@@ -19,11 +21,74 @@ export function mergeChannelSettings(
 ): ChannelSettings {
   return {
     frequency_hz: edit.frequency_hz ?? current.frequency_hz,
-    squelch_db: edit.squelch_db !== undefined ? edit.squelch_db : (current.squelch_db ?? null),
-    squelch_auto_db:
-      edit.squelch_auto_db !== undefined ? edit.squelch_auto_db : (current.squelch_auto_db ?? null),
+    squelch: edit.squelch ?? current.squelch ?? SQUELCH_OFF,
     params: edit.params ?? current.params,
     audio: edit.audio ?? current.audio ?? {},
+  };
+}
+
+export const SQUELCH_RANGE_DB = { min: -120, max: 0 } as const;
+
+export const DEFAULT_SQUELCH_DB = -60;
+
+export type SquelchMode = Squelch["mode"];
+
+export const SQUELCH_OFF: Squelch = { mode: "off" };
+
+export function squelchMode(squelch: Squelch | undefined): SquelchMode {
+  return squelch?.mode ?? "off";
+}
+
+export function squelchLevelDb(squelch: Squelch | undefined): number | null {
+  return squelch?.mode === "manual" ? squelch.level_db : null;
+}
+
+export function squelchMarginDb(squelch: Squelch | undefined): number | null {
+  return squelch?.mode === "auto" ? squelch.margin_db : null;
+}
+
+export function squelchAt(mode: SquelchMode, held: { levelDb: number; marginDb: number }): Squelch {
+  switch (mode) {
+    case "off":
+      return SQUELCH_OFF;
+    case "manual":
+      return { mode: "manual", level_db: held.levelDb };
+    case "auto":
+      return { mode: "auto", margin_db: held.marginDb };
+  }
+}
+
+export function nudgedSquelch(squelch: Squelch | undefined, deltaDb: number): Squelch {
+  if (squelch?.mode === "auto") {
+    const { min, max } = AUDIO_LIMITS.squelchAutoMarginDb;
+    return { mode: "auto", margin_db: Math.min(max, Math.max(min, squelch.margin_db + deltaDb)) };
+  }
+  const level = (squelchLevelDb(squelch) ?? DEFAULT_SQUELCH_DB) + deltaDb;
+  return {
+    mode: "manual",
+    level_db: Math.min(SQUELCH_RANGE_DB.max, Math.max(SQUELCH_RANGE_DB.min, level)),
+  };
+}
+
+export interface NumberLimit {
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export function limitOf(limits: readonly ParamLimit[] | undefined, name: string): NumberLimit {
+  const found = limits?.find((limit) => limit.name === name);
+  if (found === undefined) {
+    return {};
+  }
+  return { min: found.min, max: found.max, step: found.step ?? undefined };
+}
+
+export function scaledLimit(limit: NumberLimit, factor: number): NumberLimit {
+  return {
+    min: limit.min === undefined ? undefined : limit.min * factor,
+    max: limit.max === undefined ? undefined : limit.max * factor,
+    step: limit.step === undefined ? undefined : limit.step * factor,
   };
 }
 
@@ -169,7 +234,10 @@ export function rateRange(descriptor: ChannelDescriptor): { min: number; max: nu
   if (descriptor.native_rate_max_hz != null) {
     return { min: descriptor.input_rate_hz, max: descriptor.native_rate_max_hz };
   }
-  return descriptor.exact_rate_only
-    ? { min: descriptor.input_rate_hz, max: descriptor.input_rate_hz }
+  if (descriptor.exact_rate_only) {
+    return { min: descriptor.input_rate_hz, max: descriptor.input_rate_hz };
+  }
+  return descriptor.input_rate_hz > 0
+    ? { min: descriptor.input_rate_hz, max: Number.POSITIVE_INFINITY }
     : null;
 }

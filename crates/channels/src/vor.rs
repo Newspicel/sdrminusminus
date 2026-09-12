@@ -2,8 +2,7 @@ use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, MAX_NAVAID_REPORT_MS,
-    MIN_NAVAID_REPORT_MS, VorParams, VorReading,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, VorParams, VorReading,
 };
 
 use crate::{
@@ -52,32 +51,10 @@ fn params(settings: &ChannelSettings) -> Result<&VorParams, ChannelError> {
 }
 
 fn check_params(params: &VorParams) -> Result<(), ChannelError> {
-    if !(MIN_NAVAID_REPORT_MS..=MAX_NAVAID_REPORT_MS).contains(&params.report_ms) {
-        return Err(ChannelError::InvalidSettings(format!(
-            "VOR report interval must be {MIN_NAVAID_REPORT_MS}–{MAX_NAVAID_REPORT_MS} ms, got {}",
-            params.report_ms
-        )));
-    }
-    if !params.magnetic_declination_deg.is_finite()
-        || !(-180.0..=180.0).contains(&params.magnetic_declination_deg)
-    {
-        return Err(ChannelError::InvalidSettings(format!(
-            "VOR magnetic declination must be -180–180 degrees, got {}",
-            params.magnetic_declination_deg
-        )));
-    }
     match (params.station_lat, params.station_lon) {
-        (None, None) => Ok(()),
-        (Some(lat), Some(lon))
-            if lat.is_finite()
-                && lon.is_finite()
-                && (-90.0..=90.0).contains(&lat)
-                && (-180.0..=180.0).contains(&lon) =>
-        {
-            Ok(())
-        }
+        (None, None) | (Some(_), Some(_)) => Ok(()),
         _ => Err(ChannelError::InvalidSettings(
-            "VOR station latitude and longitude must both be valid".to_owned(),
+            "VOR station latitude and longitude must be given together".to_owned(),
         )),
     }
 }

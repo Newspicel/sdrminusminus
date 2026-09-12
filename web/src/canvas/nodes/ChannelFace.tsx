@@ -1,19 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { Button } from "../../components/BaseControls";
-import { ChannelControls } from "../../components/ChannelControls";
+import { ChannelControls, ChannelDial } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
 import {
   mergeChannelSettings,
   radioWindowHz,
   rateMismatch,
   reachesHz,
+  squelchLevelDb,
 } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { ANY_FREQUENCY, tuningRange } from "../../components/dial";
 import { dialId } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
-import { SettingRow, Settings } from "../../components/Settings";
+import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
 import { useLevelStore } from "../../lib/levels";
 import type { DeviceSet, PatchNode } from "../../lib/types";
@@ -29,11 +31,12 @@ import {
   channelBinding,
   channelBindingAction,
   channelBindingHint,
+  channelBindingStatus,
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
 import { tuneDelta } from "./deviceNode";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -96,8 +99,16 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     }));
   };
 
+  const status = faceStatus({
+    live: live !== null,
+    binding,
+    unreachable,
+    wrongRate: wantedRate !== null,
+  });
+  const action = live === null ? channelBindingAction(binding) : null;
+
   return (
-    <NodeShell node={node} title={name} category="channel">
+    <NodeShell node={node} title={name} category="channel" subtitle={status}>
       <FaceBody>
         {wantedRate !== null && set !== null && (
           <RateMismatch name={name} set={set} wanted={wantedRate} />
@@ -105,40 +116,110 @@ export function ChannelFace({ node }: { node: PatchNode }) {
         {unreachable && set !== null && frequencyHz !== null && (
           <OutOfBand set={set} stream={source?.stream ?? 0} frequencyHz={frequencyHz} />
         )}
-        <div className="px-2 pt-2">
-          <LevelMeter
-            level={channel === null ? undefined : levels?.[channel.id]}
-            squelchDb={settings?.squelch_db}
-          />
-        </div>
+        {settings !== null && (
+          <div className="@container flex flex-col gap-1.5 border-b border-line p-2">
+            <ChannelDial
+              hz={settings.frequency_hz}
+              descriptor={descriptor}
+              spanHz={set?.settings.sample_rate ?? null}
+              centerHz={centerHz}
+              range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
+              dialId={dialId(node.id)}
+              wheelTunes={workspace.selected === node.id}
+              onTune={(frequency_hz) => onEdit({ frequency_hz })}
+            />
+            {live !== null && (
+              <LevelMeter level={levels?.[live.id]} squelchDb={squelchLevelDb(settings.squelch)} />
+            )}
+          </div>
+        )}
         {settings !== null && (
           <ChannelControls
             settings={settings}
             descriptor={descriptor}
-            spanHz={set?.settings.sample_rate ?? null}
-            centerHz={centerHz}
-            range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
-            dialId={dialId(node.id)}
-            wheelTunes={workspace.selected === node.id}
             onEdit={onEdit}
+            extra={
+              keepsCalls(descriptor) && (
+                <SettingRow
+                  label="Record calls"
+                  title="Save each call the decoder hears as its own audio file"
+                >
+                  <Checkbox
+                    label="Record calls"
+                    checked={node.data.record_calls ?? false}
+                    onChange={editRecording}
+                  />
+                </SettingRow>
+              )
+            }
           />
         )}
-        {keepsCalls(descriptor) && (
-          <Settings className="border-t border-line p-2">
-            <SettingRow label="Record calls">
-              <Checkbox
-                label="Record calls"
-                checked={node.data.record_calls ?? false}
-                onChange={editRecording}
-              />
-            </SettingRow>
-          </Settings>
-        )}
-        {(channel === null || set === null) && (
-          <Unbound binding={binding} onApply={workspace.apply} />
-        )}
       </FaceBody>
+      {action !== null && (
+        <FaceFooter>
+          <Button
+            type="button"
+            className={BTN_PRIMARY}
+            title={channelBindingHint(binding)}
+            onClick={workspace.apply}
+          >
+            {action}
+          </Button>
+        </FaceFooter>
+      )}
     </NodeShell>
+  );
+}
+
+function faceStatus({
+  live,
+  binding,
+  unreachable,
+  wrongRate,
+}: {
+  live: boolean;
+  binding: ChannelBinding;
+  unreachable: boolean;
+  wrongRate: boolean;
+}) {
+  if (wrongRate) {
+    return <span className="text-danger">wrong rate</span>;
+  }
+  if (!live) {
+    return <span title={channelBindingHint(binding)}>{channelBindingStatus(binding)}</span>;
+  }
+  if (unreachable) {
+    return <span className="text-warn">out of band</span>;
+  }
+  return undefined;
+}
+
+function FaceNotice({
+  tone,
+  role,
+  title,
+  label,
+  action,
+}: {
+  tone: "warn" | "danger";
+  role: "status" | "alert";
+  title: string;
+  label: string;
+  action: ReactNode;
+}) {
+  return (
+    <div
+      role={role}
+      title={title}
+      className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1 ${
+        tone === "danger"
+          ? "border-danger/40 bg-danger/10 text-danger"
+          : "border-warn/40 bg-warn/10 text-warn"
+      }`}
+    >
+      <span className="font-mono text-[10px] tracking-[0.09em] uppercase">{label}</span>
+      {action}
+    </div>
   );
 }
 
@@ -154,24 +235,29 @@ function OutOfBand({
   const { applyPatch } = useDevicePatch();
   const reachable = tunerReaches(set, frequencyHz);
   return (
-    <div
+    <FaceNotice
+      tone="warn"
       role="status"
-      className="flex flex-col items-start gap-1.5 border-b border-warn/40 bg-warn/10 px-2 py-1.5 text-xs text-warn"
-      title="The decoder stays on its own frequency; the radio is listening elsewhere"
-    >
-      <p>{set.device.label} is not listening here.</p>
-      {reachable ? (
-        <Button
-          type="button"
-          className={BTN}
-          onClick={() => applyPatch(set.id, tuneDelta(set.capabilities, stream, frequencyHz))}
-        >
-          Tune {set.device.label} to {formatMhz(frequencyHz)}
-        </Button>
-      ) : (
-        <p>This radio cannot reach {formatMhz(frequencyHz)} at all. Another one has to.</p>
-      )}
-    </div>
+      title={
+        reachable
+          ? `${set.device.label} is tuned somewhere it cannot hear ${formatMhz(frequencyHz)} MHz; the decoder keeps its own frequency and stays silent until the radio comes back over it`
+          : `${set.device.label} cannot reach ${formatMhz(frequencyHz)} MHz at all, so another radio has to carry this decoder`
+      }
+      label="Radio is elsewhere"
+      action={
+        reachable ? (
+          <Button
+            type="button"
+            className={BTN}
+            onClick={() => applyPatch(set.id, tuneDelta(set.capabilities, stream, frequencyHz))}
+          >
+            Tune to {formatMhz(frequencyHz)}
+          </Button>
+        ) : (
+          <span className="text-xs">needs another radio</span>
+        )
+      }
+    />
   );
 }
 
@@ -194,31 +280,33 @@ function RateMismatch({
   const range =
     wanted.min === wanted.max
       ? `exactly ${mhz(wanted.min)} MHz`
-      : `between ${mhz(wanted.min)} and ${mhz(wanted.max)} MHz`;
+      : Number.isFinite(wanted.max)
+        ? `${mhz(wanted.min)} – ${mhz(wanted.max)} MHz`
+        : `at least ${mhz(wanted.min)} MHz`;
   return (
-    <div
+    <FaceNotice
+      tone="danger"
       role="alert"
-      className="flex flex-col items-start gap-1.5 border-b border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger"
-    >
-      <p>
-        {name} reads the radio's own samples, so the radio has to run {range}. At{" "}
-        <span className="font-mono tabular-nums">{mhz(set.settings.sample_rate ?? 0)}</span> MHz it
-        decodes nothing at all.
-      </p>
-      {offered === null ? (
-        <p>
-          This radio offers no rate in that range, so it cannot carry {name}. Another radio has to.
-        </p>
-      ) : (
-        <Button
-          type="button"
-          className={BTN}
-          onClick={() => applyPatch(set.id, { sample_rate: offered })}
-        >
-          Set {set.device.label} to {mhz(offered)} MHz
-        </Button>
-      )}
-    </div>
+      title={
+        offered === null
+          ? `${name} reads the radio's own samples, so the radio has to run ${range}; this radio offers no rate in that range, so another one has to carry it`
+          : `${name} reads the radio's own samples, so the radio has to run ${range}; at ${mhz(set.settings.sample_rate ?? 0)} MHz it decodes nothing`
+      }
+      label={`Rate must be ${range}`}
+      action={
+        offered === null ? (
+          <span className="text-xs">needs another radio</span>
+        ) : (
+          <Button
+            type="button"
+            className={BTN}
+            onClick={() => applyPatch(set.id, { sample_rate: offered })}
+          >
+            Set {mhz(offered)} MHz
+          </Button>
+        )
+      }
+    />
   );
 }
 
@@ -233,18 +321,4 @@ function nearestRate(set: DeviceSet, wanted: { min: number; max: number }): numb
 
 function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
-}
-
-function Unbound({ binding, onApply }: { binding: ChannelBinding; onApply: () => void }) {
-  const action = channelBindingAction(binding);
-  if (action === null) {
-    return <FaceEmpty hint={channelBindingHint(binding)} />;
-  }
-  return (
-    <div className="flex flex-col items-start p-2" title={channelBindingHint(binding)}>
-      <Button type="button" className={BTN_PRIMARY} onClick={onApply}>
-        {action}
-      </Button>
-    </div>
-  );
 }

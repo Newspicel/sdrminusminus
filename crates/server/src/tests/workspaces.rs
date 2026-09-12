@@ -325,7 +325,7 @@ async fn a_workspace_comes_back_tuned_the_way_it_was_left() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{channel}"),
-        Some(r#"{"frequency_hz":145512500.0,"squelch_db":-42.0,"params":{"type":"nfm","settings":{}}}"#),
+        Some(r#"{"frequency_hz":145512500.0,"squelch":{"mode":"manual","level_db":-42.0},"params":{"type":"nfm","settings":{}}}"#),
     )
     .await;
     assert_eq!(
@@ -351,7 +351,10 @@ async fn a_workspace_comes_back_tuned_the_way_it_was_left() {
     assert_eq!(set.settings.center_hz, Some(145_500_000.0));
     assert_eq!(set.channels.len(), 1, "no duplicate channel on restore");
     assert_eq!(set.channels[0].settings.frequency_hz, 145_512_500.0);
-    assert_eq!(set.channels[0].settings.squelch_db, Some(-42.0));
+    assert_eq!(
+        set.channels[0].settings.squelch,
+        sdrmm_wire::Squelch::Manual { level_db: -42.0 }
+    );
 }
 
 #[tokio::test]
@@ -1012,7 +1015,7 @@ async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
 
     let mut settings = sdrmm_wire::ChannelSettings::default_for("nfm").expect("nfm is built in");
     settings.frequency_hz = 100_012_500.0;
-    settings.squelch_db = Some(-70.0);
+    settings.squelch = sdrmm_wire::Squelch::Manual { level_db: -70.0 };
     let (status, _) = request(
         app.clone(),
         "PUT",
@@ -1030,7 +1033,10 @@ async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
         .settings
         .clone();
     assert_eq!(held.frequency_hz, 100_012_500.0);
-    assert_eq!(held.squelch_db, Some(-70.0));
+    assert_eq!(
+        held.squelch,
+        sdrmm_wire::Squelch::Manual { level_db: -70.0 }
+    );
 
     apply(&app, workspace).await;
     let live = get_state(&app).await;
@@ -1043,7 +1049,10 @@ async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
         channel.settings.frequency_hz, 100_012_500.0,
         "settings held while there was no radio are what the channel starts on"
     );
-    assert_eq!(channel.settings.squelch_db, Some(-70.0));
+    assert_eq!(
+        channel.settings.squelch,
+        sdrmm_wire::Squelch::Manual { level_db: -70.0 }
+    );
 }
 
 #[tokio::test]

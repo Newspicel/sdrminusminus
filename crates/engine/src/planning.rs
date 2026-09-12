@@ -34,25 +34,9 @@ pub(crate) fn validate_channel(
         ))
         .into());
     }
-    if let Some(db) = settings.squelch_db
-        && !db.is_finite()
-    {
-        return Err(
-            ChannelError::InvalidSettings(format!("squelch_db must be finite, got {db}")).into(),
-        );
-    }
-    if let Some(margin) = settings.squelch_auto_db
-        && (!margin.is_finite()
-            || !(sdrmm_wire::MIN_SQUELCH_AUTO_MARGIN_DB..=sdrmm_wire::MAX_SQUELCH_AUTO_MARGIN_DB)
-                .contains(&margin))
-    {
-        return Err(ChannelError::InvalidSettings(format!(
-            "squelch_auto_db must be in {}..={} dB above the noise floor, got {margin}",
-            sdrmm_wire::MIN_SQUELCH_AUTO_MARGIN_DB,
-            sdrmm_wire::MAX_SQUELCH_AUTO_MARGIN_DB
-        ))
-        .into());
-    }
+    settings
+        .check_limits()
+        .map_err(|reason| EngineError::from(ChannelError::InvalidSettings(reason)))?;
     if let Err(reason) = settings.audio.validate() {
         return Err(ChannelError::InvalidSettings(reason).into());
     }

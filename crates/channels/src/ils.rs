@@ -3,7 +3,7 @@ use std::{f64::consts::TAU, sync::LazyLock};
 use num_complex::Complex;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, IlsComponent, IlsParams,
-    IlsReading, MAX_NAVAID_REPORT_MS, MIN_NAVAID_REPORT_MS,
+    IlsReading,
 };
 
 use crate::{
@@ -49,17 +49,6 @@ fn params(settings: &ChannelSettings) -> Result<&IlsParams, ChannelError> {
     }
 }
 
-fn check_params(params: &IlsParams) -> Result<(), ChannelError> {
-    if (MIN_NAVAID_REPORT_MS..=MAX_NAVAID_REPORT_MS).contains(&params.report_ms) {
-        Ok(())
-    } else {
-        Err(ChannelError::InvalidSettings(format!(
-            "ILS report interval must be {MIN_NAVAID_REPORT_MS}–{MAX_NAVAID_REPORT_MS} ms, got {}",
-            params.report_ms
-        )))
-    }
-}
-
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-HALF_BANDWIDTH, HALF_BANDWIDTH)
 }
@@ -76,13 +65,11 @@ impl ChannelRx for IlsChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let params = *params(&settings)?;
-        check_params(&params)?;
         Ok(Self::build(params))
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let params = *params(&settings)?;
-        check_params(&params)?;
         self.params = params;
         Ok(())
     }

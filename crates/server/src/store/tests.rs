@@ -18,8 +18,7 @@ fn snapshot() -> PresetSnapshot {
             },
             channels: vec![ChannelSettings {
                 frequency_hz: 100_100_000.0,
-                squelch_db: Some(-60.0),
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Manual { level_db: -60.0 },
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             }],

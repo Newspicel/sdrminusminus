@@ -6490,6 +6490,12 @@
             "type": "number",
             "format": "double"
           },
+          "limits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParamLimit"
+            }
+          },
           "name": {
             "type": "string"
           },
@@ -7540,19 +7546,8 @@
           "params": {
             "$ref": "#/components/schemas/ChannelParams"
           },
-          "squelch_auto_db": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "float"
-          },
-          "squelch_db": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "float"
+          "squelch": {
+            "$ref": "#/components/schemas/Squelch"
           }
         }
       },
@@ -15027,6 +15022,35 @@
           "binary"
         ]
       },
+      "ParamLimit": {
+        "type": "object",
+        "description": "The range a numeric decoder setting is accepted in, named by its field in the params struct.",
+        "required": [
+          "name",
+          "min",
+          "max"
+        ],
+        "properties": {
+          "max": {
+            "type": "number",
+            "format": "double"
+          },
+          "min": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "step": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "PassiveRadarNode": {
         "type": "object",
         "description": "A passive radar: one lane watching the illuminator, one watching the sky.",
@@ -17900,6 +17924,63 @@
             "format": "float"
           }
         }
+      },
+      "Squelch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "off"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "level_db",
+              "mode"
+            ],
+            "properties": {
+              "level_db": {
+                "type": "number",
+                "format": "float"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "manual"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "margin_db",
+              "mode"
+            ],
+            "properties": {
+              "margin_db": {
+                "type": "number",
+                "format": "float"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "auto"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "How a channel gates what it decodes: not at all, above a level the operator set, or a margin\nabove the noise floor it measures for itself."
       },
       "SsbParams": {
         "type": "object",

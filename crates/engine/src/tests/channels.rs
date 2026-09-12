@@ -43,8 +43,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
             0,
             ChannelSettings {
                 frequency_hz: ADSB_CENTER_HZ,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Adsb(AdsbParams::default()),
                 audio: Default::default(),
             },
@@ -69,8 +68,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
             ch,
             ChannelSettings {
                 frequency_hz: ADSB_CENTER_HZ,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Adsb(AdsbParams {
                     crc_fix: false,
                     ref_lat: Some(0.0),
@@ -205,8 +203,7 @@ async fn a_channel_with_no_audio_refuses_an_audio_chain() {
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     let settings = ChannelSettings {
         frequency_hz: TEST_CENTER_HZ,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Pocsag(sdrmm_wire::PocsagParams::default()),
         audio: AudioProcessing {
             agc: sdrmm_wire::AudioAgcMode::Fast,

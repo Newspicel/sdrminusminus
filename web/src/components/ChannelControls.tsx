@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { ChannelDescriptor, ChannelParams, ChannelSettings } from "../lib/types";
+import { type ReactNode, useState } from "react";
+import type { ChannelDescriptor, ChannelParams, ChannelSettings, ParamLimit } from "../lib/types";
 import type { ChannelEdit } from "../lib/useChannelPatch";
 import { AudioControls } from "./AudioControls";
 import { Checkbox } from "./Checkbox";
@@ -8,7 +8,17 @@ import {
   AUDIO_LIMITS,
   type ChannelParamsOf,
   channelHasAudio,
+  DEFAULT_SQUELCH_DB,
+  limitOf,
+  type NumberLimit,
   radioWindowHz,
+  SQUELCH_RANGE_DB,
+  type SquelchMode,
+  scaledLimit,
+  squelchAt,
+  squelchLevelDb,
+  squelchMarginDb,
+  squelchMode,
 } from "./channelSettings";
 import type { Options } from "./controls";
 import { inTuningRange, type Range } from "./dial";
@@ -24,7 +34,11 @@ import { TextAutocomplete } from "./TextAutocomplete";
 import { TuneTo } from "./TuneTo";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
-const DEFAULT_SQUELCH_DB = -60;
+const SQUELCH_MODES: Options<SquelchMode> = [
+  { value: "off", label: "Off", title: "Pass everything through" },
+  { value: "manual", label: "Manual", title: "Open above a level you set" },
+  { value: "auto", label: "Auto", title: "Open a margin above the noise floor it measures" },
+];
 
 const DMR_SLOTS: Options<NonNullable<ChannelParamsOf<"dmr">["slots"]>> = [
   { value: "both", label: "Both" },
@@ -96,8 +110,6 @@ const DCS_CODES = [
 ];
 const CTCSS_DEFAULT_HZ = 88.5;
 const INVERSION_DEFAULT_HZ = 3_300;
-const INVERSION_MIN_HZ = 1_500;
-const INVERSION_MAX_HZ = 4_500;
 const DCS_DEFAULT_CODE = 23;
 const CTCSS_OPTIONS: Options<number> = CTCSS_TONES_HZ.map((hz) => ({
   value: hz,
@@ -188,145 +200,136 @@ const RADIO_CLOCK_STANDARDS: Options<NonNullable<ChannelParamsOf<"radio_clock">[
   { value: "jjy", label: "JJY" },
 ];
 
-export function ChannelControls({
-  settings,
+export function ChannelDial({
+  hz,
   descriptor,
   spanHz,
   centerHz,
   range,
   dialId,
   wheelTunes,
-  onEdit,
+  onTune,
 }: {
-  settings: ChannelSettings;
+  hz: number;
   descriptor: ChannelDescriptor | undefined;
   spanHz: number | null;
   centerHz: number | null;
   range: Range;
   dialId: string;
   wheelTunes: boolean;
+  onTune: (hz: number) => void;
+}) {
+  const heard = radioWindowHz(centerHz, spanHz, descriptor);
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <FrequencyDial id={dialId} hz={hz} range={range} wheelTunes={wheelTunes} onTune={onTune} />
+      <span className="ml-auto shrink-0">
+        <TuneTo
+          title="Type a frequency to listen on"
+          hz={hz}
+          hint={
+            heard === null
+              ? `Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`
+              : `The radio hears ${formatMhz(heard.lowHz)} – ${formatMhz(heard.highHz)}`
+          }
+          resolve={(entered) => inTuningRange(entered, range)}
+          onTune={onTune}
+        />
+      </span>
+    </div>
+  );
+}
+
+export function ChannelControls({
+  settings,
+  descriptor,
+  onEdit,
+  extra,
+}: {
+  settings: ChannelSettings;
+  descriptor: ChannelDescriptor | undefined;
+  onEdit: (edit: ChannelEdit) => void;
+  extra?: ReactNode;
+}) {
+  return (
+    <Settings className="p-2">
+      <SquelchRow settings={settings} onEdit={onEdit} />
+      <ModeControls
+        params={settings.params}
+        limits={descriptor?.limits ?? []}
+        onParams={(params) => onEdit({ params })}
+      />
+      {extra}
+      {channelHasAudio(descriptor) && (
+        <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
+      )}
+    </Settings>
+  );
+}
+
+function SquelchRow({
+  settings,
+  onEdit,
+}: {
+  settings: ChannelSettings;
   onEdit: (edit: ChannelEdit) => void;
 }) {
-  const frequencyHz = settings.frequency_hz;
-  const squelchDb = settings.squelch_db ?? null;
-  const autoMarginDb = settings.squelch_auto_db ?? null;
-  const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
-  const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
-  const marginSlider = useDebouncedCommit((db) => onEdit({ squelch_auto_db: db }));
-  const heard = radioWindowHz(centerHz, spanHz, descriptor);
-
+  const mode = squelchMode(settings.squelch);
+  const [heldDb, setHeldDb] = useState(DEFAULT_SQUELCH_DB);
+  const levelSlider = useDebouncedCommit((level_db) =>
+    onEdit({ squelch: { mode: "manual", level_db } }),
+  );
+  const marginSlider = useDebouncedCommit((margin_db) =>
+    onEdit({ squelch: { mode: "auto", margin_db } }),
+  );
+  const levelDb = levelSlider.pending ?? squelchLevelDb(settings.squelch) ?? heldDb;
+  const marginDb =
+    marginSlider.pending ?? squelchMarginDb(settings.squelch) ?? AUDIO_DEFAULTS.squelchAutoMarginDb;
+  const auto = mode === "auto";
+  const pick = (next: SquelchMode): void => {
+    if (next === mode) {
+      return;
+    }
+    if (mode === "manual") {
+      setHeldDb(levelDb);
+    }
+    levelSlider.cancel();
+    marginSlider.cancel();
+    onEdit({ squelch: squelchAt(next, { levelDb, marginDb }) });
+  };
   return (
-    <>
-      <div className="@container flex min-w-0 items-center gap-1 border-b border-line p-2">
-        <FrequencyDial
-          id={dialId}
-          hz={frequencyHz}
-          range={range}
-          wheelTunes={wheelTunes}
-          onTune={(frequency_hz) => onEdit({ frequency_hz })}
-        />
-        <span className="ml-auto shrink-0">
-          <TuneTo
-            title="Type a frequency to listen on"
-            hz={frequencyHz}
-            hint={
-              heard === null
-                ? `Reaches ${formatMhz(range.min)} – ${formatMhz(range.max)}`
-                : `The radio hears ${formatMhz(heard.lowHz)} – ${formatMhz(heard.highHz)}`
-            }
-            resolve={(entered) => inTuningRange(entered, range)}
-            onTune={(frequency_hz) => onEdit({ frequency_hz })}
-          />
-        </span>
-      </div>
-
-      <Settings className="p-2">
-        <SettingRow label="Squelch">
-          <Checkbox
-            label="Squelch"
-            checked={squelchDb !== null}
-            onChange={(on) => {
-              if (on) {
-                onEdit({ squelch_db: offSquelchDb });
-              } else {
-                setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
-                squelchSlider.cancel();
-                onEdit({ squelch_db: null });
-              }
-            }}
-          />
-          <Slider
-            label="Squelch threshold (dB)"
-            className="min-w-0 flex-1"
-            disabled={squelchDb === null || autoMarginDb !== null}
-            min={-120}
-            max={0}
-            step={1}
-            value={squelchSlider.pending ?? squelchDb ?? offSquelchDb}
-            onChange={squelchSlider.change}
-          />
-          <span
-            className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
-              squelchDb === null || autoMarginDb !== null ? "text-ink-faint opacity-45" : "text-ink"
-            }`}
-          >
-            {(squelchSlider.pending ?? squelchDb ?? offSquelchDb).toFixed(0)}{" "}
-            <span className="text-ink-faint">dB</span>
-          </span>
-        </SettingRow>
-
-        <SettingRow label="Auto">
-          <Checkbox
-            label="Track the noise floor"
-            checked={autoMarginDb !== null}
-            disabled={squelchDb === null}
-            onChange={(on) => {
-              marginSlider.cancel();
-              onEdit({
-                squelch_auto_db: on
-                  ? (marginSlider.pending ?? AUDIO_DEFAULTS.squelchAutoMarginDb)
-                  : null,
-              });
-            }}
-          />
-          <Slider
-            label="Decibels above the noise floor the gate opens at"
-            className="min-w-0 flex-1"
-            disabled={squelchDb === null || autoMarginDb === null}
-            min={AUDIO_LIMITS.squelchAutoMarginDb.min}
-            max={AUDIO_LIMITS.squelchAutoMarginDb.max}
-            step={1}
-            value={marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb}
-            onChange={marginSlider.change}
-          />
-          <span
-            className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
-              autoMarginDb === null ? "text-ink-faint opacity-45" : "text-ink"
-            }`}
-          >
-            +
-            {(marginSlider.pending ?? autoMarginDb ?? AUDIO_DEFAULTS.squelchAutoMarginDb).toFixed(
-              0,
-            )}{" "}
-            <span className="text-ink-faint">dB</span>
-          </span>
-        </SettingRow>
-
-        <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
-
-        {channelHasAudio(descriptor) && (
-          <AudioControls settings={settings} onAudio={(audio) => onEdit({ audio })} />
-        )}
-      </Settings>
-    </>
+    <SettingRow label="Squelch" title="Mute the channel until a signal is strong enough">
+      <Segmented label="Squelch mode" value={mode} options={SQUELCH_MODES} onChange={pick} />
+      <Slider
+        label={auto ? "Squelch margin above the noise floor (dB)" : "Squelch threshold (dB)"}
+        className="min-w-0 flex-1"
+        disabled={mode === "off"}
+        min={auto ? AUDIO_LIMITS.squelchAutoMarginDb.min : SQUELCH_RANGE_DB.min}
+        max={auto ? AUDIO_LIMITS.squelchAutoMarginDb.max : SQUELCH_RANGE_DB.max}
+        step={1}
+        value={auto ? marginDb : levelDb}
+        onChange={auto ? marginSlider.change : levelSlider.change}
+      />
+      <span
+        className={`w-14 shrink-0 text-right font-mono text-xs tabular-nums ${
+          mode === "off" ? "text-ink-faint opacity-45" : "text-ink"
+        }`}
+        title={auto ? "Above the noise floor the channel measures" : undefined}
+      >
+        {auto ? `+${marginDb.toFixed(0)}` : levelDb.toFixed(0)}{" "}
+        <span className="text-ink-faint">dB</span>
+      </span>
+    </SettingRow>
   );
 }
 
 function ModeControls({
   params,
+  limits,
   onParams,
 }: {
   params: ChannelParams;
+  limits: readonly ParamLimit[];
   onParams: (params: ChannelParams) => void;
 }) {
   switch (params.type) {
@@ -397,9 +400,7 @@ function ModeControls({
               <NumberField
                 label="Inversion carrier (Hz)"
                 value={params.settings.inversion_hz ?? INVERSION_DEFAULT_HZ}
-                min={INVERSION_MIN_HZ}
-                max={INVERSION_MAX_HZ}
-                step={50}
+                {...limitOf(limits, "inversion_hz")}
                 onCommit={(inversion_hz) => set({ ...params.settings, inversion_hz })}
                 className="w-20"
               />
@@ -408,6 +409,7 @@ function ModeControls({
           )}
           <Toggle
             label="Compander"
+            title="Expand audio that was sent with 2:1 compression"
             checked={params.settings.compander ?? false}
             onChange={(compander) => set({ ...params.settings, compander })}
           />
@@ -458,9 +460,7 @@ function ModeControls({
             <NumberField
               label="SSB bandwidth (Hz)"
               value={params.settings.bandwidth_hz ?? 2_700}
-              min={200}
-              max={10_000}
-              step={100}
+              {...limitOf(limits, "bandwidth_hz")}
               onCommit={(bandwidth_hz) =>
                 onParams({ type: "ssb", settings: { ...params.settings, bandwidth_hz } })
               }
@@ -485,6 +485,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Stereo"
+            title="Decode the stereo pilot; mono is quieter on weak signals"
             checked={params.settings.stereo ?? true}
             onChange={(stereo) =>
               onParams({ type: "wfm", settings: { ...params.settings, stereo } })
@@ -516,6 +517,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Invert"
+            title="Flip the signal's polarity; try it when nothing decodes"
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "pocsag", settings: { ...params.settings, invert } })
@@ -540,6 +542,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label={`Invert ${label}`}
+            title="Flip the signal's polarity; try it when nothing decodes"
             checked={params.settings.invert ?? false}
             onChange={(invert) => onParams({ type, settings: { ...params.settings, invert } })}
           />
@@ -550,6 +553,7 @@ function ModeControls({
       return (
         <Toggle
           label="CRC fix"
+          title="Repair single-bit errors the checksum can pin down"
           checked={params.settings.crc_fix ?? true}
           onChange={(crc_fix) =>
             onParams({ type: "adsb", settings: { ...params.settings, crc_fix } })
@@ -601,9 +605,7 @@ function ModeControls({
               label="RTTY baud"
               value={params.settings.baud ?? 45.45}
               presets={RTTY_BAUDS}
-              min={10}
-              max={1_200}
-              step={0.05}
+              limit={limitOf(limits, "baud")}
               onCommit={(baud) =>
                 onParams({ type: "rtty", settings: { ...params.settings, baud } })
               }
@@ -614,9 +616,7 @@ function ModeControls({
               label="RTTY shift (Hz)"
               value={params.settings.shift_hz ?? 170}
               presets={RTTY_SHIFTS_HZ}
-              min={20}
-              max={2_000}
-              step={5}
+              limit={limitOf(limits, "shift_hz")}
               onCommit={(shift_hz) =>
                 onParams({ type: "rtty", settings: { ...params.settings, shift_hz } })
               }
@@ -635,6 +635,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Invert"
+            title="Flip the signal's polarity; try it when nothing decodes"
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "rtty", settings: { ...params.settings, invert } })
@@ -642,6 +643,7 @@ function ModeControls({
           />
           <Toggle
             label="Unshift on space"
+            title="Drop back to letters after a space, as most stations expect"
             checked={params.settings.unshift_on_space ?? true}
             onChange={(unshift_on_space) =>
               onParams({ type: "rtty", settings: { ...params.settings, unshift_on_space } })
@@ -656,9 +658,7 @@ function ModeControls({
             <NumberField
               label="CW filter bandwidth (Hz)"
               value={params.settings.bandwidth_hz ?? 400}
-              min={50}
-              max={3_000}
-              step={50}
+              {...limitOf(limits, "bandwidth_hz")}
               onCommit={(bandwidth_hz) =>
                 onParams({ type: "morse", settings: { ...params.settings, bandwidth_hz } })
               }
@@ -670,9 +670,7 @@ function ModeControls({
               label="Morse speed (WPM), empty to auto-track"
               placeholder="auto"
               value={params.settings.wpm ?? null}
-              min={5}
-              max={60}
-              step={1}
+              {...limitOf(limits, "wpm")}
               onCommit={(wpm) => onParams({ type: "morse", settings: { ...params.settings, wpm } })}
             />
           </SettingRow>
@@ -685,9 +683,7 @@ function ModeControls({
             <NumberField
               label="CW skimmer passband (Hz)"
               value={params.settings.bandwidth_hz ?? 24_000}
-              min={1_000}
-              max={24_000}
-              step={500}
+              {...limitOf(limits, "bandwidth_hz")}
               onCommit={(bandwidth_hz) =>
                 onParams({
                   type: "cw_skimmer",
@@ -702,9 +698,7 @@ function ModeControls({
             <NumberField
               label="Carrier threshold above the noise floor (dB)"
               value={params.settings.threshold_db ?? 10}
-              min={3}
-              max={40}
-              step={1}
+              {...limitOf(limits, "threshold_db")}
               onCommit={(threshold_db) =>
                 onParams({
                   type: "cw_skimmer",
@@ -719,9 +713,7 @@ function ModeControls({
             <NumberField
               label="Maximum simultaneous CW signals"
               value={params.settings.max_signals ?? 32}
-              min={1}
-              max={128}
-              step={1}
+              {...limitOf(limits, "max_signals")}
               onCommit={(max_signals) =>
                 onParams({
                   type: "cw_skimmer",
@@ -736,9 +728,7 @@ function ModeControls({
               label="Morse speed (WPM), empty to track each signal"
               placeholder="auto"
               value={params.settings.wpm ?? null}
-              min={3}
-              max={80}
-              step={1}
+              {...limitOf(limits, "wpm")}
               onCommit={(wpm) =>
                 onParams({ type: "cw_skimmer", settings: { ...params.settings, wpm } })
               }
@@ -750,6 +740,7 @@ function ModeControls({
       return (
         <WsjtControls
           mode="ft8"
+          limits={limits}
           settings={params.settings}
           onChange={(settings) => onParams({ type: "ft8", settings })}
         />
@@ -758,6 +749,7 @@ function ModeControls({
       return (
         <WsjtControls
           mode="ft4"
+          limits={limits}
           settings={params.settings}
           onChange={(settings) => onParams({ type: "ft4", settings })}
         />
@@ -766,6 +758,7 @@ function ModeControls({
       return (
         <WsjtControls
           mode="wspr"
+          limits={limits}
           settings={params.settings}
           onChange={(settings) => onParams({ type: "wspr", settings })}
         />
@@ -783,6 +776,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Invert"
+            title="Flip the signal's polarity; try it when nothing decodes"
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "psk", settings: { ...params.settings, invert } })
@@ -794,6 +788,7 @@ function ModeControls({
       return (
         <Toggle
           label="Invert"
+          title="Flip the signal's polarity; try it when nothing decodes"
           checked={params.settings.invert ?? false}
           onChange={(invert) =>
             onParams({ type: "navtex", settings: { ...params.settings, invert } })
@@ -818,6 +813,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Invert"
+            title="Flip the signal's polarity; try it when nothing decodes"
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "radio_clock", settings: { ...params.settings, invert } })
@@ -832,9 +828,7 @@ function ModeControls({
             <NumberField
               label="GPS L1 C/A satellite PRN"
               value={params.settings.prn ?? 1}
-              min={1}
-              max={32}
-              step={1}
+              {...limitOf(limits, "prn")}
               onCommit={(prn) => onParams({ type: "gnss", settings: { ...params.settings, prn } })}
               className="w-16"
             />
@@ -843,9 +837,7 @@ function ModeControls({
             <NumberField
               label="Symmetric Doppler search span (Hz)"
               value={params.settings.doppler_hz ?? 10_000}
-              min={500}
-              max={20_000}
-              step={500}
+              {...limitOf(limits, "doppler_hz")}
               onCommit={(doppler_hz) =>
                 onParams({ type: "gnss", settings: { ...params.settings, doppler_hz } })
               }
@@ -857,9 +849,7 @@ function ModeControls({
             <NumberField
               label="Correlation peak-to-floor acquisition threshold"
               value={params.settings.threshold ?? 2.5}
-              min={1.5}
-              max={20}
-              step={0.1}
+              {...limitOf(limits, "threshold")}
               onCommit={(threshold) =>
                 onParams({ type: "gnss", settings: { ...params.settings, threshold } })
               }
@@ -890,9 +880,7 @@ function ModeControls({
               label="VOR station latitude"
               placeholder="Unknown"
               value={params.settings.station_lat ?? null}
-              min={-90}
-              max={90}
-              step={0.00001}
+              {...limitOf(limits, "station_lat")}
               onCommit={(station_lat) => set({ ...params.settings, station_lat })}
             />
           </SettingRow>
@@ -901,9 +889,7 @@ function ModeControls({
               label="VOR station longitude"
               placeholder="Unknown"
               value={params.settings.station_lon ?? null}
-              min={-180}
-              max={180}
-              step={0.00001}
+              {...limitOf(limits, "station_lon")}
               onCommit={(station_lon) => set({ ...params.settings, station_lon })}
             />
           </SettingRow>
@@ -911,9 +897,7 @@ function ModeControls({
             <NumberField
               label="East-positive magnetic declination at the VOR"
               value={params.settings.magnetic_declination_deg ?? 0}
-              min={-180}
-              max={180}
-              step={0.1}
+              {...limitOf(limits, "magnetic_declination_deg")}
               onCommit={(magnetic_declination_deg) =>
                 set({ ...params.settings, magnetic_declination_deg })
               }
@@ -924,9 +908,7 @@ function ModeControls({
             <NumberField
               label="VOR report interval in milliseconds"
               value={params.settings.report_ms ?? 500}
-              min={250}
-              max={5_000}
-              step={250}
+              {...limitOf(limits, "report_ms")}
               onCommit={(report_ms) => set({ ...params.settings, report_ms })}
             />
             <span className="legend">ms</span>
@@ -951,9 +933,7 @@ function ModeControls({
             <NumberField
               label="ILS report interval in milliseconds"
               value={params.settings.report_ms ?? 500}
-              min={250}
-              max={5_000}
-              step={250}
+              {...limitOf(limits, "report_ms")}
               onCommit={(report_ms) =>
                 onParams({ type: "ils", settings: { ...params.settings, report_ms } })
               }
@@ -1000,9 +980,7 @@ function ModeControls({
             <NumberField
               label="Shortest keying edge accepted (µs)"
               value={params.settings.min_pulse_us ?? 80}
-              min={10}
-              max={2_000}
-              step={10}
+              {...limitOf(limits, "min_pulse_us")}
               onCommit={(min_pulse_us) =>
                 onParams({ type: "subghz", settings: { ...params.settings, min_pulse_us } })
               }
@@ -1014,9 +992,7 @@ function ModeControls({
             <NumberField
               label="Silence that ends a frame (µs)"
               value={params.settings.frame_gap_us ?? 5_000}
-              min={500}
-              max={100_000}
-              step={500}
+              {...limitOf(limits, "frame_gap_us")}
               onCommit={(frame_gap_us) =>
                 onParams({ type: "subghz", settings: { ...params.settings, frame_gap_us } })
               }
@@ -1077,9 +1053,7 @@ function ModeControls({
                   ? null
                   : params.settings.sound_subcarrier_hz / 1_000_000
               }
-              min={0.5}
-              max={9}
-              step={0.5}
+              {...scaledLimit(limitOf(limits, "sound_subcarrier_hz"), 1e-6)}
               onCommit={(mhz) =>
                 onParams({
                   type: "atv",
@@ -1094,6 +1068,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Interlace"
+            title="Weave both fields into one frame"
             checked={params.settings.interlace ?? true}
             onChange={(interlace) =>
               onParams({ type: "atv", settings: { ...params.settings, interlace } })
@@ -1101,6 +1076,7 @@ function ModeControls({
           />
           <Toggle
             label="Invert"
+            title="Flip the signal's polarity; try it when nothing decodes"
             checked={params.settings.invert ?? false}
             onChange={(invert) =>
               onParams({ type: "atv", settings: { ...params.settings, invert } })
@@ -1129,6 +1105,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Slant correction"
+            title="Straighten pictures from a sender whose clock runs off"
             checked={params.settings.slant_correction ?? true}
             onChange={(slant_correction) =>
               onParams({ type: "sstv", settings: { ...params.settings, slant_correction } })
@@ -1136,6 +1113,7 @@ function ModeControls({
           />
           <Toggle
             label="Keep unfinished pictures"
+            title="Keep a picture even when the transmission stops early"
             checked={params.settings.keep_partial ?? true}
             onChange={(keep_partial) =>
               onParams({ type: "sstv", settings: { ...params.settings, keep_partial } })
@@ -1171,9 +1149,7 @@ function ModeControls({
             <NumberField
               label="DATV symbol rate (baud)"
               value={params.settings.symbol_rate ?? 333_000}
-              min={100_000}
-              max={1_000_000}
-              step={1_000}
+              {...limitOf(limits, "symbol_rate")}
               onCommit={(symbol_rate) =>
                 onParams({ type: "datv", settings: { ...params.settings, symbol_rate } })
               }
@@ -1238,6 +1214,7 @@ function ModeControls({
           </SettingRow>
           <Toggle
             label="Ignore data CRC"
+            title="Show data blocks whose checksum fails"
             checked={params.settings.ignore_crc ?? false}
             onChange={(ignore_crc) =>
               onParams({ type: "dmr", settings: { ...params.settings, ignore_crc } })
@@ -1287,9 +1264,7 @@ function ModeControls({
             <NumberField
               label="Milliseconds of signal each report is measured from"
               value={params.settings.interval_ms ?? 1_000}
-              min={250}
-              max={10_000}
-              step={250}
+              {...limitOf(limits, "interval_ms")}
               onCommit={(interval_ms) =>
                 onParams({ type: "ident", settings: { ...params.settings, interval_ms } })
               }
@@ -1301,9 +1276,7 @@ function ModeControls({
             <NumberField
               label="Decibels above the noise floor a signal must reach"
               value={params.settings.threshold_db ?? 8}
-              min={3}
-              max={40}
-              step={1}
+              {...limitOf(limits, "threshold_db")}
               onCommit={(threshold_db) =>
                 onParams({ type: "ident", settings: { ...params.settings, threshold_db } })
               }
@@ -1357,10 +1330,12 @@ function ModeControls({
 
 function WsjtControls({
   mode,
+  limits,
   settings,
   onChange,
 }: {
   mode: "ft8" | "ft4" | "wspr";
+  limits: readonly ParamLimit[];
   settings: ChannelParamsOf<"ft8">;
   onChange: (settings: ChannelParamsOf<"ft8">) => void;
 }) {
@@ -1371,9 +1346,7 @@ function WsjtControls({
         <NumberField
           label="Lowest USB audio frequency searched"
           value={settings.audio_low_hz ?? (wspr ? 1_400 : 200)}
-          min={50}
-          max={5_450}
-          step={10}
+          {...limitOf(limits, "audio_low_hz")}
           onCommit={(audio_low_hz) => onChange({ ...settings, audio_low_hz })}
         />
         <span className="legend">Hz</span>
@@ -1382,9 +1355,7 @@ function WsjtControls({
         <NumberField
           label="Highest USB audio frequency searched"
           value={settings.audio_high_hz ?? (wspr ? 1_600 : 3_000)}
-          min={100}
-          max={5_500}
-          step={10}
+          {...limitOf(limits, "audio_high_hz")}
           onCommit={(audio_high_hz) => onChange({ ...settings, audio_high_hz })}
         />
         <span className="legend">Hz</span>
@@ -1393,9 +1364,7 @@ function WsjtControls({
         <NumberField
           label="Maximum synchronized signals tried per decode pass"
           value={settings.max_candidates ?? 200}
-          min={1}
-          max={1_000}
-          step={1}
+          {...limitOf(limits, "max_candidates")}
           onCommit={(max_candidates) => onChange({ ...settings, max_candidates })}
         />
       </SettingRow>
@@ -1426,15 +1395,17 @@ function BandwidthSelect({
 
 function Toggle({
   label,
+  title,
   checked,
   onChange,
 }: {
   label: string;
+  title?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <SettingRow label={label}>
+    <SettingRow label={label} title={title}>
       <Checkbox label={label} checked={checked} onChange={onChange} />
     </SettingRow>
   );
@@ -1444,30 +1415,19 @@ function PresetNumberField({
   label,
   value,
   presets,
-  min,
-  max,
-  step,
+  limit,
   onCommit,
 }: {
   label: string;
   value: number;
   presets: Options<number>;
-  min: number;
-  max: number;
-  step: number;
+  limit: NumberLimit;
   onCommit: (value: number) => void;
 }) {
   return (
     <>
       <Segmented label={`${label} presets`} value={value} options={presets} onChange={onCommit} />
-      <NumberField
-        label={label}
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onCommit={onCommit}
-      />
+      <NumberField label={label} value={value} {...limit} onCommit={onCommit} />
     </>
   );
 }

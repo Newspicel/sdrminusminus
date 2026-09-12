@@ -49,10 +49,10 @@ pub use channel::{
     MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
     MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams,
     NavtexParams, NfmParams, NfmScramblerMode, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
-    PocsagBaud, PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams,
-    RttyStopBits, SelcallParams, SelcallSystem, Sideband, SsbParams, SstvMode, SstvParams,
-    SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
-    YsfParams, home_frequency_hz,
+    ParamLimit, PocsagBaud, PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard,
+    RttyParams, RttyStopBits, SelcallParams, SelcallSystem, Sideband, Squelch, SsbParams, SstvMode,
+    SstvParams, SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams,
+    WsprParams, YsfParams, home_frequency_hz, param_limits,
 };
 pub use coherent::{
     ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
@@ -471,8 +471,7 @@ mod contract_tests {
             "wfm sits anywhere in the band"
         );
         assert_eq!(settings.frequency_hz, DEFAULT_FREQUENCY_HZ);
-        assert_eq!(settings.squelch_db, None);
-        assert_eq!(settings.squelch_auto_db, None);
+        assert_eq!(settings.squelch, Squelch::Off);
         assert_eq!(
             settings.params,
             ChannelParams::Wfm(WfmParams {
@@ -483,20 +482,86 @@ mod contract_tests {
     }
 
     #[test]
-    fn an_automatic_squelch_margin_roundtrips_and_is_absent_by_default() {
+    fn a_squelch_roundtrips_as_one_tagged_value() {
         let plain: ChannelSettings =
             serde_json::from_str(r#"{"params":{"type":"nfm","settings":{}}}"#).unwrap();
         let json = serde_json::to_value(&plain).unwrap();
-        assert!(json.get("squelch_auto_db").is_none());
+        assert_eq!(json["squelch"], serde_json::json!({"mode": "off"}));
 
         let auto: ChannelSettings = serde_json::from_str(
-            r#"{"squelch_db":-70.0,"squelch_auto_db":8.0,"params":{"type":"nfm","settings":{}}}"#,
+            r#"{"squelch":{"mode":"auto","margin_db":8.0},"params":{"type":"nfm","settings":{}}}"#,
         )
         .unwrap();
-        assert_eq!(auto.squelch_auto_db, Some(8.0));
+        assert_eq!(auto.squelch, Squelch::Auto { margin_db: 8.0 });
         let back: ChannelSettings =
             serde_json::from_str(&serde_json::to_string(&auto).unwrap()).unwrap();
         assert_eq!(back, auto);
+    }
+
+    #[test]
+    fn a_squelch_stated_the_old_way_still_reads() {
+        for (json, wanted) in [
+            (
+                r#"{"squelch_db":-70.0}"#,
+                Squelch::Manual { level_db: -70.0 },
+            ),
+            (r#"{"squelch_db":null}"#, Squelch::Off),
+            (
+                r#"{"squelch_db":-70.0,"squelch_auto_db":8.0}"#,
+                Squelch::Auto { margin_db: 8.0 },
+            ),
+            (
+                r#"{"squelch_auto_db":8.0}"#,
+                Squelch::Auto { margin_db: 8.0 },
+            ),
+        ] {
+            let body = format!(
+                r#"{{"params":{{"type":"nfm","settings":{{}}}},{}"#,
+                &json[1..]
+            );
+            let settings: ChannelSettings = serde_json::from_str(&body).unwrap();
+            assert_eq!(settings.squelch, wanted, "{json}");
+        }
+    }
+
+    #[test]
+    fn a_squelch_is_checked_before_it_reaches_a_gate() {
+        assert!(Squelch::Off.validate().is_ok());
+        assert!(Squelch::Manual { level_db: -60.0 }.validate().is_ok());
+        assert!(Squelch::Manual { level_db: f32::NAN }.validate().is_err());
+        assert!(Squelch::Auto { margin_db: 8.0 }.validate().is_ok());
+        assert!(Squelch::Auto { margin_db: 1.0 }.validate().is_err());
+        assert!(Squelch::Auto { margin_db: 41.0 }.validate().is_err());
+    }
+
+    #[test]
+    fn numeric_settings_are_held_to_the_limits_their_decoder_publishes() {
+        let mut morse = ChannelSettings::default_for("morse").expect("morse");
+        assert!(morse.check_limits().is_ok());
+        morse.params = ChannelParams::Morse(MorseParams {
+            bandwidth_hz: 10.0,
+            wpm: None,
+        });
+        let error = morse.check_limits().expect_err("10 Hz is too narrow");
+        assert!(error.contains("bandwidth_hz"), "{error}");
+        morse.params = ChannelParams::Morse(MorseParams {
+            bandwidth_hz: 400.0,
+            wpm: Some(200.0),
+        });
+        assert!(morse.check_limits().is_err());
+        let gated = ChannelSettings {
+            squelch: Squelch::Auto { margin_db: 0.5 },
+            ..ChannelSettings::default_for("adsb").expect("adsb")
+        };
+        assert!(gated.check_limits().is_err());
+        for descriptor_type in ["nfm", "ssb", "rtty", "gnss", "vor", "ident", "wspr"] {
+            let limits = param_limits(descriptor_type);
+            assert!(!limits.is_empty(), "{descriptor_type} publishes limits");
+            assert!(
+                limits.iter().all(|limit| limit.min < limit.max),
+                "{descriptor_type}"
+            );
+        }
     }
 
     #[test]

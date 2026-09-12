@@ -124,7 +124,7 @@ pub(crate) struct ChannelHost {
     ddc: Ddc,
     filter: ChannelFilter,
     squelch: Squelch,
-    threshold_db: Option<f32>,
+    squelched: bool,
     audio_rec: Option<AudioRecorderTap>,
     rx: Box<dyn ChannelRx>,
     audio: AudioChain,
@@ -195,11 +195,11 @@ impl ChannelHost {
         let emits_events = decodes && rx.needs_gated_input();
         let mut squelch = Squelch::new(
             input_rate,
-            settings.squelch_db.unwrap_or(0.0),
+            settings.squelch.manual_level_db().unwrap_or(0.0),
             SQUELCH_HYSTERESIS_DB,
             SQUELCH_HOLD_S,
         );
-        squelch.set_auto_margin_db(settings.squelch_auto_db);
+        squelch.set_auto_margin_db(settings.squelch.auto_margin_db());
         let publisher = ChannelPublisher::new(
             input_rate,
             settings,
@@ -212,7 +212,7 @@ impl ChannelHost {
             ddc,
             filter,
             squelch,
-            threshold_db: settings.squelch_db,
+            squelched: !settings.squelch.is_off(),
             audio_rec: None,
             rx,
             audio: AudioChain::new(
@@ -357,14 +357,12 @@ impl ChannelHost {
             .store(self.meter.peak_db().to_bits(), Ordering::Relaxed);
         let baseband_start = self.baseband_pos;
         self.sink_baseband();
-        let open = match self.threshold_db {
-            Some(_) => self.squelch.process(&self.filtered),
-            None => true,
-        };
+        let open = !self.squelched || self.squelch.process(&self.filtered);
         self.sinks.squelch_db.store(
-            match self.threshold_db {
-                Some(_) => self.squelch.threshold_db().to_bits(),
-                None => f32::NAN.to_bits(),
+            if self.squelched {
+                self.squelch.threshold_db().to_bits()
+            } else {
+                f32::NAN.to_bits()
             },
             Ordering::Relaxed,
         );
@@ -529,11 +527,10 @@ mod tests {
     const BLOCK: usize = 480;
     const CENTER: f64 = 100_000_000.0;
 
-    fn nfm_settings(squelch_db: Option<f32>) -> ChannelSettings {
+    fn nfm_settings(squelch: sdrmm_wire::Squelch) -> ChannelSettings {
         ChannelSettings {
             frequency_hz: CENTER,
-            squelch_db,
-            squelch_auto_db: None,
+            squelch,
             params: ChannelParams::Nfm(NfmParams::default()),
             audio: Default::default(),
         }
@@ -635,7 +632,7 @@ mod tests {
 
     #[test]
     fn a_gap_resets_the_receiver_and_advances_pcm_and_iq_timestamps() {
-        let (mut used, mut received) = host(&nfm_settings(None));
+        let (mut used, mut received) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let first = tone(1200.0, 0.5, BLOCK);
         used.process_at(&first, 0, 100e6, 0.0);
         used.publisher.queue.flush();
@@ -653,7 +650,7 @@ mod tests {
             before.start_frame + before_len as u64 + 4800
         );
         assert_eq!(used.baseband_pos, (BLOCK * 2 + 4800) as u64);
-        let (mut fresh, mut fresh_pcm) = host(&nfm_settings(None));
+        let (mut fresh, mut fresh_pcm) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         fresh.process_at(&signal, 0, 100e6, 0.0);
         fresh.publisher.queue.flush();
         let reference = fresh_pcm.try_recv().expect("fresh PCM");
@@ -667,7 +664,9 @@ mod tests {
 
     #[test]
     fn adjacent_tone_does_not_open_the_squelch() {
-        let (mut host, mut rx) = host(&nfm_settings(Some(-30.0)));
+        let (mut host, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Manual {
+            level_db: -30.0,
+        }));
         let blocks = run(&mut host, &mut rx, &tone(15_000.0, 0.35, 48_000));
         assert_silence_after_settle(&blocks, 24_000, "nfm");
     }
@@ -676,8 +675,7 @@ mod tests {
     fn ssb_squelch_gates_on_the_sideband_not_the_ddc_passband() {
         let settings = ChannelSettings {
             frequency_hz: CENTER,
-            squelch_db: Some(-50.0),
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Manual { level_db: -50.0 },
             params: ChannelParams::Ssb(SsbParams {
                 sideband: Sideband::Usb,
                 bandwidth_hz: 2_700.0,
@@ -689,30 +687,27 @@ mod tests {
         assert_silence_after_settle(&blocks, 24_000, "ssb");
     }
 
+    fn noise(len: usize) -> Vec<Complex<f32>> {
+        let mut rng = 0x1234_5678u32;
+        (0..len)
+            .map(|_| {
+                let mut next = || {
+                    rng ^= rng << 13;
+                    rng ^= rng >> 17;
+                    rng ^= rng << 5;
+                    (rng as f32 / u32::MAX as f32 - 0.5) * 0.002
+                };
+                Complex::new(next(), next())
+            })
+            .collect()
+    }
+
     #[test]
     fn an_automatic_squelch_finds_its_own_threshold() {
-        let settings = ChannelSettings {
-            squelch_db: Some(-100.0),
-            squelch_auto_db: Some(8.0),
-            ..nfm_settings(None)
-        };
+        let settings = nfm_settings(sdrmm_wire::Squelch::Auto { margin_db: 8.0 });
         let (mut host, mut rx) = host(&settings);
         let published = host.sinks.squelch_db.clone();
 
-        let mut rng = 0x1234_5678u32;
-        let mut noise = |len: usize| -> Vec<Complex<f32>> {
-            (0..len)
-                .map(|_| {
-                    let mut next = || {
-                        rng ^= rng << 13;
-                        rng ^= rng >> 17;
-                        rng ^= rng << 5;
-                        (rng as f32 / u32::MAX as f32 - 0.5) * 0.002
-                    };
-                    Complex::new(next(), next())
-                })
-                .collect()
-        };
         let quiet = run(&mut host, &mut rx, &noise(96_000));
         assert_silence_after_settle(&quiet, 24_000, "auto squelch on noise");
         let threshold = f32::from_bits(published.load(Ordering::Relaxed));
@@ -731,7 +726,7 @@ mod tests {
 
     #[test]
     fn channel_filter_prevents_adjacent_capture() {
-        let (mut host, mut rx) = host(&nfm_settings(None));
+        let (mut host, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let deviation = 2_500.0;
         let mut phase = 0.0f64;
         let wanted: Vec<Complex<f32>> = (0..96_000)
@@ -766,7 +761,7 @@ mod tests {
     fn pcm_stamps_are_contiguous_across_rebuild() {
         let (pcm_tx, mut rx) = broadcast::channel(4096);
         let pos = Arc::new(AtomicU64::new(0));
-        let settings = nfm_settings(None);
+        let settings = nfm_settings(sdrmm_wire::Squelch::Off);
         let mut host = ChannelHost::build(
             RATE,
             CENTER,
@@ -838,8 +833,7 @@ mod tests {
 
         let settings = ChannelSettings {
             frequency_hz: CENTER + 250_000.0,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
             audio: Default::default(),
         };
@@ -875,7 +869,7 @@ mod tests {
     #[test]
     fn a_decoder_holds_its_frequency_while_the_radio_moves_under_it() {
         const DEVICE_RATE: f64 = 240_000.0;
-        let mut settings = nfm_settings(None);
+        let mut settings = nfm_settings(sdrmm_wire::Squelch::Off);
         settings.frequency_hz = CENTER + 50_000.0;
         let (pcm_tx, _pcm_rx) = broadcast::channel(4096);
         let mut built = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
@@ -937,7 +931,7 @@ mod tests {
 
     #[test]
     fn the_baseband_tap_carries_the_channel_down_converted() {
-        let mut settings = nfm_settings(None);
+        let mut settings = nfm_settings(sdrmm_wire::Squelch::Off);
         settings.frequency_hz = CENTER + 3_000.0;
         let (mut host, mut rx) = tapped_host(&settings);
 
@@ -966,7 +960,8 @@ mod tests {
 
     #[test]
     fn the_baseband_tap_keeps_running_through_a_closed_squelch() {
-        let (mut host, mut rx) = tapped_host(&nfm_settings(Some(0.0)));
+        let (mut host, mut rx) =
+            tapped_host(&nfm_settings(sdrmm_wire::Squelch::Manual { level_db: 0.0 }));
 
         let input = tone(0.0, 1e-6, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
@@ -981,7 +976,7 @@ mod tests {
 
     #[test]
     fn an_unwatched_tap_sends_nothing() {
-        let (mut host, _pcm) = host(&nfm_settings(None));
+        let (mut host, _pcm) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let mut rx = host.sinks.iq_tx.subscribe();
         drop(rx);
         rx = host.sinks.iq_tx.subscribe();
@@ -998,7 +993,7 @@ mod tests {
     fn nfm_audio_settings(audio: AudioProcessing) -> ChannelSettings {
         ChannelSettings {
             audio,
-            ..nfm_settings(None)
+            ..nfm_settings(sdrmm_wire::Squelch::Off)
         }
     }
 
@@ -1029,7 +1024,7 @@ mod tests {
     #[test]
     fn the_audio_chain_runs_on_a_channel_that_never_had_one() {
         let quiet = fm_tone(1_000.0, 250.0, 192_000);
-        let (mut plain, mut rx) = host(&nfm_settings(None));
+        let (mut plain, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let untouched = samples(&run(&mut plain, &mut rx, &quiet));
         assert!(rms(&untouched[96_000..]) < 0.15, "signal was not quiet");
 
@@ -1045,7 +1040,7 @@ mod tests {
     #[test]
     fn a_default_chain_leaves_the_audio_alone() {
         let input = fm_tone(1_000.0, 2_500.0, 48_000);
-        let (mut plain, mut rx) = host(&nfm_settings(None));
+        let (mut plain, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let plain_audio = samples(&run(&mut plain, &mut rx, &input));
         let (mut chained, mut rx) = host(&nfm_audio_settings(AudioProcessing::default()));
         assert_eq!(samples(&run(&mut chained, &mut rx, &input)), plain_audio);
@@ -1073,7 +1068,7 @@ mod tests {
             worst
         };
 
-        let dirty = peak(&nfm_settings(None));
+        let dirty = peak(&nfm_settings(sdrmm_wire::Squelch::Off));
         assert!(dirty > 1.5, "the impulses never reached the demod: {dirty}");
         let clean = peak(&nfm_audio_settings(AudioProcessing {
             blanker: NoiseBlankerSettings {
@@ -1090,7 +1085,7 @@ mod tests {
 
     #[test]
     fn prepared_replacement_switches_a_stage_and_keeps_recording_positions() {
-        let (mut host, mut rx) = host(&nfm_settings(None));
+        let (mut host, mut rx) = host(&nfm_settings(sdrmm_wire::Squelch::Off));
         let quiet = fm_tone(1_000.0, 250.0, 96_000);
         run(&mut host, &mut rx, &quiet);
         let settings = nfm_audio_settings(AudioProcessing {

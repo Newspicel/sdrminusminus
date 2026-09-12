@@ -16,8 +16,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
 
     let usb = |offset_hz: f64| ChannelSettings {
         frequency_hz: TEST_CENTER_HZ + offset_hz,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Ssb(SsbParams {
             sideband: Sideband::Usb,
             bandwidth_hz: 10_000.0,
@@ -26,8 +25,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
     };
     let wide_nfm = |offset_hz: f64| ChannelSettings {
         frequency_hz: TEST_CENTER_HZ + offset_hz,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Nfm(NfmParams {
             bandwidth_hz: 25_000.0,
             ..NfmParams::default()
@@ -97,8 +95,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
             0,
             ChannelSettings {
                 frequency_hz: 145_025_000.0,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },

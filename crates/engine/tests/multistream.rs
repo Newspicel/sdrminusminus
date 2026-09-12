@@ -40,8 +40,9 @@ fn engine() -> Arc<Engine> {
 fn nfm(offset_hz: f64, squelch_db: Option<f32>) -> ChannelSettings {
     ChannelSettings {
         frequency_hz: DEFAULT_CENTER_HZ + offset_hz,
-        squelch_db,
-        squelch_auto_db: None,
+        squelch: squelch_db.map_or(sdrmm_wire::Squelch::Off, |level_db| {
+            sdrmm_wire::Squelch::Manual { level_db }
+        }),
         params: ChannelParams::Nfm(NfmParams::default()),
         audio: Default::default(),
     }
@@ -643,8 +644,7 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
 
     let pocsag = |frequency_hz: f64| ChannelSettings {
         frequency_hz,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Pocsag(PocsagParams {
             baud: PocsagBaud::Auto,
             ..PocsagParams::default()

@@ -52,6 +52,18 @@ const ACTIONS: Partial<Record<ChannelBinding, string>> = {
   "not-started": "Start channel",
 };
 
+const STATUS: Record<ChannelBinding, string> = {
+  unwired: "unwired",
+  "no-radio": "no radio",
+  "radio-absent": "radio missing",
+  "radio-closed": "radio closed",
+  "not-started": "not started",
+};
+
+export function channelBindingStatus(binding: ChannelBinding): string {
+  return STATUS[binding];
+}
+
 export function channelBindingHint(binding: ChannelBinding): string {
   return HINTS[binding];
 }

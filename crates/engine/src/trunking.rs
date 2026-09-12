@@ -469,8 +469,7 @@ impl Follower {
             });
             let settings = ChannelSettings {
                 frequency_hz: radio.control_hz as f64,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 audio: AudioProcessing::default_for(params.type_id()),
                 params,
             };
@@ -621,8 +620,7 @@ impl Follower {
         });
         let settings = ChannelSettings {
             frequency_hz: freq_hz as f64,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
@@ -781,8 +779,7 @@ impl Follower {
         });
         let settings = ChannelSettings {
             frequency_hz: grant.freq_hz as f64,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
@@ -1190,8 +1187,7 @@ mod tests {
                 0,
                 ChannelSettings {
                     frequency_hz: center_hz,
-                    squelch_db: None,
-                    squelch_auto_db: None,
+                    squelch: sdrmm_wire::Squelch::Off,
                     params: ChannelParams::Dmr(DmrParams::default()),
                     audio: Default::default(),
                 },

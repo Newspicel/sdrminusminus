@@ -11,8 +11,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, IdentFeatures, IdentParams,
-    IdentReport, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB,
-    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, Modulation,
+    IdentReport, MAX_IDENT_BANDWIDTH_HZ, MIN_IDENT_BANDWIDTH_HZ, Modulation,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -64,20 +63,6 @@ fn check_params(p: &IdentParams) -> Result<(), ChannelError> {
         return Err(ChannelError::InvalidSettings(format!(
             "ident bandwidth must be in [{MIN_IDENT_BANDWIDTH_HZ}, {widest}] Hz, got {}",
             p.bandwidth_hz
-        )));
-    }
-    if !(MIN_IDENT_INTERVAL_MS..=MAX_IDENT_INTERVAL_MS).contains(&p.interval_ms) {
-        return Err(ChannelError::InvalidSettings(format!(
-            "ident interval must be in [{MIN_IDENT_INTERVAL_MS}, {MAX_IDENT_INTERVAL_MS}] ms, got {}",
-            p.interval_ms
-        )));
-    }
-    if !(p.threshold_db.is_finite()
-        && (MIN_IDENT_THRESHOLD_DB..=MAX_IDENT_THRESHOLD_DB).contains(&p.threshold_db))
-    {
-        return Err(ChannelError::InvalidSettings(format!(
-            "ident threshold must be in [{MIN_IDENT_THRESHOLD_DB}, {MAX_IDENT_THRESHOLD_DB}] dB, got {}",
-            p.threshold_db
         )));
     }
     Ok(())
@@ -280,8 +265,7 @@ mod tests {
     fn settings(params: IdentParams) -> ChannelSettings {
         ChannelSettings {
             frequency_hz: 0.0,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             params: sdrmm_wire::ChannelParams::Ident(params),
             audio: Default::default(),
         }

@@ -624,6 +624,7 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
             descriptor.exact_rate_only = exact_rate_only(&descriptor);
             descriptor.can_transmit = r.create_tx.is_some();
             descriptor.defaults = ChannelSettings::default_for(&descriptor.type_id);
+            descriptor.limits = sdrmm_wire::param_limits(&descriptor.type_id);
             descriptor
         })
         .collect()
@@ -644,6 +645,9 @@ pub fn create(
     ctx: ChannelCtx,
     settings: &ChannelSettings,
 ) -> Result<Box<dyn ChannelRx>, ChannelError> {
+    settings
+        .check_limits()
+        .map_err(ChannelError::InvalidSettings)?;
     (find(settings)?.create)(ctx, settings.clone())
 }
 

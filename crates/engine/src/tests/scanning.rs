@@ -12,8 +12,7 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
             0,
             ChannelSettings {
                 frequency_hz: TEST_CENTER_HZ,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },
@@ -605,8 +604,7 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
             0,
             ChannelSettings {
                 frequency_hz: TEST_CENTER_HZ,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },
@@ -627,8 +625,7 @@ async fn a_sweep_hands_back_a_working_channel() {
             0,
             ChannelSettings {
                 frequency_hz: TEST_CENTER_HZ,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },

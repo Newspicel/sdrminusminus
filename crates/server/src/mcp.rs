@@ -17,7 +17,7 @@ use sdrmm_wire::{
     AntennaDesign, AntennaRequest, AudioProcessing, ChannelParams, ChannelSettings,
     DecoderLogQuery, DeviceSettings, GroundPlaneParams, InvertedVParams, NanoVnaCalStep,
     NanoVnaCalibrateRequest, NanoVnaPortRequest, NanoVnaRequest, NanoVnaSweepRequest,
-    NanoVnaSweepState, ScanRange, ScanSettings, ToolRequest, ToolResponse, ToolsResponse,
+    NanoVnaSweepState, ScanRange, ScanSettings, Squelch, ToolRequest, ToolResponse, ToolsResponse,
     YagiParams,
 };
 use serde::Deserialize;
@@ -428,8 +428,7 @@ impl SdrMcp {
         })?;
         let settings = ChannelSettings {
             frequency_hz: req.frequency_hz,
-            squelch_db: req.squelch_db,
-            squelch_auto_db: req.squelch_auto_db,
+            squelch: Squelch::from_levels(req.squelch_db, req.squelch_auto_db),
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };

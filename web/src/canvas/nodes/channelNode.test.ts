@@ -4,6 +4,7 @@ import {
   channelBinding,
   channelBindingAction,
   channelBindingHint,
+  channelBindingStatus,
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
@@ -64,5 +65,13 @@ describe("channelBinding", () => {
   it("hints at each state without putting prose on the face", () => {
     expect(channelBindingHint("radio-absent")).toBe("Its radio is not connected");
     expect(channelBindingHint("unwired")).toBe("Wire a device's IQ in");
+  });
+
+  it("names each state in a word or two for the header", () => {
+    expect(channelBindingStatus("unwired")).toBe("unwired");
+    expect(channelBindingStatus("no-radio")).toBe("no radio");
+    expect(channelBindingStatus("radio-absent")).toBe("radio missing");
+    expect(channelBindingStatus("radio-closed")).toBe("radio closed");
+    expect(channelBindingStatus("not-started")).toBe("not started");
   });
 });

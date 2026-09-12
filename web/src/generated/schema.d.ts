@@ -1958,6 +1958,7 @@ export interface components {
             has_video?: boolean;
             /** Format: double */
             input_rate_hz: number;
+            limits?: components["schemas"]["ParamLimit"][];
             name: string;
             /** Format: double */
             native_rate_max_hz?: number | null;
@@ -2204,10 +2205,7 @@ export interface components {
              */
             frequency_hz: number;
             params: components["schemas"]["ChannelParams"];
-            /** Format: float */
-            squelch_auto_db?: number | null;
-            /** Format: float */
-            squelch_db?: number | null;
+            squelch?: components["schemas"]["Squelch"];
         };
         ChannelTypesResponse: {
             types: components["schemas"]["ChannelDescriptor"][];
@@ -4224,6 +4222,16 @@ export interface components {
         P25Params: Record<string, never>;
         /** @enum {string} */
         PagerPayload: "tone" | "numeric" | "alpha" | "binary";
+        /** @description The range a numeric decoder setting is accepted in, named by its field in the params struct. */
+        ParamLimit: {
+            /** Format: double */
+            max: number;
+            /** Format: double */
+            min: number;
+            name: string;
+            /** Format: double */
+            step?: number | null;
+        };
         /** @description A passive radar: one lane watching the illuminator, one watching the sky. */
         PassiveRadarNode: {
             settings?: components["schemas"]["PassiveRadarParams"];
@@ -5048,6 +5056,24 @@ export interface components {
             h: number;
             /** Format: float */
             w: number;
+        };
+        /**
+         * @description How a channel gates what it decodes: not at all, above a level the operator set, or a margin
+         *     above the noise floor it measures for itself.
+         */
+        Squelch: {
+            /** @enum {string} */
+            mode: "off";
+        } | {
+            /** Format: float */
+            level_db: number;
+            /** @enum {string} */
+            mode: "manual";
+        } | {
+            /** Format: float */
+            margin_db: number;
+            /** @enum {string} */
+            mode: "auto";
         };
         SsbParams: {
             /** Format: double */

@@ -31,6 +31,111 @@ pub struct ChannelDescriptor {
     /// before any radio is open to carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub defaults: Option<ChannelSettings>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<ParamLimit>,
+}
+
+/// The range a numeric decoder setting is accepted in, named by its field in the params struct.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ParamLimit {
+    pub name: String,
+    pub min: f64,
+    pub max: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+}
+
+fn limit(name: &str, min: f64, max: f64, step: f64) -> ParamLimit {
+    ParamLimit {
+        name: name.to_owned(),
+        min,
+        max,
+        step: Some(step),
+    }
+}
+
+fn wsjt_limits() -> Vec<ParamLimit> {
+    vec![
+        limit("audio_low_hz", 50.0, 5_450.0, 10.0),
+        limit("audio_high_hz", 100.0, 5_500.0, 10.0),
+        limit("max_candidates", 1.0, 1_000.0, 1.0),
+    ]
+}
+
+fn navaid_report_limit() -> ParamLimit {
+    limit(
+        "report_ms",
+        f64::from(MIN_NAVAID_REPORT_MS),
+        f64::from(MAX_NAVAID_REPORT_MS),
+        250.0,
+    )
+}
+
+#[must_use]
+pub fn param_limits(type_id: &str) -> Vec<ParamLimit> {
+    match type_id {
+        "nfm" => vec![limit("inversion_hz", 1_500.0, 4_500.0, 50.0)],
+        "ssb" => vec![limit("bandwidth_hz", 200.0, 10_000.0, 100.0)],
+        "rtty" => vec![
+            limit("baud", 10.0, 1_200.0, 0.05),
+            limit("shift_hz", 20.0, 2_000.0, 5.0),
+        ],
+        "morse" => vec![
+            limit("bandwidth_hz", 50.0, 3_000.0, 50.0),
+            limit("wpm", 5.0, 60.0, 1.0),
+        ],
+        "cw_skimmer" => vec![
+            limit("bandwidth_hz", 1_000.0, 24_000.0, 500.0),
+            limit("threshold_db", 3.0, 40.0, 1.0),
+            limit("max_signals", 1.0, 128.0, 1.0),
+            limit("wpm", 3.0, 80.0, 1.0),
+        ],
+        "ft8" | "ft4" | "wspr" => wsjt_limits(),
+        "gnss" => vec![
+            limit("prn", 1.0, 32.0, 1.0),
+            limit("doppler_hz", 500.0, 20_000.0, 500.0),
+            limit("threshold", 1.5, 100.0, 0.1),
+        ],
+        "vor" => vec![
+            limit("station_lat", -90.0, 90.0, 0.00001),
+            limit("station_lon", -180.0, 180.0, 0.00001),
+            limit("magnetic_declination_deg", -180.0, 180.0, 0.1),
+            navaid_report_limit(),
+        ],
+        "ils" => vec![navaid_report_limit()],
+        "subghz" => vec![
+            limit("min_pulse_us", 10.0, 2_000.0, 10.0),
+            limit("frame_gap_us", 500.0, 100_000.0, 500.0),
+        ],
+        "atv" => vec![limit(
+            "sound_subcarrier_hz",
+            500_000.0,
+            9_000_000.0,
+            500_000.0,
+        )],
+        "datv" => vec![limit("symbol_rate", 100_000.0, 1_000_000.0, 1_000.0)],
+        "ident" => vec![
+            limit(
+                "bandwidth_hz",
+                MIN_IDENT_BANDWIDTH_HZ,
+                MAX_IDENT_BANDWIDTH_HZ,
+                500.0,
+            ),
+            limit(
+                "interval_ms",
+                f64::from(MIN_IDENT_INTERVAL_MS),
+                f64::from(MAX_IDENT_INTERVAL_MS),
+                250.0,
+            ),
+            limit(
+                "threshold_db",
+                f64::from(MIN_IDENT_THRESHOLD_DB),
+                f64::from(MAX_IDENT_THRESHOLD_DB),
+                1.0,
+            ),
+        ],
+        _ => Vec::new(),
+    }
 }
 
 impl ChannelDescriptor {
@@ -59,6 +164,7 @@ impl Default for ChannelDescriptor {
             can_transmit: false,
             needs_position: false,
             defaults: None,
+            limits: Vec::new(),
         }
     }
 }
@@ -1356,6 +1462,73 @@ impl ChannelParams {
 pub const MIN_SQUELCH_AUTO_MARGIN_DB: f32 = 2.0;
 pub const MAX_SQUELCH_AUTO_MARGIN_DB: f32 = 40.0;
 
+/// How a channel gates what it decodes: not at all, above a level the operator set, or a margin
+/// above the noise floor it measures for itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum Squelch {
+    #[default]
+    Off,
+    Manual {
+        level_db: f32,
+    },
+    Auto {
+        margin_db: f32,
+    },
+}
+
+impl Squelch {
+    #[must_use]
+    pub fn is_off(&self) -> bool {
+        matches!(self, Self::Off)
+    }
+
+    #[must_use]
+    pub fn manual_level_db(&self) -> Option<f32> {
+        match self {
+            Self::Manual { level_db } => Some(*level_db),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn auto_margin_db(&self) -> Option<f32> {
+        match self {
+            Self::Auto { margin_db } => Some(*margin_db),
+            _ => None,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        match *self {
+            Self::Off => Ok(()),
+            Self::Manual { level_db } if level_db.is_finite() => Ok(()),
+            Self::Manual { level_db } => {
+                Err(format!("squelch level must be finite, got {level_db}"))
+            }
+            Self::Auto { margin_db }
+                if margin_db.is_finite()
+                    && (MIN_SQUELCH_AUTO_MARGIN_DB..=MAX_SQUELCH_AUTO_MARGIN_DB)
+                        .contains(&margin_db) =>
+            {
+                Ok(())
+            }
+            Self::Auto { margin_db } => Err(format!(
+                "squelch margin must be in {MIN_SQUELCH_AUTO_MARGIN_DB}..={MAX_SQUELCH_AUTO_MARGIN_DB} dB above the noise floor, got {margin_db}"
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn from_levels(level_db: Option<f32>, margin_db: Option<f32>) -> Self {
+        match (level_db, margin_db) {
+            (_, Some(margin_db)) => Self::Auto { margin_db },
+            (Some(level_db), None) => Self::Manual { level_db },
+            (None, None) => Self::Off,
+        }
+    }
+}
+
 pub const DEFAULT_FREQUENCY_HZ: f64 = 100_000_000.0;
 
 /// The one frequency a service lives on the world over, for the decoders that have one. A mode
@@ -1394,10 +1567,8 @@ pub struct ChannelSettings {
     /// The frequency the decoder listens on, whatever any radio happens to be tuned to. A radio
     /// that cannot reach it simply does not carry this channel.
     pub frequency_hz: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub squelch_db: Option<f32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub squelch_auto_db: Option<f32>,
+    #[serde(default)]
+    pub squelch: Squelch,
     pub params: ChannelParams,
     #[serde(default)]
     pub audio: AudioProcessing,
@@ -1408,11 +1579,39 @@ impl ChannelSettings {
     pub fn default_for(type_id: &str) -> Option<Self> {
         Some(Self {
             frequency_hz: home_frequency_hz(type_id).unwrap_or(DEFAULT_FREQUENCY_HZ),
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: Squelch::Off,
             params: ChannelParams::default_for(type_id)?,
             audio: AudioProcessing::default_for(type_id),
         })
+    }
+
+    /// Every numeric setting checked against the range published for its decoder.
+    pub fn check_limits(&self) -> Result<(), String> {
+        self.squelch.validate()?;
+        let limits = param_limits(self.params.type_id());
+        if limits.is_empty() {
+            return Ok(());
+        }
+        let stated = serde_json::to_value(&self.params)
+            .map_err(|error| format!("settings cannot be inspected: {error}"))?;
+        for limit in &limits {
+            let Some(value) = stated["settings"]
+                .get(&limit.name)
+                .and_then(serde_json::Value::as_f64)
+            else {
+                continue;
+            };
+            if !(value.is_finite() && value >= limit.min && value <= limit.max) {
+                return Err(format!(
+                    "{} {} must be in {}..={}, got {value}",
+                    self.params.type_id(),
+                    limit.name,
+                    limit.min,
+                    limit.max
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1421,6 +1620,8 @@ impl<'de> Deserialize<'de> for ChannelSettings {
         #[derive(Deserialize)]
         struct Stated {
             frequency_hz: Option<f64>,
+            #[serde(default)]
+            squelch: Option<Squelch>,
             #[serde(default)]
             squelch_db: Option<f32>,
             #[serde(default)]
@@ -1437,8 +1638,9 @@ impl<'de> Deserialize<'de> for ChannelSettings {
             frequency_hz: stated.frequency_hz.unwrap_or_else(|| {
                 home_frequency_hz(stated.params.type_id()).unwrap_or(DEFAULT_FREQUENCY_HZ)
             }),
-            squelch_db: stated.squelch_db,
-            squelch_auto_db: stated.squelch_auto_db,
+            squelch: stated
+                .squelch
+                .unwrap_or_else(|| Squelch::from_levels(stated.squelch_db, stated.squelch_auto_db)),
             params: stated.params,
             audio,
         })

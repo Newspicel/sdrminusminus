@@ -72,8 +72,7 @@ pub fn occupied_band(p: &DatvParams) -> (f64, f64) {
 pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
     let p = params(&ChannelSettings {
         frequency_hz: 0.0,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Datv(*p),
         audio: sdrmm_wire::AudioProcessing::default(),
     })?;
@@ -431,8 +430,7 @@ mod tests {
     fn settings(program: Option<u16>) -> ChannelSettings {
         ChannelSettings {
             frequency_hz: 0.0,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Datv(DatvParams {
                 standard: DatvStandard::DvbS,
                 symbol_rate: testgen::datv::SYMBOL_RATE,
@@ -506,8 +504,7 @@ mod tests {
             },
             ChannelSettings {
                 frequency_hz: 0.0,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Datv(DatvParams {
                     standard: DatvStandard::DvbS2,
                     symbol_rate: testgen::datv::SYMBOL_RATE,
@@ -589,8 +586,7 @@ mod tests {
             },
             ChannelSettings {
                 frequency_hz: 0.0,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Datv(DatvParams {
                     standard: DatvStandard::DvbS2,
                     symbol_rate: testgen::datv::SYMBOL_RATE,

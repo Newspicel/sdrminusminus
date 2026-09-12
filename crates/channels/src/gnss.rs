@@ -61,28 +61,6 @@ fn params(settings: &ChannelSettings) -> Result<&GnssParams, ChannelError> {
     }
 }
 
-fn check_params(p: &GnssParams) -> Result<(), ChannelError> {
-    if !(1..=32).contains(&p.prn) {
-        return Err(ChannelError::InvalidSettings(format!(
-            "GPS L1 C/A PRN must be 1–32, got {}",
-            p.prn
-        )));
-    }
-    if p.doppler_hz > 20_000 || p.doppler_hz < 500 {
-        return Err(ChannelError::InvalidSettings(format!(
-            "GNSS Doppler search must be 500–20000 Hz, got {}",
-            p.doppler_hz
-        )));
-    }
-    if !(p.threshold.is_finite() && (1.5..=100.0).contains(&p.threshold)) {
-        return Err(ChannelError::InvalidSettings(format!(
-            "GNSS acquisition threshold must be 1.5–100, got {}",
-            p.threshold
-        )));
-    }
-    Ok(())
-}
-
 pub(crate) fn occupied_band() -> (f64, f64) {
     (-1_023_000.0, 1_023_000.0)
 }
@@ -99,13 +77,11 @@ impl ChannelRx for GnssChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = *params(&settings)?;
-        check_params(&p)?;
         Ok(Self::build(p))
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = *params(&settings)?;
-        check_params(&p)?;
         if p != self.params {
             *self = Self::build(p);
         }

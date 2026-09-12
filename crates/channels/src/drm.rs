@@ -181,8 +181,7 @@ pub(crate) fn occupied_band(p: &DrmParams) -> (f64, f64) {
 pub(crate) fn channel_filter(p: &DrmParams) -> Result<ChannelFilter, ChannelError> {
     let p = params(&ChannelSettings {
         frequency_hz: 0.0,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Drm(*p),
         audio: sdrmm_wire::AudioProcessing::default(),
     })?;
@@ -307,8 +306,7 @@ mod tests {
     fn settings(mode: DrmMode, bandwidth_hz: f64) -> ChannelSettings {
         ChannelSettings {
             frequency_hz: 0.0,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Drm(DrmParams {
                 mode,
                 bandwidth_hz,

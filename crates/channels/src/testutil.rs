@@ -9,8 +9,7 @@ use crate::{AUDIO_RATE, ChannelOutputs, ChannelRx};
 pub(crate) fn settings(params: ChannelParams) -> ChannelSettings {
     ChannelSettings {
         frequency_hz: 0.0,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params,
         audio: sdrmm_wire::AudioProcessing::default(),
     }

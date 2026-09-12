@@ -20,7 +20,7 @@ async fn preset_capture_apply_delete_roundtrip() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{channel}"),
-        Some(r#"{"frequency_hz":145525000.0,"squelch_db":-70.0,"params":{"type":"nfm","settings":{}}}"#),
+        Some(r#"{"frequency_hz":145525000.0,"squelch":{"mode":"manual","level_db":-70.0},"params":{"type":"nfm","settings":{}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -73,7 +73,10 @@ async fn preset_capture_apply_delete_roundtrip() {
     assert_eq!(set.settings.sample_rate, Some(2_400_000.0));
     assert_eq!(set.channels.len(), 1);
     assert_eq!(set.channels[0].settings.frequency_hz, 145_525_000.0);
-    assert_eq!(set.channels[0].settings.squelch_db, Some(-70.0));
+    assert_eq!(
+        set.channels[0].settings.squelch,
+        sdrmm_wire::Squelch::Manual { level_db: -70.0 }
+    );
 
     let (status, _) = request(app.clone(), "POST", "/api/presets/999/apply", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);

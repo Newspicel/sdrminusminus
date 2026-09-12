@@ -1037,8 +1037,7 @@ fn untouched_settings() -> DeviceSettings {
 fn nfm_settings(offset_hz: f64) -> ChannelSettings {
     ChannelSettings {
         frequency_hz: TEST_CENTER_HZ + offset_hz,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Nfm(NfmParams::default()),
         audio: Default::default(),
     }

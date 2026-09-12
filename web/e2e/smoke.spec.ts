@@ -267,18 +267,19 @@ test.describe("the workspace", () => {
       expect(await rowOffset(channel, port)).toBeLessThan(1);
     }
 
-    const squelch = channel.getByRole("checkbox", { name: /squelch/i });
+    const squelch = channel.getByRole("group", { name: "Squelch mode" });
+    const manual = squelch.getByRole("button", { name: "Manual" });
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
     await expect(threshold).toBeDisabled();
-    await squelch.click();
+    await manual.click();
     await expect(threshold).toBeEnabled();
-    expect(await cursor(squelch)).toBe("pointer");
+    expect(await cursor(manual)).toBe("pointer");
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
     expect(await cursor(channel)).toBe("default");
     expect(await cursor(channel.locator("header"))).toBe("grab");
     expect(await cursor(node("scope").locator("header"))).toBe("grab");
     await channel.getByText("-60 dB", { exact: true }).click();
-    await expect(squelch).toBeChecked();
+    await expect(manual).toHaveAttribute("aria-pressed", "true");
 
     await activate(node("device"));
     const viewport = page.locator(".react-flow__viewport");
@@ -303,7 +304,7 @@ test.describe("the workspace", () => {
     expect(await framing()).toBe(framedAt);
 
     await activate(channel);
-    await squelch.click();
+    await squelch.getByRole("button", { name: "Off" }).click();
     await expect(threshold).toBeDisabled();
 
     await expect(node("scope").getByText(/MHz/).first()).toBeVisible();

@@ -66,8 +66,7 @@ impl Track {
     fn prototype(wpm: Option<f32>) -> Result<Self, ChannelError> {
         let morse_settings = ChannelSettings {
             frequency_hz: 0.0,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::Morse(MorseParams {
                 bandwidth_hz: 400.0,
                 wpm,
@@ -202,23 +201,10 @@ fn check_params(params: &CwSkimmerParams) -> Result<(), ChannelError> {
             params.bandwidth_hz
         )));
     }
-    if !(params.threshold_db.is_finite() && (3.0..=40.0).contains(&params.threshold_db)) {
-        return Err(ChannelError::InvalidSettings(format!(
-            "cw skimmer threshold must be in [3, 40] dB, got {}",
-            params.threshold_db
-        )));
-    }
     if !(1..=MAX_SIGNALS).contains(&params.max_signals) {
         return Err(ChannelError::InvalidSettings(format!(
             "cw skimmer max signals must be in [1, {MAX_SIGNALS}], got {}",
             params.max_signals
-        )));
-    }
-    if let Some(wpm) = params.wpm
-        && !(wpm.is_finite() && (3.0..=80.0).contains(&wpm))
-    {
-        return Err(ChannelError::InvalidSettings(format!(
-            "cw skimmer wpm must be in [3, 80], got {wpm}"
         )));
     }
     Ok(())

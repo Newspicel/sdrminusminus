@@ -151,17 +151,17 @@ A channel node that is not wired to anything yet can still be given a frequency;
 the node and applied the moment a radio carries it. A radio nobody has tuned by hand opens over the
 channels wired into it.
 
-Audio channels can gate their output with squelch. A lower threshold opens more easily; turning
-squelch off passes audio continuously.
+Every channel can gate what it decodes with squelch. **Off** passes everything through. **Manual**
+opens above a level you set; a lower threshold opens more easily.
 
-**Auto** sets the threshold a chosen number of decibels above the channel's measured noise floor.
-The level meter marks the current threshold.
+**Auto** opens a chosen number of decibels above the channel's measured noise floor, with no fixed
+level needed. The level meter under the dial marks where the gate opens.
 
 The channel learns the noise floor during quiet periods. A continuous signal may be mistaken for
 the floor, requiring a stronger signal to open the gate. Once the gate opens, the floor cannot rise
 and suppress a long transmission.
 
-Disabling Auto restores the saved manual threshold.
+Switching from Auto back to Manual restores the level you last set by hand.
 
 NFM adds tone squelch:
 

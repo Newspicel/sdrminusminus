@@ -243,8 +243,7 @@ impl Engine {
         };
         let mut need_host = old.frequency_hz != settings.frequency_hz
             || old.params != settings.params
-            || old.squelch_db != settings.squelch_db
-            || old.squelch_auto_db != settings.squelch_auto_db
+            || old.squelch != settings.squelch
             || old.audio != settings.audio;
         let mut orphaned: Option<ChannelAudioRecording> = None;
         let mut orphaned_baseband = BasebandSinks::default();

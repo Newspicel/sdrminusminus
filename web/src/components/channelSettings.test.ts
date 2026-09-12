@@ -6,13 +6,20 @@ import {
   channelDecoderKind,
   channelHasAudio,
   clampOffsetHz,
+  limitOf,
   mergeAudio,
   mergeChannelSettings,
+  nudgedSquelch,
   offsetForFrequencyHz,
   offsetLimitHz,
   radioWindowHz,
   rateMismatch,
   reachesHz,
+  scaledLimit,
+  squelchAt,
+  squelchLevelDb,
+  squelchMarginDb,
+  squelchMode,
   withNotchAdded,
   withNotchAt,
   withNotchRemoved,
@@ -20,7 +27,7 @@ import {
 
 const base: ChannelSettings = {
   frequency_hz: 145_025_000,
-  squelch_db: -70,
+  squelch: { mode: "manual", level_db: -70 },
   params: { type: "ssb", settings: { sideband: "lsb", bandwidth_hz: 2_400 } },
 };
 
@@ -39,7 +46,6 @@ describe("mergeChannelSettings", () => {
     expect(mergeChannelSettings(base, { frequency_hz: 144_987_500 })).toEqual({
       ...base,
       audio: {},
-      squelch_auto_db: null,
       frequency_hz: 144_987_500,
     });
   });
@@ -52,18 +58,14 @@ describe("mergeChannelSettings", () => {
     });
   });
 
-  it("distinguishes squelch off (null) from unchanged (undefined)", () => {
-    expect(mergeChannelSettings(base, { squelch_db: null }).squelch_db).toBeNull();
-    expect(mergeChannelSettings(base, {}).squelch_db).toBe(-70);
-  });
-
-  it("keeps the manual threshold when the automatic margin is set, and the reverse", () => {
-    const auto = mergeChannelSettings(base, { squelch_auto_db: 8 });
-    expect(auto.squelch_auto_db).toBe(8);
-    expect(auto.squelch_db).toBe(-70);
-    expect(mergeChannelSettings(auto, { squelch_auto_db: null }).squelch_auto_db).toBeNull();
-    expect(mergeChannelSettings(auto, { squelch_db: -80 }).squelch_auto_db).toBe(8);
-    expect(mergeChannelSettings(base, {}).squelch_auto_db).toBeNull();
+  it("replaces the squelch whole and keeps it when the edit says nothing", () => {
+    expect(mergeChannelSettings(base, { squelch: { mode: "off" } }).squelch).toEqual({
+      mode: "off",
+    });
+    expect(mergeChannelSettings(base, {}).squelch).toEqual({ mode: "manual", level_db: -70 });
+    expect(mergeChannelSettings(base, { squelch: { mode: "auto", margin_db: 8 } }).squelch).toEqual(
+      { mode: "auto", margin_db: 8 },
+    );
   });
 
   it("swaps params wholesale without touching placement", () => {
@@ -71,7 +73,7 @@ describe("mergeChannelSettings", () => {
       params: { type: "nfm", settings: { bandwidth_hz: 25_000 } },
     });
     expect(next.frequency_hz).toBe(145_025_000);
-    expect(next.squelch_db).toBe(-70);
+    expect(next.squelch).toEqual({ mode: "manual", level_db: -70 });
     expect(next.params).toEqual({ type: "nfm", settings: { bandwidth_hz: 25_000 } });
   });
 
@@ -82,7 +84,7 @@ describe("mergeChannelSettings", () => {
     };
     const next = mergeChannelSettings(sparse, {});
     expect(next.frequency_hz).toBe(145_000_000);
-    expect(next.squelch_db).toBeNull();
+    expect(next.squelch).toEqual({ mode: "off" });
   });
 
   it("carries a decoder's edited params into the patch body", () => {
@@ -98,8 +100,7 @@ describe("mergeChannelSettings", () => {
     });
     expect(next).toEqual({
       frequency_hz: 14_070_000,
-      squelch_db: null,
-      squelch_auto_db: null,
+      squelch: { mode: "off" },
       audio: {},
       params: {
         type: "rtty",
@@ -275,10 +276,18 @@ describe("rateMismatch", () => {
     expect(rateMismatch(fixed, 2_000_000)).toBeNull();
   });
 
-  it("is silent for a resampling mode, and while the rate is unreported", () => {
+  it("is silent for a resampling mode above its input rate, and while the rate is unreported", () => {
     expect(rateMismatch(descriptor({ input_rate_hz: 48_000 }), 2_400_000)).toBeNull();
     expect(rateMismatch(adsb, null)).toBeNull();
     expect(rateMismatch(undefined, 2_400_000)).toBeNull();
+  });
+
+  it("wants at least the input rate from a radio running below a resampling mode", () => {
+    expect(rateMismatch(descriptor({ input_rate_hz: 2_304_000 }), 2_048_000)).toEqual({
+      min: 2_304_000,
+      max: Number.POSITIVE_INFINITY,
+    });
+    expect(rateMismatch(descriptor({ input_rate_hz: 0 }), 2_048_000)).toBeNull();
   });
 });
 
@@ -356,5 +365,83 @@ describe("offsetForFrequencyHz", () => {
   it("has no answer without finite inputs", () => {
     expect(offsetForFrequencyHz(Number.NaN, 433_000_000, null)).toBeNull();
     expect(offsetForFrequencyHz(433_000_000, Number.POSITIVE_INFINITY, null)).toBeNull();
+  });
+});
+
+describe("squelchMode", () => {
+  it("reads the gate state off the tagged value, off when absent", () => {
+    expect(squelchMode(undefined)).toBe("off");
+    expect(squelchMode({ mode: "off" })).toBe("off");
+    expect(squelchMode({ mode: "manual", level_db: -60 })).toBe("manual");
+    expect(squelchMode({ mode: "auto", margin_db: 8 })).toBe("auto");
+    expect(squelchLevelDb({ mode: "manual", level_db: -60 })).toBe(-60);
+    expect(squelchLevelDb({ mode: "auto", margin_db: 8 })).toBeNull();
+    expect(squelchMarginDb({ mode: "auto", margin_db: 8 })).toBe(8);
+    expect(squelchMarginDb(undefined)).toBeNull();
+  });
+});
+
+describe("squelchAt", () => {
+  const held = { levelDb: -55, marginDb: 12 };
+
+  it("builds each mode from the values held for it", () => {
+    expect(squelchAt("off", held)).toEqual({ mode: "off" });
+    expect(squelchAt("manual", held)).toEqual({ mode: "manual", level_db: -55 });
+    expect(squelchAt("auto", held)).toEqual({ mode: "auto", margin_db: 12 });
+  });
+});
+
+describe("nudgedSquelch", () => {
+  it("moves a manual level and clamps it to the slider range", () => {
+    expect(nudgedSquelch({ mode: "manual", level_db: -60 }, 2)).toEqual({
+      mode: "manual",
+      level_db: -58,
+    });
+    expect(nudgedSquelch({ mode: "manual", level_db: -1 }, 2)).toEqual({
+      mode: "manual",
+      level_db: 0,
+    });
+  });
+
+  it("opens a gate that was off at the default level", () => {
+    expect(nudgedSquelch(undefined, -2)).toEqual({ mode: "manual", level_db: -62 });
+    expect(nudgedSquelch({ mode: "off" }, 2)).toEqual({ mode: "manual", level_db: -58 });
+  });
+
+  it("moves the margin instead when the gate tracks the noise floor", () => {
+    expect(nudgedSquelch({ mode: "auto", margin_db: 8 }, 2)).toEqual({
+      mode: "auto",
+      margin_db: 10,
+    });
+    expect(nudgedSquelch({ mode: "auto", margin_db: 39 }, 2)).toEqual({
+      mode: "auto",
+      margin_db: 40,
+    });
+  });
+});
+
+describe("limitOf", () => {
+  const limits = [
+    { name: "wpm", min: 5, max: 60, step: 1 },
+    { name: "threshold", min: 1.5, max: 100 },
+  ];
+
+  it("hands a number field the range its decoder published", () => {
+    expect(limitOf(limits, "wpm")).toEqual({ min: 5, max: 60, step: 1 });
+    expect(limitOf(limits, "threshold")).toEqual({ min: 1.5, max: 100, step: undefined });
+  });
+
+  it("leaves a field unconstrained when nothing was published", () => {
+    expect(limitOf(limits, "baud")).toEqual({});
+    expect(limitOf(undefined, "wpm")).toEqual({});
+  });
+
+  it("scales a limit into the unit a field is shown in", () => {
+    expect(scaledLimit({ min: 500_000, max: 9_000_000, step: 500_000 }, 1e-6)).toEqual({
+      min: 0.5,
+      max: 9,
+      step: 0.5,
+    });
+    expect(scaledLimit({}, 1e-6)).toEqual({ min: undefined, max: undefined, step: undefined });
   });
 });

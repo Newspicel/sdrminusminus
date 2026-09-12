@@ -224,8 +224,7 @@ mod tests {
             node: node.to_string(),
             settings: ChannelSettings {
                 frequency_hz,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: crate::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: crate::audio::AudioProcessing::default(),
             },

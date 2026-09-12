@@ -5,7 +5,7 @@ use sdrmm_wire::{
     ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams,
     FlexParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody,
     PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
-    RttyParams, SsbParams, SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams,
+    RttyParams, Squelch, SsbParams, SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams,
     WsprParams, YsfParams,
 };
 
@@ -69,7 +69,7 @@ struct Channel {
     freq_hz: f64,
     params: fn() -> ChannelParams,
     sinks: &'static [Sink],
-    squelch_auto_db: Option<f32>,
+    squelch: Squelch,
 }
 
 impl Channel {
@@ -78,13 +78,13 @@ impl Channel {
             freq_hz,
             params,
             sinks,
-            squelch_auto_db: None,
+            squelch: Squelch::Off,
         }
     }
 
     const fn squelched(self, margin_db: f32) -> Self {
         Self {
-            squelch_auto_db: Some(margin_db),
+            squelch: Squelch::Auto { margin_db },
             ..self
         }
     }
@@ -618,8 +618,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                         let params = (channel.params)();
                         ChannelSettings {
                             frequency_hz: channel.freq_hz,
-                            squelch_db: None,
-                            squelch_auto_db: channel.squelch_auto_db,
+                            squelch: channel.squelch,
                             audio: AudioProcessing::default_for(params.type_id()),
                             params,
                         }
@@ -726,7 +725,7 @@ mod tests {
     fn automatic_squelch_margins_are_inside_the_accepted_range() {
         for template in all() {
             for channel in &template.channels {
-                let Some(margin) = channel.squelch_auto_db else {
+                let Some(margin) = channel.squelch.auto_margin_db() else {
                     continue;
                 };
                 assert!(

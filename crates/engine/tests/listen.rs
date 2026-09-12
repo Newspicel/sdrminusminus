@@ -39,8 +39,9 @@ fn set_at_test_rate(engine: &Engine) -> u32 {
 fn settings(params: ChannelParams, offset_hz: f64, squelch_db: Option<f32>) -> ChannelSettings {
     ChannelSettings {
         frequency_hz: CENTER_HZ + offset_hz,
-        squelch_db,
-        squelch_auto_db: None,
+        squelch: squelch_db.map_or(sdrmm_wire::Squelch::Off, |level_db| {
+            sdrmm_wire::Squelch::Manual { level_db }
+        }),
         params,
         audio: Default::default(),
     }

@@ -41,8 +41,7 @@ pub fn run(args: &Replay) -> Result<()> {
     };
     let settings = ChannelSettings {
         frequency_hz: args.offset,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params,
         audio: AudioProcessing::default(),
     };

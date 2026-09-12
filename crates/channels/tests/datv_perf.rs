@@ -23,8 +23,7 @@ struct Row {
 fn settings(standard: DatvStandard) -> ChannelSettings {
     ChannelSettings {
         frequency_hz: 0.0,
-        squelch_db: None,
-        squelch_auto_db: None,
+        squelch: sdrmm_wire::Squelch::Off,
         params: ChannelParams::Datv(DatvParams {
             standard,
             symbol_rate: testgen::datv::SYMBOL_RATE,

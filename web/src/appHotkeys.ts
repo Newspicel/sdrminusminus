@@ -2,6 +2,7 @@ import { isPinned, patchNode, pin, unpin } from "./canvas/graph";
 import { useHotkeys } from "./canvas/useHotkeys";
 import type { WorkspaceStore } from "./canvas/useWorkspace";
 import type { View } from "./canvas/WorkspaceBar";
+import { DEFAULT_SQUELCH_DB, nudgedSquelch, SQUELCH_OFF } from "./components/channelSettings";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { dialId } from "./components/FrequencyDial";
 import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "./lib/types";
@@ -80,7 +81,7 @@ export function useAppHotkeys(b: AppHotkeys) {
         return;
       }
       b.applyEdit(b.selectedSet.id, b.selectedChannel.id, (current) => ({
-        squelch_db: Math.min(0, Math.max(-120, (current.squelch_db ?? -60) + deltaDb)),
+        squelch: nudgedSquelch(current.squelch, deltaDb),
       }));
     },
     toggleSquelch: () => {
@@ -88,7 +89,10 @@ export function useAppHotkeys(b: AppHotkeys) {
         return;
       }
       b.applyEdit(b.selectedSet.id, b.selectedChannel.id, (current) => ({
-        squelch_db: current.squelch_db == null ? -60 : null,
+        squelch:
+          current.squelch?.mode === "off" || current.squelch === undefined
+            ? { mode: "manual", level_db: DEFAULT_SQUELCH_DB }
+            : SQUELCH_OFF,
       }));
     },
     selectChannel: (direction) => {

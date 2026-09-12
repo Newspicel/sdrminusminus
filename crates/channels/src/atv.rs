@@ -297,13 +297,6 @@ fn params(settings: &ChannelSettings) -> Result<&AtvParams, ChannelError> {
 fn check_bandwidth(p: &AtvParams) -> Result<(), ChannelError> {
     let widest = flat_bandwidth_hz(INPUT_RATE_HZ);
     if p.bandwidth_hz.is_finite() && (MIN_BANDWIDTH_HZ..=widest).contains(&p.bandwidth_hz) {
-        if let Some(sound_hz) = p.sound_subcarrier_hz
-            && !(sound_hz.is_finite() && (500_000.0..=9_000_000.0).contains(&sound_hz))
-        {
-            return Err(ChannelError::InvalidSettings(format!(
-                "atv sound subcarrier must be in [500000, 9000000] Hz, got {sound_hz}"
-            )));
-        }
         Ok(())
     } else {
         Err(ChannelError::InvalidSettings(format!(

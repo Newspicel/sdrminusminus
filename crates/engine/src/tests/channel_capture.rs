@@ -13,8 +13,7 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
             0,
             ChannelSettings {
                 frequency_hz: TEST_CENTER_HZ,
-                squelch_db: None,
-                squelch_auto_db: None,
+                squelch: sdrmm_wire::Squelch::Off,
                 params: ChannelParams::Nfm(NfmParams::default()),
                 audio: Default::default(),
             },

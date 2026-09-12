@@ -966,8 +966,7 @@ mod tests {
         }
         let settings = ChannelSettings {
             frequency_hz: 0.0,
-            squelch_db: None,
-            squelch_auto_db: None,
+            squelch: sdrmm_wire::Squelch::Off,
             params: ChannelParams::RadioClock(RadioClockParams::default()),
             audio: Default::default(),
         };
