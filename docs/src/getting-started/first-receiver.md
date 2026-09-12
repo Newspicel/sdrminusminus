@@ -29,7 +29,7 @@ NFM audio → Speaker audio
 The patch applies as you work. If a channel says it has not been created, press **Apply patch** on
 that node.
 
-Set the NFM channel offset to `+300 kHz`. The generator places an NFM carrier there with a 1 kHz
+Set the NFM channel to 300 kHz above the radio's centre. The generator places an NFM carrier there with a 1 kHz
 audio tone.
 
 ## 3. Start audio
@@ -41,7 +41,7 @@ Adjust the channel squelch if the tone stays muted.
 
 Try these next:
 
-- Drag the channel marker across the Scope to change its offset.
+- Drag the channel marker across the Scope to change its frequency.
 - Use the Device dial to retune the whole receiver.
 - Press `[` or `]` to change the tuning step, then use the arrow keys to tune.
 - Select a node and press `p` to pin its face to the Rack view.

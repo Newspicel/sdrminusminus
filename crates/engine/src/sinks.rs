@@ -6,9 +6,9 @@ use sdrmm_wire::{
 };
 
 use crate::{
-    DEFAULT_CENTER_HZ, DeviceSetState, Engine, EngineError, NetworkExportCommit,
-    NetworkExportState, channel_input_rate, check_export_request, descriptor_for,
-    join_network_writer, join_recording_writer, network_export, recording,
+    DeviceSetState, Engine, EngineError, NetworkExportCommit, NetworkExportState,
+    channel_input_rate, check_export_request, descriptor_for, join_network_writer,
+    join_recording_writer, network_export, recording,
     recording::{RecorderTap, RecordingShared},
     remove_recording_files,
     runtime::DspCommand,
@@ -112,17 +112,12 @@ impl DeviceSetState {
             .find(|c| c.id == ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
         let descriptor = descriptor_for(&channel.settings.params)?;
-        let center = self
-            .settings
-            .for_stream(channel.stream, &self.capabilities.per_stream)
-            .center_hz
-            .unwrap_or(DEFAULT_CENTER_HZ);
         let device_rate = sample_rate_of(&self.settings);
         Ok(BasebandPlan {
             stream: channel.stream,
             sample_rate: channel_input_rate(&descriptor, device_rate),
             device_rate,
-            center_hz: center + channel.settings.offset_hz,
+            center_hz: channel.settings.frequency_hz,
             hardware: self.info.label.clone(),
         })
     }

@@ -2,7 +2,7 @@ use sdrmm_device::DeviceError;
 use sdrmm_wire::{ChannelInfo, ChannelSettings, DeviceSettings, ServerEvent, StateScope};
 
 use crate::{
-    ChannelAudioRecording, ChannelMedia, Engine, EngineError, RebuildEntry,
+    ChannelAudioRecording, ChannelMedia, Engine, EngineError, RebuildEntry, center_of,
     planning::{descriptor_for, tuner_reaches, validate_channel, validate_streams},
     runtime::{ChannelHost, DspCommand},
     sample_rate_of,
@@ -24,12 +24,20 @@ impl Engine {
             sinks,
         } = rebuild;
         let mut built_rate = rate;
+        let mut built_center = {
+            let inner = self.lock();
+            let Some(state) = inner.device_sets.get(&ds) else {
+                return;
+            };
+            center_of(&state.settings, stream, &state.capabilities.per_stream)
+        };
         loop {
             let built = descriptor_for(&settings.params)
                 .and_then(|d| validate_channel(&d, &settings, built_rate))
                 .and_then(|()| {
                     ChannelHost::build(
                         built_rate,
+                        built_center,
                         &settings,
                         sinks.clone(),
                         self.decoded_sink(ds, id),
@@ -41,12 +49,17 @@ impl Engine {
                 return;
             };
             let current_rate = sample_rate_of(&state.settings);
+            let current_center = center_of(&state.settings, stream, &state.capabilities.per_stream);
             let Some(info) = state.channels.iter().find(|c| c.id == id) else {
                 return;
             };
-            if current_rate != built_rate || info.settings != settings {
+            if current_rate != built_rate
+                || current_center != built_center
+                || info.settings != settings
+            {
                 settings = info.settings.clone();
                 built_rate = current_rate;
+                built_center = current_center;
                 continue;
             }
             let orphaned = state.release_baseband_sinks(id, stream);
@@ -118,7 +131,7 @@ impl Engine {
         settings: ChannelSettings,
     ) -> Result<u32, EngineError> {
         let descriptor = descriptor_for(&settings.params)?;
-        let (mut device_rate, id) = {
+        let (mut device_rate, mut center_hz, id) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
@@ -127,7 +140,11 @@ impl Engine {
             state.check_stream(stream)?;
             let id = state.next_channel_id;
             state.next_channel_id += 1;
-            (sample_rate_of(&state.settings), id)
+            (
+                sample_rate_of(&state.settings),
+                center_of(&state.settings, stream, &state.capabilities.per_stream),
+                id,
+            )
         };
         let created = ChannelMedia::new(sdrmm_channels::audio_channels(&settings.params))?;
         let sinks = created.sinks.clone();
@@ -137,6 +154,7 @@ impl Engine {
             let built = validate_channel(&descriptor, &settings, device_rate).and_then(|()| {
                 ChannelHost::build(
                     device_rate,
+                    center_hz,
                     &settings,
                     sinks.clone(),
                     self.decoded_sink(ds, id),
@@ -155,14 +173,17 @@ impl Engine {
                 break Err(e);
             }
             let current_rate = sample_rate_of(&state.settings);
-            if current_rate != device_rate {
+            let current_center = center_of(&state.settings, stream, &state.capabilities.per_stream);
+            if current_rate != device_rate || current_center != center_hz {
                 device_rate = current_rate;
+                center_hz = current_center;
                 continue;
             }
             state.channels.push(ChannelInfo {
                 id,
                 stream,
                 settings: settings.clone(),
+                out_of_band: false,
                 audio_recording: None,
                 baseband_recording: None,
                 network_export: None,
@@ -198,7 +219,7 @@ impl Engine {
         settings: ChannelSettings,
     ) -> Result<(), EngineError> {
         let descriptor = descriptor_for(&settings.params)?;
-        let (old, sinks, mut device_rate) = {
+        let (old, sinks, mut device_rate, mut center_hz) = {
             let inner = self.lock();
             let state = inner
                 .device_sets
@@ -217,9 +238,10 @@ impl Engine {
                 info.settings.clone(),
                 handle.sinks.clone(),
                 sample_rate_of(&state.settings),
+                center_of(&state.settings, info.stream, &state.capabilities.per_stream),
             )
         };
-        let mut need_host = old.offset_hz != settings.offset_hz
+        let mut need_host = old.frequency_hz != settings.frequency_hz
             || old.params != settings.params
             || old.squelch_db != settings.squelch_db
             || old.squelch_auto_db != settings.squelch_auto_db
@@ -233,6 +255,7 @@ impl Engine {
             let host = if need_host {
                 match ChannelHost::build(
                     device_rate,
+                    center_hz,
                     &settings,
                     sinks.clone(),
                     self.decoded_sink(ds, ch),
@@ -248,8 +271,15 @@ impl Engine {
                 break Err(EngineError::DeviceSetNotFound(ds));
             };
             let current_rate = sample_rate_of(&state.settings);
-            if current_rate != device_rate {
+            let stream = state
+                .channels
+                .iter()
+                .find(|c| c.id == ch)
+                .map_or(0, |c| c.stream);
+            let current_center = center_of(&state.settings, stream, &state.capabilities.per_stream);
+            if current_rate != device_rate || current_center != center_hz {
                 device_rate = current_rate;
+                center_hz = current_center;
                 continue;
             }
             let Some(info) = state.channels.iter_mut().find(|c| c.id == ch) else {

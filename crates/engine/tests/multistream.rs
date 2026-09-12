@@ -39,7 +39,7 @@ fn engine() -> Arc<Engine> {
 
 fn nfm(offset_hz: f64, squelch_db: Option<f32>) -> ChannelSettings {
     ChannelSettings {
-        offset_hz,
+        frequency_hz: DEFAULT_CENTER_HZ + offset_hz,
         squelch_db,
         squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams::default()),
@@ -641,8 +641,8 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
         )
         .unwrap();
 
-    let pocsag = ChannelSettings {
-        offset_hz: PAGING_OFFSET_HZ,
+    let pocsag = |frequency_hz: f64| ChannelSettings {
+        frequency_hz,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Pocsag(PocsagParams {
@@ -651,8 +651,12 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
         }),
         audio: Default::default(),
     };
-    let on_lane_0 = engine.add_channel(ds, 0, pocsag.clone()).unwrap();
-    let on_lane_1 = engine.add_channel(ds, 1, pocsag).unwrap();
+    let on_lane_0 = engine
+        .add_channel(ds, 0, pocsag(DEFAULT_CENTER_HZ + PAGING_OFFSET_HZ))
+        .unwrap();
+    let on_lane_1 = engine
+        .add_channel(ds, 1, pocsag(LANE1_HZ + PAGING_OFFSET_HZ))
+        .unwrap();
 
     let mut freqs: HashMap<u32, f64> = HashMap::new();
     tokio::time::timeout(Duration::from_secs(30), async {
@@ -674,11 +678,11 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
     assert_eq!(
         freqs[&on_lane_0],
         DEFAULT_CENTER_HZ + PAGING_OFFSET_HZ,
-        "lane 0 rides the radio-wide dial"
+        "lane 0's frames must carry the frequency it was set to"
     );
     assert_eq!(
         freqs[&on_lane_1],
         LANE1_HZ + PAGING_OFFSET_HZ,
-        "lane 1's frames must carry lane 1's own centre"
+        "lane 1's frames must carry the frequency it was set to"
     );
 }

@@ -993,6 +993,9 @@ fn tuner_caps() -> Capabilities {
     }
 }
 
+const TEST_CENTER_HZ: f64 = 100e6;
+const ADSB_CENTER_HZ: f64 = 1_090_000_000.0;
+
 fn offset_settings(lo_offset_hz: f64) -> DeviceSettings {
     DeviceSettings {
         center_hz: Some(100e6),
@@ -1007,6 +1010,7 @@ fn parked(id: u32, offset_hz: f64) -> ChannelInfo {
         id,
         stream: 0,
         settings: nfm_settings(offset_hz),
+        out_of_band: false,
         audio_recording: None,
         baseband_recording: None,
         network_export: None,
@@ -1032,7 +1036,7 @@ fn untouched_settings() -> DeviceSettings {
 
 fn nfm_settings(offset_hz: f64) -> ChannelSettings {
     ChannelSettings {
-        offset_hz,
+        frequency_hz: TEST_CENTER_HZ + offset_hz,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams::default()),

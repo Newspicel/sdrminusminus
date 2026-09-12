@@ -1970,6 +1970,11 @@ export interface components {
             /** Format: int32 */
             id: number;
             network_export?: null | components["schemas"]["NetworkExportStatus"];
+            /**
+             * @description The radio carrying this decoder is tuned somewhere it cannot hear the decoder's frequency,
+             *     so the channel is alive and set up but silent until the radio comes back over it.
+             */
+            out_of_band?: boolean;
             settings: components["schemas"]["ChannelSettings"];
             /** Format: int32 */
             stream?: number;
@@ -2192,8 +2197,12 @@ export interface components {
         };
         ChannelSettings: {
             audio?: components["schemas"]["AudioProcessing"];
-            /** Format: double */
-            offset_hz?: number;
+            /**
+             * Format: double
+             * @description The frequency the decoder listens on, whatever any radio happens to be tuned to. A radio
+             *     that cannot reach it simply does not carry this channel.
+             */
+            frequency_hz: number;
             params: components["schemas"]["ChannelParams"];
             /** Format: float */
             squelch_auto_db?: number | null;
@@ -5460,7 +5469,6 @@ export interface components {
             state?: components["schemas"]["WorkspaceState"];
         };
         WorkspaceDevice: {
-            channels?: components["schemas"]["WorkspaceChannel"][];
             node: string;
             settings: components["schemas"]["DeviceSettings"];
         };
@@ -5503,6 +5511,7 @@ export interface components {
             workspaces: components["schemas"]["WorkspaceInfo"][];
         };
         WorkspaceState: {
+            channels?: components["schemas"]["WorkspaceChannel"][];
             devices?: components["schemas"]["WorkspaceDevice"][];
             trunks?: components["schemas"]["WorkspaceTrunk"][];
             /** Format: int32 */
@@ -8793,7 +8802,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No such channel node, no radio wired into it, or settings of another channel type */
+            /** @description No such channel node, or settings of another channel type */
             400: {
                 headers: {
                     [name: string]: unknown;

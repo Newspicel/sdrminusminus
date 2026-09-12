@@ -20,7 +20,7 @@ async fn preset_capture_apply_delete_roundtrip() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{channel}"),
-        Some(r#"{"offset_hz":25000.0,"squelch_db":-70.0,"params":{"type":"nfm","settings":{}}}"#),
+        Some(r#"{"frequency_hz":145525000.0,"squelch_db":-70.0,"params":{"type":"nfm","settings":{}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -72,7 +72,7 @@ async fn preset_capture_apply_delete_roundtrip() {
     assert_eq!(set.settings.center_hz, Some(145_500_000.0));
     assert_eq!(set.settings.sample_rate, Some(2_400_000.0));
     assert_eq!(set.channels.len(), 1);
-    assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
+    assert_eq!(set.channels[0].settings.frequency_hz, 145_525_000.0);
     assert_eq!(set.channels[0].settings.squelch_db, Some(-70.0));
 
     let (status, _) = request(app.clone(), "POST", "/api/presets/999/apply", None).await;
@@ -211,7 +211,7 @@ async fn apply_preset_replaces_channels_that_do_not_fit_the_preset_rate() {
         app.clone(),
         "POST",
         &format!("/api/devicesets/{ds}/channels"),
-        Some(r#"{"settings":{"offset_hz":900000.0,"params":{"type":"nfm","settings":{}}}}"#),
+        Some(r#"{"settings":{"frequency_hz":100900000.0,"params":{"type":"nfm","settings":{}}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -241,7 +241,7 @@ async fn apply_preset_replaces_channels_that_do_not_fit_the_preset_rate() {
         .expect("device set");
     assert_eq!(set.settings.sample_rate, Some(250_000.0));
     assert_eq!(set.channels.len(), 1);
-    assert_eq!(set.channels[0].settings.offset_hz, 0.0);
+    assert_eq!(set.channels[0].settings.frequency_hz, 100_000_000.0);
 }
 
 #[tokio::test]
@@ -254,13 +254,13 @@ async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
         app.clone(),
         "POST",
         &format!("/api/devicesets/{ds}/channels"),
-        Some(r#"{"settings":{"offset_hz":100000.0,"params":{"type":"nfm","settings":{}}}}"#),
+        Some(r#"{"settings":{"frequency_hz":100100000.0,"params":{"type":"nfm","settings":{}}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
     let preset = store
-        .create_preset("broken", &preset_250k(vec![nfm_at(900_000.0)]))
+        .create_preset("broken", &preset_250k(vec![adsb_at(1_090_000_000.0)]))
         .expect("preset");
     let (status, body) = request(
         app.clone(),
@@ -272,7 +272,7 @@ async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
     assert!(
-        err.error.contains("exceeds"),
+        err.error.contains("device rate"),
         "the rejection must name the problem: {err:?}"
     );
     assert_eq!(
@@ -289,7 +289,7 @@ async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
         .expect("device set");
     assert_eq!(set.settings.sample_rate, Some(2_048_000.0));
     assert_eq!(set.channels.len(), 1);
-    assert_eq!(set.channels[0].settings.offset_hz, 100_000.0);
+    assert_eq!(set.channels[0].settings.frequency_hz, 100_100_000.0);
 }
 
 #[tokio::test]

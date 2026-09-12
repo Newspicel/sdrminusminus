@@ -617,7 +617,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     .map(|channel| {
                         let params = (channel.params)();
                         ChannelSettings {
-                            offset_hz: channel.freq_hz - entry.center_hz,
+                            frequency_hz: channel.freq_hz,
                             squelch_db: None,
                             squelch_auto_db: channel.squelch_auto_db,
                             audio: AudioProcessing::default_for(params.type_id()),
@@ -683,11 +683,11 @@ mod tests {
         for template in all() {
             let usable = template.sample_rate * 0.4;
             for channel in &template.channels {
+                let offset_hz = channel.frequency_hz - template.center_hz;
                 assert!(
-                    channel.offset_hz.abs() < usable,
-                    "{}: channel at {} Hz is outside the flat ±{usable} Hz",
-                    template.id,
-                    channel.offset_hz
+                    offset_hz.abs() < usable,
+                    "{}: channel at {offset_hz} Hz is outside the flat ±{usable} Hz",
+                    template.id
                 );
             }
             assert!(template.min_freq_hz <= template.max_freq_hz);
@@ -744,7 +744,7 @@ mod tests {
         assert_eq!(adsb.sample_rate, 2_000_000.0);
         assert!(!adsb.exact_rate);
         assert_eq!(adsb.channels.len(), 1);
-        assert_eq!(adsb.channels[0].offset_hz, 0.0);
+        assert_eq!(adsb.channels[0].frequency_hz, adsb.center_hz);
     }
 
     #[test]

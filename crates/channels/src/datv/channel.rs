@@ -71,7 +71,7 @@ pub fn occupied_band(p: &DatvParams) -> (f64, f64) {
 
 pub fn channel_filter(p: &DatvParams) -> Result<ChannelFilter, ChannelError> {
     let p = params(&ChannelSettings {
-        offset_hz: 0.0,
+        frequency_hz: 0.0,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Datv(*p),
@@ -430,7 +430,7 @@ mod tests {
 
     fn settings(program: Option<u16>) -> ChannelSettings {
         ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::Datv(DatvParams {
@@ -505,7 +505,7 @@ mod tests {
                 input_rate: INPUT_RATE_HZ,
             },
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: 0.0,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Datv(DatvParams {
@@ -588,7 +588,7 @@ mod tests {
                 input_rate: INPUT_RATE_HZ,
             },
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: 0.0,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Datv(DatvParams {

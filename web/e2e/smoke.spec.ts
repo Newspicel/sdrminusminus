@@ -859,7 +859,9 @@ test.describe("the workspace", () => {
     await expect
       .poll(async () => {
         const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
-        const offsets = state.device_sets[0]?.channels.map((c) => c.settings.offset_hz ?? 0) ?? [];
+        const set = state.device_sets[0];
+        const centerHz = set?.settings.center_hz ?? 0;
+        const offsets = set?.channels.map((c) => c.settings.frequency_hz - centerHz) ?? [];
         return offsets.filter((offset) => Math.abs(offset + 512_000) < 30_000).length;
       })
       .toBe(1);

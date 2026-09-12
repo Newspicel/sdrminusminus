@@ -1,8 +1,9 @@
 # Channels and decoding
 
-A channel selects one signal inside a device's sampled passband. Its offset is relative to the
-device center frequency: retuning the device moves every attached channel together, while changing
-a channel's offset moves only that channel.
+A channel listens on one frequency. That frequency belongs to the channel, not to the radio feeding
+it: retuning the radio leaves every channel where it was. A channel whose frequency falls outside
+what the radio is sampling stays set up and goes quiet, and its face offers to tune the radio over
+it.
 
 ## Add a channel
 
@@ -137,13 +138,18 @@ FFT work and CPU load without improving a narrow channel.
 
 ## Tuning and squelch
 
-Tune a channel by editing its offset, dragging its marker on a connected Scope, or using the
-keyboard while the channel is selected. The displayed absolute frequency is the source stream's
-center plus the channel offset.
+Tune a channel by editing its frequency, dragging its marker on a connected Scope, or using the
+keyboard while the channel is selected. The field takes megahertz; the −25k, −5k, +5k and +25k
+buttons step it.
 
-**Freq** next to the offset takes an absolute frequency instead and works the offset out for you.
-A bare number is read as megahertz; a `kHz`, `MHz` or `GHz` suffix is honoured. Frequencies the
-current sample rate cannot reach are rejected, and the reachable span is shown below the field.
+The keyboard button beside the field takes a typed frequency. A bare number is read as megahertz;
+a `kHz`, `MHz` or `GHz` suffix is honoured. The span the radio currently hears is shown below the
+field — a frequency outside it is accepted, and the channel waits there silently until the radio
+covers it.
+
+A channel node that is not wired to anything yet can still be given a frequency; it is held against
+the node and applied the moment a radio carries it. A radio nobody has tuned by hand opens over the
+channels wired into it.
 
 Audio channels can gate their output with squelch. A lower threshold opens more easily; turning
 squelch off passes audio continuously.

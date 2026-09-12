@@ -221,7 +221,7 @@ impl Follower {
             let Some(center_hz) = set.settings.center_hz else {
                 continue;
             };
-            let absolute = center_hz + info.settings.offset_hz;
+            let absolute = info.settings.frequency_hz;
             if !absolute.is_finite() || absolute <= 0.0 {
                 continue;
             }
@@ -463,21 +463,12 @@ impl Follower {
             {
                 continue;
             }
-            let Some(center_hz) = engine
-                .snapshot()
-                .device_sets
-                .iter()
-                .find(|set| set.id == radio.device_set)
-                .and_then(|set| set.settings.center_hz)
-            else {
-                continue;
-            };
             let params = ChannelParams::Dmr(DmrParams {
                 slots: DmrSlots::Both,
                 ignore_crc: true,
             });
             let settings = ChannelSettings {
-                offset_hz: radio.control_hz as f64 - center_hz,
+                frequency_hz: radio.control_hz as f64,
                 squelch_db: None,
                 squelch_auto_db: None,
                 audio: AudioProcessing::default_for(params.type_id()),
@@ -531,18 +522,15 @@ impl Follower {
             let Some(set) = state.device_sets.iter().find(|set| set.id == device_set) else {
                 continue;
             };
-            let Some(center_hz) = set.settings.center_hz else {
-                continue;
-            };
             let Some(info) = set.channels.iter().find(|info| info.id == channel) else {
                 continue;
             };
-            let offset_hz = freq_hz as f64 - center_hz;
-            if (info.settings.offset_hz - offset_hz).abs() < 1.0 {
+            let frequency_hz = freq_hz as f64;
+            if (info.settings.frequency_hz - frequency_hz).abs() < 1.0 {
                 continue;
             }
             let settings = ChannelSettings {
-                offset_hz,
+                frequency_hz,
                 ..info.settings.clone()
             };
             match engine.patch_channel(device_set, channel, settings) {
@@ -632,7 +620,7 @@ impl Follower {
             ignore_crc: true,
         });
         let settings = ChannelSettings {
-            offset_hz: freq_hz as f64 - carrier.center_hz,
+            frequency_hz: freq_hz as f64,
             squelch_db: None,
             squelch_auto_db: None,
             audio: AudioProcessing::default_for(params.type_id()),
@@ -792,12 +780,27 @@ impl Follower {
             ignore_crc: carrier.ignore_crc,
         });
         let settings = ChannelSettings {
-            offset_hz: grant.freq_hz as f64 - carrier.center_hz,
+            frequency_hz: grant.freq_hz as f64,
             squelch_db: None,
             squelch_auto_db: None,
             audio: AudioProcessing::default_for(params.type_id()),
             params,
         };
+        if !engine.hears(carrier.device_set, carrier.stream, &settings) {
+            let device_set = carrier.device_set;
+            let announce = self.fail(
+                key,
+                grant,
+                format!(
+                    "the radio is not tuned where it could hear {:.4} MHz",
+                    grant.freq_hz as f64 / 1e6
+                ),
+            );
+            if announce {
+                engine.emit_scope(StateScope::DeviceSet(device_set));
+            }
+            return;
+        }
         let result = match self.followers.get(&key) {
             Some(follower) => engine
                 .patch_channel(carrier.device_set, follower.channel, settings)
@@ -1177,12 +1180,16 @@ mod tests {
         let device_set = engine
             .create_device_set("virtual:siggen")
             .expect("virtual device");
+        let center_hz = engine.snapshot().device_sets[0]
+            .settings
+            .center_hz
+            .expect("a tuned radio");
         let channel = engine
             .add_channel(
                 device_set,
                 0,
                 ChannelSettings {
-                    offset_hz: 0.0,
+                    frequency_hz: center_hz,
                     squelch_db: None,
                     squelch_auto_db: None,
                     params: ChannelParams::Dmr(DmrParams::default()),
@@ -1190,10 +1197,6 @@ mod tests {
                 },
             )
             .expect("control channel");
-        let center_hz = engine.snapshot().device_sets[0]
-            .settings
-            .center_hz
-            .expect("a tuned radio");
         (device_set, channel, center_hz)
     }
 
@@ -1347,7 +1350,7 @@ mod tests {
         let set = engine.snapshot().device_sets.remove(0);
         assert_eq!(set.channels.len(), 2, "the follower was not created");
         let followed = &set.channels[1];
-        assert_eq!(followed.settings.offset_hz, 125_000.0);
+        assert_eq!(followed.settings.frequency_hz, traffic as f64);
         assert_eq!(
             followed.settings.params,
             ChannelParams::Dmr(DmrParams {
@@ -1611,7 +1614,7 @@ mod tests {
 
         let set = engine.snapshot().device_sets.remove(0);
         assert_eq!(set.channels.len(), 1, "no control receiver was opened");
-        assert_eq!(set.channels[0].settings.offset_hz, 12_500.0);
+        assert_eq!(set.channels[0].settings.frequency_hz, control_hz as f64);
         assert_eq!(status(&follower).carriers, 1);
         assert_eq!(
             status(&follower).control,
@@ -1682,7 +1685,7 @@ mod tests {
         let set = engine.snapshot().device_sets.remove(0);
         assert_eq!(set.channels.len(), 1, "a second control receiver appeared");
         assert_eq!(set.channels[0].id, opened, "the receiver was rebuilt");
-        assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
+        assert_eq!(set.channels[0].settings.frequency_hz, center_hz + 25_000.0);
     }
 
     #[test]
@@ -1741,10 +1744,8 @@ mod tests {
         let set = engine.snapshot().device_sets.remove(0);
         assert_eq!(set.channels.len(), 1, "a second control receiver appeared");
         assert_eq!(set.channels[0].id, opened, "the receiver was rebuilt");
-        let center_hz = set.settings.center_hz.expect("a tuned radio");
         assert_eq!(
-            center_hz + set.channels[0].settings.offset_hz,
-            control_hz as f64,
+            set.channels[0].settings.frequency_hz, control_hz as f64,
             "the control receiver drifted with the radio"
         );
     }

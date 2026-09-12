@@ -18,7 +18,7 @@ export function mergeChannelSettings(
   edit: Partial<ChannelSettings>,
 ): ChannelSettings {
   return {
-    offset_hz: edit.offset_hz ?? current.offset_hz ?? 0,
+    frequency_hz: edit.frequency_hz ?? current.frequency_hz,
     squelch_db: edit.squelch_db !== undefined ? edit.squelch_db : (current.squelch_db ?? null),
     squelch_auto_db:
       edit.squelch_auto_db !== undefined ? edit.squelch_auto_db : (current.squelch_auto_db ?? null),
@@ -101,6 +101,28 @@ export function channelDecoderKind(descriptor: ChannelDescriptor | undefined): s
 
 export function channelHasVideo(descriptor: ChannelDescriptor | undefined): boolean {
   return descriptor?.has_video ?? false;
+}
+
+export interface RadioWindow {
+  lowHz: number;
+  highHz: number;
+}
+
+/// What a radio can hear right now, edge to edge, with room for a channel of this width.
+export function radioWindowHz(
+  centerHz: number | null | undefined,
+  spanHz: number | null | undefined,
+  descriptor: ChannelDescriptor | undefined,
+): RadioWindow | null {
+  const limitHz = offsetLimitHz(spanHz, descriptor);
+  if (limitHz === null || centerHz == null || !Number.isFinite(centerHz)) {
+    return null;
+  }
+  return { lowHz: centerHz - limitHz, highHz: centerHz + limitHz };
+}
+
+export function reachesHz(frequencyHz: number, window: RadioWindow | null): boolean {
+  return window === null || (frequencyHz >= window.lowHz && frequencyHz <= window.highHz);
 }
 
 export function offsetLimitHz(

@@ -965,7 +965,7 @@ mod tests {
             }
         }
         let settings = ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::RadioClock(RadioClockParams::default()),

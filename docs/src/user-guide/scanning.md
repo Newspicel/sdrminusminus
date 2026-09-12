@@ -33,7 +33,8 @@ The scanner can continue through active signals or hold according to its configu
 live face reports the current frequency, progress, detected level, state, and any fault.
 
 Scanning retunes the whole device, so channels attached to that device move with it. For a
-listening scanner, configure a channel at offset zero with the appropriate mode and connect it to
+listening scanner, configure a channel on the radio's own centre with the appropriate mode and
+connect it to
 a Speaker. For a fixed wideband task such as two-channel AIS, use normal channels instead of a
 retuning scanner.
 

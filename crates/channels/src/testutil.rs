@@ -8,7 +8,7 @@ use crate::{AUDIO_RATE, ChannelOutputs, ChannelRx};
 
 pub(crate) fn settings(params: ChannelParams) -> ChannelSettings {
     ChannelSettings {
-        offset_hz: 0.0,
+        frequency_hz: 0.0,
         squelch_db: None,
         squelch_auto_db: None,
         params,

@@ -18,7 +18,7 @@ use sdrmm_wire::{
     AudioRecordingStatus, Capabilities, ChannelInfo, ChannelSettings, DecodedRecord, DeviceFault,
     DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, NetworkExportSettings,
     NetworkExportStatus, PositionFix, RecordingStatus, ServerEvent, StateScope, StateSnapshot,
-    TrunkSystemStatus,
+    StreamScope, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
@@ -239,6 +239,13 @@ struct RebuildEntry {
 
 fn sample_rate_of(settings: &DeviceSettings) -> f64 {
     settings.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE)
+}
+
+fn center_of(settings: &DeviceSettings, stream: u32, scope: &StreamScope) -> f64 {
+    settings
+        .for_stream(stream, scope)
+        .center_hz
+        .unwrap_or(DEFAULT_CENTER_HZ)
 }
 
 fn ids_of(devices: &[DeviceInfo]) -> Vec<String> {
@@ -466,6 +473,23 @@ struct DeviceSetState {
 }
 
 impl DeviceSetState {
+    /// Whether the radio's window covers what this decoder is listening for. A decoder keeps its
+    /// frequency when the radio moves off it, so this is a passing state, not a broken patch.
+    fn reaches_channel(&self, channel: &ChannelInfo) -> bool {
+        self.hears(channel.stream, &channel.settings)
+    }
+
+    fn hears(&self, stream: u32, settings: &ChannelSettings) -> bool {
+        let (low, high) = sdrmm_channels::occupied_band(&settings.params);
+        let center = center_of(&self.settings, stream, &self.capabilities.per_stream);
+        runtime::reaches(
+            settings.frequency_hz - center,
+            low,
+            high,
+            sample_rate_of(&self.settings),
+        )
+    }
+
     fn project(&self, id: u32) -> DeviceSet {
         let overruns = self.overruns_total();
         DeviceSet {
@@ -479,6 +503,7 @@ impl DeviceSetState {
                 .channels
                 .iter()
                 .map(|channel| ChannelInfo {
+                    out_of_band: !self.reaches_channel(channel),
                     audio_recording: self
                         .audio_recordings
                         .get(&channel.id)
@@ -1153,6 +1178,16 @@ impl Engine {
             trunk_systems,
             revision: inner.revision,
         }
+    }
+
+    /// Whether a radio is tuned where it can hear what a channel would be set to. An automated
+    /// follower asks before opening a receiver, so it backs off instead of leaving a dead one.
+    #[must_use]
+    pub fn hears(&self, ds: u32, stream: u32, settings: &ChannelSettings) -> bool {
+        self.lock()
+            .device_sets
+            .get(&ds)
+            .is_some_and(|state| state.hears(stream, settings))
     }
 
     #[must_use]

@@ -12,7 +12,7 @@ async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: TEST_CENTER_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),

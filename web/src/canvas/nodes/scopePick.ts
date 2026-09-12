@@ -76,12 +76,12 @@ export function channelTypeAt(
 
 const awaitingCreation = new Map<string, number>();
 
-export function tuneOnCreate(node: string, offsetHz: number): void {
-  awaitingCreation.set(node, offsetHz);
+export function tuneOnCreate(node: string, frequencyHz: number): void {
+  awaitingCreation.set(node, frequencyHz);
 }
 
 export function takeCreationTune(node: string): number | undefined {
-  const offsetHz = awaitingCreation.get(node);
+  const frequencyHz = awaitingCreation.get(node);
   awaitingCreation.delete(node);
-  return offsetHz;
+  return frequencyHz;
 }

@@ -40,18 +40,19 @@ pub use bandplan::{
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
-    ChannelSettings, CwSkimmerParams, DECT_CARRIER_SPACING_HZ, DabMode, DabParams, DatvCodeRate,
-    DatvParams, DatvStandard, DectBand, DectParams, DectSides, DmrParams, DmrSlots, DpmrParams,
-    DrmMode, DrmParams, DscParams, DstarParams, ErmesParams, FlexParams, FreeDvMode, FreeDvParams,
-    GnssParams, HfdlParams, IdentParams, IlsComponent, IlsParams, InmarsatAeroParams,
-    InmarsatStdcParams, IridiumParams, M17Params, MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS,
-    MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS, MAX_SQUELCH_AUTO_MARGIN_DB,
-    MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS, MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS,
-    MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams, NavtexParams, NfmParams, NfmScramblerMode,
-    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, PskBaud,
-    PskParams, RadioClockParams, RadioClockStandard, RttyParams, RttyStopBits, SelcallParams,
-    SelcallSystem, Sideband, SsbParams, SstvMode, SstvParams, SubghzModulation, SubghzParams,
-    Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    ChannelSettings, CwSkimmerParams, DECT_CARRIER_SPACING_HZ, DEFAULT_FREQUENCY_HZ, DabMode,
+    DabParams, DatvCodeRate, DatvParams, DatvStandard, DectBand, DectParams, DectSides, DmrParams,
+    DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams, DstarParams, ErmesParams, FlexParams,
+    FreeDvMode, FreeDvParams, GnssParams, HfdlParams, IdentParams, IlsComponent, IlsParams,
+    InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
+    MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS,
+    MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
+    MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams,
+    NavtexParams, NfmParams, NfmScramblerMode, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
+    PocsagBaud, PocsagParams, PskBaud, PskParams, RadioClockParams, RadioClockStandard, RttyParams,
+    RttyStopBits, SelcallParams, SelcallSystem, Sideband, SsbParams, SstvMode, SstvParams,
+    SubghzModulation, SubghzParams, Vdl2Params, VorParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams, home_frequency_hz,
 };
 pub use coherent::{
     ArrayElement, ArrayGeometry, CalParams, CalSource, CalState, CfarParams, CoherentParams,
@@ -454,10 +455,22 @@ mod contract_tests {
     }
 
     #[test]
-    fn channel_settings_defaults_offset_and_squelch() {
+    fn channel_settings_default_to_the_mode_home_and_no_squelch() {
+        let json = r#"{"params":{"type":"adsb","settings":{}}}"#;
+        let adsb: ChannelSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            adsb.frequency_hz,
+            home_frequency_hz("adsb").expect("a home")
+        );
+
         let json = r#"{"params":{"type":"wfm","settings":{"deemphasis_us":75.0}}}"#;
         let settings: ChannelSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.offset_hz, 0.0);
+        assert_eq!(
+            home_frequency_hz("wfm"),
+            None,
+            "wfm sits anywhere in the band"
+        );
+        assert_eq!(settings.frequency_hz, DEFAULT_FREQUENCY_HZ);
         assert_eq!(settings.squelch_db, None);
         assert_eq!(settings.squelch_auto_db, None);
         assert_eq!(

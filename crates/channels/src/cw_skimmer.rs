@@ -65,7 +65,7 @@ struct Track {
 impl Track {
     fn prototype(wpm: Option<f32>) -> Result<Self, ChannelError> {
         let morse_settings = ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::Morse(MorseParams {

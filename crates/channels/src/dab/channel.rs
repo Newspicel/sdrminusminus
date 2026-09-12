@@ -407,7 +407,7 @@ mod tests {
 
     fn settings(service_id: Option<u32>) -> ChannelSettings {
         ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::Dab(DabParams {

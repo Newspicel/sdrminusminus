@@ -359,7 +359,7 @@ async fn a_channel_on_the_beam_lane_hears_what_the_array_is_pointed_at() {
             ds,
             beam,
             sdrmm_wire::ChannelSettings {
-                offset_hz: array::WAVEFRONT_OFFSET_HZ,
+                frequency_hz: CENTRE_HZ + array::WAVEFRONT_OFFSET_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: sdrmm_wire::ChannelParams::Nfm(sdrmm_wire::NfmParams::default()),

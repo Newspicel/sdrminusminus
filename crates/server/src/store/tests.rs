@@ -17,7 +17,7 @@ fn snapshot() -> PresetSnapshot {
                 ..DeviceSettings::default()
             },
             channels: vec![ChannelSettings {
-                offset_hz: 100_000.0,
+                frequency_hz: 100_100_000.0,
                 squelch_db: Some(-60.0),
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -1170,7 +1170,6 @@ fn tuned(node: &str, center_hz: f64) -> WorkspaceState {
             center_hz: Some(center_hz),
             ..DeviceSettings::default()
         },
-        channels: Vec::new(),
     }]);
     state
 }
@@ -1506,7 +1505,6 @@ fn an_exported_workspace_carries_the_tuning_it_was_left_on() {
             center_hz: Some(145_500_000.0),
             ..DeviceSettings::default()
         },
-        channels: Vec::new(),
     }]);
     store.put_workspace_state(id, &state).expect("plant");
 

@@ -1363,7 +1363,7 @@ fn aprs_burst() -> Vec<Complex<f32>> {
     use sdrmm_wire::{AprsMode, AprsParams, ChannelParams, ChannelSettings};
 
     let settings = ChannelSettings {
-        offset_hz: 0.0,
+        frequency_hz: 0.0,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Aprs(AprsParams {

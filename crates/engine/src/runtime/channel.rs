@@ -137,7 +137,12 @@ pub(crate) struct ChannelHost {
     audio_channels: u8,
     sinks: ChannelSinks,
     produces_video: bool,
+    frequency_hz: f64,
     offset_hz: f64,
+    center_hz: f64,
+    band_low_hz: f64,
+    band_high_hz: f64,
+    in_band: bool,
     decoded: DecodedSink,
     emits_events: bool,
     gated: Vec<Complex<f32>>,
@@ -156,9 +161,16 @@ pub(crate) struct ChannelHost {
     lo_artifact_hz: Option<f64>,
 }
 
+/// Whether the radio's window covers everything this channel occupies.
+pub(crate) fn reaches(offset_hz: f64, low_hz: f64, high_hz: f64, device_rate: f64) -> bool {
+    let nyquist = device_rate / 2.0;
+    offset_hz + low_hz >= -nyquist && offset_hz + high_hz <= nyquist
+}
+
 impl ChannelHost {
     pub(crate) fn build(
         device_rate: f64,
+        center_hz: f64,
         settings: &ChannelSettings,
         sinks: ChannelSinks,
         decoded: DecodedSink,
@@ -172,7 +184,9 @@ impl ChannelHost {
             Some(_) => device_rate,
             None => descriptor.input_rate_hz,
         };
-        let ddc = Ddc::new(device_rate, input_rate, settings.offset_hz)
+        let offset_hz = settings.frequency_hz - center_hz;
+        let (band_low_hz, band_high_hz) = sdrmm_channels::occupied_band(&settings.params);
+        let ddc = Ddc::new(device_rate, input_rate, offset_hz)
             .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         let filter = sdrmm_channels::channel_filter(&settings.params)?;
         let rx = sdrmm_channels::create(ChannelCtx { input_rate }, settings)?;
@@ -216,7 +230,12 @@ impl ChannelHost {
             audio_channels,
             sinks,
             produces_video: descriptor.has_video,
-            offset_hz: settings.offset_hz,
+            frequency_hz: settings.frequency_hz,
+            offset_hz,
+            center_hz,
+            band_low_hz,
+            band_high_hz,
+            in_band: reaches(offset_hz, band_low_hz, band_high_hz, device_rate),
             decoded,
             emits_events,
             gated: Vec::new(),
@@ -306,6 +325,20 @@ impl ChannelHost {
     }
 
     fn process_block(&mut self, input: &[Complex<f32>], center_hz: f64, lo_offset_hz: f64) {
+        self.follow_center(center_hz);
+        if !self.in_band {
+            self.sinks
+                .level_db
+                .store(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits(), Ordering::Relaxed);
+            self.sinks
+                .peak_db
+                .store(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits(), Ordering::Relaxed);
+            self.sinks
+                .squelch_db
+                .store(f32::NAN.to_bits(), Ordering::Relaxed);
+            self.skip_input(input.len() as u64);
+            return;
+        }
         self.follow_lo_artifact(lo_offset_hz);
         self.ddc.process(input, &mut self.scratch);
         if self.scratch.is_empty() {
@@ -387,7 +420,7 @@ impl ChannelHost {
             packet.audio_start = audio_start;
             packet.silence = silence;
             packet.channels = self.audio_channels;
-            packet.frequency = center_hz + self.offset_hz;
+            packet.frequency = self.frequency_hz;
             packet.video_position = video_pos;
             packet.recorder = self.audio_rec.clone();
             packet.baseband_recorder = self.baseband_rec.clone();
@@ -418,6 +451,32 @@ impl ChannelHost {
         {
             self.baseband_export = None;
         }
+    }
+
+    /// Keeps the decoder on its own frequency while the radio moves under it, and mutes it for as
+    /// long as the radio is tuned somewhere it cannot hear.
+    fn follow_center(&mut self, center_hz: f64) {
+        if center_hz == self.center_hz {
+            return;
+        }
+        self.center_hz = center_hz;
+        let offset_hz = self.frequency_hz - center_hz;
+        self.in_band = reaches(
+            offset_hz,
+            self.band_low_hz,
+            self.band_high_hz,
+            self.device_rate,
+        );
+        if !self.in_band || offset_hz == self.offset_hz {
+            return;
+        }
+        self.offset_hz = offset_hz;
+        self.ddc.set_offset(offset_hz);
+        self.ddc.reset();
+        self.filter.reset();
+        self.audio.reset();
+        self.squelch.reset();
+        self.lo_artifact_hz = None;
     }
 
     fn follow_lo_artifact(&mut self, lo_offset_hz: f64) {
@@ -468,10 +527,11 @@ mod tests {
 
     const RATE: f64 = 48_000.0;
     const BLOCK: usize = 480;
+    const CENTER: f64 = 100_000_000.0;
 
     fn nfm_settings(squelch_db: Option<f32>) -> ChannelSettings {
         ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: CENTER,
             squelch_db,
             squelch_auto_db: None,
             params: ChannelParams::Nfm(NfmParams::default()),
@@ -498,6 +558,7 @@ mod tests {
         let (pcm_tx, pcm_rx) = broadcast::channel(4096);
         let host = ChannelHost::build(
             RATE,
+            CENTER,
             settings,
             sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
             DecodedSink::null(),
@@ -513,8 +574,8 @@ mod tests {
         let mut built = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
         let (iq_tx, iq_rx) = broadcast::channel(64);
         built.iq_tx = iq_tx;
-        let host =
-            ChannelHost::build(RATE, settings, built, DecodedSink::null()).expect("host builds");
+        let host = ChannelHost::build(RATE, CENTER, settings, built, DecodedSink::null())
+            .expect("host builds");
         (host, iq_rx)
     }
 
@@ -534,7 +595,7 @@ mod tests {
     ) -> Vec<PcmBlock> {
         let mut blocks = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, CENTER, 0.0);
             while let Ok(block) = rx.try_recv() {
                 blocks.push(block);
             }
@@ -614,7 +675,7 @@ mod tests {
     #[test]
     fn ssb_squelch_gates_on_the_sideband_not_the_ddc_passband() {
         let settings = ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: CENTER,
             squelch_db: Some(-50.0),
             squelch_auto_db: None,
             params: ChannelParams::Ssb(SsbParams {
@@ -684,7 +745,7 @@ mod tests {
 
         let mut audio: Vec<f32> = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, CENTER, 0.0);
             while let Ok(block) = rx.try_recv() {
                 if let PcmPayload::Samples(samples) = block.payload {
                     audio.extend_from_slice(&samples);
@@ -708,6 +769,7 @@ mod tests {
         let settings = nfm_settings(None);
         let mut host = ChannelHost::build(
             RATE,
+            CENTER,
             &settings,
             sinks(pcm_tx.clone(), pos.clone()),
             DecodedSink::null(),
@@ -715,12 +777,18 @@ mod tests {
         .expect("host");
         let input = tone(1_000.0, 0.5, 24_000);
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, CENTER, 0.0);
         }
-        let mut host = ChannelHost::build(RATE, &settings, sinks(pcm_tx, pos), DecodedSink::null())
-            .expect("rebuilt host");
+        let mut host = ChannelHost::build(
+            RATE,
+            CENTER,
+            &settings,
+            sinks(pcm_tx, pos),
+            DecodedSink::null(),
+        )
+        .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {
-            host.process_and_flush(chunk, 0.0, 0.0);
+            host.process_and_flush(chunk, CENTER, 0.0);
         }
 
         let mut expected = 0u64;
@@ -748,14 +816,14 @@ mod tests {
             let (pcm_tx, _pcm_rx) = broadcast::channel(128);
             let media = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
             let _iq_rx = media.iq_tx.subscribe();
-            let mut host =
-                ChannelHost::build(rate, &settings, media, DecodedSink::null()).expect("host");
+            let mut host = ChannelHost::build(rate, CENTER, &settings, media, DecodedSink::null())
+                .expect("host");
             let input = vec![Complex::new(0.25, 0.1); DSP_BLOCK];
             for _ in 0..128 {
-                host.process_and_flush(&input, 100e6, 0.0);
+                host.process_and_flush(&input, CENTER, 0.0);
             }
             for _ in 0..128 {
-                sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, 100e6, 0.0));
+                sdrmm_test_support::assert_no_alloc(kind, || host.process(&input, CENTER, 0.0));
                 host.publisher.queue.flush();
             }
         }
@@ -769,7 +837,7 @@ mod tests {
         const MIN_FACTOR: f64 = 3.0;
 
         let settings = ChannelSettings {
-            offset_hz: 250_000.0,
+            frequency_hz: CENTER + 250_000.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
@@ -778,6 +846,7 @@ mod tests {
         let (pcm_tx, mut pcm_rx) = broadcast::channel::<PcmBlock>(4096);
         let mut host = ChannelHost::build(
             DEVICE_RATE,
+            CENTER,
             &settings,
             sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
             DecodedSink::null(),
@@ -793,7 +862,7 @@ mod tests {
         let blocks = (DEVICE_RATE * SECONDS / MTU as f64) as usize;
         let start = std::time::Instant::now();
         for _ in 0..blocks {
-            host.process(&block, 100_000_000.0, 0.0);
+            host.process(&block, CENTER, 0.0);
             while pcm_rx.try_recv().is_ok() {}
         }
         let factor = SECONDS / start.elapsed().as_secs_f64();
@@ -804,14 +873,77 @@ mod tests {
     }
 
     #[test]
+    fn a_decoder_holds_its_frequency_while_the_radio_moves_under_it() {
+        const DEVICE_RATE: f64 = 240_000.0;
+        let mut settings = nfm_settings(None);
+        settings.frequency_hz = CENTER + 50_000.0;
+        let (pcm_tx, _pcm_rx) = broadcast::channel(4096);
+        let mut built = sinks(pcm_tx, Arc::new(AtomicU64::new(0)));
+        let (iq_tx, mut iq_rx) = broadcast::channel(64);
+        built.iq_tx = iq_tx;
+        let mut host =
+            ChannelHost::build(DEVICE_RATE, CENTER, &settings, built, DecodedSink::null())
+                .expect("host builds");
+
+        let carrier = |offset_hz: f64| -> Vec<Complex<f32>> {
+            (0..crate::iq::IQ_BLOCK_SAMPLES * 40)
+                .map(|k| {
+                    let p = TAU * offset_hz * k as f64 / DEVICE_RATE;
+                    Complex::new(p.cos() as f32 * 0.5, p.sin() as f32 * 0.5)
+                })
+                .collect()
+        };
+        let run = |host: &mut ChannelHost, input: &[Complex<f32>], center_hz: f64| {
+            for block in input.chunks(DSP_BLOCK) {
+                host.process_and_flush(block, center_hz, 0.0);
+            }
+        };
+
+        run(&mut host, &carrier(50_000.0), CENTER);
+        assert_eq!(
+            drain(&mut iq_rx).last().map(|burst| burst.center_hz),
+            Some(CENTER + 50_000.0),
+            "the tap did not name the frequency the decoder was set to"
+        );
+
+        run(&mut host, &carrier(25_000.0), CENTER + 25_000.0);
+        assert_eq!(
+            drain(&mut iq_rx).last().map(|burst| burst.center_hz),
+            Some(CENTER + 50_000.0),
+            "the decoder drifted with the radio instead of holding its frequency"
+        );
+
+        run(&mut host, &carrier(0.0), CENTER + 5_000_000.0);
+        assert!(
+            drain(&mut iq_rx).is_empty(),
+            "a radio tuned right off the decoder still produced baseband"
+        );
+
+        run(&mut host, &carrier(50_000.0), CENTER);
+        assert_eq!(
+            drain(&mut iq_rx).last().map(|burst| burst.center_hz),
+            Some(CENTER + 50_000.0),
+            "the decoder did not come back when the radio returned over it"
+        );
+    }
+
+    fn drain(rx: &mut broadcast::Receiver<crate::iq::IqBlock>) -> Vec<crate::iq::IqBlock> {
+        let mut bursts = Vec::new();
+        while let Ok(burst) = rx.try_recv() {
+            bursts.push(burst);
+        }
+        bursts
+    }
+
+    #[test]
     fn the_baseband_tap_carries_the_channel_down_converted() {
         let mut settings = nfm_settings(None);
-        settings.offset_hz = 3_000.0;
+        settings.frequency_hz = CENTER + 3_000.0;
         let (mut host, mut rx) = tapped_host(&settings);
 
         let input = tone(3_000.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process_and_flush(block, 100_000_000.0, 0.0);
+            host.process_and_flush(block, CENTER, 0.0);
         }
 
         let burst = rx.try_recv().expect("a subscribed tap sends bursts");
@@ -838,7 +970,7 @@ mod tests {
 
         let input = tone(0.0, 1e-6, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process_and_flush(block, 100_000_000.0, 0.0);
+            host.process_and_flush(block, CENTER, 0.0);
         }
 
         assert!(
@@ -857,7 +989,7 @@ mod tests {
 
         let input = tone(0.0, 0.5, crate::iq::IQ_BLOCK_SAMPLES * 4);
         for block in input.chunks(BLOCK) {
-            host.process_and_flush(block, 100_000_000.0, 0.0);
+            host.process_and_flush(block, CENTER, 0.0);
         }
         assert_eq!(host.sinks.iq_tx.receiver_count(), 0);
         assert!(host.sinks.iq_tx.subscribe().try_recv().is_err());
@@ -930,7 +1062,7 @@ mod tests {
             let (mut host, mut rx) = tapped_host(settings);
             let mut worst = 0.0f32;
             for chunk in input.chunks(BLOCK) {
-                host.process_and_flush(chunk, 0.0, 0.0);
+                host.process_and_flush(chunk, CENTER, 0.0);
                 while let Ok(block) = rx.try_recv() {
                     if block.timestamp < 8_192 {
                         continue;
@@ -965,9 +1097,14 @@ mod tests {
             agc: AudioAgcMode::Fast,
             ..AudioProcessing::default()
         });
-        let mut replacement =
-            ChannelHost::build(RATE, &settings, host.sinks.clone(), DecodedSink::null())
-                .expect("prepared host");
+        let mut replacement = ChannelHost::build(
+            RATE,
+            CENTER,
+            &settings,
+            host.sinks.clone(),
+            DecodedSink::null(),
+        )
+        .expect("prepared host");
         replacement.inherit(&mut host);
         let before = host.sinks.pcm_pos.load(Ordering::Relaxed);
         host = replacement;

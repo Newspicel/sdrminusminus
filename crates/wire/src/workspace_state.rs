@@ -1,17 +1,44 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::{channel::ChannelSettings, device::DeviceSettings, patch::DmrChannelEntry};
 
-pub const WORKSPACE_STATE_VERSION: u32 = 1;
+pub const WORKSPACE_STATE_VERSION: u32 = 2;
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, ToSchema)]
 pub struct WorkspaceState {
     pub version: u32,
     #[serde(default)]
     pub devices: Vec<WorkspaceDevice>,
+    #[serde(default)]
+    pub channels: Vec<WorkspaceChannel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trunks: Vec<WorkspaceTrunk>,
+}
+
+impl<'de> Deserialize<'de> for WorkspaceState {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Stated {
+            version: u32,
+            #[serde(default)]
+            devices: Vec<WorkspaceDevice>,
+            #[serde(default)]
+            channels: Vec<WorkspaceChannel>,
+            #[serde(default)]
+            trunks: Vec<WorkspaceTrunk>,
+        }
+        let mut document = Value::deserialize(deserializer)?;
+        lift_channels_to_the_top(&mut document);
+        let stated = Stated::deserialize(document).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            version: stated.version,
+            devices: stated.devices,
+            channels: stated.channels,
+            trunks: stated.trunks,
+        })
+    }
 }
 
 /// A trunk system's channel plan as the server worked it out, kept apart from the patch so a
@@ -31,8 +58,6 @@ pub struct WorkspaceTrunk {
 pub struct WorkspaceDevice {
     pub node: String,
     pub settings: DeviceSettings,
-    #[serde(default)]
-    pub channels: Vec<WorkspaceChannel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -47,6 +72,7 @@ impl WorkspaceState {
         Self {
             version: WORKSPACE_STATE_VERSION,
             devices: Vec::new(),
+            channels: Vec::new(),
             trunks: Vec::new(),
         }
     }
@@ -67,10 +93,7 @@ impl WorkspaceState {
 
     #[must_use]
     pub fn channel(&self, node: &str) -> Option<&WorkspaceChannel> {
-        self.devices
-            .iter()
-            .flat_map(|device| &device.channels)
-            .find(|channel| channel.node == node)
+        self.channels.iter().find(|channel| channel.node == node)
     }
 
     pub fn merge(&mut self, captured: Vec<WorkspaceDevice>) {
@@ -80,46 +103,24 @@ impl WorkspaceState {
                 .iter_mut()
                 .find(|existing| existing.node == device.node)
             {
-                Some(existing) => {
-                    for channel in device.channels {
-                        match existing
-                            .channels
-                            .iter_mut()
-                            .find(|held| held.node == channel.node)
-                        {
-                            Some(held) => *held = channel,
-                            None => existing.channels.push(channel),
-                        }
-                    }
-                    existing.settings = device.settings;
-                }
+                Some(existing) => existing.settings = device.settings,
                 None => self.devices.push(device),
             }
         }
     }
 
-    /// Records what a channel node is set to while no radio carries it, hung off the device node
-    /// that feeds it so it is replayed the moment that radio opens.
-    pub fn put_channel(&mut self, device_node: &str, node: &str, settings: ChannelSettings) {
-        let at = match self
-            .devices
-            .iter()
-            .position(|held| held.node == device_node)
-        {
-            Some(at) => at,
-            None => {
-                self.devices.push(WorkspaceDevice {
-                    node: device_node.to_string(),
-                    settings: DeviceSettings::default(),
-                    channels: Vec::new(),
-                });
-                self.devices.len() - 1
-            }
-        };
-        let device = &mut self.devices[at];
-        match device.channels.iter_mut().find(|held| held.node == node) {
+    pub fn merge_channels(&mut self, captured: Vec<WorkspaceChannel>) {
+        for channel in captured {
+            self.put_channel(&channel.node.clone(), channel.settings);
+        }
+    }
+
+    /// Records what a channel node is set to. It hangs off the node and nothing else, so a decoder
+    /// keeps its frequency while no radio is wired into it and while none can reach it.
+    pub fn put_channel(&mut self, node: &str, settings: ChannelSettings) {
+        match self.channels.iter_mut().find(|held| held.node == node) {
             Some(held) => held.settings = settings,
-            None => device.channels.push(WorkspaceChannel {
+            None => self.channels.push(WorkspaceChannel {
                 node: node.to_string(),
                 settings,
             }),
@@ -128,9 +129,7 @@ impl WorkspaceState {
 
     pub fn retain_nodes(&mut self, present: impl Fn(&str) -> bool) {
         self.devices.retain(|device| present(&device.node));
-        for device in &mut self.devices {
-            device.channels.retain(|channel| present(&channel.node));
-        }
+        self.channels.retain(|channel| present(&channel.node));
         self.trunks.retain(|trunk| present(&trunk.node));
     }
 
@@ -170,16 +169,61 @@ impl WorkspaceState {
     }
 }
 
+/// Version 1 hung a channel's settings off the radio that carried it and tuned it by an offset
+/// from that radio's centre. Lifts each one onto the node itself, resolving the offset against the
+/// centre it was taken from so the decoder comes back on the frequency it was actually hearing.
+fn lift_channels_to_the_top(document: &mut Value) {
+    if document.get("version").and_then(Value::as_u64) != Some(1) {
+        return;
+    }
+    let mut lifted = Vec::new();
+    if let Some(devices) = document.get_mut("devices").and_then(Value::as_array_mut) {
+        for device in devices {
+            let center_hz = device
+                .get("settings")
+                .and_then(|settings| settings.get("center_hz"))
+                .and_then(Value::as_f64)
+                .unwrap_or(crate::channel::DEFAULT_FREQUENCY_HZ);
+            let Some(channels) = device
+                .as_object_mut()
+                .and_then(|device| device.remove("channels"))
+            else {
+                continue;
+            };
+            let Value::Array(channels) = channels else {
+                continue;
+            };
+            for mut channel in channels {
+                let offset_hz = channel
+                    .get("settings")
+                    .and_then(|settings| settings.get("offset_hz"))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0);
+                if let Some(settings) = channel.get_mut("settings").and_then(Value::as_object_mut) {
+                    settings.remove("offset_hz");
+                    settings.insert("frequency_hz".to_string(), (center_hz + offset_hz).into());
+                }
+                lifted.push(channel);
+            }
+        }
+    }
+    let Some(document) = document.as_object_mut() else {
+        return;
+    };
+    document.insert("channels".to_string(), Value::Array(lifted));
+    document.insert("version".to_string(), WORKSPACE_STATE_VERSION.into());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::channel::{ChannelParams, NfmParams};
 
-    fn channel(node: &str, offset_hz: f64) -> WorkspaceChannel {
+    fn channel(node: &str, frequency_hz: f64) -> WorkspaceChannel {
         WorkspaceChannel {
             node: node.to_string(),
             settings: ChannelSettings {
-                offset_hz,
+                frequency_hz,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -188,14 +232,13 @@ mod tests {
         }
     }
 
-    fn device(node: &str, center_hz: f64, channels: Vec<WorkspaceChannel>) -> WorkspaceDevice {
+    fn device(node: &str, center_hz: f64) -> WorkspaceDevice {
         WorkspaceDevice {
             node: node.to_string(),
             settings: DeviceSettings {
                 center_hz: Some(center_hz),
                 ..DeviceSettings::default()
             },
-            channels,
         }
     }
 
@@ -284,55 +327,96 @@ mod tests {
     #[test]
     fn merge_keeps_unobserved_nodes() {
         let mut state = WorkspaceState::new();
-        state.merge(vec![
-            device("a", 100.0, vec![channel("a1", 1000.0)]),
-            device("b", 200.0, vec![]),
-        ]);
+        state.merge(vec![device("a", 100.0), device("b", 200.0)]);
+        state.merge_channels(vec![channel("a1", 145_000_000.0)]);
 
-        state.merge(vec![device("a", 101.0, vec![channel("a1", 2000.0)])]);
+        state.merge(vec![device("a", 101.0)]);
+        state.merge_channels(vec![channel("a1", 146_000_000.0)]);
 
         assert_eq!(state.devices.len(), 2);
         assert_eq!(state.device("a").unwrap().settings.center_hz, Some(101.0));
-        assert_eq!(state.channel("a1").unwrap().settings.offset_hz, 2000.0);
+        assert_eq!(
+            state.channel("a1").unwrap().settings.frequency_hz,
+            146_000_000.0
+        );
         assert_eq!(state.device("b").unwrap().settings.center_hz, Some(200.0));
     }
 
     #[test]
-    fn merge_adds_new_channels_to_a_known_device() {
+    fn a_channel_is_held_whether_or_not_a_radio_carries_it() {
         let mut state = WorkspaceState::new();
-        state.merge(vec![device("a", 100.0, vec![channel("a1", 1000.0)])]);
-        state.merge(vec![device("a", 100.0, vec![channel("a2", 3000.0)])]);
+        state.put_channel("a1", channel("a1", 433_920_000.0).settings);
 
-        let saved = state.device("a").unwrap();
-        assert_eq!(saved.channels.len(), 2);
-        assert_eq!(state.channel("a2").unwrap().settings.offset_hz, 3000.0);
+        assert!(state.devices.is_empty());
+        assert_eq!(
+            state.channel("a1").unwrap().settings.frequency_hz,
+            433_920_000.0
+        );
     }
 
     #[test]
     fn retain_nodes_forgets_deleted_ones() {
         let mut state = WorkspaceState::new();
-        state.merge(vec![
-            device(
-                "a",
-                100.0,
-                vec![channel("a1", 1000.0), channel("a2", 2000.0)],
-            ),
-            device("b", 200.0, vec![]),
+        state.merge(vec![device("a", 100.0), device("b", 200.0)]);
+        state.merge_channels(vec![
+            channel("a1", 145_000_000.0),
+            channel("a2", 146_000_000.0),
         ]);
 
         state.retain_nodes(|node| node != "b" && node != "a2");
 
         assert_eq!(state.devices.len(), 1);
-        assert_eq!(state.device("a").unwrap().channels.len(), 1);
+        assert_eq!(state.channels.len(), 1);
         assert!(state.channel("a2").is_none());
     }
 
     #[test]
     fn a_foreign_version_reads_as_empty() {
         let mut state = WorkspaceState::new();
-        state.merge(vec![device("a", 100.0, vec![])]);
+        state.merge(vec![device("a", 100.0)]);
         state.version = WORKSPACE_STATE_VERSION + 1;
 
         assert!(state.current().devices.is_empty());
+    }
+
+    #[test]
+    fn an_offset_from_the_old_shape_comes_back_as_the_frequency_it_was_hearing() {
+        let stored = r#"{
+            "version": 1,
+            "devices": [{
+                "node": "radio",
+                "settings": {"center_hz": 145000000.0},
+                "channels": [{
+                    "node": "voice",
+                    "settings": {
+                        "offset_hz": 500000.0,
+                        "params": {"type": "nfm", "settings": {}}
+                    }
+                }]
+            }]
+        }"#;
+
+        let state: WorkspaceState = serde_json::from_str(stored).expect("the stored state");
+
+        assert_eq!(state.version, WORKSPACE_STATE_VERSION);
+        assert_eq!(
+            state.channel("voice").unwrap().settings.frequency_hz,
+            145_500_000.0
+        );
+        assert_eq!(
+            state.device("radio").unwrap().settings.center_hz,
+            Some(145_000_000.0)
+        );
+    }
+
+    #[test]
+    fn a_current_document_is_read_as_it_stands() {
+        let mut state = WorkspaceState::new();
+        state.put_channel("voice", channel("voice", 433_920_000.0).settings);
+        let json = serde_json::to_string(&state).expect("serialised state");
+
+        let read: WorkspaceState = serde_json::from_str(&json).expect("the stored state");
+
+        assert_eq!(read, state);
     }
 }

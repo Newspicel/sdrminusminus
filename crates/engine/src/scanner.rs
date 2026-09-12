@@ -294,7 +294,7 @@ impl Scan {
             })?;
         std::thread::sleep(RETUNE_SETTLE);
         drain(&mut rx);
-        self.hold(engine, &mut rx, call, center_hz)
+        self.hold(engine, &mut rx, call)
     }
 
     fn visit(&mut self, engine: &Arc<Engine>, tuning: &Tuning) -> Result<(), Halt> {
@@ -330,7 +330,7 @@ impl Scan {
                     keep_db: self.settings.threshold_db,
                 };
                 lock_status(&self.status).hits += 1;
-                self.hold(engine, &mut rx, call, tuning.center_hz)?;
+                self.hold(engine, &mut rx, call)?;
                 return Ok(());
             }
         }
@@ -353,7 +353,7 @@ impl Scan {
                     heard = Instant::now();
                     if let Some(call) = self.call_in(&snapshot) {
                         self.note_hit(call);
-                        return self.hold(engine, rx, call, center_hz);
+                        return self.hold(engine, rx, call);
                     }
                     lock_status(&self.status).current_hz = center_hz;
                     self.push_update(engine, false);
@@ -380,11 +380,10 @@ impl Scan {
         engine: &Arc<Engine>,
         rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
         call: Call,
-        center_hz: f64,
     ) -> Result<(), Halt> {
         let target = call.hz;
         if let Some(channel) = self.settings.hold_channel
-            && let Err(e) = engine.scan_park_channel(self.ds, channel, target - center_hz)
+            && let Err(e) = engine.scan_park_channel(self.ds, channel, target)
         {
             tracing::warn!(ds = self.ds, channel, error = %e, "scan hold channel unusable");
             self.settings.hold_channel = None;

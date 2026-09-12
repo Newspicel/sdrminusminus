@@ -11,7 +11,7 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: TEST_CENTER_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -57,22 +57,17 @@ async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
         let scanner = set.scanner.clone().expect("scan listed on the set");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
-            break (
-                scanner,
-                set.settings.center_hz.expect("center"),
-                set.channels[0].settings.offset_hz,
-            );
+            break (scanner, set.channels[0].settings.frequency_hz);
         }
         assert!(Instant::now() < deadline, "scan never found the carrier");
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
-    let (scanner, center_hz, offset_hz) = held;
+    let (scanner, parked_hz) = held;
     assert_eq!(scanner.current_hz, SIGNAL_HZ);
     assert!(scanner.hits >= 1);
     assert!(
-        (center_hz + offset_hz - SIGNAL_HZ).abs() < 1.0,
-        "hold channel parked at {} Hz, carrier at {SIGNAL_HZ} Hz",
-        center_hz + offset_hz
+        (parked_hz - SIGNAL_HZ).abs() < 1.0,
+        "hold channel parked at {parked_hz} Hz, carrier at {SIGNAL_HZ} Hz"
     );
 
     let final_status = engine.stop_scan(ds).unwrap();
@@ -609,7 +604,7 @@ async fn stopping_mid_sweep_hands_the_radio_back() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: TEST_CENTER_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -631,7 +626,7 @@ async fn a_sweep_hands_back_a_working_channel() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: TEST_CENTER_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -660,12 +655,10 @@ async fn a_sweep_hands_back_a_working_channel() {
         let scanner = set.scanner.clone().expect("scan listed");
         assert_eq!(scanner.error, None, "scan failed");
         if scanner.state == ScanState::Holding {
-            let center = set.settings.center_hz.expect("center");
-            let offset = set.channels[0].settings.offset_hz;
+            let parked_hz = set.channels[0].settings.frequency_hz;
             assert!(
-                (center + offset - scanner.current_hz).abs() < 1.0,
-                "the rebuilt channel was parked at {} Hz, hold at {} Hz",
-                center + offset,
+                (parked_hz - scanner.current_hz).abs() < 1.0,
+                "the rebuilt channel was parked at {parked_hz} Hz, hold at {} Hz",
                 scanner.current_hz
             );
             break;

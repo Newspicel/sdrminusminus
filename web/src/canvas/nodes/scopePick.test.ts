@@ -50,7 +50,7 @@ function channel(params: ChannelInfo["settings"]["params"]): ChannelInfo {
   return {
     id: 1,
     stream: 0,
-    settings: { offset_hz: 0, squelch_db: null, params },
+    settings: { frequency_hz: 100_000_000, squelch_db: null, params },
   };
 }
 

@@ -27,7 +27,7 @@ const graph: PatchGraph = {
 const channelOnLane2: ChannelInfo = {
   id: 7,
   stream: 2,
-  settings: { offset_hz: 0, params: { type: "nfm", settings: {} } as never },
+  settings: { frequency_hz: 100_000_000, params: { type: "nfm", settings: {} } as never },
 };
 
 const workspace = {

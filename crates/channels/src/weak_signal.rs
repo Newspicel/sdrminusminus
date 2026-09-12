@@ -335,7 +335,7 @@ pub(crate) fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, Ch
             }
         },
         &ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: params.clone(),

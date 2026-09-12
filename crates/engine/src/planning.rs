@@ -27,10 +27,10 @@ pub(crate) fn validate_channel(
     settings: &ChannelSettings,
     device_rate: f64,
 ) -> Result<(), EngineError> {
-    if !settings.offset_hz.is_finite() {
+    if !settings.frequency_hz.is_finite() || settings.frequency_hz <= 0.0 {
         return Err(ChannelError::InvalidSettings(format!(
-            "offset_hz must be finite, got {}",
-            settings.offset_hz
+            "frequency_hz must be a positive, finite frequency, got {}",
+            settings.frequency_hz
         ))
         .into());
     }
@@ -71,15 +71,6 @@ pub(crate) fn validate_channel(
         .into());
     }
     let (low, high) = sdrmm_channels::occupied_band(&settings.params);
-    let band_low = settings.offset_hz + low;
-    let band_high = settings.offset_hz + high;
-    let nyquist = device_rate / 2.0;
-    if band_low < -nyquist || band_high > nyquist {
-        return Err(ChannelError::InvalidSettings(format!(
-            "channel band [{band_low}, {band_high}] Hz exceeds the ±{nyquist} Hz device passband"
-        ))
-        .into());
-    }
     if let Some((low, high)) = descriptor.native_rate_range() {
         if device_rate > high {
             return Err(ChannelError::InvalidSettings(format!(
@@ -148,8 +139,8 @@ pub(crate) fn artifact_clears_channels(
             .center_hz
             .unwrap_or(DEFAULT_CENTER_HZ);
         let artifact = center_hz - offset_hz;
-        let tuned = center_hz + channel.settings.offset_hz;
-        (artifact - tuned).abs() > channel_half_width_hz(&channel.settings.params)
+        (artifact - channel.settings.frequency_hz).abs()
+            > channel_half_width_hz(&channel.settings.params)
     })
 }
 

@@ -13,6 +13,7 @@ use sdrmm_engine::{Engine, audio::OPUS_FRAME_SAMPLES};
 use sdrmm_wire::{AmParams, ChannelParams, ChannelSettings, DeviceSettings, NfmParams, WfmParams};
 
 const TEST_RATE: f64 = 2_400_000.0;
+const CENTER_HZ: f64 = 100_000_000.0;
 const QUIET_OFFSET_HZ: f64 = -900_000.0;
 
 fn engine() -> Arc<Engine> {
@@ -37,7 +38,7 @@ fn set_at_test_rate(engine: &Engine) -> u32 {
 
 fn settings(params: ChannelParams, offset_hz: f64, squelch_db: Option<f32>) -> ChannelSettings {
     ChannelSettings {
-        offset_hz,
+        frequency_hz: CENTER_HZ + offset_hz,
         squelch_db,
         squelch_auto_db: None,
         params,
@@ -201,8 +202,8 @@ async fn patch_channel_offset_retunes_onto_the_carrier() {
 
     let snapshot = engine.snapshot();
     assert_eq!(
-        snapshot.device_sets[0].channels[0].settings.offset_hz,
-        NFM_CARRIER_OFFSET_HZ
+        snapshot.device_sets[0].channels[0].settings.frequency_hz,
+        CENTER_HZ + NFM_CARRIER_OFFSET_HZ
     );
     engine.remove_device_set(ds).unwrap();
 }

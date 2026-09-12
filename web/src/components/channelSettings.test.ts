@@ -10,14 +10,16 @@ import {
   mergeChannelSettings,
   offsetForFrequencyHz,
   offsetLimitHz,
+  radioWindowHz,
   rateMismatch,
+  reachesHz,
   withNotchAdded,
   withNotchAt,
   withNotchRemoved,
 } from "./channelSettings";
 
 const base: ChannelSettings = {
-  offset_hz: 25_000,
+  frequency_hz: 145_025_000,
   squelch_db: -70,
   params: { type: "ssb", settings: { sideband: "lsb", bandwidth_hz: 2_400 } },
 };
@@ -33,18 +35,18 @@ function descriptor(over: Partial<ChannelDescriptor>): ChannelDescriptor {
 }
 
 describe("mergeChannelSettings", () => {
-  it("widens an offset edit and keeps squelch + params", () => {
-    expect(mergeChannelSettings(base, { offset_hz: -12_500 })).toEqual({
+  it("widens a frequency edit and keeps squelch + params", () => {
+    expect(mergeChannelSettings(base, { frequency_hz: 144_987_500 })).toEqual({
       ...base,
       audio: {},
       squelch_auto_db: null,
-      offset_hz: -12_500,
+      frequency_hz: 144_987_500,
     });
   });
 
   it("carries the audio chain through an unrelated edit", () => {
     const withChain: ChannelSettings = { ...base, audio: { agc: "slow", auto_notch: true } };
-    expect(mergeChannelSettings(withChain, { offset_hz: 0 }).audio).toEqual({
+    expect(mergeChannelSettings(withChain, { frequency_hz: 145_000_000 }).audio).toEqual({
       agc: "slow",
       auto_notch: true,
     });
@@ -68,21 +70,24 @@ describe("mergeChannelSettings", () => {
     const next = mergeChannelSettings(base, {
       params: { type: "nfm", settings: { bandwidth_hz: 25_000 } },
     });
-    expect(next.offset_hz).toBe(25_000);
+    expect(next.frequency_hz).toBe(145_025_000);
     expect(next.squelch_db).toBe(-70);
     expect(next.params).toEqual({ type: "nfm", settings: { bandwidth_hz: 25_000 } });
   });
 
   it("fills server defaults for absent optional fields", () => {
-    const sparse: ChannelSettings = { params: { type: "nfm", settings: {} } };
+    const sparse: ChannelSettings = {
+      frequency_hz: 145_000_000,
+      params: { type: "nfm", settings: {} },
+    };
     const next = mergeChannelSettings(sparse, {});
-    expect(next.offset_hz).toBe(0);
+    expect(next.frequency_hz).toBe(145_000_000);
     expect(next.squelch_db).toBeNull();
   });
 
   it("carries a decoder's edited params into the patch body", () => {
     const rtty: ChannelSettings = {
-      offset_hz: 1_000,
+      frequency_hz: 14_070_000,
       params: { type: "rtty", settings: { baud: 45.45, shift_hz: 170 } },
     };
     const next = mergeChannelSettings(rtty, {
@@ -92,7 +97,7 @@ describe("mergeChannelSettings", () => {
       },
     });
     expect(next).toEqual({
-      offset_hz: 1_000,
+      frequency_hz: 14_070_000,
       squelch_db: null,
       squelch_auto_db: null,
       audio: {},
@@ -113,6 +118,7 @@ describe("mergeChannelSettings", () => {
   it("widens a pager bandwidth or inversion edit over the settings beside it", () => {
     for (const type of ["flex", "ermes"] as const) {
       const pager: ChannelSettings = {
+        frequency_hz: 169_650_000,
         params: { type, settings: { bandwidth_hz: 12_500, invert: false } },
       };
       const wider = mergeChannelSettings(pager, {
@@ -134,6 +140,7 @@ describe("mergeChannelSettings", () => {
 
   it("carries every CW skimmer setting, and an auto speed, into the patch body", () => {
     const skimmer: ChannelSettings = {
+      frequency_hz: 14_030_000,
       params: {
         type: "cw_skimmer",
         settings: { bandwidth_hz: 24_000, threshold_db: 10, max_signals: 32, wpm: 20 },
@@ -195,6 +202,39 @@ describe("offsetLimitHz", () => {
 
   it("falls back to a point channel when the type is unknown", () => {
     expect(offsetLimitHz(2_000_000, undefined)).toBe(1_000_000);
+  });
+});
+
+describe("radioWindowHz", () => {
+  it("names the edges a radio can hear a channel of this width between", () => {
+    expect(radioWindowHz(145_000_000, 2_400_000, descriptor({ bandwidth_hz: 12_500 }))).toEqual({
+      lowHz: 143_806_250,
+      highHz: 146_193_750,
+    });
+  });
+
+  it("is unknown while the radio's centre or rate is", () => {
+    expect(radioWindowHz(null, 2_400_000, descriptor({}))).toBeNull();
+    expect(radioWindowHz(145_000_000, null, descriptor({}))).toBeNull();
+  });
+});
+
+describe("reachesHz", () => {
+  const window = { lowHz: 143_806_250, highHz: 146_193_750 };
+
+  it("holds inside the window and at its edges", () => {
+    expect(reachesHz(145_000_000, window)).toBe(true);
+    expect(reachesHz(window.lowHz, window)).toBe(true);
+    expect(reachesHz(window.highHz, window)).toBe(true);
+  });
+
+  it("fails past either edge", () => {
+    expect(reachesHz(143_000_000, window)).toBe(false);
+    expect(reachesHz(147_000_000, window)).toBe(false);
+  });
+
+  it("assumes reach while there is no radio to judge against", () => {
+    expect(reachesHz(1_090_000_000, null)).toBe(true);
   });
 });
 

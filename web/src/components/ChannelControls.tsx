@@ -8,12 +8,12 @@ import {
   AUDIO_LIMITS,
   type ChannelParamsOf,
   channelHasAudio,
-  offsetLimitHz,
+  radioWindowHz,
 } from "./channelSettings";
 import type { Options } from "./controls";
+import { FrequencyStepper } from "./FrequencyStepper";
 import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
-import { OffsetStepper } from "./OffsetStepper";
 import { Segmented } from "./Segmented";
 import { Select } from "./Select";
 import { SettingRow, Settings } from "./Settings";
@@ -199,22 +199,21 @@ export function ChannelControls({
   centerHz: number | null;
   onEdit: (edit: ChannelEdit) => void;
 }) {
-  const offsetHz = settings.offset_hz ?? 0;
+  const frequencyHz = settings.frequency_hz;
   const squelchDb = settings.squelch_db ?? null;
   const autoMarginDb = settings.squelch_auto_db ?? null;
   const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
   const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
   const marginSlider = useDebouncedCommit((db) => onEdit({ squelch_auto_db: db }));
-  const limitHz = offsetLimitHz(spanHz, descriptor);
+  const window = radioWindowHz(centerHz, spanHz, descriptor);
 
   return (
     <Settings className="p-2">
-      <SettingRow label="Offset (kHz)">
-        <OffsetStepper
-          offsetHz={offsetHz}
-          limitHz={limitHz}
-          centerHz={centerHz}
-          onOffset={(offset_hz) => onEdit({ offset_hz })}
+      <SettingRow label="Frequency (MHz)">
+        <FrequencyStepper
+          frequencyHz={frequencyHz}
+          window={window}
+          onTune={(frequency_hz) => onEdit({ frequency_hz })}
         />
       </SettingRow>
 

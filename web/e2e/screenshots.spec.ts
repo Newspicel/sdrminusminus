@@ -97,8 +97,10 @@ async function amend(
 }
 
 async function tune(page: Page, device: DeviceRef, offsets: Record<string, number>): Promise<void> {
+  const set = await deviceSet(page, device);
+  const centerHz = set.settings.center_hz ?? 0;
   for (const [type, offset] of Object.entries(offsets)) {
-    await amend(page, device, type, () => ({ offset_hz: offset }));
+    await amend(page, device, type, () => ({ frequency_hz: centerHz + offset }));
   }
 }
 

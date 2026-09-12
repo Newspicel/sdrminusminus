@@ -5,8 +5,8 @@ Each fixture has a known expected output. Generated waveforms test the decoder a
 project's modulators; recorded captures also exercise real transmitter and reception effects.
 
 Every IQ fixture is a single-channel SigMF pair: `<stem>.sigmf-meta` and `<stem>.sigmf-data`,
-using `cf32_le`. Open it as a `virtual:file:<stem>` source and add the channel with the offset
-listed below. Rates in the tables are samples per second; `k` means thousands and `M` means millions.
+using `cf32_le`. Open it as a `virtual:file:<stem>` source and set the channel to the
+fixture's centre plus the offset listed below. Rates in the tables are samples per second; `k` means thousands and `M` means millions.
 
 ## Generated fixtures
 

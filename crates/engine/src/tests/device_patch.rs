@@ -15,7 +15,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
         .unwrap();
 
     let usb = |offset_hz: f64| ChannelSettings {
-        offset_hz,
+        frequency_hz: TEST_CENTER_HZ + offset_hz,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Ssb(SsbParams {
@@ -25,7 +25,7 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
         audio: Default::default(),
     };
     let wide_nfm = |offset_hz: f64| ChannelSettings {
-        offset_hz,
+        frequency_hz: TEST_CENTER_HZ + offset_hz,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams {
@@ -35,14 +35,23 @@ async fn validate_honors_configured_bandwidth_and_sideband() {
         audio: Default::default(),
     };
 
-    let err = engine.add_channel(ds, 0, usb(120_000.0)).unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
-    let err = engine.add_channel(ds, 0, wide_nfm(118_000.0)).unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
-    assert!(engine.snapshot().device_sets[0].channels.is_empty());
+    let past_the_edge = engine.add_channel(ds, 0, usb(120_000.0)).unwrap();
+    let too_wide = engine.add_channel(ds, 0, wide_nfm(118_000.0)).unwrap();
+    let inside_usb = engine.add_channel(ds, 0, usb(-124_000.0)).unwrap();
+    let inside_nfm = engine.add_channel(ds, 0, wide_nfm(112_000.0)).unwrap();
 
-    engine.add_channel(ds, 0, usb(-124_000.0)).unwrap();
-    engine.add_channel(ds, 0, wide_nfm(112_000.0)).unwrap();
+    let set = &engine.snapshot().device_sets[0];
+    let heard = |id: u32| {
+        !set.channels
+            .iter()
+            .find(|channel| channel.id == id)
+            .expect("the channel opened")
+            .out_of_band
+    };
+    assert!(!heard(past_the_edge), "usb sideband runs past the edge");
+    assert!(!heard(too_wide), "a 25 kHz channel does not fit there");
+    assert!(heard(inside_usb), "the lower sideband fits below the edge");
+    assert!(heard(inside_nfm), "a 25 kHz channel fits there");
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -87,7 +96,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 25_000.0,
+                frequency_hz: 145_025_000.0,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -117,7 +126,7 @@ async fn faulted_set_reconnects_and_restores_its_channels() {
     assert_eq!(set.settings.center_hz, Some(145_000_000.0));
     assert_eq!(set.channels.len(), 1);
     assert_eq!(set.channels[0].id, ch);
-    assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
+    assert_eq!(set.channels[0].settings.frequency_hz, 145_025_000.0);
 
     let packet = tokio::time::timeout(Duration::from_secs(10), audio.recv())
         .await

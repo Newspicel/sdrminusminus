@@ -70,14 +70,14 @@ async fn channel_create_patch_and_error_mapping_over_http() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{ch}"),
-        Some(r#"{"offset_hz":-200000.0,"params":{"type":"am","settings":{"agc":false}}}"#),
+        Some(r#"{"frequency_hz":99800000.0,"params":{"type":"am","settings":{"agc":false}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     let snap = get_state(&app).await;
     let channel = &snap.device_sets[0].channels[0];
-    assert_eq!(channel.settings.offset_hz, -200_000.0);
+    assert_eq!(channel.settings.frequency_hz, 99_800_000.0);
     assert_eq!(channel.settings.params.type_id(), "am");
 
     let (status, body) = request(
@@ -94,10 +94,25 @@ async fn channel_create_patch_and_error_mapping_over_http() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{ch}"),
-        Some(r#"{"offset_hz":5000000.0,"params":{"type":"nfm","settings":{}}}"#),
+        Some(r#"{"frequency_hz":-1.0,"params":{"type":"nfm","settings":{}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = request(
+        app.clone(),
+        "PATCH",
+        &format!("/api/devicesets/{ds}/channels/{ch}"),
+        Some(r#"{"frequency_hz":900000000.0,"params":{"type":"nfm","settings":{}}}"#),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "a decoder may sit where the radio is not listening"
+    );
+    let snap = get_state(&app).await;
+    assert!(snap.device_sets[0].channels[0].out_of_band);
 
     let valid = r#"{"params":{"type":"nfm","settings":{}}}"#;
     let (status, _) = request(

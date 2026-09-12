@@ -1356,10 +1356,44 @@ impl ChannelParams {
 pub const MIN_SQUELCH_AUTO_MARGIN_DB: f32 = 2.0;
 pub const MAX_SQUELCH_AUTO_MARGIN_DB: f32 = 40.0;
 
+pub const DEFAULT_FREQUENCY_HZ: f64 = 100_000_000.0;
+
+/// The one frequency a service lives on the world over, for the decoders that have one. A mode
+/// that can sit anywhere — voice, paging, a data burst — has none, and starts wherever the radio
+/// feeding it is tuned.
+#[must_use]
+pub fn home_frequency_hz(type_id: &str) -> Option<f64> {
+    let hz = match type_id {
+        "adsb" => 1_090_000_000.0,
+        "ais" => 161_975_000.0,
+        "acars" => 131_550_000.0,
+        "vdl2" => 136_975_000.0,
+        "aprs" => 144_800_000.0,
+        "dsc" => 2_187_500.0,
+        "navtex" => 518_000.0,
+        "wspr" => 14_095_600.0,
+        "ft8" => 14_074_000.0,
+        "ft4" => 14_080_000.0,
+        "psk" => 14_070_000.0,
+        "gnss" => 1_575_420_000.0,
+        "iridium" => 1_621_500_000.0,
+        "inmarsat_stdc" | "inmarsat_aero" => 1_541_450_000.0,
+        "hfdl" => 10_081_000.0,
+        "vor" => 113_000_000.0,
+        "ils" => 110_300_000.0,
+        "dect" => 1_897_344_000.0,
+        "radio_clock" => 77_500.0,
+        "dab" => 227_360_000.0,
+        _ => return None,
+    };
+    Some(hz)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
 pub struct ChannelSettings {
-    #[serde(default)]
-    pub offset_hz: f64,
+    /// The frequency the decoder listens on, whatever any radio happens to be tuned to. A radio
+    /// that cannot reach it simply does not carry this channel.
+    pub frequency_hz: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub squelch_db: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1373,7 +1407,7 @@ impl ChannelSettings {
     #[must_use]
     pub fn default_for(type_id: &str) -> Option<Self> {
         Some(Self {
-            offset_hz: 0.0,
+            frequency_hz: home_frequency_hz(type_id).unwrap_or(DEFAULT_FREQUENCY_HZ),
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::default_for(type_id)?,
@@ -1386,8 +1420,7 @@ impl<'de> Deserialize<'de> for ChannelSettings {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Stated {
-            #[serde(default)]
-            offset_hz: f64,
+            frequency_hz: Option<f64>,
             #[serde(default)]
             squelch_db: Option<f32>,
             #[serde(default)]
@@ -1401,7 +1434,9 @@ impl<'de> Deserialize<'de> for ChannelSettings {
             .audio
             .unwrap_or_else(|| AudioProcessing::default_for(stated.params.type_id()));
         Ok(Self {
-            offset_hz: stated.offset_hz,
+            frequency_hz: stated.frequency_hz.unwrap_or_else(|| {
+                home_frequency_hz(stated.params.type_id()).unwrap_or(DEFAULT_FREQUENCY_HZ)
+            }),
             squelch_db: stated.squelch_db,
             squelch_auto_db: stated.squelch_auto_db,
             params: stated.params,
@@ -1416,6 +1451,10 @@ pub struct ChannelInfo {
     #[serde(default)]
     pub stream: u32,
     pub settings: ChannelSettings,
+    /// The radio carrying this decoder is tuned somewhere it cannot hear the decoder's frequency,
+    /// so the channel is alive and set up but silent until the radio comes back over it.
+    #[serde(default)]
+    pub out_of_band: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_recording: Option<AudioRecordingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

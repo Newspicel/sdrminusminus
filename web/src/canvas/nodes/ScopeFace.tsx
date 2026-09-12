@@ -315,11 +315,11 @@ function Spectrum({
     }
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   };
-  const tuneChannel = (channel: number, offsetHz: number): void => {
+  const tuneChannel = (channel: number, frequencyHz: number): void => {
     if (setId === null || owners.has(channel)) {
       return;
     }
-    applyEdit(setId, channel, { offset_hz: offsetHz });
+    applyEdit(setId, channel, { frequency_hz: frequencyHz });
   };
 
   const tuneToBand = (hz: number, suggested: ChannelParams | null): void => {
@@ -330,13 +330,8 @@ function Spectrum({
     }
     if (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2) {
       tuneCenter(hz);
-      applyEdit(setId, tunableChannel, { offset_hz: 0, ...params });
-    } else {
-      applyEdit(setId, tunableChannel, {
-        offset_hz: Math.round(hz - meta.centerHz),
-        ...params,
-      });
     }
+    applyEdit(setId, tunableChannel, { frequency_hz: Math.round(hz), ...params });
     const face = faces.get(tunableChannel);
     if (suggested === null || face === undefined) {
       return;
@@ -357,7 +352,7 @@ function Spectrum({
 
   const tuneTo = (pick: ScopePick): void => {
     if (tunableChannel !== null) {
-      tuneChannel(tunableChannel, pick.offsetHz);
+      tuneChannel(tunableChannel, pick.hz);
     } else {
       tuneCenter(pick.hz);
     }
@@ -368,7 +363,7 @@ function Spectrum({
       return;
     }
     const id = newNodeId("channel");
-    tuneOnCreate(id, pick.offsetHz);
+    tuneOnCreate(id, pick.hz);
     workspace.edit((snapshot) => ({
       ...snapshot,
       graph: addEdge(
@@ -404,9 +399,9 @@ function Spectrum({
       return;
     }
     for (const [channel, face] of faces) {
-      const offsetHz = takeCreationTune(face);
-      if (offsetHz !== undefined) {
-        editRef.current(setId, channel, { offset_hz: offsetHz });
+      const frequencyHz = takeCreationTune(face);
+      if (frequencyHz !== undefined) {
+        editRef.current(setId, channel, { frequency_hz: frequencyHz });
       }
     }
   });
@@ -665,7 +660,7 @@ function Spectrum({
     const at = pointerFraction(event.clientX);
     const grabbed =
       markerFrom(event.target, channels) ??
-      markerAt(channels, view, spanHz, at, GRAB_PX / rect.width);
+      markerAt(channels, view, meta.centerHz, spanHz, at, GRAB_PX / rect.width);
     if (grabbed !== null) {
       selectChannel(grabbed.id);
     }
@@ -739,8 +734,8 @@ function Spectrum({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (gesture.moved) {
-      if (gesture.channel !== null && preview !== null) {
-        tuneChannel(gesture.channel, preview.offsetHz);
+      if (gesture.channel !== null && preview !== null && meta !== null) {
+        tuneChannel(gesture.channel, meta.centerHz + preview.offsetHz);
       } else if (gesture.channel === null && isFullView(gesture.view) && meta !== null) {
         const rect = plotRef.current?.getBoundingClientRect();
         const hz = dragTuneHz(
@@ -761,7 +756,7 @@ function Spectrum({
     }
     const offsetHz = Math.round(spanToOffset(viewToSpan(gesture.view, gesture.at), meta.spanHz));
     if (tunableChannel !== null) {
-      tuneChannel(tunableChannel, offsetHz);
+      tuneChannel(tunableChannel, meta.centerHz + offsetHz);
     } else {
       tuneCenter(meta.centerHz + offsetHz);
     }
@@ -852,6 +847,7 @@ function Spectrum({
         <Markers
           channels={channels}
           view={view}
+          centerHz={meta.centerHz}
           spanHz={meta.spanHz}
           selected={selectedChannel}
           owners={owners}
@@ -1066,6 +1062,7 @@ function Divider({
 function Markers({
   channels,
   view,
+  centerHz,
   spanHz,
   selected,
   owners,
@@ -1075,6 +1072,7 @@ function Markers({
 }: {
   channels: readonly ChannelInfo[];
   view: SpectrumView;
+  centerHz: number;
   spanHz: number;
   selected: number | null;
   owners: ReadonlyMap<number, TrunkChannelOwner>;
@@ -1086,7 +1084,9 @@ function Markers({
   const drawn = channels
     .map((channel) => {
       const offsetHz =
-        preview?.channel === channel.id ? preview.offsetHz : (channel.settings.offset_hz ?? 0);
+        preview?.channel === channel.id
+          ? preview.offsetHz
+          : channel.settings.frequency_hz - centerHz;
       return {
         channel,
         offsetHz,
@@ -1296,6 +1296,7 @@ function bandwidthHz(params: ChannelParams): number | null {
 function markerAt(
   channels: readonly ChannelInfo[],
   view: SpectrumView,
+  centerHz: number,
   spanHz: number,
   at: number,
   tolerance: number,
@@ -1303,7 +1304,8 @@ function markerAt(
   let best: ChannelInfo | null = null;
   let bestDistance = tolerance;
   for (const channel of channels) {
-    const position = spanToView(view, offsetToSpan(channel.settings.offset_hz ?? 0, spanHz));
+    const offsetHz = channel.settings.frequency_hz - centerHz;
+    const position = spanToView(view, offsetToSpan(offsetHz, spanHz));
     const distance = Math.abs(position - at);
     if (distance <= bestDistance) {
       best = channel;

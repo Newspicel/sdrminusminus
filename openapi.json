@@ -3962,7 +3962,7 @@
             "description": "Settings held against the node until a radio carries it"
           },
           "400": {
-            "description": "No such channel node, no radio wired into it, or settings of another channel type",
+            "description": "No such channel node, or settings of another channel type",
             "content": {
               "application/json": {
                 "schema": {
@@ -6550,6 +6550,10 @@
               }
             ]
           },
+          "out_of_band": {
+            "type": "boolean",
+            "description": "The radio carrying this decoder is tuned somewhere it cannot hear the decoder's frequency,\nso the channel is alive and set up but silent until the radio comes back over it."
+          },
           "settings": {
             "$ref": "#/components/schemas/ChannelSettings"
           },
@@ -7521,15 +7525,17 @@
       "ChannelSettings": {
         "type": "object",
         "required": [
+          "frequency_hz",
           "params"
         ],
         "properties": {
           "audio": {
             "$ref": "#/components/schemas/AudioProcessing"
           },
-          "offset_hz": {
+          "frequency_hz": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "The frequency the decoder listens on, whatever any radio happens to be tuned to. A radio\nthat cannot reach it simply does not carry this channel."
           },
           "params": {
             "$ref": "#/components/schemas/ChannelParams"
@@ -19488,12 +19494,6 @@
           "settings"
         ],
         "properties": {
-          "channels": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkspaceChannel"
-            }
-          },
           "node": {
             "type": "string"
           },
@@ -19620,6 +19620,12 @@
           "version"
         ],
         "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceChannel"
+            }
+          },
           "devices": {
             "type": "array",
             "items": {

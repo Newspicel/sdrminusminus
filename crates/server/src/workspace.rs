@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use sdrmm_engine::Engine;
 use sdrmm_wire::{
-    ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope, StateSnapshot,
-    WorkspaceChannel, WorkspaceDevice, WorkspaceState,
+    Capabilities, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
+    StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState, any_range_holds,
+    home_frequency_hz,
 };
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
@@ -167,34 +168,35 @@ pub(crate) fn capture(
     graph: &PatchGraph,
     state: &StateSnapshot,
     unrestored: &[String],
-) -> Vec<WorkspaceDevice> {
-    bind(graph, state)
-        .into_iter()
-        .filter_map(|binding| {
-            let set = state
-                .device_sets
-                .iter()
-                .find(|set| set.id == binding.device_set)?;
-            if set.scanner.is_some() || set.hunt.is_some() || unrestored.contains(&binding.node) {
-                return None;
-            }
-            Some(WorkspaceDevice {
-                node: binding.node,
-                settings: set.settings.clone(),
-                channels: binding
-                    .channels
-                    .into_iter()
-                    .filter_map(|(node, id)| {
-                        let channel = set.channels.iter().find(|channel| channel.id == id)?;
-                        Some(WorkspaceChannel {
-                            node,
-                            settings: channel.settings.clone(),
-                        })
-                    })
-                    .collect(),
-            })
-        })
-        .collect()
+) -> (Vec<WorkspaceDevice>, Vec<WorkspaceChannel>) {
+    let mut devices = Vec::new();
+    let mut channels = Vec::new();
+    for binding in bind(graph, state) {
+        let Some(set) = state
+            .device_sets
+            .iter()
+            .find(|set| set.id == binding.device_set)
+        else {
+            continue;
+        };
+        if set.scanner.is_some() || set.hunt.is_some() || unrestored.contains(&binding.node) {
+            continue;
+        }
+        for (node, id) in binding.channels {
+            let Some(channel) = set.channels.iter().find(|channel| channel.id == id) else {
+                continue;
+            };
+            channels.push(WorkspaceChannel {
+                node,
+                settings: channel.settings.clone(),
+            });
+        }
+        devices.push(WorkspaceDevice {
+            node: binding.node,
+            settings: set.settings.clone(),
+        });
+    }
+    (devices, channels)
 }
 
 pub(crate) fn save_active(state: &AppState) -> Result<(), StoreError> {
@@ -220,7 +222,9 @@ fn live_state(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
-    stored.merge(capture(graph, &state.engine.snapshot(), &unrestored));
+    let (devices, channels) = capture(graph, &state.engine.snapshot(), &unrestored);
+    stored.merge(devices);
+    stored.merge_channels(channels);
     Ok(stored)
 }
 
@@ -509,10 +513,53 @@ pub(crate) fn restore_device(
     })
 }
 
+/// How much of the passband the decoders may spread over before centring between them stops being
+/// worth it and the radio simply opens on the lowest one.
+const COVERED_FRACTION: f64 = 0.8;
+
+/// Where to open a radio nobody has tuned by hand: over the decoders wired into it, so a patch
+/// drawn before any hardware was attached comes up hearing what it was drawn to hear.
+pub(crate) fn first_tune(
+    graph: &PatchGraph,
+    node: &str,
+    saved: &WorkspaceState,
+    rate_hz: f64,
+    capabilities: &Capabilities,
+) -> Option<f64> {
+    let mut wanted: Vec<f64> = graph
+        .channels_of(node)
+        .filter_map(|(patch, _)| match &patch.body {
+            NodeBody::Channel(channel) => {
+                let asked = saved.channel(&patch.id).is_some()
+                    || home_frequency_hz(&channel.channel_type).is_some();
+                asked
+                    .then(|| channel_settings(&patch.id, &channel.channel_type, saved, None))
+                    .flatten()
+            }
+            _ => None,
+        })
+        .map(|settings| settings.frequency_hz)
+        .filter(|hz| hz.is_finite() && *hz > 0.0)
+        .collect();
+    wanted.sort_by(f64::total_cmp);
+    let low = *wanted.first()?;
+    let high = *wanted.last()?;
+    let center = if high - low < rate_hz * COVERED_FRACTION {
+        f64::midpoint(low, high)
+    } else {
+        low
+    };
+    (capabilities.freq_ranges.is_empty() || any_range_holds(&capabilities.freq_ranges, center))
+        .then_some(center)
+}
+
+/// What a channel node starts on. A decoder that was set keeps what it was set to; one that never
+/// was starts on its service's own frequency, or where the radio feeding it is already listening.
 pub(crate) fn channel_settings(
     node: &str,
     channel_type: &str,
     saved: &WorkspaceState,
+    center_hz: Option<f64>,
 ) -> Option<ChannelSettings> {
     let stored = saved
         .channel(node)
@@ -520,7 +567,11 @@ pub(crate) fn channel_settings(
     if let Some(channel) = stored {
         return Some(channel.settings.clone());
     }
-    ChannelSettings::default_for(channel_type)
+    let mut settings = ChannelSettings::default_for(channel_type)?;
+    if let (None, Some(center_hz)) = (home_frequency_hz(channel_type), center_hz) {
+        settings.frequency_hz = center_hz;
+    }
+    Some(settings)
 }
 
 #[cfg(test)]

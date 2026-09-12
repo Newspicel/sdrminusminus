@@ -305,7 +305,7 @@ impl Engine {
         &self,
         ds: u32,
         ch: u32,
-        offset_hz: f64,
+        frequency_hz: f64,
     ) -> Result<(), EngineError> {
         let settings = {
             let inner = self.lock();
@@ -319,7 +319,7 @@ impl Engine {
                 .find(|c| c.id == ch)
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             ChannelSettings {
-                offset_hz,
+                frequency_hz,
                 ..info.settings.clone()
             }
         };

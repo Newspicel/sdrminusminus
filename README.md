@@ -68,7 +68,7 @@ when setting up network access.
    shows the generated signals.
 2. Choose **+ Node** and add an **NFM** channel.
 3. Connect Device `IQ` to NFM `IQ`, then NFM `audio` to Speaker `audio`.
-4. Set the channel offset to `+300 kHz` and start audio on the Speaker. You should hear a 1 kHz tone.
+4. Set the channel to 300 kHz above the radio's centre and start audio on the Speaker. You should hear a 1 kHz tone.
 
 [Your first receiver](https://newspicel.github.io/sdrminusminus/getting-started/first-receiver.html)
 walks through the controls and switching to hardware.

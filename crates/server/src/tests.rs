@@ -195,9 +195,19 @@ fn preset_250k(channels: Vec<ChannelSettings>) -> PresetSnapshot {
     }
 }
 
+fn adsb_at(frequency_hz: f64) -> ChannelSettings {
+    ChannelSettings {
+        frequency_hz,
+        squelch_db: None,
+        squelch_auto_db: None,
+        params: ChannelParams::default_for("adsb").expect("adsb is built in"),
+        audio: Default::default(),
+    }
+}
+
 fn nfm_at(offset_hz: f64) -> ChannelSettings {
     ChannelSettings {
-        offset_hz,
+        frequency_hz: 100_000_000.0 + offset_hz,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Nfm(NfmParams::default()),

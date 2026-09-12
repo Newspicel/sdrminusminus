@@ -231,6 +231,45 @@ pub(super) fn bring_up(
     state = engine.snapshot();
 
     for binding in &report.bound {
+        if saved
+            .device(&binding.node)
+            .is_some_and(|held| held.settings.center_hz.is_some())
+        {
+            continue;
+        }
+        let Some(set) = state
+            .device_sets
+            .iter()
+            .find(|set| set.id == binding.device_set)
+        else {
+            continue;
+        };
+        let Some(rate) = set.settings.sample_rate else {
+            continue;
+        };
+        let Some(center_hz) = workspace::first_tune(
+            &snapshot.graph,
+            &binding.node,
+            saved,
+            rate,
+            &set.capabilities,
+        ) else {
+            continue;
+        };
+        let tuning = DeviceSettings {
+            center_hz: Some(center_hz),
+            ..DeviceSettings::default()
+        };
+        if let Err(err) = engine.patch_device(binding.device_set, tuning) {
+            report.refused.push(PatchRefusal {
+                node: binding.node.clone(),
+                reason: err.to_string(),
+            });
+        }
+    }
+    state = engine.snapshot();
+
+    for binding in &report.bound {
         let Some(set) = state
             .device_sets
             .iter()
@@ -253,9 +292,14 @@ pub(super) fn bring_up(
                 live.remove(at);
                 continue;
             }
-            let Some(settings) =
-                workspace::channel_settings(&node.id, &channel.channel_type, saved)
-            else {
+            let Some(settings) = workspace::channel_settings(
+                &node.id,
+                &channel.channel_type,
+                saved,
+                set.settings
+                    .for_stream(stream, &set.capabilities.per_stream)
+                    .center_hz,
+            ) else {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
                     reason: format!("this build has no channel type {:?}", channel.channel_type),
@@ -301,7 +345,17 @@ pub(super) fn bring_up(
         if already {
             continue;
         }
-        let Some(settings) = workspace::channel_settings(&node, &channel.channel_type, saved)
+        let center_hz = live
+            .device_sets
+            .iter()
+            .find(|set| set.id == device_set)
+            .and_then(|set| {
+                set.settings
+                    .for_stream(stream, &set.capabilities.per_stream)
+                    .center_hz
+            });
+        let Some(settings) =
+            workspace::channel_settings(&node, &channel.channel_type, saved, center_hz)
         else {
             report.refused.push(PatchRefusal {
                 node: node.clone(),
@@ -769,8 +823,7 @@ pub(super) async fn reconcile_gps(state: AppState) -> Result<(), AppError> {
         (status = 204, description = "Settings held against the node until a radio carries it"),
         (
             status = 400,
-            description = "No such channel node, no radio wired into it, or settings of another \
-                           channel type",
+            description = "No such channel node, or settings of another channel type",
             body = ApiError,
         ),
         (status = 404, description = "Workspace not found", body = ApiError),
@@ -788,9 +841,9 @@ pub(super) async fn put_workspace_channel(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let graph = state.store.workspace(id)?.snapshot.graph;
-        let device_node = channel_holder(&graph, &node, &settings)?;
+        check_channel_node(&graph, &node, &settings)?;
         let mut saved = state.store.workspace_state(id)?;
-        saved.put_channel(&device_node, &node, settings);
+        saved.put_channel(&node, settings);
         state.store.put_workspace_state(id, &saved)?;
         Ok(())
     })
@@ -798,12 +851,13 @@ pub(super) async fn put_workspace_channel(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The device node a channel node hangs off, refusing settings that do not belong to it.
-fn channel_holder(
+/// Refuses settings that do not belong to the node they are addressed to. A decoder holds its own
+/// settings, so whether a radio is wired into it yet is none of this check's business.
+fn check_channel_node(
     graph: &PatchGraph,
     node: &str,
     settings: &ChannelSettings,
-) -> Result<String, AppError> {
+) -> Result<(), AppError> {
     let Some(patch) = graph.node(node) else {
         return Err(AppError::bad_request(format!("no node {node:?}")));
     };
@@ -817,9 +871,5 @@ fn channel_holder(
             settings.params.type_id()
         )));
     }
-    graph
-        .sources_of(node, "iq")
-        .next()
-        .map(str::to_string)
-        .ok_or_else(|| AppError::bad_request(format!("nothing feeds {node:?}")))
+    Ok(())
 }

@@ -41,7 +41,7 @@ sample rate. This uses less storage than recording the full device bandwidth.
 2. Connect one or more channel `baseband` outputs to its `baseband` input.
 3. Press **Record** beside a channel to start its SigMF pair, then **Stop** to finish it.
 
-Each pair records the channel's absolute centre frequency: device centre plus channel offset.
+Each pair records the channel's own frequency.
 The recording tap is before squelch, so closed squelch does not interrupt capture.
 
 Completed pairs appear in the IQ recording library and can be opened as playback sources.

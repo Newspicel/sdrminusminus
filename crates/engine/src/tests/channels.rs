@@ -42,7 +42,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: ADSB_CENTER_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Adsb(AdsbParams::default()),
@@ -68,7 +68,7 @@ async fn live_position_survives_a_channel_rate_rebuild() {
             ds,
             ch,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: ADSB_CENTER_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Adsb(AdsbParams {
@@ -120,14 +120,39 @@ async fn live_position_survives_a_channel_rate_rebuild() {
 }
 
 #[tokio::test]
-async fn add_channel_rejects_out_of_passband_offset() {
+async fn a_channel_the_radio_cannot_reach_opens_silent_rather_than_refused() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
-    let err = engine
+    let ch = engine
         .add_channel(ds, 0, nfm_settings(1_100_000.0))
-        .unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
-    assert!(engine.snapshot().device_sets[0].channels.is_empty());
+        .unwrap();
+
+    let set = &engine.snapshot().device_sets[0];
+    assert!(
+        set.channels[0].out_of_band,
+        "the channel claims to be heard"
+    );
+    assert_eq!(
+        set.channels[0].settings.frequency_hz,
+        TEST_CENTER_HZ + 1_100_000.0,
+        "the decoder gave up the frequency it was set to"
+    );
+
+    engine
+        .patch_device(
+            ds,
+            DeviceSettings {
+                center_hz: Some(TEST_CENTER_HZ + 1_100_000.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let set = &engine.snapshot().device_sets[0];
+    assert!(
+        !set.channels[0].out_of_band,
+        "tuning the radio over the decoder did not bring it back"
+    );
+    assert_eq!(set.channels[0].id, ch);
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -179,7 +204,7 @@ async fn a_channel_with_no_audio_refuses_an_audio_chain() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
     let settings = ChannelSettings {
-        offset_hz: 0.0,
+        frequency_hz: TEST_CENTER_HZ,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Pocsag(sdrmm_wire::PocsagParams::default()),
@@ -222,11 +247,11 @@ async fn patch_channel_rejects_missing_channel() {
 }
 
 #[tokio::test]
-async fn rate_change_stranding_a_channel_is_rejected_before_device_io() {
+async fn narrowing_the_window_past_a_channel_mutes_it_without_moving_it() {
     let engine = virtual_engine();
     let ds = engine.create_device_set("virtual:siggen").unwrap();
-    engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
-    let err = engine
+    let ch = engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
+    engine
         .patch_device(
             ds,
             DeviceSettings {
@@ -234,11 +259,16 @@ async fn rate_change_stranding_a_channel_is_rejected_before_device_io() {
                 ..Default::default()
             },
         )
-        .unwrap_err();
-    assert!(err.is_bad_request(), "expected bad request, got {err}");
+        .unwrap();
+
+    let set = &engine.snapshot().device_sets[0];
+    assert_eq!(set.settings.sample_rate, Some(250_000.0));
+    assert_eq!(set.channels[0].id, ch, "the channel was dropped");
+    assert!(set.channels[0].out_of_band);
     assert_eq!(
-        engine.snapshot().device_sets[0].settings.sample_rate,
-        Some(2_048_000.0)
+        set.channels[0].settings.frequency_hz,
+        TEST_CENTER_HZ + 900_000.0,
+        "a narrower window dragged the decoder off its frequency"
     );
     engine.remove_device_set(ds).unwrap();
 }

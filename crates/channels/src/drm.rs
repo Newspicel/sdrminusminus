@@ -180,7 +180,7 @@ pub(crate) fn occupied_band(p: &DrmParams) -> (f64, f64) {
 
 pub(crate) fn channel_filter(p: &DrmParams) -> Result<ChannelFilter, ChannelError> {
     let p = params(&ChannelSettings {
-        offset_hz: 0.0,
+        frequency_hz: 0.0,
         squelch_db: None,
         squelch_auto_db: None,
         params: ChannelParams::Drm(*p),
@@ -306,7 +306,7 @@ mod tests {
 
     fn settings(mode: DrmMode, bandwidth_hz: f64) -> ChannelSettings {
         ChannelSettings {
-            offset_hz: 0.0,
+            frequency_hz: 0.0,
             squelch_db: None,
             squelch_auto_db: None,
             params: ChannelParams::Drm(DrmParams {

@@ -55,7 +55,7 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: OFFSET_HZ,
+                frequency_hz: CENTER_HZ + OFFSET_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Atv(params),
@@ -123,7 +123,7 @@ async fn a_channel_without_video_refuses_the_subscription() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: 0.0,
+                frequency_hz: 100_000_000.0,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Nfm(NfmParams::default()),
@@ -185,7 +185,7 @@ async fn an_sstv_transmission_reaches_the_image_stream_as_a_finished_picture() {
             ds,
             0,
             ChannelSettings {
-                offset_hz: SSTV_OFFSET_HZ,
+                frequency_hz: CENTER_HZ + SSTV_OFFSET_HZ,
                 squelch_db: None,
                 squelch_auto_db: None,
                 params: ChannelParams::Sstv(SstvParams::default()),

@@ -146,7 +146,7 @@ struct AddChannelRequest {
     device_set: u32,
     stream: Option<u32>,
     channel_type: String,
-    offset_hz: f64,
+    frequency_hz: f64,
     squelch_db: Option<f32>,
     squelch_auto_db: Option<f32>,
     settings: Option<serde_json::Value>,
@@ -427,7 +427,7 @@ impl SdrMcp {
             )
         })?;
         let settings = ChannelSettings {
-            offset_hz: req.offset_hz,
+            frequency_hz: req.frequency_hz,
             squelch_db: req.squelch_db,
             squelch_auto_db: req.squelch_auto_db,
             audio: AudioProcessing::default_for(params.type_id()),

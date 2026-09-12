@@ -116,7 +116,7 @@ async fn undoing_a_dial_move_puts_the_frequency_back() {
         .settings
         .center_hz
         .expect("the radio is tuned somewhere");
-    let was_offset = set.channels[0].settings.offset_hz;
+    let was_frequency = set.channels[0].settings.frequency_hz;
 
     let (status, body) = request(
         app.clone(),
@@ -135,15 +135,18 @@ async fn undoing_a_dial_move_puts_the_frequency_back() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{ch}"),
-        Some(r#"{"offset_hz":25000.0,"params":{"type":"nfm","settings":{}}}"#),
+        Some(&format!(
+            r#"{{"frequency_hz":{},"params":{{"type":"nfm","settings":{{}}}}}}"#,
+            was_center + 1_025_000.0
+        )),
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     let moved = get_state(&app).await;
     assert_eq!(
-        moved.device_sets[0].channels[0].settings.offset_hz,
-        25_000.0
+        moved.device_sets[0].channels[0].settings.frequency_hz,
+        was_center + 1_025_000.0
     );
     assert!(
         workspace_detail(&app, workspace).await.history.can_undo,
@@ -154,7 +157,7 @@ async fn undoing_a_dial_move_puts_the_frequency_back() {
     assert!(undone.history.can_redo);
     let back = get_state(&app).await;
     assert_eq!(
-        back.device_sets[0].channels[0].settings.offset_hz, was_offset,
+        back.device_sets[0].channels[0].settings.frequency_hz, was_frequency,
         "the channel was left where the undone step put it"
     );
     assert_eq!(
@@ -322,7 +325,7 @@ async fn a_workspace_comes_back_tuned_the_way_it_was_left() {
         app.clone(),
         "PATCH",
         &format!("/api/devicesets/{ds}/channels/{channel}"),
-        Some(r#"{"offset_hz":12500.0,"squelch_db":-42.0,"params":{"type":"nfm","settings":{}}}"#),
+        Some(r#"{"frequency_hz":145512500.0,"squelch_db":-42.0,"params":{"type":"nfm","settings":{}}}"#),
     )
     .await;
     assert_eq!(
@@ -347,7 +350,7 @@ async fn a_workspace_comes_back_tuned_the_way_it_was_left() {
     let set = &get_state(&app).await.device_sets[0];
     assert_eq!(set.settings.center_hz, Some(145_500_000.0));
     assert_eq!(set.channels.len(), 1, "no duplicate channel on restore");
-    assert_eq!(set.channels[0].settings.offset_hz, 12_500.0);
+    assert_eq!(set.channels[0].settings.frequency_hz, 145_512_500.0);
     assert_eq!(set.channels[0].settings.squelch_db, Some(-42.0));
 }
 
@@ -385,6 +388,7 @@ async fn a_partial_restore_lands_what_fits_and_keeps_remembering_the_rest() {
     let planted = sdrmm_wire::WorkspaceState {
         trunks: Vec::new(),
         version: sdrmm_wire::WORKSPACE_STATE_VERSION,
+        channels: Vec::new(),
         devices: vec![sdrmm_wire::WorkspaceDevice {
             node: "device".to_string(),
             settings: DeviceSettings {
@@ -396,7 +400,6 @@ async fn a_partial_restore_lands_what_fits_and_keeps_remembering_the_rest() {
                 }],
                 ..DeviceSettings::default()
             },
-            channels: Vec::new(),
         }],
     };
     state
@@ -663,15 +666,21 @@ async fn capture_and_restore_pair_same_type_channels_by_stream() {
     apply(&app, workspace).await;
 
     let set = &get_state(&app).await.device_sets[0];
-    let offset_for = |stream: u32| if stream == 0 { 11_000.0 } else { 33_000.0 };
+    let frequency_for = |stream: u32| {
+        if stream == 0 {
+            100_011_000.0
+        } else {
+            100_033_000.0
+        }
+    };
     for channel in &set.channels {
         let (status, body) = request(
             app.clone(),
             "PATCH",
             &format!("/api/devicesets/{}/channels/{}", set.id, channel.id),
             Some(&format!(
-                r#"{{"offset_hz":{},"params":{{"type":"nfm","settings":{{}}}}}}"#,
-                offset_for(channel.stream)
+                r#"{{"frequency_hz":{},"params":{{"type":"nfm","settings":{{}}}}}}"#,
+                frequency_for(channel.stream)
             )),
         )
         .await;
@@ -695,8 +704,8 @@ async fn capture_and_restore_pair_same_type_channels_by_stream() {
     assert_eq!(streams, vec![0, 3]);
     for channel in &set.channels {
         assert_eq!(
-            channel.settings.offset_hz,
-            offset_for(channel.stream),
+            channel.settings.frequency_hz,
+            frequency_for(channel.stream),
             "stream {} came back with the other lane's settings",
             channel.stream
         );
@@ -755,13 +764,13 @@ fn tuned_state(center_hz: f64) -> sdrmm_wire::WorkspaceState {
     sdrmm_wire::WorkspaceState {
         version: sdrmm_wire::WORKSPACE_STATE_VERSION,
         trunks: Vec::new(),
+        channels: Vec::new(),
         devices: vec![sdrmm_wire::WorkspaceDevice {
             node: "device".to_string(),
             settings: DeviceSettings {
                 center_hz: Some(center_hz),
                 ..DeviceSettings::default()
             },
-            channels: Vec::new(),
         }],
     }
 }
@@ -944,7 +953,6 @@ async fn an_import_forgets_tuning_for_nodes_the_document_never_draws() {
     export.state.merge(vec![sdrmm_wire::WorkspaceDevice {
         node: "gone".to_string(),
         settings: DeviceSettings::default(),
-        channels: Vec::new(),
     }]);
 
     let (status, body) = import_document(&app, &serde_json::to_string(&export).unwrap()).await;
@@ -966,13 +974,44 @@ async fn an_import_forgets_tuning_for_nodes_the_document_never_draws() {
 }
 
 #[tokio::test]
+async fn a_radio_nobody_tuned_opens_over_the_decoder_wired_into_it() {
+    let app = test_router();
+    let snapshot = virtual_snapshot("siggen", &[("planes", "adsb", "iq")]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let set = &get_state(&app).await.device_sets[0];
+    assert_eq!(
+        set.settings.center_hz,
+        Some(1_090_000_000.0),
+        "the radio came up somewhere its decoder cannot be heard"
+    );
+    assert!(!set.channels[0].out_of_band);
+}
+
+#[tokio::test]
+async fn a_decoder_with_no_home_of_its_own_starts_where_the_radio_listens() {
+    let app = test_router();
+    let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
+    let workspace = put_active_workspace(&app, &snapshot).await;
+    apply(&app, workspace).await;
+
+    let set = &get_state(&app).await.device_sets[0];
+    let center_hz = set.settings.center_hz.expect("a tuned radio");
+    assert_eq!(set.channels[0].settings.frequency_hz, center_hz);
+    assert!(!set.channels[0].out_of_band);
+}
+
+#[tokio::test]
 async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
     let app = test_router();
     let snapshot = virtual_snapshot("siggen", &[("voice", "nfm", "iq")]);
     let workspace = put_active_workspace(&app, &snapshot).await;
 
     let mut settings = sdrmm_wire::ChannelSettings::default_for("nfm").expect("nfm is built in");
-    settings.offset_hz = 12_500.0;
+    settings.frequency_hz = 100_012_500.0;
     settings.squelch_db = Some(-70.0);
     let (status, _) = request(
         app.clone(),
@@ -990,7 +1029,7 @@ async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
         .expect("the node holds what it was set to")
         .settings
         .clone();
-    assert_eq!(held.offset_hz, 12_500.0);
+    assert_eq!(held.frequency_hz, 100_012_500.0);
     assert_eq!(held.squelch_db, Some(-70.0));
 
     apply(&app, workspace).await;
@@ -1001,7 +1040,7 @@ async fn a_channel_node_holds_its_settings_before_any_radio_carries_it() {
         .find(|channel| channel.settings.params.type_id() == "nfm")
         .expect("the channel opened with the radio");
     assert_eq!(
-        channel.settings.offset_hz, 12_500.0,
+        channel.settings.frequency_hz, 100_012_500.0,
         "settings held while there was no radio are what the channel starts on"
     );
     assert_eq!(channel.settings.squelch_db, Some(-70.0));

@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { ChannelSettings, WorkspaceDetail } from "../lib/types";
 import { savedChannelsOf, withSavedChannel } from "./savedChannels";
 
-function settings(offsetHz: number): ChannelSettings {
-  return { offset_hz: offsetHz, params: { type: "nfm", settings: {} } };
+function settings(frequencyHz: number): ChannelSettings {
+  return { frequency_hz: frequencyHz, params: { type: "nfm", settings: {} } };
 }
 
-type SavedDevice = NonNullable<NonNullable<WorkspaceDetail["state"]>["devices"]>[number];
+type SavedChannel = NonNullable<NonNullable<WorkspaceDetail["state"]>["channels"]>[number];
 
-function detail(devices: SavedDevice[]): WorkspaceDetail {
+function detail(channels: SavedChannel[]): WorkspaceDetail {
   return {
     id: 1,
     name: "desk",
@@ -26,18 +26,14 @@ function detail(devices: SavedDevice[]): WorkspaceDetail {
         edges: [{ from: { node: "dev", port: "iq" }, to: { node: "voice", port: "iq" } }],
       },
     },
-    state: { version: 1, devices },
+    state: { version: 2, devices: [], channels },
   } as unknown as WorkspaceDetail;
 }
 
 describe("savedChannelsOf", () => {
   it("keys every held channel by its node", () => {
-    const held = savedChannelsOf(
-      detail([
-        { node: "dev", settings: {}, channels: [{ node: "voice", settings: settings(500) }] },
-      ]),
-    );
-    expect(held.get("voice")?.offset_hz).toBe(500);
+    const held = savedChannelsOf(detail([{ node: "voice", settings: settings(145_500_000) }]));
+    expect(held.get("voice")?.frequency_hz).toBe(145_500_000);
   });
 
   it("is empty for a workspace nothing has been held for", () => {
@@ -48,22 +44,15 @@ describe("savedChannelsOf", () => {
 
 describe("withSavedChannel", () => {
   it("replaces what a node was already held on", () => {
-    const before = detail([
-      { node: "dev", settings: {}, channels: [{ node: "voice", settings: settings(500) }] },
-    ]);
-    const after = withSavedChannel(before, "voice", settings(1_500));
-    expect(savedChannelsOf(after).get("voice")?.offset_hz).toBe(1_500);
-    expect(savedChannelsOf(before).get("voice")?.offset_hz).toBe(500);
+    const before = detail([{ node: "voice", settings: settings(145_500_000) }]);
+    const after = withSavedChannel(before, "voice", settings(433_920_000));
+    expect(savedChannelsOf(after).get("voice")?.frequency_hz).toBe(433_920_000);
+    expect(savedChannelsOf(before).get("voice")?.frequency_hz).toBe(145_500_000);
   });
 
-  it("hangs a first edit off the device node the wire names", () => {
-    const before = detail([{ node: "dev", settings: {}, channels: [] }]);
-    const after = withSavedChannel(before, "voice", settings(2_500));
-    expect(savedChannelsOf(after).get("voice")?.offset_hz).toBe(2_500);
-  });
-
-  it("leaves a node no radio feeds alone", () => {
-    const before = detail([{ node: "other", settings: {}, channels: [] }]);
-    expect(withSavedChannel(before, "voice", settings(2_500))).toBe(before);
+  it("holds a node no radio feeds", () => {
+    const before = detail([]);
+    const after = withSavedChannel(before, "voice", settings(433_920_000));
+    expect(savedChannelsOf(after).get("voice")?.frequency_hz).toBe(433_920_000);
   });
 });

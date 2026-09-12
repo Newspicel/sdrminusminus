@@ -667,7 +667,6 @@ mod tests {
                 center_hz: Some(145_500_000.0),
                 ..crate::DeviceSettings::default()
             },
-            channels: Vec::new(),
         }]);
         state
     }
@@ -763,7 +762,6 @@ mod tests {
         export.state.merge(vec![crate::WorkspaceDevice {
             node: "gone".to_owned(),
             settings: crate::DeviceSettings::default(),
-            channels: Vec::new(),
         }]);
 
         export.forget_absent_nodes();

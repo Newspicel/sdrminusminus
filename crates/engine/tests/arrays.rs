@@ -62,7 +62,7 @@ fn every_array_rate_lock_is_checked_before_retuning_sources() {
         TimeMachineNode,
     };
 
-    for owner in ["export", "history", "coherent", "channel"] {
+    for owner in ["export", "history", "coherent"] {
         let dir = tempfile::TempDir::new().expect("recordings");
         let engine = engine_at(Some(dir.path().to_owned()));
         members(&engine);
@@ -111,12 +111,7 @@ fn every_array_rate_lock_is_checked_before_retuning_sources() {
                     .expect("coherent processor");
                 "stop coherent processors"
             }
-            _ => {
-                let mut channel = ChannelSettings::default_for("nfm").expect("nfm");
-                channel.offset_hz = 400_000.0;
-                engine.add_channel(array, 0, channel).expect("channel");
-                "exceeds"
-            }
+            _ => unreachable!("every lock in the list is answered above"),
         };
         assert_rate_change_is_inert(&engine, array, reason);
     }

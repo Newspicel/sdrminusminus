@@ -2,9 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/BaseControls";
 import { ChannelControls } from "../../components/ChannelControls";
 import { Checkbox } from "../../components/Checkbox";
-import { mergeChannelSettings, rateMismatch } from "../../components/channelSettings";
+import {
+  mergeChannelSettings,
+  radioWindowHz,
+  rateMismatch,
+  reachesHz,
+} from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
-import { formatMhz, formatSignedKhz } from "../../components/format";
+import { formatMhz } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow, Settings } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
@@ -25,6 +30,7 @@ import {
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
+import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
@@ -70,9 +76,14 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       );
     }
   };
-  const offsetHz = settings?.offset_hz ?? 0;
-  const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
+  const frequencyHz = settings?.frequency_hz ?? null;
+  const readout = frequencyHz === null ? undefined : formatMhz(frequencyHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
+  const window = radioWindowHz(centerHz, set?.settings.sample_rate, descriptor);
+  const unreachable =
+    set !== null &&
+    frequencyHz !== null &&
+    (channel?.out_of_band ?? !reachesHz(frequencyHz, window));
   const editRecording = (on: boolean) => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -90,12 +101,17 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       title={name}
       category="channel"
       subtitle={
-        channel === null ? undefined : <span className="font-mono tabular-nums">{readout}</span>
+        readout === undefined ? undefined : (
+          <span className="font-mono tabular-nums">{readout}</span>
+        )
       }
     >
       <FaceBody>
         {wantedRate !== null && set !== null && (
           <RateMismatch name={name} set={set} wanted={wantedRate} />
+        )}
+        {unreachable && set !== null && frequencyHz !== null && (
+          <OutOfBand set={set} stream={source?.stream ?? 0} frequencyHz={frequencyHz} />
         )}
         <div className="px-2 pt-2">
           <LevelMeter
@@ -129,6 +145,44 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       </FaceBody>
     </NodeShell>
   );
+}
+
+function OutOfBand({
+  set,
+  stream,
+  frequencyHz,
+}: {
+  set: DeviceSet;
+  stream: number;
+  frequencyHz: number;
+}) {
+  const { applyPatch } = useDevicePatch();
+  const reachable = tunerReaches(set, frequencyHz);
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-start gap-1.5 border-b border-warn/40 bg-warn/10 px-2 py-1.5 text-xs text-warn"
+      title="The decoder stays on its own frequency; the radio is listening elsewhere"
+    >
+      <p>{set.device.label} is not listening here.</p>
+      {reachable ? (
+        <Button
+          type="button"
+          className={BTN}
+          onClick={() => applyPatch(set.id, tuneDelta(set.capabilities, stream, frequencyHz))}
+        >
+          Tune {set.device.label} to {formatMhz(frequencyHz)}
+        </Button>
+      ) : (
+        <p>This radio cannot reach {formatMhz(frequencyHz)} at all. Another one has to.</p>
+      )}
+    </div>
+  );
+}
+
+function tunerReaches(set: DeviceSet, hz: number): boolean {
+  const ranges = set.capabilities.freq_ranges;
+  return ranges.length === 0 || ranges.some((range) => hz >= range.min && hz <= range.max);
 }
 
 function RateMismatch({

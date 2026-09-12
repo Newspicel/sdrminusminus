@@ -40,7 +40,7 @@ pub fn run(args: &Replay) -> Result<()> {
         None => descriptor.input_rate_hz,
     };
     let settings = ChannelSettings {
-        offset_hz: args.offset,
+        frequency_hz: args.offset,
         squelch_db: None,
         squelch_auto_db: None,
         params,

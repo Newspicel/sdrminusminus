@@ -20,7 +20,11 @@ function info(overrides: Partial<DeviceInfo>): DeviceInfo {
 }
 
 function channel(id: number, type: string, stream = 0): ChannelInfo {
-  return { id, stream, settings: { offset_hz: 0, params: { type, settings: {} } as never } };
+  return {
+    id,
+    stream,
+    settings: { frequency_hz: 100_000_000, params: { type, settings: {} } as never },
+  };
 }
 
 function set(id: number, device: DeviceInfo, channels: ChannelInfo[] = []): DeviceSet {
