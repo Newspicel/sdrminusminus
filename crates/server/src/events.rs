@@ -101,6 +101,7 @@ mod tests {
             NodeBody::Channel(ChannelNode {
                 channel_type: "dmr".to_owned(),
                 record_calls: true,
+                tuning_locked: false,
             }),
         )
     }

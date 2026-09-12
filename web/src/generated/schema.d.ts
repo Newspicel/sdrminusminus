@@ -2007,6 +2007,7 @@ export interface components {
         ChannelNode: {
             channel_type: string;
             record_calls?: boolean;
+            tuning_locked?: boolean;
         };
         ChannelParams: {
             settings: components["schemas"]["NfmParams"];

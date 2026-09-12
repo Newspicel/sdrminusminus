@@ -190,6 +190,7 @@ mod tests {
             body: NodeBody::Channel(ChannelNode {
                 channel_type: channel_type.to_owned(),
                 record_calls,
+                tuning_locked: false,
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,

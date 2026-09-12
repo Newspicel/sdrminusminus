@@ -6682,6 +6682,9 @@
           },
           "record_calls": {
             "type": "boolean"
+          },
+          "tuning_locked": {
+            "type": "boolean"
           }
         }
       },

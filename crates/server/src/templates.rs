@@ -142,6 +142,7 @@ fn patch(channels: &[Channel]) -> PatchGraph {
             NodeBody::Channel(ChannelNode {
                 channel_type: (channel.params)().type_id().to_string(),
                 record_calls: false,
+                tuning_locked: false,
             }),
             COLUMN,
             y,

@@ -40,6 +40,7 @@ import {
   slotRoom,
   streamLabel,
   streamPort,
+  tuningLocked,
   unpin,
 } from "./graph";
 
@@ -597,5 +598,35 @@ describe("the rack", () => {
 
     const stale = { slots: [{ node: "nfm", x: 12, y: 12, w: 12, h: 8 }] };
     expect(pruneRack(stale, workspace()).slots).toEqual([{ node: "nfm", x: 0, y: 0, w: 6, h: 4 }]);
+  });
+});
+
+describe("tuningLocked", () => {
+  const graph: PatchGraph = {
+    nodes: [
+      { id: "held", kind: "device", data: { tuning_locked: true }, position: { x: 0, y: 0 } },
+      { id: "free", kind: "device", data: {}, position: { x: 0, y: 0 } },
+      {
+        id: "pinned",
+        kind: "channel",
+        data: { channel_type: "nfm", tuning_locked: true },
+        position: { x: 0, y: 0 },
+      },
+      { id: "loose", kind: "channel", data: { channel_type: "am" }, position: { x: 0, y: 0 } },
+      { id: "scope", kind: "scope", position: { x: 0, y: 0 } },
+    ],
+    edges: [],
+  };
+
+  it("reads the lock off device and channel nodes alike", () => {
+    expect(tuningLocked(graph, "held")).toBe(true);
+    expect(tuningLocked(graph, "pinned")).toBe(true);
+  });
+
+  it("treats a missing flag, another kind, or an unknown node as unlocked", () => {
+    expect(tuningLocked(graph, "free")).toBe(false);
+    expect(tuningLocked(graph, "loose")).toBe(false);
+    expect(tuningLocked(graph, "scope")).toBe(false);
+    expect(tuningLocked(graph, "nowhere")).toBe(false);
   });
 });

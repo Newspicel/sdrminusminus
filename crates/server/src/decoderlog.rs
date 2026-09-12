@@ -349,6 +349,7 @@ mod tests {
             body: NodeBody::Channel(ChannelNode {
                 channel_type: "adsb".to_owned(),
                 record_calls: false,
+                tuning_locked: false,
             }),
             position: Position { x: 0.0, y: 0.0 },
             size: None,

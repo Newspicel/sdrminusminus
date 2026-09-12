@@ -237,6 +237,7 @@ fn resolve_maps_configured_outputs_and_the_events_port() {
                 NodeBody::Channel(ChannelNode {
                     channel_type: "rtty".to_owned(),
                     record_calls: false,
+                    tuning_locked: false,
                 }),
             ),
             node(

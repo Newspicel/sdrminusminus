@@ -5,6 +5,7 @@ import {
   channelBindingAction,
   channelBindingHint,
   channelBindingStatus,
+  lockedChannels,
   radioIsAttached,
   radioRefOf,
 } from "./channelNode";
@@ -73,5 +74,30 @@ describe("channelBinding", () => {
     expect(channelBindingStatus("radio-absent")).toBe("radio missing");
     expect(channelBindingStatus("radio-closed")).toBe("radio closed");
     expect(channelBindingStatus("not-started")).toBe("not started");
+  });
+});
+
+describe("lockedChannels", () => {
+  const held: PatchGraph = {
+    nodes: [
+      node("nfm", { kind: "channel", data: { channel_type: "nfm", tuning_locked: true } }),
+      node("am", { kind: "channel", data: { channel_type: "am" } }),
+      node("trunk", { kind: "dmr_trunk", data: {} }),
+    ],
+    edges: [],
+  };
+  const faces = new Map<number, string>([
+    [1, "nfm"],
+    [2, "am"],
+    [3, "trunk"],
+    [4, "gone"],
+  ]);
+
+  it("collects the live channels whose node holds its frequency", () => {
+    expect([...lockedChannels(held, faces)]).toEqual([1]);
+  });
+
+  it("is empty when no face is locked", () => {
+    expect(lockedChannels(graph, faces).size).toBe(0);
   });
 });

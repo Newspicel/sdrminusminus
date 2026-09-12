@@ -27,6 +27,13 @@ export function nodeOf(graph: PatchGraph, id: string): PatchNode | undefined {
   return graph.nodes.find((node) => node.id === id);
 }
 
+export function tuningLocked(graph: PatchGraph, id: string): boolean {
+  const node = nodeOf(graph, id);
+  return (
+    (node?.kind === "device" || node?.kind === "channel") && (node.data.tuning_locked ?? false)
+  );
+}
+
 export const MAX_STREAMS = 16;
 
 export function streamPort(base: string, index: number): string {

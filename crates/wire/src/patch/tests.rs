@@ -21,6 +21,7 @@ fn channel(id: &str, ty: &str) -> PatchNode {
         NodeBody::Channel(ChannelNode {
             channel_type: ty.to_owned(),
             record_calls: false,
+            tuning_locked: false,
         }),
     )
 }
@@ -96,6 +97,7 @@ fn recording_calls(id: &str, ty: &str, on: bool) -> PatchNode {
         NodeBody::Channel(ChannelNode {
             channel_type: ty.to_owned(),
             record_calls: on,
+            tuning_locked: false,
         }),
     )
 }
@@ -229,6 +231,7 @@ fn topology_ignores_where_a_face_sits_and_what_it_is_called() {
     retyped.nodes[1].body = NodeBody::Channel(ChannelNode {
         channel_type: "am".to_owned(),
         record_calls: false,
+        tuning_locked: false,
     });
     assert!(!graph.same_topology(&retyped));
 
@@ -265,6 +268,27 @@ fn a_device_node_saved_before_the_frequency_lock_existed_still_loads_unlocked() 
 
     let locked = NodeBody::Device(DeviceNode {
         device: device.device,
+        tuning_locked: true,
+    });
+    let json = serde_json::to_string(&locked).expect("serialize the body");
+    assert_eq!(
+        serde_json::from_str::<NodeBody>(&json).expect("the lock survives a round trip"),
+        locked
+    );
+}
+
+#[test]
+fn a_channel_node_saved_before_the_frequency_lock_existed_still_loads_unlocked() {
+    let stored = r#"{"id":"ch","kind":"channel","data":{"channel_type":"nfm"},"position":{"x":0.0,"y":0.0}}"#;
+    let back: PatchNode = serde_json::from_str(stored).expect("an older channel node parses");
+    let NodeBody::Channel(channel) = back.body else {
+        panic!("the node is still a channel");
+    };
+    assert!(!channel.tuning_locked);
+
+    let locked = NodeBody::Channel(ChannelNode {
+        channel_type: channel.channel_type,
+        record_calls: false,
         tuning_locked: true,
     });
     let json = serde_json::to_string(&locked).expect("serialize the body");
@@ -749,6 +773,7 @@ fn default_body(kind: &str) -> NodeBody {
         "channel" => NodeBody::Channel(ChannelNode {
             channel_type: "nfm".to_owned(),
             record_calls: false,
+            tuning_locked: false,
         }),
         "scope" => NodeBody::Scope,
         "speaker" => NodeBody::Speaker,
@@ -1151,6 +1176,7 @@ fn an_unbacked_node_expands_to_stream_zero_only() {
     let body = NodeBody::Channel(ChannelNode {
         channel_type: "nfm".to_owned(),
         record_calls: false,
+        tuning_locked: false,
     });
     let nfm = &descriptors()[0];
     let names: Vec<String> = body
@@ -1167,6 +1193,7 @@ fn a_channels_outputs_follow_what_its_type_produces() {
         NodeBody::Channel(ChannelNode {
             channel_type: descriptor.type_id.clone(),
             record_calls: false,
+            tuning_locked: false,
         })
         .ports_with(Some(PortBacking::Channel(descriptor)))
         .into_iter()

@@ -147,6 +147,10 @@ a `kHz`, `MHz` or `GHz` suffix is honoured. The span the radio currently hears i
 field — a frequency outside it is accepted, and the channel waits there silently until the radio
 covers it.
 
+The lock beside the dial holds the channel on its frequency. While it is held, the dial, typed
+entry, and Scope marker refuse to move the channel; the radio feeding it can still be retuned.
+The Device node carries the same lock for the radio itself.
+
 A channel node that is not wired to anything yet can still be given a frequency; it is held against
 the node and applied the moment a radio carries it. A radio nobody has tuned by hand opens over the
 channels wired into it.

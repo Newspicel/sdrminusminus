@@ -276,6 +276,8 @@ pub struct ChannelNode {
     pub channel_type: String,
     #[serde(default)]
     pub record_calls: bool,
+    #[serde(default)]
+    pub tuning_locked: bool,
 }
 
 pub const DV_DECODER_KIND: &str = "dv";
@@ -869,6 +871,7 @@ impl PatchCatalog {
                     &NodeBody::Channel(ChannelNode {
                         channel_type: String::new(),
                         record_calls: false,
+                        tuning_locked: false,
                     }),
                     "Channel",
                 ),

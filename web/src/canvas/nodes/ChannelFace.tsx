@@ -18,7 +18,7 @@ import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
 import { useLevelStore } from "../../lib/levels";
-import type { DeviceSet, PatchNode } from "../../lib/types";
+import type { DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../../lib/useChannelPatch";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf } from "../binding";
@@ -37,6 +37,8 @@ import {
 } from "./channelNode";
 import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceFooter, NodeShell } from "./NodeShell";
+
+type ChannelNodeData = PatchNodeOf<"channel">["data"];
 
 export function ChannelFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -88,16 +90,14 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     set !== null &&
     frequencyHz !== null &&
     (channel?.out_of_band ?? !reachesHz(frequencyHz, window));
-  const editRecording = (on: boolean) => {
+  const locked = node.data.tuning_locked ?? false;
+  const editNode = (next: Partial<ChannelNodeData>): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,
       graph: patchNode(snapshot.graph, node.id, (current) =>
-        current.kind === "channel"
-          ? { ...current, data: { ...current.data, record_calls: on } }
-          : current,
+        current.kind === "channel" ? { ...current, data: { ...current.data, ...next } } : current,
       ),
     }));
-  };
 
   const status = faceStatus({
     live: live !== null,
@@ -126,7 +126,9 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               range={set === null ? ANY_FREQUENCY : tuningRange(set.capabilities)}
               dialId={dialId(node.id)}
               wheelTunes={workspace.selected === node.id}
+              locked={locked}
               onTune={(frequency_hz) => onEdit({ frequency_hz })}
+              onLock={(tuning_locked) => editNode({ tuning_locked })}
             />
             {live !== null && (
               <LevelMeter level={levels?.[live.id]} squelchDb={squelchLevelDb(settings.squelch)} />
@@ -147,7 +149,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
                   <Checkbox
                     label="Record calls"
                     checked={node.data.record_calls ?? false}
-                    onChange={editRecording}
+                    onChange={(record_calls) => editNode({ record_calls })}
                   />
                 </SettingRow>
               )

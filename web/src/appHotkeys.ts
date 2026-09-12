@@ -1,4 +1,4 @@
-import { isPinned, patchNode, pin, unpin } from "./canvas/graph";
+import { isPinned, patchNode, pin, tuningLocked, unpin } from "./canvas/graph";
 import { useHotkeys } from "./canvas/useHotkeys";
 import type { WorkspaceStore } from "./canvas/useWorkspace";
 import type { View } from "./canvas/WorkspaceBar";
@@ -34,7 +34,11 @@ export interface AppHotkeys {
 export function useAppHotkeys(b: AppHotkeys) {
   useHotkeys({
     tune: (steps) => {
-      if (b.selectedSet === null) {
+      if (
+        b.selectedSet === null ||
+        b.selectedDevice === null ||
+        tuningLocked(b.graph, b.selectedDevice)
+      ) {
         return;
       }
       const range = tuningRange(b.selectedSet.capabilities);

@@ -70,12 +70,13 @@ import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { basebandSourceOf, channelNodesOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { addEdge, addNode, newNodeId, patchNode, streamPort } from "../graph";
+import { addEdge, addNode, newNodeId, patchNode, streamPort, tuningLocked } from "../graph";
 import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
 import { ChannelPicker } from "./ChannelPicker";
+import { lockedChannels } from "./channelNode";
 import { tuneDelta } from "./deviceNode";
 import { type TrunkChannelOwner, trunkChannelRoles } from "./dmrTrunk";
 import { FaceBody, NodeShell, useFaceActive, useFaceWheel } from "./NodeShell";
@@ -294,12 +295,15 @@ function Spectrum({
   for (const [channel, owner] of owners) {
     faces.set(channel, owner.node);
   }
+  const locked = lockedChannels(workspace.graph, faces);
+  const heldChannel = (channel: number): boolean => owners.has(channel) || locked.has(channel);
+  const centerHeld = deviceNode !== undefined && tuningLocked(workspace.graph, deviceNode);
 
   const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
     workspaceChannel ?? (channels.some((channel) => channel.id === picked) ? picked : null);
   const tunableChannel =
-    selectedChannel !== null && !owners.has(selectedChannel) ? selectedChannel : null;
+    selectedChannel !== null && !heldChannel(selectedChannel) ? selectedChannel : null;
 
   const selectChannel = (channel: number): void => {
     setPicked(channel);
@@ -310,13 +314,13 @@ function Spectrum({
   };
 
   const tuneCenter = (hz: number): void => {
-    if (set === null) {
+    if (set === null || centerHeld) {
       return;
     }
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   };
   const tuneChannel = (channel: number, frequencyHz: number): void => {
-    if (setId === null || owners.has(channel)) {
+    if (setId === null || heldChannel(channel)) {
       return;
     }
     applyEdit(setId, channel, { frequency_hz: frequencyHz });
@@ -692,7 +696,7 @@ function Spectrum({
     gesture.moved = true;
     const at = pointerFraction(event.clientX);
     if (gesture.channel !== null) {
-      if (owners.has(gesture.channel)) {
+      if (heldChannel(gesture.channel)) {
         return;
       }
       setPreview({
@@ -701,7 +705,7 @@ function Spectrum({
       });
       return;
     }
-    setPanning(true);
+    setPanning(!(isFullView(gesture.view) && centerHeld));
     const rect = plotRef.current?.getBoundingClientRect();
     if (isFullView(gesture.view)) {
       const hz = dragTuneHz(
@@ -851,6 +855,7 @@ function Spectrum({
           spanHz={meta.spanHz}
           selected={selectedChannel}
           owners={owners}
+          locked={locked}
           preview={preview}
           onSelect={selectChannel}
           widthPx={waterfall.width}
@@ -1066,6 +1071,7 @@ function Markers({
   spanHz,
   selected,
   owners,
+  locked,
   preview,
   onSelect,
   widthPx,
@@ -1076,10 +1082,12 @@ function Markers({
   spanHz: number;
   selected: number | null;
   owners: ReadonlyMap<number, TrunkChannelOwner>;
+  locked: ReadonlySet<number>;
   preview: { channel: number; offsetHz: number } | null;
   onSelect: (channel: number) => void;
   widthPx: number;
 }) {
+  const held = (channel: number): boolean => owners.has(channel) || locked.has(channel);
   const visible = spanHz * viewWidth(view);
   const drawn = channels
     .map((channel) => {
@@ -1131,14 +1139,14 @@ function Markers({
                     type="button"
                     data-marker={channel.id}
                     className={`pointer-events-auto absolute inset-y-0 w-6 -translate-x-1/2 ${
-                      owner === undefined ? "cursor-ew-resize" : "cursor-pointer"
+                      held(channel.id) ? "cursor-pointer" : "cursor-ew-resize"
                     }`}
                     style={{ left: `${at * 100}%` }}
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelect(channel.id);
                     }}
-                    aria-label={markerHint(channel, offsetHz, owner)}
+                    aria-label={markerHint(channel, offsetHz, owner, locked.has(channel.id))}
                   />
                 </Fragment>
               );
@@ -1151,8 +1159,13 @@ function Markers({
               <MarkerLabel
                 active={shown.channel.id === selected}
                 channel={shown.channel.id}
-                owned={owners.has(shown.channel.id)}
-                title={markerHint(shown.channel, shown.offsetHz, owners.get(shown.channel.id))}
+                owned={held(shown.channel.id)}
+                title={markerHint(
+                  shown.channel,
+                  shown.offsetHz,
+                  owners.get(shown.channel.id),
+                  locked.has(shown.channel.id),
+                )}
                 className={stacked ? "group-hover:hidden" : ""}
               >
                 {markerName(shown.channel, shown.offsetHz, owners.get(shown.channel.id))}
@@ -1164,8 +1177,13 @@ function Markers({
                     key={channel.id}
                     active={channel.id === selected}
                     channel={channel.id}
-                    owned={owners.has(channel.id)}
-                    title={markerHint(channel, offsetHz, owners.get(channel.id))}
+                    owned={held(channel.id)}
+                    title={markerHint(
+                      channel,
+                      offsetHz,
+                      owners.get(channel.id),
+                      locked.has(channel.id),
+                    )}
                     className="hidden group-hover:block"
                   >
                     {markerName(channel, offsetHz, owners.get(channel.id))}
@@ -1250,12 +1268,16 @@ function markerHint(
   channel: ChannelInfo,
   offsetHz: number,
   owner: TrunkChannelOwner | undefined,
+  locked: boolean,
 ): string {
   const at = `at ${formatSignedKhz(offsetHz)}`;
-  if (owner === undefined) {
-    return `${channel.settings.params.type} channel ${at} — drag to tune`;
+  if (owner !== undefined) {
+    return `trunk ${owner.role} channel ${at} — the system it belongs to tunes it`;
   }
-  return `trunk ${owner.role} channel ${at} — the system it belongs to tunes it`;
+  if (locked) {
+    return `${channel.settings.params.type} channel ${at} — held; unlock it on its node to tune`;
+  }
+  return `${channel.settings.params.type} channel ${at} — drag to tune`;
 }
 
 function MarkerLabel({

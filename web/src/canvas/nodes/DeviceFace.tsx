@@ -1,18 +1,17 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, LockOpen } from "lucide-react";
 import { Button } from "../../components/BaseControls";
-import { BTN_PRIMARY, BTN_QUIET, ICON_BTN } from "../../components/controls";
+import { BTN_PRIMARY, BTN_QUIET } from "../../components/controls";
 import { deviceId } from "../../components/devices";
 import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
-import { Icon } from "../../components/Icon";
 import { DeviceChoices } from "../../components/OpenRadio";
 import { PlaybackTransport } from "../../components/PlaybackTransport";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { TuneTo } from "../../components/TuneTo";
+import { TuningLock } from "../../components/TuningLock";
 import { createDeviceSet, devicesQuery, STATE_KEY, stateQuery } from "../../lib/api";
 import { usePipelineHealth } from "../../lib/pipeline";
 import { pushToast } from "../../lib/toasts";
@@ -86,20 +85,12 @@ function Tuner({
                   onTune={(hz) => tune(dial.stream, hz)}
                 />
                 {index === 0 && !arrayTuning && (
-                  <Button
-                    type="button"
-                    className={`${ICON_BTN} ${locked ? "bg-accent/15" : ""}`}
-                    aria-label={locked ? "Unlock tuning" : "Lock tuning"}
-                    aria-pressed={locked}
-                    title={
-                      locked
-                        ? "Tuning is held; unlock it to move this radio again"
-                        : "Hold this radio where it is so tuning cannot move by accident"
-                    }
-                    onClick={() => onLock(!locked)}
-                  >
-                    <LockGlyph locked={locked} />
-                  </Button>
+                  <TuningLock
+                    locked={locked}
+                    held="Tuning is held; unlock it to move this radio again"
+                    free="Hold this radio where it is so tuning cannot move by accident"
+                    onLock={onLock}
+                  />
                 )}
               </span>
             )}
@@ -112,14 +103,6 @@ function Tuner({
         </p>
       )}
     </div>
-  );
-}
-
-function LockGlyph({ locked }: { locked: boolean }) {
-  return (
-    <span className={locked ? "flex text-accent" : "flex"}>
-      <Icon glyph={locked ? Lock : LockOpen} size={16} />
-    </span>
   );
 }
 

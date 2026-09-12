@@ -1,5 +1,6 @@
 import type { DeviceInfo, DeviceRef, PatchGraph } from "../../lib/types";
 import { deviceNodeOf, refMatches } from "../binding";
+import { tuningLocked } from "../graph";
 
 export type ChannelBinding =
   | "unwired"
@@ -12,6 +13,19 @@ export function radioRefOf(graph: PatchGraph, node: string): DeviceRef | null {
   const device = deviceNodeOf(graph, node);
   const found = graph.nodes.find((candidate) => candidate.id === device);
   return found?.kind === "device" ? (found.data.device ?? null) : null;
+}
+
+export function lockedChannels(
+  graph: PatchGraph,
+  faces: ReadonlyMap<number, string>,
+): ReadonlySet<number> {
+  const locked = new Set<number>();
+  for (const [channel, node] of faces) {
+    if (tuningLocked(graph, node)) {
+      locked.add(channel);
+    }
+  }
+  return locked;
 }
 
 export function radioIsAttached(

@@ -32,6 +32,7 @@ import { Slider } from "./Slider";
 import { withCurrent } from "./selectOptions";
 import { TextAutocomplete } from "./TextAutocomplete";
 import { TuneTo } from "./TuneTo";
+import { TuningLock } from "./TuningLock";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const SQUELCH_MODES: Options<SquelchMode> = [
@@ -208,7 +209,9 @@ export function ChannelDial({
   range,
   dialId,
   wheelTunes,
+  locked,
   onTune,
+  onLock,
 }: {
   hz: number;
   descriptor: ChannelDescriptor | undefined;
@@ -217,13 +220,22 @@ export function ChannelDial({
   range: Range;
   dialId: string;
   wheelTunes: boolean;
+  locked: boolean;
   onTune: (hz: number) => void;
+  onLock: (locked: boolean) => void;
 }) {
   const heard = radioWindowHz(centerHz, spanHz, descriptor);
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <FrequencyDial id={dialId} hz={hz} range={range} wheelTunes={wheelTunes} onTune={onTune} />
-      <span className="ml-auto shrink-0">
+      <FrequencyDial
+        id={dialId}
+        hz={hz}
+        range={range}
+        disabled={locked}
+        wheelTunes={wheelTunes}
+        onTune={onTune}
+      />
+      <span className="ml-auto flex shrink-0 items-center gap-1">
         <TuneTo
           title="Type a frequency to listen on"
           hz={hz}
@@ -233,7 +245,14 @@ export function ChannelDial({
               : `The radio hears ${formatMhz(heard.lowHz)} – ${formatMhz(heard.highHz)}`
           }
           resolve={(entered) => inTuningRange(entered, range)}
+          disabled={locked}
           onTune={onTune}
+        />
+        <TuningLock
+          locked={locked}
+          held="Frequency is held; unlock it to move this decoder again"
+          free="Hold this decoder on its frequency so tuning cannot move it by accident"
+          onLock={onLock}
         />
       </span>
     </div>
