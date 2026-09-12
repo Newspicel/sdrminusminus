@@ -1,6 +1,9 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, atomic::Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -17,6 +20,8 @@ use sdrmm_wire::{
 use crate::{BLOCK_SECS, DRIVER_ID, FILE_KEY_PREFIX};
 
 pub const LOOP_SETTING: &str = "loop";
+
+const ROOM_POLL: Duration = Duration::from_millis(1);
 
 #[derive(Clone, Copy)]
 struct PlaybackParams {
@@ -119,6 +124,36 @@ impl FilePlayback {
     }
 }
 
+/// Hands a block over a real-time piece at a time, waiting for room rather than overwriting
+/// capture the DSP has not read yet. A recording is not a radio: nothing behind it insists on
+/// wall-clock time, so the reader is the one that waits. Returns false when the stream was asked
+/// to stop.
+fn hand_over(
+    sink: &mut RxSink,
+    block: &[Complex<f32>],
+    piece: usize,
+    running: &AtomicBool,
+    transport: &PlaybackShared,
+) -> bool {
+    let mut sent = 0;
+    while sent < block.len() {
+        if !running.load(Ordering::Acquire) {
+            return false;
+        }
+        let want = piece.min(block.len() - sent);
+        if sink.room().is_some_and(|room| room.free() < want) {
+            if transport.seek_pending() {
+                return true;
+            }
+            std::thread::sleep(ROOM_POLL);
+            continue;
+        }
+        sink.push(&block[sent..sent + want]);
+        sent += want;
+    }
+    true
+}
+
 fn open_error(stem: &Path, err: SigmfError) -> DeviceError {
     match err {
         SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
@@ -191,7 +226,8 @@ impl SdrDevice for FilePlayback {
                     return;
                 }
             };
-            let n = ((sample_rate * BLOCK_SECS * playback_speed).round() as usize).max(1);
+            let piece = ((sample_rate * BLOCK_SECS).round() as usize).max(1);
+            let n = ((piece as f64 * playback_speed).round() as usize).max(1);
             let mut block = vec![Complex::new(0.0f32, 0.0); n];
             let mut next = Instant::now();
             'stream: while running.load(Ordering::Acquire) {
@@ -225,10 +261,11 @@ impl SdrDevice for FilePlayback {
                         }
                     }
                 }
-                transport.set_position(reader.position(), position_generation);
-                if filled > 0 {
-                    sink.push(&block[..filled]);
+                if filled > 0 && !hand_over(&mut sink, &block[..filled], piece, running, &transport)
+                {
+                    return;
                 }
+                transport.set_position(reader.position(), position_generation);
                 if filled < block.len() {
                     while running.load(Ordering::Acquire) {
                         std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));
@@ -264,6 +301,7 @@ impl SdrDevice for FilePlayback {
 mod tests {
     use std::{fs, sync::mpsc, time::Duration};
 
+    use sdrmm_device::SinkRoom;
     use sdrmm_recorder::{SigmfWriter, data_path, meta_path};
     use sdrmm_wire::{PlaybackAction, PlaybackRequest, StreamSettings};
     use tempfile::TempDir;
@@ -327,6 +365,53 @@ mod tests {
             action,
             position_samples,
         }
+    }
+
+    fn start_with_room(
+        dev: &mut FilePlayback,
+        room: Arc<SinkRoom>,
+    ) -> mpsc::Receiver<Vec<Complex<f32>>> {
+        let (tx, rx) = mpsc::channel();
+        let taken = room.clone();
+        dev.rx_start(vec![
+            RxSink::new(move |s: &[Complex<f32>], _| {
+                taken.took(s.len());
+                let _ = tx.send(s.to_vec());
+            })
+            .with_room(room),
+        ])
+        .unwrap();
+        rx
+    }
+
+    #[test]
+    fn a_recording_waits_for_room_rather_than_outrunning_what_reads_it() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(250_000);
+        let stem = record(dir.path(), "backpressure", &recorded);
+
+        let piece = (250_000.0 * BLOCK_SECS) as usize;
+        let mut dev = FilePlayback::open_at_speed(&stem, 20.0).unwrap();
+        let room = Arc::new(SinkRoom::new(0));
+        let rx = start_with_room(&mut dev, room.clone());
+
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+        room.freed(piece - 1);
+        assert!(
+            rx.recv_timeout(Duration::from_millis(200)).is_err(),
+            "less room than a piece is no room at all"
+        );
+
+        room.freed(1);
+        let first = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(first.len(), piece, "a full ring is never overwritten");
+        assert_bits_eq(&first, &recorded[..piece]);
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+
+        room.freed(recorded.len());
+        let played = collect(&rx, piece);
+        assert_bits_eq(&played[..piece], &recorded[piece..piece * 2]);
+        dev.rx_stop();
     }
 
     #[test]
@@ -498,7 +583,12 @@ mod tests {
 
         let mut fast = FilePlayback::open_at_speed(&stem, SPEED).unwrap();
         let rx = start(&mut fast);
-        let fast_block = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let mut fast_block = Vec::new();
+        while fast_block.len() < block * SPEED as usize {
+            let piece = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(piece.len(), block, "a real-time piece at a time");
+            fast_block.extend(piece);
+        }
         fast.rx_stop();
 
         assert_eq!(fast_block.len(), block * SPEED as usize);

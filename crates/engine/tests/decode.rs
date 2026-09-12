@@ -13,13 +13,14 @@ use sdrmm_wire::{
     ChannelParams, ChannelSettings, CwSkimmerParams, DabParams, DatvParams, DatvStandard,
     DecodedRecord, DecoderEvent, DectCapability, DectCipherState, DectParams, DmrParams, DrmMode,
     DrmParams, DvFrameKind, DvMode, ErmesParams, FlexParams, FreeDvParams, GnssParams, IdentParams,
-    Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams,
-    PskBaud, PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SubghzEncoding,
-    SubghzParams, SymbolPlane, VorParams, WfmParams, WsjtParams, WsprParams, YsfParams,
+    Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PipelineStage, PocsagBaud,
+    PocsagParams, PskBaud, PskParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem,
+    SubghzEncoding, SubghzParams, SymbolPlane, VorParams, WfmParams, WsjtParams, WsprParams,
+    YsfParams,
 };
 use tempfile::TempDir;
 
-const DECODE_TIMEOUT: Duration = Duration::from_secs(30);
+const DECODE_TIMEOUT: Duration = Duration::from_secs(90);
 
 const NARROW_DEVICE_RATE: f64 = 240_000.0;
 const AUDIO_DEVICE_RATE: f64 = 48_000.0;
@@ -105,7 +106,14 @@ async fn decode_first(
         }
     })
     .await;
+    let lost: u64 = engine
+        .pipeline_health()
+        .iter()
+        .filter(|queue| queue.device_set == ds && queue.stage == PipelineStage::Capture)
+        .map(|queue| queue.health.dropped)
+        .sum();
     engine.remove_device_set(ds).unwrap();
+    assert_eq!(lost, 0, "a recording lost capture on its way to the DSP");
     let record = found.expect("a matching decode within the timeout");
 
     assert_eq!(record.device_set, ds, "record names its device set");
@@ -863,7 +871,10 @@ async fn cw_skimmer_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
             }),
             audio: Default::default(),
         },
-        |event| matches!(event, DecoderEvent::CwSkimmer(spot) if spot.text.contains("ENGINE")),
+        |event| {
+            matches!(event, DecoderEvent::CwSkimmer(spot)
+                if spot.text.contains("ENGINE") && (spot.offset_hz - 3_500.0).abs() < 80.0)
+        },
     )
     .await;
     let DecoderEvent::CwSkimmer(spot) = record.event else {

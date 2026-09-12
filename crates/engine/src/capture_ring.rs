@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use num_complex::Complex;
 use rtrb::{Consumer, Producer, RingBuffer};
+use sdrmm_device::SinkRoom;
 
 use crate::metrics::QueueMetrics;
 
@@ -18,6 +19,7 @@ pub(crate) struct CaptureProducer {
     samples: Producer<Complex<f32>>,
     spans: Producer<Span>,
     metrics: Arc<QueueMetrics>,
+    room: Arc<SinkRoom>,
     next: Option<u64>,
 }
 
@@ -25,12 +27,14 @@ pub(crate) struct CaptureConsumer {
     samples: Consumer<Complex<f32>>,
     spans: Consumer<Span>,
     pending: Option<Span>,
+    room: Arc<SinkRoom>,
     pub(crate) metrics: Arc<QueueMetrics>,
 }
 
 pub(crate) fn capture_ring(capacity: usize) -> (CaptureProducer, CaptureConsumer) {
     let metrics = Arc::new(QueueMetrics::default());
     metrics.capacity(capacity);
+    let room = Arc::new(SinkRoom::new(capacity));
     let (samples_tx, samples_rx) = RingBuffer::new(capacity);
     let (spans_tx, spans_rx) = RingBuffer::new(capacity.min(SPAN_CAPACITY));
     (
@@ -38,18 +42,24 @@ pub(crate) fn capture_ring(capacity: usize) -> (CaptureProducer, CaptureConsumer
             samples: samples_tx,
             spans: spans_tx,
             metrics: metrics.clone(),
+            room: room.clone(),
             next: None,
         },
         CaptureConsumer {
             samples: samples_rx,
             spans: spans_rx,
             pending: None,
+            room,
             metrics,
         },
     )
 }
 
 impl CaptureProducer {
+    pub(crate) fn room(&self) -> Arc<SinkRoom> {
+        self.room.clone()
+    }
+
     pub(crate) fn push(&mut self, samples: &[Complex<f32>], start: u64) -> usize {
         if let Some(next) = self.next {
             self.metrics.dropped(start.saturating_sub(next) as usize);
@@ -68,6 +78,7 @@ impl CaptureProducer {
             return 0;
         };
         self.metrics.push(len);
+        self.room.took(len);
         self.metrics.dropped(samples.len() - len);
         chunk.fill_from_iter(samples[..len].iter().copied());
         span.fill_from_iter([Span {
@@ -117,6 +128,7 @@ impl CaptureConsumer {
             receive(b, span.start + a.len() as u64);
         }
         self.metrics.pop(len);
+        self.room.freed(len);
         chunk.commit_all();
         span.start += len as u64;
         span.len -= len;
@@ -175,6 +187,28 @@ mod tests {
         assert_eq!(metrics.dropped, 4);
         producer.push(&ramp(4, 2), 4);
         assert_eq!(drain(&mut consumer, 8), expected(4..6));
+    }
+
+    #[test]
+    fn room_tracks_what_the_ring_still_takes_across_a_stale_discard() {
+        let (mut producer, mut consumer) = capture_ring(8);
+        let room = producer.room();
+        assert_eq!(room.free(), 8);
+        producer.push(&ramp(0, 6), 0);
+        assert_eq!(room.free(), 2);
+        assert_eq!(consumer.consume(4, |_, _| {}), 4);
+        assert_eq!(room.free(), 6);
+
+        let span = consumer
+            .pending
+            .or_else(|| consumer.spans.pop().ok())
+            .expect("span");
+        consumer.pending = Some(span);
+        while consumer.metrics.now() == span.queued {
+            std::hint::spin_loop();
+        }
+        assert_eq!(consumer.consume_fresh(8, Duration::ZERO, |_, _| {}), 2);
+        assert_eq!(room.free(), 8, "a discarded span gives its slots back");
     }
 
     #[test]

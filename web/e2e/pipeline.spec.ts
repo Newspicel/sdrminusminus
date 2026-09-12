@@ -38,6 +38,7 @@ for (const fallback of [false, true]) {
         ],
       },
     };
+    const desk = await page.request.get("/api/workspaces").then((response) => response.json());
     const created = await page.request.post("/api/workspaces", {
       data: { name: `Audio pipeline ${fallback}`, snapshot },
     });
@@ -59,5 +60,8 @@ for (const fallback of [false, true]) {
     await speaker.getByRole("button", { name: "Stop", exact: true }).click();
     await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
+
+    await page.request.post(`/api/workspaces/${desk.active}/activate`);
+    await page.request.delete(`/api/workspaces/${id}`);
   });
 }

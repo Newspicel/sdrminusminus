@@ -95,4 +95,7 @@ test("array composition preserves live Device faces and their channels", async (
       .locator('.react-flow__node[data-id="left"]')
       .getByRole("combobox", { name: "Sample rate" }),
   ).toBeVisible();
+
+  await page.request.post(`/api/workspaces/${workspaces.active}/activate`);
+  await page.request.delete(`/api/workspaces/${id}`);
 });

@@ -5,6 +5,7 @@ use std::{
         mpsc,
     },
     thread::JoinHandle,
+    time::Duration,
 };
 
 use arc_swap::ArcSwap;
@@ -28,11 +29,23 @@ use crate::{
 };
 
 const RING_SECONDS: f64 = 0.1;
+const LIVE_MAX_AGE: Duration = Duration::from_millis(100);
 const RING_MIN: usize = 1 << 17;
 const RING_MAX: usize = 1 << 23;
 
 pub(crate) fn ring_capacity(sample_rate: f64) -> usize {
     ((sample_rate * RING_SECONDS) as usize).clamp(RING_MIN, RING_MAX)
+}
+
+/// A radio streams whether or not anything is listening, so capture that the DSP could not reach
+/// in time is stale and skipping it is what keeps the picture live. A recording has no live edge
+/// to stay near: it waits instead, and every sample it holds is still the one that was asked for.
+fn max_age_for(device: &dyn SdrDevice) -> Duration {
+    if device.playback().is_some() {
+        Duration::MAX
+    } else {
+        LIVE_MAX_AGE
+    }
 }
 
 type FatalReport = Box<dyn FnOnce(DeviceError) + Send>;
@@ -96,6 +109,7 @@ impl CaptureRuntime {
         taps: Vec<broadcast::Sender<SpectrumSnapshot>>,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
+        let max_age = max_age_for(device.as_ref());
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
         let per_stream = device.capabilities().per_stream;
         let Some(sample_rate) = settings.sample_rate else {
@@ -143,27 +157,31 @@ impl CaptureRuntime {
                     });
                 }
             } else {
-                sinks.push(RxSink::with_fatal_handler(
-                    move |samples: &[Complex<f32>], index: u64| {
-                        if let Some(tap) = lane_tap.as_mut() {
-                            tap.push(samples, index);
-                        }
-                        let take = producer.push(samples, index);
-                        if take < samples.len() {
-                            ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
-                        }
-                        wake.wake();
-                    },
-                    move |err| {
-                        if let Some(report) = fatal
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .take()
-                        {
-                            report(err);
-                        }
-                    },
-                ));
+                let room = producer.room();
+                sinks.push(
+                    RxSink::with_fatal_handler(
+                        move |samples: &[Complex<f32>], index: u64| {
+                            if let Some(tap) = lane_tap.as_mut() {
+                                tap.push(samples, index);
+                            }
+                            let take = producer.push(samples, index);
+                            if take < samples.len() {
+                                ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
+                            }
+                            wake.wake();
+                        },
+                        move |err| {
+                            if let Some(report) = fatal
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .take()
+                            {
+                                report(err);
+                            }
+                        },
+                    )
+                    .with_room(room),
+                );
             }
             let spectrum_tx = taps
                 .get(stream)
@@ -211,6 +229,7 @@ impl CaptureRuntime {
                 stop: lane.stop.clone(),
                 stalled_us: lane.stalled_us.clone(),
                 waker: lane.waker.clone(),
+                max_age,
             };
             let publisher = SpectrumPublisher::with_metrics(
                 lane.spectrum_tx.clone(),
@@ -494,6 +513,30 @@ mod tests {
     fn the_floor_holds_two_of_the_largest_blocks_a_driver_pushes_at_once() {
         let block = sdrmm_device::capture::CaptureConfig::new("ring", "ring").block_samples;
         assert!(RING_MIN >= 2 * block.max(super::super::DSP_BLOCK));
+    }
+
+    #[test]
+    fn a_recording_is_held_for_the_dsp_while_a_radio_is_skipped_past() {
+        let dir = tempfile::TempDir::new().expect("scratch");
+        let stem = dir.path().join("aged");
+        let mut writer = sdrmm_recorder::SigmfWriter::create(&stem, 48_000.0, 100e6, "age policy")
+            .expect("open");
+        writer
+            .write_block(&[Complex::new(0.0f32, 0.0); 48_000])
+            .expect("write");
+        writer.finalize().expect("finalize");
+
+        let driver = sdrmm_device_virtual::VirtualDriver::with_recordings(dir.path().to_path_buf());
+        let infos = sdrmm_device::DeviceDriver::probe(&driver);
+        let open = |key: &str| {
+            let info = infos
+                .iter()
+                .find(|info| info.key.ends_with(key))
+                .expect("probed");
+            sdrmm_device::DeviceDriver::open(&driver, info).expect("open")
+        };
+        assert_eq!(max_age_for(open("aged").as_ref()), Duration::MAX);
+        assert_eq!(max_age_for(open("siggen").as_ref()), LIVE_MAX_AGE);
     }
 
     #[test]

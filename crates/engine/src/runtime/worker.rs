@@ -46,6 +46,7 @@ pub(super) struct LaneShared {
     pub(super) stop: Arc<AtomicBool>,
     pub(super) stalled_us: Arc<AtomicU64>,
     pub(super) waker: Arc<Waker>,
+    pub(super) max_age: Duration,
 }
 
 struct ArrayOutput {
@@ -94,6 +95,7 @@ pub(super) fn dsp_loop(
         meta,
         stop,
         stalled_us,
+        max_age,
         ..
     } = lane;
     let mut hist = vec![Complex::new(0.0, 0.0); FFT_SIZE];
@@ -128,68 +130,67 @@ pub(super) fn dsp_loop(
         let snapshot = *meta.load_full();
         let hop = ((snapshot.sample_rate / TARGET_FPS) as usize).max(FFT_SIZE / 4);
         frontend.follow(snapshot);
-        let consumed =
-            consumer.consume_fresh(DSP_BLOCK, Duration::from_millis(100), |raw, mut total| {
-                record_stall(stalled_us, &mut served);
-                if next_input.is_some_and(|next| next != total) {
-                    frontend.reset();
-                    hist.fill(Complex::new(0.0, 0.0));
+        let consumed = consumer.consume_fresh(DSP_BLOCK, *max_age, |raw, mut total| {
+            record_stall(stalled_us, &mut served);
+            if next_input.is_some_and(|next| next != total) {
+                frontend.reset();
+                hist.fill(Complex::new(0.0, 0.0));
+                write_pos = 0;
+                since_last = 0;
+            }
+            next_input = Some(total + raw.len() as u64);
+            let slice = frontend.apply(raw);
+            for array in &mut arrays {
+                array.push(slice, total);
+            }
+            if tap.as_ref().is_some_and(|t| {
+                recording_publisher
+                    .as_mut()
+                    .is_none_or(|publisher| !publisher.publish(t, slice, total, snapshot.center_hz))
+            }) {
+                tap = None;
+            }
+            if network_tap
+                .as_mut()
+                .is_some_and(|network| !network.push(slice))
+            {
+                network_tap = None;
+            }
+            if history
+                .as_mut()
+                .is_some_and(|keeper| !keeper.push(slice, snapshot.center_hz))
+            {
+                history = None;
+            }
+            for (_, host) in &mut channels {
+                host.process_at(slice, total, snapshot.center_hz, snapshot.lo_offset_hz);
+            }
+            for &s in slice {
+                hist[write_pos] = s;
+                write_pos += 1;
+                if write_pos == FFT_SIZE {
                     write_pos = 0;
+                }
+                total += 1;
+                since_last += 1;
+                if since_last >= hop {
                     since_last = 0;
-                }
-                next_input = Some(total + raw.len() as u64);
-                let slice = frontend.apply(raw);
-                for array in &mut arrays {
-                    array.push(slice, total);
-                }
-                if tap.as_ref().is_some_and(|t| {
-                    recording_publisher.as_mut().is_none_or(|publisher| {
-                        !publisher.publish(t, slice, total, snapshot.center_hz)
-                    })
-                }) {
-                    tap = None;
-                }
-                if network_tap
-                    .as_mut()
-                    .is_some_and(|network| !network.push(slice))
-                {
-                    network_tap = None;
-                }
-                if history
-                    .as_mut()
-                    .is_some_and(|keeper| !keeper.push(slice, snapshot.center_hz))
-                {
-                    history = None;
-                }
-                for (_, host) in &mut channels {
-                    host.process_at(slice, total, snapshot.center_hz, snapshot.lo_offset_hz);
-                }
-                for &s in slice {
-                    hist[write_pos] = s;
-                    write_pos += 1;
-                    if write_pos == FFT_SIZE {
-                        write_pos = 0;
+                    for (i, w) in window.iter_mut().enumerate() {
+                        *w = hist[(write_pos + i) % FFT_SIZE];
                     }
-                    total += 1;
-                    since_last += 1;
-                    if since_last >= hop {
-                        since_last = 0;
-                        for (i, w) in window.iter_mut().enumerate() {
-                            *w = hist[(write_pos + i) % FFT_SIZE];
-                        }
-                        let frame = SpectrumFrame {
-                            timestamp: total,
-                            center_hz: snapshot.center_hz,
-                            span_hz: snapshot.sample_rate as f32,
-                            lo_hz: snapshot.lo_hz(),
-                        };
-                        if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
-                            seq = seq.wrapping_add(1);
-                            publisher.publish(seq, completed, &db);
-                        }
+                    let frame = SpectrumFrame {
+                        timestamp: total,
+                        center_hz: snapshot.center_hz,
+                        span_hz: snapshot.sample_rate as f32,
+                        lo_hz: snapshot.lo_hz(),
+                    };
+                    if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
+                        seq = seq.wrapping_add(1);
+                        publisher.publish(seq, completed, &db);
                     }
                 }
-            });
+            }
+        });
         if consumed == 0 {
             std::thread::park_timeout(IDLE_PARK);
         }
@@ -409,6 +410,7 @@ mod tests {
             stop: stop.clone(),
             stalled_us: Arc::new(AtomicU64::new(0)),
             waker: waker.clone(),
+            max_age: Duration::MAX,
         };
         let mut first = true;
         commands

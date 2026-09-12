@@ -1,5 +1,11 @@
 import { expect, type Page, test } from "@playwright/test";
-import type { DeviceRef, PatchNode, StateSnapshot, WorkspaceSnapshot } from "../src/lib/types";
+import type {
+  DeviceRef,
+  PatchNode,
+  StateSnapshot,
+  WorkspaceDetail,
+  WorkspaceSnapshot,
+} from "../src/lib/types";
 
 const LANES = 4;
 const ARRAY: DeviceRef = { backend: "virtual", key: "array4" };
@@ -44,22 +50,32 @@ function arrayPatch(): WorkspaceSnapshot {
   };
 }
 
+function radioOnly(patch: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...patch,
+    graph: { nodes: patch.graph.nodes.filter((node) => node.id === "dev"), edges: [] },
+  };
+}
+
 /// Stages a four-lane virtual array and a direction finder, which is what makes the field client's
 /// DF drive mission have something to show. In a workspace of its own: every spec here shares one
 /// server, so staging into the active one hands the next test whatever the last one left behind.
 /// Staged before the client opens, because a page holding the outgoing workspace applies it once
 /// it loads, and that additive apply would put the radio it names back beside the array's.
+/// The radio is tuned before the finder is wired: a device carrying a coherent processor holds
+/// its sample rate.
 async function stageArray(page: Page, name: string): Promise<void> {
+  const patch = arrayPatch();
   const response = await page.request.post("/api/workspaces", {
-    data: { name, snapshot: arrayPatch() },
+    data: { name, snapshot: radioOnly(patch) },
   });
   const created: { id?: number; error?: string } = await response.json();
   if (created.id === undefined) {
     throw new Error(`workspace ${name} was rejected: ${created.error ?? response.status()}`);
   }
   await page.request.post(`/api/workspaces/${created.id}/activate`);
-  const applied = await page.request.post(`/api/workspaces/${created.id}/apply`, { data: {} });
-  expect(applied.ok(), await applied.text()).toBeTruthy();
+  const opened = await page.request.post(`/api/workspaces/${created.id}/apply`, { data: {} });
+  expect(opened.ok(), await opened.text()).toBeTruthy();
 
   const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
   const set = state.device_sets.find((candidate) => candidate.device.key === ARRAY.key);
@@ -77,6 +93,16 @@ async function stageArray(page: Page, name: string): Promise<void> {
     },
   });
   expect(patched.ok(), await patched.text()).toBeTruthy();
+
+  const detail: WorkspaceDetail = await page.request
+    .get(`/api/workspaces/${created.id}`)
+    .then((r) => r.json());
+  const wired = await page.request.put(`/api/workspaces/${created.id}`, {
+    data: { revision: detail.revision, snapshot: patch },
+  });
+  expect(wired.ok(), await wired.text()).toBeTruthy();
+  const applied = await page.request.post(`/api/workspaces/${created.id}/apply`, { data: {} });
+  expect(applied.ok(), await applied.text()).toBeTruthy();
 }
 
 test.describe("field mode", () => {

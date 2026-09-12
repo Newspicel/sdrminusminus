@@ -96,8 +96,17 @@ fn survey_every_channel_search_path() {
         );
     }
     assert_eq!(rows.len(), sdrmm_channels::descriptors().len());
-    let committed =
-        load_baselines(&baseline_path()).expect("committed channel throughput baselines");
+    let path = baseline_path();
+    if !path.exists() {
+        println!(
+            "no committed baseline for {}: the survey above is reported, the gate is not \
+             enforced. Record one on this host with `cargo test -p sdrmm-channels --release \
+             --test channel_perf -- --ignored --exact write_perf_baseline`",
+            host_id()
+        );
+        return;
+    }
+    let committed = load_baselines(&path).expect("committed channel throughput baselines");
     let measured = baselines(&rows);
     assert_eq!(
         committed
@@ -122,7 +131,9 @@ fn survey_every_channel_search_path() {
 }
 
 fn baseline_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("baselines/channel_perf.json")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("baselines/channel_perf")
+        .join(format!("{}.json", host_id()))
 }
 
 fn baselines(rows: &[Row]) -> Vec<PerfBaseline> {

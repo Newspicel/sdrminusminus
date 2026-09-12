@@ -180,7 +180,8 @@ impl SdrDevice for StreamArray {
                 let mut first = true;
                 let mut next = None;
                 let failure = sink.share_failure();
-                RxSink::with_fatal_handler(
+                let room = sink.room().cloned();
+                let inner = RxSink::with_fatal_handler(
                     move |samples, index| {
                         if !active.load(Ordering::Acquire) || !enabled.load(Ordering::Acquire) {
                             return;
@@ -199,7 +200,11 @@ impl SdrDevice for StreamArray {
                         sink.push(samples);
                     },
                     move |error| failure.fail(error),
-                )
+                );
+                match room {
+                    Some(room) => inner.with_room(room),
+                    None => inner,
+                }
             })
             .collect();
         *lock(&self.ingress.sinks) = inputs;
@@ -223,7 +228,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use num_complex::Complex;
-    use sdrmm_device::{DeviceRegistry, RxSink, lock};
+    use sdrmm_device::{DeviceRegistry, RxSink, SinkRoom, lock};
     use sdrmm_device_virtual::VirtualDriver;
     use sdrmm_wire::{Coherence, Range};
 
@@ -317,6 +322,23 @@ mod tests {
             .expect("restart");
         inputs[0].push(&[Complex::new(6.0, 0.0); 4]);
         assert_eq!(lock(&seen).len(), 3, "old inputs must stay detached");
+    }
+
+    #[test]
+    fn a_member_reads_the_room_of_the_lane_it_feeds() {
+        let (mut device, ingress) = pair();
+        let rooms: Vec<Arc<SinkRoom>> = (0..2).map(|lane| Arc::new(SinkRoom::new(lane))).collect();
+        let sinks = rooms
+            .iter()
+            .map(|room| RxSink::new(|_, _| {}).with_room(room.clone()))
+            .collect();
+        device.rx_start(sinks).expect("start");
+        let inputs = ingress.take();
+        let seen: Vec<usize> = inputs
+            .iter()
+            .map(|input| input.room().expect("the lane's room").free())
+            .collect();
+        assert_eq!(seen, [0, 1], "each member holds back for its own lane");
     }
 
     #[test]

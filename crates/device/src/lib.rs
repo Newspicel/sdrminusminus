@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{
+    Arc, Mutex, MutexGuard, PoisonError,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use num_complex::Complex;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, StreamScope};
@@ -80,9 +83,40 @@ pub fn check_stream_settings(
 type PushFn = Box<dyn FnMut(&[Sample], u64) + Send>;
 type FatalFn = Box<dyn FnOnce(DeviceError) + Send>;
 
+/// How many samples the consumer behind a sink can still take. A radio cannot be asked to wait,
+/// so live backends ignore it; a source that reads from storage uses it to hand over only what
+/// fits instead of overwriting what has not been processed yet.
+#[derive(Debug)]
+pub struct SinkRoom {
+    free: AtomicUsize,
+}
+
+impl SinkRoom {
+    #[must_use]
+    pub const fn new(capacity: usize) -> Self {
+        Self {
+            free: AtomicUsize::new(capacity),
+        }
+    }
+
+    #[must_use]
+    pub fn free(&self) -> usize {
+        self.free.load(Ordering::Acquire)
+    }
+
+    pub fn took(&self, samples: usize) {
+        self.free.fetch_sub(samples, Ordering::AcqRel);
+    }
+
+    pub fn freed(&self, samples: usize) {
+        self.free.fetch_add(samples, Ordering::AcqRel);
+    }
+}
+
 pub struct RxSink {
     push_fn: PushFn,
     fatal_fn: Option<FatalFn>,
+    room: Option<Arc<SinkRoom>>,
     index: u64,
 }
 
@@ -92,6 +126,7 @@ impl RxSink {
         Self {
             push_fn: Box::new(push_fn),
             fatal_fn: None,
+            room: None,
             index: 0,
         }
     }
@@ -104,8 +139,21 @@ impl RxSink {
         Self {
             push_fn: Box::new(push_fn),
             fatal_fn: Some(Box::new(fatal_fn)),
+            room: None,
             index: 0,
         }
+    }
+
+    #[must_use]
+    pub fn with_room(mut self, room: Arc<SinkRoom>) -> Self {
+        self.room = Some(room);
+        self
+    }
+
+    /// What the consumer can still take, for a source that is able to hold back.
+    #[must_use]
+    pub fn room(&self) -> Option<&Arc<SinkRoom>> {
+        self.room.as_ref()
     }
 
     /// Hands over a block together with the index its first sample carries since `rx_start`.
