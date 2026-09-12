@@ -5,3 +5,10 @@
 [[profile.default.overrides]]
 filter = 'test(/_ahead_of_(the_channel_rate|realtime|the_audio_rate)/)'
 threads-required = "num-test-threads"
+
+# The opus encoder thread rides a bounded PCM broadcast, so a runner that starves it for long
+# enough makes the engine resync the frame clock — a real signal, not a bug. These two assert that
+# the clock never resyncs, which only holds when nothing else competes for the cores.
+[[profile.default.overrides]]
+filter = 'binary_id(sdrmm-engine::listen) & test(/^(audio_packets_are_contiguous_and_timestamped|wfm_stereo_toggle_changes_the_layout_of_the_live_stream)$/)'
+threads-required = "num-test-threads"
