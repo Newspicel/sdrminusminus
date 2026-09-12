@@ -1038,24 +1038,22 @@ test.describe("the workspace", () => {
     const channel = page.locator('.react-flow__node[data-id="voice"]');
     await expect(channel.getByRole("combobox", { name: /bandwidth/i })).toBeVisible();
     await activate(channel);
-    await channel.getByRole("button", { name: "+5k", exact: true }).click();
+    const dial = channel.getByRole("spinbutton", { name: "Tuned frequency" });
+    await dial.focus();
+    await dial.press("ArrowUp");
 
     await expect
       .poll(async () => {
         const detail = await page.request
           .get(`/api/workspaces/${created.id}`)
           .then((r) => r.json());
-        return detail.state?.devices
-          ?.flatMap(
-            (device: { channels?: { node: string; settings: { offset_hz: number } }[] }) =>
-              device.channels ?? [],
-          )
-          .find((held: { node: string }) => held.node === "voice")?.settings.offset_hz;
+        return detail.state?.channels?.find((held: { node: string }) => held.node === "voice")
+          ?.settings.frequency_hz;
       })
-      .toBe(5_000);
+      .toBe(101_000_000);
 
     await page.reload();
-    await expect(channel.getByLabel(/offset/i)).toHaveValue("5");
+    await expect(dial).toHaveAttribute("aria-valuenow", "101000000");
 
     await page.request.post(`/api/workspaces/${list.active}/activate`);
     await page.request.delete(`/api/workspaces/${created.id}`);

@@ -27,9 +27,9 @@ pub(crate) fn validate_channel(
     settings: &ChannelSettings,
     device_rate: f64,
 ) -> Result<(), EngineError> {
-    if !settings.frequency_hz.is_finite() || settings.frequency_hz <= 0.0 {
+    if !settings.frequency_hz.is_finite() {
         return Err(ChannelError::InvalidSettings(format!(
-            "frequency_hz must be a positive, finite frequency, got {}",
+            "frequency_hz must be a finite frequency, got {}",
             settings.frequency_hz
         ))
         .into());

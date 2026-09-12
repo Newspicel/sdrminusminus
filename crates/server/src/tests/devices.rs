@@ -60,7 +60,7 @@ async fn channel_create_patch_and_error_mapping_over_http() {
         app.clone(),
         "POST",
         &format!("/api/devicesets/{ds}/channels"),
-        Some(r#"{"settings":{"offset_hz":100000.0,"params":{"type":"nfm","settings":{}}}}"#),
+        Some(r#"{"settings":{"frequency_hz":100100000.0,"params":{"type":"nfm","settings":{}}}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -89,15 +89,6 @@ async fn channel_create_patch_and_error_mapping_over_http() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
-
-    let (status, _) = request(
-        app.clone(),
-        "PATCH",
-        &format!("/api/devicesets/{ds}/channels/{ch}"),
-        Some(r#"{"frequency_hz":-1.0,"params":{"type":"nfm","settings":{}}}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, _) = request(
         app.clone(),

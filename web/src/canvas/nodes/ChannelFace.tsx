@@ -79,7 +79,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
     }
   };
   const frequencyHz = settings?.frequency_hz ?? null;
-  const readout = frequencyHz === null ? undefined : formatMhz(frequencyHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
   const window = radioWindowHz(centerHz, set?.settings.sample_rate, descriptor);
   const unreachable =
@@ -98,16 +97,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   };
 
   return (
-    <NodeShell
-      node={node}
-      title={name}
-      category="channel"
-      subtitle={
-        readout === undefined ? undefined : (
-          <span className="font-mono tabular-nums">{readout}</span>
-        )
-      }
-    >
+    <NodeShell node={node} title={name} category="channel">
       <FaceBody>
         {wantedRate !== null && set !== null && (
           <RateMismatch name={name} set={set} wanted={wantedRate} />
