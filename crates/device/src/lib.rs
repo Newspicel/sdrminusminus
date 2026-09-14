@@ -8,7 +8,7 @@ use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, StreamScope};
 
 pub type Sample = Complex<f32>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum DeviceError {
     #[error("device not found: {0}")]
     NotFound(String),

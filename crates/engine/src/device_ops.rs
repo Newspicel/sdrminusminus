@@ -14,7 +14,7 @@ use crate::{
     planning::{
         descriptor_for, hardware_delta, plan_front_end, validate_channel, validate_streams,
     },
-    runtime::CaptureRuntime,
+    runtime::{CaptureRuntime, DeviceRuntime},
     sample_rate_of, teardown_set,
 };
 
@@ -351,7 +351,7 @@ impl Engine {
         let cmd_txs = runtime.command_senders();
         let overruns = runtime.overruns_counters();
         let stalls = runtime.stall_counters();
-        let runtime = Arc::new(Mutex::new(runtime));
+        let runtime = Arc::new(DeviceRuntime::new(runtime));
 
         let (old_runtime, rebuilds, early_fault) = {
             let mut inner = self.lock();
@@ -536,7 +536,7 @@ impl Engine {
                     stalls,
                     playback,
                     coherent: None,
-                    runtime: Arc::new(Mutex::new(runtime)),
+                    runtime: Arc::new(DeviceRuntime::new(runtime)),
                 },
             );
             inner.revision += 1;
@@ -684,7 +684,7 @@ impl Engine {
                 restated.to_hardware(resolved.lo_offset_hz),
             )
         };
-        if let Err(e) = lock_runtime(&runtime).apply(&hardware) {
+        if let Err(e) = runtime.apply(&hardware, front_end.lo_offset_hz) {
             tracing::warn!(ds, error = %e, "could not move the LO clear of a channel");
             return;
         }
@@ -711,11 +711,7 @@ impl Engine {
             });
             (runtime, hardware, front_end, guard)
         };
-        let actual = {
-            let mut runtime = lock_runtime(&runtime);
-            runtime.apply(&hardware)?;
-            runtime.device_settings(front_end.lo_offset_hz)
-        };
+        let actual = runtime.apply(&hardware, front_end.lo_offset_hz)?;
         let (settings, rate, rebuilds, retuned) = {
             let mut inner = self.lock();
             let state = inner
@@ -742,7 +738,7 @@ impl Engine {
                     sample_rate: Some(old_rate),
                     ..DeviceSettings::default()
                 };
-                if let Err(e) = lock_runtime(&runtime).apply(&revert) {
+                if let Err(e) = runtime.apply(&revert, front_end.lo_offset_hz) {
                     let message = format!(
                         "sample rate is locked while {owner}, and reverting the device to \
                          {old_rate} Hz failed: {e}"

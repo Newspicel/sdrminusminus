@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -18,7 +18,7 @@ use crate::{
         CoherentCommand, CoherentHost, CoherentRuntime, CoherentSinks, CoherentStart,
         CoherentUpdate, SurfaceUpdate,
     },
-    runtime::CaptureRuntime,
+    runtime::DeviceRuntime,
     sample_rate_of,
 };
 
@@ -45,7 +45,7 @@ pub(crate) struct CoherentState {
 
 /// Everything the sequence needs to run without holding the engine open while it waits.
 struct Reference {
-    runtime: Arc<Mutex<CaptureRuntime>>,
+    runtime: Arc<DeviceRuntime>,
     commands: mpsc::Sender<CoherentCommand>,
     updates: broadcast::Receiver<CoherentUpdate>,
     busy: Arc<AtomicBool>,

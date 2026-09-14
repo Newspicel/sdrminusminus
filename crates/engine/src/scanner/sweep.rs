@@ -1,11 +1,13 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use sdrmm_device::{SdrDevice, SweepBand, SweepPlan};
 use tokio::sync::broadcast;
 
 use crate::{
     CaptureRuntime, DeviceSetStatus, Engine, EngineError, RebuildEntry, lock_runtime,
-    plan_front_end, runtime::SpectrumSnapshot, sample_rate_of,
+    plan_front_end,
+    runtime::{DeviceRuntime, SpectrumSnapshot},
+    sample_rate_of,
 };
 
 /// How far apart two targets have to sit before sweeping the gap costs more than tuning across it.
@@ -139,7 +141,7 @@ fn swap_runtime(engine: &Engine, ds: u32, runtime: CaptureRuntime) -> Result<(),
     let cmd_txs = runtime.command_senders();
     let overruns = runtime.overruns_counters();
     let stalls = runtime.stall_counters();
-    let runtime = Arc::new(Mutex::new(runtime));
+    let runtime = Arc::new(DeviceRuntime::new(runtime));
     let replaced = {
         let mut inner = engine.lock();
         let Some(state) = inner.device_sets.get_mut(&ds) else {

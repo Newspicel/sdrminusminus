@@ -71,7 +71,9 @@ use crate::{
     hunt::HuntState,
     network_export::{NetworkExportShared, NetworkExportTap},
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelSinks, DecodedSink, DspCommand, RawDecoded, RawImage},
+    runtime::{
+        CaptureRuntime, ChannelSinks, DecodedSink, DeviceRuntime, DspCommand, RawDecoded, RawImage,
+    },
     scanner::{ScannerState, session::SessionState},
     sinks::ChannelBasebandRecording,
 };
@@ -475,7 +477,7 @@ struct DeviceSetState {
     stalls: Vec<Arc<AtomicU64>>,
     playback: Option<Arc<PlaybackShared>>,
     coherent: Option<crate::coherent_ops::CoherentState>,
-    runtime: Arc<Mutex<CaptureRuntime>>,
+    runtime: Arc<DeviceRuntime>,
 }
 
 impl DeviceSetState {
@@ -1219,10 +1221,8 @@ impl Engine {
     }
 }
 
-fn lock_runtime(runtime: &Mutex<CaptureRuntime>) -> std::sync::MutexGuard<'_, CaptureRuntime> {
-    runtime
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+fn lock_runtime(runtime: &DeviceRuntime) -> std::sync::MutexGuard<'_, CaptureRuntime> {
+    runtime.lock()
 }
 
 fn teardown_set(mut removed: DeviceSetState) -> bool {
