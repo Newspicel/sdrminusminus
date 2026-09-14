@@ -4,30 +4,27 @@ use std::{
 };
 
 use sdrmm_device::{
-    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
+    BlockPool, Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice,
+    lock,
+    net::{Adopted, CONNECT_TIMEOUT, Connection, Endpoint, Read},
     single_rx_sink,
 };
 use sdrmm_wire::{Capabilities, DeviceInfo as WireDeviceInfo, DeviceSettings};
 
 use crate::{
-    adopted::Adopted,
-    endpoint::{CONNECT_TIMEOUT, Endpoint},
-    socket::{BlockPool, Connection, Read},
-    spyserver::{
-        caps::Remote,
-        proto::{
-            ClientSync, DeviceInfo, HEADER_LEN, IqFormat, MSG_CLIENT_SYNC, MSG_DEVICE_INFO,
-            MessageHeader, Setting, hello, setting,
-        },
-        stream::{Coding, SpyConverter, SpyStream},
+    caps::Remote,
+    proto::{
+        ClientSync, DeviceInfo, HEADER_LEN, IqFormat, MSG_CLIENT_SYNC, MSG_DEVICE_INFO,
+        MessageHeader, Setting, hello, setting,
     },
+    stream::{Coding, SpyConverter, SpyStream},
 };
 
 mod caps;
 mod proto;
 mod stream;
 
-pub(crate) const DRIVER_ID: &str = "spyserver";
+const DRIVER_ID: &str = "spyserver";
 
 const CLIENT_NAME: &str = "sdr--";
 

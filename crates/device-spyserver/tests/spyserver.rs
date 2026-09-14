@@ -1,6 +1,4 @@
 #![allow(clippy::expect_used)]
-mod common;
-
 use std::{
     collections::HashMap,
     io::{Read as _, Write as _},
@@ -9,9 +7,11 @@ use std::{
     time::Duration,
 };
 
-use common::{DEADLINE, FakeServer, eventually, lock};
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice};
-use sdrmm_device_net::SpyServerDriver;
+use sdrmm_device::{
+    DeviceDriver, DeviceError, RxSink, Sample, SdrDevice, lock,
+    net::testing::{DEADLINE, FakeServer, eventually},
+};
+use sdrmm_device_spyserver::SpyServerDriver;
 use sdrmm_wire::{DeviceSettings, ExtraSetting, ExtraValue};
 
 const PROTOCOL_VERSION: u32 = (2 << 24) | 1700;
@@ -325,10 +325,11 @@ fn a_retune_while_streaming_reaches_the_server() {
         })
         .expect("retunes");
     eventually("the retune", || {
-        settings(&observed, CAPTURING).contains(&(SETTING_IQ_FREQUENCY, 144_800_000))
+        (settings(&observed, CAPTURING).contains(&(SETTING_IQ_FREQUENCY, 144_800_000)))
+            .then_some(())
     });
     eventually("the gain", || {
-        settings(&observed, CAPTURING).contains(&(SETTING_GAIN, 20))
+        (settings(&observed, CAPTURING).contains(&(SETTING_GAIN, 20))).then_some(())
     });
     assert_eq!(device.settings().center_hz, Some(144_800_000.0));
     device.rx_stop();
@@ -354,9 +355,11 @@ fn a_dropped_connection_reconnects_and_replays_the_stream_setup() {
         .recv_timeout(DEADLINE)
         .expect("samples before the drop");
 
-    eventually("a reconnect", || server.connections() > RECONNECTED);
+    eventually("a reconnect", || {
+        (server.connections() > RECONNECTED).then_some(())
+    });
     eventually("the replayed setup", || {
-        settings(&observed, RECONNECTED).contains(&(SETTING_STREAMING_ENABLED, 1))
+        (settings(&observed, RECONNECTED).contains(&(SETTING_STREAMING_ENABLED, 1))).then_some(())
     });
     assert!(
         settings(&observed, RECONNECTED).contains(&(SETTING_IQ_FREQUENCY, 433_920_000)),
@@ -383,6 +386,6 @@ fn stopping_asks_the_server_to_stop_streaming() {
     blocks.recv_timeout(DEADLINE).expect("samples arrive");
     device.rx_stop();
     eventually("the streaming-off setting", || {
-        settings(&observed, CAPTURING).contains(&(SETTING_STREAMING_ENABLED, 0))
+        (settings(&observed, CAPTURING).contains(&(SETTING_STREAMING_ENABLED, 0))).then_some(())
     });
 }

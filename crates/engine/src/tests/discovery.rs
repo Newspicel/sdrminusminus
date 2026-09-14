@@ -66,6 +66,8 @@ fn the_builtin_registry_carries_every_backend_this_build_compiled_in() {
     assert!(ids.contains(&"rtlsdr"), "{ids:?}");
     #[cfg(feature = "hackrf")]
     assert!(ids.contains(&"hackrf"), "{ids:?}");
+    #[cfg(feature = "ad936x")]
+    assert!(ids.contains(&"ad936x"), "{ids:?}");
     #[cfg(feature = "soapy")]
     assert!(ids.contains(&"soapy"), "{ids:?}");
 }
@@ -75,6 +77,11 @@ fn soapy_hides_exactly_the_radios_this_build_drives_over_usb() {
     let handled = soapy_handled_natively();
     assert_eq!(handled.contains(&"rtlsdr"), cfg!(feature = "rtlsdr"));
     assert_eq!(handled.contains(&"hackrf"), cfg!(feature = "hackrf"));
+    assert_eq!(
+        handled.contains(&"plutosdr"),
+        cfg!(feature = "ad936x"),
+        "the AD936x boards Soapy calls plutosdr are driven over their own iiod connection"
+    );
     assert!(
         !handled.contains(&"sdrplay"),
         "the SDRplay driver reports unique serials and settles its duplicate by priority instead"

@@ -249,8 +249,12 @@ describe("networkDeviceId", () => {
 });
 
 describe("NETWORK_BACKENDS", () => {
-  it("names the two protocols and shows each one's default port", () => {
-    expect(NETWORK_BACKENDS.map((b) => b.driver)).toEqual(["rtltcp", "spyserver"]);
-    expect(NETWORK_BACKENDS.map((b) => b.placeholder.split(":").pop())).toEqual(["1234", "5555"]);
+  it("names each protocol and shows its default port", () => {
+    expect(NETWORK_BACKENDS.map((b) => b.driver)).toEqual(["rtltcp", "spyserver", "ad936x"]);
+    expect(NETWORK_BACKENDS.map((b) => b.placeholder.split(":").pop())).toEqual([
+      "1234",
+      "5555",
+      "30431",
+    ]);
   });
 });

@@ -12,12 +12,13 @@ workspace = true
 
 # Passthrough to the engine's deliberate minimal-build gates.
 [features]
-default = ["soapy", "sdrplay", "cr8", "rtlsdr", "hackrf", "net-client", "gpu-fft"]
+default = ["soapy", "sdrplay", "cr8", "rtlsdr", "hackrf", "ad936x", "net-client", "gpu-fft"]
 soapy = ["sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
 sdrplay = ["sdrmm-engine/sdrplay", "dep:sdrmm-device-sdrplay"]
 cr8 = ["sdrmm-engine/cr8", "dep:sdrmm-device-cr8"]
 rtlsdr = ["sdrmm-engine/rtlsdr"]
 hackrf = ["sdrmm-engine/hackrf"]
+ad936x = ["sdrmm-engine/ad936x"]
 net-client = ["sdrmm-engine/net-client"]
 gpu-fft = ["sdrmm-engine/gpu-fft"]
 

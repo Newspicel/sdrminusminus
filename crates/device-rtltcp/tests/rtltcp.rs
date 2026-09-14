@@ -1,6 +1,4 @@
 #![allow(clippy::expect_used)]
-mod common;
-
 use std::{
     collections::HashMap,
     io::{Read as _, Write as _},
@@ -9,9 +7,11 @@ use std::{
     time::Duration,
 };
 
-use common::{DEADLINE, FakeServer, eventually, lock};
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice};
-use sdrmm_device_net::RtlTcpDriver;
+use sdrmm_device::{
+    DeviceDriver, DeviceError, RxSink, Sample, SdrDevice, lock,
+    net::testing::{DEADLINE, FakeServer, eventually},
+};
+use sdrmm_device_rtltcp::RtlTcpDriver;
 use sdrmm_wire::{DeviceSettings, ExtraValue, GainValue};
 
 type Observed = Arc<Mutex<HashMap<usize, Vec<(u8, u32)>>>>;
@@ -169,7 +169,7 @@ fn capturing_replays_every_setting_before_the_first_sample_and_streams() {
     assert!(!block.is_empty());
 
     eventually("the replay", || {
-        commands(&observed, CAPTURING).len() > REPLAY_IN_AGC
+        (commands(&observed, CAPTURING).len() > REPLAY_IN_AGC).then_some(())
     });
     assert_eq!(
         commands(&observed, CAPTURING),
@@ -196,7 +196,7 @@ fn a_retune_while_streaming_reaches_the_server() {
     device.rx_start(vec![sink]).expect("streams");
     blocks.recv_timeout(DEADLINE).expect("samples arrive");
     eventually("the replay", || {
-        commands(&observed, CAPTURING).len() >= REPLAY_IN_AGC
+        (commands(&observed, CAPTURING).len() >= REPLAY_IN_AGC).then_some(())
     });
 
     device
@@ -206,7 +206,7 @@ fn a_retune_while_streaming_reaches_the_server() {
         })
         .expect("retunes");
     eventually("the retune", || {
-        commands(&observed, CAPTURING).contains(&(0x01, 144_800_000))
+        (commands(&observed, CAPTURING).contains(&(0x01, 144_800_000))).then_some(())
     });
     assert_eq!(device.settings().center_hz, Some(144_800_000.0));
     device.rx_stop();
@@ -246,9 +246,11 @@ fn a_dropped_connection_reconnects_and_replays_the_tuning() {
         .recv_timeout(DEADLINE)
         .expect("samples before the drop");
 
-    eventually("a reconnect", || server.connections() > RECONNECTED);
+    eventually("a reconnect", || {
+        (server.connections() > RECONNECTED).then_some(())
+    });
     eventually("the replayed tuning", || {
-        commands(&observed, RECONNECTED).contains(&(0x01, 433_920_000))
+        (commands(&observed, RECONNECTED).contains(&(0x01, 433_920_000))).then_some(())
     });
     assert_eq!(
         commands(&observed, RECONNECTED).len(),
