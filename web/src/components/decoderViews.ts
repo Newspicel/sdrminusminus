@@ -6,6 +6,7 @@ import type {
   DecodedRecordOf,
   DvFrame,
   IdentReport,
+  IdentSignal,
   Modulation,
   RdsUpdate,
   VorReading,
@@ -551,36 +552,57 @@ const MODULATION_LABELS: Record<Modulation, string> = {
   fm: "FM",
   fsk2: "2-FSK",
   fsk4: "4-FSK",
+  fsk8: "8-FSK",
   psk2: "BPSK",
   psk4: "QPSK",
+  ofdm: "OFDM",
   noise_like: "noise-like",
   unknown: "unknown",
 };
 
-export function modulationLabel(report: IdentReport): string {
-  const base = MODULATION_LABELS[report.modulation] ?? report.modulation;
-  return report.sideband == null ? base : `${base} (${report.sideband.toUpperCase()})`;
+export function modulationLabel(signal: Pick<IdentSignal, "modulation" | "sideband">): string {
+  const base = MODULATION_LABELS[signal.modulation] ?? signal.modulation;
+  return signal.sideband == null ? base : `${base} (${signal.sideband.toUpperCase()})`;
 }
 
 export type IdentField = readonly [label: string, value: string];
 
-export function identMeasurements(report: IdentReport): IdentField[] {
-  if (report.modulation === "none") {
-    return [["Loudest bin", `${report.snr_db.toFixed(1)} dB over the noise floor`]];
+export function signalFrequency(signal: Pick<IdentSignal, "frequency_hz">): string {
+  const hz = signal.frequency_hz;
+  return hz >= 1e6 ? `${(hz / 1e6).toFixed(4)} MHz` : `${(hz / 1e3).toFixed(2)} kHz`;
+}
+
+export function identOverview(report: IdentReport): IdentField[] {
+  if ((report.signals ?? []).length > 0) {
+    return [];
   }
+  return [["Loudest bin", `${report.snr_db.toFixed(1)} dB over the noise floor`]];
+}
+
+export function identMeasurements(signal: IdentSignal): IdentField[] {
   const fields: IdentField[] = [
-    ["Bandwidth", `${(report.bandwidth_hz / 1000).toFixed(1)} kHz`],
-    ["Off tune", `${Math.round(report.center_offset_hz)} Hz`],
-    ["SNR", `${report.snr_db.toFixed(1)} dB`],
+    ["Bandwidth", `${(signal.bandwidth_hz / 1000).toFixed(1)} kHz`],
+    ["Off tune", `${Math.round(signal.center_offset_hz)} Hz`],
+    ["SNR", `${signal.snr_db.toFixed(1)} dB`],
   ];
-  if (report.symbol_rate_hz != null) {
-    fields.push(["Symbol rate", `${Math.round(report.symbol_rate_hz)} Bd`]);
+  if (signal.symbol_rate_hz != null) {
+    fields.push(["Symbol rate", `${Math.round(signal.symbol_rate_hz)} Bd`]);
   }
-  if (report.deviation_hz != null) {
-    fields.push(["Deviation", `±${Math.round(report.deviation_hz)} Hz`]);
+  if (signal.deviation_hz != null) {
+    fields.push(["Deviation", `±${Math.round(signal.deviation_hz)} Hz`]);
   }
-  if (report.features.duty < 0.99) {
-    fields.push(["Duty", `${Math.round(report.features.duty * 100)}%`]);
+  if (signal.burst_ms != null) {
+    const period =
+      signal.burst_period_ms == null ? "" : ` every ${signal.burst_period_ms.toFixed(1)} ms`;
+    fields.push(["Bursts", `${signal.burst_ms.toFixed(2)} ms${period}`]);
+  }
+  if (signal.ofdm_symbol_us != null) {
+    const guard =
+      signal.ofdm_guard_us == null ? "" : `, guard ${Math.round(signal.ofdm_guard_us)} µs`;
+    fields.push(["OFDM symbol", `${Math.round(signal.ofdm_symbol_us)} µs${guard}`]);
+  }
+  if (signal.features.duty < 0.99) {
+    fields.push(["Duty", `${Math.round(signal.features.duty * 100)}%`]);
   }
   return fields;
 }

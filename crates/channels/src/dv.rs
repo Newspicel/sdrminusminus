@@ -382,7 +382,7 @@ pub(crate) static MODE_SIGNATURES: LazyLock<Vec<ModeSignature>> = LazyLock::new(
             params: dstar_params,
             receive_filter: pulse::gaussian(dstar_sps, dstar::BT, dstar::MATCHED_SPAN, Norm::Area),
             sync_bits: dstar::SYNC_BITS,
-            tolerance: dstar::SYNC_TOLERANCE,
+            tolerance: IDENT_SHORT_SYNC_TOLERANCE,
             patterns: vec![u64::from(dstar::SYNC)],
             min_hits: 2,
         },

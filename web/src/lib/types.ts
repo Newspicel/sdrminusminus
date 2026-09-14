@@ -95,6 +95,7 @@ export type DataLinkMessage = components["schemas"]["DataLinkMessage"];
 export type DectFrame = components["schemas"]["DectFrame"];
 export type DvFrame = components["schemas"]["DvFrame"];
 export type IdentReport = components["schemas"]["IdentReport"];
+export type IdentSignal = components["schemas"]["IdentSignal"];
 export type ProtocolMatch = components["schemas"]["ProtocolMatch"];
 export type Modulation = components["schemas"]["Modulation"];
 export type ServerEvent = components["schemas"]["ServerEvent"];

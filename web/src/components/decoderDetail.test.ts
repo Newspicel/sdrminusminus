@@ -145,28 +145,7 @@ describe("eventDetail", () => {
       tone: { kind: "tone", data: { open: true } },
       scrambler: { kind: "scrambler", data: { inversion_hz: 3300, confidence: 0.8 } },
       dv: { kind: "dv", data: { mode: "dmr", kind: "header", errors_corrected: 0 } },
-      ident: {
-        kind: "ident",
-        data: {
-          modulation: "none",
-          confidence: 1,
-          bandwidth_hz: 0,
-          center_offset_hz: 0,
-          snr_db: 0,
-          features: {
-            envelope_variation: 0,
-            duty: 0,
-            keying_depth_db: 0,
-            spectral_asymmetry: 0,
-            carrier_db: 0,
-            spectral_flatness: 0,
-            frequency_levels: 0,
-            frequency_spread_hz: 0,
-            square_line_db: 0,
-            quartic_line_db: 0,
-          },
-        },
-      },
+      ident: { kind: "ident", data: { snr_db: 0, signals: [] } },
       broadcast: {
         kind: "broadcast",
         data: {

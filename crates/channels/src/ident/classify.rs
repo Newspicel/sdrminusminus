@@ -20,6 +20,11 @@ const NO_CLOCK_FIRMNESS: f32 = 0.5;
 const STEADY_RIPPLE: f32 = 1e-3;
 const SNR_FLOOR_DB: f32 = 3.0;
 const SNR_TRUSTED_DB: f32 = 18.0;
+const OFDM_STRENGTH: f32 = 0.05;
+const OFDM_STRENGTH_SPAN: f32 = 0.15;
+const OFDM_ENVELOPE: f32 = 0.2;
+const OFDM_ENVELOPE_MAX: f32 = 0.8;
+const OFDM_DUTY: f32 = 0.9;
 
 pub(crate) struct Verdict {
     pub(crate) modulation: Modulation,
@@ -48,13 +53,13 @@ fn amplitude_modulation(waveform: &Waveform) -> f32 {
 
 fn shift_levels(band: &Band, waveform: &Waveform, modulated: f32) -> Option<u8> {
     let levels = match waveform.frequency_levels {
-        levels @ (2 | 4) => levels,
+        levels @ (2 | 4 | 8) => levels,
         _ => return None,
     };
     let parted = if levels == 2 {
         waveform.level_valley <= DWELL_VALLEY
     } else {
-        waveform.symbol_rate_hz.is_some()
+        waveform.symbol_rate_hz.is_some() || waveform.level_valley <= DWELL_VALLEY
     };
     let separated = parted
         && waveform.deviation_hz >= waveform.frequency_spread_hz * LEVEL_SEPARATION
@@ -83,6 +88,16 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
     };
     let modulated = amplitude_modulation(waveform);
 
+    if waveform.ofdm_symbol_us.is_some()
+        && (OFDM_ENVELOPE..=OFDM_ENVELOPE_MAX).contains(&waveform.envelope_variation)
+        && waveform.duty >= OFDM_DUTY
+    {
+        return settle(
+            Modulation::Ofdm,
+            firmness(waveform.ofdm_strength, OFDM_STRENGTH, OFDM_STRENGTH_SPAN),
+        );
+    }
+
     if let Some(levels) = shift_levels(band, waveform, modulated) {
         let firm = firmness(snr_db, SNR_FLOOR_DB, 15.0)
             * if waveform.symbol_rate_hz.is_some() {
@@ -91,10 +106,10 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
                 NO_CLOCK_FIRMNESS
             };
         return settle(
-            if levels == 4 {
-                Modulation::Fsk4
-            } else {
-                Modulation::Fsk2
+            match levels {
+                8 => Modulation::Fsk8,
+                4 => Modulation::Fsk4,
+                _ => Modulation::Fsk2,
             },
             firm,
         );
@@ -372,5 +387,51 @@ mod tests {
         assert!(
             classify(&weak, &shift(0.45)).confidence < classify(&strong, &shift(0.04)).confidence
         );
+    }
+
+    #[test]
+    fn a_cyclic_prefix_makes_it_ofdm_whatever_the_envelope_does() {
+        let w = Waveform {
+            envelope_variation: 0.5,
+            duty: 0.99,
+            frequency_levels: 3,
+            frequency_spread_hz: 40_000.0,
+            ofdm_symbol_us: Some(1_000.0),
+            ofdm_guard_us: Some(246.0),
+            ofdm_strength: 0.18,
+            ..steady()
+        };
+        let mut b = band(192_000.0);
+        b.flatness = 0.9;
+        let verdict = classify(&b, &w);
+        assert_eq!(verdict.modulation, Modulation::Ofdm);
+        assert!(verdict.confidence > 0.7, "{}", verdict.confidence);
+    }
+
+    #[test]
+    fn eight_frequency_levels_are_eight_level_keying() {
+        let w = Waveform {
+            frequency_levels: 8,
+            deviation_hz: 22.0,
+            frequency_spread_hz: 15.0,
+            level_valley: 0.1,
+            symbol_rate_hz: Some(6.25),
+            ..steady()
+        };
+        assert_eq!(classify(&band(60.0), &w).modulation, Modulation::Fsk8);
+    }
+
+    #[test]
+    fn a_constant_envelope_is_never_ofdm_whatever_correlates() {
+        let w = Waveform {
+            frequency_levels: 4,
+            deviation_hz: 1_944.0,
+            frequency_spread_hz: 1_400.0,
+            symbol_rate_hz: Some(4_800.0),
+            ofdm_symbol_us: Some(30_000.0),
+            ofdm_strength: 0.3,
+            ..steady()
+        };
+        assert_eq!(classify(&band(12_500.0), &w).modulation, Modulation::Fsk4);
     }
 }

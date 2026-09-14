@@ -27,11 +27,6 @@ impl Agreement {
         }
     }
 
-    pub(crate) fn forget(&mut self) {
-        self.seen.clear();
-        self.band = None;
-    }
-
     pub(crate) fn settle(&mut self, band: &Band, verdict: Verdict) -> Verdict {
         let here = (band.center_hz, band.bandwidth_hz);
         if !self.band.is_some_and(|there| same_signal(there, here)) {
@@ -79,6 +74,58 @@ impl Agreement {
         matching.fold((0.0, 0), |(weight, count), seen| {
             (weight + seen.confidence, count + 1)
         })
+    }
+}
+
+struct Tracked {
+    band: (f64, f64),
+    agreement: Agreement,
+    seen: bool,
+}
+
+pub(crate) struct Tracker {
+    tracked: Vec<Tracked>,
+}
+
+impl Tracker {
+    pub(crate) fn new() -> Self {
+        Self {
+            tracked: Vec::new(),
+        }
+    }
+
+    pub(crate) fn forget(&mut self) {
+        self.tracked.clear();
+    }
+
+    pub(crate) fn settle(&mut self, band: &Band, verdict: Verdict) -> Verdict {
+        let here = (band.center_hz, band.bandwidth_hz);
+        let index = match self
+            .tracked
+            .iter()
+            .position(|t| !t.seen && same_signal(t.band, here))
+        {
+            Some(index) => index,
+            None => {
+                self.tracked.push(Tracked {
+                    band: here,
+                    agreement: Agreement::new(),
+                    seen: false,
+                });
+                self.tracked.len() - 1
+            }
+        };
+        let tracked = &mut self.tracked[index];
+        tracked.seen = true;
+        tracked.band = here;
+        tracked.agreement.settle(band, verdict)
+    }
+
+    pub(crate) fn sweep(&mut self) {
+        self.tracked.retain(|t| t.seen);
+        for tracked in &mut self.tracked {
+            tracked.seen = false;
+        }
     }
 }
 
@@ -166,13 +213,51 @@ mod tests {
 
     #[test]
     fn what_it_was_told_to_forget_stops_counting() {
-        let mut agreement = Agreement::new();
+        let mut tracker = Tracker::new();
         let steady = band(0.0, 12_500.0);
         for _ in 0..3 {
-            agreement.settle(&steady, verdict(Modulation::Fm, 0.9));
+            tracker.settle(&steady, verdict(Modulation::Fm, 0.9));
+            tracker.sweep();
         }
-        agreement.forget();
-        let settled = agreement.settle(&steady, verdict(Modulation::Ook, 0.5));
+        tracker.forget();
+        let settled = tracker.settle(&steady, verdict(Modulation::Ook, 0.5));
+        assert_eq!(settled.modulation, Modulation::Ook);
+    }
+
+    #[test]
+    fn each_signal_in_a_survey_keeps_its_own_history() {
+        let mut tracker = Tracker::new();
+        let wide = band(0.0, 180_000.0);
+        let narrow = band(60_000.0, 12_500.0);
+        for _ in 0..3 {
+            tracker.settle(&wide, verdict(Modulation::Fm, 0.8));
+            tracker.settle(&narrow, verdict(Modulation::Fsk4, 0.7));
+            tracker.sweep();
+        }
+        assert_eq!(
+            tracker
+                .settle(&wide, verdict(Modulation::Ook, 0.6))
+                .modulation,
+            Modulation::Fm
+        );
+        assert_eq!(
+            tracker
+                .settle(&narrow, verdict(Modulation::Fm, 0.6))
+                .modulation,
+            Modulation::Fsk4
+        );
+    }
+
+    #[test]
+    fn a_signal_that_went_away_is_forgotten_at_the_sweep() {
+        let mut tracker = Tracker::new();
+        let steady = band(0.0, 12_500.0);
+        for _ in 0..3 {
+            tracker.settle(&steady, verdict(Modulation::Fm, 0.9));
+            tracker.sweep();
+        }
+        tracker.sweep();
+        let settled = tracker.settle(&steady, verdict(Modulation::Ook, 0.5));
         assert_eq!(settled.modulation, Modulation::Ook);
     }
 }

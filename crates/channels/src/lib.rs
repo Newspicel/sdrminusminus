@@ -661,6 +661,13 @@ pub fn create_tx(
     create(ctx, settings.clone())
 }
 
+pub(crate) fn descriptor_of(type_id: &str) -> Option<&'static ChannelDescriptor> {
+    REGISTRY
+        .iter()
+        .map(|r| (r.descriptor)())
+        .find(|d| d.type_id == type_id)
+}
+
 fn find(settings: &ChannelSettings) -> Result<&'static Registration, ChannelError> {
     let type_id = settings.params.type_id();
     REGISTRY

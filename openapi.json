@@ -12926,16 +12926,50 @@
       "IdentReport": {
         "type": "object",
         "required": [
+          "snr_db"
+        ],
+        "properties": {
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IdentSignal"
+            }
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float",
+            "description": "The loudest bin over the noise floor, measured even when nothing crossed the threshold."
+          }
+        }
+      },
+      "IdentSignal": {
+        "type": "object",
+        "required": [
           "modulation",
           "confidence",
-          "bandwidth_hz",
+          "frequency_hz",
           "center_offset_hz",
+          "bandwidth_hz",
           "snr_db",
           "features"
         ],
         "properties": {
           "bandwidth_hz": {
             "type": "number",
+            "format": "double"
+          },
+          "burst_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "burst_period_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
             "format": "double"
           },
           "candidates": {
@@ -12962,8 +12996,27 @@
           "features": {
             "$ref": "#/components/schemas/IdentFeatures"
           },
+          "frequency_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Where the signal sits on the dial, in absolute Hz."
+          },
           "modulation": {
             "$ref": "#/components/schemas/Modulation"
+          },
+          "ofdm_guard_us": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "ofdm_symbol_us": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
           },
           "sideband": {
             "oneOf": [
@@ -13321,8 +13374,10 @@
           "fm",
           "fsk2",
           "fsk4",
+          "fsk8",
           "psk2",
           "psk4",
+          "ofdm",
           "noise_like",
           "unknown"
         ]

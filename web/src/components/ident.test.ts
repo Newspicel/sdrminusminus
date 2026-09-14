@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
-import type { IdentReport } from "../lib/types";
+import type { IdentReport, IdentSignal } from "../lib/types";
 import { eventDetail } from "./decoderDetail";
 import { eventStation, eventSummary, kindLabel } from "./decoderLog";
-import { candidateScore, identMeasurements, modulationLabel } from "./decoderViews";
+import {
+  candidateScore,
+  identMeasurements,
+  identOverview,
+  modulationLabel,
+  signalFrequency,
+} from "./decoderViews";
 
-function report(overrides: Partial<IdentReport> = {}): IdentReport {
+function signal(overrides: Partial<IdentSignal> = {}): IdentSignal {
   return {
     modulation: "fsk4",
     confidence: 0.86,
-    bandwidth_hz: 12_400,
+    frequency_hz: 446_006_340,
     center_offset_hz: 90,
+    bandwidth_hz: 12_400,
     snr_db: 24.5,
     symbol_rate_hz: 4801,
     deviation_hz: 1938,
@@ -33,31 +40,33 @@ function report(overrides: Partial<IdentReport> = {}): IdentReport {
   };
 }
 
-const quiet = report({
-  modulation: "none",
-  confidence: 1,
-  bandwidth_hz: 0,
-  center_offset_hz: 0,
-  snr_db: 4.1,
-  symbol_rate_hz: undefined,
-  deviation_hz: undefined,
-  candidates: [],
-});
+function report(overrides: Partial<IdentSignal> = {}): IdentReport {
+  return { snr_db: 24.5, signals: [signal(overrides)] };
+}
+
+const quiet: IdentReport = { snr_db: 4.1, signals: [] };
 
 describe("modulationLabel", () => {
   it("names the family an operator would recognise", () => {
-    expect(modulationLabel(report())).toBe("4-FSK");
-    expect(modulationLabel(quiet)).toBe("no signal");
+    expect(modulationLabel(signal())).toBe("4-FSK");
+    expect(modulationLabel(signal({ modulation: "ofdm" }))).toBe("OFDM");
   });
 
   it("names the sideband when the identifier found one", () => {
-    expect(modulationLabel(report({ modulation: "ssb", sideband: "usb" }))).toBe("SSB (USB)");
+    expect(modulationLabel(signal({ modulation: "ssb", sideband: "usb" }))).toBe("SSB (USB)");
+  });
+});
+
+describe("signalFrequency", () => {
+  it("places a signal on the dial to the hundred hertz", () => {
+    expect(signalFrequency(signal())).toBe("446.0063 MHz");
+    expect(signalFrequency(signal({ frequency_hz: 77_500 }))).toBe("77.50 kHz");
   });
 });
 
 describe("identMeasurements", () => {
   it("quotes only what was measured", () => {
-    const fields = Object.fromEntries(identMeasurements(report()));
+    const fields = Object.fromEntries(identMeasurements(signal()));
     expect(fields).toMatchObject({
       Bandwidth: "12.4 kHz",
       "Symbol rate": "4801 Bd",
@@ -67,10 +76,10 @@ describe("identMeasurements", () => {
 
     const noClock = Object.fromEntries(
       identMeasurements(
-        report({
+        signal({
           symbol_rate_hz: undefined,
           deviation_hz: undefined,
-          features: { ...report().features, duty: 1 },
+          features: { ...signal().features, duty: 1 },
         }),
       ),
     );
@@ -79,10 +88,28 @@ describe("identMeasurements", () => {
     expect(noClock).not.toHaveProperty("Duty");
   });
 
+  it("spells out bursts and OFDM timing when they were measured", () => {
+    const fields = Object.fromEntries(
+      identMeasurements(
+        signal({
+          burst_ms: 29.9,
+          burst_period_ms: 60,
+          ofdm_symbol_us: 1000,
+          ofdm_guard_us: 246,
+        }),
+      ),
+    );
+    expect(fields).toMatchObject({
+      Bursts: "29.90 ms every 60.0 ms",
+      "OFDM symbol": "1000 µs, guard 246 µs",
+    });
+  });
+
   it("reports how close an empty channel came to the threshold", () => {
-    expect(Object.fromEntries(identMeasurements(quiet))).toEqual({
+    expect(Object.fromEntries(identOverview(quiet))).toEqual({
       "Loudest bin": "4.1 dB over the noise floor",
     });
+    expect(identOverview(report())).toEqual([]);
   });
 });
 
@@ -105,6 +132,11 @@ describe("the decoder log", () => {
     expect(eventSummary({ kind: "ident", data: quiet })).toBe("no signal");
   });
 
+  it("counts the signals of a survey before describing the loudest", () => {
+    const survey: IdentReport = { snr_db: 30, signals: [signal(), signal({ modulation: "fm" })] };
+    expect(eventSummary({ kind: "ident", data: survey })).toMatch(/^2 signals · 4-FSK/);
+  });
+
   it("names no station: which transmitter it is, is the open question", () => {
     expect(eventStation({ kind: "ident", data: report() })).toBeNull();
   });
@@ -112,6 +144,8 @@ describe("the decoder log", () => {
   it("expands to the measurements and the whole shortlist", () => {
     const detail = eventDetail({ kind: "ident", data: report() });
     expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Signals: "1",
+      Frequency: "446.0063 MHz",
       Modulation: "4-FSK",
       Confidence: "86%",
       "Frequency levels": "4",

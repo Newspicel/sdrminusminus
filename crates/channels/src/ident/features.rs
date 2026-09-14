@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Ddc, SpectrumAnalyzer};
+use sdrmm_dsp::{CyclicPrefix, CyclicPrefixSearch, Ddc, SpectrumAnalyzer};
 
 use super::detect::Band;
 
@@ -34,8 +34,23 @@ const MAX_HARMONIC: usize = 8;
 const SUBHARMONIC_FRACTION: f32 = 0.5;
 
 const KEYED_FRACTION: f32 = 0.35;
+const BOTTOM: f32 = 0.10;
+const MAX_DEPTH_DB: f32 = 100.0;
 
 const RAYLEIGH_VARIATION: f32 = 0.522_723;
+
+const BURST_SMOOTH: usize = 16;
+const BURST_FRACTION: f32 = 0.15;
+const GATE_SMOOTH: usize = 8;
+const MIN_BURSTS: usize = 2;
+const BURST_AGREEMENT: f32 = 0.7;
+const BURST_SPREAD: f32 = 0.3;
+const CONTINUOUS_DUTY: f32 = 0.97;
+
+const PREFIX_SAMPLES: usize = 1 << 16;
+const PREFIX_MIN_LAG: usize = 16;
+const PREFIX_BANDWIDTH_LAGS: f64 = 4.0;
+const PREFIX_MAX_SYMBOL_S: f64 = 0.03;
 
 pub(crate) struct Zoom {
     pub(crate) rate: f64,
@@ -71,6 +86,11 @@ pub(crate) struct Waveform {
     pub(crate) symbol_rate_hz: Option<f64>,
     pub(crate) square_line_db: f32,
     pub(crate) quartic_line_db: f32,
+    pub(crate) burst_ms: Option<f64>,
+    pub(crate) burst_period_ms: Option<f64>,
+    pub(crate) ofdm_symbol_us: Option<f64>,
+    pub(crate) ofdm_guard_us: Option<f64>,
+    pub(crate) ofdm_strength: f32,
 }
 
 pub(crate) struct Meter {
@@ -90,6 +110,9 @@ pub(crate) struct Meter {
     histogram: Vec<f32>,
     smoothed: Vec<f32>,
     peak_bins: Vec<usize>,
+    bursts: Vec<(usize, usize)>,
+    spans: Vec<f32>,
+    prefix: CyclicPrefixSearch,
 }
 
 impl Meter {
@@ -115,18 +138,24 @@ impl Meter {
             histogram: vec![0.0; HIST_BINS],
             smoothed: vec![0.0; HIST_BINS],
             peak_bins: Vec::new(),
+            bursts: Vec::new(),
+            spans: Vec::new(),
+            prefix: CyclicPrefixSearch::new(PREFIX_SAMPLES),
         }
     }
 
     pub(crate) fn measure(&mut self, zoom: &Zoom, band: &Band) -> Waveform {
         let (duty, on_off_db, gate) = self.envelope(&zoom.iq);
         let envelope_variation = self.envelope_variation(gate);
-        let keying_gap = self.keying_gap();
+        let keying_gap = self.keying_gap(gate);
+        let (burst_ms, burst_period_ms) = self.bursts(zoom.rate, gate, duty);
         self.discriminate(&zoom.iq, zoom.rate, gate);
 
         let levels = self.levels(zoom.rate);
         let symbol_rate_hz = self.symbol_rate(zoom.rate, levels.count);
         let (square_line_db, quartic_line_db) = self.nonlinearity_lines(&zoom.iq);
+        let prefix = self.cyclic_prefix(&zoom.iq, zoom.rate, band.bandwidth_hz);
+        let to_us = |samples: usize| samples as f64 / zoom.rate * 1e6;
 
         Waveform {
             envelope_variation,
@@ -141,18 +170,108 @@ impl Meter {
             symbol_rate_hz,
             square_line_db,
             quartic_line_db,
+            burst_ms,
+            burst_period_ms,
+            ofdm_symbol_us: prefix.map(|p| to_us(p.useful)),
+            ofdm_guard_us: prefix.and_then(|p| p.guard).map(to_us),
+            ofdm_strength: prefix.map_or(0.0, |p| p.strength),
+        }
+    }
+
+    pub(crate) fn cyclic_prefix(
+        &mut self,
+        iq: &[Complex<f32>],
+        rate: f64,
+        bandwidth_hz: f64,
+    ) -> Option<CyclicPrefix> {
+        let min_lag =
+            ((PREFIX_BANDWIDTH_LAGS * rate / bandwidth_hz.max(1.0)) as usize).max(PREFIX_MIN_LAG);
+        let max_lag = (PREFIX_MAX_SYMBOL_S * rate) as usize;
+        self.prefix.search(iq, min_lag, max_lag)
+    }
+
+    fn bursts(&mut self, rate: f64, gate: f32, duty: f32) -> (Option<f64>, Option<f64>) {
+        self.bursts.clear();
+        if duty > CONTINUOUS_DUTY || self.amplitude.len() < 4 * BURST_SMOOTH {
+            return (None, None);
+        }
+        self.smooth_envelope(BURST_SMOOTH);
+        self.on_runs(gate / KEYED_FRACTION * BURST_FRACTION);
+        if self.bursts.len() < MIN_BURSTS {
+            return (None, None);
+        }
+        self.spans.clear();
+        self.spans
+            .extend(self.bursts.iter().map(|&(_, len)| len as f32));
+        let typical = median(&mut self.spans);
+        let agreeing = self
+            .bursts
+            .iter()
+            .filter(|&&(_, len)| (len as f32) >= typical * 0.5 && (len as f32) <= typical * 2.0)
+            .count();
+        if (agreeing as f32) < BURST_AGREEMENT * self.bursts.len() as f32 {
+            return (None, None);
+        }
+        let burst_ms = f64::from(typical) / rate * 1_000.0;
+        self.spans.clear();
+        self.spans.extend(
+            self.bursts
+                .windows(2)
+                .map(|pair| (pair[1].0 - pair[0].0) as f32),
+        );
+        if self.spans.is_empty() {
+            return (Some(burst_ms), None);
+        }
+        let period = median(&mut self.spans);
+        let spread = self
+            .spans
+            .iter()
+            .map(|&gap| (gap - period).abs())
+            .sum::<f32>()
+            / self.spans.len() as f32;
+        let period_ms =
+            (spread <= period * BURST_SPREAD).then(|| f64::from(period) / rate * 1_000.0);
+        (Some(burst_ms), period_ms)
+    }
+
+    fn smooth_envelope(&mut self, span: usize) {
+        self.scratch.clear();
+        let mut running = 0.0f32;
+        for (i, &a) in self.amplitude.iter().enumerate() {
+            running += a;
+            if i >= span {
+                running -= self.amplitude[i - span];
+            }
+            self.scratch.push(running / (i + 1).min(span) as f32);
+        }
+    }
+
+    fn on_runs(&mut self, gate: f32) {
+        let mut start = None;
+        for (i, &level) in self.scratch.iter().enumerate() {
+            match (start, level >= gate) {
+                (None, true) => start = Some(i),
+                (Some(from), false) => {
+                    if from > 0 {
+                        self.bursts.push((from, i - from));
+                    }
+                    start = None;
+                }
+                _ => {}
+            }
         }
     }
 
     fn envelope(&mut self, iq: &[Complex<f32>]) -> (f32, f32, f32) {
         self.amplitude.clear();
         self.amplitude.extend(iq.iter().map(|s| s.norm()));
-        let high = self.percentile(0.90);
-        let low = self.percentile(0.10);
+        let low = self.percentile(BOTTOM);
+        self.smooth_envelope(GATE_SMOOTH);
+        let high = self.scratch.iter().copied().fold(0.0f32, f32::max);
         let gate = high * KEYED_FRACTION;
-        let on = self.amplitude.iter().filter(|&&a| a >= gate).count();
-        let duty = on as f32 / self.amplitude.len().max(1) as f32;
-        let on_off_db = 20.0 * (high / low.max(f32::MIN_POSITIVE)).log10();
+        let on = self.scratch.iter().filter(|&&a| a >= gate).count();
+        let duty = on as f32 / self.scratch.len().max(1) as f32;
+        let on_off_db = (20.0 * (high / low.max(f32::MIN_POSITIVE)).log10()).min(MAX_DEPTH_DB);
         (duty, on_off_db, gate)
     }
 
@@ -168,10 +287,14 @@ impl Meter {
         *value
     }
 
-    fn keying_gap(&mut self) -> f32 {
-        let middle = (self.percentile(0.90) * self.percentile(0.10)).sqrt();
-        if middle <= 0.0 || self.amplitude.is_empty() {
+    fn keying_gap(&mut self, gate: f32) -> f32 {
+        let high = gate / KEYED_FRACTION;
+        let middle = (high * self.percentile(BOTTOM)).sqrt();
+        if self.amplitude.is_empty() || high <= 0.0 {
             return 1.0;
+        }
+        if middle <= 0.0 {
+            return 0.0;
         }
         let reach = 10.0f32.powf(KEYING_GAP_DB / 20.0);
         let (low, high) = (middle / reach, middle * reach);
@@ -627,6 +750,12 @@ fn valley_of(histogram: &[f32], first: usize, last: usize) -> f32 {
     (floor / rim).clamp(0.0, 1.0)
 }
 
+fn median(values: &mut [f32]) -> f32 {
+    let mid = values.len() / 2;
+    let (_, value, _) = values.select_nth_unstable_by(mid, f32::total_cmp);
+    *value
+}
+
 fn smooth(input: &[f32], out: &mut [f32]) {
     debug_assert_eq!(input.len(), out.len());
     for i in 0..input.len() {
@@ -808,7 +937,54 @@ mod tests {
     fn the_envelope_of_bare_noise_has_no_keyed_state_under_it() {
         let w = measure(crate::testutil::complex_noise(0x4f21, 0.05, 48_000));
         assert!(w.on_off_db > 8.0, "depth {} dB", w.on_off_db);
-        assert!(w.duty < 0.9, "duty {}", w.duty);
+        assert!(w.duty > 0.9, "noise never switches off, duty {}", w.duty);
         assert!(w.keying_gap > 0.3, "gap {}", w.keying_gap);
+    }
+
+    #[test]
+    fn one_short_burst_in_a_silent_window_is_measured_as_a_burst() {
+        let mut iq = vec![Complex::default(); 48_000];
+        for (k, sample) in iq[20_000..21_300].iter_mut().enumerate() {
+            *sample = Complex::from_polar(1.0, (TAU * 700.0 * k as f64 / RATE) as f32);
+        }
+        let w = measure(iq);
+        assert!(w.duty < 0.05, "duty {}", w.duty);
+        assert!(w.on_off_db >= 60.0, "depth {}", w.on_off_db);
+    }
+
+    #[test]
+    fn a_slotted_carrier_reports_its_burst_length_and_period() {
+        let on = (RATE * 0.030) as usize;
+        let off = (RATE * 0.030) as usize;
+        let mut iq = Vec::new();
+        let mut phase = 0.0f32;
+        for burst in 0..16 {
+            for k in 0..on + off {
+                phase += TAU as f32 * 1_500.0 / RATE as f32;
+                let amp = if k < on { 1.0 } else { 0.0005 };
+                iq.push(Complex::from_polar(amp, phase + burst as f32));
+            }
+        }
+        let w = measure(iq);
+        let burst = w.burst_ms.expect("slots are bursts");
+        assert!((burst - 30.0).abs() < 2.0, "burst {burst} ms");
+        let period = w.burst_period_ms.expect("slots repeat");
+        assert!((period - 60.0).abs() < 3.0, "period {period} ms");
+    }
+
+    #[test]
+    fn a_continuous_carrier_has_no_bursts() {
+        let iq: Vec<Complex<f32>> = (0..48_000)
+            .map(|k| Complex::from_polar(1.0, (TAU * 900.0 * f64::from(k) / RATE) as f32))
+            .collect();
+        let w = measure(iq);
+        assert_eq!(w.burst_ms, None);
+        assert_eq!(w.burst_period_ms, None);
+    }
+
+    #[test]
+    fn keyed_noise_is_not_a_burst_train() {
+        let w = measure(crate::testutil::complex_noise(0x77a1, 0.05, 48_000));
+        assert_eq!(w.burst_period_ms, None);
     }
 }

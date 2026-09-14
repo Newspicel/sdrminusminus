@@ -19,6 +19,7 @@ pub mod linalg;
 pub mod music;
 pub mod nco;
 pub mod noise;
+pub mod ofdm;
 pub mod pll;
 pub mod resamp;
 pub mod spectrum;
@@ -68,6 +69,7 @@ pub use iir::{
 pub use level::{LEVEL_FLOOR_DB, LevelMeter};
 pub use nco::Nco;
 pub use noise::{AutoNotch, ClickRemover, NoiseBlanker, SpectralDenoiser};
+pub use ofdm::{CyclicPrefix, CyclicPrefixSearch};
 pub use pll::{Costas, LoopFilter, Pll};
 pub use resamp::FracResampler;
 pub use spectrum::{NoiseFloor, SpectrumAnalyzer, adaptive_db_window, decimate_max, quantize_db};

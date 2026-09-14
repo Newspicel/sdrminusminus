@@ -1058,19 +1058,25 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
     let DecoderEvent::Ident(report) = record.event else {
         unreachable!("filtered above")
     };
-    assert_eq!(report.modulation, Modulation::Fsk4);
-    let best = report.best().expect("filtered above");
+    let signal = report.loudest().expect("filtered above");
+    assert_eq!(signal.modulation, Modulation::Fsk4);
+    let best = signal.best().expect("filtered above");
     assert_eq!(best.name, "DMR");
     assert_eq!(best.type_id.as_deref(), Some("dmr"));
     assert!(
-        (report.symbol_rate_hz.unwrap_or_default() - 4_800.0).abs() < 250.0,
+        (signal.symbol_rate_hz.unwrap_or_default() - 4_800.0).abs() < 250.0,
         "symbol rate {:?}",
-        report.symbol_rate_hz
+        signal.symbol_rate_hz
     );
     assert!(
-        report.center_offset_hz.abs() < 1_000.0,
+        signal.center_offset_hz.abs() < 1_000.0,
         "off tune by {} Hz",
-        report.center_offset_hz
+        signal.center_offset_hz
+    );
+    assert!(
+        (signal.frequency_hz - (CENTER_HZ + offset_hz)).abs() < 1_000.0,
+        "placed at {} Hz",
+        signal.frequency_hz
     );
 }
 

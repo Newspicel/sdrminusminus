@@ -135,12 +135,19 @@ function dvSummary(f: EventData<"dv">): string {
 }
 
 function identSummary(r: EventData<"ident">): string {
-  const best = r.candidates?.[0];
+  const loudest = r.signals?.[0];
+  if (loudest == null) {
+    return "no signal";
+  }
+  const best = loudest.candidates?.[0];
+  const count = (r.signals ?? []).length;
   return join([
-    modulationLabel(r),
-    r.modulation === "none" ? null : `${(r.bandwidth_hz / 1000).toFixed(1)} kHz`,
-    r.symbol_rate_hz == null ? null : `${Math.round(r.symbol_rate_hz)} Bd`,
-    r.deviation_hz == null ? null : `\u00b1${Math.round(r.deviation_hz)} Hz`,
+    count > 1 ? `${count} signals` : null,
+    modulationLabel(loudest),
+    `${(loudest.bandwidth_hz / 1000).toFixed(1)} kHz`,
+    loudest.symbol_rate_hz == null ? null : `${Math.round(loudest.symbol_rate_hz)} Bd`,
+    loudest.deviation_hz == null ? null : `\u00b1${Math.round(loudest.deviation_hz)} Hz`,
+    loudest.burst_ms == null ? null : `${loudest.burst_ms.toFixed(1)} ms bursts`,
     best == null ? null : `${best.name} (${candidateScore(best)})`,
   ]);
 }

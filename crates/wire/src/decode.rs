@@ -365,8 +365,10 @@ pub enum Modulation {
     Fm,
     Fsk2,
     Fsk4,
+    Fsk8,
     Psk2,
     Psk4,
+    Ofdm,
     NoiseLike,
     Unknown,
 }
@@ -383,8 +385,10 @@ impl Modulation {
             Self::Fm => "FM",
             Self::Fsk2 => "2-FSK",
             Self::Fsk4 => "4-FSK",
+            Self::Fsk8 => "8-FSK",
             Self::Psk2 => "BPSK",
             Self::Psk4 => "QPSK",
+            Self::Ofdm => "OFDM",
             Self::NoiseLike => "noise-like",
             Self::Unknown => "unknown",
         }
@@ -422,27 +426,57 @@ pub struct ProtocolMatch {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct IdentReport {
+pub struct IdentSignal {
     pub modulation: Modulation,
     pub confidence: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sideband: Option<crate::channel::Sideband>,
-    pub bandwidth_hz: f64,
+    /// Where the signal sits on the dial, in absolute Hz.
+    pub frequency_hz: f64,
     pub center_offset_hz: f64,
+    pub bandwidth_hz: f64,
     pub snr_db: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symbol_rate_hz: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deviation_hz: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burst_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burst_period_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ofdm_symbol_us: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ofdm_guard_us: Option<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<ProtocolMatch>,
     pub features: IdentFeatures,
 }
 
-impl IdentReport {
+impl IdentSignal {
     #[must_use]
     pub fn best(&self) -> Option<&ProtocolMatch> {
         self.candidates.first()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct IdentReport {
+    /// The loudest bin over the noise floor, measured even when nothing crossed the threshold.
+    pub snr_db: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signals: Vec<IdentSignal>,
+}
+
+impl IdentReport {
+    #[must_use]
+    pub fn loudest(&self) -> Option<&IdentSignal> {
+        self.signals.first()
+    }
+
+    #[must_use]
+    pub fn best(&self) -> Option<&ProtocolMatch> {
+        self.loudest().and_then(IdentSignal::best)
     }
 }
 
@@ -1279,18 +1313,26 @@ fn dv_summary(f: &DvFrame) -> String {
 }
 
 fn ident_summary(r: &IdentReport) -> String {
-    let mut parts = vec![r.modulation.label().to_owned()];
-    if r.modulation.is_signal() {
-        parts.push(format!("{:.1} kHz", r.bandwidth_hz / 1_000.0));
-        if let Some(baud) = r.symbol_rate_hz {
-            parts.push(format!("{baud:.0} Bd"));
-        }
-        if let Some(deviation) = r.deviation_hz {
-            parts.push(format!("±{deviation:.0} Hz"));
-        }
-        parts.push(format!("{:.0} dB SNR", r.snr_db));
+    let Some(loudest) = r.loudest() else {
+        return Modulation::None.label().to_owned();
+    };
+    let mut parts = Vec::new();
+    if r.signals.len() > 1 {
+        parts.push(format!("{} signals", r.signals.len()));
     }
-    if let Some(best) = r.best() {
+    parts.push(loudest.modulation.label().to_owned());
+    parts.push(format!("{:.1} kHz", loudest.bandwidth_hz / 1_000.0));
+    if let Some(baud) = loudest.symbol_rate_hz {
+        parts.push(format!("{baud:.0} Bd"));
+    }
+    if let Some(deviation) = loudest.deviation_hz {
+        parts.push(format!("±{deviation:.0} Hz"));
+    }
+    if let Some(burst) = loudest.burst_ms {
+        parts.push(format!("{burst:.1} ms bursts"));
+    }
+    parts.push(format!("{:.0} dB SNR", loudest.snr_db));
+    if let Some(best) = loudest.best() {
         parts.push(if best.confirmed {
             format!("{} (confirmed)", best.name)
         } else {

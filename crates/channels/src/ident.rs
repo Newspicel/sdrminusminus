@@ -1,6 +1,7 @@
 mod agreement;
 mod catalog;
 mod classify;
+mod confirm;
 mod detect;
 mod features;
 mod framing;
@@ -11,7 +12,7 @@ use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, IdentFeatures, IdentParams,
-    IdentReport, MAX_IDENT_BANDWIDTH_HZ, MIN_IDENT_BANDWIDTH_HZ, Modulation,
+    IdentReport, IdentSignal, MAX_IDENT_BANDWIDTH_HZ, MIN_IDENT_BANDWIDTH_HZ, Modulation,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -26,6 +27,22 @@ const MIN_WINDOW: usize = 4 * detect::DETECT_FFT;
 
 const STEADY_POWER_VARIATION: f64 = 0.3;
 
+const OCCUPANCY_BLOCK: usize = 256;
+
+const KEYED_SPAN_DB: f64 = 10.0;
+
+const HF_TOP_HZ: f64 = 30_000_000.0;
+
+const HF_GAP_HZ: f64 = 500.0;
+
+const GAP_HZ: f64 = 12_000.0;
+
+const PROBE_BANDWIDTH_HZ: f64 = 30_000.0;
+
+const PROBED_CONFIDENCE: f32 = 0.9;
+
+const PROBE_ENVELOPE: f32 = 0.3;
+
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ident".to_owned(),
     name: "Signal identifier".to_owned(),
@@ -38,12 +55,15 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct IdentChannel {
     params: IdentParams,
+    frequency_hz: f64,
     window: Vec<Complex<f32>>,
     pending: usize,
     detector: detect::Detector,
     meter: features::Meter,
-    agreement: agreement::Agreement,
+    tracker: agreement::Tracker,
+    confirmer: confirm::Confirmer,
     artifact_hz: Option<f64>,
+    block_power: Vec<f64>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&IdentParams, ChannelError> {
@@ -91,52 +111,88 @@ impl IdentChannel {
     fn restart(&mut self) {
         self.window.clear();
         self.pending = 0;
-        self.agreement.forget();
+    }
+
+    fn forget(&mut self) {
+        self.restart();
+        self.tracker.forget();
+        self.confirmer.forget();
     }
 
     fn analyse(&mut self) -> IdentReport {
-        let measured = self.detector.measure(
+        let dominated = self.fills_the_span();
+        let survey = self.detector.measure(
             &self.window,
             INPUT_RATE_HZ,
-            self.params.bandwidth_hz / 2.0,
-            self.params.threshold_db,
-            dominated(&self.window),
-            self.artifact_hz,
+            &detect::Search {
+                half_span_hz: self.params.bandwidth_hz / 2.0,
+                threshold_db: self.params.threshold_db,
+                gap_hz: self.gap_hz(),
+                dominated,
+                artifact_hz: self.artifact_hz,
+            },
         );
-        let Some(band) = measured.band else {
-            self.agreement.forget();
-            return IdentReport {
-                snr_db: measured.peak_db - measured.floor_db,
-                confidence: 1.0,
-                ..IdentReport::default()
-            };
-        };
-        let Some(zoom) = features::zoom(&self.window, INPUT_RATE_HZ, &band) else {
-            return IdentReport {
-                modulation: Modulation::Unknown,
-                bandwidth_hz: band.bandwidth_hz,
-                center_offset_hz: band.center_hz,
-                snr_db: band.snr_db,
-                ..IdentReport::default()
-            };
-        };
-
-        let waveform = self.meter.measure(&zoom, &band);
-        let verdict = self
-            .agreement
-            .settle(&band, classify::classify(&band, &waveform));
-        let mut candidates = catalog::candidates(verdict.modulation, &band, &waveform);
-        framing::confirm(&mut candidates, &self.window, INPUT_RATE_HZ, &band);
-
+        let signals = survey
+            .bands
+            .iter()
+            .map(|band| self.describe(band))
+            .collect();
+        self.tracker.sweep();
+        self.confirmer.sweep();
         IdentReport {
+            snr_db: survey.peak_db - survey.floor_db,
+            signals,
+        }
+    }
+
+    fn describe(&mut self, band: &detect::Band) -> IdentSignal {
+        let frequency_hz = self.frequency_hz + band.center_hz;
+        let dial = (self.frequency_hz > 0.0).then_some(frequency_hz);
+        let located = IdentSignal {
+            modulation: Modulation::Unknown,
+            frequency_hz,
+            center_offset_hz: band.center_hz,
+            bandwidth_hz: band.bandwidth_hz,
+            snr_db: band.snr_db,
+            ..IdentSignal::default()
+        };
+        let Some(zoom) = features::zoom(&self.window, INPUT_RATE_HZ, band) else {
+            return located;
+        };
+        let waveform = self.meter.measure(&zoom, band);
+        let mut verdict = self
+            .tracker
+            .settle(band, classify::classify(band, &waveform));
+        let mut candidates = catalog::candidates(verdict.modulation, band, &waveform, dial);
+        framing::confirm(&mut candidates, &self.window, INPUT_RATE_HZ, band);
+        if looks_analog(verdict.modulation)
+            && band.bandwidth_hz <= PROBE_BANDWIDTH_HZ
+            && waveform.envelope_variation <= PROBE_ENVELOPE
+            && let Some(probe) = framing::probe(&self.window, INPUT_RATE_HZ, band)
+        {
+            verdict.modulation = probe.modulation;
+            verdict.confidence = verdict.confidence.max(PROBED_CONFIDENCE);
+            verdict.sideband = None;
+            candidates.splice(0..0, probe.matches);
+        }
+        self.confirmer.confirm(
+            &mut candidates,
+            &self.window,
+            INPUT_RATE_HZ,
+            band,
+            frequency_hz,
+        );
+
+        IdentSignal {
             modulation: verdict.modulation,
             confidence: verdict.confidence,
             sideband: verdict.sideband,
-            bandwidth_hz: band.bandwidth_hz,
-            center_offset_hz: band.center_hz,
-            snr_db: band.snr_db,
             symbol_rate_hz: waveform.symbol_rate_hz,
             deviation_hz: shifts(verdict.modulation).then_some(waveform.deviation_hz),
+            burst_ms: waveform.burst_ms,
+            burst_period_ms: waveform.burst_period_ms,
+            ofdm_symbol_us: waveform.ofdm_symbol_us,
+            ofdm_guard_us: waveform.ofdm_guard_us,
             candidates,
             features: IdentFeatures {
                 envelope_variation: waveform.envelope_variation,
@@ -150,11 +206,46 @@ impl IdentChannel {
                 square_line_db: waveform.square_line_db,
                 quartic_line_db: waveform.quartic_line_db,
             },
+            ..located
         }
+    }
+
+    fn gap_hz(&self) -> f64 {
+        if self.frequency_hz > 0.0 && self.frequency_hz < HF_TOP_HZ {
+            HF_GAP_HZ
+        } else {
+            GAP_HZ
+        }
+    }
+
+    fn fills_the_span(&mut self) -> bool {
+        steady(&self.window)
+            || self.keyed_blocks()
+            || self
+                .meter
+                .cyclic_prefix(&self.window, INPUT_RATE_HZ, self.params.bandwidth_hz)
+                .is_some()
+    }
+
+    fn keyed_blocks(&mut self) -> bool {
+        self.block_power.clear();
+        self.block_power.extend(
+            self.window
+                .as_chunks::<OCCUPANCY_BLOCK>()
+                .0
+                .iter()
+                .map(|block| block.iter().map(|s| f64::from(s.norm_sqr())).sum::<f64>()),
+        );
+        if self.block_power.len() < 8 {
+            return false;
+        }
+        let quiet = quantile(&mut self.block_power, 0.1);
+        let loud = quantile(&mut self.block_power, 0.9);
+        quiet > 0.0 && 10.0 * (loud / quiet).log10() >= KEYED_SPAN_DB
     }
 }
 
-fn dominated(iq: &[Complex<f32>]) -> bool {
+fn steady(iq: &[Complex<f32>]) -> bool {
     let mut sum = 0.0f64;
     let mut sum_sq = 0.0f64;
     for sample in iq {
@@ -171,10 +262,23 @@ fn dominated(iq: &[Complex<f32>]) -> bool {
     variation < STEADY_POWER_VARIATION
 }
 
+fn quantile(values: &mut [f64], fraction: f64) -> f64 {
+    let index = ((values.len() - 1) as f64 * fraction) as usize;
+    let (_, value, _) = values.select_nth_unstable_by(index, f64::total_cmp);
+    *value
+}
+
+const fn looks_analog(modulation: Modulation) -> bool {
+    matches!(
+        modulation,
+        Modulation::Fm | Modulation::Am | Modulation::Unknown | Modulation::NoiseLike
+    )
+}
+
 const fn shifts(modulation: Modulation) -> bool {
     matches!(
         modulation,
-        Modulation::Fm | Modulation::Fsk2 | Modulation::Fsk4
+        Modulation::Fm | Modulation::Fsk2 | Modulation::Fsk4 | Modulation::Fsk8
     )
 }
 
@@ -190,32 +294,38 @@ impl ChannelRx for IdentChannel {
         Ok(Self {
             window: Vec::with_capacity(interval_samples(&params).min(MAX_WINDOW)),
             params,
+            frequency_hz: settings.frequency_hz,
             pending: 0,
             detector: detect::Detector::new(),
             meter: features::Meter::new(),
-            agreement: agreement::Agreement::new(),
+            tracker: agreement::Tracker::new(),
+            confirmer: confirm::Confirmer::new(),
             artifact_hz: None,
+            block_power: Vec::with_capacity(MAX_WINDOW / OCCUPANCY_BLOCK),
         })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let params = *params(&settings)?;
         check_params(&params)?;
-        if interval_samples(&params) != interval_samples(&self.params) {
-            self.restart();
+        if interval_samples(&params) != interval_samples(&self.params)
+            || settings.frequency_hz != self.frequency_hz
+        {
+            self.forget();
         }
         self.params = params;
+        self.frequency_hz = settings.frequency_hz;
         Ok(())
     }
 
     fn retuned(&mut self) {
-        self.restart();
+        self.forget();
     }
 
     fn lo_artifact_at(&mut self, offset_hz: Option<f64>) {
         if offset_hz != self.artifact_hz {
             self.artifact_hz = offset_hz;
-            self.restart();
+            self.forget();
         }
     }
 
@@ -244,7 +354,9 @@ mod tests {
     use std::time::Instant;
 
     use num_complex::Complex;
-    use sdrmm_wire::{ChannelSettings, DecoderEvent, IdentParams, Modulation};
+    use sdrmm_wire::{
+        ChannelSettings, DecoderEvent, IdentParams, IdentReport, IdentSignal, Modulation,
+    };
 
     use super::{INPUT_RATE_HZ, IdentChannel, MAX_WINDOW};
     use crate::{
@@ -263,20 +375,28 @@ mod tests {
     }
 
     fn settings(params: IdentParams) -> ChannelSettings {
+        settings_at(params, 0.0)
+    }
+
+    fn settings_at(params: IdentParams, frequency_hz: f64) -> ChannelSettings {
         ChannelSettings {
-            frequency_hz: 0.0,
+            frequency_hz,
             squelch: sdrmm_wire::Squelch::Off,
             params: sdrmm_wire::ChannelParams::Ident(params),
             audio: Default::default(),
         }
     }
 
-    fn run(params: IdentParams, iq: &[Complex<f32>]) -> Vec<sdrmm_wire::IdentReport> {
+    fn run(params: IdentParams, iq: &[Complex<f32>]) -> Vec<IdentReport> {
+        run_at(settings(params), iq)
+    }
+
+    fn run_at(settings: ChannelSettings, iq: &[Complex<f32>]) -> Vec<IdentReport> {
         let ctx = ChannelCtx {
             input_rate: INPUT_RATE_HZ,
         };
         let mut channel =
-            IdentChannel::new(ctx, settings(params)).expect("ident channel builds at its own rate");
+            IdentChannel::new(ctx, settings).expect("ident channel builds at its own rate");
         let mut out = ChannelOutputs::default();
         let mut reports = Vec::new();
         let mut pos = 0;
@@ -330,16 +450,27 @@ mod tests {
             .collect()
     }
 
-    fn best(report: &sdrmm_wire::IdentReport) -> Option<&str> {
+    fn best(report: &IdentReport) -> Option<&str> {
         report.best().map(|m| m.name.as_str())
     }
 
-    fn consensus(reports: &[sdrmm_wire::IdentReport]) -> Modulation {
+    fn family(report: &IdentReport) -> Modulation {
+        report
+            .loudest()
+            .map_or(Modulation::None, |signal| signal.modulation)
+    }
+
+    fn loudest(report: &IdentReport) -> &IdentSignal {
+        report.loudest().expect("a signal was found")
+    }
+
+    fn consensus(reports: &[IdentReport]) -> Modulation {
         let mut counts: Vec<(Modulation, usize)> = Vec::new();
         for report in reports {
-            match counts.iter_mut().find(|(m, _)| *m == report.modulation) {
+            let found = family(report);
+            match counts.iter_mut().find(|(m, _)| *m == found) {
                 Some((_, n)) => *n += 1,
-                None => counts.push((report.modulation, 1)),
+                None => counts.push((found, 1)),
             }
         }
         counts
@@ -354,8 +485,8 @@ mod tests {
         let reports = run(params(), &noise);
         assert!(!reports.is_empty(), "reports arrive on the interval");
         for report in &reports {
-            assert_eq!(report.modulation, Modulation::None);
-            assert!(report.candidates.is_empty());
+            assert!(report.signals.is_empty(), "{report:?}");
+            assert!(report.best().is_none());
         }
     }
 
@@ -374,7 +505,8 @@ mod tests {
             .map(|k| {
                 Complex::from_polar(
                     0.5,
-                    (std::f64::consts::TAU * offset * k as f64 / INPUT_RATE_HZ) as f32,
+                    (std::f64::consts::TAU * offset * k as f64 / INPUT_RATE_HZ)
+                        .rem_euclid(std::f64::consts::TAU) as f32,
                 )
             })
             .collect();
@@ -383,13 +515,13 @@ mod tests {
         }
         let reports = run(params(), &iq);
         assert_eq!(consensus(&reports), Modulation::Carrier);
-        let first = &reports[0];
+        let first = loudest(&reports[0]);
         assert!(
             (first.center_offset_hz - offset).abs() < 500.0,
             "offset {} Hz",
             first.center_offset_hz
         );
-        assert_eq!(best(first), Some("Unmodulated carrier"));
+        assert_eq!(best(&reports[0]), Some("Unmodulated carrier"));
     }
 
     #[test]
@@ -405,10 +537,11 @@ mod tests {
         let best = confirmed.best().expect("checked above");
         assert_eq!(best.name, "DMR");
         assert_eq!(best.type_id.as_deref(), Some("dmr"));
+        let signal = loudest(confirmed);
         assert!(
-            (confirmed.symbol_rate_hz.unwrap_or_default() - 4_800.0).abs() < 250.0,
+            (signal.symbol_rate_hz.unwrap_or_default() - 4_800.0).abs() < 250.0,
             "baud {:?}",
-            confirmed.symbol_rate_hz
+            signal.symbol_rate_hz
         );
     }
 
@@ -422,7 +555,12 @@ mod tests {
             .find(|r| r.best().is_some_and(|m| m.confirmed))
             .expect("a P25 transmission carries its own frame sync");
         assert_eq!(best(confirmed), Some("P25 Phase 1"));
-        assert!(confirmed.candidates.iter().any(|m| m.name == "DMR"));
+        assert!(
+            loudest(confirmed)
+                .candidates
+                .iter()
+                .any(|m| m.name == "DMR")
+        );
     }
 
     #[test]
@@ -439,15 +577,41 @@ mod tests {
             0x5d90,
         );
         let reports = run(params(), &iq);
+        eprintln!(
+            "DEBUG-PAGER {:?}",
+            reports
+                .iter()
+                .map(|r| r.loudest().map(|s| (
+                    s.modulation,
+                    s.symbol_rate_hz,
+                    s.deviation_hz,
+                    s.bandwidth_hz,
+                    &s.candidates
+                )))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(consensus(&reports), Modulation::Fsk2);
         let named = reports
             .iter()
             .find(|r| best(r) == Some("POCSAG (1200 bd)"))
             .expect("a 1200 baud pager shift is POCSAG at 1200 baud");
+        let signal = loudest(named);
         assert!(
-            (named.deviation_hz.unwrap_or_default() - 4_500.0).abs() < 1_200.0,
+            (signal.deviation_hz.unwrap_or_default() - 4_500.0).abs() < 1_200.0,
             "deviation {:?}",
-            named.deviation_hz
+            signal.deviation_hz
+        );
+        let confirmed = reports
+            .iter()
+            .find(|r| r.best().is_some_and(|m| m.confirmed))
+            .expect("the POCSAG decoder reads the pages");
+        assert_eq!(best(confirmed), Some("POCSAG (1200 bd)"));
+        assert!(
+            confirmed
+                .best()
+                .is_some_and(|m| m.why.contains("decoder read")),
+            "{:?}",
+            confirmed.best()
         );
     }
 
@@ -466,10 +630,14 @@ mod tests {
             0.8,
         );
         let reports = run(params(), &iq);
-        let loudest = reports.iter().map(|r| r.snr_db).fold(0.0, f32::max);
+        let strongest = reports
+            .iter()
+            .filter_map(|r| r.loudest())
+            .map(|s| s.snr_db)
+            .fold(0.0, f32::max);
         assert!(
-            loudest < 20.0,
-            "meant to be a weak signal, got {loudest} dB"
+            strongest < 20.0,
+            "meant to be a weak signal, got {strongest} dB"
         );
         assert_eq!(consensus(&reports), Modulation::Fsk2);
         assert!(
@@ -491,10 +659,14 @@ mod tests {
             1.2,
         );
         let reports = run(params(), &iq);
-        let loudest = reports.iter().map(|r| r.snr_db).fold(0.0, f32::max);
+        let strongest = reports
+            .iter()
+            .filter_map(|r| r.loudest())
+            .map(|s| s.snr_db)
+            .fold(0.0, f32::max);
         assert!(
-            loudest < 20.0,
-            "meant to be a weak signal, got {loudest} dB"
+            strongest < 20.0,
+            "meant to be a weak signal, got {strongest} dB"
         );
         assert_eq!(consensus(&reports), Modulation::Fm);
     }
@@ -569,9 +741,10 @@ mod tests {
         let reports = run(params(), &station(0.35));
         assert!(reports.len() >= 4, "{} reports", reports.len());
         for report in &reports {
-            assert_eq!(report.modulation, Modulation::Fm, "{report:?}");
+            assert_eq!(family(report), Modulation::Fm, "{report:?}");
             assert_eq!(best(report), Some("FM broadcast"));
-            assert!(report.confidence > 0.6, "confidence {}", report.confidence);
+            let signal = loudest(report);
+            assert!(signal.confidence > 0.6, "confidence {}", signal.confidence);
         }
     }
 
@@ -580,11 +753,12 @@ mod tests {
         let reports = run(params(), &station(1.0));
         assert!(reports.len() >= 4, "{} reports", reports.len());
         for report in &reports {
-            assert_eq!(report.modulation, Modulation::Fm, "{report:?}");
+            assert_eq!(family(report), Modulation::Fm, "{report:?}");
+            let signal = loudest(report);
             assert!(
-                report.bandwidth_hz > 100_000.0,
+                signal.bandwidth_hz > 100_000.0,
                 "bandwidth {} Hz",
-                report.bandwidth_hz
+                signal.bandwidth_hz
             );
         }
     }
@@ -594,6 +768,20 @@ mod tests {
         let mut iq = testgen::morse::transmission("CQ CQ DE TEST", 20.0, 800.0, INPUT_RATE_HZ);
         testgen::add_noise(&mut iq, 0x3311, 0.004);
         let reports = run(params(), &iq);
+        eprintln!(
+            "DEBUG-MORSE {:?}",
+            reports
+                .iter()
+                .map(|r| r.loudest().map(|s| (
+                    s.modulation,
+                    s.bandwidth_hz,
+                    s.burst_ms,
+                    s.features.duty,
+                    s.features.keying_depth_db,
+                    s.symbol_rate_hz
+                )))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(consensus(&reports), Modulation::Ook);
         assert!(
             reports.iter().any(|r| best(r) == Some("Morse (CW)")),
@@ -613,7 +801,7 @@ mod tests {
         let reports = run(params(), &iq);
         assert_eq!(consensus(&reports), Modulation::Am);
         assert!(
-            reports.iter().all(|r| r.modulation != Modulation::Ook),
+            reports.iter().all(|r| family(r) != Modulation::Ook),
             "an 80 percent modulated carrier dips without ever being keyed off"
         );
         assert_eq!(best(&reports[0]), Some("AM voice"));
@@ -680,5 +868,192 @@ mod tests {
         channel.process(&noise[..MAX_WINDOW + 1], &mut out);
         assert_eq!(channel.window.len(), MAX_WINDOW);
         assert!(out.events.is_empty());
+    }
+
+    #[test]
+    fn two_transmissions_in_one_window_are_both_named() {
+        let seconds = 2.0;
+        let mut iq = on_air(
+            &tgdv::dmr::transmission(&tgdv::dmr::Call::default(), INPUT_RATE_HZ),
+            seconds,
+            0x71a2,
+        );
+        testgen::shift(&mut iq, 60_000.0, INPUT_RATE_HZ);
+        let pages = [testgen::pocsag::Page {
+            address: 1_234_567,
+            function: 3,
+            text: "SURVEY".to_owned(),
+            numeric: false,
+        }];
+        let mut pager = in_noise(
+            &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+            seconds,
+            0x5d90,
+            0.0,
+        );
+        testgen::shift(&mut pager, -50_000.0, INPUT_RATE_HZ);
+        for (s, p) in iq.iter_mut().zip(&pager) {
+            *s += p;
+        }
+        let reports = run(params(), &iq);
+        let survey = reports
+            .iter()
+            .find(|r| r.signals.len() == 2)
+            .unwrap_or_else(|| panic!("both signals are listed: {reports:?}"));
+        let at = |offset: f64| {
+            survey
+                .signals
+                .iter()
+                .find(|s| (s.center_offset_hz - offset).abs() < 3_000.0)
+                .unwrap_or_else(|| panic!("no signal near {offset} Hz in {:?}", survey.signals))
+        };
+        assert_eq!(at(60_000.0).modulation, Modulation::Fsk4);
+        assert_eq!(at(-50_000.0).modulation, Modulation::Fsk2);
+        assert_eq!(
+            at(-50_000.0).best().map(|m| m.name.as_str()),
+            Some("POCSAG (1200 bd)")
+        );
+    }
+
+    #[test]
+    fn a_signal_knows_where_it_sits_on_the_dial() {
+        let offset = 42_000.0;
+        let dial = 145_000_000.0;
+        let len = (INPUT_RATE_HZ * 1.2) as usize;
+        let mut iq: Vec<Complex<f32>> = (0..len)
+            .map(|k| {
+                Complex::from_polar(
+                    0.5,
+                    (std::f64::consts::TAU * offset * k as f64 / INPUT_RATE_HZ)
+                        .rem_euclid(std::f64::consts::TAU) as f32,
+                )
+            })
+            .collect();
+        testgen::add_noise(&mut iq, 0x4411, 0.002);
+        let reports = run_at(settings_at(params(), dial), &iq);
+        let signal = loudest(&reports[0]);
+        assert!(
+            (signal.frequency_hz - (dial + offset)).abs() < 500.0,
+            "{} Hz",
+            signal.frequency_hz
+        );
+    }
+
+    #[test]
+    fn the_dial_frequency_is_part_of_the_evidence() {
+        let pages = [testgen::pocsag::Page {
+            address: 1_234_567,
+            function: 3,
+            text: "IDENT TEST".to_owned(),
+            numeric: false,
+        }];
+        let iq = on_air(
+            &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+            1.2,
+            0x5d90,
+        );
+        let reports = run_at(settings_at(params(), 466_075_000.0), &iq);
+        let placed = reports
+            .iter()
+            .find(|r| best(r) == Some("POCSAG (1200 bd)"))
+            .expect("named");
+        assert!(
+            placed
+                .best()
+                .is_some_and(|m| m.why.contains("allocation") || m.confirmed),
+            "{:?}",
+            placed.best()
+        );
+    }
+
+    #[test]
+    fn a_slotted_transmission_reports_its_bursts_and_the_bursts_favour_dmr() {
+        let call = tgdv::dmr::Call::default();
+        let iq = on_air(
+            &tgdv::dmr::simplex_transmission(&call, INPUT_RATE_HZ),
+            2.0,
+            0x71a3,
+        );
+        let reports = run(params(), &iq);
+        assert_eq!(consensus(&reports), Modulation::Fsk4);
+        let bursty = reports
+            .iter()
+            .filter_map(|r| r.loudest())
+            .find(|s| s.burst_ms.is_some())
+            .unwrap_or_else(|| panic!("a single-slot call is bursty: {reports:?}"));
+        let burst = bursty.burst_ms.unwrap_or_default();
+        assert!((burst - 30.0).abs() < 5.0, "burst {burst} ms");
+        let period = bursty.burst_period_ms.expect("slots repeat every frame");
+        assert!((period - 60.0).abs() < 6.0, "period {period} ms");
+        assert_eq!(bursty.best().map(|m| m.name.as_str()), Some("DMR"));
+    }
+
+    fn ofdm_like_dab(seconds: f64, seed: u32) -> Vec<Complex<f32>> {
+        const RATE: f64 = 2_048_000.0;
+        const USEFUL: usize = 2_048;
+        const GUARD: usize = 504;
+        const CARRIERS: usize = 1_536;
+        let mut fft = sdrmm_dsp::fft::FftPair::new(USEFUL);
+        let mut state = seed | 1;
+        let symbols = (seconds * RATE / (USEFUL + GUARD) as f64) as usize;
+        let mut out = Vec::with_capacity(symbols * (USEFUL + GUARD));
+        let mut symbol = vec![Complex::default(); USEFUL];
+        for _ in 0..symbols {
+            symbol.fill(Complex::default());
+            for k in 1..=CARRIERS / 2 {
+                for index in [k, USEFUL - k] {
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    let phase = (state % 4) as f32 * std::f32::consts::FRAC_PI_2
+                        + std::f32::consts::FRAC_PI_4;
+                    symbol[index] = Complex::from_polar(2.0, phase);
+                }
+            }
+            fft.inverse_scaled(&mut symbol);
+            out.extend_from_slice(&symbol[USEFUL - GUARD..]);
+            out.extend_from_slice(&symbol);
+        }
+        testgen::resample(&out, RATE, INPUT_RATE_HZ)
+    }
+
+    #[test]
+    fn a_slice_of_a_dab_ensemble_is_ofdm_with_a_millisecond_symbol() {
+        let mut iq = ofdm_like_dab(2.2, 0x0da8);
+        testgen::add_noise(&mut iq, 0x0da8, 0.002);
+        let reports = run_at(settings_at(params(), 227_360_000.0), &iq);
+        assert_eq!(consensus(&reports), Modulation::Ofdm, "{reports:?}");
+        let signal = reports
+            .iter()
+            .filter_map(|r| r.loudest())
+            .find(|s| s.modulation == Modulation::Ofdm)
+            .expect("checked above");
+        let symbol = signal.ofdm_symbol_us.expect("useful symbol");
+        assert!((symbol - 1_000.0).abs() < 30.0, "symbol {symbol} µs");
+        let guard = signal.ofdm_guard_us.expect("guard interval");
+        assert!((guard - 246.0).abs() < 25.0, "guard {guard} µs");
+        assert_eq!(signal.best().map(|m| m.name.as_str()), Some("DAB / DAB+"));
+    }
+
+    #[test]
+    fn a_broadcast_station_is_confirmed_by_its_rds() {
+        let station = testgen::rds::Station {
+            pi: 0xD3C2,
+            ps: "SDR-M4  ".to_owned(),
+            radiotext: "identifier".to_owned(),
+            pty: 10,
+            tp: true,
+            ta: false,
+            music: true,
+            alt_freqs_hz: Vec::new(),
+        };
+        let mut iq = testgen::rds::transmission(&station, 2.5, Some(1_000.0), INPUT_RATE_HZ);
+        testgen::add_noise(&mut iq, 0x6f02, 0.002);
+        let reports = run_at(settings_at(params(), 95_500_000.0), &iq);
+        let confirmed = reports
+            .iter()
+            .find(|r| r.best().is_some_and(|m| m.confirmed))
+            .unwrap_or_else(|| panic!("the wfm decoder reads the RDS groups: {reports:?}"));
+        assert_eq!(best(confirmed), Some("FM broadcast"));
     }
 }

@@ -3709,8 +3709,20 @@ export interface components {
             threshold_db?: number;
         };
         IdentReport: {
+            signals?: components["schemas"]["IdentSignal"][];
+            /**
+             * Format: float
+             * @description The loudest bin over the noise floor, measured even when nothing crossed the threshold.
+             */
+            snr_db: number;
+        };
+        IdentSignal: {
             /** Format: double */
             bandwidth_hz: number;
+            /** Format: double */
+            burst_ms?: number | null;
+            /** Format: double */
+            burst_period_ms?: number | null;
             candidates?: components["schemas"]["ProtocolMatch"][];
             /** Format: double */
             center_offset_hz: number;
@@ -3719,7 +3731,16 @@ export interface components {
             /** Format: double */
             deviation_hz?: number | null;
             features: components["schemas"]["IdentFeatures"];
+            /**
+             * Format: double
+             * @description Where the signal sits on the dial, in absolute Hz.
+             */
+            frequency_hz: number;
             modulation: components["schemas"]["Modulation"];
+            /** Format: double */
+            ofdm_guard_us?: number | null;
+            /** Format: double */
+            ofdm_symbol_us?: number | null;
             sideband?: null | components["schemas"]["Sideband"];
             /** Format: float */
             snr_db: number;
@@ -3824,7 +3845,7 @@ export interface components {
         /** @enum {string} */
         MergePart: "contacts" | "group_lists" | "channels" | "zones" | "scan_lists" | "radio_ids" | "settings";
         /** @enum {string} */
-        Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "psk2" | "psk4" | "noise_like" | "unknown";
+        Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "fsk8" | "psk2" | "psk4" | "ofdm" | "noise_like" | "unknown";
         MorseParams: {
             /** Format: double */
             bandwidth_hz?: number;

@@ -22,6 +22,7 @@ mod bundle;
 mod excerpt;
 mod homebrew;
 mod icons;
+mod ident_matrix;
 mod licenses;
 mod linkage;
 mod nixhash;
@@ -64,6 +65,7 @@ enum Cmd {
         full: bool,
     },
     Icons,
+    IdentMatrix,
     NixHash,
     Dist {
         #[arg(long)]
@@ -126,6 +128,7 @@ fn main() -> Result<()> {
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
         Cmd::Icons => icons::icons(&root()),
+        Cmd::IdentMatrix => ident_matrix::run(&root()),
         Cmd::NixHash => nixhash::run(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),

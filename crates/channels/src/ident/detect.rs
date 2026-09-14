@@ -5,7 +5,11 @@ pub(crate) const DETECT_FFT: usize = 4_096;
 
 const MAX_SEGMENTS: usize = 24;
 
-const GAP_HZ: f64 = 8_000.0;
+const MAX_BANDS: usize = 8;
+
+const MIN_BAND_SNR_DB: f32 = 3.0;
+
+const DOMINATED_OCCUPANCY: f64 = 0.5;
 
 const BAND_EDGE_DB: f32 = 20.0;
 
@@ -55,10 +59,19 @@ enum Series {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Measurement {
+pub(crate) struct Search {
+    pub(crate) half_span_hz: f64,
+    pub(crate) threshold_db: f32,
+    pub(crate) gap_hz: f64,
+    pub(crate) dominated: bool,
+    pub(crate) artifact_hz: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Survey {
     pub(crate) floor_db: f32,
     pub(crate) peak_db: f32,
-    pub(crate) band: Option<Band>,
+    pub(crate) bands: Vec<Band>,
 }
 
 pub(crate) struct Detector {
@@ -67,6 +80,17 @@ pub(crate) struct Detector {
     power: Vec<f32>,
     smoothed: Vec<f32>,
     scratch: Vec<f32>,
+    masked: Vec<bool>,
+    covered: usize,
+}
+
+struct Slice {
+    lo: usize,
+    hi: usize,
+    floor: f32,
+    floor_db: f32,
+    bin_hz: f64,
+    gap: usize,
 }
 
 impl Detector {
@@ -77,22 +101,23 @@ impl Detector {
             power: vec![0.0; DETECT_FFT],
             smoothed: vec![0.0; DETECT_FFT],
             scratch: vec![0.0; DETECT_FFT],
+            masked: vec![false; DETECT_FFT],
+            covered: 0,
         }
     }
 
-    pub(crate) fn measure(
-        &mut self,
-        iq: &[Complex<f32>],
-        rate: f64,
-        half_span_hz: f64,
-        threshold_db: f32,
-        dominated: bool,
-        artifact_hz: Option<f64>,
-    ) -> Measurement {
-        let quiet = Measurement {
+    pub(crate) fn measure(&mut self, iq: &[Complex<f32>], rate: f64, search: &Search) -> Survey {
+        let Search {
+            half_span_hz,
+            threshold_db,
+            gap_hz,
+            dominated,
+            artifact_hz,
+        } = *search;
+        let quiet = Survey {
             floor_db: -200.0,
             peak_db: -200.0,
-            band: None,
+            bands: Vec::new(),
         };
         if iq.len() < DETECT_FFT || rate <= 0.0 {
             return quiet;
@@ -104,60 +129,107 @@ impl Detector {
         let half_bins = ((half_span_hz / bin_hz).floor() as usize).clamp(1, center);
         let lo = center - half_bins;
         let hi = (center + half_bins).min(DETECT_FFT - 1);
-        let artifact = artifact_bins(artifact_hz, bin_hz, center);
+        self.masked.fill(false);
+        if let Some(artifact) = artifact_bins(artifact_hz, bin_hz, center) {
+            self.masked[artifact].fill(true);
+        }
 
         let floor = self.quantile_of(Series::Smoothed, lo, hi, FLOOR_QUANTILE);
         let floor_db = 10.0 * (floor.max(f32::MIN_POSITIVE)).log10();
-        let Some(peak) = (lo..=hi)
-            .filter(|i| !artifact.as_ref().is_some_and(|a| a.contains(i)))
-            .max_by(|&a, &b| self.smoothed[a].total_cmp(&self.smoothed[b]))
-        else {
+        let Some(peak) = self.loudest(lo, hi) else {
             return quiet;
         };
-        let peak_db = 10.0 * (self.smoothed[peak].max(f32::MIN_POSITIVE)).log10();
-        let quiet_band = peak_db - floor_db < threshold_db;
-        if quiet_band && !dominated {
-            return Measurement {
-                floor_db,
-                peak_db,
-                band: None,
-            };
-        }
-
-        let edge = from_db((floor_db + (threshold_db * 0.5).max(3.0)).max(peak_db - BAND_EDGE_DB));
-        let gap = ((GAP_HZ / bin_hz) as usize).max(1);
-        let (start, end) = if quiet_band {
-            (lo, hi)
-        } else {
-            self.extent(peak, lo, hi, edge, gap)
+        let peak_db = self.db_at(peak);
+        let slice = Slice {
+            lo,
+            hi,
+            floor,
+            floor_db,
+            bin_hz,
+            gap: ((gap_hz / bin_hz) as usize).max(1),
         };
-        let bins = end - start + 1;
+        let mut survey = Survey {
+            floor_db,
+            peak_db,
+            bands: Vec::new(),
+        };
+        if peak_db - floor_db < threshold_db {
+            if dominated {
+                survey.bands.push(self.describe(&slice, lo, hi, peak));
+            }
+            return survey;
+        }
+        self.covered = 0;
+        self.survey(&slice, threshold_db, peak, &mut survey.bands);
+        if dominated && self.covered as f64 >= DOMINATED_OCCUPANCY * (hi - lo + 1) as f64 {
+            survey.bands.clear();
+            survey.bands.push(self.describe(&slice, lo, hi, peak));
+        }
+        survey
+    }
 
+    fn survey(&mut self, slice: &Slice, threshold_db: f32, first: usize, bands: &mut Vec<Band>) {
+        let spill = from_db(slice.floor_db + threshold_db);
+        let mut peak = first;
+        while bands.len() < MAX_BANDS {
+            let peak_db = self.db_at(peak);
+            if peak_db - slice.floor_db < threshold_db {
+                break;
+            }
+            let edge = from_db(
+                (slice.floor_db + (threshold_db * 0.5).max(3.0)).max(peak_db - BAND_EDGE_DB),
+            );
+            let (start, end) = self.extent(peak, slice.lo, slice.hi, edge, slice.gap);
+            let band = self.describe(slice, start, end, peak);
+            if band.snr_db >= MIN_BAND_SNR_DB {
+                bands.push(band);
+                self.covered += end - start + 1;
+            }
+            let (spill_start, spill_end) = self.extent(peak, slice.lo, slice.hi, spill, slice.gap);
+            let masked_lo = start
+                .min(spill_start)
+                .saturating_sub(slice.gap)
+                .max(slice.lo);
+            let masked_hi = (end.max(spill_end) + slice.gap).min(slice.hi);
+            self.masked[masked_lo..=masked_hi].fill(true);
+            let Some(next) = self.loudest(slice.lo, slice.hi) else {
+                break;
+            };
+            peak = next;
+        }
+    }
+
+    fn loudest(&self, lo: usize, hi: usize) -> Option<usize> {
+        (lo..=hi)
+            .filter(|&i| !self.masked[i])
+            .max_by(|&a, &b| self.smoothed[a].total_cmp(&self.smoothed[b]))
+    }
+
+    fn db_at(&self, bin: usize) -> f32 {
+        10.0 * (self.smoothed[bin].max(f32::MIN_POSITIVE)).log10()
+    }
+
+    fn describe(&mut self, slice: &Slice, start: usize, end: usize, peak: usize) -> Band {
+        let center = DETECT_FFT / 2;
+        let bins = end - start + 1;
         let occupied: f32 = self.smoothed[start..=end].iter().sum();
-        let noise = floor * bins as f32;
+        let noise = slice.floor * bins as f32;
         let signal = (occupied - noise).max(f32::MIN_POSITIVE);
         let snr_db = 10.0 * (signal / noise.max(f32::MIN_POSITIVE)).log10();
-
         let raw_peak_db = 10.0 * self.power[peak].max(f32::MIN_POSITIVE).log10();
         let median_db = 10.0
             * self
                 .quantile_of(Series::Raw, start, end, 0.5)
                 .max(f32::MIN_POSITIVE)
                 .log10();
-        let bin_index_hz = |i: usize| (i as f64 - center as f64) * bin_hz;
-
-        Measurement {
-            floor_db,
-            peak_db,
-            band: Some(Band {
-                center_hz: self.centroid_hz(start, end, floor, bin_hz, center),
-                bandwidth_hz: bins as f64 * bin_hz,
-                snr_db,
-                carrier_db: raw_peak_db - median_db,
-                flatness: self.flatness(start, end),
-                skew: self.skew(start, end, floor, bin_hz),
-                peak_hz: bin_index_hz(peak),
-            }),
+        Band {
+            center_hz: self.centroid_hz(start, end, slice.floor, slice.bin_hz, center),
+            bandwidth_hz: bins as f64 * slice.bin_hz,
+            snr_db,
+            carrier_db: raw_peak_db - median_db,
+            flatness: self.flatness(start, end),
+            skew: self.skew(start, end, slice.floor, slice.bin_hz),
+            peak_hz: (peak as f64 - center as f64) * slice.bin_hz,
         }
     }
 
@@ -209,19 +281,25 @@ impl Detector {
 
     fn extent(&self, peak: usize, lo: usize, hi: usize, edge: f32, gap: usize) -> (usize, usize) {
         let mut start = peak;
+        let mut end = peak;
         let mut i = peak;
         while i > lo {
             i -= 1;
+            if self.masked[i] {
+                break;
+            }
             if self.smoothed[i] >= edge {
                 start = i;
             } else if start - i > gap {
                 break;
             }
         }
-        let mut end = peak;
         let mut j = peak;
         while j < hi {
             j += 1;
+            if self.masked[j] {
+                break;
+            }
             if self.smoothed[j] >= edge {
                 end = j;
             } else if j - end > gap {
@@ -283,18 +361,33 @@ mod tests {
 
     fn tone(freq_hz: f64, rate: f64, len: usize, amp: f32) -> Vec<Complex<f32>> {
         (0..len)
-            .map(|k| Complex::from_polar(amp, (TAU * freq_hz * k as f64 / rate) as f32))
+            .map(|k| {
+                Complex::from_polar(
+                    amp,
+                    (TAU * freq_hz * k as f64 / rate).rem_euclid(TAU) as f32,
+                )
+            })
             .collect()
     }
 
     const RATE: f64 = 250_000.0;
 
+    fn search(half_span_hz: f64, gap_hz: f64, dominated: bool, artifact_hz: Option<f64>) -> Search {
+        Search {
+            half_span_hz,
+            threshold_db: 8.0,
+            gap_hz,
+            dominated,
+            artifact_hz,
+        }
+    }
+
     #[test]
     fn empty_air_reports_no_band() {
         let mut detector = Detector::new();
         let noise = complex_noise(0x51d3, 0.01, 32_768);
-        let measured = detector.measure(&noise, RATE, 100_000.0, 8.0, false, None);
-        assert!(measured.band.is_none());
+        let measured = detector.measure(&noise, RATE, &search(100_000.0, 8_000.0, false, None));
+        assert!(measured.bands.is_empty());
     }
 
     #[test]
@@ -305,8 +398,10 @@ mod tests {
             *s += n;
         }
         let band = detector
-            .measure(&iq, RATE, 100_000.0, 8.0, false, None)
-            .band
+            .measure(&iq, RATE, &search(100_000.0, 8_000.0, false, None))
+            .bands
+            .first()
+            .copied()
             .expect("a carrier 40 dB out of the noise is a signal");
         assert!(
             (band.center_hz - 37_500.0).abs() < 500.0,
@@ -332,8 +427,10 @@ mod tests {
         }
 
         let fooled = detector
-            .measure(&iq, RATE, 100_000.0, 8.0, false, None)
-            .band
+            .measure(&iq, RATE, &search(100_000.0, 8_000.0, false, None))
+            .bands
+            .first()
+            .copied()
             .expect("the dc term alone reads as a band");
         assert!(
             fooled.center_hz.abs() < 2_000.0,
@@ -342,8 +439,10 @@ mod tests {
         );
 
         let guarded = detector
-            .measure(&iq, RATE, 100_000.0, 8.0, false, Some(0.0))
-            .band
+            .measure(&iq, RATE, &search(100_000.0, 8_000.0, false, Some(0.0)))
+            .bands
+            .first()
+            .copied()
             .expect("the real carrier is still there");
         assert!(
             (guarded.center_hz - 20_000.0).abs() < 500.0,
@@ -360,8 +459,14 @@ mod tests {
             *s += n;
         }
         let band = detector
-            .measure(&iq, RATE, 100_000.0, 8.0, false, Some(-60_000.0))
-            .band
+            .measure(
+                &iq,
+                RATE,
+                &search(100_000.0, 8_000.0, false, Some(-60_000.0)),
+            )
+            .bands
+            .first()
+            .copied()
             .expect("a carrier on dc is a signal when the LO is elsewhere");
         assert!(band.center_hz.abs() < 500.0, "centre {} Hz", band.center_hz);
     }
@@ -378,13 +483,106 @@ mod tests {
             *s += loud + n;
         }
         let band = detector
-            .measure(&iq, RATE, 20_000.0, 8.0, false, None)
-            .band
+            .measure(&iq, RATE, &search(20_000.0, 8_000.0, false, None))
+            .bands
+            .first()
+            .copied()
             .expect("the quiet carrier is inside the slice");
         assert!(
             (band.center_hz - 10_000.0).abs() < 500.0,
             "centre {} Hz",
             band.center_hz
+        );
+    }
+
+    #[test]
+    fn every_carrier_in_the_slice_is_listed_loudest_first() {
+        let mut detector = Detector::new();
+        let len = 32_768;
+        let mut iq = tone(-70_000.0, RATE, len, 0.3);
+        for ((s, loud), quiet) in iq
+            .iter_mut()
+            .zip(tone(20_000.0, RATE, len, 0.8))
+            .zip(tone(55_000.0, RATE, len, 0.1))
+        {
+            *s += loud + quiet;
+        }
+        for (s, n) in iq.iter_mut().zip(complex_noise(0x6d21, 0.002, len)) {
+            *s += n;
+        }
+        let survey = detector.measure(&iq, RATE, &search(100_000.0, 8_000.0, false, None));
+        let centres: Vec<f64> = survey.bands.iter().map(|b| b.center_hz).collect();
+        assert_eq!(centres.len(), 3, "{centres:?}");
+        for (found, expected) in centres.iter().zip([20_000.0, -70_000.0, 55_000.0]) {
+            assert!((found - expected).abs() < 500.0, "{centres:?}");
+        }
+    }
+
+    #[test]
+    fn a_loud_signals_skirt_is_not_a_second_signal() {
+        let mut detector = Detector::new();
+        let len = 32_768;
+        let mut state = 0x4471u32;
+        let mut phase = 0.0f64;
+        let mut smoothed = 0.0f64;
+        let mut iq: Vec<Complex<f32>> = (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                let noise = f64::from(state) / f64::from(u32::MAX) - 0.5;
+                smoothed += 0.3 * (noise - smoothed);
+                phase += TAU * smoothed * 60_000.0 / RATE;
+                Complex::from_polar(1.0, phase as f32)
+            })
+            .collect();
+        for (s, n) in iq.iter_mut().zip(complex_noise(0x1b0c, 0.0005, len)) {
+            *s += n;
+        }
+        let survey = detector.measure(&iq, RATE, &search(100_000.0, 8_000.0, false, None));
+        assert_eq!(survey.bands.len(), 1, "{:?}", survey.bands);
+    }
+
+    #[test]
+    fn on_a_crowded_band_two_narrow_neighbours_stay_apart() {
+        let mut detector = Detector::new();
+        let len = 32_768;
+        let mut iq = tone(-3_500.0, RATE, len, 0.3);
+        for (s, other) in iq.iter_mut().zip(tone(4_200.0, RATE, len, 0.3)) {
+            *s += other;
+        }
+        for (s, n) in iq.iter_mut().zip(complex_noise(0x2ac1, 0.002, len)) {
+            *s += n;
+        }
+        let survey = detector.measure(&iq, RATE, &search(24_000.0, 500.0, false, None));
+        assert_eq!(survey.bands.len(), 2, "{:?}", survey.bands);
+        assert!(
+            survey.bands.iter().all(|b| b.bandwidth_hz < 1_500.0),
+            "{:?}",
+            survey.bands
+        );
+    }
+
+    #[test]
+    fn a_steady_signal_across_the_slice_is_one_signal_whatever_its_lines() {
+        let mut detector = Detector::new();
+        let len = 32_768;
+        let mut phase = 0.0f64;
+        let mut iq: Vec<Complex<f32>> = (0..len)
+            .map(|k| {
+                phase += TAU * 75_000.0 * (TAU * 1_000.0 * k as f64 / RATE).cos() / RATE;
+                Complex::from_polar(0.5, phase.rem_euclid(TAU) as f32)
+            })
+            .collect();
+        for (s, n) in iq.iter_mut().zip(complex_noise(0x77d1, 0.002, len)) {
+            *s += n;
+        }
+        let survey = detector.measure(&iq, RATE, &search(100_000.0, 8_000.0, true, None));
+        assert_eq!(survey.bands.len(), 1, "{:?}", survey.bands);
+        assert!(
+            survey.bands[0].bandwidth_hz > 150_000.0,
+            "{:?}",
+            survey.bands
         );
     }
 }

@@ -196,6 +196,35 @@ The stages run in the order shown below.
 The blanker runs on IQ; the remaining stages run on audio. Removing impulses before filtering
 reduces the ringing they would otherwise cause.
 
+## Identifying a signal
+
+The Signal identifier names what is on the air without decoding it first. Add one as a channel,
+point it at anything up to 192 kHz wide, and once a second it reports every transmission it found in
+that span, loudest first. Each one comes with its modulation family, its place on the dial, its
+bandwidth, symbol rate, deviation, burst timing and, for OFDM, its useful symbol and guard length,
+followed by a shortlist of protocols that fit those measurements and a one-line reason for each.
+
+The shortlist weighs four kinds of evidence. The measured waveform is the first. The dial
+frequency is the second: a 4800 baud four-level shift is more likely DMR on a land-mobile channel
+and more likely System Fusion in an amateur band, and a match that sits inside its allocation says
+so. Burst timing is the third, which is what tells a single-slot DMR call, a DECT slot and a Mode S
+squitter apart from continuous signals of the same shape. The fourth is the decoders themselves:
+where a candidate has a decoder in this program that runs at or below the identifier's rate, the
+identifier feeds it the signal and marks the candidate **confirmed** when frames come back with
+good framing or checksums. Digital voice modes are confirmed by their frame sync; POCSAG, FLEX,
+ERMES, AIS, ACARS, APRS, RDS, SELCALL and the satellite and aeronautical data links by decoded
+frames. A confirmed candidate outranks every lookalike.
+
+**Interval** sets how much signal each verdict is built from. **Threshold** is how far a peak has to
+stand over the noise floor to count as a signal. Verdicts for a signal that stays put settle over
+the last few windows, so one noisy reading does not overturn an established one.
+
+Limits: a slice narrower than a wideband service still identifies it when the waveform gives itself
+away (DAB by its cyclic prefix, DECT and ADS-B by their burst timing at their own frequencies), but
+spread-spectrum signals below the noise floor are not found, and a crowded HF slot of 50 Hz signals
+lies below the detector's resolution. `cargo xtask ident-matrix` runs the identifier over every
+recorded fixture and prints what it named against what was recorded.
+
 ## Slow-scan television
 
 An SSTV picture takes 36 seconds to four and a half minutes to receive, depending on mode.

@@ -15,7 +15,9 @@ import {
   dvParties,
   dvTrunking,
   identMeasurements,
+  identOverview,
   modulationLabel,
+  signalFrequency,
 } from "./decoderViews";
 import { DECT_CIPHER_LABELS } from "./eventFacts";
 import { SSTV_MODE_LABELS } from "./sstvModes";
@@ -272,20 +274,33 @@ const DETAIL: {
     body: timings(f.timings_us ?? []),
   }),
 
-  ident: (r) => ({
-    fields: [
-      ["Modulation", modulationLabel(r)],
-      ["Confidence", `${Math.round(r.confidence * 100)}%`],
-      ...identMeasurements(r),
-      ...(r.features.frequency_levels > 1
-        ? ([["Frequency levels", String(r.features.frequency_levels)]] as DetailField[])
-        : []),
-    ],
-    body:
-      (r.candidates ?? []).length === 0
-        ? null
-        : (r.candidates ?? []).map((m) => `${m.name} — ${candidateScore(m)} — ${m.why}`).join("\n"),
-  }),
+  ident: (r) => {
+    const loudest = r.signals?.[0];
+    if (loudest == null) {
+      return { fields: [["Modulation", "no signal"], ...identOverview(r)], body: null };
+    }
+    const signals = r.signals ?? [];
+    return {
+      fields: [
+        ["Signals", String(signals.length)],
+        ["Frequency", signalFrequency(loudest)],
+        ["Modulation", modulationLabel(loudest)],
+        ["Confidence", `${Math.round(loudest.confidence * 100)}%`],
+        ...identMeasurements(loudest),
+        ...(loudest.features.frequency_levels > 1
+          ? ([["Frequency levels", String(loudest.features.frequency_levels)]] as DetailField[])
+          : []),
+      ],
+      body: signals
+        .map((signal) => {
+          const candidates = (signal.candidates ?? [])
+            .map((m) => `${m.name} — ${candidateScore(m)} — ${m.why}`)
+            .join("\n");
+          return `${signalFrequency(signal)} · ${modulationLabel(signal)}\n${candidates}`;
+        })
+        .join("\n\n"),
+    };
+  },
 
   scrambler: (s) => ({
     fields: fields([

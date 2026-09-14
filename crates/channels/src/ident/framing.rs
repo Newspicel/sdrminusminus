@@ -1,7 +1,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Ddc, hamming_distance};
 use sdrmm_modem::cpm::{CpmDemod, TIMING_BW_BURST};
-use sdrmm_wire::ProtocolMatch;
+use sdrmm_wire::{Modulation, ProtocolMatch};
 
 use super::detect::Band;
 use crate::dv::{INPUT_RATE_HZ, MODE_SIGNATURES, ModeSignature};
@@ -12,11 +12,68 @@ const SETTLE: usize = 96;
 
 const DEMOTION: f32 = 0.4;
 
+const CHANCE_MARGIN: f64 = 3.0;
+
+const PROBE_CHANCE_MARGIN: f64 = 10.0;
+
+const PROBE_MIN_HITS: u32 = 3;
+
+const SHORTEST_FRAME_SYMBOLS: usize = 96;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rigour {
+    Candidate,
+    Probe,
+}
+
+pub(crate) struct Probe {
+    pub(crate) matches: Vec<ProtocolMatch>,
+    pub(crate) modulation: Modulation,
+}
+
+pub(crate) fn probe(iq: &[Complex<f32>], rate: f64, band: &Band) -> Option<Probe> {
+    let mut candidates: Vec<ProtocolMatch> = MODE_SIGNATURES
+        .iter()
+        .map(|mode| ProtocolMatch {
+            name: mode.name.to_owned(),
+            type_id: Some(mode.type_id.to_owned()),
+            score: 0.0,
+            confirmed: false,
+            why: String::new(),
+        })
+        .collect();
+    confirm_with(&mut candidates, iq, rate, band, Rigour::Probe);
+    candidates.retain(|candidate| candidate.confirmed);
+    let first = candidates.first()?;
+    let levels = MODE_SIGNATURES
+        .iter()
+        .find(|mode| mode.name == first.name)
+        .map_or(4, |mode| mode.params.mapping().m());
+    Some(Probe {
+        matches: candidates,
+        modulation: if levels == 4 {
+            Modulation::Fsk4
+        } else {
+            Modulation::Fsk2
+        },
+    })
+}
+
 pub(crate) fn confirm(
     candidates: &mut [ProtocolMatch],
     iq: &[Complex<f32>],
     rate: f64,
     band: &Band,
+) {
+    confirm_with(candidates, iq, rate, band, Rigour::Candidate);
+}
+
+fn confirm_with(
+    candidates: &mut [ProtocolMatch],
+    iq: &[Complex<f32>],
+    rate: f64,
+    band: &Band,
+    rigour: Rigour,
 ) {
     let searchable: Vec<(usize, &ModeSignature)> = candidates
         .iter()
@@ -56,7 +113,12 @@ pub(crate) fn confirm(
                 continue;
             }
             for &(index, mode) in &group {
-                if hits(&soft[SETTLE..], mode) >= mode.min_hits {
+                if plausible(
+                    mode,
+                    hits(&soft[SETTLE..], mode),
+                    soft.len() - SETTLE,
+                    rigour,
+                ) {
                     candidates[index].confirmed = true;
                     candidates[index].score = 1.0;
                     candidates[index].why = format!("{} frame sync found in the signal", mode.name);
@@ -72,7 +134,11 @@ pub(crate) fn confirm(
                 candidates[index].score *= DEMOTION;
             }
         }
-        candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+        candidates.sort_by(|a, b| {
+            b.confirmed
+                .cmp(&a.confirmed)
+                .then(b.score.total_cmp(&a.score))
+        });
     }
 }
 
@@ -83,6 +149,30 @@ fn baseband(iq: &[Complex<f32>], rate: f64, band: &Band) -> Option<Vec<Complex<f
     let mut out = Vec::with_capacity((tail.len() as f64 * INPUT_RATE_HZ / rate) as usize + 1);
     ddc.process(tail, &mut out);
     (out.len() > SETTLE * 2).then_some(out)
+}
+
+fn plausible(mode: &ModeSignature, hits: u32, positions: usize, rigour: Rigour) -> bool {
+    let (least, margin) = match rigour {
+        Rigour::Candidate => (mode.min_hits, CHANCE_MARGIN),
+        Rigour::Probe => (mode.min_hits.max(PROBE_MIN_HITS), PROBE_CHANCE_MARGIN),
+    };
+    let densest = (positions / SHORTEST_FRAME_SYMBOLS) as u32 + 1;
+    hits >= least
+        && hits <= densest
+        && f64::from(hits) >= margin * chance_hits(mode, positions) + 1.0
+}
+
+fn chance_hits(mode: &ModeSignature, positions: usize) -> f64 {
+    let bits = f64::from(mode.sync_bits);
+    let mut within = 0.0;
+    let mut choose = 1.0;
+    for k in 0..=mode.tolerance {
+        if k > 0 {
+            choose *= (bits - f64::from(k) + 1.0) / f64::from(k);
+        }
+        within += choose;
+    }
+    within / 2f64.powf(bits) * positions as f64 * mode.patterns.len() as f64
 }
 
 fn hits(soft: &[f32], mode: &ModeSignature) -> u32 {

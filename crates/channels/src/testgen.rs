@@ -9,6 +9,7 @@ pub mod dv;
 pub mod ermes;
 pub mod flex;
 pub mod gnss;
+pub mod ident_fixtures;
 pub mod morse;
 pub mod navtex;
 pub mod nfm;

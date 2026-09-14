@@ -11,7 +11,7 @@ import {
 } from "react";
 import { capturedImageUrl, imagesQuery } from "../lib/api";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
-import type { DecodedRecordOf, DecoderKind } from "../lib/types";
+import type { DecodedRecordOf, DecoderKind, IdentSignal } from "../lib/types";
 import { Button } from "./BaseControls";
 import { ALERT, BTN, CHIP, TABLE_CELL, TABLE_HEAD } from "./controls";
 import {
@@ -27,6 +27,7 @@ import {
   formatAltFreqs,
   formatClock,
   identMeasurements,
+  identOverview,
   inScope,
   isAtBottom,
   latestVorReadings,
@@ -38,6 +39,7 @@ import {
   rdsQuality,
   recordsInScope,
   shipRow,
+  signalFrequency,
   sortTargets,
   stationsInScope,
   TARGET_MAX_AGE_MS,
@@ -453,22 +455,51 @@ function IdentView({ scope = {} }: { scope?: DecoderScope }) {
   }
 
   const report = latest.event.data;
-  const candidates = report.candidates ?? [];
+  const signals = report.signals ?? [];
 
   return (
     <div className={PANE}>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-2xl tracking-wide text-ink">{modulationLabel(report)}</span>
-        {report.modulation !== "none" && (
-          <span className="legend">{Math.round(report.confidence * 100)}% confident</span>
-        )}
+        <span className="font-mono text-2xl tracking-wide text-ink">
+          {signals.length === 0
+            ? "no signal"
+            : `${signals.length} signal${signals.length === 1 ? "" : "s"}`}
+        </span>
         <span className="ml-auto font-mono text-xs tabular-nums text-ink-dim">
           {formatClock(latest.at)}
         </span>
       </div>
 
+      {signals.length === 0 && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+          {identOverview(report).map(([label, value]) => (
+            <Fragment key={label}>
+              <dt className="legend self-center">{label}</dt>
+              <dd className="font-mono text-xs tabular-nums text-ink">{value}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+
+      {signals.map((signal) => (
+        <IdentSignalView key={`${signal.frequency_hz}:${signal.bandwidth_hz}`} signal={signal} />
+      ))}
+    </div>
+  );
+}
+
+function IdentSignalView({ signal }: { signal: IdentSignal }) {
+  const candidates = signal.candidates ?? [];
+  return (
+    <div className="flex flex-col gap-1 border-t border-line pt-2 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-mono text-sm tabular-nums text-ink">{signalFrequency(signal)}</span>
+        <span className="font-mono text-lg tracking-wide text-ink">{modulationLabel(signal)}</span>
+        <span className="legend">{Math.round(signal.confidence * 100)}% confident</span>
+      </div>
+
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-        {identMeasurements(report).map(([label, value]) => (
+        {identMeasurements(signal).map(([label, value]) => (
           <Fragment key={label}>
             <dt className="legend self-center">{label}</dt>
             <dd className="font-mono text-xs tabular-nums text-ink">{value}</dd>
