@@ -300,18 +300,21 @@ mod tests {
         assert_eq!(RtlSdrDriver::new().id(), "rtlsdr");
     }
 
+    fn control_failure(source: nusb::transfer::TransferError) -> driver::Error {
+        driver::Error::ControlTransfer {
+            op: "demod write of page 0x1:0x0001".to_string(),
+            source,
+        }
+    }
+
     #[test]
     fn an_unplugged_dongle_reads_as_gone_rather_than_as_a_transfer_that_failed() {
         assert!(matches!(
-            map_err(driver::Error::ControlTransfer(
-                nusb::transfer::TransferError::Disconnected
-            )),
+            map_err(control_failure(nusb::transfer::TransferError::Disconnected)),
             DeviceError::Disconnected(_)
         ));
         assert!(matches!(
-            map_err(driver::Error::ControlTransfer(
-                nusb::transfer::TransferError::Stall
-            )),
+            map_err(control_failure(nusb::transfer::TransferError::Stall)),
             DeviceError::Io(_)
         ));
     }
@@ -320,9 +323,9 @@ mod tests {
     #[test]
     fn a_dongle_that_stopped_answering_the_bus_reads_as_gone() {
         assert!(matches!(
-            map_err(driver::Error::ControlTransfer(
-                nusb::transfer::TransferError::Unknown(0xe000_02ed)
-            )),
+            map_err(control_failure(nusb::transfer::TransferError::Unknown(
+                0xe000_02ed
+            ))),
             DeviceError::Disconnected(_)
         ));
     }

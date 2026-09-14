@@ -53,7 +53,7 @@ impl Rtl2832u {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)?;
+            .map_err(on(|| format!("read of block {block:#x} reg {addr:#06x}")))?;
 
         match *data.as_slice() {
             [low] => Ok(u16::from(low)),
@@ -80,7 +80,7 @@ impl Rtl2832u {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)
+            .map_err(on(|| format!("write of block {block:#x} reg {addr:#06x}")))
     }
 
     pub(crate) fn demod_read_reg(&self, page: u16, addr: u16) -> Result<u8> {
@@ -98,7 +98,9 @@ impl Rtl2832u {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)?;
+            .map_err(on(|| {
+                format!("demod read of page {page:#x} reg {addr:#06x}")
+            }))?;
 
         data.first().copied().ok_or(Error::ShortResponse {
             what: "demod register read",
@@ -121,7 +123,9 @@ impl Rtl2832u {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)?;
+            .map_err(on(|| {
+                format!("demod write of page {page:#x} reg {addr:#06x}")
+            }))?;
 
         let _ = self.demod_read_reg(0x0a, 0x01);
         Ok(())
@@ -141,7 +145,10 @@ impl Rtl2832u {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)
+            .map_err(on(|| {
+                let reg = data.first().copied().unwrap_or_default();
+                format!("i2c write to {i2c_addr:#04x} reg {reg:#04x}")
+            }))
     }
 
     pub(crate) fn i2c_read(&self, i2c_addr: u8, len: u16) -> Result<Vec<u8>> {
@@ -158,7 +165,9 @@ impl Rtl2832u {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(Error::ControlTransfer)
+            .map_err(on(|| {
+                format!("i2c read of {len} bytes from {i2c_addr:#04x}")
+            }))
     }
 
     pub(crate) fn i2c_read_reg(&self, i2c_addr: u8, reg: u8) -> Result<u8> {
@@ -197,6 +206,11 @@ impl Rtl2832u {
         let value = if on { current | mask } else { current & !mask };
         self.write_reg(BLOCK_SYS, GPO, value, 1)
     }
+}
+
+/// Names the register the radio refused, so a transfer that fails says which one it was.
+fn on(what: impl FnOnce() -> String) -> impl FnOnce(nusb::transfer::TransferError) -> Error {
+    move |source| Error::ControlTransfer { op: what(), source }
 }
 
 fn reg_bytes(val: u16, len: u8) -> Vec<u8> {

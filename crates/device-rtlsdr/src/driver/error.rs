@@ -13,8 +13,12 @@ pub(crate) enum Error {
     #[error("failed to claim USB interface: {0}")]
     ClaimFailed(#[source] nusb::Error),
 
-    #[error("control transfer failed: {0}")]
-    ControlTransfer(#[source] nusb::transfer::TransferError),
+    #[error("control transfer failed on {op}: {source}")]
+    ControlTransfer {
+        op: String,
+        #[source]
+        source: nusb::transfer::TransferError,
+    },
 
     #[error("{what} returned {got} bytes")]
     ShortResponse { what: &'static str, got: usize },
@@ -40,7 +44,7 @@ impl Error {
     pub(crate) fn is_disconnected(&self) -> bool {
         match self {
             Self::Stream(error) => error.is_disconnected(),
-            Self::ControlTransfer(error) => is_disconnect(error),
+            Self::ControlTransfer { source, .. } => is_disconnect(source),
             Self::OpenFailed(error) | Self::ClaimFailed(error) => {
                 error.kind() == nusb::ErrorKind::Disconnected
             }
