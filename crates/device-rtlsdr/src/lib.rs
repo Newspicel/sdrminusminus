@@ -12,6 +12,9 @@ use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
 mod caps;
 mod convert;
 mod driver;
+mod kraken;
+
+pub use kraken::KrakenDriver;
 
 pub(crate) const DRIVER_ID: &str = "rtlsdr";
 
@@ -36,6 +39,22 @@ fn enumerate() -> Result<Vec<DeviceDescriptor>, driver::Error> {
     Ok(DeviceDescriptors::new()?.iter().cloned().collect())
 }
 
+/// The dongles that are radios in their own right, which is every one that is not a lane of a
+/// coherent bank. A bank is opened as the one radio it is, by the driver that knows how.
+fn standalone() -> Result<Vec<DeviceDescriptor>, driver::Error> {
+    Ok(without_banks(enumerate()?))
+}
+
+fn without_banks(attached: Vec<DeviceDescriptor>) -> Vec<DeviceDescriptor> {
+    let claimed = kraken::claimed(&attached);
+    attached
+        .into_iter()
+        .enumerate()
+        .filter(|(position, _)| !claimed.contains(position))
+        .map(|(_, descriptor)| descriptor)
+        .collect()
+}
+
 #[derive(Default)]
 pub struct RtlSdrDriver;
 
@@ -52,7 +71,7 @@ impl DeviceDriver for RtlSdrDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match enumerate() {
+        match standalone() {
             Ok(descriptors) => caps::device_infos(&descriptors),
             Err(e) => {
                 tracing::warn!("rtlsdr enumerate failed: {e}");
@@ -63,7 +82,7 @@ impl DeviceDriver for RtlSdrDriver {
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
         let descriptors =
-            enumerate().map_err(|e| DeviceError::Io(format!("rtlsdr enumerate: {e}")))?;
+            standalone().map_err(|e| DeviceError::Io(format!("rtlsdr enumerate: {e}")))?;
         let position = caps::device_infos(&descriptors)
             .iter()
             .position(|probed| probed.key == info.key)
@@ -244,6 +263,37 @@ impl SdrDevice for RtlSdrDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driver::BoardVariant;
+
+    fn dongle(serial: &str, port: u8, hub: Option<u8>) -> DeviceDescriptor {
+        DeviceDescriptor {
+            index: usize::from(port),
+            bus: "001".to_string(),
+            address: port,
+            manufacturer: None,
+            product: None,
+            serial: Some(serial.to_string()),
+            port_chain: hub.map_or_else(|| vec![port], |hub| vec![hub, port]),
+            board_variant: BoardVariant::Generic,
+        }
+    }
+
+    #[test]
+    fn a_banks_dongles_are_not_offered_as_radios_of_their_own() {
+        let mut attached: Vec<DeviceDescriptor> = (0..5)
+            .map(|lane| dongle(&(1000 + lane).to_string(), lane as u8 + 1, Some(4)))
+            .collect();
+        attached.push(dongle("00000123", 9, None));
+        let standalone = without_banks(attached);
+        assert_eq!(standalone.len(), 1);
+        assert_eq!(standalone[0].serial.as_deref(), Some("00000123"));
+    }
+
+    #[test]
+    fn ordinary_dongles_are_all_offered() {
+        let attached = vec![dongle("00000123", 1, None), dongle("00000124", 2, None)];
+        assert_eq!(without_banks(attached).len(), 2);
+    }
 
     #[test]
     fn driver_id_is_the_wire_id() {

@@ -144,10 +144,16 @@ pub fn builtin_registry_accelerated(
         Box::new(sdrmm_device_cr8::Cr8Driver::new()),
     );
     #[cfg(feature = "rtlsdr")]
-    registry.register(
-        NATIVE_PRIORITY,
-        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
-    );
+    {
+        registry.register(
+            NATIVE_PRIORITY,
+            Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
+        );
+        registry.register(
+            NATIVE_PRIORITY,
+            Box::new(sdrmm_device_rtlsdr::KrakenDriver::new()),
+        );
+    }
     #[cfg(feature = "hackrf")]
     registry.register(
         NATIVE_PRIORITY,

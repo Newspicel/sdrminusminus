@@ -92,9 +92,12 @@ export function bearingLabel(bearingDeg: number): string {
   return `${bearingDeg.toFixed(1).padStart(5, "0")}°`;
 }
 
-export type CalVerdict = "phase_unknown" | "solving" | "solved";
+export type CalVerdict = "injecting" | "phase_unknown" | "solving" | "solved";
 
 export function calVerdict(cal: CalState | undefined): CalVerdict {
+  if (cal?.reference_on === true) {
+    return "injecting";
+  }
   if (cal === undefined || cal.phase_unknown) {
     return "phase_unknown";
   }
@@ -102,6 +105,7 @@ export function calVerdict(cal: CalState | undefined): CalVerdict {
 }
 
 export const CAL_VERDICT_TEXT: Record<CalVerdict, string> = {
+  injecting: "noise source in — no bearings",
   phase_unknown: "phase unknown — no bearings",
   solving: "calibrating",
   solved: "calibrated",

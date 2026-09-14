@@ -174,13 +174,18 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
         coherence,
+        noise_source: false,
     }
 }
 
 /// Hardware whose receive chains are known to share one synthesizer, not just one clock. Anything
 /// else with more than one channel on a single device shares a clock by construction, which makes
 /// a delay between its lanes meaningful and a phase between them not.
-const PHASE_COHERENT_HARDWARE: [&str; 3] = ["krakensdr", "kerberossdr", "rspduo"];
+///
+/// A bank of dongles on one clock does not belong here however coherent its marketing is: each
+/// chain keeps its own synthesizer, and the phase between them is whatever the last retune left,
+/// which is why those radios carry a noise source to solve it again.
+const PHASE_COHERENT_HARDWARE: [&str; 1] = ["rspduo"];
 
 fn coherence(directional: &DirectionalCapabilities, rx_streams: u32) -> Coherence {
     if rx_streams < 2 {
@@ -448,6 +453,28 @@ mod tests {
             stage: stage.to_string(),
             value_db,
         }
+    }
+
+    fn named(hardware: &str, channels: usize) -> DirectionalCapabilities {
+        DirectionalCapabilities {
+            rx: (0..channels).map(|_| channel(24e6, false)).collect(),
+            hardware_info: [("hardware".to_string(), hardware.to_string())]
+                .into_iter()
+                .collect(),
+            ..DirectionalCapabilities::default()
+        }
+    }
+
+    #[test]
+    fn only_one_synthesizer_behind_every_lane_is_phase_coherent() {
+        assert_eq!(coherence(&named("RSPduo", 2), 2), Coherence::PhaseCoherent);
+        assert_eq!(coherence(&named("RSPduo", 1), 1), Coherence::None);
+        assert_eq!(coherence(&named("LimeSDR", 2), 2), Coherence::TimeSync);
+        assert_eq!(
+            coherence(&named("KrakenSDR", 5), 5),
+            Coherence::TimeSync,
+            "five tuners on one clock come up at five phases"
+        );
     }
 
     #[test]

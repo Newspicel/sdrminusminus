@@ -1,8 +1,16 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    time::{Duration, Instant},
+};
 
 use sdrmm_channels::coherent::{CoherentCtx, coherent_descriptor};
-use sdrmm_wire::{CalParams, Coherence, CoherentParams};
-use tokio::sync::broadcast;
+use sdrmm_wire::{CalParams, CalSource, Coherence, CoherentParams};
+use tokio::sync::broadcast::{self, error::TryRecvError};
 
 use crate::{
     Engine, EngineError,
@@ -10,17 +18,123 @@ use crate::{
         CoherentCommand, CoherentHost, CoherentRuntime, CoherentSinks, CoherentStart,
         CoherentUpdate, SurfaceUpdate,
     },
+    runtime::CaptureRuntime,
     sample_rate_of,
 };
 
 const UPDATE_CHANNEL_CAP: usize = 64;
 const SURFACE_CHANNEL_CAP: usize = 8;
 
+/// How long a solve gets with the reference switched in. One that has not converged by then will
+/// not, and an array listening to its own noise source is deaf to everything else.
+const REFERENCE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long the pipeline is given to fill with what the switch changed, on the way in and on the
+/// way out. Everything the array reads in between is a measurement of itself.
+const REFERENCE_SETTLE: Duration = Duration::from_millis(250);
+const REFERENCE_POLL: Duration = Duration::from_millis(20);
+
 pub(crate) struct CoherentState {
     pub(crate) runtime: CoherentRuntime,
     pub(crate) updates: broadcast::Sender<CoherentUpdate>,
     pub(crate) surfaces: broadcast::Sender<SurfaceUpdate>,
     pub(crate) nodes: BTreeMap<u32, CoherentParams>,
+    /// Set while a calibration owns the radio's reference switch, so a second one does not start
+    /// on top of it and put the antennas back halfway through the first.
+    pub(crate) calibrating: Arc<AtomicBool>,
+}
+
+/// Everything the sequence needs to run without holding the engine open while it waits.
+struct Reference {
+    runtime: Arc<Mutex<CaptureRuntime>>,
+    commands: mpsc::Sender<CoherentCommand>,
+    updates: broadcast::Receiver<CoherentUpdate>,
+    busy: Arc<AtomicBool>,
+}
+
+impl Reference {
+    fn switch(&self, on: bool) -> Result<(), sdrmm_device::DeviceError> {
+        crate::lock_runtime(&self.runtime).set_noise_source(on)
+    }
+
+    fn tell(&self, on: bool) {
+        let _ = self.commands.send(CoherentCommand::Reference(on));
+    }
+
+    fn restart(&self) {
+        let _ = self.commands.send(CoherentCommand::Recalibrate);
+    }
+
+    /// Waits for the aggregator to report a state, which it does as soon as it reaches one
+    /// rather than on the next interval.
+    fn wait(&mut self, wanted: Wanted) -> bool {
+        let deadline = Instant::now() + REFERENCE_TIMEOUT;
+        while Instant::now() < deadline {
+            match self.updates.try_recv() {
+                Ok(update) if wanted.reached(&update.cal) => return true,
+                Ok(_) | Err(TryRecvError::Lagged(_)) => {}
+                Err(TryRecvError::Empty) => std::thread::sleep(REFERENCE_POLL),
+                Err(TryRecvError::Closed) => return false,
+            }
+        }
+        false
+    }
+}
+
+/// Switches the radio's own reference into the lanes, waits for the answer, and puts the array
+/// back on its antennas whether or not one arrived.
+///
+/// The order is what makes the answer worth having. The old solution goes first, so nothing
+/// measured against the antennas can be mistaken for the new one; the reference is given time to
+/// reach the lanes before the array is told to believe it; and it is believed for a moment after
+/// the switch opens again, because the samples already in flight still carry it.
+fn solve_against_reference(mut reference: Reference, ds: u32) {
+    reference.restart();
+    if !reference.wait(Wanted::Cleared) {
+        tracing::warn!(
+            device_set = ds,
+            "the array never let go of its old calibration"
+        );
+        return;
+    }
+    if let Err(error) = reference.switch(true) {
+        tracing::warn!(device_set = ds, %error, "the radio would not switch its reference in");
+        return;
+    }
+    std::thread::sleep(REFERENCE_SETTLE);
+    reference.tell(true);
+    let solved = reference.wait(Wanted::Solved);
+    if let Err(error) = reference.switch(false) {
+        tracing::error!(device_set = ds, %error, "the radio is still on its own reference");
+    }
+    std::thread::sleep(REFERENCE_SETTLE);
+    reference.tell(false);
+    if solved {
+        tracing::info!(
+            device_set = ds,
+            "the array solved against its own reference"
+        );
+    } else {
+        tracing::warn!(
+            device_set = ds,
+            "no solution against the reference; the lanes are left uncalibrated"
+        );
+    }
+}
+
+/// What the sequence is waiting for the aggregator to say.
+#[derive(Clone, Copy)]
+enum Wanted {
+    Cleared,
+    Solved,
+}
+
+impl Wanted {
+    fn reached(self, cal: &sdrmm_wire::CalState) -> bool {
+        match self {
+            Self::Cleared => !cal.solved || cal.phase_unknown,
+            Self::Solved => cal.solved && !cal.phase_unknown,
+        }
+    }
 }
 
 impl Engine {
@@ -91,12 +205,14 @@ impl Engine {
                 tier,
                 center_hz,
                 cal,
+                switched_reference: state.capabilities.noise_source,
             })?;
             state.coherent = Some(CoherentState {
                 runtime,
                 updates: broadcast::channel(UPDATE_CHANNEL_CAP).0,
                 surfaces: broadcast::channel(SURFACE_CHANNEL_CAP).0,
                 nodes: BTreeMap::new(),
+                calibrating: Arc::new(AtomicBool::new(false)),
             });
         }
         let node = state.next_channel_id;
@@ -133,6 +249,8 @@ impl Engine {
         coherent.runtime.send(CoherentCommand::Add { node, host });
         coherent.nodes.insert(node, params);
         inner.revision += 1;
+        drop(inner);
+        self.calibrate_against_reference(ds);
         Ok(node)
     }
 
@@ -200,6 +318,8 @@ impl Engine {
         coherent.runtime.send(CoherentCommand::Add { node, host });
         coherent.nodes.insert(node, params);
         inner.revision += 1;
+        drop(inner);
+        self.calibrate_against_reference(ds);
         Ok(())
     }
 
@@ -229,18 +349,73 @@ impl Engine {
 
     /// Throws the calibration away and solves it again from scratch, which is what an operator
     /// asks for after moving an antenna or switching the splitter in.
+    ///
+    /// A radio that carries its own reference then solves against it without anyone reaching for
+    /// a switch, which is the only way a bank of tuners is usable at all: they come up at a new
+    /// set of phases every time they are retuned.
     pub fn recalibrate_coherent(&self, ds: u32) -> Result<(), EngineError> {
-        let inner = self.lock();
-        let state = inner
-            .device_sets
-            .get(&ds)
-            .ok_or(EngineError::DeviceSetNotFound(ds))?;
-        let coherent = state
-            .coherent
-            .as_ref()
-            .ok_or_else(|| EngineError::Coherent("no coherent processor is running".to_string()))?;
-        coherent.runtime.send(CoherentCommand::Recalibrate);
+        {
+            let inner = self.lock();
+            let state = inner
+                .device_sets
+                .get(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let coherent = state.coherent.as_ref().ok_or_else(|| {
+                EngineError::Coherent("no coherent processor is running".to_string())
+            })?;
+            coherent.runtime.send(CoherentCommand::Recalibrate);
+        }
+        self.calibrate_against_reference(ds);
         Ok(())
+    }
+
+    /// Solves the calibration against the radio's own reference, when it has one and something
+    /// running on it asked to be calibrated against one.
+    ///
+    /// Switching the reference in takes the array off its antennas, so the sequence runs on its
+    /// own thread and nothing waits on it. An operator who asked for a signal calibration instead
+    /// is left alone: what to solve against is their call, not ours.
+    pub(crate) fn calibrate_against_reference(&self, ds: u32) {
+        let Some(reference) = self.reference_for(ds) else {
+            return;
+        };
+        if reference.busy.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let busy = reference.busy.clone();
+        let done = busy.clone();
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-calibrate".to_string())
+            .spawn(move || {
+                solve_against_reference(reference, ds);
+                done.store(false, Ordering::Release);
+            });
+        if let Err(error) = spawned {
+            busy.store(false, Ordering::Release);
+            tracing::warn!(device_set = ds, %error, "could not start the calibration");
+        }
+    }
+
+    fn reference_for(&self, ds: u32) -> Option<Reference> {
+        let inner = self.lock();
+        let state = inner.device_sets.get(&ds)?;
+        if !state.capabilities.noise_source {
+            return None;
+        }
+        if state.scanner.is_some() || state.hunt.is_some() {
+            return None;
+        }
+        let coherent = state.coherent.as_ref()?;
+        let wanted = coherent
+            .nodes
+            .values()
+            .any(|params| cal_of(params).source == CalSource::Noise);
+        wanted.then(|| Reference {
+            runtime: state.runtime.clone(),
+            commands: coherent.runtime.sender(),
+            updates: coherent.updates.subscribe(),
+            busy: coherent.calibrating.clone(),
+        })
     }
 
     #[must_use]
@@ -307,6 +482,10 @@ impl Engine {
             center_hz,
             retuned: scrambles,
         });
+        drop(inner);
+        if scrambles {
+            self.calibrate_against_reference(ds);
+        }
     }
 }
 

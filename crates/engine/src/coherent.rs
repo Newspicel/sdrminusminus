@@ -47,6 +47,7 @@ pub(crate) enum CoherentCommand {
     Meta { center_hz: f64, retuned: bool },
     Cal { params: Box<CalParams> },
     Recalibrate,
+    Reference(bool),
 }
 
 pub struct CoherentRuntime {
@@ -63,6 +64,9 @@ pub(crate) struct CoherentStart {
     pub(crate) tier: Coherence,
     pub(crate) center_hz: f64,
     pub(crate) cal: CalParams,
+    /// Whether the radio switches its own calibration reference, and so whether the aggregator is
+    /// told when one is really in the lanes.
+    pub(crate) switched_reference: bool,
 }
 
 impl CoherentRuntime {
@@ -73,6 +77,7 @@ impl CoherentRuntime {
             tier,
             center_hz,
             cal,
+            switched_reference,
         } = start;
         taps.rewind();
         let lanes = taps.feeds.len();
@@ -88,7 +93,8 @@ impl CoherentRuntime {
             .name(format!("sdrmm-coh-{set}"))
             .spawn(move || {
                 sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
-                let calibrator = cal::Calibrator::new(lanes, tier, cal, sample_rate);
+                let calibrator =
+                    cal::Calibrator::new(lanes, tier, cal, sample_rate, switched_reference);
                 aggregate(
                     Aligner::new(taps),
                     calibrator,
@@ -115,6 +121,12 @@ impl CoherentRuntime {
 
     pub(crate) fn send(&self, command: CoherentCommand) {
         let _ = self.cmd_tx.send(command);
+    }
+
+    /// A handle for whoever is running a calibration, so the sequence can tell the aggregator
+    /// what the radio is doing without holding the engine open while it waits.
+    pub(crate) fn sender(&self) -> mpsc::Sender<CoherentCommand> {
+        self.cmd_tx.clone()
     }
 
     #[must_use]
@@ -256,6 +268,7 @@ fn drain_commands(
             }
             CoherentCommand::Cal { params } => calibrator.apply(*params, sample_rate),
             CoherentCommand::Recalibrate => calibrator.invalidate(false),
+            CoherentCommand::Reference(on) => calibrator.reference(on),
         }
     }
 }
@@ -340,6 +353,7 @@ mod tests {
             tier: Coherence::PhaseCoherent,
             center_hz: 300e6,
             cal: CalParams::default(),
+            switched_reference: false,
         })
         .expect("start");
         let (sinks, mut updates) = sinks();
@@ -385,6 +399,7 @@ mod tests {
             tier: Coherence::TimeSync,
             center_hz: 300e6,
             cal: CalParams::default(),
+            switched_reference: false,
         })
         .expect("start");
         let (sinks, mut updates) = sinks();

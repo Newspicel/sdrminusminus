@@ -89,6 +89,7 @@ pub fn capabilities() -> Capabilities {
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: false,
         coherence: Coherence::PhaseCoherent,
+        noise_source: false,
     }
 }
 

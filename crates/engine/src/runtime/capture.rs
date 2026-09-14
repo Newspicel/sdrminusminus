@@ -343,6 +343,13 @@ impl CaptureRuntime {
             .apply(settings)
     }
 
+    pub fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
+        self.device
+            .as_mut()
+            .ok_or_else(|| DeviceError::Io("the device has been stopped".to_string()))?
+            .set_noise_source(on)
+    }
+
     pub fn stop(&mut self) {
         drop(self.halt());
     }

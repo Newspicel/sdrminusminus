@@ -21,6 +21,23 @@ For a multi-lane receiver such as a Dragon Labs CR-8, an RSPduo in dual-tuner mo
 multi-channel SoapySDR device, add one **Device** node. Connect its `iq`, `iq2`, `iq3`… outputs
 to the processing nodes. The driver reports the receiver's coherence tier.
 
+### KrakenSDR
+
+A KrakenSDR or KerberosSDR is one Device node with five or four lanes. Its tuners share a clock
+but not a synthesizer, so it reports `time_sync` and comes up at a new set of relative phases
+after every retune. It carries a noise source to solve them again, and sdr-- operates that switch
+itself.
+
+Set **Cal source** to `Noise` and there is nothing else to do. The noise source is switched into
+the lanes whenever the calibration needs solving — when a coherent processor is added, when you
+press **Calibrate**, and after every retune — and the array is put back on its antennas as soon as
+the answer arrives. While it is in, the readout reads `noise source in` and no bearings are
+reported: the array is measuring itself, not the air.
+
+Use fixed gain rather than AGC, and keep the lanes' antenna runs equal in length. Calibration is
+skipped while the radio is scanning or hunting, because a radio that retunes continuously never
+holds still long enough to be calibrated.
+
 ## Radios you wired together yourself
 
 Use an **Array** node for separate receivers connected to a shared clock.
@@ -55,9 +72,11 @@ each lane, then applies those corrections before processing.
 | Cal source | When to use it |
 |---|---|
 | Signal | A strong signal received by every element |
-| Noise | A noise burst injected through a splitter for bench calibration |
+| Noise | A reference injected into every lane: the radio's own if it carries one, otherwise a splitter on the bench |
 
 A `time_sync` array needs injected noise or a specified pilot frequency to solve relative phase.
+A radio that carries its own noise source is switched in and out for you; one fed through a
+splitter is taken at your word, so inject it before pressing **Calibrate**.
 On `phase_coherent` hardware, calibration corrects the additional differences from cabling.
 
 The readout shows **solved**, **still solving**, or **phase unknown**. Phase unknown means the

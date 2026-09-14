@@ -1810,6 +1810,12 @@ export interface components {
              *     re-solve against. Everything that depends on phase stays off while it is set.
              */
             phase_unknown: boolean;
+            /**
+             * @description Set while the radio's own reference is switched into the lanes. The array is looking at
+             *     itself rather than at the air, so nothing it reads in that moment is a report about the
+             *     world and none is published.
+             */
+            reference_on?: boolean;
             solved: boolean;
             tier: components["schemas"]["Coherence"];
         };
@@ -1834,6 +1840,12 @@ export interface components {
              *     each was taken at instead of a stream at one tuning.
              */
             hardware_sweep?: boolean;
+            /**
+             * @description Whether the radio can switch a calibration reference into every lane at once. An array
+             *     that carries its own is calibrated without an operator reaching for a splitter, and
+             *     without one it has to be told what to solve against.
+             */
+            noise_source?: boolean;
             per_stream?: components["schemas"]["StreamScope"];
             ppm?: boolean;
             /** Format: int32 */

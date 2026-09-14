@@ -48,6 +48,10 @@ fn tuned(extra: Vec<ExtraValue>) -> DeviceSettings {
 }
 
 fn df_params(algorithm: DfAlgorithm) -> CoherentParams {
+    df_params_calibrated(algorithm, sdrmm_wire::CalParams::default())
+}
+
+fn df_params_calibrated(algorithm: DfAlgorithm, cal: sdrmm_wire::CalParams) -> CoherentParams {
     CoherentParams::Df(DfParams {
         geometry: ArrayGeometry::Uca {
             radius_m: 0.35,
@@ -60,8 +64,23 @@ fn df_params(algorithm: DfAlgorithm) -> CoherentParams {
         sources: 1,
         beam_bearing_deg: None,
         station_id: None,
-        cal: sdrmm_wire::CalParams::default(),
+        cal,
     })
+}
+
+fn against_its_own_reference() -> sdrmm_wire::CalParams {
+    sdrmm_wire::CalParams {
+        source: sdrmm_wire::CalSource::Noise,
+        ..sdrmm_wire::CalParams::default()
+    }
+}
+
+fn scrambled_array() -> Vec<ExtraValue> {
+    vec![
+        number(array::BEARING_SETTING, BEARING_DEG),
+        number(array::RADIUS_SETTING, 0.35),
+        flag(array::SCRAMBLE_SETTING, true),
+    ]
 }
 
 async fn next_update(rx: &mut broadcast::Receiver<CoherentUpdate>) -> CoherentUpdate {
@@ -417,6 +436,70 @@ async fn a_combiner_puts_the_beam_on_what_every_antenna_hears() {
         combined < lane - 3.0,
         "the combiner adds what the antennas share and leaves what only one hears behind: \
          one antenna {lane:.1} dB, combined {combined:.1} dB"
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn an_array_that_carries_its_own_reference_solves_its_phase_without_being_asked_twice() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine.patch_device(ds, tuned(scrambled_array())).unwrap();
+    assert_eq!(engine.coherence_of(ds), Coherence::TimeSync);
+
+    engine
+        .add_coherent(
+            ds,
+            df_params_calibrated(DfAlgorithm::Music, against_its_own_reference()),
+            vec![0, 1, 2, 3],
+        )
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("an update channel");
+    let reading = first_reading(&mut updates).await;
+    let error = (f64::from(reading.bearing_deg) - BEARING_DEG).abs();
+    assert!(
+        error.min(360.0 - error) < 2.0,
+        "wanted {BEARING_DEG}, read {reading:?}"
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+#[tokio::test]
+async fn nothing_is_reported_while_the_array_is_listening_to_its_own_reference() {
+    let engine = engine();
+    let ds = engine.create_device_set(ARRAY).unwrap();
+    engine.patch_device(ds, tuned(scrambled_array())).unwrap();
+    engine
+        .add_coherent(
+            ds,
+            df_params_calibrated(DfAlgorithm::Music, against_its_own_reference()),
+            vec![0, 1, 2, 3],
+        )
+        .unwrap();
+    let mut updates = engine.subscribe_coherent(ds).expect("an update channel");
+    first_reading(&mut updates).await;
+
+    engine.recalibrate_coherent(ds).unwrap();
+    let mut injected = false;
+    for _ in 0..200 {
+        let update = next_update(&mut updates).await;
+        if update.cal.reference_on {
+            injected = true;
+            assert!(
+                update.reading.is_none(),
+                "the array reported on its own noise source"
+            );
+        } else if injected && update.reading.is_some() {
+            break;
+        }
+    }
+    assert!(injected, "the reference was never switched in");
+
+    let reading = first_reading(&mut updates).await;
+    let error = (f64::from(reading.bearing_deg) - BEARING_DEG).abs();
+    assert!(
+        error.min(360.0 - error) < 2.0,
+        "the array did not come back to the air: {reading:?}"
     );
     engine.remove_device_set(ds).unwrap();
 }

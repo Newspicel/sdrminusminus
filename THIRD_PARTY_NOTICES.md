@@ -56,6 +56,14 @@ A codeplug is a vendor binary with no published specification, so the memory map
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
+**librtlsdr (KrakenRF fork)** — GPL-2.0-or-later
+
+The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
+
+**heimdall_daq_fw** — GPL-3.0-or-later
+
+How a KrakenSDR identifies itself and how its bank is wired — the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees — is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; sdr-- distributes under GPL-3.0-or-later regardless.
+
 ## Rust crates (698)
 
 | Component | Version | License |
@@ -840,6 +848,8 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
+| [heimdall_daq_fw](https://github.com/krakenrf/heimdall_daq_fw) | — | GPL-3.0-or-later |
+| [librtlsdr (KrakenRF fork)](https://github.com/krakenrf/librtlsdr) | — | GPL-2.0-or-later |
 | [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | — | GPL-3.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |
 | [SoapySDR](https://github.com/pothosware/SoapySDR) | — | BSL-1.0 |

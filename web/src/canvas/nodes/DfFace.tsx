@@ -70,7 +70,8 @@ export function DfFace({ node }: { node: PatchNode }) {
     }));
   };
   const verdict = calVerdict(state?.cal);
-  const bearing = verdict === "phase_unknown" ? null : (state?.reading ?? null);
+  const bearing =
+    verdict === "phase_unknown" || verdict === "injecting" ? null : (state?.reading ?? null);
   return (
     <NodeShell
       node={node}

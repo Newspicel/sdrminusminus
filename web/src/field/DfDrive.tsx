@@ -106,7 +106,12 @@ export function DfDrive({
     here,
   );
   const bearing = state?.reading ?? null;
-  const usable = state !== undefined && !state.cal.phase_unknown && (bearing?.confidence ?? 0) > 0;
+  const calibrating = state?.cal.reference_on === true;
+  const usable =
+    state !== undefined &&
+    !calibrating &&
+    !state.cal.phase_unknown &&
+    (bearing?.confidence ?? 0) > 0;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the first touch anywhere arms speech
     <div className="flex h-full flex-col" onPointerDown={voice.arm}>
@@ -117,9 +122,11 @@ export function DfDrive({
         <span className="text-xs text-ink-dim">
           {state === undefined
             ? "waiting"
-            : state.cal.phase_unknown
-              ? "phase unknown"
-              : `${Math.round((bearing?.confidence ?? 0) * 100)}%`}
+            : calibrating
+              ? "calibrating"
+              : state.cal.phase_unknown
+                ? "phase unknown"
+                : `${Math.round((bearing?.confidence ?? 0) * 100)}%`}
         </span>
       </div>
       <div className="flex justify-center">

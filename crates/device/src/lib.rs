@@ -282,6 +282,17 @@ pub trait SdrDevice: Send {
         None
     }
 
+    /// Switches this radio's own calibration reference into every lane at once.
+    ///
+    /// The reference has to reach the lanes at one point in the chain for what is measured
+    /// against it to be the receiver rather than the room, which is why it is the radio's switch
+    /// and not something wired up per lane.
+    fn set_noise_source(&mut self, _on: bool) -> Result<(), DeviceError> {
+        Err(DeviceError::Unsupported(
+            "this radio carries no calibration noise source".to_string(),
+        ))
+    }
+
     /// Hands the sweep to the radio's own firmware, which retunes between blocks faster than any
     /// host round trip and stamps each block with the frequency it was taken at.
     fn sweep_start(&mut self, _plan: &SweepPlan, _sink: SweepSink) -> Result<(), DeviceError> {
@@ -306,6 +317,7 @@ pub mod usb;
 pub mod worker;
 pub use capture::{
     Capture, CaptureConfig, CaptureRadio, CaptureStream, Next, StopHandle, StreamFailure,
+    drain_stream,
 };
 pub use convert::{LutConverter, SampleConverter};
 pub use duplex::DuplexState;
@@ -487,6 +499,7 @@ mod tests {
             dc_artifact: sdrmm_wire::DcArtifact::Operator,
             hardware_sweep: false,
             coherence: sdrmm_wire::Coherence::None,
+            noise_source: false,
         }
     }
 

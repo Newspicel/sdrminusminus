@@ -112,6 +112,7 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
+        noise_source: false,
     }
 }
 

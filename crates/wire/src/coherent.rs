@@ -315,6 +315,11 @@ pub struct CalState {
     /// re-solve against. Everything that depends on phase stays off while it is set.
     pub phase_unknown: bool,
     pub solved: bool,
+    /// Set while the radio's own reference is switched into the lanes. The array is looking at
+    /// itself rather than at the air, so nothing it reads in that moment is a report about the
+    /// world and none is published.
+    #[serde(default)]
+    pub reference_on: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

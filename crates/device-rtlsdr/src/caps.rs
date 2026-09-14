@@ -163,6 +163,42 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         dc_artifact: DcArtifact::Managed,
         hardware_sweep: false,
         coherence: sdrmm_wire::Coherence::None,
+        noise_source: false,
+    }
+}
+
+/// What a bank of dongles in one case, on one clock, can be asked to do.
+///
+/// The lanes are tuned together because an array measured at two frequencies is not one
+/// measurement, and the tuner is never bypassed because elements are wired to antennas rather
+/// than to a direct-sampling injection point. Gain stays per lane. The noise source is not a
+/// setting: it belongs to the calibration that switches it, not to an operator.
+pub(crate) fn kraken_capabilities(lanes: u32, gains: &[i32]) -> Capabilities {
+    Capabilities {
+        freq_ranges: vec![Range {
+            min: TUNER_MIN_HZ,
+            max: TUNER_MAX_HZ,
+            step: None,
+        }],
+        extra: vec![
+            ExtraSetting::Bool {
+                name: BIAS_TEE.to_string(),
+                default: false,
+            },
+            ExtraSetting::Bool {
+                name: AGC.to_string(),
+                default: true,
+            },
+        ],
+        noise_source: true,
+        rx_streams: lanes,
+        per_stream: StreamScope {
+            tuning: false,
+            gain: true,
+            antenna: false,
+        },
+        coherence: sdrmm_wire::Coherence::TimeSync,
+        ..capabilities(BoardVariant::Generic, gains)
     }
 }
 
@@ -562,8 +598,28 @@ mod tests {
             manufacturer: Some("Realtek".to_string()),
             product: Some("RTL2838UHIDIR".to_string()),
             serial: serial.map(str::to_string),
+            port_chain: vec![address],
             board_variant: BoardVariant::Generic,
         }
+    }
+
+    #[test]
+    fn a_bank_is_tuned_together_and_carries_the_switches_of_the_whole_unit() {
+        let caps = kraken_capabilities(5, GAIN_VALUES);
+        assert_eq!(caps.rx_streams, 5);
+        assert_eq!(caps.tx_streams, 0);
+        assert_eq!(caps.coherence, sdrmm_wire::Coherence::TimeSync);
+        assert!(!caps.per_stream.tuning, "an array measures one frequency");
+        assert!(caps.per_stream.gain);
+        assert!(caps.noise_source, "the bank calibrates against its own");
+        let names: Vec<&str> = caps.extra.iter().map(ExtraSetting::name).collect();
+        assert_eq!(names, [BIAS_TEE, AGC]);
+        assert!(
+            caps.freq_ranges
+                .iter()
+                .all(|range| range.min >= TUNER_MIN_HZ),
+            "elements are wired to antennas, so the tuner is never bypassed"
+        );
     }
 
     #[test]

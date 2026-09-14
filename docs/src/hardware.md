@@ -6,12 +6,14 @@ working.
 
 ## Built-in drivers
 
-Standard builds include native drivers for RTL-SDR, HackRF, SDRplay RSP, and Dragon Labs CR-8.
-These drivers do not require SoapySDR modules. Custom builds can omit them through feature flags.
+Standard builds include native drivers for RTL-SDR, KrakenSDR, HackRF, SDRplay RSP, and Dragon
+Labs CR-8. These drivers do not require SoapySDR modules. Custom builds can omit them through
+feature flags.
 
 | Receiver | Extra software |
 |---|---|
 | RTL-SDR | none |
+| KrakenSDR and KerberosSDR | none |
 | HackRF | none |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | SDRplay API 3.15 or newer, see [SDRplay](#sdrplay) |
 | Dragon Labs CR-8 | the vendor CR-8 library, see [Dragon Labs CR-8](#dragon-labs-cr-8) |
@@ -140,6 +142,32 @@ to the sample rate.
 
 **Direct sampling.** This is available except on RTL-SDR Blog V4 boards. The V4 uses an upconverter
 for HF; tune below 28.8 MHz without changing the direct-sampling setting.
+
+## KrakenSDR
+
+A KrakenSDR is five receive chains on one clock in one case, and sdr-- opens it as one receiver
+with five lanes. Its dongles are recognised by the serial numbers KrakenRF gives them and by the
+hub they hang off, so they are not also offered individually. A KerberosSDR is opened the same way
+with four lanes. Nothing from the vendor's Raspberry Pi image is needed or used.
+
+| Setting | Effect |
+|---|---|
+| `TUNER` | the tuner gain stage, set per lane |
+| `ppm` | crystal frequency correction |
+| `bias_tee` | phantom power on all five antenna ports |
+| `agc` | R82xx tuner AGC |
+
+The lanes are tuned together, and their gain is set for each lane from the Device node. Direct
+sampling is not offered: an array's elements are wired to antennas.
+
+The five tuners share a clock but not a synthesizer, so the receiver reports the `time_sync`
+coherence tier and comes up at a new set of relative phases after every retune. The built-in
+calibration noise source is not a setting: it belongs to the calibration that switches it in and
+out, which sdr-- runs for you. See [Coherent arrays](user-guide/arrays.md#krakensdr).
+
+If the unit does not appear, check that all five chains enumerate — `lsusb` on Linux, `sdrmm
+--doctor` anywhere. A unit missing a chain is reported as loose dongles rather than as a radio,
+which is the fault showing rather than a smaller array being invented.
 
 ## HackRF
 

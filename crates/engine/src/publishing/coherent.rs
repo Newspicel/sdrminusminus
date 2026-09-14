@@ -78,6 +78,7 @@ impl CoherentPublisher {
             packet.cal.tier = cal.tier;
             packet.cal.phase_unknown = cal.phase_unknown;
             packet.cal.solved = cal.solved;
+            packet.cal.reference_on = cal.reference_on;
             packet.cal.lanes.clear();
             packet.cal.lanes.extend_from_slice(&cal.lanes);
             packet.frequency = frequency;

@@ -724,6 +724,7 @@ mod tests {
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
             coherence: crate::device::Coherence::None,
+            noise_source: false,
         }
         .profile()
     }

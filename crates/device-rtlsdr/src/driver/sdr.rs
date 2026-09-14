@@ -34,6 +34,7 @@ pub(crate) struct DeviceDescriptor {
     pub(crate) manufacturer: Option<String>,
     pub(crate) product: Option<String>,
     pub(crate) serial: Option<String>,
+    pub(crate) port_chain: Vec<u8>,
     pub(crate) board_variant: BoardVariant,
 }
 
@@ -85,6 +86,7 @@ impl EnumeratedDevice {
             manufacturer: usb.manufacturer_string().map(str::to_owned),
             product: usb.product_string().map(str::to_owned),
             serial: usb.serial_number().map(str::to_owned),
+            port_chain: usb.port_chain().to_vec(),
             board_variant: classify_board_variant(usb.manufacturer_string(), usb.product_string()),
         };
         Self { usb, descriptor }
@@ -490,24 +492,53 @@ impl RtlSdr {
     }
 
     pub(crate) fn set_bias_t(&mut self, enable: bool) -> Result<()> {
-        let actual = enable || self.force_bias_t;
-        self.dev.set_gpio_output(0)?;
-        self.dev.set_gpio_bit(0, actual)
+        self.set_gpio(0, enable || self.force_bias_t)
     }
 
-    pub(crate) fn start_streaming(&mut self) -> Result<RxStream> {
+    pub(crate) fn set_gpio(&self, pin: u8, on: bool) -> Result<()> {
+        self.dev.set_gpio_output(pin)?;
+        self.dev.set_gpio_bit(pin, on)
+    }
+
+    pub(crate) fn set_dither(&mut self, on: bool) -> Result<()> {
+        self.tuner.set_dither(on);
+        if self.direct_sampling == DirectSampling::Off && self.center_freq != 0 {
+            let center = self.center_freq;
+            self.set_center_freq(center)?;
+        }
+        Ok(())
+    }
+
+    /// Opens the pipe with the endpoint still held in reset, so nothing is sampled until the
+    /// returned gate is opened. Radios that come in banks start on one gate release rather than
+    /// on whenever each of them finished being set up.
+    pub(crate) fn hold_stream(&mut self) -> Result<(RxStream, StreamGate)> {
         self.dev
             .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x1002, 2)?;
-        self.dev
-            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x0000, 2)?;
-
         let endpoint = NusbBulkIn::open(self.dev.interface(), BULK_ENDPOINT)?;
         let mut config = StreamConfig::new(TRANSFER_BUF_SIZE, "sdrmm-rtlsdr-usb");
         config.on_thread_start = Some(|| {
             sdrmm_device::schedule::claim(sdrmm_device::Latency::Critical);
         });
         let stream = sdrmm_usb_stream::start(endpoint, config)?;
+        Ok((stream, StreamGate(self.dev.clone())))
+    }
+
+    pub(crate) fn start_streaming(&mut self) -> Result<RxStream> {
+        let (stream, gate) = self.hold_stream()?;
+        gate.release()?;
         Ok(stream)
+    }
+}
+
+/// The endpoint reset of one dongle, held apart from it so that several can be released together.
+#[derive(Clone)]
+pub(crate) struct StreamGate(Rtl2832u);
+
+impl StreamGate {
+    pub(crate) fn release(&self) -> Result<()> {
+        self.0
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x0000, 2)
     }
 }
 

@@ -253,6 +253,15 @@ pub(crate) struct R82xx {
     xtal_freq: u32,
     is_blog_v4: bool,
     fil_cal_code: u8,
+    dither: bool,
+}
+
+/// Register 0x12's sigma-delta bits. Bit 3 stops the modulator when the divider comes out exact,
+/// and bit 4 stops the PLL dithering that otherwise leaves every tuner on its own phase — which
+/// is what makes two dongles on one clock comparable at all.
+const fn pll_sdm_reg(exact: bool, dither: bool) -> u8 {
+    let sdm = if exact { 0x08 } else { 0x00 };
+    if dither { sdm } else { sdm | 0x10 }
 }
 
 impl R82xx {
@@ -270,7 +279,12 @@ impl R82xx {
             xtal_freq,
             is_blog_v4,
             fil_cal_code: 0,
+            dither: true,
         }
+    }
+
+    pub(crate) const fn set_dither(&mut self, on: bool) {
+        self.dither = on;
     }
 
     pub(crate) fn tuner_type(&self) -> TunerType {
@@ -625,11 +639,7 @@ impl R82xx {
 
         self.write_reg_mask(dev, 0x14, ni.wrapping_add(si << 6), 0xff)?;
 
-        if sdm == 0 {
-            self.write_reg_mask(dev, 0x12, 0x08, 0x08)?;
-        } else {
-            self.write_reg_mask(dev, 0x12, 0x00, 0x08)?;
-        }
+        self.write_reg_mask(dev, 0x12, pll_sdm_reg(sdm == 0, self.dither), 0x18)?;
 
         self.write_reg_mask(dev, 0x16, (sdm >> 8) as u8, 0xff)?;
         self.write_reg_mask(dev, 0x15, (sdm & 0xff) as u8, 0xff)?;
@@ -801,3 +811,16 @@ impl R82xx {
 }
 
 use std::time::Duration;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dithering_is_the_only_thing_the_sigma_delta_bits_change() {
+        assert_eq!(pll_sdm_reg(true, true), 0x08);
+        assert_eq!(pll_sdm_reg(false, true), 0x00);
+        assert_eq!(pll_sdm_reg(true, false), 0x18);
+        assert_eq!(pll_sdm_reg(false, false), 0x10);
+    }
+}

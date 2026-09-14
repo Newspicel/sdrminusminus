@@ -254,6 +254,22 @@ fn supervise<R: CaptureRadio, C: SampleConverter>(
     radio.disarm();
 }
 
+/// Drains one stream into one sink until it is stopped or the stream fails.
+///
+/// A radio whose lanes arrive on separate streams needs the same transfer bookkeeping a single
+/// stream gets, but not the restart around it: a lane that quietly comes back on its own is no
+/// longer on the same timeline as the lanes it is measured against.
+pub fn drain_stream<S: CaptureStream, C: SampleConverter>(
+    stream: &S,
+    running: &AtomicBool,
+    sink: &mut RxSink,
+    converter: &mut C,
+    config: &CaptureConfig,
+) -> Option<StreamFailure> {
+    let mut dropped = 0;
+    drain(stream, running, sink, converter, &mut dropped, config).map(|(failure, _)| failure)
+}
+
 fn drain<S: CaptureStream, C: SampleConverter>(
     stream: &S,
     running: &AtomicBool,

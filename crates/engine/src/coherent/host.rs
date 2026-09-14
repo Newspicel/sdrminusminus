@@ -58,6 +58,10 @@ pub(crate) struct CoherentHost {
     freq_hz: f64,
     since_state: f64,
     state_samples: f64,
+    /// What the calibration last said, so that a change in it goes out when it happens rather
+    /// than when the next interval comes round. Whoever is running a calibration is waiting on
+    /// exactly this.
+    told: (bool, bool, bool),
     weights: Option<Vec<Complex<f32>>>,
 }
 
@@ -93,6 +97,7 @@ impl CoherentHost {
             freq_hz: ctx.center_hz,
             since_state: 0.0,
             state_samples: ctx.sample_rate * STATE_INTERVAL_S,
+            told: (false, false, false),
             weights: None,
         }))
     }
@@ -136,11 +141,13 @@ impl super::AlignedSink for CoherentHost {
         }
         let count = lanes.first().map_or(0, |lane| lane.len()) as f64;
         self.since_state += count;
-        let due = self.since_state >= self.state_samples;
+        let state = (ctx.cal.solved, ctx.cal.phase_unknown, ctx.cal.reference_on);
+        let due = self.since_state >= self.state_samples || state != self.told;
         if due {
             self.since_state = 0.0;
+            self.told = state;
         }
-        if self.needs_phase && ctx.cal.phase_unknown {
+        if ctx.cal.reference_on || (self.needs_phase && ctx.cal.phase_unknown) {
             if due {
                 self.outputs.reset();
                 self.publisher

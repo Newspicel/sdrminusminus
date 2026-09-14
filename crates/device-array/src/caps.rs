@@ -117,6 +117,7 @@ pub fn composite(members: &[&Capabilities], definition: &ArrayDefinition) -> Cap
         dc_artifact: sdrmm_wire::DcArtifact::None,
         hardware_sweep: false,
         coherence: definition.coherence,
+        noise_source: false,
     }
 }
 

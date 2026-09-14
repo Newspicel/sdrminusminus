@@ -452,6 +452,11 @@ pub struct Capabilities {
     pub hardware_sweep: bool,
     #[serde(default)]
     pub coherence: Coherence,
+    /// Whether the radio can switch a calibration reference into every lane at once. An array
+    /// that carries its own is calibrated without an operator reaching for a splitter, and
+    /// without one it has to be told what to solve against.
+    #[serde(default)]
+    pub noise_source: bool,
 }
 
 /// How much of the relationship between two of a radio's receive lanes survives calibration.
@@ -870,6 +875,7 @@ mod tests {
             dc_artifact: DcArtifact::Operator,
             hardware_sweep: false,
             coherence: Coherence::None,
+            noise_source: false,
         }
     }
 

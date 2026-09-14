@@ -242,6 +242,7 @@ fn siggen_capabilities() -> Capabilities {
         dc_artifact: DcArtifact::Operator,
         hardware_sweep: true,
         coherence: sdrmm_wire::Coherence::None,
+        noise_source: false,
     }
 }
 
@@ -414,6 +415,9 @@ pub struct MarkerShape {
     pub tx_streams: u32,
     pub per_stream: StreamScope,
     pub coherence: Coherence,
+    /// Whether the instrument can switch a reference into its lanes, as a bank of receivers on
+    /// one clock carries one so that its phase can be solved again after every retune.
+    pub noise_source: bool,
 }
 
 pub const MARKER_SHAPES: [MarkerShape; 3] = [
@@ -429,6 +433,7 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
             antenna: false,
         },
         coherence: Coherence::PhaseCoherent,
+        noise_source: true,
     },
     MarkerShape {
         key: "transceiver",
@@ -442,6 +447,7 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
             antenna: true,
         },
         coherence: Coherence::None,
+        noise_source: false,
     },
     MarkerShape {
         key: "halfduplex",
@@ -455,6 +461,7 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
             antenna: false,
         },
         coherence: Coherence::None,
+        noise_source: false,
     },
 ];
 
@@ -465,6 +472,7 @@ fn marker_capabilities(shape: &MarkerShape) -> Capabilities {
         tx_streams: shape.tx_streams,
         per_stream: shape.per_stream,
         coherence: shape.coherence,
+        noise_source: shape.noise_source,
         extra: if shape.coherence.has_phase() {
             array::extra_settings()
         } else {
@@ -492,6 +500,7 @@ pub struct MarkerGen {
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<MarkerParams>>,
+    reference_on: bool,
     worker: Worker,
 }
 
@@ -500,6 +509,7 @@ struct MarkerParams {
     marker_offsets: Vec<f64>,
     array: array::ArrayParams,
     lane_phase: Vec<f64>,
+    reference_on: bool,
 }
 
 impl MarkerGen {
@@ -512,23 +522,36 @@ impl MarkerGen {
         let shared = Arc::new(ArcSwap::from_pointee(marker_params(
             &settings,
             &capabilities,
+            false,
         )));
         Self {
             capabilities,
             settings,
             shared,
+            reference_on: false,
             worker: Worker::new(),
         }
     }
 }
 
-fn marker_params(settings: &DeviceSettings, capabilities: &Capabilities) -> MarkerParams {
+/// The instrument's own reference reaches the lanes past the antennas, so while it is switched
+/// in there is no wavefront to steer and what is left on each lane is the receiver's own phase —
+/// which is the whole of what a calibration is there to measure.
+fn marker_params(
+    settings: &DeviceSettings,
+    capabilities: &Capabilities,
+    reference_on: bool,
+) -> MarkerParams {
     let params = array::read(settings);
     let lanes = capabilities.rx_streams as usize;
     let center_hz = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
     let lane_phase = (0..lanes)
         .map(|lane| {
-            let steer = array::steering_phase(lane, lanes, &params, center_hz);
+            let steer = if reference_on {
+                0.0
+            } else {
+                array::steering_phase(lane, lanes, &params, center_hz)
+            };
             if params.scramble {
                 steer + array::scramble_phase(lane, center_hz)
             } else {
@@ -541,6 +564,7 @@ fn marker_params(settings: &DeviceSettings, capabilities: &Capabilities) -> Mark
         marker_offsets: marker_offsets(settings, capabilities),
         array: params,
         lane_phase,
+        reference_on,
     }
 }
 
@@ -565,7 +589,7 @@ impl SdrDevice for MarkerGen {
             array::validate(settings)?;
         }
         self.settings.merge_from(settings);
-        let params = marker_params(&self.settings, &self.capabilities);
+        let params = marker_params(&self.settings, &self.capabilities, self.reference_on);
         if self.capabilities.coherence != Coherence::None {
             self.capabilities.coherence = if params.array.scramble {
                 Coherence::TimeSync
@@ -574,6 +598,21 @@ impl SdrDevice for MarkerGen {
             };
         }
         self.shared.store(Arc::new(params));
+        Ok(())
+    }
+
+    fn set_noise_source(&mut self, on: bool) -> Result<(), DeviceError> {
+        if !self.capabilities.noise_source {
+            return Err(DeviceError::Unsupported(
+                "this instrument carries no calibration reference".to_string(),
+            ));
+        }
+        self.reference_on = on;
+        self.shared.store(Arc::new(marker_params(
+            &self.settings,
+            &self.capabilities,
+            on,
+        )));
         Ok(())
     }
 
@@ -601,7 +640,8 @@ impl SdrDevice for MarkerGen {
                 let params = shared.load_full();
                 let n = ((params.sample_rate * BLOCK_SECS).round() as usize).max(1);
                 block.resize(n, Complex::new(0.0, 0.0));
-                let wavefront = coherent && params.array.carries_wavefront();
+                let wavefront =
+                    coherent && (params.array.carries_wavefront() || params.reference_on);
                 if wavefront {
                     field.fill(&mut common, n, params.sample_rate);
                 }
@@ -1468,6 +1508,39 @@ mod tests {
             assert!(
                 wrap(measured - want).abs() < 0.05,
                 "lane {lane}: measured {measured:.4} rad, steering vector says {want:.4}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reference_reaches_the_lanes_past_the_antennas() {
+        const N: usize = 1 << 15;
+        const CENTRE: f64 = 300_000_000.0;
+        let mut dev = open_virtual("array4");
+        assert!(
+            dev.capabilities().noise_source,
+            "the bank carries a reference"
+        );
+        dev.apply(&DeviceSettings {
+            sample_rate: Some(1_024_000.0),
+            center_hz: Some(CENTRE),
+            ..array_settings(vec![
+                (array::BEARING_SETTING, 137.0.into()),
+                (array::RADIUS_SETTING, 0.35.into()),
+                (array::SCRAMBLE_SETTING, true.into()),
+            ])
+        })
+        .unwrap();
+        let rate = dev.settings().sample_rate.unwrap();
+        dev.set_noise_source(true).unwrap();
+        let lanes = capture_lanes(&mut dev, 4, N);
+
+        for lane in 1..4 {
+            let measured = wavefront_phase(&lanes[0], &lanes[lane], rate);
+            let want = array::scramble_phase(lane, CENTRE) - array::scramble_phase(0, CENTRE);
+            assert!(
+                wrap(measured - want).abs() < 0.05,
+                "lane {lane}: measured {measured:.4} rad, the receiver's own phase is {want:.4}"
             );
         }
     }

@@ -45,6 +45,9 @@ impl Lane {
 pub(crate) struct Calibrator {
     lanes: usize,
     params: CalParams,
+    /// Whether the radio carries the reference itself, and so whether anyone knows when it is
+    /// really in the lanes.
+    switched: bool,
     xcorr: XCorr,
     frame: usize,
     solutions: Vec<Lane>,
@@ -62,11 +65,18 @@ fn frame_for(sample_rate: f64, bandwidth_hz: f64) -> usize {
 }
 
 impl Calibrator {
-    pub(crate) fn new(lanes: usize, tier: Coherence, params: CalParams, sample_rate: f64) -> Self {
+    pub(crate) fn new(
+        lanes: usize,
+        tier: Coherence,
+        params: CalParams,
+        sample_rate: f64,
+        switched: bool,
+    ) -> Self {
         let frame = frame_for(sample_rate, params.bandwidth_hz);
         Self {
             lanes,
             params,
+            switched,
             xcorr: XCorr::new(frame),
             frame,
             solutions: vec![Lane::identity(); lanes],
@@ -77,6 +87,7 @@ impl Calibrator {
                 lanes: vec![LaneCal::default(); lanes],
                 phase_unknown: !tier.has_phase(),
                 solved: false,
+                reference_on: false,
             },
             pending: true,
             solved: false,
@@ -118,12 +129,35 @@ impl Calibrator {
     /// A signal arriving over the air brings a bearing with it, and no measurement can separate
     /// that from the receiver's own phase. Removing it would be removing the answer, so phase is
     /// only ever solved against an injected reference or a declared pilot.
+    ///
+    /// A radio that switches its own reference is believed only while the switch is in, and only
+    /// until it has answered: one injection is one answer, and everything after it is the array
+    /// back on its antennas. One wired up on the bench is taken at the operator's word, because
+    /// nothing here can see the bench.
     const fn phase_reference(&self) -> bool {
-        matches!(self.params.source, sdrmm_wire::CalSource::Noise) || self.params.pilot_hz.is_some()
+        match self.params.source {
+            sdrmm_wire::CalSource::Noise if self.switched => {
+                self.state.reference_on && !self.phase_solved
+            }
+            sdrmm_wire::CalSource::Noise => true,
+            sdrmm_wire::CalSource::Signal => self.params.pilot_hz.is_some(),
+        }
     }
 
     pub(crate) fn state(&self) -> &CalState {
         &self.state
+    }
+
+    /// Records that the radio's own reference is in the lanes, which is what lets everything
+    /// downstream tell a measurement of the array from a measurement of the world.
+    ///
+    /// What the lanes carry has just changed, so the solution starts again rather than creeping
+    /// towards the new answer from the old one.
+    pub(crate) const fn reference(&mut self, on: bool) {
+        self.state.reference_on = on;
+        if on {
+            self.pending = true;
+        }
     }
 
     /// Whether processors that need inter-lane phase may run at all.
@@ -314,7 +348,7 @@ mod tests {
 
     #[test]
     fn a_phase_coherent_array_solves_the_rotation_between_its_lanes() {
-        let mut cal = Calibrator::new(2, Coherence::PhaseCoherent, injected(), RATE);
+        let mut cal = Calibrator::new(2, Coherence::PhaseCoherent, injected(), RATE, false);
         let rotation = Complex::from_polar(0.5f32, 1.2);
         drive(&mut cal, 3, |round| {
             let base = round * 4_096;
@@ -341,7 +375,7 @@ mod tests {
 
     #[test]
     fn correction_puts_the_lanes_on_top_of_each_other() {
-        let mut cal = Calibrator::new(2, Coherence::TimeSync, injected(), RATE);
+        let mut cal = Calibrator::new(2, Coherence::TimeSync, injected(), RATE, false);
         let rotation = Complex::from_polar(0.5f32, 1.2);
         let shift = 7usize;
         drive(&mut cal, 4, |round| {
@@ -364,7 +398,7 @@ mod tests {
 
     #[test]
     fn a_time_synced_array_without_a_pilot_refuses_to_trust_its_phase() {
-        let mut cal = Calibrator::new(2, Coherence::TimeSync, params(), RATE);
+        let mut cal = Calibrator::new(2, Coherence::TimeSync, params(), RATE, false);
         drive(&mut cal, 3, |round| {
             let base = round * 4_096;
             vec![
@@ -389,6 +423,7 @@ mod tests {
                 ..params()
             },
             RATE,
+            false,
         );
         drive(&mut cal, 3, |round| {
             let base = round * 4_096;
@@ -402,7 +437,7 @@ mod tests {
 
     #[test]
     fn lanes_that_share_nothing_leave_the_solution_unsolved() {
-        let mut cal = Calibrator::new(2, Coherence::PhaseCoherent, params(), RATE);
+        let mut cal = Calibrator::new(2, Coherence::PhaseCoherent, params(), RATE, false);
         drive(&mut cal, 3, |round| {
             let mut state = 0x1234u64 ^ (round as u64) << 20;
             let mut next = move || {
@@ -425,7 +460,7 @@ mod tests {
 
     #[test]
     fn invalidating_keeps_delay_when_only_the_synthesizer_moved() {
-        let mut cal = Calibrator::new(2, Coherence::TimeSync, params(), RATE);
+        let mut cal = Calibrator::new(2, Coherence::TimeSync, params(), RATE, false);
         drive(&mut cal, 3, |round| {
             let base = round * 4_096;
             vec![
