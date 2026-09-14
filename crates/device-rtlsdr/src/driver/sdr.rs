@@ -97,11 +97,13 @@ fn is_known_rtl_device(vendor_id: u16, product_id: u16) -> bool {
     vendor_id == RTL_USB_VID && RTL_USB_PIDS.contains(&product_id)
 }
 
+/// Windows reports no USB manufacturer string at all, so the product string the bus read out of
+/// the dongle is the only field that can name the board on every platform.
 fn classify_board_variant(manufacturer: Option<&str>, product: Option<&str>) -> BoardVariant {
-    match (manufacturer, product) {
-        (Some(manufacturer), Some(product))
-            if manufacturer.eq_ignore_ascii_case("RTLSDRBlog")
-                && product.eq_ignore_ascii_case("Blog V4") =>
+    let vendor_fits = manufacturer.is_none_or(|name| name.eq_ignore_ascii_case("RTLSDRBlog"));
+    match product {
+        Some(product)
+            if vendor_fits && product.trim().to_ascii_lowercase().starts_with("blog v4") =>
         {
             BoardVariant::RtlSdrBlogV4
         }
@@ -593,6 +595,27 @@ mod tests {
             BoardVariant::Generic
         );
         assert_eq!(classify_board_variant(None, None), BoardVariant::Generic);
+    }
+
+    #[test]
+    fn a_blog_v4_is_recognised_where_no_manufacturer_string_is_reported() {
+        assert_eq!(
+            classify_board_variant(None, Some("Blog V4")),
+            BoardVariant::RtlSdrBlogV4,
+            "Windows reports no manufacturer string, and the V4 needs its own crystal"
+        );
+        assert_eq!(
+            classify_board_variant(None, Some("Blog V4L")),
+            BoardVariant::RtlSdrBlogV4
+        );
+        assert_eq!(
+            classify_board_variant(None, Some("RTL2838UHIDIR")),
+            BoardVariant::Generic
+        );
+        assert_eq!(
+            classify_board_variant(None, Some("Blog V3")),
+            BoardVariant::Generic
+        );
     }
 
     #[test]
