@@ -1,54 +1,91 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { DeviceSettings } from "./types";
 import { createPatchQueue } from "./useDevicePatch";
 
+function recorder(): {
+  sent: [number, DeviceSettings][];
+  send: (ds: number, settings: DeviceSettings) => Promise<void>;
+  settle: () => Promise<void>;
+} {
+  const sent: [number, DeviceSettings][] = [];
+  const waiting: (() => void)[] = [];
+  return {
+    sent,
+    send: (ds, settings) => {
+      sent.push([ds, settings]);
+      return new Promise<void>((resolve) => waiting.push(resolve));
+    },
+    settle: async () => {
+      waiting.shift()?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
+}
+
 describe("createPatchQueue", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("sends the first change to a radio straight away", () => {
-    const sent: DeviceSettings[] = [];
-    const push = createPatchQueue((_ds, settings) => sent.push(settings));
+    const { sent, send } = recorder();
+    const push = createPatchQueue(send);
 
     push(1, { center_hz: 100e6 });
 
-    expect(sent).toEqual([{ center_hz: 100e6 }]);
+    expect(sent).toEqual([[1, { center_hz: 100e6 }]]);
   });
 
-  it("carries only what the last of a burst asked for", () => {
-    const sent: DeviceSettings[] = [];
-    const push = createPatchQueue((_ds, settings) => sent.push(settings), 100);
+  it("holds a burst behind the change already on its way", () => {
+    const { sent, send } = recorder();
+    const push = createPatchQueue(send);
 
     push(1, { center_hz: 100e6 });
     for (const hz of [100.1e6, 100.2e6, 100.3e6]) {
-      vi.advanceTimersByTime(10);
       push(1, { center_hz: hz });
     }
-    vi.advanceTimersByTime(100);
 
-    expect(sent).toEqual([{ center_hz: 100e6 }, { center_hz: 100.3e6 }]);
+    expect(sent).toHaveLength(1);
   });
 
-  it("loses no setting when a burst changes more than one", () => {
-    const sent: DeviceSettings[] = [];
-    const push = createPatchQueue((_ds, settings) => sent.push(settings), 100);
+  it("carries only what the last of a held burst asked for", async () => {
+    const { sent, send, settle } = recorder();
+    const push = createPatchQueue(send);
+
+    push(1, { center_hz: 100e6 });
+    push(1, { center_hz: 100.1e6 });
+    push(1, { center_hz: 100.3e6 });
+    await settle();
+
+    expect(sent).toEqual([
+      [1, { center_hz: 100e6 }],
+      [1, { center_hz: 100.3e6 }],
+    ]);
+  });
+
+  it("loses no setting when a held burst changes more than one", async () => {
+    const { sent, send, settle } = recorder();
+    const push = createPatchQueue(send);
 
     push(1, { center_hz: 100e6 });
     push(1, { ppm: 5 });
     push(1, { center_hz: 101e6 });
-    vi.advanceTimersByTime(100);
+    await settle();
 
-    expect(sent[1]).toEqual({ center_hz: 101e6, ppm: 5 });
+    expect(sent[1]).toEqual([1, { center_hz: 101e6, ppm: 5 }]);
+  });
+
+  it("sends a change that arrives with nothing on its way at once", async () => {
+    const { sent, send, settle } = recorder();
+    const push = createPatchQueue(send);
+
+    push(1, { center_hz: 100e6 });
+    await settle();
+    push(1, { center_hz: 101e6 });
+
+    expect(sent).toHaveLength(2);
   });
 
   it("holds each radio to its own pace", () => {
-    const sent: [number, DeviceSettings][] = [];
-    const push = createPatchQueue((ds, settings) => sent.push([ds, settings]), 100);
+    const { sent, send } = recorder();
+    const push = createPatchQueue(send);
 
     push(1, { center_hz: 100e6 });
     push(2, { center_hz: 200e6 });
@@ -59,14 +96,18 @@ describe("createPatchQueue", () => {
     ]);
   });
 
-  it("sends a change that arrives after the pause at once", () => {
+  it("keeps sending after a change a radio refused", async () => {
     const sent: DeviceSettings[] = [];
-    const push = createPatchQueue((_ds, settings) => sent.push(settings), 100);
+    const push = createPatchQueue((_ds, settings) => {
+      sent.push(settings);
+      return Promise.reject(new Error("refused"));
+    });
 
     push(1, { center_hz: 100e6 });
-    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    await Promise.resolve();
     push(1, { center_hz: 101e6 });
 
-    expect(sent).toEqual([{ center_hz: 100e6 }, { center_hz: 101e6 }]);
+    expect(sent).toHaveLength(2);
   });
 });

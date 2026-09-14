@@ -95,40 +95,30 @@ function mergeByKey<T>(current: T[] | undefined, delta: T[], key: (item: T) => s
 }
 
 export function createPatchQueue(
-  send: (ds: number, settings: DeviceSettings) => void,
-  minGapMs = 100,
+  send: (ds: number, settings: DeviceSettings) => Promise<unknown>,
 ): (ds: number, delta: DeviceSettings) => void {
-  const pending = new Map<number, DeviceSettings>();
-  const timers = new Map<number, number>();
-  const sentAt = new Map<number, number>();
+  const waiting = new Map<number, DeviceSettings>();
+  const inFlight = new Set<number>();
 
-  const flush = (ds: number): void => {
-    timers.delete(ds);
-    const settings = pending.get(ds);
+  const run = (ds: number): void => {
+    const settings = waiting.get(ds);
     if (settings === undefined) {
+      inFlight.delete(ds);
       return;
     }
-    pending.delete(ds);
-    sentAt.set(ds, Date.now());
-    send(ds, settings);
+    waiting.delete(ds);
+    inFlight.add(ds);
+    void send(ds, settings)
+      .catch(() => undefined)
+      .finally(() => run(ds));
   };
 
   return (ds: number, delta: DeviceSettings): void => {
-    const queued = pending.get(ds);
-    pending.set(ds, queued === undefined ? delta : mergeSettings(queued, delta));
-    if (timers.has(ds)) {
-      return;
+    const queued = waiting.get(ds);
+    waiting.set(ds, queued === undefined ? delta : mergeSettings(queued, delta));
+    if (!inFlight.has(ds)) {
+      run(ds);
     }
-    const last = sentAt.get(ds);
-    const waited = last === undefined ? minGapMs : Date.now() - last;
-    if (waited >= minGapMs) {
-      flush(ds);
-      return;
-    }
-    timers.set(
-      ds,
-      setTimeout(() => flush(ds), minGapMs - waited),
-    );
   };
 }
 
@@ -143,9 +133,9 @@ export function useDevicePatch(): {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
-  const mutate = useRef(patchMut.mutate);
+  const mutate = useRef(patchMut.mutateAsync);
   useLayoutEffect(() => {
-    mutate.current = patchMut.mutate;
+    mutate.current = patchMut.mutateAsync;
   });
   const queue = useRef<((ds: number, delta: DeviceSettings) => void) | null>(null);
   queue.current ??= createPatchQueue((ds, settings) => mutate.current({ ds, settings }));
