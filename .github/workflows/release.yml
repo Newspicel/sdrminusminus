@@ -1,5 +1,5 @@
-# Release artifacts. Tag-driven; workflow_dispatch builds and uploads everything
-# without publishing, so the pipeline can be exercised off a branch.
+# Release artifacts. Tag-driven; workflow_dispatch and the `build_nightly` pull-request label
+# build and upload everything without publishing, so the pipeline can be exercised off a branch.
 #
 # Three rules run through every job here:
 #
@@ -18,7 +18,7 @@
 #    `cargo xtask dist` does both, which is why one command reproduces a release artifact on a
 #    laptop; the Dockerfile has the same two steps as its own stages.
 #
-# Three modes, one pipeline — the build jobs are identical in all of them and only the `version`
+# Four modes, one pipeline — the build jobs are identical in all of them and only the `version`
 # job and the publish step know which is running:
 #
 #   tag       a real release, published from the tag's version
@@ -26,11 +26,15 @@
 #             moved since the last one, because a full matrix is twelve jobs and four of them
 #             are macOS
 #   dispatch  a rehearsal: builds and uploads everything, publishes nothing
+#   label     a pull request carrying `build_nightly`: the same rehearsal, hung off the run the
+#             pull request already links to, so a reviewer can install the branch
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    types: [labeled, synchronize]
   schedule:
     # 03:00 UTC. Nothing downstream cares about the exact hour; this one is outside both
     # European and US working days, so a nightly is finished before anyone looks for it.
@@ -42,7 +46,9 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  # A labelled pull request rebuilds on every push, so the superseded run is cancelled rather
+  # than left to finish twelve jobs nobody will look at. Nothing else here is ever interrupted.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # ghcr rejects an uppercase reference and `github.repository` carries the owner's canonical
@@ -56,6 +62,16 @@ env:
 jobs:
   version:
     name: Stamp version
+    # The gate for the whole pipeline on a pull request: the `build_nightly` label, and a branch
+    # in this repository. A fork's run is handed no secrets, and the desktop job refuses a bundle
+    # it could not sign — so a fork would pay for the full matrix and then fail on the last step.
+    # The second clause keeps an unrelated label from rebuilding an already-labelled branch.
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+          && contains(github.event.pull_request.labels.*.name, 'build_nightly')
+          && (github.event.action != 'labeled'
+              || github.event.label.name == 'build_nightly'))
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.stamp.outputs.version }}
@@ -97,8 +113,10 @@ jobs:
           elif [ "$REF_TYPE" = tag ]; then
             version="${REF_NAME#v}"
           else
-            # Dispatch runs are rehearsals and are never published, so they keep the manifest's
-            # own version.
+            # Dispatch runs and labelled pull requests are rehearsals and are never published, so
+            # they keep the manifest's own version. Fixed on purpose: nothing here reads the
+            # branch or the pull request's title, so rebuilding the same commit twice produces
+            # two identical artifact sets rather than two versions to tell apart.
             version=0.0.0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -285,36 +303,57 @@ jobs:
         run: echo "PLATFORM_SLUG=${PLATFORM//\//-}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # The web build and its index.html assertion are stages of the Dockerfile itself, so the
       # image cannot be published without an embedded UI either.
+      # A labelled pull request writes a `docker load`-able tarball instead of pushing: a registry
+      # reference is a published thing, and a branch build has no business creating one.
       - id: build
         uses: docker/build-push-action@v7
         with:
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: >-
+            ${{ github.event_name == 'pull_request'
+                && format('type=docker,dest=image-{0}.tar', env.PLATFORM_SLUG)
+                || format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE_NAME) }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
       - name: Export digest
+        if: github.event_name != 'pull_request'
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir -p /tmp/digests
           touch "/tmp/digests/${DIGEST#sha256:}"
       - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
         with:
           name: digest-${{ env.PLATFORM_SLUG }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
+      - name: Compress the image
+        if: github.event_name == 'pull_request'
+        run: gzip "image-${PLATFORM_SLUG}.tar"
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request'
+        with:
+          name: image-${{ env.PLATFORM_SLUG }}
+          path: image-${{ env.PLATFORM_SLUG }}.tar.gz
+          if-no-files-found: error
+          # Already gzipped; zipping it again buys nothing and costs minutes on a 1 GB layer set.
+          compression-level: 0
+          retention-days: 7
 
   image-manifest:
     name: Image manifest
     needs: [version, image]
-    if: needs.version.outputs.changed == 'true'
+    # A pull request pushed no digests to assemble.
+    if: needs.version.outputs.changed == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -761,8 +800,13 @@ jobs:
         run: |
           set -euo pipefail
           # A tag serves the manifest from its own release; the nightly from the rolling one. A
-          # dispatch has neither, and only exercises the generator.
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then tag=nightly; else tag="$GITHUB_REF_NAME"; fi
+          # dispatch and a labelled pull request have neither and only exercise the generator, so
+          # they are named after the thing that will never exist rather than after `123/merge`.
+          case "$GITHUB_EVENT_NAME" in
+            schedule) tag=nightly ;;
+            pull_request) tag="pr-${{ github.event.pull_request.number }}" ;;
+            *) tag="$GITHUB_REF_NAME" ;;
+          esac
           cargo xtask updater-manifest \
             --version "$VERSION" \
             --dir bundles \
@@ -775,9 +819,48 @@ jobs:
           path: latest.json
           if-no-files-found: error
 
+  # What "in the pull request" means in practice: the run holds every artifact, and this points
+  # the conversation at them so nobody has to open the check first. One comment per pull request,
+  # rewritten in place on each rebuild rather than appended to.
+  pull-request-build:
+    name: Pull request build
+    needs: [version, binaries, image, desktop, updater-manifest]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body=$(cat <<EOF
+          <!-- build_nightly -->
+          Full build of \`${GITHUB_SHA}\`, stamped \`${VERSION}\`. No tag, no release, nothing published.
+
+          **[Artifacts](${run}#artifacts)** — portable archives, desktop installers and update bundles for every platform, \`latest.json\`, and a \`docker load\`-able image per architecture.
+
+          Every push rebuilds this while the \`build_nightly\` label is on; remove the label to stop.
+          EOF
+          )
+          # `--jq` runs once per page, so the filter emits ids rather than picking one: `tail`
+          # does the choosing, across pages.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- build_nightly -->")) | .id' | tail -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body"
+          else
+            gh pr comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
+          fi
+
   release:
     name: GitHub Release
-    # workflow_dispatch runs stop at the uploaded artifacts; a tag and a nightly publish.
+    # Dispatch rehearsals and labelled pull requests stop at the uploaded artifacts; a tag and a
+    # nightly publish.
     if: github.ref_type == 'tag' || github.event_name == 'schedule'
     needs: [version, binaries, image-manifest, desktop, updater-manifest]
     runs-on: ubuntu-24.04

@@ -118,6 +118,22 @@ brew audit --strict --online newspicel/tap/sdrmm
 brew audit --strict --online --cask newspicel/tap/sdrminusminus
 ```
 
+## Building a pull request
+
+Label a pull request `build_nightly` to run the same rehearsal against the branch. The release
+workflow builds the full matrix — portable archives, desktop installers and update bundles for
+every platform, `latest.json`, and a container image per architecture — and attaches everything to
+the run as artifacts. A comment on the pull request links to them and is rewritten on each rebuild.
+
+Nothing is published: no tag, no GitHub release, and no registry push. The container images are
+uploaded as `docker load`-able tarballs instead. The version is fixed at the manifest's own `0.0.0`
+rather than derived from the branch or the pull request, so two builds of the same commit produce
+identical artifacts.
+
+Every push rebuilds while the label is attached, cancelling the superseded run; remove the label to
+stop. The build runs only for branches in this repository, because a fork's run receives none of
+the signing secrets the desktop bundles require.
+
 ## Release checklist
 
 Before tagging:
