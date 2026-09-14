@@ -7,12 +7,12 @@ use std::{
 };
 
 use num_complex::Complex;
-use sdrmm_device::{CaptureStream, Next, Sample, SampleConverter, StreamFailure, lock};
-
-use crate::{
-    socket::{Block, BlockPool, Connection, Read, SocketStop},
-    spyserver::proto::{HEADER_LEN, IqFormat, MessageHeader, STREAM_TYPE_IQ},
+use sdrmm_device::{
+    Block, BlockPool, CaptureStream, Next, Sample, SampleConverter, StreamFailure, lock,
+    net::{Connection, Read, SocketStop},
 };
+
+use crate::spyserver::proto::{HEADER_LEN, IqFormat, MessageHeader, STREAM_TYPE_IQ};
 
 const MAX_DIGITAL_GAIN_DB: u16 = 96;
 
@@ -196,7 +196,10 @@ impl CaptureStream for SpyStream {
                 Next::Idle
             }
             Phase::Body { header, block, got } => {
-                match self.connection.read(&mut block.as_mut()[*got..], timeout) {
+                match self
+                    .connection
+                    .read(&mut block.bytes_mut()[*got..], timeout)
+                {
                     Read::Got(n) => *got += n,
                     Read::Idle => return Next::Idle,
                     Read::Ended => return Next::Ended,

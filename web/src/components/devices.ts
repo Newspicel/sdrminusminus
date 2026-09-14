@@ -69,7 +69,11 @@ export function sourceTabs(groups: {
       label: counted("Recordings", groups.recordings.length),
       title: "Saved IQ recordings, played back like a radio",
     },
-    { value: "network", label: "Network", title: "A radio served over rtl_tcp or SpyServer" },
+    {
+      value: "network",
+      label: "Network",
+      title: "A radio served over rtl_tcp or SpyServer, or an AntSDR or Pluto on the network",
+    },
   ];
   if (groups.virtual.length > 0) {
     tabs.push({
@@ -120,6 +124,7 @@ export function deviceId(device: DeviceInfo): string {
 export const NETWORK_BACKENDS = [
   { driver: "rtltcp", label: "rtl_tcp", placeholder: "192.168.1.5:1234" },
   { driver: "spyserver", label: "SpyServer", placeholder: "192.168.1.5:5555" },
+  { driver: "ad936x", label: "AntSDR / Pluto", placeholder: "192.168.1.10:30431" },
 ] as const;
 
 export function networkDeviceId(driver: string, address: string): string | null {

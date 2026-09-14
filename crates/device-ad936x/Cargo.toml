@@ -1,5 +1,5 @@
 [package]
-name = "sdrmm-device-net"
+name = "sdrmm-device-ad936x"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -14,4 +14,10 @@ workspace = true
 sdrmm-wire.workspace = true
 sdrmm-device = { workspace = true, features = ["net"] }
 num-complex.workspace = true
+serde_json.workspace = true
+nusb.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+sdrmm-wire.workspace = true
+

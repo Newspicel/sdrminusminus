@@ -1,0 +1,828 @@
+use sdrmm_device::{DeviceError, check_stream_settings};
+use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue};
+
+use crate::{
+    caps::{BB_DC, FIR, Front, GAIN_MODE, QUADRATURE, RF_DC, TX_PORT, TX_STAGE},
+    iio::{Client, Direction},
+    layout::{
+        BB_DC_TRACKING, FILTER_FIR_EN, FREQUENCY, GAIN_CONTROL_MODE, HARDWAREGAIN, Layout,
+        QUADRATURE_TRACKING, RF_BANDWIDTH, RF_DC_TRACKING, RF_PORT_SELECT, RX_LO,
+        SAMPLING_FREQUENCY, TX_LO, XO_CORRECTION,
+    },
+};
+
+/// One attribute write, in the order the transceiver needs them: a rate change re-derives the
+/// filters a bandwidth sits in, and a retune recalibrates against both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Write {
+    Device {
+        attr: String,
+        value: String,
+    },
+    Channel {
+        output: bool,
+        channel: String,
+        attr: String,
+        value: String,
+    },
+}
+
+impl Write {
+    fn channel(output: bool, channel: &str, attr: &str, value: String) -> Self {
+        Self::Channel {
+            output,
+            channel: channel.to_string(),
+            attr: attr.to_string(),
+            value,
+        }
+    }
+}
+
+pub(crate) fn execute(client: &Client, phy: &str, writes: &[Write]) -> Result<(), DeviceError> {
+    for write in writes {
+        match write {
+            Write::Device { attr, value } => client.write_device_attr(phy, attr, value)?,
+            Write::Channel {
+                output,
+                channel,
+                attr,
+                value,
+            } => client.write_channel_attr(
+                phy,
+                if *output {
+                    Direction::Out
+                } else {
+                    Direction::In
+                },
+                channel,
+                attr,
+                value,
+            )?,
+        }
+    }
+    Ok(())
+}
+
+/// Turns a settings delta into the attribute writes that realise it, refusing anything this
+/// board cannot hold rather than letting the radio reinterpret it silently.
+pub(crate) fn plan(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    front: &Front,
+    layout: &Layout,
+    current: &DeviceSettings,
+) -> Result<(DeviceSettings, Vec<Write>), DeviceError> {
+    check_stream_settings(delta, capabilities)?;
+    let mut writes = Vec::new();
+    let mut next = current.clone();
+    next.merge_from(delta);
+
+    plan_rate(delta, capabilities, layout, &mut writes)?;
+    plan_bandwidth(delta, capabilities, front, layout, &mut writes)?;
+    plan_tuning(delta, capabilities, layout, &mut writes)?;
+    plan_trim(delta, front, &mut writes)?;
+    plan_gains(&delta.gains, capabilities, layout, 0, &mut writes)?;
+    plan_antenna(
+        delta.antenna.as_deref(),
+        capabilities,
+        layout,
+        0,
+        &mut writes,
+    )?;
+    plan_extra(delta, capabilities, front, layout, &mut writes)?;
+    for stream in &delta.streams {
+        let lane = stream.stream as usize;
+        plan_gains(&stream.gains, capabilities, layout, lane, &mut writes)?;
+        plan_antenna(
+            stream.antenna.as_deref(),
+            capabilities,
+            layout,
+            lane,
+            &mut writes,
+        )?;
+    }
+    next.gains = snapped(&next.gains, capabilities);
+    Ok((next, writes))
+}
+
+fn plan_rate(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    layout: &Layout,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    let Some(rate) = delta.sample_rate else {
+        return Ok(());
+    };
+    if !sdrmm_wire::any_range_holds(&capabilities.sample_rate_ranges, rate) {
+        return Err(DeviceError::Unsupported(format!(
+            "sample_rate {rate} Hz is outside what this radio converts"
+        )));
+    }
+    let port = rx_port(layout, 0)?;
+    writes.push(Write::channel(false, port, SAMPLING_FREQUENCY, whole(rate)));
+    Ok(())
+}
+
+fn plan_bandwidth(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    front: &Front,
+    layout: &Layout,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    let Some(hz) = delta.bandwidth else {
+        return Ok(());
+    };
+    if !sdrmm_wire::any_range_holds(&capabilities.bandwidth_ranges, hz) {
+        return Err(DeviceError::Unsupported(format!(
+            "bandwidth {hz} Hz is outside this radio's analog filter"
+        )));
+    }
+    writes.push(Write::channel(
+        false,
+        rx_port(layout, 0)?,
+        RF_BANDWIDTH,
+        whole(hz),
+    ));
+    // The transmit filter has a narrower reach than the receive one, so a width the receiver
+    // takes is clamped rather than refused for a direction the operator did not ask about.
+    if let (Some(port), Some(range)) = (layout.port(true, 0), front.tx_bandwidth) {
+        writes.push(Write::channel(
+            true,
+            port,
+            RF_BANDWIDTH,
+            whole(hz.clamp(range.min, range.max)),
+        ));
+    }
+    Ok(())
+}
+
+fn plan_tuning(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    layout: &Layout,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    let Some(hz) = delta.center_hz else {
+        return Ok(());
+    };
+    if !sdrmm_wire::any_range_holds(&capabilities.freq_ranges, hz) {
+        return Err(DeviceError::Unsupported(format!(
+            "center_hz {hz} is outside this radio's tuning range"
+        )));
+    }
+    writes.push(Write::channel(true, RX_LO, FREQUENCY, whole(hz)));
+    // The transmit synthesizer is a separate one on this part. It follows the dial so that a
+    // transmission lands where the operator tuned rather than wherever it was last left.
+    if layout.tx_streams() > 0 {
+        writes.push(Write::channel(true, TX_LO, FREQUENCY, whole(hz)));
+    }
+    Ok(())
+}
+
+fn plan_trim(
+    delta: &DeviceSettings,
+    front: &Front,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    let Some(ppm) = delta.ppm else {
+        return Ok(());
+    };
+    let Some(trim) = front.trim else {
+        return Err(DeviceError::Unsupported(
+            "this radio's crystal cannot be trimmed".to_string(),
+        ));
+    };
+    let limit = trim.limit_ppm();
+    if !ppm.is_finite() || ppm.abs() > limit {
+        return Err(DeviceError::Unsupported(format!(
+            "ppm {ppm} is outside the ±{limit:.0} this crystal can be pulled"
+        )));
+    }
+    writes.push(Write::Device {
+        attr: XO_CORRECTION.to_string(),
+        value: whole(trim.correction(ppm)),
+    });
+    Ok(())
+}
+
+fn plan_gains(
+    gains: &[GainValue],
+    capabilities: &Capabilities,
+    layout: &Layout,
+    lane: usize,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    for gain in gains {
+        let stage = capabilities
+            .gains
+            .iter()
+            .find(|stage| stage.name == gain.stage)
+            .ok_or_else(|| {
+                DeviceError::Unsupported(format!("this radio has no {} gain stage", gain.stage))
+            })?;
+        let output = stage.name == TX_STAGE;
+        let port = layout.port(output, lane).ok_or_else(|| {
+            DeviceError::Unsupported(format!("this radio has no {} lane {lane}", gain.stage))
+        })?;
+        writes.push(Write::channel(
+            output,
+            port,
+            HARDWAREGAIN,
+            decibels(stage.snap(gain.value_db)),
+        ));
+    }
+    Ok(())
+}
+
+fn plan_antenna(
+    antenna: Option<&str>,
+    capabilities: &Capabilities,
+    layout: &Layout,
+    lane: usize,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    let Some(antenna) = antenna else {
+        return Ok(());
+    };
+    if !capabilities.antennas.iter().any(|port| port == antenna) {
+        return Err(DeviceError::Unsupported(format!(
+            "this radio has no {antenna} input; it has {}",
+            capabilities.antennas.join(", ")
+        )));
+    }
+    writes.push(Write::channel(
+        false,
+        rx_port(layout, lane)?,
+        RF_PORT_SELECT,
+        antenna.to_string(),
+    ));
+    Ok(())
+}
+
+fn plan_extra(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    front: &Front,
+    layout: &Layout,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    for extra in &delta.extra {
+        let declared = capabilities
+            .extra
+            .iter()
+            .find(|setting| setting.name() == extra.name)
+            .ok_or_else(|| {
+                DeviceError::Unsupported(format!("this radio has no {} setting", extra.name))
+            })?;
+        match extra.name.as_str() {
+            GAIN_MODE => {
+                let mode = choice(extra, declared)?;
+                for lane in 0..layout.rx_streams() {
+                    writes.push(Write::channel(
+                        false,
+                        rx_port(layout, lane)?,
+                        GAIN_CONTROL_MODE,
+                        mode.clone(),
+                    ));
+                }
+            }
+            TX_PORT => {
+                let port = choice(extra, declared)?;
+                let channel = layout.port(true, 0).ok_or_else(|| {
+                    DeviceError::Unsupported("this radio does not transmit".to_string())
+                })?;
+                writes.push(Write::channel(true, channel, RF_PORT_SELECT, port));
+            }
+            QUADRATURE | RF_DC | BB_DC | FIR => {
+                let attr = tracking_attr(&extra.name);
+                let on = flag(extra)?;
+                for lane in 0..front_lanes(front, layout, &extra.name) {
+                    writes.push(Write::channel(
+                        false,
+                        rx_port(layout, lane)?,
+                        attr,
+                        u8::from(on).to_string(),
+                    ));
+                }
+            }
+            other => {
+                return Err(DeviceError::Unsupported(format!(
+                    "this radio has no {other} setting"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The corrections are per receive path; the digital filter is one switch for the whole part.
+fn front_lanes(_front: &Front, layout: &Layout, name: &str) -> usize {
+    if name == FIR {
+        1
+    } else {
+        layout.rx_streams().max(1)
+    }
+}
+
+fn tracking_attr(name: &str) -> &'static str {
+    match name {
+        QUADRATURE => QUADRATURE_TRACKING,
+        RF_DC => RF_DC_TRACKING,
+        BB_DC => BB_DC_TRACKING,
+        _ => FILTER_FIR_EN,
+    }
+}
+
+fn choice(extra: &ExtraValue, declared: &ExtraSetting) -> Result<String, DeviceError> {
+    let ExtraSetting::Enum { options, .. } = declared else {
+        return Err(DeviceError::Unsupported(format!(
+            "{} is not a choice on this radio",
+            extra.name
+        )));
+    };
+    let wanted = extra.value.as_str().ok_or_else(|| {
+        DeviceError::Unsupported(format!("{} takes one of the listed settings", extra.name))
+    })?;
+    if !options.iter().any(|option| option.value == wanted) {
+        return Err(DeviceError::Unsupported(format!(
+            "{} has no setting {wanted}; it has {}",
+            extra.name,
+            options
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    Ok(wanted.to_string())
+}
+
+fn flag(extra: &ExtraValue) -> Result<bool, DeviceError> {
+    extra
+        .value
+        .as_bool()
+        .ok_or_else(|| DeviceError::Unsupported(format!("{} is on or off", extra.name)))
+}
+
+fn rx_port(layout: &Layout, lane: usize) -> Result<&str, DeviceError> {
+    layout
+        .port(false, lane)
+        .ok_or_else(|| DeviceError::Unsupported(format!("this radio has no receive lane {lane}")))
+}
+
+fn snapped(gains: &[GainValue], capabilities: &Capabilities) -> Vec<GainValue> {
+    gains
+        .iter()
+        .map(|gain| match stage(capabilities, &gain.stage) {
+            Some(stage) => GainValue {
+                stage: gain.stage.clone(),
+                value_db: stage.snap(gain.value_db),
+            },
+            None => gain.clone(),
+        })
+        .collect()
+}
+
+fn stage<'a>(capabilities: &'a Capabilities, name: &str) -> Option<&'a GainStage> {
+    capabilities.gains.iter().find(|stage| stage.name == name)
+}
+
+/// Hertz attributes are whole numbers; anything else is refused by the driver on the radio.
+fn whole(value: f64) -> String {
+    format!("{:.0}", value.round())
+}
+
+fn decibels(value: f64) -> String {
+    format!("{value:.6}")
+}
+
+/// Reads back what the radio is set to, so that a freshly opened device reports its own state
+/// rather than a guess the operator then has to correct.
+pub(crate) fn read_settings(
+    client: &Client,
+    capabilities: &Capabilities,
+    front: &Front,
+    layout: &Layout,
+) -> DeviceSettings {
+    let phy = layout.phy.as_str();
+    let rx = layout.port(false, 0);
+    let read = |direction, channel: &str, attr: &str| {
+        client
+            .read_channel_attr(phy, direction, channel, attr)
+            .inspect_err(|e| tracing::debug!("{phy}.{channel}.{attr}: {e}"))
+            .ok()
+    };
+    DeviceSettings {
+        center_hz: read(Direction::Out, RX_LO, FREQUENCY).and_then(|v| number(&v)),
+        sample_rate: rx
+            .and_then(|rx| read(Direction::In, rx, SAMPLING_FREQUENCY))
+            .and_then(|v| number(&v)),
+        bandwidth: rx
+            .and_then(|rx| read(Direction::In, rx, RF_BANDWIDTH))
+            .and_then(|v| number(&v)),
+        antenna: rx.and_then(|rx| read(Direction::In, rx, RF_PORT_SELECT)),
+        ppm: read_ppm(client, front, phy),
+        gains: read_gains(capabilities, layout, &read),
+        extra: read_extra(capabilities, layout, &read),
+        ..DeviceSettings::default()
+    }
+}
+
+fn read_ppm(client: &Client, front: &Front, phy: &str) -> Option<f64> {
+    let trim = front.trim?;
+    let correction = client
+        .read_device_attr(phy, XO_CORRECTION)
+        .ok()
+        .and_then(|value| number(&value))?;
+    Some(trim.ppm(correction))
+}
+
+fn read_gains(
+    capabilities: &Capabilities,
+    layout: &Layout,
+    read: &dyn Fn(Direction, &str, &str) -> Option<String>,
+) -> Vec<GainValue> {
+    capabilities
+        .gains
+        .iter()
+        .filter_map(|stage| {
+            let output = stage.name == TX_STAGE;
+            let port = layout.port(output, 0)?;
+            let direction = if output {
+                Direction::Out
+            } else {
+                Direction::In
+            };
+            Some(GainValue {
+                stage: stage.name.clone(),
+                value_db: number(&read(direction, port, HARDWAREGAIN)?)?,
+            })
+        })
+        .collect()
+}
+
+fn read_extra(
+    capabilities: &Capabilities,
+    layout: &Layout,
+    read: &dyn Fn(Direction, &str, &str) -> Option<String>,
+) -> Vec<ExtraValue> {
+    let rx = layout.port(false, 0);
+    capabilities
+        .extra
+        .iter()
+        .filter_map(|setting| {
+            let name = setting.name();
+            let value = match name {
+                GAIN_MODE => serde_value(read(Direction::In, rx?, GAIN_CONTROL_MODE)?),
+                TX_PORT => {
+                    serde_value(read(Direction::Out, layout.port(true, 0)?, RF_PORT_SELECT)?)
+                }
+                QUADRATURE | RF_DC | BB_DC | FIR => {
+                    let raw = read(Direction::In, rx?, tracking_attr(name))?;
+                    serde_json::Value::Bool(number(&raw)? != 0.0)
+                }
+                _ => return None,
+            };
+            Some(ExtraValue {
+                name: name.to_string(),
+                value,
+            })
+        })
+        .collect()
+}
+
+fn serde_value(text: String) -> serde_json::Value {
+    serde_json::Value::String(text)
+}
+
+/// The leading number of an attribute value. Gains read back as `71.000000 dB`, and the unit is
+/// the radio describing itself rather than part of the setting.
+fn number(text: &str) -> Option<f64> {
+    text.split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+        .filter(|value: &f64| value.is_finite())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::caps::{RX_STAGE, capabilities, tests::front};
+
+    fn planned(delta: DeviceSettings) -> Vec<Write> {
+        let layout = crate::layout::tests::two_by_two_layout();
+        let front = front();
+        let capabilities = capabilities(&front, &layout);
+        plan(
+            &delta,
+            &capabilities,
+            &front,
+            &layout,
+            &DeviceSettings::default(),
+        )
+        .expect("planned")
+        .1
+    }
+
+    fn refused(delta: DeviceSettings) -> String {
+        let layout = crate::layout::tests::two_by_two_layout();
+        let front = front();
+        let capabilities = capabilities(&front, &layout);
+        plan(
+            &delta,
+            &capabilities,
+            &front,
+            &layout,
+            &DeviceSettings::default(),
+        )
+        .expect_err("refused")
+        .to_string()
+    }
+
+    fn channel(output: bool, channel: &str, attr: &str, value: &str) -> Write {
+        Write::channel(output, channel, attr, value.to_string())
+    }
+
+    #[test]
+    fn the_rate_is_written_before_the_filter_and_the_filter_before_the_dial() {
+        let writes = planned(DeviceSettings {
+            center_hz: Some(433_920_000.0),
+            sample_rate: Some(2_400_000.0),
+            bandwidth: Some(2_000_000.0),
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", SAMPLING_FREQUENCY, "2400000"),
+                channel(false, "voltage0", RF_BANDWIDTH, "2000000"),
+                channel(true, "voltage0", RF_BANDWIDTH, "2000000"),
+                channel(true, RX_LO, FREQUENCY, "433920000"),
+                channel(true, TX_LO, FREQUENCY, "433920000"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_width_the_transmitter_cannot_hold_is_clamped_for_it_alone() {
+        let writes = planned(DeviceSettings {
+            bandwidth: Some(50_000_000.0),
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", RF_BANDWIDTH, "50000000"),
+                channel(true, "voltage0", RF_BANDWIDTH, "40000000"),
+            ]
+        );
+    }
+
+    #[test]
+    fn each_gain_stage_reaches_the_channel_of_its_own_direction() {
+        let writes = planned(DeviceSettings {
+            gains: vec![
+                GainValue {
+                    stage: RX_STAGE.to_string(),
+                    value_db: 40.4,
+                },
+                GainValue {
+                    stage: TX_STAGE.to_string(),
+                    value_db: -10.1,
+                },
+            ],
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", HARDWAREGAIN, "40.000000"),
+                channel(true, "voltage0", HARDWAREGAIN, "-10.000000"),
+            ],
+            "each stage snaps to a setting the part can actually hold"
+        );
+    }
+
+    #[test]
+    fn a_per_lane_setting_reaches_that_lane_and_no_other() {
+        let writes = planned(DeviceSettings {
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 1,
+                gains: vec![GainValue {
+                    stage: RX_STAGE.to_string(),
+                    value_db: 20.0,
+                }],
+                antenna: Some("B_BALANCED".to_string()),
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage1", HARDWAREGAIN, "20.000000"),
+                channel(false, "voltage1", RF_PORT_SELECT, "B_BALANCED"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_gain_mode_reaches_every_receive_lane_at_once() {
+        let writes = planned(DeviceSettings {
+            extra: vec![ExtraValue {
+                name: GAIN_MODE.to_string(),
+                value: json!("slow_attack"),
+            }],
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", GAIN_CONTROL_MODE, "slow_attack"),
+                channel(false, "voltage1", GAIN_CONTROL_MODE, "slow_attack"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_correction_switch_reaches_every_lane_and_the_filter_reaches_the_part_once() {
+        let writes = planned(DeviceSettings {
+            extra: vec![
+                ExtraValue {
+                    name: QUADRATURE.to_string(),
+                    value: json!(false),
+                },
+                ExtraValue {
+                    name: FIR.to_string(),
+                    value: json!(true),
+                },
+            ],
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", QUADRATURE_TRACKING, "0"),
+                channel(false, "voltage1", QUADRATURE_TRACKING, "0"),
+                channel(false, "voltage0", FILTER_FIR_EN, "1"),
+            ]
+        );
+    }
+
+    #[test]
+    fn parts_per_million_become_the_crystal_correction_the_board_was_trimmed_from() {
+        let writes = planned(DeviceSettings {
+            ppm: Some(10.0),
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![Write::Device {
+                attr: XO_CORRECTION.to_string(),
+                value: "40000400".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_setting_the_radio_cannot_hold_is_refused_by_name() {
+        assert!(
+            refused(DeviceSettings {
+                center_hz: Some(20e9),
+                ..DeviceSettings::default()
+            })
+            .contains("tuning range")
+        );
+        assert!(
+            refused(DeviceSettings {
+                sample_rate: Some(200e6),
+                ..DeviceSettings::default()
+            })
+            .contains("converts")
+        );
+        assert!(
+            refused(DeviceSettings {
+                bandwidth: Some(100e6),
+                ..DeviceSettings::default()
+            })
+            .contains("analog filter")
+        );
+        assert!(
+            refused(DeviceSettings {
+                antenna: Some("SMA".to_string()),
+                ..DeviceSettings::default()
+            })
+            .contains("A_BALANCED")
+        );
+        assert!(
+            refused(DeviceSettings {
+                ppm: Some(5_000.0),
+                ..DeviceSettings::default()
+            })
+            .contains("crystal can be pulled")
+        );
+        assert!(
+            refused(DeviceSettings {
+                gains: vec![GainValue {
+                    stage: "LNA".to_string(),
+                    value_db: 1.0,
+                }],
+                ..DeviceSettings::default()
+            })
+            .contains("no LNA gain stage")
+        );
+    }
+
+    #[test]
+    fn an_extra_of_the_wrong_shape_is_refused_rather_than_coerced() {
+        assert!(
+            refused(DeviceSettings {
+                extra: vec![ExtraValue {
+                    name: GAIN_MODE.to_string(),
+                    value: json!("telepathy"),
+                }],
+                ..DeviceSettings::default()
+            })
+            .contains("slow_attack")
+        );
+        assert!(
+            refused(DeviceSettings {
+                extra: vec![ExtraValue {
+                    name: QUADRATURE.to_string(),
+                    value: json!("yes"),
+                }],
+                ..DeviceSettings::default()
+            })
+            .contains("on or off")
+        );
+        assert!(
+            refused(DeviceSettings {
+                extra: vec![ExtraValue {
+                    name: "loopback".to_string(),
+                    value: json!(true),
+                }],
+                ..DeviceSettings::default()
+            })
+            .contains("no loopback setting")
+        );
+    }
+
+    #[test]
+    fn the_settings_that_come_back_carry_what_the_hardware_was_snapped_to() {
+        let layout = crate::layout::tests::two_by_two_layout();
+        let front = front();
+        let capabilities = capabilities(&front, &layout);
+        let (next, _) = plan(
+            &DeviceSettings {
+                center_hz: Some(100e6),
+                gains: vec![GainValue {
+                    stage: RX_STAGE.to_string(),
+                    value_db: 40.4,
+                }],
+                ..DeviceSettings::default()
+            },
+            &capabilities,
+            &front,
+            &layout,
+            &DeviceSettings {
+                sample_rate: Some(2.4e6),
+                ..DeviceSettings::default()
+            },
+        )
+        .expect("planned");
+        assert_eq!(next.center_hz, Some(100e6));
+        assert_eq!(
+            next.sample_rate,
+            Some(2.4e6),
+            "what was set before survives"
+        );
+        assert_eq!(next.gains[0].value_db, 40.0);
+    }
+
+    #[test]
+    fn a_lane_the_radio_does_not_have_is_refused() {
+        let layout = crate::layout::tests::one_by_one_layout();
+        let front = front();
+        let capabilities = capabilities(&front, &layout);
+        let error = plan(
+            &DeviceSettings {
+                streams: vec![sdrmm_wire::StreamSettings {
+                    stream: 1,
+                    ..sdrmm_wire::StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            },
+            &capabilities,
+            &front,
+            &layout,
+            &DeviceSettings::default(),
+        )
+        .expect_err("refused");
+        assert!(error.to_string().contains("streams[1]"), "{error}");
+    }
+}

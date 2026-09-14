@@ -3,23 +3,23 @@ use std::{
     sync::{Mutex, MutexGuard, PoisonError},
 };
 
-use crate::endpoint::Endpoint;
+use crate::net::Endpoint;
 
 const MAX_ENDPOINTS: usize = 64;
 
 #[derive(Debug, Default)]
-pub(crate) struct Adopted {
+pub struct Adopted {
     endpoints: Mutex<BTreeSet<Endpoint>>,
 }
 
 impl Adopted {
-    pub(crate) fn adopt(&self, endpoint: Endpoint) -> bool {
+    pub fn adopt(&self, endpoint: Endpoint) -> bool {
         let mut endpoints = self.lock();
         endpoints.contains(&endpoint)
             || endpoints.len() < MAX_ENDPOINTS && endpoints.insert(endpoint)
     }
 
-    pub(crate) fn list(&self) -> Vec<Endpoint> {
+    pub fn list(&self) -> Vec<Endpoint> {
         self.lock().iter().cloned().collect()
     }
 

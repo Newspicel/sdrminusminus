@@ -129,7 +129,7 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
         ),
         hint: module_names.is_empty().then(|| {
             "SoapySDR loaded no driver modules, so it can reach no hardware of its own. \
-             RTL-SDR, HackRF and SDRplay receivers do not need it and are unaffected."
+             RTL-SDR, HackRF, AD936x and SDRplay receivers do not need it and are unaffected."
                 .to_string()
         }),
     }
@@ -352,6 +352,9 @@ fn usb_checks() -> Vec<DoctorCheck> {
             "/etc/udev/rules.d/53-hackrf.rules",
             "/lib/udev/rules.d/53-hackrf.rules",
             "/usr/lib/udev/rules.d/53-hackrf.rules",
+            "/etc/udev/rules.d/53-adi-plutosdr-usb.rules",
+            "/lib/udev/rules.d/53-adi-plutosdr-usb.rules",
+            "/usr/lib/udev/rules.d/53-adi-plutosdr-usb.rules",
         ];
         let found: Vec<&str> = RULES
             .iter()
@@ -376,11 +379,12 @@ fn usb_checks() -> Vec<DoctorCheck> {
             id: "usb.permissions".to_string(),
             name: "USB permissions".to_string(),
             status: CheckStatus::Warn,
-            detail: "no RTL-SDR or HackRF udev rules found and not running as root".to_string(),
+            detail: "no RTL-SDR, HackRF or AD936x udev rules found and not running as root"
+                .to_string(),
             hint: Some(
-                "install the vendor udev rules (rtl-sdr and hackrf packages ship them), then \
-                 `sudo udevadm control --reload-rules && sudo udevadm trigger` and replug the \
-                 device. Without them the device enumerates but cannot be opened."
+                "install the vendor udev rules (the rtl-sdr, hackrf and libiio packages ship \
+                 them), then `sudo udevadm control --reload-rules && sudo udevadm trigger` and \
+                 replug the device. Without them the device enumerates but cannot be opened."
                     .to_string(),
             ),
         }]
