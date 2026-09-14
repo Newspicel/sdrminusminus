@@ -293,8 +293,8 @@ struct ChannelMedia {
 }
 
 impl ChannelMedia {
-    fn new(channels: u8) -> Result<Self, EngineError> {
-        let (pcm_tx, pcm_rx) = broadcast::channel(audio::PCM_CHANNEL_CAP);
+    fn new(channels: u8, device_rate: f64) -> Result<Self, EngineError> {
+        let (pcm_tx, pcm_rx) = broadcast::channel(audio::pcm_channel_cap(device_rate));
         let (audio_tx, _) = broadcast::channel(audio::AUDIO_CHANNEL_CAP);
         let (video_tx, _) = broadcast::channel(video::VIDEO_CHANNEL_CAP);
         let (iq_tx, _) = broadcast::channel(iq::IQ_CHANNEL_CAP);

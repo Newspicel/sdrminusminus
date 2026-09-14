@@ -3,14 +3,31 @@ use std::{sync::Arc, thread::JoinHandle};
 use sdrmm_channels::AUDIO_RATE;
 use tokio::sync::broadcast::{self, error::RecvError};
 
-use crate::EngineError;
+use crate::{EngineError, runtime::DSP_BLOCK};
 
 pub const OPUS_FRAME_SAMPLES: usize = 960;
 const MONO_BITRATE_BPS: i32 = 64_000;
 const STEREO_BITRATE_BPS: i32 = 96_000;
 const MAX_PACKET_BYTES: usize = 4000;
-pub(crate) const PCM_CHANNEL_CAP: usize = 32;
+const PCM_QUEUE_SECONDS: f64 = 0.5;
+const PCM_CHANNEL_MIN: usize = 512;
+const PCM_CHANNEL_MAX: usize = 8192;
 pub(crate) const AUDIO_CHANNEL_CAP: usize = 64;
+
+/// One block reaches the encoder per DSP block of capture, so a slot count buys a slack that
+/// shrinks as the radio speeds up — thirty-two slots are twenty-six milliseconds at 2.4 MS/s, less
+/// than one scheduling hiccup on a busy machine, and a block the encoder never sees resyncs the
+/// frame clock mid-word. A slot is a stamp and an `Arc`, so the same half second at every rate
+/// costs almost nothing. The floor keeps that slack usable for a channel whose radio is sped up
+/// under it, since the queue is sized once and outlives a rate change.
+pub(crate) fn pcm_channel_cap(device_rate: f64) -> usize {
+    let blocks = (device_rate * PCM_QUEUE_SECONDS / DSP_BLOCK as f64).ceil();
+    if blocks.is_finite() {
+        (blocks as usize).clamp(PCM_CHANNEL_MIN, PCM_CHANNEL_MAX)
+    } else {
+        PCM_CHANNEL_MIN
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct PcmBlock {
@@ -136,7 +153,10 @@ fn encode_loop(
             }
             Err(RecvError::Lagged(skipped)) => {
                 pending.clear();
-                tracing::debug!(skipped, "audio encoder lagged; oldest pcm dropped");
+                tracing::warn!(
+                    skipped,
+                    "audio encoder lagged; the frame clock resyncs past the dropped pcm"
+                );
             }
             Err(RecvError::Closed) => return,
         }
@@ -161,6 +181,26 @@ mod tests {
             channels,
             payload: PcmPayload::Silence(frames),
         }
+    }
+
+    #[test]
+    fn the_pcm_queue_holds_the_same_span_of_capture_at_every_rate() {
+        for rate in [
+            250_000.0,
+            2_048_000.0,
+            2_400_000.0,
+            8_000_000.0,
+            20_000_000.0,
+        ] {
+            let seconds = pcm_channel_cap(rate) as f64 * DSP_BLOCK as f64 / rate;
+            assert!(
+                seconds >= PCM_QUEUE_SECONDS,
+                "{rate} S/s left the encoder only {seconds} s of slack"
+            );
+        }
+        assert_eq!(pcm_channel_cap(f64::NAN), PCM_CHANNEL_MIN);
+        assert_eq!(pcm_channel_cap(0.0), PCM_CHANNEL_MIN);
+        assert_eq!(pcm_channel_cap(1e12), PCM_CHANNEL_MAX);
     }
 
     #[test]
@@ -190,7 +230,7 @@ mod tests {
 
     #[test]
     fn contiguous_stamps_yield_contiguous_timestamps() {
-        let (pcm_tx, pcm_rx) = broadcast::channel(PCM_CHANNEL_CAP);
+        let (pcm_tx, pcm_rx) = broadcast::channel(pcm_channel_cap(2_400_000.0));
         let (audio_tx, mut audio_rx) = broadcast::channel(8);
         pcm_tx.send(samples(0, 1, 1_440)).unwrap();
         pcm_tx.send(silence(1_440, 1, 480)).unwrap();
@@ -206,7 +246,7 @@ mod tests {
 
     #[test]
     fn stereo_blocks_are_timestamped_in_frames() {
-        let (pcm_tx, pcm_rx) = broadcast::channel(PCM_CHANNEL_CAP);
+        let (pcm_tx, pcm_rx) = broadcast::channel(pcm_channel_cap(2_400_000.0));
         let (audio_tx, mut audio_rx) = broadcast::channel(8);
         pcm_tx.send(samples(0, 2, 1_440)).unwrap();
         pcm_tx.send(silence(1_440, 2, 480)).unwrap();
@@ -222,7 +262,7 @@ mod tests {
 
     #[test]
     fn a_layout_change_swaps_the_encoder_mid_stream() {
-        let (pcm_tx, pcm_rx) = broadcast::channel(PCM_CHANNEL_CAP);
+        let (pcm_tx, pcm_rx) = broadcast::channel(pcm_channel_cap(2_400_000.0));
         let (audio_tx, mut audio_rx) = broadcast::channel(8);
         let encoder = spawn_encoder(1, pcm_rx, audio_tx).unwrap();
 

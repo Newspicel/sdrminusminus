@@ -212,9 +212,8 @@ impl CaptureRuntime {
             tails.push((consumer, cmd_rx, spectrum_plan.analyzer()));
         }
 
-        device.rx_start(sinks)?;
         let mut runtime = Self {
-            device: Some(device),
+            device: None,
             lanes,
             per_stream,
             sweeping: false,
@@ -261,6 +260,8 @@ impl CaptureRuntime {
                 }
             }
         }
+        device.rx_start(sinks)?;
+        runtime.device = Some(device);
         Ok(runtime)
     }
 

@@ -146,7 +146,10 @@ impl Engine {
                 id,
             )
         };
-        let created = ChannelMedia::new(sdrmm_channels::audio_channels(&settings.params))?;
+        let created = ChannelMedia::new(
+            sdrmm_channels::audio_channels(&settings.params),
+            device_rate,
+        )?;
         let sinks = created.sinks.clone();
         let mut media = Some(created);
 
