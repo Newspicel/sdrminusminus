@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLayoutEffect, useRef } from "react";
 import { patchDevice, STATE_KEY } from "./api";
 import { pushToast } from "./toasts";
 import type { DeviceSettings, StateSnapshot, StreamScope, StreamSettings } from "./types";
@@ -93,6 +94,44 @@ function mergeByKey<T>(current: T[] | undefined, delta: T[], key: (item: T) => s
   return merged;
 }
 
+export function createPatchQueue(
+  send: (ds: number, settings: DeviceSettings) => void,
+  minGapMs = 100,
+): (ds: number, delta: DeviceSettings) => void {
+  const pending = new Map<number, DeviceSettings>();
+  const timers = new Map<number, number>();
+  const sentAt = new Map<number, number>();
+
+  const flush = (ds: number): void => {
+    timers.delete(ds);
+    const settings = pending.get(ds);
+    if (settings === undefined) {
+      return;
+    }
+    pending.delete(ds);
+    sentAt.set(ds, Date.now());
+    send(ds, settings);
+  };
+
+  return (ds: number, delta: DeviceSettings): void => {
+    const queued = pending.get(ds);
+    pending.set(ds, queued === undefined ? delta : mergeSettings(queued, delta));
+    if (timers.has(ds)) {
+      return;
+    }
+    const last = sentAt.get(ds);
+    const waited = last === undefined ? minGapMs : Date.now() - last;
+    if (waited >= minGapMs) {
+      flush(ds);
+      return;
+    }
+    timers.set(
+      ds,
+      setTimeout(() => flush(ds), minGapMs - waited),
+    );
+  };
+}
+
 export function useDevicePatch(): {
   applyPatch: (ds: number, delta: DeviceSettings) => void;
   cachedSettings: (ds: number) => DeviceSettings | undefined;
@@ -103,6 +142,13 @@ export function useDevicePatch(): {
     onError: (error) => pushToast(error.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
+
+  const mutate = useRef(patchMut.mutate);
+  useLayoutEffect(() => {
+    mutate.current = patchMut.mutate;
+  });
+  const queue = useRef<((ds: number, delta: DeviceSettings) => void) | null>(null);
+  queue.current ??= createPatchQueue((ds, settings) => mutate.current({ ds, settings }));
 
   const applyPatch = (ds: number, delta: DeviceSettings): void => {
     void queryClient.cancelQueries({ queryKey: STATE_KEY });
@@ -116,7 +162,7 @@ export function useDevicePatch(): {
         d.id === ds ? { ...d, settings: mergeSettings(d.settings, delta) } : d,
       ),
     });
-    patchMut.mutate({ ds, settings: delta });
+    queue.current?.(ds, delta);
   };
 
   const cachedSettings = (ds: number): DeviceSettings | undefined =>
