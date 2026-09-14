@@ -155,12 +155,19 @@ async fn wfm_stereo_toggle_changes_the_layout_of_the_live_stream() {
 
     let mono = collect_packets(&mut rx, SETTLE_PACKETS).await;
     assert!(mono.iter().all(|p| p.channels == 1), "layout flapped back");
+    let last_stereo = stereo.last().expect("stereo packets").timestamp;
+    assert!(
+        mono[0].timestamp >= last_stereo + OPUS_FRAME_SAMPLES as u64,
+        "the frame clock restarted at the layout change: {} after {last_stereo}",
+        mono[0].timestamp
+    );
     for pair in mono.windows(2) {
         assert_eq!(pair[1].seq, pair[0].seq.wrapping_add(1), "seq gap");
-        assert_eq!(
+        assert!(
+            pair[1].timestamp >= pair[0].timestamp + OPUS_FRAME_SAMPLES as u64,
+            "the frame clock went backwards: {} after {}",
             pair[1].timestamp,
-            pair[0].timestamp + OPUS_FRAME_SAMPLES as u64,
-            "the frame clock did not survive the layout change"
+            pair[0].timestamp
         );
     }
     engine.remove_device_set(ds).unwrap();

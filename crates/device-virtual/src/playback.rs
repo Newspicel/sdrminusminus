@@ -124,16 +124,26 @@ impl FilePlayback {
     }
 }
 
+struct Progress<'a> {
+    transport: &'a PlaybackShared,
+    start: u64,
+    generation: u64,
+}
+
 /// Hands a block over a real-time piece at a time, waiting for room rather than overwriting
 /// capture the DSP has not read yet. A recording is not a radio: nothing behind it insists on
 /// wall-clock time, so the reader is the one that waits. Returns false when the stream was asked
 /// to stop.
+///
+/// The position is published before the piece it covers reaches the sink, never after: a pause
+/// landing between the two would otherwise freeze the transport behind capture already played
+/// and replay it on resume.
 fn hand_over(
     sink: &mut RxSink,
     block: &[Complex<f32>],
     piece: usize,
     running: &AtomicBool,
-    transport: &PlaybackShared,
+    progress: &Progress<'_>,
 ) -> bool {
     let mut sent = 0;
     while sent < block.len() {
@@ -142,14 +152,18 @@ fn hand_over(
         }
         let want = piece.min(block.len() - sent);
         if sink.room().is_some_and(|room| room.free() < want) {
-            if transport.seek_pending() {
+            if progress.transport.seek_pending() {
                 return true;
             }
             std::thread::sleep(ROOM_POLL);
             continue;
         }
-        sink.push(&block[sent..sent + want]);
-        sent += want;
+        let end = sent + want;
+        progress
+            .transport
+            .set_position(progress.start + end as u64, progress.generation);
+        sink.push(&block[sent..end]);
+        sent = end;
     }
     true
 }
@@ -245,15 +259,22 @@ impl SdrDevice for FilePlayback {
                     continue;
                 }
                 let mut filled = 0;
+                let mut at_end = false;
                 while filled < block.len() {
                     match reader.read_block(&mut block[filled..]) {
                         Ok(0) if params.looping && reader.total_samples() > 0 => {
+                            if filled > 0 {
+                                break;
+                            }
                             if let Err(err) = reader.rewind() {
                                 sink.fail(DeviceError::Io(err.to_string()));
                                 return;
                             }
                         }
-                        Ok(0) => break,
+                        Ok(0) => {
+                            at_end = true;
+                            break;
+                        }
                         Ok(read) => filled += read,
                         Err(err) => {
                             sink.fail(DeviceError::Io(err.to_string()));
@@ -261,12 +282,16 @@ impl SdrDevice for FilePlayback {
                         }
                     }
                 }
-                if filled > 0 && !hand_over(&mut sink, &block[..filled], piece, running, &transport)
+                let progress = Progress {
+                    transport: &transport,
+                    start: reader.position().saturating_sub(filled as u64),
+                    generation: position_generation,
+                };
+                if filled > 0 && !hand_over(&mut sink, &block[..filled], piece, running, &progress)
                 {
                     return;
                 }
-                transport.set_position(reader.position(), position_generation);
-                if filled < block.len() {
+                if at_end {
                     while running.load(Ordering::Acquire) {
                         std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));
                         if shared.load_full().looping || transport.seek_pending() {
@@ -442,6 +467,33 @@ mod tests {
             "playback resumed"
         );
         assert!(!after.is_empty());
+        dev.rx_stop();
+    }
+
+    #[test]
+    fn the_position_is_published_before_the_samples_reach_the_sink() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(50_000);
+        let stem = record(dir.path(), "ahead", &recorded);
+
+        let mut dev = FilePlayback::open(&stem).unwrap();
+        let control = dev.playback().unwrap();
+        let seen = control.clone();
+        let (tx, rx) = mpsc::channel();
+        let mut delivered = 0u64;
+        dev.rx_start(vec![RxSink::new(move |s: &[Complex<f32>], _| {
+            delivered += s.len() as u64;
+            let _ = tx.send((delivered, seen.status().position_samples));
+        })])
+        .unwrap();
+
+        for _ in 0..4 {
+            let (delivered, position) = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert!(
+                position >= delivered,
+                "transport reports {position} with {delivered} already played"
+            );
+        }
         dev.rx_stop();
     }
 

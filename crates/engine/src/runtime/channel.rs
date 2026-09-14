@@ -517,7 +517,7 @@ mod tests {
 
     use sdrmm_wire::{
         AudioAgcMode, AudioProcessing, ChannelParams, NfmParams, NoiseBlankerSettings, Sideband,
-        SsbParams,
+        SsbParams, WfmParams,
     };
 
     use super::*;
@@ -801,6 +801,53 @@ mod tests {
             expected, 48_000,
             "both hosts' PCM must be stamped end to end"
         );
+    }
+
+    #[test]
+    fn pcm_stamps_are_contiguous_across_a_layout_change() {
+        const WFM_RATE: f64 = 240_000.0;
+        let (pcm_tx, mut rx) = broadcast::channel(4096);
+        let pos = Arc::new(AtomicU64::new(0));
+        let wfm = |stereo: bool| ChannelSettings {
+            frequency_hz: CENTER,
+            squelch: sdrmm_wire::Squelch::Off,
+            params: ChannelParams::Wfm(WfmParams {
+                deemphasis_us: 50.0,
+                stereo,
+            }),
+            audio: Default::default(),
+        };
+        let input = tone(1_000.0, 0.5, 48_000);
+        let mut expected = 0u64;
+        let mut layouts = Vec::new();
+        for stereo in [true, false] {
+            let mut host = ChannelHost::build(
+                WFM_RATE,
+                CENTER,
+                &wfm(stereo),
+                sinks(pcm_tx.clone(), pos.clone()),
+                DecodedSink::null(),
+            )
+            .expect("host");
+            for chunk in input.chunks(BLOCK) {
+                host.process_and_flush(chunk, CENTER, 0.0);
+            }
+            while let Ok(block) = rx.try_recv() {
+                assert_eq!(
+                    block.start_frame, expected,
+                    "stamp gap while stereo is {stereo}"
+                );
+                let frames = match &block.payload {
+                    PcmPayload::Samples(s) => s.len() / usize::from(block.channels),
+                    PcmPayload::Silence(n) => *n,
+                };
+                expected += frames as u64;
+                layouts.push(block.channels);
+            }
+        }
+        assert_eq!(layouts.first(), Some(&2), "the stream did not start stereo");
+        assert_eq!(layouts.last(), Some(&1), "the layout never followed");
+        assert!(expected > 0, "no PCM to judge");
     }
 
     #[test]
