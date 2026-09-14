@@ -4797,6 +4797,7 @@ dependencies = [
  "sdrmm-wire",
  "thiserror 2.0.20",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

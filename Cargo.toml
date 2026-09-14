@@ -162,6 +162,10 @@ sha2 = "0.11"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
 
+# Windows scheduling: threads there start at the priority of everything else on the machine, and
+# a capture thread that waits its turn loses USB transfers.
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+
 # Errors / logging / util
 libc = "0.2"
 thiserror = "2"

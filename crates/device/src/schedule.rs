@@ -2,6 +2,8 @@
 ///
 /// macOS demotes threads it believes are doing background work and coalesces their timers, which
 /// starves a capture or DSP thread long enough to lose whole USB transfers even on an idle machine.
+/// Windows starts every thread at the priority of the rest of the desktop, which costs transfers
+/// as soon as anything else wants the core.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Latency {
     /// Moves samples off the wire or through the DSP graph: any delay loses signal.
@@ -27,7 +29,28 @@ pub fn claim(latency: Latency) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn claim(latency: Latency) {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_HIGHEST,
+    };
+
+    let priority = match latency {
+        Latency::Critical => THREAD_PRIORITY_HIGHEST,
+        Latency::Interactive => THREAD_PRIORITY_ABOVE_NORMAL,
+    };
+    // SAFETY: the pseudo handle from GetCurrentThread names this thread, needs no closing, and
+    // both calls take it by value.
+    if unsafe { SetThreadPriority(GetCurrentThread(), priority) } == 0 {
+        tracing::warn!(
+            ?latency,
+            thread = std::thread::current().name().unwrap_or("unnamed"),
+            "could not raise the thread's scheduling class; audio may stutter under load"
+        );
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn claim(_latency: Latency) {}
 
 /// Holds off the throttling the OS applies to an app it thinks is idle.
