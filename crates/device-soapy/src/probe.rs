@@ -36,10 +36,10 @@ pub fn enable_isolated_probes() {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    if scope == Scope::Deep {
+    if scope == Scope::Fast {
         // SAFETY: this runs before the argument parsing that starts the rest of the program, so
         // no other thread exists yet and no SoapySDR call has loaded a module.
-        unsafe { crate::runtime::load_network_modules() };
+        unsafe { crate::runtime::hide_network_modules() };
     }
     std::process::exit(run_child(&filter));
 }
