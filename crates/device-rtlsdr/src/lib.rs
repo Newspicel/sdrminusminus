@@ -265,4 +265,15 @@ mod tests {
             DeviceError::Io(_)
         ));
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_dongle_that_stopped_answering_the_bus_reads_as_gone() {
+        assert!(matches!(
+            map_err(driver::Error::ControlTransfer(
+                nusb::transfer::TransferError::Unknown(0xe000_02ed)
+            )),
+            DeviceError::Disconnected(_)
+        ));
+    }
 }

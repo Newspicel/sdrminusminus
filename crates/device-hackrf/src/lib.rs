@@ -651,6 +651,17 @@ mod tests {
         ));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_radio_that_stopped_answering_the_bus_reads_as_gone() {
+        assert!(matches!(
+            map_err(driver::Error::ControlTransfer(
+                nusb::transfer::TransferError::Unknown(0xe000_02ed)
+            )),
+            DeviceError::Disconnected(_)
+        ));
+    }
+
     #[test]
     fn the_radio_declares_itself_half_duplex() {
         let declared = caps::capabilities().duplex;

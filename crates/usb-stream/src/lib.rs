@@ -7,7 +7,7 @@ pub mod testing;
 mod tx;
 
 pub use bulk::{BulkIn, Completion, NusbBulkIn};
-pub use error::{Result, StreamError};
+pub use error::{Result, StreamError, is_disconnect};
 pub use policy::{Action, TransferPolicy};
 pub use stream::{Block, RxStream, Stopper, StreamConfig, StreamingStats, start};
 pub use tx::{BulkOut, NusbBulkOut, OutCompletion, TxConfig, TxQueue, TxStats};

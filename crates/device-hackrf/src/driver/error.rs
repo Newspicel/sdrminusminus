@@ -1,4 +1,4 @@
-use sdrmm_usb_stream::StreamError;
+use sdrmm_usb_stream::{StreamError, is_disconnect};
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
@@ -50,7 +50,7 @@ impl Error {
     pub(crate) fn is_disconnected(&self) -> bool {
         match self {
             Self::Stream(error) => error.is_disconnected(),
-            Self::ControlTransfer(error) => *error == nusb::transfer::TransferError::Disconnected,
+            Self::ControlTransfer(error) => is_disconnect(error),
             Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::Disconnected,
             Self::InvalidConfig { .. } | Self::DeviceNotFound | Self::Protocol { .. } => false,
         }
