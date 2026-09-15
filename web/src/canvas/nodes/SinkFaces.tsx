@@ -183,12 +183,14 @@ function AudioInput({ input }: { input: Input }) {
         channel={input.channel.id}
         playing={audio.playing}
       />
-      <AudioHealth
-        lostFrames={audio.lostFrames}
-        underruns={audio.underruns}
-        bufferedMs={audio.bufferedMs}
-        trimmedMs={audio.trimmedMs}
-      />
+      {import.meta.env.DEV && (
+        <AudioHealth
+          lostFrames={audio.lostFrames}
+          underruns={audio.underruns}
+          bufferedMs={audio.bufferedMs}
+          trimmedMs={audio.trimmedMs}
+        />
+      )}
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">
           {audio.error}
@@ -203,16 +205,13 @@ function AudioHealth({
   underruns,
   bufferedMs = 0,
   trimmedMs = 0,
-  show = true,
 }: {
   lostFrames: number;
   underruns: number;
   bufferedMs?: number;
   trimmedMs?: number;
-  show?: boolean;
 }) {
-  if (!show || (lostFrames === 0 && underruns === 0 && bufferedMs === 0 && trimmedMs === 0))
-    return null;
+  if (lostFrames === 0 && underruns === 0 && bufferedMs === 0 && trimmedMs === 0) return null;
   return (
     <span className="flex flex-wrap gap-1">
       {bufferedMs > 0 && (
