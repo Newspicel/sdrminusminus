@@ -4801,6 +4801,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-ad936x"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "nusb",
+ "sdrmm-device",
+ "sdrmm-usb-stream",
+ "sdrmm-wire",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-array"
 version = "0.0.0"
 dependencies = [
@@ -4836,16 +4849,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdrmm-device-net"
-version = "0.0.0"
-dependencies = [
- "num-complex",
- "sdrmm-device",
- "sdrmm-wire",
- "tracing",
-]
-
-[[package]]
 name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
@@ -4855,6 +4858,16 @@ dependencies = [
  "sdrmm-usb-stream",
  "sdrmm-wire",
  "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
+name = "sdrmm-device-rtltcp"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
  "tracing",
 ]
 
@@ -4881,6 +4894,16 @@ dependencies = [
  "serde_json",
  "soapysdr",
  "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "sdrmm-device-spyserver"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
  "tracing",
 ]
 
@@ -4922,13 +4945,15 @@ dependencies = [
  "rtrb",
  "sdrmm-channels",
  "sdrmm-device",
+ "sdrmm-device-ad936x",
  "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-hackrf",
- "sdrmm-device-net",
  "sdrmm-device-rtlsdr",
+ "sdrmm-device-rtltcp",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
+ "sdrmm-device-spyserver",
  "sdrmm-device-virtual",
  "sdrmm-dsp",
  "sdrmm-recorder",

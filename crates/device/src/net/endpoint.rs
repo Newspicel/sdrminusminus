@@ -1,7 +1,7 @@
 use std::{
     fmt,
     net::{TcpStream, ToSocketAddrs},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::DeviceError;
@@ -53,12 +53,23 @@ impl Endpoint {
     }
 
     pub fn connect(&self) -> Result<TcpStream, DeviceError> {
+        self.connect_within(CONNECT_TIMEOUT)
+    }
+
+    /// Dials with a deadline of the caller's choosing, for a search that tries addresses nobody
+    /// has said are there and must not spend the usual patience on each of them.
+    pub fn connect_within(&self, timeout: Duration) -> Result<TcpStream, DeviceError> {
         let addrs = (self.host.as_str(), self.port)
             .to_socket_addrs()
             .map_err(|e| DeviceError::NotFound(format!("{self}: {e}")))?;
         let mut last = None;
+        let deadline = Instant::now() + timeout;
         for addr in addrs {
-            match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match TcpStream::connect_timeout(&addr, left) {
                 Ok(stream) => {
                     let _ = stream.set_nodelay(true);
                     return Ok(stream);

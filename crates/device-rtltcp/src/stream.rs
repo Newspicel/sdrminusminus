@@ -1,8 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use sdrmm_device::{CaptureStream, LutConverter, Next, StreamFailure};
-
-use crate::socket::{Block, BlockPool, Connection, Read, SocketStop};
+use sdrmm_device::{
+    Block, BlockPool, CaptureStream, LutConverter, Next, StreamFailure,
+    net::{Connection, Read, SocketStop},
+};
 
 const BLOCK_BYTES: usize = 65_536;
 
@@ -47,7 +48,7 @@ impl CaptureStream for RtlTcpStream {
 
     fn next_block(&self, timeout: Duration) -> Next<Block> {
         let mut block = self.pool.take(BLOCK_BYTES);
-        match self.connection.read(block.as_mut(), timeout) {
+        match self.connection.read(block.bytes_mut(), timeout) {
             Read::Got(n) => {
                 block.truncate(n);
                 Next::Block(block)

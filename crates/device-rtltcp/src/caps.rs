@@ -4,7 +4,7 @@ use sdrmm_wire::{
     GainValue, Range, StreamScope,
 };
 
-use crate::rtltcp::proto::{Command, Tuner, ordered};
+use crate::proto::{Command, Tuner, ordered};
 
 pub(crate) const TUNER_STAGE: &str = "TUNER";
 pub(crate) const BIAS_TEE: &str = "bias_tee";

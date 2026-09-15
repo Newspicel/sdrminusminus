@@ -1,0 +1,21 @@
+[package]
+name = "sdrmm-device-rtltcp"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-wire.workspace = true
+sdrmm-device = { workspace = true, features = ["net"] }
+num-complex.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# The loopback server every network backend is scripted against, rather than a copy of it here.
+sdrmm-device = { workspace = true, features = ["net", "test-util"] }

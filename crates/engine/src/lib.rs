@@ -87,7 +87,12 @@ const SOAPY_PRIORITY: u8 = 20;
 const SDRPLAY_PRIORITY: u8 = 25;
 // The USB backends speak to their radios directly and are hidden from Soapy's enumeration, so
 // this rank only settles a tie against a driver that reports the same serial by another route.
-#[cfg(any(feature = "rtlsdr", feature = "hackrf"))]
+#[cfg(any(
+    feature = "cr8",
+    feature = "rtlsdr",
+    feature = "hackrf",
+    feature = "ad936x"
+))]
 const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
@@ -111,6 +116,8 @@ pub fn soapy_handled_natively() -> Vec<&'static str> {
         "rtlsdr",
         #[cfg(feature = "hackrf")]
         "hackrf",
+        #[cfg(feature = "ad936x")]
+        "plutosdr",
     ]
     .to_vec()
 }
@@ -161,15 +168,20 @@ pub fn builtin_registry_accelerated(
         NATIVE_PRIORITY,
         Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
+    #[cfg(feature = "ad936x")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_ad936x::Ad936xDriver::new()),
+    );
     #[cfg(feature = "net-client")]
     {
         registry.register(
             NET_PRIORITY,
-            Box::new(sdrmm_device_net::RtlTcpDriver::new()),
+            Box::new(sdrmm_device_rtltcp::RtlTcpDriver::new()),
         );
         registry.register(
             NET_PRIORITY,
-            Box::new(sdrmm_device_net::SpyServerDriver::new()),
+            Box::new(sdrmm_device_spyserver::SpyServerDriver::new()),
         );
     }
     registry

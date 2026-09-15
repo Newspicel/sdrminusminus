@@ -14,6 +14,12 @@ workspace = true
 # The shared bulk USB transport seen as a `CaptureStream`. Off by default so a build with no
 # native backend never compiles a transport it cannot use.
 usb = ["dep:sdrmm-usb-stream"]
+# `std::net` sockets seen as a capture transport: the endpoint parser and the connection wrapper
+# every network backend shares. Pure std, so it pulls in nothing.
+net = []
+# The loopback server the network backends are tested against. Off outside their own test builds,
+# so nothing ships a listener it does not use.
+test-util = ["net"]
 
 [dependencies]
 sdrmm-wire.workspace = true

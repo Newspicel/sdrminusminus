@@ -6,20 +6,21 @@ working.
 
 ## Built-in drivers
 
-Standard builds include native drivers for RTL-SDR, KrakenSDR, HackRF, SDRplay RSP, and Dragon
-Labs CR-8. These drivers do not require SoapySDR modules. Custom builds can omit them through
-feature flags.
+Standard builds include native drivers for RTL-SDR, KrakenSDR, HackRF, AD936x boards, SDRplay
+RSP, and Dragon Labs CR-8. These drivers do not require SoapySDR modules. Custom builds can omit them
+through feature flags.
 
 | Receiver | Extra software |
 |---|---|
 | RTL-SDR | none |
 | KrakenSDR and KerberosSDR | none |
 | HackRF | none |
+| AntSDR E200 and E310, ADALM-Pluto, and other AD936x boards serving libiio | none, see [AntSDR, PlutoSDR and other AD936x boards](#antsdr-plutosdr-and-other-ad936x-boards) |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | SDRplay API 3.15 or newer, see [SDRplay](#sdrplay) |
 | Dragon Labs CR-8 | the vendor CR-8 library, see [Dragon Labs CR-8](#dragon-labs-cr-8) |
 
-If a host SoapyRTLSDR, SoapyHackRF or SoapySDRPlay3 module is installed, it is skipped for these
-receivers so that one radio is never listed twice.
+If a host SoapyRTLSDR, SoapyHackRF, SoapyPlutoSDR or SoapySDRPlay3 module is installed, it is
+skipped for these receivers so that one radio is never listed twice.
 
 ## SoapySDR modules
 
@@ -30,7 +31,7 @@ Desktop installers and containers ship a private SoapySDR 0.8.1 runtime with the
 | Airspy and Airspy HF+ | SoapyAirspy / SoapyAirspyHF |
 | bladeRF | SoapyBladeRF |
 | LimeSDR | SoapyLMS7 |
-| PlutoSDR and libiio devices | SoapyPlutoSDR |
+| PlutoSDR and libiio devices | SoapyPlutoSDR, superseded by the built-in driver |
 | Remote Soapy server | SoapyRemote |
 
 The exact versions are pinned in
@@ -49,8 +50,8 @@ holding it. Those directories are searched before the bundled ones.
 ## Network receivers
 
 On an unbound Device node, open the **Network** tab and enter a hostname or address. Ports
-default to `1234` for `rtl_tcp` and `5555` for SpyServer. Both protocols are built in and work
-without SoapySDR.
+default to `1234` for `rtl_tcp`, `5555` for SpyServer, and `30431` for an AD936x board. All three
+protocols are built in and work without SoapySDR.
 
 SoapyRemote is a separate path: a host running `SoapySDRServer` is discovered automatically and
 appears in the normal device list, so use that instead of the network form.
@@ -181,6 +182,50 @@ Three gain stages and one switch:
 | `bias_tee` | phantom power on the antenna port |
 
 `AMP` appears as a switch and contributes to the displayed total gain.
+
+## AntSDR, PlutoSDR and other AD936x boards
+
+A board running the libiio firmware is opened by a driver built into sdr--, which speaks the iiod
+protocol itself over ethernet or over USB. No libiio, no SoapySDR module and no vendor software is
+involved. One driver covers every board built around an AD936x transceiver: an AntSDR E200 or E310,
+an ADALM-Pluto, and anything else that serves the same devices through iiod.
+
+Everything the device face offers is read from the board rather than assumed, so an AD9361 reports
+70 MHz – 6 GHz and an AD9363 reports 325 MHz – 3.8 GHz, and a 2×2 board is opened with two receive
+and two transmit lanes.
+
+| Setting | Effect |
+|---|---|
+| `RX` | receive gain, set per lane |
+| `TX` | transmit attenuation, set per lane |
+| `ppm` | crystal correction, counted from the value the board was trimmed to at the factory |
+| `gain_mode` | `manual`, `slow_attack`, `fast_attack` or `hybrid` AGC |
+| `quadrature_tracking`, `rf_dc_tracking`, `bb_dc_tracking` | the transceiver's own corrections |
+| `fir_filter` | the programmable decimating filter |
+| `tx_port` | which transmit port is driven |
+
+The antenna control selects the receive port, `A_BALANCED` on a board with one input.
+
+**Finding one.** A board attached over USB appears on its own. A board on the network is found at
+the addresses these radios ship on — `ant.local`, `192.168.1.10`, `pluto.local` and `192.168.2.1`
+— when you press **Search**; anywhere else, type its address into the **Network** tab.
+
+**Tuning.** Receive and transmit share the dial: setting a centre frequency moves both
+synthesizers, so a transmission lands where the receiver is tuned.
+
+**Two lanes.** Both receivers on one AD936x run from the same synthesizer and the same converter
+clock, so sdr-- treats a 2×2 board as phase coherent and a bearing taken across its lanes means
+something. Their gain and input port are set per lane; the dial is shared. A board wired 1×1, which
+is what a stock ADALM-Pluto is, opens with one lane in each direction.
+
+**Sample rate.** The board resamples continuously between roughly 2.084 MS/s and 61.44 MS/s. What
+actually arrives is limited by the link: USB 2.0 carries a few megasamples per second, and the
+E200's gigabit ethernet carries considerably more.
+
+**Over USB.** The board's IIO interface is claimed directly. On Linux that needs the libiio udev
+rules, the same ones the vendor packages install; `sdrmm --doctor` reports whether they are there.
+A board that offers only two endpoint couples is opened half duplex, because receiving and
+transmitting at once needs a conversation for each alongside the control one.
 
 ## SDRplay
 

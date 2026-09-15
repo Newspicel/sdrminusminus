@@ -59,7 +59,7 @@ cargo xtask dev --watch
 
 ## Backend feature flags
 
-The default features are `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `net-client`, and `gpu-fft`.
+The default features are `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `ad936x`, `net-client`, and `gpu-fft`.
 Disable defaults to build with virtual sources only:
 
 ```sh

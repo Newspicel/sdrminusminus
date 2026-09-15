@@ -11,7 +11,7 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-default = ["soapy", "sdrplay", "cr8", "rtlsdr", "hackrf", "net-client", "gpu-fft"]
+default = ["soapy", "sdrplay", "cr8", "rtlsdr", "hackrf", "ad936x", "net-client", "gpu-fft"]
 soapy = ["dep:sdrmm-device-soapy"]
 # SDRplay RSP receivers through the vendor API, which is resolved at runtime and never linked,
 # so this costs a release artifact nothing and simply finds no hardware without it installed.
@@ -23,9 +23,12 @@ cr8 = ["dep:sdrmm-device-cr8"]
 # of the minimal build and of every release artifact.
 rtlsdr = ["dep:sdrmm-device-rtlsdr"]
 hackrf = ["dep:sdrmm-device-hackrf"]
+# AntSDR, PlutoSDR and every other AD936x board that serves libiio, over ethernet or usb. The
+# protocol is spoken directly, so this links no vendor library either.
+ad936x = ["dep:sdrmm-device-ad936x"]
 # rtl_tcp and SpyServer clients. Pure `std::net`, so it costs a release artifact nothing and is
 # part of the minimal build.
-net-client = ["dep:sdrmm-device-net"]
+net-client = ["dep:sdrmm-device-rtltcp", "dep:sdrmm-device-spyserver"]
 # Headless wgpu compute. Runtime selection still keeps small transforms on rustfft and falls
 # back to it when the host has no suitable hardware adapter.
 gpu-fft = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
@@ -41,7 +44,9 @@ sdrmm-device-sdrplay = { workspace = true, optional = true }
 sdrmm-device-cr8 = { workspace = true, optional = true }
 sdrmm-device-rtlsdr = { workspace = true, optional = true }
 sdrmm-device-hackrf = { workspace = true, optional = true }
-sdrmm-device-net = { workspace = true, optional = true }
+sdrmm-device-ad936x = { workspace = true, optional = true }
+sdrmm-device-rtltcp = { workspace = true, optional = true }
+sdrmm-device-spyserver = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
 sdrmm-recorder.workspace = true
 opus.workspace = true

@@ -4,7 +4,7 @@ use sdrmm_wire::{
     Range, StreamScope,
 };
 
-use crate::spyserver::proto::{ClientSync, DeviceInfo, IqFormat, Setting, ordered};
+use crate::proto::{ClientSync, DeviceInfo, IqFormat, Setting, ordered};
 
 pub(crate) const GAIN: &str = "gain";
 pub(crate) const IQ_FORMAT: &str = "iq_format";
@@ -136,7 +136,7 @@ impl Remote {
             (Setting::IqFormat, self.format.code()),
             (Setting::IqDecimation, self.decimation),
             (Setting::IqFrequency, self.center_hz),
-            crate::spyserver::proto::iq_only(),
+            crate::proto::iq_only(),
             (Setting::Gain, self.gain),
             (Setting::IqDigitalGain, self.digital_gain(info)),
             (Setting::StreamingEnabled, 1),
@@ -556,7 +556,7 @@ mod tests {
                 (Setting::IqFormat, IqFormat::Int16.code()),
                 (Setting::IqDecimation, 2),
                 (Setting::IqFrequency, 433_920_000),
-                crate::spyserver::proto::iq_only(),
+                crate::proto::iq_only(),
                 (Setting::Gain, 12),
                 (Setting::IqDigitalGain, 6),
                 (Setting::StreamingEnabled, 1),

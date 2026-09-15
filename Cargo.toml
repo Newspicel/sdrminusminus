@@ -9,12 +9,14 @@ members = [
     "crates/device",
     "crates/device-virtual",
     "crates/device-array",
+    "crates/device-ad936x",
     "crates/device-soapy",
     "crates/device-sdrplay",
     "crates/device-rtlsdr",
     "crates/device-cr8",
     "crates/device-hackrf",
-    "crates/device-net",
+    "crates/device-rtltcp",
+    "crates/device-spyserver",
     "crates/usb-stream",
     "crates/channels",
     "crates/cps",
@@ -36,12 +38,14 @@ default-members = [
     "crates/device",
     "crates/device-virtual",
     "crates/device-array",
+    "crates/device-ad936x",
     "crates/device-soapy",
     "crates/device-sdrplay",
     "crates/device-rtlsdr",
     "crates/device-cr8",
     "crates/device-hackrf",
-    "crates/device-net",
+    "crates/device-rtltcp",
+    "crates/device-spyserver",
     "crates/usb-stream",
     "crates/channels",
     "crates/cps",
@@ -71,12 +75,14 @@ sdrmm-modem-test-support = { path = "crates/modem-test-support" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-array = { path = "crates/device-array" }
+sdrmm-device-ad936x = { path = "crates/device-ad936x" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-device-sdrplay = { path = "crates/device-sdrplay" }
 sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
 sdrmm-device-cr8 = { path = "crates/device-cr8" }
 sdrmm-device-hackrf = { path = "crates/device-hackrf" }
-sdrmm-device-net = { path = "crates/device-net" }
+sdrmm-device-rtltcp = { path = "crates/device-rtltcp" }
+sdrmm-device-spyserver = { path = "crates/device-spyserver" }
 sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-cps = { path = "crates/cps" }
@@ -226,7 +232,10 @@ opt-level = 3
 [profile.dev.package.sdrmm-engine]
 opt-level = 3
 
-[profile.dev.package.sdrmm-device-net]
+[profile.dev.package.sdrmm-device-rtltcp]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-spyserver]
 opt-level = 3
 
 [profile.dev.package.sdrmm-usb-stream]
@@ -236,6 +245,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-hackrf]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-ad936x]
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-virtual]
