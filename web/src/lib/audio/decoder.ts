@@ -48,18 +48,20 @@ export async function createOpusPacketDecoder(
   return createWasmDecoder(channels, onPcm, onError, onDropped);
 }
 
+// Chromium stamps every output from the first chunk plus the frames decoded so far, so one
+// timestamp gap on the input desyncs them for good; outputs arrive in decode order, so that is
+// the only thing worth matching on.
 function createWebCodecsDecoder(
   channels: number,
   onPcm: (pcm: Float32Array) => void,
   onError: (err: unknown) => void,
   onDropped: (frames: number) => void,
 ): OpusPacketDecoder {
-  const pending = new Map<number, number>();
+  const inFlight: number[] = [];
   const decoder = new AudioDecoder({
     output: (data) => {
       try {
-        const started = pending.get(data.timestamp);
-        pending.delete(data.timestamp);
+        const started = inFlight.shift();
         if (started === undefined || performance.now() - started > MAX_DECODE_AGE_MS) {
           onDropped(data.numberOfFrames);
           return;
@@ -83,16 +85,16 @@ function createWebCodecsDecoder(
   return {
     channels,
     decode(packet, timestampUs) {
-      if (decoder.state !== "configured" || pending.size >= MAX_DECODE_QUEUE) {
+      if (decoder.state !== "configured" || inFlight.length >= MAX_DECODE_QUEUE) {
         return false;
       }
-      pending.set(timestampUs, performance.now());
+      inFlight.push(performance.now());
       decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: packet }));
       return true;
     },
     reset() {
       if (decoder.state !== "closed") {
-        pending.clear();
+        inFlight.length = 0;
         decoder.reset();
         decoder.configure(config(channels));
       }

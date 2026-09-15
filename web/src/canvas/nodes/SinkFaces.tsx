@@ -230,7 +230,7 @@ function AudioHealth({
       {lostFrames > 0 && (
         <span
           className={CHIP}
-          title="Audio that never reached the browser — dropped at the radio, the encoder or the link. Check the radio's overruns and the server, not this machine."
+          title="Audio lost before playback — dropped at the radio, the encoder or the link, or decoded too late on this machine to be played."
         >
           <span className="legend">Dropped</span>
           {(lostFrames / 48).toFixed(0)} ms
