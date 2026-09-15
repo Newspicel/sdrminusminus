@@ -638,6 +638,13 @@ impl Engine {
         self.patch_device_from(ds, delta, PatchOrigin::Client)
     }
 
+    fn runtime_of(&self, ds: u32) -> Option<Arc<DeviceRuntime>> {
+        self.lock()
+            .device_sets
+            .get(&ds)
+            .map(|state| state.runtime.clone())
+    }
+
     /// What the radio open on this set can do, for a caller deciding what to ask of it.
     #[must_use]
     pub fn capabilities(&self, ds: u32) -> Option<Capabilities> {
@@ -652,6 +659,10 @@ impl Engine {
     /// The displacement is mixed back out downstream, so nothing the operator sees moves; only the
     /// front end's own DC term does.
     pub(crate) fn replace_lo(&self, ds: u32) {
+        let Some(serialized) = self.runtime_of(ds) else {
+            return;
+        };
+        let _patching = serialized.patching();
         let (runtime, settings, front_end, hardware) = {
             let mut inner = self.lock();
             let Some(state) = inner.device_sets.get_mut(&ds) else {
@@ -697,6 +708,10 @@ impl Engine {
         delta: DeviceSettings,
         origin: PatchOrigin,
     ) -> Result<(), EngineError> {
+        let serialized = self
+            .runtime_of(ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let _patching = serialized.patching();
         let (runtime, hardware, front_end, _rate_guard) = {
             let mut inner = self.lock();
             let state = inner

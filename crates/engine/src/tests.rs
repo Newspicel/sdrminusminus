@@ -5,7 +5,7 @@ use std::{
 };
 
 use num_complex::Complex;
-use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
+use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, lock, single_rx_sink};
 use sdrmm_wire::{
     AdsbParams, AudioProcessing, ChannelParams, ChannelSettings, DcArtifact, DecoderEvent, Duplex,
     MAX_TIME_MACHINE_SECONDS, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
@@ -436,6 +436,84 @@ impl SdrDevice for BlockingApplyDevice {
             }
         }
         self.settings.merge_from(settings);
+        Ok(())
+    }
+
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        single_rx_sink(sinks).map(|_| ())
+    }
+
+    fn rx_stop(&mut self) {}
+}
+
+/// A tuner that takes its time, like a dongle programmed over USB, and remembers every centre it
+/// was left holding.
+struct SlowTunerDriver {
+    entered_tx: mpsc::Sender<()>,
+    release_rx: Mutex<Option<mpsc::Receiver<()>>>,
+    tuned: Arc<Mutex<Vec<f64>>>,
+}
+
+impl DeviceDriver for SlowTunerDriver {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+
+    fn probe(&self) -> Vec<DeviceInfo> {
+        vec![mock_info("slow-tuner", None)]
+    }
+
+    fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(SlowTunerDevice {
+            capabilities: Capabilities {
+                freq_ranges: vec![sdrmm_wire::Range {
+                    min: 24_000_000.0,
+                    max: 1_766_000_000.0,
+                    step: None,
+                }],
+                sample_rates: vec![2_048_000.0],
+                dc_artifact: DcArtifact::Managed,
+                ..empty_capabilities()
+            },
+            settings: DeviceSettings {
+                center_hz: Some(100_000_000.0),
+                ..mock_settings()
+            },
+            entered_tx: self.entered_tx.clone(),
+            release_rx: lock(&self.release_rx).take(),
+            tuned: self.tuned.clone(),
+        }))
+    }
+}
+
+struct SlowTunerDevice {
+    capabilities: Capabilities,
+    settings: DeviceSettings,
+    entered_tx: mpsc::Sender<()>,
+    release_rx: Option<mpsc::Receiver<()>>,
+    tuned: Arc<Mutex<Vec<f64>>>,
+}
+
+impl SdrDevice for SlowTunerDevice {
+    fn capabilities(&self) -> &Capabilities {
+        &self.capabilities
+    }
+
+    fn settings(&self) -> &DeviceSettings {
+        &self.settings
+    }
+
+    fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        if settings.center_hz.is_some()
+            && let Some(rx) = self.release_rx.take()
+        {
+            let _ = self.entered_tx.send(());
+            let _ = rx.recv();
+        }
+        self.settings.merge_from(settings);
+        if let Some(hz) = self.settings.center_hz {
+            lock(&self.tuned).push(hz);
+        }
         Ok(())
     }
 

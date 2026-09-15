@@ -14,6 +14,7 @@ use super::CaptureRuntime;
 pub(crate) struct DeviceRuntime {
     runtime: Mutex<CaptureRuntime>,
     waiting: Mutex<Waiting>,
+    patching: Mutex<()>,
 }
 
 impl DeviceRuntime {
@@ -21,11 +22,19 @@ impl DeviceRuntime {
         Self {
             runtime: Mutex::new(runtime),
             waiting: Mutex::new(Waiting::default()),
+            patching: Mutex::new(()),
         }
     }
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, CaptureRuntime> {
         lock(&self.runtime)
+    }
+
+    /// Held from reading what the radio is set to until the answer is written back, so a patch
+    /// that takes milliseconds at the tuner cannot be overtaken by one built from the settings it
+    /// is in the middle of replacing.
+    pub(crate) fn patching(&self) -> MutexGuard<'_, ()> {
+        lock(&self.patching)
     }
 
     /// Applies `hardware`, or nothing at all when a patch carrying it already reached the radio

@@ -301,3 +301,71 @@ async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
     );
     engine.remove_device_set(ds).unwrap();
 }
+
+#[tokio::test]
+async fn a_channel_added_mid_tune_does_not_drag_the_radio_back_to_where_it_was() {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let tuned = Arc::new(Mutex::new(Vec::new()));
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        50,
+        Box::new(SlowTunerDriver {
+            entered_tx,
+            release_rx: Mutex::new(Some(release_rx)),
+            tuned: tuned.clone(),
+        }),
+    );
+    let engine = Engine::with_registry(registry, None);
+    let ds = engine.create_device_set("mock:slow-tuner").unwrap();
+
+    let patch = {
+        let engine = engine.clone();
+        tokio::task::spawn_blocking(move || {
+            engine.patch_device(
+                ds,
+                DeviceSettings {
+                    center_hz: Some(460_024_499.0),
+                    sample_rate: Some(2_048_000.0),
+                    ..DeviceSettings::default()
+                },
+            )
+        })
+    };
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    let added = {
+        let engine = engine.clone();
+        tokio::task::spawn_blocking(move || {
+            engine.add_channel(
+                ds,
+                0,
+                ChannelSettings {
+                    frequency_hz: 460_137_500.0,
+                    squelch: sdrmm_wire::Squelch::Off,
+                    params: ChannelParams::Nfm(NfmParams::default()),
+                    audio: AudioProcessing::default(),
+                },
+            )
+        })
+    };
+
+    while engine.snapshot().device_sets[0].channels.is_empty() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    release_tx.send(()).unwrap();
+    patch.await.expect("join").expect("the retune lands");
+    added.await.expect("join").expect("the channel opens");
+
+    let set = engine.snapshot().device_sets.remove(0);
+    let asked =
+        set.settings.center_hz.expect("the radio reports a centre") - set.lo_offset_in_force_hz;
+    assert_eq!(
+        lock(&tuned).last().copied(),
+        Some(asked),
+        "the radio was left tuned somewhere other than where the device set says"
+    );
+    engine.remove_device_set(ds).unwrap();
+}
