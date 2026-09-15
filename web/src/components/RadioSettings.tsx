@@ -232,9 +232,7 @@ export function RadioSettings({
             />
             <span className="legend">
               kHz
-              {loOffset === 0
-                ? ", 0 = tune dead centre"
-                : `, spike ${formatHz(-loOffset)} off centre`}
+              {loOffset !== 0 && `, spike ${formatHz(-loOffset)} off centre`}
             </span>
           </SettingRow>
         </>
