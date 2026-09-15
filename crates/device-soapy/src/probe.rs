@@ -30,17 +30,12 @@ pub fn enable_isolated_probes() {
     if args.next().is_none_or(|flag| flag != PROBE_FLAG) {
         return;
     }
-    let scope = Scope::from_arg(args.next().unwrap_or_default().to_string_lossy().as_ref());
+    let _scope = Scope::from_arg(args.next().unwrap_or_default().to_string_lossy().as_ref());
     let filter = args
         .next()
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    if scope == Scope::Fast {
-        // SAFETY: this runs before the argument parsing that starts the rest of the program, so
-        // no other thread exists yet and no SoapySDR call has loaded a module.
-        unsafe { crate::runtime::hide_network_modules() };
-    }
     std::process::exit(run_child(&filter));
 }
 
@@ -106,7 +101,7 @@ pub(crate) struct Found {
 }
 
 impl Found {
-    fn new(args: &soapysdr::Args) -> Self {
+    fn new(args: &crate::soapy::Args) -> Self {
         Self {
             info: crate::device_info(args),
             args: args.to_string(),
@@ -114,7 +109,7 @@ impl Found {
     }
 
     pub(crate) fn is_driver(&self, driver: &str) -> bool {
-        soapysdr::Args::from(self.args.as_str())
+        crate::soapy::Args::from(self.args.as_str())
             .get("driver")
             .is_some_and(|found| found.eq_ignore_ascii_case(driver))
     }
@@ -307,8 +302,8 @@ mod tests {
 
     #[test]
     fn probe_arguments_survive_the_trip_back_into_soapy() {
-        let original = soapysdr::Args::from("driver=rtlsdr, serial=00000001, label=NESDR");
-        let reopened = soapysdr::Args::from(original.to_string().as_str());
+        let original = crate::soapy::Args::from("driver=rtlsdr, serial=00000001, label=NESDR");
+        let reopened = crate::soapy::Args::from(original.to_string().as_str());
         for key in ["driver", "serial", "label"] {
             assert_eq!(
                 reopened.get(key),

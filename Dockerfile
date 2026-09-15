@@ -12,25 +12,6 @@ RUN pnpm build
 RUN test -f dist/index.html
 
 
-# --- pinned Soapy runtime ---------------------------------------------------------------
-FROM mambaorg/micromamba:2.9.0 AS soapy
-ARG TARGETARCH
-COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-64.lock /tmp/conda-linux-64.lock
-COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-aarch64.lock /tmp/conda-linux-aarch64.lock
-# The explicit per-platform locks pin every transitive package URL and checksum.
-RUN case "$TARGETARCH" in \
-      amd64) lock=/tmp/conda-linux-64.lock ;; \
-      arm64) lock=/tmp/conda-linux-aarch64.lock ;; \
-      *) echo "unsupported Docker architecture: $TARGETARCH" >&2; exit 1 ;; \
-    esac \
-    && micromamba install --yes --name base --file "$lock" \
-    && micromamba clean --all --yes \
-    && test -f /opt/conda/lib/libSoapySDR.so \
-    && for module in airspy blade lms7 remote; do \
-         test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname "*$module*" -print -quit)"; \
-       done
-
-
 # --- workspace skeleton ------------------------------------------------------------------
 FROM debian:trixie-slim AS planner
 WORKDIR /plan
@@ -60,20 +41,15 @@ RUN find crates apps xtask -type f ! -name Cargo.toml -delete \
 
 # --- server binary -----------------------------------------------------------------------
 FROM debian:trixie-slim AS builder
-# cc + cmake: opusic-sys builds vendored libopus through the cmake crate. The private Soapy
-# environment supplies the core library used to link the canonical hardware backend.
+# cc + cmake: opusic-sys builds vendored libopus through the cmake crate. Nothing here needs
+# SoapySDR: the backend opens it at runtime and links nothing at build time.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        build-essential cmake ca-certificates curl pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=soapy /opt/conda /opt/conda
-
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    SOAPY_SDR_ROOT=/opt/conda \
-    PKG_CONFIG_PATH=/opt/conda/lib/pkgconfig \
-    LD_LIBRARY_PATH=/opt/conda/lib \
     PATH=/usr/local/cargo/bin:$PATH
 # `--default-toolchain none` so rust-toolchain.toml is the only thing choosing the compiler.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -115,22 +91,21 @@ LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminu
       org.opencontainers.image.description="sdr-- — headless SDR server with embedded web UI" \
       org.opencontainers.image.licenses="MIT"
 
-# The pinned private environment includes the core, curated modules, transitive shared libraries,
-# package metadata, and licenses. UHD remains an optional pack because of its size.
+# SoapySDR comes from Debian, as it would on the host: the modules named here are the ones no
+# native backend in this build covers. Modules are listed one by one rather than through
+# soapysdr-module-all, which pulls in SoapyUHD — it aborts the process when it loads headless.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates curl \
+       libsoapysdr0.8 \
+       soapysdr-module-bladerf \
+       soapysdr-module-lms7 \
+       soapysdr-module-remote \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --create-home --home-dir /home/sdrmm sdrmm
 
-COPY --from=soapy /opt/conda /opt/conda
 COPY --from=builder /out/sdrmm /usr/local/bin/sdrmm
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/sdrmm/THIRD_PARTY_NOTICES.md
-
-ENV SOAPY_SDR_ROOT=/opt/conda \
-    SOAPY_SDR_PLUGIN_PATH=/opt/conda/lib/SoapySDR/modules0.8 \
-    LD_LIBRARY_PATH=/opt/conda/lib \
-    PATH=/opt/conda/bin:$PATH
 
 # Docker seeds a fresh named or anonymous volume from the image path, ownership included, so
 # /data has to belong to the unprivileged user *here* for it to be writable there.

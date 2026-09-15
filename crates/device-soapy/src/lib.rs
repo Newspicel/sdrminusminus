@@ -14,15 +14,16 @@ use sdrmm_wire::{
     Capabilities, ChannelCapabilities, DeviceInfo, DeviceSettings, Direction as WireDirection,
     DirectionalCapabilities, GainStage, GainValue, StreamSettings,
 };
-use soapysdr::{Direction, ErrorCode};
+use soapy::{Direction, ErrorCode};
 
 mod caps;
 mod probe;
 mod runtime;
+mod soapy;
 mod watchdog;
 
 pub use probe::enable_isolated_probes;
-pub use runtime::{RuntimeInfo, configure_bundled_runtime, runtime_info};
+pub use runtime::{RuntimeInfo, runtime_info};
 use watchdog::{Watch, Watchdog};
 
 const DRIVER_ID: &str = "soapy";
@@ -33,11 +34,11 @@ const GAIN_MODE_SETTING: &str = "gain_mode";
 
 static ENUMERATE_LOCK: Mutex<()> = Mutex::new(());
 
-fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::Error> {
+fn enumerate_serialized(filter: &str) -> Result<Vec<soapy::Args>, soapy::Error> {
     let _guard = ENUMERATE_LOCK
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    soapysdr::enumerate(filter)
+    soapy::enumerate(filter)
 }
 
 const BUSY_HINTS: [&str; 4] = ["busy", "in use", "claim", "unable to open"];
@@ -54,7 +55,7 @@ fn reads_as(message: &str, hints: &[&str]) -> bool {
     hints.iter().any(|hint| message.contains(hint))
 }
 
-fn map_err(error: soapysdr::Error) -> DeviceError {
+fn map_err(error: soapy::Error) -> DeviceError {
     let message = error.to_string();
     match error.code {
         ErrorCode::NotSupported => DeviceError::Unsupported(message),
@@ -64,7 +65,7 @@ fn map_err(error: soapysdr::Error) -> DeviceError {
     }
 }
 
-fn args_key(args: &soapysdr::Args) -> String {
+fn args_key(args: &soapy::Args) -> String {
     args.get("serial").map_or_else(
         || args.to_string(),
         |serial| match args.get("mode") {
@@ -74,7 +75,7 @@ fn args_key(args: &soapysdr::Args) -> String {
     )
 }
 
-fn device_info(args: &soapysdr::Args) -> DeviceInfo {
+fn device_info(args: &soapy::Args) -> DeviceInfo {
     let serial = args.get("serial").map(str::to_string);
     let label = args.get("label").map_or_else(
         || {
@@ -101,7 +102,7 @@ struct ProbeIdentity {
 }
 
 impl ProbeIdentity {
-    fn from_args(args: &soapysdr::Args) -> Self {
+    fn from_args(args: &soapy::Args) -> Self {
         let filter = match (args.get("driver"), args.get("serial"), args.get("mode")) {
             (Some(driver), Some(serial), Some(mode)) => {
                 format!("driver={driver},serial={serial},mode={mode}")
@@ -186,20 +187,20 @@ impl DeviceDriver for SoapyDriver {
             .into_iter()
             .find(|found| found.info.key == info.key)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?;
-        let args = soapysdr::Args::from(found.args.as_str());
+        let args = soapy::Args::from(found.args.as_str());
         let identity = ProbeIdentity::from_args(&args);
-        let device = soapysdr::Device::new(args).map_err(map_err)?;
+        let device = soapy::Device::new(args).map_err(map_err)?;
         Ok(Box::new(SoapyDevice::from_device(device, identity)?))
     }
 }
 
-fn args_map(args: &soapysdr::Args) -> BTreeMap<String, String> {
+fn args_map(args: &soapy::Args) -> BTreeMap<String, String> {
     args.iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect()
 }
 
-fn optional<T: Default>(label: &str, result: Result<T, soapysdr::Error>) -> T {
+fn optional<T: Default>(label: &str, result: Result<T, soapy::Error>) -> T {
     match result {
         Ok(value) => value,
         Err(error) => {
@@ -209,7 +210,7 @@ fn optional<T: Default>(label: &str, result: Result<T, soapysdr::Error>) -> T {
     }
 }
 
-fn optional_value<T>(label: &str, result: Result<T, soapysdr::Error>) -> Option<T> {
+fn optional_value<T>(label: &str, result: Result<T, soapy::Error>) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(error) => {
@@ -220,7 +221,7 @@ fn optional_value<T>(label: &str, result: Result<T, soapysdr::Error>) -> Option<
 }
 
 fn query_channel(
-    device: &soapysdr::Device,
+    device: &soapy::Device,
     direction: Direction,
     channel: usize,
 ) -> Result<ChannelCapabilities, DeviceError> {
@@ -294,7 +295,7 @@ fn query_channel(
 }
 
 fn query_direction(
-    device: &soapysdr::Device,
+    device: &soapy::Device,
     direction: Direction,
 ) -> Result<Vec<ChannelCapabilities>, DeviceError> {
     let count = device.num_channels(direction).map_err(map_err)?;
@@ -303,7 +304,7 @@ fn query_direction(
         .collect()
 }
 
-fn query_capabilities(device: &soapysdr::Device) -> Result<Capabilities, DeviceError> {
+fn query_capabilities(device: &soapy::Device) -> Result<Capabilities, DeviceError> {
     let rx = query_direction(device, Direction::Rx)?;
     let tx = query_direction(device, Direction::Tx)?;
     if rx.is_empty() && tx.is_empty() {
@@ -353,10 +354,7 @@ fn query_capabilities(device: &soapysdr::Device) -> Result<Capabilities, DeviceE
     Ok(capabilities)
 }
 
-fn read_channel_settings(
-    device: &soapysdr::Device,
-    channel: &ChannelCapabilities,
-) -> DeviceSettings {
+fn read_channel_settings(device: &soapy::Device, channel: &ChannelCapabilities) -> DeviceSettings {
     let index = channel.channel as usize;
     let mut settings = DeviceSettings {
         center_hz: device.frequency(Direction::Rx, index).ok(),
@@ -379,7 +377,7 @@ fn read_channel_settings(
     settings
 }
 
-fn read_settings(device: &soapysdr::Device, capabilities: &Capabilities) -> DeviceSettings {
+fn read_settings(device: &soapy::Device, capabilities: &Capabilities) -> DeviceSettings {
     let Some(directional) = &capabilities.directional else {
         return DeviceSettings::default();
     };
@@ -449,7 +447,7 @@ fn warn_coerced_rate(requested: Option<f64>, actual: Option<f64>) {
 }
 
 pub struct SoapyDevice {
-    device: soapysdr::Device,
+    device: soapy::Device,
     capabilities: Capabilities,
     settings: DeviceSettings,
     identity: ProbeIdentity,
@@ -458,12 +456,12 @@ pub struct SoapyDevice {
 }
 
 enum RxStreams {
-    Combined(soapysdr::RxStream<Sample>),
-    Split(Vec<soapysdr::RxStream<Sample>>),
+    Combined(soapy::RxStream<Sample>),
+    Split(Vec<soapy::RxStream<Sample>>),
 }
 
 impl RxStreams {
-    fn activate(&mut self) -> Result<(), soapysdr::Error> {
+    fn activate(&mut self) -> Result<(), soapy::Error> {
         match self {
             Self::Combined(stream) => stream.activate(None),
             Self::Split(streams) => {
@@ -482,7 +480,7 @@ impl RxStreams {
 }
 
 impl SoapyDevice {
-    fn from_device(device: soapysdr::Device, identity: ProbeIdentity) -> Result<Self, DeviceError> {
+    fn from_device(device: soapy::Device, identity: ProbeIdentity) -> Result<Self, DeviceError> {
         let capabilities = query_capabilities(&device)?;
         let settings = read_settings(&device, &capabilities);
         let duplex = Arc::new(Mutex::new(DuplexState::new(capabilities.duplex)));
@@ -795,7 +793,7 @@ impl SdrDevice for SoapyDevice {
 }
 
 fn capture_loop(
-    mut stream: soapysdr::RxStream<Sample>,
+    mut stream: soapy::RxStream<Sample>,
     identity: &ProbeIdentity,
     running: &AtomicBool,
     mut sinks: Vec<RxSink>,
@@ -863,7 +861,7 @@ fn capture_loop(
 }
 
 fn capture_split_loop(
-    mut streams: Vec<soapysdr::RxStream<Sample>>,
+    mut streams: Vec<soapy::RxStream<Sample>>,
     identity: &ProbeIdentity,
     running: &AtomicBool,
     mut sinks: Vec<RxSink>,
@@ -970,9 +968,9 @@ trait TxIo: Send {
         buffers: &[&[Sample]],
         end_burst: bool,
         timeout_us: i64,
-    ) -> Result<usize, soapysdr::Error>;
-    fn read_status(&mut self, timeout_us: i64) -> Result<TxStatus, soapysdr::Error>;
-    fn deactivate(&mut self) -> Result<(), soapysdr::Error>;
+    ) -> Result<usize, soapy::Error>;
+    fn read_status(&mut self, timeout_us: i64) -> Result<TxStatus, soapy::Error>;
+    fn deactivate(&mut self) -> Result<(), soapy::Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -983,17 +981,17 @@ struct TxStatus {
     elements: usize,
 }
 
-impl TxIo for soapysdr::TxStream<Sample> {
+impl TxIo for soapy::TxStream<Sample> {
     fn write(
         &mut self,
         buffers: &[&[Sample]],
         end_burst: bool,
         timeout_us: i64,
-    ) -> Result<usize, soapysdr::Error> {
+    ) -> Result<usize, soapy::Error> {
         self.write(buffers, None, end_burst, timeout_us)
     }
 
-    fn read_status(&mut self, timeout_us: i64) -> Result<TxStatus, soapysdr::Error> {
+    fn read_status(&mut self, timeout_us: i64) -> Result<TxStatus, soapy::Error> {
         let mut channels = 0;
         let mut flags = 0;
         let mut time_ns = 0;
@@ -1006,7 +1004,7 @@ impl TxIo for soapysdr::TxStream<Sample> {
         })
     }
 
-    fn deactivate(&mut self) -> Result<(), soapysdr::Error> {
+    fn deactivate(&mut self) -> Result<(), soapy::Error> {
         self.deactivate(None)
     }
 }
@@ -1112,8 +1110,8 @@ mod tests {
     use super::*;
 
     struct MockTx {
-        writes: VecDeque<Result<usize, soapysdr::Error>>,
-        statuses: VecDeque<Result<TxStatus, soapysdr::Error>>,
+        writes: VecDeque<Result<usize, soapy::Error>>,
+        statuses: VecDeque<Result<TxStatus, soapy::Error>>,
         deactivated: Arc<AtomicBool>,
     }
 
@@ -1123,28 +1121,28 @@ mod tests {
             _buffers: &[&[Sample]],
             _end_burst: bool,
             _timeout_us: i64,
-        ) -> Result<usize, soapysdr::Error> {
+        ) -> Result<usize, soapy::Error> {
             self.writes.pop_front().expect("mock write")
         }
 
-        fn read_status(&mut self, _timeout_us: i64) -> Result<TxStatus, soapysdr::Error> {
+        fn read_status(&mut self, _timeout_us: i64) -> Result<TxStatus, soapy::Error> {
             self.statuses.pop_front().unwrap_or_else(|| {
-                Err(soapysdr::Error {
+                Err(soapy::Error {
                     code: ErrorCode::Timeout,
                     message: "none".to_string(),
                 })
             })
         }
 
-        fn deactivate(&mut self) -> Result<(), soapysdr::Error> {
+        fn deactivate(&mut self) -> Result<(), soapy::Error> {
             self.deactivated.store(true, Ordering::SeqCst);
             Ok(())
         }
     }
 
     fn tx(
-        writes: Vec<Result<usize, soapysdr::Error>>,
-        statuses: Vec<Result<TxStatus, soapysdr::Error>>,
+        writes: Vec<Result<usize, soapy::Error>>,
+        statuses: Vec<Result<TxStatus, soapy::Error>>,
     ) -> (SoapyTx, Arc<AtomicBool>, Arc<Mutex<DuplexState>>) {
         let deactivated = Arc::new(AtomicBool::new(false));
         let duplex = Arc::new(Mutex::new(DuplexState::new(Duplex::Half)));
@@ -1164,15 +1162,15 @@ mod tests {
         )
     }
 
-    fn error(code: ErrorCode) -> soapysdr::Error {
-        soapysdr::Error {
+    fn error(code: ErrorCode) -> soapy::Error {
+        soapy::Error {
             code,
             message: format!("{code:?}"),
         }
     }
 
     fn failed(message: &str) -> DeviceError {
-        map_err(soapysdr::Error {
+        map_err(soapy::Error {
             code: ErrorCode::Other,
             message: message.to_string(),
         })
@@ -1232,7 +1230,7 @@ mod tests {
     }
 
     fn found(args: &str) -> probe::Found {
-        let args = soapysdr::Args::from(args);
+        let args = soapy::Args::from(args);
         probe::Found {
             info: device_info(&args),
             args: args.to_string(),
@@ -1280,7 +1278,7 @@ mod tests {
 
     #[test]
     fn info_prefers_label_and_serial_key() {
-        let args = soapysdr::Args::from("driver=rtlsdr, serial=00000001, label=Generic RTL2832U");
+        let args = soapy::Args::from("driver=rtlsdr, serial=00000001, label=Generic RTL2832U");
         let info = device_info(&args);
         assert_eq!(info.driver, "soapy");
         assert_eq!(info.key, "00000001");
@@ -1290,8 +1288,8 @@ mod tests {
     #[test]
     fn modes_of_one_serial_have_distinct_keys_and_probe_filters() {
         let single =
-            soapysdr::Args::from("driver=example, serial=123456, mode=ST, label=Single Tuner");
-        let dual = soapysdr::Args::from("driver=example, serial=123456, mode=DT, label=Dual Tuner");
+            soapy::Args::from("driver=example, serial=123456, mode=ST, label=Single Tuner");
+        let dual = soapy::Args::from("driver=example, serial=123456, mode=DT, label=Dual Tuner");
 
         assert_eq!(device_info(&single).key, "123456@ST");
         assert_eq!(device_info(&dual).key, "123456@DT");

@@ -1,5 +1,6 @@
 {
   lib,
+  stdenv,
   rustPlatform,
   fetchPnpmDeps,
   pnpmConfigHook,
@@ -35,8 +36,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
   cargoLock = {
     lockFile = ../../Cargo.lock;
     outputHashes = {
-      # git rev fc09ef25d0313263e7633f1887c61457e0c4e442
-      "soapysdr-0.5.1" = "sha256-e89xaStl8cLnJINuPh729XlFHFLMe9zd88UO/c6QMd0=";
       # git rev 6a768a2f843099171d7ed08df9fe0f3ba0678f25
       "xng-acars-0.21.0" = "sha256-Gaws7KiS6VDkJdctJV9vzvFfWEInDGf7GledbLmouUk=";
     };
@@ -73,7 +72,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
     libsoup_3
     openssl
     pango
-    soapysdr
     webkitgtk_4_1
     xdotool
   ];
@@ -112,7 +110,14 @@ rustPlatform.buildRustPackage (finalAttrs: {
       "$out/share/icons/hicolor/256x256/apps/dev.newspicel.sdrmm.png"
   '';
 
-  preFixup = lib.optionalString (soapyPlugins != [ ]) ''
+  # Nothing links SoapySDR: it is opened at runtime, and outside a Nix store there is no
+  # default path to find it on. The wrapper names the store copy, and the plugins the user
+  # selected stay separate packages it merely points at.
+  preFixup = ''
+    gappsWrapperArgs+=(
+      --set-default SDRMM_SOAPY_LIBRARY "${soapysdr}/lib/libSoapySDR${stdenv.hostPlatform.extensions.sharedLibrary}"
+    )
+  '' + lib.optionalString (soapyPlugins != [ ]) ''
     gappsWrapperArgs+=(
       --prefix SOAPY_SDR_PLUGIN_PATH : "${lib.makeSearchPath soapysdr.searchPath soapyPlugins}"
     )

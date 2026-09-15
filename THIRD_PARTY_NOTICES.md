@@ -4,9 +4,9 @@
 
 sdr-- itself is licensed under the GNU General Public License, version 3 or later — see [`LICENSE`](LICENSE).
 
-This file lists every third-party component a release distributes: crates compiled into the binaries, npm packages bundled into the web UI, and the SoapySDR hardware libraries shipped alongside them. Dev-only tooling is excluded, because a test harness and a bundler are how a release is built rather than part of one.
+This file lists every third-party component a release distributes: crates compiled into the binaries and npm packages bundled into the web UI. Dev-only tooling is excluded, because a test harness and a bundler are how a release is built rather than part of one. Libraries opened at runtime from a host installation — SoapySDR, the SDRplay API, the CR-8 library — are not distributed here and are listed only for the work derived from them.
 
-The full license texts are distributed with the software, not merely referenced by it. They are compiled into the server and readable in the app under **About**, served at `GET /api/about`, and stored in [`crates/server/data/notices.json`](crates/server/data/notices.json). Installers additionally carry each hardware package's own texts and manifests in `soapy/licenses`.
+The full license texts are distributed with the software, not merely referenced by it. They are compiled into the server and readable in the app under **About**, served at `GET /api/about`, and stored in [`crates/server/data/notices.json`](crates/server/data/notices.json).
 
 ## Components that need more than their SPDX id
 
@@ -36,10 +36,6 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in sdr--.
 
-**Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote** — See the bundled package metadata
-
-Resolved from platform packages at packaging time, so the exact versions and licenses are whatever each installer pinned. `packaging/soapy/stage-unix.sh` copies every one of their license texts and package manifests into `soapy/licenses` inside the bundle; that directory, not this row, is the authoritative record for a given release.
-
 **gr-dtv, gr-dvbs2rx, gr-dvbgse** — GPL-3.0-or-later
 
 DVB-S2 is specified by ETSI EN 302 307-1 and -2, and `crates/channels/src/datv` follows those documents. Three constant tables in it were transcribed from GNU Radio's gr-dtv rather than retyped from the standard's own pages: the LDPC parity accumulator addresses in `dvbs2/tables`, the APSK ring ratios and constellation point order, and the bit interleaver column order. The GSE reader in `dvbs2/gse.rs` was written against TS 102 606 with drmpeg's gr-dvbgse as a second reading, and the BCH and VL-SNR block lengths were cross-checked against gr-dvbs2rx. The VL-SNR header sequence in `dvbs2/vlsnr.rs` is the standard's own, and reproduces gr-dtv's sixteen patterns exactly, which is how both readings are known to agree. All three sources are GPL-3.0-or-later, the same terms sdr-- distributes under, so no separate text accompanies them.
@@ -64,7 +60,11 @@ A codeplug is a vendor binary with no published specification, so the memory map
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
-## Rust crates (714)
+**SoapySDR** — BSL-1.0
+
+Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
+
+## Rust crates (712)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -543,8 +543,6 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [slab](https://github.com/tokio-rs/slab) | 0.4.12 | MIT |
 | [slotmap](https://github.com/orlp/slotmap) | 1.1.1 | Zlib |
 | [smallvec](https://github.com/servo/rust-smallvec) | 1.16.0 | MIT OR Apache-2.0 |
-| [soapysdr](https://github.com/kevinmehall/rust-soapysdr) | 0.5.1 | BSL-1.0 OR Apache-2.0 |
-| [soapysdr-sys](https://github.com/kevinmehall/rust-soapysdr) | 0.8.1 | BSL-1.0 |
 | [socket2](https://github.com/rust-lang/socket2) | 0.6.5 | MIT OR Apache-2.0 |
 | [softbuffer](https://github.com/rust-windowing/softbuffer) | 0.4.8 | MIT OR Apache-2.0 |
 | [soup3](https://gitlab.gnome.org/World/Rust/soup3-rs) | 0.5.0 | MIT |
@@ -857,11 +855,10 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (8)
+## Hardware libraries (7)
 
 | Component | Version | License |
 | --- | --- | --- |
-| [Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [heimdall_daq_fw](https://github.com/krakenrf/heimdall_daq_fw) | — | GPL-3.0-or-later |

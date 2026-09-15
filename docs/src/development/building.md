@@ -10,20 +10,19 @@ locally.
   `rust-src` components in `rust-toolchain.toml`.
 - Node 26.
 - pnpm 11; the exact package-manager version is declared in `web/package.json`.
-- SoapySDR 0.8 development files for the normal local-hardware build.
 - A C/C++ toolchain and CMake for native dependencies.
 
 On Debian or Ubuntu:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential cmake libsoapysdr-dev
+sudo apt-get install -y build-essential cmake
 ```
 
 On macOS:
 
 ```sh
-brew install cmake soapysdr
+brew install cmake
 ```
 
 The first Cargo command automatically installs the pinned Rust toolchain. Do not substitute stable

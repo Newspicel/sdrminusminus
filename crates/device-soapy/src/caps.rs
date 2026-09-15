@@ -3,9 +3,10 @@ use sdrmm_wire::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, Coherence,
     DcArtifact, DeviceSettings, DirectionalCapabilities, Duplex, ExtraSetting, Range,
 };
-use soapysdr::ArgType;
 
-pub(crate) fn ranges(ranges: &[soapysdr::Range]) -> Vec<Range> {
+use crate::soapy::ArgType;
+
+pub(crate) fn ranges(ranges: &[crate::soapy::Range]) -> Vec<Range> {
     ranges
         .iter()
         .map(|range| Range {
@@ -16,7 +17,7 @@ pub(crate) fn ranges(ranges: &[soapysdr::Range]) -> Vec<Range> {
         .collect()
 }
 
-pub(crate) fn rate_capabilities(ranges: &[soapysdr::Range]) -> (Vec<f64>, Vec<Range>) {
+pub(crate) fn rate_capabilities(ranges: &[crate::soapy::Range]) -> (Vec<f64>, Vec<Range>) {
     let mut discrete = Vec::new();
     let mut continuous = Vec::new();
     for range in ranges {
@@ -33,7 +34,7 @@ pub(crate) fn rate_capabilities(ranges: &[soapysdr::Range]) -> (Vec<f64>, Vec<Ra
     (discrete, continuous)
 }
 
-pub(crate) fn argument_info(info: &soapysdr::ArgInfo) -> ArgumentInfo {
+pub(crate) fn argument_info(info: &crate::soapy::ArgInfo) -> ArgumentInfo {
     ArgumentInfo {
         key: info.key.clone(),
         default: info.value.clone(),
@@ -45,7 +46,6 @@ pub(crate) fn argument_info(info: &soapysdr::ArgInfo) -> ArgumentInfo {
             ArgType::Float => ArgumentType::Float,
             ArgType::Int => ArgumentType::Int,
             ArgType::String => ArgumentType::String,
-            _ => ArgumentType::String,
         },
         range: info.range.map(|range| ranges(&[range])[0]),
         options: info
@@ -59,7 +59,7 @@ pub(crate) fn argument_info(info: &soapysdr::ArgInfo) -> ArgumentInfo {
     }
 }
 
-pub(crate) fn argument_infos(infos: &[soapysdr::ArgInfo]) -> Vec<ArgumentInfo> {
+pub(crate) fn argument_infos(infos: &[crate::soapy::ArgInfo]) -> Vec<ArgumentInfo> {
     infos
         .iter()
         .filter(|info| !info.key.is_empty())
@@ -425,8 +425,8 @@ pub(crate) fn read_back_confirms(written: &str, echoed: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn soapy_arg(key: &str, data_type: ArgType) -> soapysdr::ArgInfo {
-        soapysdr::ArgInfo {
+    fn soapy_arg(key: &str, data_type: ArgType) -> crate::soapy::ArgInfo {
+        crate::soapy::ArgInfo {
             key: key.to_string(),
             value: "false".to_string(),
             name: Some("I/Q swap".to_string()),
@@ -526,7 +526,7 @@ mod tests {
         let mut info = soapy_arg("direct_samp", ArgType::Int);
         info.value = "0".to_string();
         info.units = Some("mode".to_string());
-        info.range = Some(soapysdr::Range {
+        info.range = Some(crate::soapy::Range {
             minimum: 0.0,
             maximum: 2.0,
             step: 1.0,
@@ -562,12 +562,12 @@ mod tests {
     #[test]
     fn disjoint_sample_rate_ranges_keep_their_gap() {
         let (_, ranges) = rate_capabilities(&[
-            soapysdr::Range {
+            crate::soapy::Range {
                 minimum: 225_001.0,
                 maximum: 300_000.0,
                 step: 1.0,
             },
-            soapysdr::Range {
+            crate::soapy::Range {
                 minimum: 900_001.0,
                 maximum: 3_200_000.0,
                 step: 1.0,

@@ -84,10 +84,6 @@ pub fn check(path: &Path, external: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub fn rpaths(path: &Path) -> Result<Vec<String>> {
-    Ok(Image::read(path)?.rpaths)
-}
-
 fn executable_dir(path: &Path) -> PathBuf {
     if path.extension().is_some_and(|ext| ext == "app") {
         return path.join("Contents/MacOS");
@@ -269,7 +265,7 @@ Load command 11
 Load command 12
           cmd LC_RPATH
       cmdsize 48
-         path @executable_path/../Resources/soapy/lib (offset 12)
+         path @executable_path/../Frameworks (offset 12)
 Load command 13
           cmd LC_RPATH
       cmdsize 48
@@ -289,7 +285,7 @@ Load command 13
         );
         assert_eq!(
             image.rpaths,
-            ["@executable_path/../Resources/soapy/lib", "@loader_path/.."]
+            ["@executable_path/../Frameworks", "@loader_path/.."]
         );
     }
 
@@ -322,10 +318,10 @@ Load command 13
             "@rpath/libiconv.2.dylib",
             &dir,
             &dir,
-            &["@executable_path/../Resources/soapy/lib".to_string()],
+            &["@executable_path/../Frameworks".to_string()],
         )
         .unwrap_err();
-        assert_eq!(tried, [dir.join("../Resources/soapy/lib/libiconv.2.dylib")]);
+        assert_eq!(tried, [dir.join("../Frameworks/libiconv.2.dylib")]);
     }
 
     #[test]

@@ -5064,12 +5064,12 @@ dependencies = [
 name = "sdrmm-device-soapy"
 version = "0.0.0"
 dependencies = [
+ "libloading 0.9.0",
  "num-complex",
  "sdrmm-device",
  "sdrmm-wire",
  "serde",
  "serde_json",
- "soapysdr",
  "tempfile",
  "tracing",
 ]
@@ -5654,24 +5654,6 @@ name = "smallvec"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
-
-[[package]]
-name = "soapysdr"
-version = "0.5.1"
-source = "git+https://github.com/Newspicel/rust-soapysdr?rev=fc09ef25d0313263e7633f1887c61457e0c4e442#fc09ef25d0313263e7633f1887c61457e0c4e442"
-dependencies = [
- "log",
- "num-complex",
- "soapysdr-sys",
-]
-
-[[package]]
-name = "soapysdr-sys"
-version = "0.8.1"
-source = "git+https://github.com/Newspicel/rust-soapysdr?rev=fc09ef25d0313263e7633f1887c61457e0c4e442#fc09ef25d0313263e7633f1887c61457e0c4e442"
-dependencies = [
- "pkg-config",
-]
 
 [[package]]
 name = "socket2"

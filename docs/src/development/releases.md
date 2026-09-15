@@ -51,16 +51,8 @@ cargo install --locked tauri-cli
 cargo xtask desktop --bundles dmg
 ```
 
-Use `deb,appimage` on Linux and `msi,nsis` on Windows. Before bundling, stage the matching locked
-Soapy runtime into `apps/desktop/resources/soapy` with the scripts under `packaging/soapy`, then
-verify the result:
-
-```sh
-cargo xtask soapy-bundle-check
-```
-
-Release CI performs this staging from the immutable platform lockfiles. A bundle must include the
-core, baseline modules, transitive libraries, and their notices.
+Use `deb,appimage` on Linux and `msi,nsis` on Windows. Nothing is staged beforehand: no artifact
+carries SoapySDR, and no build step links it.
 
 ## Desktop updates
 

@@ -4983,27 +4983,6 @@
       ]
     },
     {
-      "name": "soapysdr",
-      "version": "0.5.1",
-      "license": "BSL-1.0 OR Apache-2.0",
-      "source": "rust",
-      "url": "https://github.com/kevinmehall/rust-soapysdr",
-      "texts": [
-        "769f80b5bcb42ed0",
-        "8d8291caf1cee26d"
-      ]
-    },
-    {
-      "name": "soapysdr-sys",
-      "version": "0.8.1",
-      "license": "BSL-1.0",
-      "source": "rust",
-      "url": "https://github.com/kevinmehall/rust-soapysdr",
-      "texts": [
-        "8d8291caf1cee26d"
-      ]
-    },
-    {
       "name": "socket2",
       "version": "0.6.5",
       "license": "MIT OR Apache-2.0",
@@ -8187,14 +8166,6 @@
       ]
     },
     {
-      "name": "Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote",
-      "license": "See the bundled package metadata",
-      "source": "native",
-      "url": "https://github.com/pothosware",
-      "texts": [],
-      "note": "Resolved from platform packages at packaging time, so the exact versions and licenses are whatever each installer pinned. `packaging/soapy/stage-unix.sh` copies every one of their license texts and package manifests into `soapy/licenses` inside the bundle; that directory, not this row, is the authoritative record for a given release."
-    },
-    {
       "name": "gr-dtv, gr-dvbs2rx, gr-dvbgse",
       "license": "GPL-3.0-or-later",
       "source": "native",
@@ -8249,7 +8220,8 @@
       "license": "BSL-1.0",
       "source": "native",
       "url": "https://github.com/pothosware/SoapySDR",
-      "texts": []
+      "texts": [],
+      "note": "Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation."
     }
   ],
   "texts": {

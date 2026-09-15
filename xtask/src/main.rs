@@ -88,10 +88,6 @@ enum Cmd {
         #[arg(long)]
         bundles: Option<String>,
     },
-    SoapyBundleCheck {
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
     LinkCheck {
         path: PathBuf,
         #[arg(long = "external")]
@@ -150,13 +146,6 @@ fn main() -> Result<()> {
         Cmd::NixHash => nixhash::run(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
-        Cmd::SoapyBundleCheck { dir } => {
-            soapy_bundle_check(
-                dir.unwrap_or_else(|| root().join("apps/desktop/resources/soapy"))
-                    .as_path(),
-            )?;
-            bundle::check_resources(&root())
-        }
         Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
         Cmd::SetVersion { version } => set_version(&root(), &version),
         Cmd::UpdaterManifest {
@@ -178,8 +167,6 @@ fn main() -> Result<()> {
 const PNPM: &str = "pnpm.cmd";
 #[cfg(not(windows))]
 const PNPM: &str = "pnpm";
-
-const MACOS_LIBRARY_PREFIXES: &[&str] = &["/opt/homebrew/lib", "/usr/local/lib"];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -754,6 +741,10 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
     Ok(())
 }
 
+/// Tests, smoke runs and screenshots must not reach whatever SoapySDR a developer has
+/// installed, so they are pointed at a library that cannot exist and find none.
+const NO_SOAPY_RUNTIME: (&str, &str) = ("SDRMM_SOAPY_LIBRARY", "/nonexistent/libSoapySDR");
+
 fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
@@ -834,30 +825,9 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
             root,
         )?;
     }
-    if triple.contains("apple") {
-        add_loader_paths(root, &staged.join(exe))?;
-    }
 
     let archive = archive(root, &out, &name, windows)?;
     println!("dist: {}", archive.display());
-    Ok(())
-}
-
-fn add_loader_paths(root: &Path, binary: &Path) -> Result<()> {
-    let path = binary.to_str().context("non-utf8 binary path")?;
-    for prefix in MACOS_LIBRARY_PREFIXES {
-        run("install_name_tool", &["-add_rpath", prefix, path], root)?;
-    }
-    run("codesign", &["--sign", "-", "--force", path], root)?;
-
-    let present = linkage::rpaths(binary)?;
-    for prefix in MACOS_LIBRARY_PREFIXES {
-        ensure!(
-            present.iter().any(|rpath| rpath == prefix),
-            "{path} carries no {prefix} search path: it links @rpath/libSoapySDR and would fail \
-             to launch on a host that installed SoapySDR where every installer puts it"
-        );
-    }
     Ok(())
 }
 
@@ -952,7 +922,6 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
 
     web_build(root)?;
     assert_web_dist(root)?;
-    soapy_bundle_check(&root.join("apps/desktop/resources/soapy"))?;
     bundle::check_resources(root)?;
 
     let installed = Command::new("cargo")
@@ -990,107 +959,6 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
         args.insert(2, "--no-sign");
     }
     run("cargo", &args, &root.join("apps/desktop"))
-}
-
-/// Both module directories: the one every search loads, and the network-searching ones beside it.
-fn in_modules(part: std::path::Component<'_>) -> bool {
-    part.as_os_str().to_string_lossy().starts_with("modules0.8")
-}
-
-fn soapy_bundle_check(dir: &Path) -> Result<()> {
-    ensure!(
-        dir.is_dir(),
-        "Soapy bundle directory is missing: {}",
-        dir.display()
-    );
-    let files = files_under(dir)?;
-    let names: Vec<String> = files
-        .iter()
-        .filter_map(|path| path.file_name())
-        .map(|name| name.to_string_lossy().to_ascii_lowercase())
-        .collect();
-    let has = |needle: &str| names.iter().any(|name| name.contains(needle));
-    ensure!(
-        has("soapysdr"),
-        "{} contains no SoapySDR core library",
-        dir.display()
-    );
-    let staged_modules: Vec<&String> = files
-        .iter()
-        .zip(&names)
-        .filter(|(path, _)| path.components().any(in_modules))
-        .map(|(_, name)| name)
-        .collect();
-    for native in ["rtlsdr", "hackrf", "pluto"] {
-        ensure!(
-            !staged_modules.iter().any(|name| name.contains(native)),
-            "{} carries a Soapy {native} module. This build drives {native} over its own \
-             stack and hides it from Soapy, so the bundled module could never be reached.",
-            dir.display()
-        );
-    }
-    let curated = ["airspyhf", "bladerf", "lms7", "remote"];
-    for module in curated {
-        ensure!(
-            has(module),
-            "{} contains no curated {module} module",
-            dir.display()
-        );
-    }
-    ensure!(
-        names
-            .iter()
-            .any(|name| name.contains("airspy") && !name.contains("airspyhf")),
-        "{} contains no curated Airspy module",
-        dir.display()
-    );
-    let outside_modules: Vec<&String> = files
-        .iter()
-        .zip(&names)
-        .filter(|(path, name)| {
-            !path.components().any(in_modules)
-                && !path.components().any(|c| c.as_os_str() == "licenses")
-                && [".dylib", ".so", ".dll"]
-                    .iter()
-                    .any(|ext| name.contains(ext))
-        })
-        .map(|(_, name)| name)
-        .collect();
-    for driver in ["airspyhf", "airspy", "bladerf", "limesuite", "usb"] {
-        ensure!(
-            outside_modules.iter().any(|name| name.contains(driver)),
-            "{} carries a module for {driver} but not the library it loads. Staged beside the \
-             modules: {}",
-            dir.display(),
-            outside_modules
-                .iter()
-                .map(|name| name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    ensure!(
-        files
-            .iter()
-            .any(|path| path.components().any(|part| part.as_os_str() == "licenses")),
-        "{} contains no dependency notices/licenses",
-        dir.display()
-    );
-    println!("soapy bundle: {} files in {}", files.len(), dir.display());
-    Ok(())
-}
-
-fn files_under(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
-        let path = entry?.path();
-        if path.is_dir() {
-            files.extend(files_under(&path)?);
-        } else {
-            files.push(path);
-        }
-    }
-    Ok(files)
 }
 
 fn set_version(root: &Path, version: &str) -> Result<()> {
@@ -1217,9 +1085,6 @@ fn test(root: &Path) -> Result<()> {
     // The synthesized SigMF pairs are never committed, so the tests that read them off disk have
     // nothing to read until the generator has run.
     fixtures(root)?;
-    let soapy_root = root.join("target/hermetic-soapy");
-    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
-    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
     // `cargo test` runs one test binary at a time; nextest schedules all of them into a single
     // pool, which is worth minutes here because most of the 48 binaries hold only a few tests.
     // Benches are excluded rather than covered by `--all-targets`: `harness = false` targets do
@@ -1228,18 +1093,7 @@ fn test(root: &Path) -> Result<()> {
         "cargo",
         &["nextest", "run", "--lib", "--bins", "--tests"],
         root,
-        &[
-            (
-                "SOAPY_SDR_ROOT",
-                soapy_root
-                    .to_str()
-                    .context("non-utf8 hermetic Soapy path")?,
-            ),
-            (
-                "SOAPY_SDR_PLUGIN_PATH",
-                modules.to_str().context("non-utf8 hermetic Soapy path")?,
-            ),
-        ],
+        &[NO_SOAPY_RUNTIME],
     )?;
     ensure_web_deps(root)?;
     run(PNPM, &["--dir", "web", "test"], root)?;
@@ -1422,25 +1276,11 @@ fn build_smoke_server(root: &Path) -> Result<()> {
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     build_smoke_server(root)?;
-    let soapy_root = root.join("target/hermetic-soapy");
-    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
-    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
     run_with_env(
         PNPM,
         &["--dir", "web", "exec", "playwright", "test"],
         root,
-        &[
-            (
-                "SOAPY_SDR_ROOT",
-                soapy_root
-                    .to_str()
-                    .context("non-utf8 hermetic Soapy path")?,
-            ),
-            (
-                "SOAPY_SDR_PLUGIN_PATH",
-                modules.to_str().context("non-utf8 hermetic Soapy path")?,
-            ),
-        ],
+        &[NO_SOAPY_RUNTIME],
     )?;
     Ok(())
 }
@@ -1450,9 +1290,6 @@ fn screenshots(root: &Path) -> Result<()> {
     build_smoke_server(root)?;
     let out = root.join("assets/screenshots");
     std::fs::create_dir_all(&out).context("create screenshot directory")?;
-    let soapy_root = root.join("target/hermetic-soapy");
-    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
-    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
     run_with_env(
         PNPM,
         &[
@@ -1465,18 +1302,7 @@ fn screenshots(root: &Path) -> Result<()> {
             "playwright.screenshots.config.ts",
         ],
         root,
-        &[
-            (
-                "SOAPY_SDR_ROOT",
-                soapy_root
-                    .to_str()
-                    .context("non-utf8 hermetic Soapy path")?,
-            ),
-            (
-                "SOAPY_SDR_PLUGIN_PATH",
-                modules.to_str().context("non-utf8 hermetic Soapy path")?,
-            ),
-        ],
+        &[NO_SOAPY_RUNTIME],
     )?;
     println!("wrote {}", out.display());
     Ok(())

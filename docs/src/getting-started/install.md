@@ -1,12 +1,26 @@
 # Install sdr--
 
-sdr-- is distributed as a desktop application, a portable headless server, and a container. All
-three run the same receiver engine and serve the same interface.
+sdr-- ships five ways: a desktop application, a portable headless server, a Homebrew package, a
+Nix flake, and a container. All five run the same receiver engine and serve the same interface,
+and all five carry the same built-in drivers.
+
+None of them ship SoapySDR. The core library is opened at runtime from whatever SoapySDR the host
+has installed, so a machine without one loses nothing except the radios only a SoapySDR module can
+reach. Each section below says what its package brings and what it leaves to the system; see
+[SoapySDR modules](../hardware.md#soapysdr-modules) for how to add one.
+
+## Built-in everywhere
+
+Every package below drives these without any extra library:
+
+RTL-SDR, KrakenSDR, HackRF, AD936x boards (AntSDR, ADALM-Pluto), rtl_tcp, SpyServer, and the
+virtual signal sources. SDRplay and Dragon Labs CR-8 are built in too but need their vendor
+library installed separately — see [the hardware guide](../hardware.md).
 
 ## Desktop application
 
-The desktop app is the simplest option for a radio connected directly to your computer. Download
-the installer for your platform from [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases):
+The simplest option for a radio connected directly to your computer. Download the installer for
+your platform from [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases):
 
 | Platform | Packages |
 |---|---|
@@ -15,13 +29,14 @@ the installer for your platform from [GitHub Releases](https://github.com/Newspi
 | Windows | `.msi` and `.exe` installers |
 
 The app starts its receiver server on a private loopback port and opens the interface in a native
-window. Desktop installers include SoapySDR and the supported hardware modules. SDRplay receivers also
-require the separately installed vendor API; see [SDRplay receivers](../hardware.md#sdrplay).
-CR-8 receivers need the [vendor library](../hardware.md#dragon-labs-cr-8).
+window.
+
+**SoapySDR:** not included. If one is installed on the system the app finds and uses it; on macOS
+that includes the Homebrew prefixes, on Windows a PothosSDR installation on `PATH`.
 
 ## Portable server
 
-Portable `sdrmm` archives are useful on a Raspberry Pi, home server, or machine you want to access
+Portable `sdrmm` archives suit a Raspberry Pi, a home server, or any machine you want to reach
 from another browser. Unpack the archive and run:
 
 ```sh
@@ -29,11 +44,11 @@ from another browser. Unpack the archive and run:
 ```
 
 The server listens on every interface at port `8080` by default. Open `http://<server>:8080` from
-a browser on the same network.
+a browser on the same network. The archive depends on nothing beyond the system C library, so it
+starts whether or not SoapySDR is present.
 
-Portable archives require the host's SoapySDR 0.8 runtime. Receivers handled through SoapySDR also
-need their hardware module; native drivers do not. Run `sdrmm --doctor` to check available drivers
-and devices.
+**SoapySDR:** not included, and not required to start. Install your distribution's SoapySDR
+package to reach hardware that needs a module. Run `sdrmm --doctor` to see what was found.
 
 ## Homebrew
 
@@ -46,16 +61,21 @@ brew install sdrmm
 ```
 
 The cask installs the desktop application into `/Applications`. The formula installs the `sdrmm`
-server and Homebrew's SoapySDR alongside it; `brew services start sdrmm` runs the server in the
-background and restarts it at login.
+server; `brew services start sdrmm` runs it in the background and restarts it at login. The
+formula also works on Homebrew for Linux, where it installs the same portable binary published on
+the releases page rather than building from source.
 
-The formula also works on Homebrew for Linux. It installs the same portable binary published on
-the releases page, not a source build.
+**SoapySDR:** the formula depends on Homebrew's `soapysdr`, so the server gets a core library
+automatically. Add modules the same way:
+
+```sh
+brew install soapybladerf soapyremote
+```
 
 ## Nix
 
-On NixOS or another Linux system with flakes enabled, install the Tauri desktop application
-directly from GitHub:
+On NixOS or another Linux system with flakes enabled, install the desktop application straight
+from GitHub:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' \
@@ -64,22 +84,22 @@ sdrmm-desktop
 ```
 
 The flake supports x86_64 and aarch64 Linux and exposes `sdrmm-desktop`, `sdrmm`, and `default`
-packages for each system. From a checkout, the following creates `result/bin/sdrmm-desktop`:
+packages for each system. From a checkout, this creates `result/bin/sdrmm-desktop`:
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' build
 ```
 
-The package links to Nixpkgs' SoapySDR core and bundles no SoapySDR hardware modules. On NixOS,
-select the modules and device permissions in your system configuration. For example, with this
-repository declared as the `sdrminusminus` flake input:
+**SoapySDR:** the wrapper points at Nixpkgs' SoapySDR core, and bundles no modules. Select the
+modules and device permissions in your system configuration — with this repository declared as the
+`sdrminusminus` flake input:
 
 ```nix
 environment.systemPackages = [
   (inputs.sdrminusminus.packages.${pkgs.stdenv.hostPlatform.system}.sdrmm.override {
     soapyPlugins = with pkgs; [
-      soapyrtlsdr
-      soapyhackrf
+      soapybladerf
+      soapyremote
     ];
   })
 ];
@@ -89,13 +109,12 @@ hardware.hackrf.enable = true;
 users.users.your-user.extraGroups = [ "plugdev" ];
 ```
 
-Remove whichever module and hardware option you do not need. The selected plugins remain separate
+Remove whichever module and hardware option you do not need. The selected plugins stay separate
 Nix store packages managed by NixOS; the application wrapper only points SoapySDR at them.
 
 ## Container
 
-The published container includes the web interface, SoapySDR, and the supported open-source
-hardware modules:
+The published container includes the web interface and the built-in drivers:
 
 ```sh
 docker run --rm \
@@ -106,20 +125,32 @@ docker run --rm \
   ghcr.io/newspicel/sdrminusminus:latest
 ```
 
-The image runs as an unprivileged user, so passing the bus is not enough on its own: it also
-needs the group that owns the radio's device node. `46` is `plugdev`, which is what the vendor
-udev rules grant on Debian and Ubuntu. Where no rule is installed the node stays `root:root`
-mode `0664`, so pass `--group-add 0` instead. On the host, `stat -c '%g %G %a' /dev/bus/usb/*/*`
-names the group; inside the container, **Check hardware** and `sdrmm --doctor` name the node
-that could not be opened and the group that owns it.
+The image runs as an unprivileged user, so passing the bus is not enough on its own: it also needs
+the group that owns the radio's device node. `46` is `plugdev`, which is what the vendor udev
+rules grant on Debian and Ubuntu. Where no rule is installed the node stays `root:root` mode
+`0664`, so pass `--group-add 0` instead. On the host, `stat -c '%g %G %a' /dev/bus/usb/*/*` names
+the group; inside the container, **Check hardware** and `sdrmm --doctor` name the node that could
+not be opened and the group that owns it.
 
-The repository's `docker-compose.yml` also includes a device cgroup rule that keeps replugged
-USB devices accessible. See [Containers and remote radios](../server/deployment.md) for a
-durable setup.
+**SoapySDR:** a container cannot borrow the host's, so the image installs Debian's SoapySDR core
+along with the bladeRF, LimeSDR and SoapyRemote modules. To add another, derive an image:
+
+```dockerfile
+FROM ghcr.io/newspicel/sdrminusminus:latest
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends soapysdr-module-audio \
+    && rm -rf /var/lib/apt/lists/*
+USER sdrmm
+```
+
+The repository's `docker-compose.yml` also includes a device cgroup rule that keeps replugged USB
+devices accessible. See [Containers and remote radios](../server/deployment.md) for a durable
+setup.
 
 ## Stable and nightly builds
 
-Stable releases use semantic versions and are suitable for persistent installations. The rolling
+Stable releases use semantic versions and suit persistent installations. The rolling
 [`nightly`](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly) release is rebuilt
 from `main` when it changes. Nightlies use a date version and should be treated as prereleases.
 
@@ -129,7 +160,8 @@ updates to stable installations.
 ## Build from source
 
 To contribute, choose a custom set of backends, or package another platform, follow
-[Build and test](../development/building.md).
+[Build and test](../development/building.md). Building needs no SoapySDR development package:
+nothing links it.
 
 ## Next step
 

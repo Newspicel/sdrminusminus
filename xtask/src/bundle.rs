@@ -24,12 +24,6 @@ pub fn check_resources(root: &Path) -> Result<()> {
             path.display()
         );
     }
-    ensure!(
-        sources.contains(&"resources/soapy/bin"),
-        "{} no longer stages the Soapy runtime libraries beside the executable, which is where \
-         the Windows loader resolves the ones the binary imports",
-        path.display()
-    );
     let crate_dir = path.parent().context("config has no parent")?;
     for source in &sources {
         ensure!(
@@ -64,8 +58,8 @@ mod tests {
     #[test]
     fn a_directory_and_a_path_inside_it_overlap() {
         assert_eq!(
-            overlapping(&["resources/soapy", "resources/soapy/bin"]),
-            Some(("resources/soapy", "resources/soapy/bin"))
+            overlapping(&["resources/icons", "resources/icons/hicolor"]),
+            Some(("resources/icons", "resources/icons/hicolor"))
         );
     }
 
@@ -73,9 +67,8 @@ mod tests {
     fn siblings_and_look_alike_prefixes_do_not() {
         assert_eq!(
             overlapping(&[
-                "resources/soapy/bin",
-                "resources/soapy/lib",
-                "resources/soapy/licenses",
+                "resources/icons",
+                "resources/iconset",
                 "../../THIRD_PARTY_NOTICES.md",
             ]),
             None

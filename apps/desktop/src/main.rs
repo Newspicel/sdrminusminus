@@ -9,33 +9,9 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 mod graphics;
 mod update;
 
-#[cfg(feature = "soapy")]
-fn configure_soapy_runtime() -> anyhow::Result<()> {
-    let executable = std::env::current_exe().context("cannot locate desktop executable")?;
-    let executable_dir = executable
-        .parent()
-        .context("desktop executable has no parent directory")?;
-    #[cfg(target_os = "macos")]
-    let resources = executable_dir.join("../Resources");
-    #[cfg(target_os = "linux")]
-    let resources = executable_dir.join("../lib/sdr--");
-    #[cfg(target_os = "windows")]
-    let resources = executable_dir.to_path_buf();
-    let root = resources.join("soapy");
-    let modules = root.join("lib").join("SoapySDR").join("modules0.8");
-    if modules.is_dir() {
-        unsafe { sdrmm_device_soapy::configure_bundled_runtime(&root, &modules) }
-            .map_err(anyhow::Error::msg)?;
-    }
-    Ok(())
-}
-
 fn main() -> anyhow::Result<()> {
     #[cfg(feature = "soapy")]
-    {
-        configure_soapy_runtime()?;
-        sdrmm_device_soapy::enable_isolated_probes();
-    }
+    sdrmm_device_soapy::enable_isolated_probes();
 
     tracing_subscriber::fmt()
         .with_env_filter(

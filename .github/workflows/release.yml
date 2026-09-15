@@ -8,9 +8,9 @@
 #    this existed the tag named the tarball and nothing else: bundles shipped as `0.0.0` and
 #    `sdrmm --version` disagreed with the release it came from.
 #
-#  - Every artifact compiles the canonical Soapy backend. Desktop installers and containers
-#    carry a pinned private runtime; headless archives deliberately document their matching
-#    system-runtime prerequisite. The cargo flags live in `xtask`, not here.
+#  - Every artifact compiles the canonical Soapy backend, and none of them carry SoapySDR:
+#    it is opened at runtime from the host's own installation, so no job here builds, links or
+#    stages one. The cargo flags live in `xtask`, not here.
 #
 #  - The web UI is built by whatever produces the artifact and its presence is then asserted.
 #    crates/server/build.rs creates web/dist when it is missing, so a Rust build with no UI
@@ -143,21 +143,16 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
-            conda-platform: linux-64
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
-            conda-platform: linux-aarch64
           - target: aarch64-apple-darwin
             runner: macos-15
-            conda-platform: osx-arm64
           # The one cross build: Apple ships both slices in a single SDK, so the arm64 runner
           # produces the Intel binary without a sysroot of its own.
           - target: x86_64-apple-darwin
             runner: macos-15
-            conda-platform: osx-64
           - target: x86_64-pc-windows-msvc
             runner: windows-2025
-            conda-platform: win-64
     # Every other entry is a native runner — GitHub's hosted arm64 Linux runners remove the need
     # to cross-compile or emulate, so no sysroot, no cargo-zigbuild, no QEMU. The OS is pinned
     # rather than `-latest` because the build machine's glibc is the floor of every Linux
@@ -177,40 +172,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
-      - id: soapy
-        uses: mamba-org/setup-micromamba@v3
-        with:
-          micromamba-version: 2.8.1-0
-          environment-file: packaging/soapy/conda-${{ matrix.conda-platform }}.lock
-          environment-name: sdrmm-soapy-${{ matrix.target }}
-          create-args: --platform ${{ matrix.conda-platform }}
-          cache-environment: true
-      # The build is pointed at a prefix holding SoapySDR alone, never at the environment: the
-      # linker searches whatever prefix `soapysdr-sys` reports for every `-l` on the line, and
-      # 0.1.2 shipped a macOS binary bound to conda's libiconv because of it — see
-      # packaging/soapy/link-prefix.sh.
-      #
-      # The loader paths are deliberately not job-wide either. On macOS a job-wide
-      # DYLD_LIBRARY_PATH reaches every process the runner starts and hands them this
-      # environment's libiconv/libz instead of the system ones: gtar died on
-      # `Symbol not found: _iconv` and lost every cache, and cargo segfaulted before printing a
-      # line. Whatever needs the pinned runtime at *run* time asks for it per step.
-      - name: Configure pinned Soapy build runtime
-        shell: bash
-        env:
-          PREFIX: ${{ steps.soapy.outputs.environment-path }}
-        run: |
-          set -euo pipefail
-          if [ "$RUNNER_OS" = Windows ]; then
-            echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
-          else
-            packaging/soapy/link-prefix.sh "$PREFIX" "$RUNNER_TEMP/soapy-link"
-            echo "SOAPY_SDR_ROOT=$RUNNER_TEMP/soapy-link" >> "$GITHUB_ENV"
-            echo "PKG_CONFIG_PATH=$RUNNER_TEMP/soapy-link/lib/pkgconfig" >> "$GITHUB_ENV"
-            if [ "$RUNNER_OS" = Linux ]; then
-              echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
-            fi
-          fi
       # `xtask dist` builds the UI itself, so the toolchain has to be here rather than in a
       # shared artifact — which is also what lets one command reproduce this on a laptop.
       - uses: pnpm/action-setup@v6
@@ -236,30 +197,30 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
           TARGET: ${{ matrix.target }}
-          SOAPY_LIB: ${{ steps.soapy.outputs.environment-path }}/lib
         run: |
           set -euo pipefail
           staged="dist/sdrmm-${VERSION}-${TARGET}"
           ls -l "$staged"
           test -s "$staged.tar.gz" || test -s "$staged.zip"
           # Reads the binary rather than running it, so the Intel slice is checked on the arm64
-          # runner too. SoapySDR is the one library this archive expects the host to bring.
+          # runner too. Nothing links SoapySDR any more, so the archive must depend on no
+          # library the host is not guaranteed to have.
           if [ "$RUNNER_OS" = macOS ]; then
-            cargo xtask link-check "$staged/sdrmm" --external libSoapySDR
+            cargo xtask link-check "$staged/sdrmm"
           fi
           if [ "$TARGET" = x86_64-apple-darwin ]; then exit 0; fi
           bin="$staged/sdrmm"
           if [ -f "$bin.exe" ]; then bin="$bin.exe"; fi
-          # The headless archive links the pinned SoapySDR without carrying it, so the loader
-          # needs pointing at it — for this binary only, never for the job (see above).
-          sdrmm() { DYLD_LIBRARY_PATH="$SOAPY_LIB" "$bin" "$@"; }
-          printed="$(sdrmm --version)"
+          printed="$("$bin" --version)"
           echo "$printed"
           test "$printed" = "sdrmm $VERSION"
-          doctor="$(sdrmm --doctor)"
+          # No SoapySDR is installed on the runner, so this asserts the one thing that must be
+          # true of every host without it: the backend is compiled in and reports it is missing
+          # instead of failing to start.
+          doctor="$("$bin" --doctor)"
           echo "$doctor"
           grep -q 'compiled backends:.*soapy' <<< "$doctor"
-          grep -q 'core: 0.8.1' <<< "$doctor"
+          grep -qi 'soapysdr' <<< "$doctor"
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-${{ matrix.target }}
@@ -408,22 +369,18 @@ jobs:
             runner: macos-15
             target: aarch64-apple-darwin
             bundles: app,dmg
-            conda-platform: osx-arm64
           - label: macos-x86_64
             runner: macos-15
             target: x86_64-apple-darwin
             bundles: app,dmg
-            conda-platform: osx-64
           - label: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage
-            conda-platform: linux-64
           - label: windows-x86_64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             bundles: msi,nsis
-            conda-platform: win-64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -436,86 +393,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
-      # patchelf here rather than with the Tauri prerequisites below: staging sets the rpath of
-      # every staged library before the bundle is built.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends patchelf
-      - id: soapy
-        uses: mamba-org/setup-micromamba@v3
-        with:
-          micromamba-version: 2.8.1-0
-          environment-file: packaging/soapy/conda-${{ matrix.conda-platform }}.lock
-          environment-name: sdrmm-soapy-${{ matrix.target }}
-          create-args: --platform ${{ matrix.conda-platform }}
-          cache-environment: true
-      - name: Stage private Soapy runtime
-        shell: bash
-        env:
-          PREFIX: ${{ steps.soapy.outputs.environment-path }}
-        run: |
-          set -euo pipefail
-          if [ "$RUNNER_OS" = Windows ]; then
-            echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
-            # pwsh here and below, never `powershell`: Windows PowerShell 5.1 reads a UTF-8
-            # script as the machine's ANSI codepage, and one non-ASCII byte in a message then
-            # decodes into a quote that ends the string and breaks the parse.
-            pwsh -NoProfile -File packaging/soapy/stage-windows.ps1 \
-              -Prefix "$PREFIX" -Destination apps/desktop/resources/soapy
-          else
-            # SoapySDR alone on the link line, and not DYLD_LIBRARY_PATH — both for the reasons
-            # spelled out in the binaries job. The bundle carries its own copy of this runtime
-            # anyway; nothing here runs against the environment's.
-            packaging/soapy/link-prefix.sh "$PREFIX" "$RUNNER_TEMP/soapy-link"
-            echo "SOAPY_SDR_ROOT=$RUNNER_TEMP/soapy-link" >> "$GITHUB_ENV"
-            echo "PKG_CONFIG_PATH=$RUNNER_TEMP/soapy-link/lib/pkgconfig" >> "$GITHUB_ENV"
-            if [ "$RUNNER_OS" = Linux ]; then
-              echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
-            fi
-            packaging/soapy/stage-unix.sh "$PREFIX" apps/desktop/resources/soapy
-          fi
-          cargo xtask soapy-bundle-check
-      - name: Sign the staged Soapy runtime
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          set -euo pipefail
-          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_SIGNING_IDENTITY" ]; then
-            echo "no Developer ID certificate — leaving the payload unsigned, which is what" \
-                 "tauri-action does with the app itself when the same secrets are missing."
-            exit 0
-          fi
-          keychain="$RUNNER_TEMP/soapy-signing.keychain-db"
-          certificate="$RUNNER_TEMP/soapy-signing.p12"
-          password="$(uuidgen)"
-          previous="$(security list-keychains -d user | tr -d ' "' | tr '\n' ' ')"
-          # Both halves of the undo, so a failed signature cannot leave the certificate on disk
-          # or a dangling entry in the search list for tauri-action to trip over.
-          cleanup() {
-            rm -f "$certificate"
-            # shellcheck disable=SC2086  # a keychain list is a list of arguments, not one word
-            security list-keychains -d user -s $previous
-            security delete-keychain "$keychain" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-          base64 --decode <<< "$APPLE_CERTIFICATE" > "$certificate"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
-            "$keychain" > /dev/null
-          # shellcheck disable=SC2086  # a keychain list is a list of arguments, not one word
-          security list-keychains -d user -s "$keychain" $previous
-          find apps/desktop/resources/soapy -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
-            | xargs -0 codesign --force --timestamp --options runtime \
-                --sign "$APPLE_SIGNING_IDENTITY"
-          find apps/desktop/resources/soapy -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
-            | xargs -0 codesign --verify --strict
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -654,79 +531,6 @@ jobs:
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,ad936x,net-client,gpu-fft
-      - name: Verify packaged Soapy payload
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          bundle="target/$TARGET/release/bundle"
-          # One listing per artifact, matched three times against it. Piping into `grep -q`
-          # instead closes the pipe on the first hit, the producer dies of SIGPIPE mid-listing,
-          # and `pipefail` then reports a *passing* check as a failed step ("tar: stdout: write
-          # error", exit 2). The listing is printed when a name is missing, because the failure
-          # that matters — a payload that never reached the bundle — and the one that does not —
-          # a listing tool that cannot name what it holds — look identical from a bare exit code.
-          carries() {
-            local listing="$1" artifact="$2" module
-            for module in soapysdr airspy bladerf; do
-              if ! grep -qi "$module" <<< "$listing"; then
-                echo "$artifact carries no $module. It holds:" >&2
-                echo "$listing" >&2
-                exit 1
-              fi
-            done
-            echo "$artifact carries the private Soapy runtime."
-          }
-          if [ "$RUNNER_OS" = macOS ]; then
-            app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
-            test -n "$app"
-            carries "$(find "$app/Contents/Resources/soapy")" "$app"
-            # Carrying the runtime is half of it. This is the other half: every library the
-            # bundle's binaries name has to resolve from inside the bundle or out of the shared
-            # cache, which is what 0.1.2 got wrong — it shipped a complete Soapy payload and a
-            # main binary that asked for a libiconv nobody had.
-            cargo xtask link-check "$app"
-          elif [ "$RUNNER_OS" = Linux ]; then
-            deb="$(find "$bundle/deb" -name '*.deb' -print -quit)"
-            carries "$(dpkg-deb --contents "$deb")" "$deb"
-          else
-            # The NSIS installer, and only it: an MSI keeps its payload in one embedded cabinet
-            # whose entries are WiX's own file ids, so `7z l` on it lists `app.cab` and nothing
-            # else to match. Both installers come out of the same bundler run over the same
-            # staged tree, so the one that can be read for its contents stands for both.
-            installer="$(find "$bundle/nsis" -name '*-setup.exe' -print -quit)"
-            test -n "$installer"
-            carries "$(7z l "$installer")" "$installer"
-            # Carrying the runtime is half of it, and on Windows the other half is *where*. The
-            # binary imports SoapySDR.dll, so the loader resolves it out of the executable's own
-            # directory before `main` runs — a payload installed only under `soapy\` kills the
-            # process with a system error dialog. The bundlers key their resource table by
-            # source path, so listing one file under two destinations silently drops one of
-            # them; this asserts the layout the loader needs rather than the bundler's input.
-            payload="$RUNNER_TEMP/nsis-payload"
-            rm -rf "$payload"
-            7z x -y -o"$payload" "$installer" > /dev/null
-            exe="$(find "$payload" -name '*.exe' -not -path '*PLUGINSDIR*' -print -quit)"
-            core="$(find "$payload" -iname 'SoapySDR.dll' -print -quit)"
-            if [ -z "$exe" ] || [ -z "$core" ]; then
-              echo "$installer holds no executable and SoapySDR.dll to compare. It extracted:" >&2
-              find "$payload" >&2
-              exit 1
-            fi
-            if [ "$(dirname "$exe")" != "$(dirname "$core")" ]; then
-              echo "$installer installs $core, but the loader searches $(dirname "$exe")" >&2
-              find "$payload" >&2
-              exit 1
-            fi
-            module="$(find "$payload" -ipath '*/soapy/lib/SoapySDR/modules0.8/*airspy*' -print -quit)"
-            if [ -z "$module" ]; then
-              echo "$installer installs no Soapy module where the app points SOAPY_SDR_PLUGIN_PATH." >&2
-              find "$payload" >&2
-              exit 1
-            fi
-            echo "$installer installs SoapySDR.dll beside the executable and its modules under soapy/."
-          fi
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.

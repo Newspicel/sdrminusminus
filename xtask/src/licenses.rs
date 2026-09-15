@@ -65,7 +65,12 @@ const NATIVE: &[Native] = &[
         name: "SoapySDR",
         license: "BSL-1.0",
         url: "https://github.com/pothosware/SoapySDR",
-        note: None,
+        note: Some(
+            "Opened at runtime from whatever SoapySDR the host has installed, and never linked \
+             or distributed by this project. A release that finds none simply reports no \
+             SoapySDR hardware. The modules it loads, and their licenses, belong to that \
+             installation.",
+        ),
         files: &[],
     },
     Native {
@@ -156,19 +161,6 @@ const NATIVE: &[Native] = &[
              decodes firmware V100's digital channels as analogue, and the field layout in \
              `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against \
              `fixtures/cps/anytone-d890uv-v100.img`.",
-        ),
-        files: &[],
-    },
-    Native {
-        name: "Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote",
-        license: "See the bundled package metadata",
-        url: "https://github.com/pothosware",
-        note: Some(
-            "Resolved from platform packages at packaging time, so the exact versions and \
-             licenses are whatever each installer pinned. `packaging/soapy/stage-unix.sh` copies \
-             every one of their license texts and package manifests into `soapy/licenses` inside \
-             the bundle; that directory, not this row, is the authoritative record for a given \
-             release.",
         ),
         files: &[],
     },
@@ -495,15 +487,15 @@ fn markdown(document: &NoticesDocument) -> String {
          sdr-- itself is licensed under the GNU General Public License, version 3 or later — \
          see [`LICENSE`](LICENSE).\n\n\
          This file lists every third-party component a release distributes: crates compiled into \
-         the binaries, npm packages bundled into the web UI, and the SoapySDR hardware libraries \
-         shipped alongside them. Dev-only tooling is excluded, because a test harness and a \
-         bundler are how a release is built rather than part of one.\n\n\
+         the binaries and npm packages bundled into the web UI. Dev-only tooling is excluded, \
+         because a test harness and a bundler are how a release is built rather than part of \
+         one. Libraries opened at runtime from a host installation — SoapySDR, the SDRplay API, \
+         the CR-8 library — are not distributed here and are listed only for the work derived \
+         from them.\n\n\
          The full license texts are distributed with the software, not merely referenced by it. \
          They are compiled into the server and readable in the app under **About**, served at \
          `GET /api/about`, and stored in \
-         [`crates/server/data/notices.json`](crates/server/data/notices.json). Installers \
-         additionally carry each hardware package's own texts and manifests in \
-         `soapy/licenses`.\n\n",
+         [`crates/server/data/notices.json`](crates/server/data/notices.json).\n\n",
     );
 
     let noted: Vec<&Attribution> = document
@@ -560,7 +552,7 @@ fn markdown(document: &NoticesDocument) -> String {
 }
 
 fn native_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>> {
-    let dir = root.join("packaging/soapy/licenses");
+    let dir = root.join("packaging/licenses");
     let mut components = Vec::new();
     for native in NATIVE {
         let mut texts = Vec::new();

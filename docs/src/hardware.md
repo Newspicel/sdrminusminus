@@ -1,8 +1,8 @@
 # Radios and hardware
 
-sdr-- opens a receiver in one of four ways: a built-in driver, a bundled SoapySDR module, a network
-protocol, or a virtual source. This page lists what each one supports and how to get a radio
-working.
+sdr-- opens a receiver in one of four ways: a built-in driver, a SoapySDR module from the host's
+own SoapySDR installation, a network protocol, or a virtual source. This page lists what each one
+supports and how to get a radio working.
 
 ## Built-in drivers
 
@@ -24,27 +24,42 @@ skipped for these receivers so that one radio is never listed twice.
 
 ## SoapySDR modules
 
-Desktop installers and containers ship a private SoapySDR 0.8.1 runtime with these modules:
+sdr-- does not ship SoapySDR. No package links it and no installer carries it: the core library
+is opened at runtime from whatever SoapySDR the host has, and a machine without one simply reports
+no SoapySDR hardware and keeps every built-in driver working.
+
+Install it the way you install anything else on your system, then add the module for your radio:
+
+| System | SoapySDR core | Example module |
+|---|---|---|
+| Debian, Ubuntu, Raspberry Pi OS | `sudo apt install libsoapysdr0.8` | `sudo apt install soapysdr-module-bladerf` |
+| Fedora | `sudo dnf install SoapySDR` | `sudo dnf install SoapySDR-bladeRF` |
+| Arch | `sudo pacman -S soapysdr` | `sudo pacman -S soapybladerf` |
+| macOS (Homebrew) | `brew install soapysdr` | `brew install soapybladerf` |
+| Windows | [PothosSDR](https://github.com/pothosware/PothosSDR/wiki/Tutorial) installs the core and modules together |
+| NixOS | see [Nix](getting-started/install.md#nix) — modules are selected in your configuration |
+
+Receivers that need a module, because no built-in driver covers them:
 
 | Receiver | Module |
 |---|---|
-| Airspy and Airspy HF+ | SoapyAirspy / SoapyAirspyHF |
 | bladeRF | SoapyBladeRF |
 | LimeSDR | SoapyLMS7 |
-| Remote Soapy server | SoapyRemote |
+| Remote SoapySDR server | SoapyRemote |
+| USRP | SoapyUHD |
 
-The exact versions are pinned in
-[`packaging/soapy/environment.yml`](https://github.com/Newspicel/sdrminusminus/blob/main/packaging/soapy/environment.yml).
-UHD is not bundled because of its size. Other modules may work if they match the SoapySDR 0.8
-module ABI, but they are not part of the release test matrix; a module built against a different
-SoapySDR generation is refused and logged rather than loaded.
+Any module matching the SoapySDR 0.8 ABI works; a module built against a different SoapySDR
+generation is refused and logged rather than loaded. Modules for hardware sdr-- drives itself are
+ignored, so installing `soapysdr-module-all` does not produce duplicate entries.
 
-Bundled installations use their own modules unless you add an explicit search path. Portable
-archives and source builds use the host's SoapySDR installation. Native drivers are independent
-of this module selection.
+`sdrmm --doctor` reports which SoapySDR was found, where it was loaded from, and which modules it
+loaded. Two environment variables override the search when a system puts things somewhere
+unusual:
 
-To load a module the bundle does not carry, point `SDRMM_SOAPY_MODULE_PATH` at the directory
-holding it. Those directories are searched before the bundled ones.
+| Variable | Effect |
+|---|---|
+| `SDRMM_SOAPY_LIBRARY` | Full path to the SoapySDR core to open, instead of searching for one |
+| `SDRMM_SOAPY_MODULE_PATH` | Extra module directories, searched before the host's own |
 
 ## Network receivers
 
@@ -70,20 +85,22 @@ Run the diagnostic report before opening a radio:
 sdrmm --doctor
 ```
 
-It lists compiled backends, the SoapySDR core version, module search paths, discovered modules and
-devices, data paths, and Linux USB permission checks. The same report is available from **Hardware
-not showing up?** on an unbound Device node.
+It lists compiled backends, whether a SoapySDR runtime was found and where, its module search
+paths, discovered modules and devices, data paths, and Linux USB permission checks. The same
+report is available from **Hardware not showing up?** on an unbound Device node.
 
-On a host SoapySDR installation, its own utility is also worth running:
+A SoapySDR install brings its own utility, which is worth running when a module is involved:
 
 ```sh
 SoapySDRUtil --info
 SoapySDRUtil --find
-SoapySDRUtil --probe="driver=airspy"
+SoapySDRUtil --probe="driver=bladerf"
 ```
 
-For a receiver using SoapySDR, fix discovery or permission errors here before starting sdr--.
-Use `sdrmm --doctor` for receivers handled by native drivers.
+If `SoapySDRUtil --info` finds a SoapySDR that `sdrmm --doctor` does not, the two are looking in
+different places: set `SDRMM_SOAPY_LIBRARY` to the path `SoapySDRUtil` reports. Fix discovery and
+permission errors there before starting sdr--. Receivers handled by built-in drivers do not
+appear in `SoapySDRUtil` at all; use `sdrmm --doctor` for those.
 
 ## How radios are discovered
 
@@ -315,7 +332,7 @@ The reported CR-8 tuning range comes from its documentation; the SDK does not ex
 Test the exact packaged build against the exact radio:
 
 1. Run `sdrmm --doctor` and save the module versions.
-2. On a host runtime, probe the device with `SoapySDRUtil`.
+2. For a SoapySDR receiver, probe the device with `SoapySDRUtil`.
 3. Stream for at least 30 minutes and watch the Device overrun counter.
 4. Unplug and reconnect once, and confirm the workspace binds to the same radio again.
 5. Exercise tuning, gain, AGC, bandwidth, antenna, and the advertised advanced settings.

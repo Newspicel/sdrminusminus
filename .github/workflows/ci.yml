@@ -39,12 +39,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns
-      # empty). --no-install-recommends is required: libsoapysdr0.8 recommends
-      # soapysdr-modules-all, and loading real modules headless is fatal (SoapyUHD aborts).
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsoapysdr-dev
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -85,9 +79,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsoapysdr-dev
       # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
       - uses: pnpm/action-setup@v6
         with:
@@ -120,7 +111,7 @@ jobs:
       # mesa-vulkan-drivers supplies Lavapipe for the GPU FFT step below.
       - run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsoapysdr-dev mesa-vulkan-drivers
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -174,7 +165,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev libsoapysdr-dev cmake file
+            libxdo-dev libssl-dev cmake file
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:
@@ -221,8 +212,8 @@ jobs:
           grep -q 'core: 0.8.' <<< "$doctor"
           grep -q 'compiled backends:.*rtlsdr' <<< "$doctor"
           grep -q 'compiled backends:.*hackrf' <<< "$doctor"
-          grep -qi 'airspy' <<< "$doctor"
           grep -qi 'bladerf' <<< "$doctor"
+          grep -qi 'lms7\|limesuite' <<< "$doctor"
           grep -qi 'lms7' <<< "$doctor"
           grep -qi 'remote' <<< "$doctor"
           docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
@@ -269,8 +260,8 @@ jobs:
             in
             (builtins.getAttr system flake.packages).default.override {
               soapyPlugins = with pkgs; [
-                soapyairspy
                 soapybladerf
+                soapyremote
               ];
             }
           '
@@ -279,10 +270,11 @@ jobs:
           test -f result/share/applications/sdrmm-desktop.desktop
           test -f result/share/icons/hicolor/128x128/apps/dev.newspicel.sdrmm.png
           ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libwebkit2gtk-4.1'
-          ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'
+          ! ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'
+          grep -q 'SDRMM_SOAPY_LIBRARY' result/bin/sdrmm-desktop
           grep -q 'SOAPY_SDR_PLUGIN_PATH' result/bin/sdrmm-desktop
-          grep -q 'soapyairspy' result/bin/sdrmm-desktop
           grep -q 'soapybladerf' result/bin/sdrmm-desktop
+          grep -q 'soapyremote' result/bin/sdrmm-desktop
           test -z "$(find -L result -path '*/SoapySDR/modules*' -print -quit)"
           set +e
           timeout 15s xvfb-run --auto-servernum result/bin/sdrmm-desktop >desktop.log 2>&1
@@ -321,8 +313,6 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
-      # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns empty).
-      - run: brew install soapysdr
       # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
       - uses: pnpm/action-setup@v6
         with:
@@ -359,23 +349,6 @@ jobs:
         with:
           shared-key: desktop-windows
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # device-soapy links SoapySDR. The same pinned conda lock the release jobs build against,
-      # so the gate and the artifact see one runtime; nothing is loaded, only linked.
-      - id: soapy
-        uses: mamba-org/setup-micromamba@v3
-        with:
-          micromamba-version: 2.8.1-0
-          environment-file: packaging/soapy/conda-win-64.lock
-          environment-name: sdrmm-soapy-x86_64-pc-windows-msvc
-          create-args: --platform win-64
-          cache-environment: true
-      # soapysdr-sys finds Windows installs by walking PATH for SoapySDR.dll with ../include and
-      # ../lib beside it — the conda prefix's layout, which is why this needs no SOAPY_SDR_ROOT.
-      - name: Configure pinned Soapy build runtime
-        shell: bash
-        env:
-          PREFIX: ${{ steps.soapy.outputs.environment-path }}
-        run: echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
       # `desktop` rather than `test`: it compiles the Tauri shell and the whole engine/server
       # chain under it — both halves of the Windows graph in one command — and needs neither
       # Node nor a browser to do it.

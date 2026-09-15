@@ -96,6 +96,23 @@ fn virtual_capabilities(debug_build: bool) -> &'static str {
 
 #[cfg(feature = "soapy")]
 fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
+    let Some(core_version) = &info.core_version else {
+        return DoctorCheck {
+            id: "soapy.runtime".to_string(),
+            name: "SoapySDR runtime".to_string(),
+            status: CheckStatus::Warn,
+            detail: info
+                .error
+                .clone()
+                .unwrap_or_else(|| "not installed".to_string()),
+            hint: Some(
+                "SoapySDR is optional. Install it with your package manager to reach Airspy, \
+                 bladeRF, LimeSDR and other hardware only its modules drive; RTL-SDR, HackRF, \
+                 AD936x, SDRplay and CR-8 receivers do not need it."
+                    .to_string(),
+            ),
+        };
+    };
     let module_names: Vec<String> = info
         .modules
         .iter()
@@ -114,8 +131,8 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
             CheckStatus::Ok
         },
         detail: format!(
-            "core: {}\nmodule search path: {}\nloaded modules: {}",
-            info.core_version,
+            "core: {core_version}\nlibrary: {}\nmodule search path: {}\nloaded modules: {}",
+            info.library.as_deref().unwrap_or("(unknown)"),
             if info.search_paths.is_empty() {
                 "(none)".to_string()
             } else {
@@ -129,7 +146,8 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
         ),
         hint: module_names.is_empty().then(|| {
             "SoapySDR loaded no driver modules, so it can reach no hardware of its own. \
-             RTL-SDR, HackRF, AD936x and SDRplay receivers do not need it and are unaffected."
+             RTL-SDR, HackRF, AD936x, SDRplay and CR-8 receivers do not need it and are \
+             unaffected."
                 .to_string()
         }),
     }
@@ -763,14 +781,21 @@ mod tests {
     #[test]
     fn soapy_check_reports_the_core_its_paths_and_the_modules_it_loaded() {
         let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
-            core_version: "0.8.1".to_string(),
-            search_paths: vec!["/app/soapy/modules0.8".to_string()],
-            modules: vec!["libairspySupport.so".to_string()],
+            core_version: Some("0.8.1".to_string()),
+            library: Some("/opt/homebrew/lib/libSoapySDR.0.8.dylib".to_string()),
+            search_paths: vec!["/opt/homebrew/lib/SoapySDR/modules0.8".to_string()],
+            modules: vec!["libbladeRFSupport.so".to_string()],
+            error: None,
         });
         assert_eq!(check.status, CheckStatus::Ok);
         assert!(check.detail.contains("core: 0.8.1"));
-        assert!(check.detail.contains("/app/soapy/modules0.8"));
-        assert!(check.detail.contains("libairspySupport.so"));
+        assert!(check.detail.contains("libSoapySDR.0.8.dylib"));
+        assert!(
+            check
+                .detail
+                .contains("/opt/homebrew/lib/SoapySDR/modules0.8")
+        );
+        assert!(check.detail.contains("libbladeRFSupport.so"));
         assert!(check.hint.is_none());
     }
 
@@ -778,13 +803,30 @@ mod tests {
     #[test]
     fn a_soapy_runtime_with_no_modules_warns_without_blaming_the_native_backends() {
         let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
-            core_version: "0.8.1".to_string(),
+            core_version: Some("0.8.1".to_string()),
+            library: Some("/usr/lib/libSoapySDR.so.0.8".to_string()),
             search_paths: Vec::new(),
             modules: Vec::new(),
+            error: None,
         });
         assert_eq!(check.status, CheckStatus::Warn);
         assert!(check.detail.contains("(none)"));
         assert!(check.hint.is_some_and(|hint| hint.contains("RTL-SDR")));
+    }
+
+    #[cfg(feature = "soapy")]
+    #[test]
+    fn a_host_without_soapysdr_warns_and_says_which_radios_are_unaffected() {
+        let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
+            core_version: None,
+            library: None,
+            search_paths: Vec::new(),
+            modules: Vec::new(),
+            error: Some("SoapySDR is not installed".to_string()),
+        });
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("not installed"));
+        assert!(check.hint.is_some_and(|hint| hint.contains("bladeRF")));
     }
 
     #[cfg(feature = "cr8")]
