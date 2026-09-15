@@ -67,12 +67,13 @@ Commit generated output with its source change:
 
 - API or wire types: `cargo xtask codegen`.
 - Dependencies: `cargo xtask licenses`.
-- `web/pnpm-lock.yaml`: `cargo xtask nix-hash` to update the Nix pnpm store hash. This requires
-  Nix on Linux or a `nixos/nix` container elsewhere.
+- `web/pnpm-lock.yaml`, or a git dependency's `rev`: `cargo xtask nix-hash` to update the Nix pnpm
+  store hash and cargo git hashes. This requires Nix on Linux or a `nixos/nix` container elsewhere.
 
 The [generated-file reference](https://newspicel.github.io/sdrminusminus/development/building.html#generated-files)
 also covers decoder fixtures, band plans, and icons. `cargo xtask check` detects stale generated
-contracts and a changed pnpm lockfile whose recorded digest was not updated.
+contracts, a changed pnpm lockfile whose recorded digest was not updated, and a git dependency
+moved past the commit its Nix hash was taken at.
 
 ## Pull requests
 

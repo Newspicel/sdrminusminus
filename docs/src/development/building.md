@@ -110,6 +110,7 @@ Run the matching task whenever its source changes:
 | REST routes or wire types | `cargo xtask codegen` | `openapi.json`, `web/src/generated/schema.d.ts` |
 | Dependency lockfiles | `cargo xtask licenses` | `THIRD_PARTY_NOTICES.md`, embedded notices JSON |
 | `web/pnpm-lock.yaml` | `cargo xtask nix-hash` | The pnpm store hash in `packaging/nix/package.nix` |
+| A git dependency's `rev` | `cargo xtask nix-hash` | The cargo git hashes in `packaging/nix/package.nix` |
 | Decoder reference signals | `cargo xtask fixtures` | SigMF pairs under `fixtures/` |
 | Band-plan source imports | `cargo xtask bandplan` | Embedded regional tables |
 | `assets/icon.svg` | `cargo xtask icons` | Desktop and web icon variants |
@@ -118,8 +119,9 @@ Generated outputs are committed. `cargo xtask check` detects drift for the outpu
 on every change.
 
 `cargo xtask nix-hash` uses Nix on Linux and a `nixos/nix` container elsewhere to compute the pnpm
-store hash. `cargo xtask check` compares the lockfile digest recorded beside that hash; it does
-not rebuild the store. The Nix CI job verifies the store hash itself.
+store hash and the fixed-output hash of every git dependency `Cargo.lock` names. `cargo xtask check`
+compares the lockfile digest and the commit recorded beside each hash against the lockfiles on disk;
+it builds nothing. The Nix CI job verifies the hashes themselves.
 
 ## Desktop prerequisites
 
