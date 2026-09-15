@@ -45,6 +45,10 @@ cargo xtask desktop --bundles dmg
 
 Use `deb,appimage` on Linux and `msi,nsis` on Windows. Installers use system SoapySDR at runtime.
 
+The AppImage bundles the GStreamer WebKit plays audio through, and bundles only what the build
+machine has: an `appimage` build needs `patchelf` and the GStreamer plugin packages installed, or
+the app it produces is silently mute.
+
 ## Desktop updates
 
 The app checks the latest stable GitHub release at startup. Update archives use a Tauri updater

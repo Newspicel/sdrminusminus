@@ -455,13 +455,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      # Tauri v2's Linux prerequisites; cmake is for opusic-sys' vendored libopus.
+      # Tauri v2's Linux prerequisites; cmake is for opusic-sys' vendored libopus. The GStreamer
+      # plugins and patchelf are the AppImage's: linuxdeploy bundles the GStreamer core WebKit
+      # links against, and a core refuses plugins built for a newer release, so the host's own
+      # plugins are rejected and WebKit finds no audio sink. The bundle therefore carries the
+      # plugins from this machine, which has to have them installed to bundle them.
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev cmake file
+            libxdo-dev libssl-dev cmake file patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-alsa
       # tauri-action drives the bundle itself, so the UI has to be on disk before it starts —
       # the Tauri shell serves the same embedded UI through the in-process server, and needs
       # web/dist just as much as the headless binary does.
@@ -585,6 +590,36 @@ jobs:
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
+      # The AppImage ships its own GStreamer core, so the sink WebKit opens a speaker with has
+      # to travel with it. Miss it and the app still builds, still launches and plays nothing,
+      # with "GStreamer element autoaudiosink not found" on a console nobody is watching.
+      - name: Assert the AppImage can reach a speaker
+        if: runner.os == 'Linux' && contains(matrix.bundles, 'appimage')
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          image="$(find "target/$TARGET/release/bundle/appimage" -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -n "$image" || { echo "no AppImage to check" >&2; exit 1; }
+          image="$(readlink -f "$image")"
+          check="$RUNNER_TEMP/appimage-audio"
+          rm -rf "$check"
+          mkdir -p "$check"
+          (cd "$check" && "$image" --appimage-extract > /dev/null)
+          root="$check/squashfs-root"
+          need() { test -f "$root/$1" || { echo "missing from the AppImage: $1" >&2; exit 1; }; }
+          need apprun-hooks/linuxdeploy-plugin-gstreamer.sh
+          need usr/lib/gstreamer-1.0/libgstautodetect.so
+          need usr/lib/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner
+          test -f "$root/usr/lib/gstreamer-1.0/libgstpulseaudio.so" \
+            || test -f "$root/usr/lib/gstreamer-1.0/libgstalsa.so" \
+            || { echo "the AppImage bundles no audio sink plugin" >&2; exit 1; }
+          # The plugins are only found through the hook, which runs solely because linuxdeploy
+          # wrapped AppRun around it.
+          grep -qa apprun-hooks "$root/AppRun" \
+            || { echo "AppRun does not run the bundled hooks" >&2; exit 1; }
+          rm -rf "$check"
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.
