@@ -490,7 +490,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,ad936x,net-client,gpu-fft
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
       # A bundler that dies mid-DMG leaves the image attached — the runner kills the orphaned
       # `diskimages-helper` at cleanup — and its read-write interstitial on disk. The second
       # attempt names its own interstitial after its pid, so it is not the mount that matters
@@ -530,7 +530,7 @@ jobs:
           TAURI_CLI_VERBOSITY: 1
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,ad936x,net-client,gpu-fft
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.

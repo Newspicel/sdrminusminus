@@ -4991,6 +4991,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-airspy"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "nusb",
+ "sdrmm-device",
+ "sdrmm-dsp",
+ "sdrmm-usb-stream",
+ "sdrmm-wire",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
+name = "sdrmm-device-airspyhf"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "nusb",
+ "sdrmm-device",
+ "sdrmm-usb-stream",
+ "sdrmm-wire",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-array"
 version = "0.0.0"
 dependencies = [
@@ -5123,6 +5152,8 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-device",
  "sdrmm-device-ad936x",
+ "sdrmm-device-airspy",
+ "sdrmm-device-airspyhf",
  "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-hackrf",

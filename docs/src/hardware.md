@@ -6,21 +6,60 @@ supports and how to get a radio working.
 
 ## Built-in drivers
 
-Standard builds include native drivers for RTL-SDR, KrakenSDR, HackRF, AD936x boards, SDRplay
-RSP, and Dragon Labs CR-8. These drivers do not require SoapySDR modules. Custom builds can omit them
-through feature flags.
+Standard builds include native drivers for RTL-SDR, KrakenSDR, HackRF, Airspy, Airspy HF+, AD936x
+boards, SDRplay RSP, and Dragon Labs CR-8. These drivers do not require SoapySDR modules. Custom
+builds can omit them through feature flags.
 
 | Receiver | Extra software |
 |---|---|
 | RTL-SDR | none |
 | KrakenSDR and KerberosSDR | none |
 | HackRF | none |
+| Airspy R2 and Airspy Mini | none, see [Airspy](#airspy) |
+| Airspy HF+ and HF+ Discovery | none, see [Airspy](#airspy) |
 | AntSDR E200 and E310, ADALM-Pluto, and other AD936x boards serving libiio | none, see [AntSDR, PlutoSDR and other AD936x boards](#antsdr-plutosdr-and-other-ad936x-boards) |
 | SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | SDRplay API 3.15 or newer, see [SDRplay](#sdrplay) |
 | Dragon Labs CR-8 | the vendor CR-8 library, see [Dragon Labs CR-8](#dragon-labs-cr-8) |
 
-If a host SoapyRTLSDR, SoapyHackRF, SoapyPlutoSDR or SoapySDRPlay3 module is installed, it is
-skipped for these receivers so that one radio is never listed twice.
+If a host SoapyRTLSDR, SoapyHackRF, SoapyAirspy, SoapyAirspyHF, SoapyPlutoSDR or SoapySDRPlay3
+module is installed, it is skipped for these receivers so that one radio is never listed twice.
+
+## Airspy
+
+Both Airspy drivers speak to the radio over their own USB stack, so neither needs libairspy,
+libairspyhf, or a SoapySDR module.
+
+**These two drivers have not yet been confirmed on air.** Their USB encodings and signal
+processing are covered by unit tests, and the control protocol was written from the vendor
+firmware interface, but no Airspy has been connected to this build. Treat them as experimental
+and report what you find. Installing SoapySDR with `soapysdr-module-airspy` or
+`soapysdr-module-airspyhf` is the fallback: build without the `airspy` and `airspyhf` features,
+and the SoapySDR modules become visible again.
+
+### Airspy R2 and Airspy Mini
+
+The R2 and the Mini sample one real signal centred a quarter of the way up their own ADC rate,
+and the complex baseband is formed here rather than in the radio. The rate shown in the interface
+is the complex rate you receive; twice that many samples cross the USB bus.
+
+LNA, mixer and VGA appear as separate gain stages numbered in steps rather than decibels, because
+that is what the firmware takes and the decibels each step buys change with the band. LNA and
+mixer AGC, and the bias tee, are switches on the Device node.
+
+### Airspy HF+ and HF+ Discovery
+
+The HF+ covers up to 31 MHz and 60 to 260 MHz. Nothing tunes between those two windows, so a
+frequency in the gap is refused rather than tuned badly.
+
+The preamp appears as a switch and the attenuator as negative gain, from 0 to −48 dB in 6 dB
+steps, since taking signal away is what it does. AGC, its threshold, and the bias tee are
+switches.
+
+At the rates where the radio works at zero IF, the wanted signal sits on the converter's own DC
+term. The engine parks the local oscillator clear of each channel and removes that term, which is
+the same treatment every other zero-IF receiver here gets. The vendor library additionally runs an
+adaptive IQ balancer that this driver does not, so image rejection may be poorer than libairspyhf
+achieves on those rates.
 
 ## SoapySDR modules
 
@@ -47,6 +86,8 @@ Receivers that need a module, because no built-in driver covers them:
 | LimeSDR | SoapyLMS7 |
 | Remote SoapySDR server | SoapyRemote |
 | USRP | SoapyUHD |
+
+Airspy receivers need no module; see [Airspy](#airspy) if you would rather use one anyway.
 
 Any module matching the SoapySDR 0.8 ABI works; a module built against a different SoapySDR
 generation is refused and logged rather than loaded. Modules for hardware sdr-- drives itself are

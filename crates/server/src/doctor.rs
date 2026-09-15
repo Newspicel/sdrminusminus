@@ -106,8 +106,8 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
                 .clone()
                 .unwrap_or_else(|| "not installed".to_string()),
             hint: Some(
-                "SoapySDR is optional. Install it with your package manager to reach Airspy, \
-                 bladeRF, LimeSDR and other hardware only its modules drive; RTL-SDR, HackRF, \
+                "SoapySDR is optional. Install it with your package manager to reach bladeRF, \
+                 LimeSDR and other hardware only its modules drive; RTL-SDR, HackRF, Airspy, \
                  AD936x, SDRplay and CR-8 receivers do not need it."
                     .to_string(),
             ),
@@ -146,7 +146,7 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
         ),
         hint: module_names.is_empty().then(|| {
             "SoapySDR loaded no driver modules, so it can reach no hardware of its own. \
-             RTL-SDR, HackRF, AD936x, SDRplay and CR-8 receivers do not need it and are \
+             RTL-SDR, HackRF, Airspy, AD936x, SDRplay and CR-8 receivers do not need it and are \
              unaffected."
                 .to_string()
         }),

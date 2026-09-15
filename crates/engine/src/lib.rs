@@ -116,6 +116,10 @@ pub fn soapy_handled_natively() -> Vec<&'static str> {
         "rtlsdr",
         #[cfg(feature = "hackrf")]
         "hackrf",
+        #[cfg(feature = "airspy")]
+        "airspy",
+        #[cfg(feature = "airspyhf")]
+        "airspyhf",
         #[cfg(feature = "ad936x")]
         "plutosdr",
     ]
@@ -167,6 +171,16 @@ pub fn builtin_registry_accelerated(
     registry.register(
         NATIVE_PRIORITY,
         Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
+    );
+    #[cfg(feature = "airspy")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_airspy::AirspyDriver::new()),
+    );
+    #[cfg(feature = "airspyhf")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_airspyhf::AirspyHfDriver::new()),
     );
     #[cfg(feature = "ad936x")]
     registry.register(

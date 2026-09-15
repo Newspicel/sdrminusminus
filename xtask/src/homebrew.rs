@@ -119,9 +119,9 @@ fn formula(digests: &Digests, version: &str, repo: &str) -> Result<String> {
 
   def caveats
     <<~EOS
-      RTL-SDR, HackRF, RTL-TCP and SpyServer receivers are built in. Other hardware is
-      reached through SoapySDR modules, which install separately:
-        brew install soapyremote
+      RTL-SDR, HackRF, Airspy, Airspy HF+, RTL-TCP and SpyServer receivers are built in.
+      Other hardware is reached through SoapySDR modules, which install separately:
+        brew install soapybladerf soapyremote
 
       Start the server on port 8080 with `sdrmm`, or in the background with
       `brew services start sdrmm`. `sdrmm --doctor` reports what this build can see.

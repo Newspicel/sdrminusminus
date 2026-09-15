@@ -90,6 +90,32 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
+        name: "libairspy",
+        license: "BSD-3-Clause",
+        url: "https://github.com/airspy/airspyone_host",
+        note: Some(
+            "sdr-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and \
+             forms their complex baseband with its own filter. No part of libairspy is linked \
+             or shipped, but the vendor request numbers, the wValue and wIndex layout of each \
+             request and the packed sample format in `crates/device-airspy/src/driver` were \
+             written from libairspy, which is the only specification they have. Its licence \
+             asks to accompany the binary, so its text is below.",
+        ),
+        files: &["libairspy-BSD-3-Clause.txt"],
+    },
+    Native {
+        name: "libairspyhf",
+        license: "BSD-3-Clause",
+        url: "https://github.com/airspy/airspyhf",
+        note: Some(
+            "As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor \
+             request numbers, the big-endian kilohertz tuning field and the sample layout in \
+             `crates/device-airspyhf/src/driver` were written from it. Its adaptive IQ balancer \
+             was not translated, and this driver does not reproduce it.",
+        ),
+        files: &["libairspyhf-BSD-3-Clause.txt"],
+    },
+    Native {
         name: "hackrf (libhackrf)",
         license: "GPL-2.0-or-later",
         url: "https://github.com/greatscottgadgets/hackrf",

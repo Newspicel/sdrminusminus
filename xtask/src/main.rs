@@ -749,7 +749,7 @@ fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "soapy,sdrplay,rtlsdr,hackrf,ad936x,net-client,gpu-fft".to_string(),
+        "soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft".to_string(),
     ]
 }
 

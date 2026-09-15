@@ -48,6 +48,14 @@ As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothi
 
 How a KrakenSDR identifies itself and how its bank is wired — the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees — is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; sdr-- distributes under GPL-3.0-or-later regardless.
 
+**libairspy** — BSD-3-Clause
+
+sdr-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and forms their complex baseband with its own filter. No part of libairspy is linked or shipped, but the vendor request numbers, the wValue and wIndex layout of each request and the packed sample format in `crates/device-airspy/src/driver` were written from libairspy, which is the only specification they have. Its licence asks to accompany the binary, so its text is below.
+
+**libairspyhf** — BSD-3-Clause
+
+As with libairspy: nothing of libairspyhf is linked or shipped, but the vendor request numbers, the big-endian kilohertz tuning field and the sample layout in `crates/device-airspyhf/src/driver` were written from it. Its adaptive IQ balancer was not translated, and this driver does not reproduce it.
+
 **librtlsdr (KrakenRF fork)** — GPL-2.0-or-later
 
 The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
@@ -855,13 +863,15 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (7)
+## Hardware libraries (9)
 
 | Component | Version | License |
 | --- | --- | --- |
 | [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [heimdall_daq_fw](https://github.com/krakenrf/heimdall_daq_fw) | — | GPL-3.0-or-later |
+| [libairspy](https://github.com/airspy/airspyone_host) | — | BSD-3-Clause |
+| [libairspyhf](https://github.com/airspy/airspyhf) | — | BSD-3-Clause |
 | [librtlsdr (KrakenRF fork)](https://github.com/krakenrf/librtlsdr) | — | GPL-2.0-or-later |
 | [qdmr (libdmrconf)](https://github.com/hmatuschek/qdmr) | — | GPL-3.0-or-later |
 | [rtl-sdr (librtlsdr)](https://gitea.osmocom.org/sdr/rtl-sdr) | — | GPL-2.0-or-later |

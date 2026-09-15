@@ -325,8 +325,8 @@ pub fn shared() -> Result<Arc<Library>, String> {
 }
 
 pub const MISSING: &str = "SoapySDR is not installed. Radios this build drives natively — \
-                           RTL-SDR, HackRF, AD936x, SDRplay and CR-8 — do not need it; Airspy, \
-                           bladeRF, LimeSDR and other SoapySDR-only hardware do.";
+                           RTL-SDR, HackRF, Airspy, Airspy HF+, AD936x, SDRplay and CR-8 — do \
+                           not need it; bladeRF, LimeSDR and other SoapySDR-only hardware do.";
 
 fn load() -> Result<Arc<Library>, String> {
     let mut failures = Vec::new();

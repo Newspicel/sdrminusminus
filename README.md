@@ -73,8 +73,9 @@ when setting up network access.
 [Your first receiver](https://newspicel.github.io/sdrminusminus/getting-started/first-receiver.html)
 walks through the controls and switching to hardware.
 
-Standard builds include native RTL-SDR, HackRF, AD936x (AntSDR, PlutoSDR), SDRplay, and CR-8
-drivers. SDRplay and CR-8 also require their vendor libraries. Nothing ships SoapySDR: it is
+Standard builds include native RTL-SDR, HackRF, Airspy, Airspy HF+, AD936x (AntSDR, PlutoSDR),
+SDRplay, and CR-8 drivers. SDRplay and CR-8 also require their vendor libraries. Nothing ships
+SoapySDR: it is
 opened at runtime from the system's own installation, which is what reaches bladeRF, LimeSDR and
 other module-only hardware. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for requirements.

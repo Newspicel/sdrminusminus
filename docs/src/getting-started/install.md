@@ -13,9 +13,11 @@ reach. Each section below says what its package brings and what it leaves to the
 
 Every package below drives these without any extra library:
 
-RTL-SDR, KrakenSDR, HackRF, AD936x boards (AntSDR, ADALM-Pluto), rtl_tcp, SpyServer, and the
-virtual signal sources. SDRplay and Dragon Labs CR-8 are built in too but need their vendor
-library installed separately — see [the hardware guide](../hardware.md).
+RTL-SDR, KrakenSDR, HackRF, Airspy R2/Mini, Airspy HF+, AD936x boards (AntSDR, ADALM-Pluto),
+rtl_tcp, SpyServer, and the virtual signal sources. SDRplay and Dragon Labs CR-8 are built in too
+but need their vendor library installed separately — see [the hardware guide](../hardware.md).
+The two Airspy drivers are new and not yet confirmed on air; see
+[Airspy](../hardware.md#airspy).
 
 ## Desktop application
 
