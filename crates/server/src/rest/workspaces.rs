@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 use crate::workspace::Restored;
 
@@ -156,9 +158,11 @@ pub(super) fn bring_up(
     engine.reconcile_arrays()?;
     let mut state = engine.snapshot();
     forget_closed_bindings(app, &state);
+    let mut fresh: HashSet<String> = HashSet::new();
 
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         if first_binding(app, workspace, &node, device_set) {
+            fresh.insert(node.clone());
             match workspace::restore_device(engine, device_set, &node, saved) {
                 Ok(whole) => note_restore(app, &node, whole == Restored::Whole),
                 Err(reason) => {
@@ -200,7 +204,9 @@ pub(super) fn bring_up(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    first_binding(app, workspace, &node.id, id);
+                    if first_binding(app, workspace, &node.id, id) {
+                        fresh.insert(node.id.clone());
+                    }
                     match workspace::restore_device(engine, id, &node.id, saved) {
                         Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                         Err(reason) => {
@@ -227,10 +233,13 @@ pub(super) fn bring_up(
     }
 
     workspace::describe_arrays(engine, &snapshot.graph);
-    open_arrays(app, workspace, snapshot, saved, &mut report);
+    open_arrays(app, workspace, snapshot, saved, &mut report, &mut fresh);
     state = engine.snapshot();
 
     for binding in &report.bound {
+        if !fresh.contains(&binding.node) {
+            continue;
+        }
         if saved
             .device(&binding.node)
             .is_some_and(|held| held.settings.center_hz.is_some())
@@ -380,6 +389,7 @@ fn open_arrays(
     snapshot: &WorkspaceSnapshot,
     saved: &WorkspaceState,
     report: &mut PatchApplyReport,
+    fresh: &mut HashSet<String>,
 ) {
     let engine = &app.engine;
     for node in snapshot
@@ -393,7 +403,9 @@ fn open_arrays(
         let key = sdrmm_wire::patch::array_key(&node.id);
         match engine.create_array_set(&key) {
             Ok(id) => {
-                first_binding(app, workspace, &node.id, id);
+                if first_binding(app, workspace, &node.id, id) {
+                    fresh.insert(node.id.clone());
+                }
                 match workspace::restore_device(engine, id, &node.id, saved) {
                     Ok(whole) => note_restore(app, &node.id, whole == Restored::Whole),
                     Err(reason) => report.refused.push(PatchRefusal {

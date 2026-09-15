@@ -1097,3 +1097,26 @@ async fn every_channel_type_offers_the_settings_a_node_starts_on() {
         assert_eq!(defaults.params.type_id(), descriptor.type_id);
     }
 }
+
+#[tokio::test]
+async fn an_open_radio_holds_its_frequency_when_a_decoder_is_wired_in() {
+    let app = test_router();
+    let workspace =
+        put_active_workspace(&app, &virtual_snapshot("siggen", &[("voice", "nfm", "iq")])).await;
+    apply(&app, workspace).await;
+    let opened = get_state(&app).await.device_sets[0].settings.center_hz;
+
+    put_workspace_revision(
+        &app,
+        &virtual_snapshot("siggen", &[("voice", "nfm", "iq"), ("air", "adsb", "iq")]),
+        2,
+    )
+    .await;
+    let report = apply(&app, workspace).await;
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert_eq!(
+        get_state(&app).await.device_sets[0].settings.center_hz,
+        opened,
+        "a decoder wired into a running radio may not drag it off frequency"
+    );
+}
