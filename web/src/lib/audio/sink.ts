@@ -2,22 +2,14 @@ import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";
 import { isWatched, publishAudio } from "./monitor";
-import type { WorkletMessage, WorkletReport } from "./worklet";
-import {
-  CHANNELS,
-  MAX_FRAMES,
-  PROCESSOR_NAME,
-  processorUrl,
-  SAMPLE_RATE,
-  TARGET_FRAMES,
-  targetFramesForHost,
-} from "./worklet";
+import { createPlayback } from "./playback";
+import type { WorkletReport } from "./worklet";
+import { CHANNELS, SAMPLE_RATE } from "./worklet";
 
 const VOLUME_RANGE_DB = 60;
 const VOLUME_RAMP_SECONDS = 0.02;
 
 let ctx: AudioContext | null = null;
-let workletModule: Promise<void> | null = null;
 const outputListeners = new Set<(running: boolean) => void>();
 let recoveryArmed = false;
 
@@ -82,15 +74,6 @@ function handleVisibility(): void {
   }
 }
 
-function post(node: AudioWorkletNode, message: WorkletMessage): void {
-  if (message instanceof Float32Array) {
-    node.port.postMessage(message, [message.buffer]);
-  } else {
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- MessagePort.postMessage takes no targetOrigin (that's window.postMessage).
-    node.port.postMessage(message);
-  }
-}
-
 function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
   if (channels === CHANNELS) {
     return pcm;
@@ -115,35 +98,18 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     attemptResume();
     handleStateChange();
   }
-  workletModule ??= context.audioWorklet.addModule(processorUrl()).catch((err: unknown) => {
-    workletModule = null;
-    throw err;
-  });
-  await workletModule;
-
-  const node = new AudioWorkletNode(context, PROCESSOR_NAME, {
-    numberOfInputs: 0,
-    numberOfOutputs: 1,
-    outputChannelCount: [CHANNELS],
-    processorOptions: {
-      targetFrames:
-        typeof location === "undefined" ? TARGET_FRAMES : targetFramesForHost(location.hostname),
-      maxFrames: MAX_FRAMES,
-      channels: CHANNELS,
-    },
-  });
-  const gain = new GainNode(context, { gain: gainForVolume(volume) });
-  node.connect(gain).connect(context.destination);
   let lastReport: WorkletReport = { underruns: 0 };
   let decoderDroppedFrames = 0;
   const onDropped = (frames: number): void => {
     decoderDroppedFrames += frames;
     onReport({ ...lastReport, decoderDroppedFrames });
   };
-  node.port.onmessage = (event: MessageEvent<WorkletReport>) => {
-    lastReport = event.data;
+  const playback = await createPlayback(context, (report) => {
+    lastReport = report;
     onReport({ ...lastReport, decoderDroppedFrames });
-  };
+  });
+  const gain = new GainNode(context, { gain: gainForVolume(volume) });
+  playback.node.connect(gain).connect(context.destination);
 
   let closed = false;
   const emit = (channels: number) => (pcm: Float32Array) => {
@@ -153,15 +119,15 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     if (isWatched(key)) {
       publishAudio(key, pcm, channels);
     }
-    post(node, toOutputLayout(pcm, channels));
+    playback.send(toOutputLayout(pcm, channels));
   };
 
   let decoder: OpusPacketDecoder;
   try {
     decoder = await createOpusPacketDecoder(1, emit(1), onError, onDropped);
   } catch (err) {
-    post(node, "close");
-    node.disconnect();
+    playback.send("close");
+    playback.release();
     gain.disconnect();
     throw err;
   }
@@ -200,21 +166,20 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       return decoder.decode(opus, timestampUs);
     },
     conceal(frames) {
-      post(node, new Float32Array(frames * CHANNELS));
+      playback.send(new Float32Array(frames * CHANNELS));
     },
     setVolume(v) {
       gain.gain.setTargetAtTime(gainForVolume(v), context.currentTime, VOLUME_RAMP_SECONDS);
     },
     reset() {
       decoder.reset();
-      post(node, "reset");
+      playback.send("reset");
     },
     close() {
       closed = true;
       decoder.close();
-      post(node, "close");
-      node.port.onmessage = null;
-      node.disconnect();
+      playback.send("close");
+      playback.release();
       gain.disconnect();
     },
   };

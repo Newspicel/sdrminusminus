@@ -105,6 +105,9 @@ variant shown on the node. Use **Forget this radio** only when you want to choos
 - Make sure the channel marker is over the signal and its full occupied bandwidth fits inside the
   device passband.
 - Check that the tab is not muted and that the system output device is correct.
+- Over a plain-HTTP origin such as `http://<host>:8080`, the browser withholds AudioWorklet and
+  playback falls back to the main thread. It plays, but a busy waterfall can break it up. Serve the
+  page over HTTPS, or open it from `localhost`, for gap-free audio.
 
 ## A decoder produces nothing
 

@@ -5,13 +5,17 @@ vi.mock("./decoder", () => ({ createOpusPacketDecoder: createDecoder }));
 
 class FakeAudioContext {
   static initialState = "running";
+  static worklet = true;
   static instances: FakeAudioContext[] = [];
 
   state = FakeAudioContext.initialState;
   currentTime = 0;
   destination = {};
-  audioWorklet = { addModule: vi.fn(() => Promise.resolve()) };
+  audioWorklet = FakeAudioContext.worklet
+    ? { addModule: vi.fn(() => Promise.resolve()) }
+    : undefined;
   resume = vi.fn(() => Promise.resolve());
+  createScriptProcessor = vi.fn((frames: number) => new FakeScriptProcessor(frames));
   private readonly listeners = new Set<() => void>();
 
   constructor() {
@@ -28,6 +32,18 @@ class FakeAudioContext {
     for (const listener of this.listeners) {
       listener();
     }
+  }
+}
+
+class FakeScriptProcessor {
+  onaudioprocess: ((event: { outputBuffer: unknown }) => void) | null = null;
+  connect = vi.fn((dest: unknown) => dest);
+  disconnect = vi.fn();
+
+  static instances: FakeScriptProcessor[] = [];
+
+  constructor(readonly frames: number) {
+    FakeScriptProcessor.instances.push(this);
   }
 }
 
@@ -69,7 +85,9 @@ async function importSink() {
 describe("createWebAudioSink", () => {
   beforeEach(() => {
     FakeAudioContext.initialState = "running";
+    FakeAudioContext.worklet = true;
     FakeAudioContext.instances = [];
+    FakeScriptProcessor.instances = [];
     FakeWorkletNode.instances = [];
     FakeGainNode.instances = [];
     createDecoder.mockReset();
@@ -251,6 +269,36 @@ describe("createWebAudioSink", () => {
     const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
     expect(Array.from(posted ?? [])).toEqual([0.25, -0.5]);
   });
+  it("plays through a script processor on an origin that withholds AudioWorklet", async () => {
+    FakeAudioContext.worklet = false;
+    vi.stubGlobal("AudioWorkletNode", undefined);
+    let emit: ((pcm: Float32Array) => void) | undefined;
+    createDecoder.mockImplementation((channels: number, onPcm: (pcm: Float32Array) => void) => {
+      emit = onPcm;
+      return Promise.resolve({ channels, decode: vi.fn(), reset: vi.fn(), close: vi.fn() });
+    });
+    const { createWebAudioSink } = await importSink();
+
+    const sink = await createWebAudioSink(
+      "1:1",
+      0.5,
+      () => {},
+      () => {},
+    );
+
+    const node = FakeScriptProcessor.instances[0];
+    const gain = FakeGainNode.instances[0];
+    expect(node).toBeDefined();
+    expect(FakeWorkletNode.instances).toHaveLength(0);
+    expect(node?.connect).toHaveBeenCalledWith(gain);
+    expect(() => emit?.(Float32Array.from([0.25, -0.5]))).not.toThrow();
+
+    sink.close();
+    expect(node?.onaudioprocess).toBeNull();
+    expect(node?.disconnect).toHaveBeenCalled();
+    expect(gain?.disconnect).toHaveBeenCalled();
+  });
+
   it("tapers the slider position onto a 60 dB gain curve at creation and on change", async () => {
     createDecoder.mockResolvedValue({
       channels: 1,
