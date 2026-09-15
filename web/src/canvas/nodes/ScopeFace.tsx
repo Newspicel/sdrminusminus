@@ -54,6 +54,7 @@ import {
   COLORMAPS,
   type Colormap,
   DEFAULT_COLORMAP,
+  GRAPHICS_HELP,
   type WaterfallView,
 } from "../../gl/waterfall";
 import { bookmarksQuery } from "../../lib/api";
@@ -1021,7 +1022,10 @@ function Spectrum({
 
       {glError !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
-          <span className="rounded-[3px] border border-danger bg-bg/90 px-2 py-1 font-mono text-xs text-danger">
+          <span
+            className="pointer-events-auto rounded-[3px] border border-danger bg-bg/90 px-2 py-1 font-mono text-xs text-danger"
+            title={GRAPHICS_HELP}
+          >
             waterfall unavailable: {glError}
           </span>
         </div>

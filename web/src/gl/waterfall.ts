@@ -62,7 +62,12 @@ export interface WaterfallView {
 
 export type WaterfallStatus = (error: string | null) => void;
 
-const CONTEXT_LOST = "the graphics context was lost, waiting for the browser to restore it";
+const CONTEXT_LOST = "graphics context lost, waiting for it back";
+
+const NO_WEBGL2 = "no WebGL2 context";
+
+export const GRAPHICS_HELP =
+  "This system refused a WebGL2 context. On Linux it is usually the WebKitGTK renderer: start sdr-- with SDRMM_LINUX_GRAPHICS=safe, or run the sdrmm server and open it in a browser. See Troubleshooting in the documentation.";
 
 export function attachWaterfall(
   canvas: HTMLCanvasElement,
@@ -405,7 +410,7 @@ function create(): Shared {
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl2", { antialias: false, depth: false });
   if (!gl) {
-    throw new Error("WebGL2 is required for the waterfall display");
+    throw new Error(NO_WEBGL2);
   }
   canvas.addEventListener("webglcontextlost", onContextLost);
   canvas.addEventListener("webglcontextrestored", onContextRestored);

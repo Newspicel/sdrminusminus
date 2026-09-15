@@ -24,6 +24,41 @@ path problems before the engine claims any hardware.
 - If a reverse proxy serves sdr-- below a path prefix, reconfigure it to use a dedicated origin;
   the embedded application and API expect root-relative paths.
 
+## The Linux window is blank or the waterfall is broken
+
+The Linux desktop application draws through WebKitGTK, whose accelerated renderer misbehaves on
+some driver stacks, most often the proprietary NVIDIA driver, a virtual machine, or a session that
+has fallen back to software rendering. A blank window, torn or frozen panels, and a
+`waterfall unavailable: no WebGL2 context` message on a scope all point at it.
+
+Set `SDRMM_LINUX_GRAPHICS` and stop at the first value that works:
+
+| Value | Effect |
+| --- | --- |
+| `auto` (default) | Drops the DMABUF renderer where the NVIDIA kernel module is loaded |
+| `safe` | Drops the DMABUF renderer and accelerated compositing everywhere |
+| `off` | Changes nothing, for reporting a fault or confirming a driver fix |
+
+```sh
+SDRMM_LINUX_GRAPHICS=safe sdr--
+```
+
+`safe` costs waterfall framerate, so reach for it only where `auto` was not enough. A `WEBKIT_*`
+variable already present in the environment always wins, so the individual knobs in
+[Tauri's Linux graphics debugging guide](https://v2.tauri.app/develop/debug/linux-graphics/) stay
+available for narrowing a fault down. Startup records what it applied:
+
+```
+INFO sdrmm_desktop::graphics: linux webview rendering mode=Safe applied=["WEBKIT_DISABLE_DMABUF_RENDERER", "WEBKIT_DISABLE_COMPOSITING_MODE"]
+```
+
+If no value helps, run the headless server and open it in a browser. It serves the same interface
+the desktop window shows:
+
+```sh
+sdrmm --bind 127.0.0.1:8080
+```
+
 ## A token is rejected
 
 The UI stores the shared token in browser local storage for that origin. If the server token

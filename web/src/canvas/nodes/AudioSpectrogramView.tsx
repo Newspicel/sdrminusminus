@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { type Colormap, DEFAULT_COLORMAP } from "../../gl/colormap";
-import { attachWaterfall, type WaterfallView } from "../../gl/waterfall";
+import { attachWaterfall, GRAPHICS_HELP, type WaterfallView } from "../../gl/waterfall";
 import { monitorKey, watchAudio } from "../../lib/audio/monitor";
 import { AudioSpectrogram, audioNyquistHz } from "../../lib/dsp/audioSpectrum";
 
@@ -70,8 +70,13 @@ export function AudioSpectrogramView({
       ))}
 
       {error !== null && (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center px-2 text-center legend text-danger">
-          {error}
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center px-2">
+          <span
+            className="pointer-events-auto text-center legend text-danger"
+            title={GRAPHICS_HELP}
+          >
+            {error}
+          </span>
         </span>
       )}
     </div>

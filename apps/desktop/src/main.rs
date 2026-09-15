@@ -6,6 +6,7 @@ use anyhow::Context;
 use sdrmm_engine::Engine;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
+mod graphics;
 mod update;
 
 #[cfg(feature = "soapy")]
@@ -42,6 +43,8 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "info,sdrmm=debug".into()),
         )
         .init();
+
+    unsafe { graphics::configure() };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
