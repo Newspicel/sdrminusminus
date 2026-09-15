@@ -56,15 +56,15 @@ impl Format {
 
     fn parse(text: &str) -> Option<Self> {
         let (endian, rest) = text.split_once(':')?;
-        let (sign, rest) = rest.split_at(1);
-        let (bits, rest) = rest.split_once('/')?;
+        let sign = rest.chars().next()?;
+        let (bits, rest) = rest[sign.len_utf8()..].split_once('/')?;
         let (storage_bits, shift) = match rest.split_once(">>") {
             Some((storage, shift)) => (storage, shift.trim()),
             None => (rest, "0"),
         };
         Some(Self {
             little_endian: !endian.eq_ignore_ascii_case("be"),
-            signed: sign.eq_ignore_ascii_case("s"),
+            signed: sign.eq_ignore_ascii_case(&'s'),
             bits: bits.trim().parse().ok()?,
             storage_bits: storage_bits.trim().parse().ok()?,
             shift: shift.parse().ok()?,
@@ -386,6 +386,16 @@ mod tests {
 
         assert!(Format::parse("nonsense").is_none());
         assert!(Format::parse("le:S12").is_none());
+    }
+
+    #[test]
+    fn a_malformed_format_from_the_radio_is_refused_rather_than_panicked_on() {
+        assert!(Format::parse("le:").is_none());
+        assert!(Format::parse("le:S").is_none());
+        assert!(Format::parse(":").is_none());
+        let odd = Format::parse("le:é12/16>>0").expect("an unknown sign is unsigned");
+        assert!(!odd.signed);
+        assert_eq!(odd.bits, 12);
     }
 
     #[test]

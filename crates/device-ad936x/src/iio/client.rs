@@ -42,10 +42,7 @@ pub(crate) fn exec(
     timeout: Duration,
 ) -> Result<usize, DeviceError> {
     link.send(command)?;
-    let line = link.read_line(timeout)?;
-    proto::Response::parse(&line)
-        .ok_or_else(|| DeviceError::Io(format!("{what}: iiod answered {line:?}")))?
-        .bytes(what)
+    link.answer(what, timeout)
 }
 
 pub(crate) fn open_buffer(
@@ -117,12 +114,18 @@ impl Client {
     }
 
     pub(crate) fn context(&self) -> Result<Context, DeviceError> {
+        self.context_within(CONTROL_TIMEOUT)
+    }
+
+    /// The context with a patience of the caller's choosing, for a search that asks hosts nobody
+    /// said were radios.
+    pub(crate) fn context_within(&self, timeout: Duration) -> Result<Context, DeviceError> {
         let mut link = lock(&self.link);
         let bytes = exec(
             &mut link,
             &proto::print(),
             "ask the radio what it is",
-            CONTROL_TIMEOUT,
+            timeout,
         )?;
         if bytes > MAX_XML {
             return Err(oversized(
@@ -135,7 +138,7 @@ impl Client {
             ));
         }
         let mut xml = vec![0u8; bytes + 1];
-        link.read_exact(&mut xml, CONTROL_TIMEOUT)?;
+        link.read_exact(&mut xml, timeout)?;
         xml.truncate(bytes);
         Context::parse(&String::from_utf8_lossy(&xml))
     }
@@ -235,11 +238,7 @@ fn take_attr(link: &mut Link, command: &str, what: &str) -> Result<String, Devic
 fn put_attr(link: &mut Link, command: &str, payload: &[u8], what: &str) -> Result<(), DeviceError> {
     link.send(command)?;
     link.transport().send(payload)?;
-    let line = link.read_line(CONTROL_TIMEOUT)?;
-    proto::Response::parse(&line)
-        .ok_or_else(|| DeviceError::Io(format!("{what}: iiod answered {line:?}")))?
-        .bytes(what)
-        .map(drop)
+    link.answer(what, CONTROL_TIMEOUT).map(drop)
 }
 
 #[cfg(test)]

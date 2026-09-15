@@ -247,6 +247,9 @@ opt-level = 3
 [profile.dev.package.sdrmm-device-hackrf]
 opt-level = 3
 
+[profile.dev.package.sdrmm-device-ad936x]
+opt-level = 3
+
 [profile.dev.package.sdrmm-device-virtual]
 opt-level = 3
 

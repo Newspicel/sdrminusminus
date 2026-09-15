@@ -202,16 +202,21 @@ impl Reader<'_> {
         (!options.is_empty()).then_some(options)
     }
 
-    fn present(&self, direction: Direction, channel: &str, attr: &str) -> bool {
-        self.value(direction, channel, attr).is_some()
+    /// Whether the radio's own description of itself lists this receive attribute. The listing
+    /// is the same one every libiio client learns attribute names from, so it is not asked again.
+    fn present(&self, rx: &str, attr: &str) -> bool {
+        self.context
+            .device(self.phy)
+            .and_then(|device| device.channel(rx, false))
+            .is_some_and(|channel| channel.has(attr))
     }
 
     fn tracking(&self, rx: &str) -> Tracking {
         Tracking {
-            quadrature: self.present(Direction::In, rx, QUADRATURE_TRACKING),
-            rf_dc: self.present(Direction::In, rx, RF_DC_TRACKING),
-            bb_dc: self.present(Direction::In, rx, BB_DC_TRACKING),
-            fir: self.present(Direction::In, rx, FILTER_FIR_EN),
+            quadrature: self.present(rx, QUADRATURE_TRACKING),
+            rf_dc: self.present(rx, RF_DC_TRACKING),
+            bb_dc: self.present(rx, BB_DC_TRACKING),
+            fir: self.present(rx, FILTER_FIR_EN),
         }
     }
 

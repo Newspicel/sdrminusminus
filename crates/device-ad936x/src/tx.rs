@@ -7,7 +7,7 @@ use sdrmm_device::{DeviceError, Direction, DuplexState, Sample, TxStream, lock};
 
 use crate::{
     convert::to_elements,
-    iio::{Link, Response, close_buffer, mask, open_buffer, set_remote_timeout, write_buf},
+    iio::{Link, close_buffer, mask, open_buffer, set_remote_timeout, write_buf},
     layout::Stream,
     source::Source,
 };
@@ -69,25 +69,21 @@ impl Ad936xTx {
             return Err(DeviceError::Io("transmit stream is stopped".to_string()));
         };
         link.send(&write_buf(&self.device, self.bytes.len()))?;
-        answer(link, "offer a transmit buffer")?;
+        link.answer("offer a transmit buffer", WRITE_TIMEOUT)?;
         link.transport().send(&self.bytes)?;
-        answer(link, "hand over a transmit buffer")
+        link.answer("hand over a transmit buffer", WRITE_TIMEOUT)
     }
 
+    /// Gives the buffer and the transmit claim back, once: a stream that was stopped and is
+    /// then dropped must not release a claim a newer stream has since taken.
     fn release(&mut self) {
-        if let Some(mut link) = self.link.take() {
-            close_buffer(&mut link, &self.device);
-            link.close();
-        }
+        let Some(mut link) = self.link.take() else {
+            return;
+        };
+        close_buffer(&mut link, &self.device);
+        link.close();
         lock(&self.duplex).release(Direction::Tx);
     }
-}
-
-fn answer(link: &mut Link, what: &str) -> Result<usize, DeviceError> {
-    let line = link.read_line(WRITE_TIMEOUT)?;
-    Response::parse(&line)
-        .ok_or_else(|| DeviceError::Io(format!("{what}: iiod answered {line:?}")))?
-        .bytes(what)
 }
 
 /// Lays the lanes out the way the buffer carries them: one sample of each, in lane order.

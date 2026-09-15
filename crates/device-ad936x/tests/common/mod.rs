@@ -2,14 +2,11 @@
 use std::{
     collections::HashMap,
     io::{Read as _, Write as _},
-    net::{TcpListener, TcpStream},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    net::TcpStream,
+    sync::{Arc, Mutex},
 };
 
-use sdrmm_device::lock;
+use sdrmm_device::{lock, net::testing::FakeServer};
 
 /// What one lane of the receive buffer carries, as a repeating run of counts. The driver turns
 /// these into samples, so a test can name the values it expects back.
@@ -23,7 +20,7 @@ pub struct Recorded {
 }
 
 pub struct FakeIiod {
-    port: u16,
+    server: FakeServer,
     state: Arc<State>,
 }
 
@@ -31,7 +28,6 @@ struct State {
     xml: String,
     attributes: Mutex<HashMap<String, String>>,
     recorded: Mutex<Recorded>,
-    connections: AtomicUsize,
     refuse: Mutex<Option<(String, i32)>>,
 }
 
@@ -41,32 +37,23 @@ impl FakeIiod {
     }
 
     pub fn with(xml: String, attributes: HashMap<String, String>) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-        let port = listener.local_addr().expect("addr").port();
         let state = Arc::new(State {
             xml,
             attributes: Mutex::new(attributes),
             recorded: Mutex::new(Recorded::default()),
-            connections: AtomicUsize::new(0),
             refuse: Mutex::new(None),
         });
         let served = state.clone();
-        std::thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let state = served.clone();
-                state.connections.fetch_add(1, Ordering::SeqCst);
-                std::thread::spawn(move || serve(&state, stream));
-            }
-        });
-        Self { port, state }
+        let server = FakeServer::spawn(move |stream, _| serve(&served, stream));
+        Self { server, state }
     }
 
     pub fn endpoint(&self) -> String {
-        format!("127.0.0.1:{}", self.port)
+        self.server.endpoint()
     }
 
     pub fn connections(&self) -> usize {
-        self.state.connections.load(Ordering::SeqCst)
+        self.server.connections()
     }
 
     pub fn attribute(&self, key: &str) -> Option<String> {
@@ -85,10 +72,11 @@ impl FakeIiod {
         lock(&self.state.recorded).transmitted.clone()
     }
 
-    /// Makes the radio refuse every command whose first word is `command`, the way a real one
-    /// answers when the hardware will not take a setting.
-    pub fn refuse(&self, command: &str, errno: i32) {
-        *lock(&self.state.refuse) = Some((command.to_string(), errno));
+    /// Makes the radio refuse every command that starts with `prefix`, a bare command word or
+    /// one naming the attribute, the way a real one answers when the hardware will not take a
+    /// setting.
+    pub fn refuse(&self, prefix: &str, errno: i32) {
+        *lock(&self.state.refuse) = Some((prefix.to_string(), errno));
     }
 }
 
@@ -110,7 +98,7 @@ fn handle(state: &Arc<State>, stream: &mut TcpStream, line: &str) -> Option<()> 
     let words: Vec<&str> = line.split_whitespace().collect();
     let command = *words.first()?;
     if let Some((refused, errno)) = lock(&state.refuse).clone()
-        && refused == command
+        && line.starts_with(&refused)
     {
         // A refused write still takes its payload, or the conversation is left desynchronised.
         if command == "WRITE"

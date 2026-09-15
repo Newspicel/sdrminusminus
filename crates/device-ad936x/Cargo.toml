@@ -16,6 +16,7 @@ sdrmm-device = { workspace = true, features = ["net"] }
 num-complex.workspace = true
 serde_json.workspace = true
 nusb.workspace = true
+sdrmm-usb-stream.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use sdrmm_device::{
     DeviceError, StreamFailure,
-    net::{Connection, Endpoint, Read},
+    net::{CONNECT_TIMEOUT, Connection, Endpoint, Read},
 };
 
 use crate::iio::link::{Stopper, Transport};
@@ -14,8 +14,15 @@ pub(crate) struct NetTransport {
 
 impl NetTransport {
     pub(crate) fn connect(endpoint: &Endpoint) -> Result<Self, DeviceError> {
+        Self::connect_within(endpoint, CONNECT_TIMEOUT)
+    }
+
+    pub(crate) fn connect_within(
+        endpoint: &Endpoint,
+        timeout: Duration,
+    ) -> Result<Self, DeviceError> {
         Ok(Self {
-            connection: Connection::new(endpoint.connect()?),
+            connection: Connection::new(endpoint.connect_within(timeout)?),
         })
     }
 }
@@ -25,7 +32,7 @@ impl Transport for NetTransport {
         self.connection.send(bytes)
     }
 
-    fn read(&self, buf: &mut [u8], timeout: Duration) -> Read {
+    fn read(&self, buf: &mut [u8], _wanted: usize, timeout: Duration) -> Read {
         self.connection.read(buf, timeout)
     }
 
@@ -70,7 +77,7 @@ mod tests {
         let transport = NetTransport::connect(&endpoint).expect("connect");
         transport.send(b"VERSION\r\n").expect("send");
         let mut buf = [0u8; 32];
-        let Read::Got(n) = transport.read(&mut buf, Duration::from_secs(5)) else {
+        let Read::Got(n) = transport.read(&mut buf, 1, Duration::from_secs(5)) else {
             panic!("the server answered");
         };
         assert_eq!(&buf[..n], b"1.1.deadbee\n");

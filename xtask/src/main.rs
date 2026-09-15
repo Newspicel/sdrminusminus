@@ -1003,15 +1003,15 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         .filter(|(path, _)| path.components().any(in_modules))
         .map(|(_, name)| name)
         .collect();
-    for native in ["rtlsdr", "hackrf"] {
+    for native in ["rtlsdr", "hackrf", "pluto"] {
         ensure!(
             !staged_modules.iter().any(|name| name.contains(native)),
-            "{} carries a Soapy {native} module. This build drives {native} over its own USB \
+            "{} carries a Soapy {native} module. This build drives {native} over its own \
              stack and hides it from Soapy, so the bundled module could never be reached.",
             dir.display()
         );
     }
-    let curated = ["airspyhf", "bladerf", "lms7", "pluto", "remote"];
+    let curated = ["airspyhf", "bladerf", "lms7", "remote"];
     for module in curated {
         ensure!(
             has(module),

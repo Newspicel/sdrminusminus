@@ -8,7 +8,11 @@ use sdrmm_device::{
     DeviceDriver, DeviceError, RxSink, Sample, SdrDevice, lock, net::testing::eventually,
 };
 use sdrmm_device_ad936x::Ad936xDriver;
-use sdrmm_wire::{Coherence, DcArtifact, DeviceSettings, Duplex, ExtraValue, GainValue};
+use sdrmm_wire::{
+    Coherence, DcArtifact, DeviceSettings, Duplex, ExtraValue, GainValue, StreamSettings,
+};
+
+const SERIAL: &str = "1044734c960500111e002e0041984fc267";
 
 type Lane = Arc<Mutex<Vec<Sample>>>;
 
@@ -126,6 +130,60 @@ fn a_two_by_two_radio_is_recognised_as_one() {
     assert_eq!(caps.coherence, Coherence::PhaseCoherent);
     assert!(caps.per_stream.gain);
     assert!(!caps.per_stream.tuning);
+    assert_eq!(
+        device.settings().streams,
+        vec![StreamSettings {
+            stream: 1,
+            center_hz: None,
+            gains: vec![GainValue {
+                stage: "RX".to_string(),
+                value_db: 40.0
+            }],
+            antenna: Some("A_BALANCED".to_string()),
+        }],
+        "the second lane reports its own state"
+    );
+}
+
+#[test]
+fn a_gain_for_the_whole_radio_reaches_both_lanes_and_a_lane_of_its_own_stays_apart() {
+    let server = FakeIiod::spawn(2);
+    let mut device = open(&server);
+    device
+        .apply(&DeviceSettings {
+            gains: vec![GainValue {
+                stage: "RX".to_string(),
+                value_db: 30.0,
+            }],
+            antenna: Some("B_BALANCED".to_string()),
+            streams: vec![StreamSettings {
+                stream: 1,
+                gains: vec![GainValue {
+                    stage: "RX".to_string(),
+                    value_db: 20.0,
+                }],
+                ..StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        })
+        .expect("the radio took it");
+    assert_eq!(
+        server.attribute("ad9361-phy/INPUT/voltage0/hardwaregain"),
+        Some("30.000000".to_string())
+    );
+    assert_eq!(
+        server.attribute("ad9361-phy/INPUT/voltage1/hardwaregain"),
+        Some("20.000000".to_string())
+    );
+    assert_eq!(
+        server.attribute("ad9361-phy/INPUT/voltage1/rf_port_select"),
+        Some("B_BALANCED".to_string())
+    );
+    let lane = device
+        .settings()
+        .for_stream(1, &device.capabilities().per_stream);
+    assert_eq!(lane.gains[0].value_db, 20.0);
+    assert_eq!(lane.antenna.as_deref(), Some("B_BALANCED"));
 }
 
 #[test]
@@ -203,6 +261,27 @@ fn a_setting_the_radio_refuses_surfaces_instead_of_being_believed() {
         Some(2_400_000_000.0),
         "a refused setting must not be reported as taken"
     );
+}
+
+#[test]
+fn a_refusal_part_way_leaves_the_settings_describing_what_the_radio_holds() {
+    let server = FakeIiod::spawn(1);
+    let mut device = open(&server);
+    server.refuse("WRITE ad9361-phy OUTPUT altvoltage0 frequency", -22);
+    let error = device
+        .apply(&DeviceSettings {
+            sample_rate: Some(4_000_000.0),
+            center_hz: Some(433_920_000.0),
+            ..DeviceSettings::default()
+        })
+        .expect_err("the dial was refused");
+    assert!(error.to_string().contains("frequency"), "{error}");
+    assert_eq!(
+        device.settings().sample_rate,
+        Some(4_000_000.0),
+        "the rate was written before the refusal and the radio is converting at it"
+    );
+    assert_eq!(device.settings().center_hz, Some(2_400_000_000.0));
 }
 
 #[test]
@@ -363,6 +442,22 @@ fn transmitting_hands_the_radio_the_samples_it_was_given() {
 }
 
 #[test]
+fn dropping_a_stopped_transmit_stream_does_not_release_the_stream_that_replaced_it() {
+    let server = FakeIiod::spawn(1);
+    let mut device = open(&server);
+    let mut first = device.tx_start().expect("a transmit stream");
+    first.stop().expect("stops");
+    let second = device.tx_start().expect("the claim was given back");
+    drop(first);
+    assert!(
+        device.tx_start().is_err(),
+        "the second stream still holds the transmitter"
+    );
+    drop(second);
+    device.tx_start().expect("and gives it back when it goes");
+}
+
+#[test]
 fn a_radio_can_receive_and_transmit_at_the_same_time() {
     let server = FakeIiod::spawn(1);
     let mut device = open(&server);
@@ -406,17 +501,48 @@ fn a_radio_that_is_not_an_ad936x_is_refused_by_name() {
 }
 
 #[test]
-fn a_search_finds_a_radio_at_an_address_it_was_told_about() {
+fn a_radio_at_an_address_it_was_told_about_is_listed_without_a_search() {
     let server = FakeIiod::spawn(1);
-    let driver = Ad936xDriver::new();
-    assert!(
-        !driver
-            .probe()
-            .iter()
-            .any(|found| found.key.contains("127.0.0.1"))
-    );
+    let driver = Ad936xDriver::searching([]);
+    assert!(driver.probe().is_empty());
     let info = driver.resolve(&server.endpoint()).expect("addressable");
     assert_eq!(info.driver, "ad936x");
     assert!(driver.probe().contains(&info));
     assert!(driver.probe_deep().contains(&info));
+}
+
+#[test]
+fn a_search_tries_the_addresses_it_was_given_and_names_what_it_finds_by_serial() {
+    let server = FakeIiod::spawn(1);
+    let driver = Ad936xDriver::searching([server.endpoint(), "127.0.0.1:1".to_string()]);
+    assert!(
+        driver.probe().is_empty(),
+        "nothing is known before a search"
+    );
+    let found = driver.probe_deep();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].key, server.endpoint());
+    assert_eq!(found[0].serial.as_deref(), Some(SERIAL));
+    assert!(driver.probe().contains(&found[0]), "and it stays known");
+}
+
+#[test]
+fn opening_a_radio_by_two_addresses_lists_it_once_by_its_serial() {
+    let server = FakeIiod::spawn(1);
+    let driver = Ad936xDriver::searching([]);
+    let port = server
+        .endpoint()
+        .rsplit(':')
+        .next()
+        .expect("port")
+        .to_string();
+    let by_address = driver.resolve(&server.endpoint()).expect("addressable");
+    let by_name = driver
+        .resolve(&format!("localhost:{port}"))
+        .expect("addressable");
+    drop(driver.open(&by_address).expect("opens"));
+    drop(driver.open(&by_name).expect("opens"));
+    let listed = driver.probe();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].serial.as_deref(), Some(SERIAL));
 }

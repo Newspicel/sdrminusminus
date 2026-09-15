@@ -11,11 +11,17 @@ use sdrmm_device::{
     net::{Read, SocketStop},
 };
 
+use crate::iio::proto::Response;
+
 /// Bytes pulled from the transport in one go. A multiple of every bulk packet size a full-speed
 /// or high-speed endpoint can have, so a USB transfer is never refused for its length.
 const BUFFER: usize = 65_536;
 
 const MAX_LINE: usize = 1024;
+
+/// A payload at least this long is read straight into the caller's slice rather than staged
+/// through the buffer, so a sample block costs one copy rather than two.
+const DIRECT_MIN: usize = 4096;
 
 /// One IIOD conversation: a socket, or one endpoint couple of the USB interface.
 ///
@@ -23,7 +29,9 @@ const MAX_LINE: usize = 1024;
 /// of these for the buffer and another for everything else.
 pub(crate) trait Transport: Send + Sync + 'static {
     fn send(&self, bytes: &[u8]) -> Result<(), DeviceError>;
-    fn read(&self, buf: &mut [u8], timeout: Duration) -> Read;
+    /// Reads into `buf`, done as soon as `wanted` bytes are in hand. A transport that moves
+    /// whole packets may hand over more than `wanted`, never more than `buf` holds.
+    fn read(&self, buf: &mut [u8], wanted: usize, timeout: Duration) -> Read;
     fn fail(&self, reason: String);
     fn failure(&self) -> StreamFailure;
     fn close(&self);
@@ -33,7 +41,7 @@ pub(crate) trait Transport: Send + Sync + 'static {
 /// Ends a parked read from outside the thread doing it.
 ///
 /// A socket is shut down, which wakes the read at once; a USB endpoint has no such door, so its
-/// reads are bounded and the flag stops the next one from being issued.
+/// reads look for the flag while they wait and cancel their transfer when it is raised.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Stopper {
     socket: Option<SocketStop>,
@@ -126,7 +134,7 @@ impl Link {
     }
 
     /// Pulls one transport read into the buffer, moving whatever is left over to the front first.
-    fn fill(&mut self, timeout: Duration) -> Read {
+    fn fill(&mut self, wanted: usize, timeout: Duration) -> Read {
         if self.start > 0 {
             self.buf.copy_within(self.start..self.end, 0);
             self.end -= self.start;
@@ -135,7 +143,10 @@ impl Link {
         if self.end == self.buf.len() {
             return Read::Idle;
         }
-        match self.transport.read(&mut self.buf[self.end..], timeout) {
+        match self
+            .transport
+            .read(&mut self.buf[self.end..], wanted, timeout)
+        {
             Read::Got(n) => {
                 self.end += n;
                 Read::Got(n)
@@ -147,10 +158,13 @@ impl Link {
     /// Takes whatever is already here, pulling once if nothing is. Never waits past `timeout`, so
     /// a capture thread stays responsive to a stop between the pieces of one answer.
     pub(crate) fn take(&mut self, dst: &mut [u8], timeout: Duration) -> Read {
-        if self.buffered().is_empty()
-            && let ended @ (Read::Idle | Read::Ended) = self.fill(timeout)
-        {
-            return ended;
+        if self.buffered().is_empty() {
+            if dst.len() >= DIRECT_MIN {
+                return self.transport.read(dst, dst.len(), timeout);
+            }
+            if let ended @ (Read::Idle | Read::Ended) = self.fill(dst.len(), timeout) {
+                return ended;
+            }
         }
         let taken = self.buffered().len().min(dst.len());
         dst[..taken].copy_from_slice(&self.buffered()[..taken]);
@@ -163,21 +177,48 @@ impl Link {
     pub(crate) fn read_line(&mut self, timeout: Duration) -> Result<String, DeviceError> {
         let deadline = Instant::now() + timeout;
         loop {
-            if let Some(end) = self.buffered().iter().position(|byte| *byte == b'\n') {
-                let line = String::from_utf8_lossy(&self.buffered()[..end])
-                    .trim_end_matches('\r')
-                    .to_string();
-                self.consume(end + 1);
-                if !line.trim().is_empty() {
-                    return Ok(line);
-                }
-                continue;
-            }
-            if self.buffered().len() > MAX_LINE {
-                return Err(self.broken("iiod sent an answer line with no end to it"));
+            if let Some(line) = self.next_line()? {
+                return Ok(line);
             }
             self.wait(deadline, "an answer line")?;
         }
+    }
+
+    /// One answer line if it arrives within `timeout`, and nothing rather than a broken link if
+    /// it does not, so a caller polling between blocks can come back for it.
+    pub(crate) fn poll_line(&mut self, timeout: Duration) -> Result<Option<String>, DeviceError> {
+        if let Some(line) = self.next_line()? {
+            return Ok(Some(line));
+        }
+        match self.fill(1, timeout) {
+            Read::Got(_) => self.next_line(),
+            Read::Idle => Ok(None),
+            Read::Ended => Err(self.ended()),
+        }
+    }
+
+    fn next_line(&mut self) -> Result<Option<String>, DeviceError> {
+        loop {
+            let Some(end) = self.buffered().iter().position(|byte| *byte == b'\n') else {
+                if self.buffered().len() > MAX_LINE {
+                    return Err(self.broken("iiod sent an answer line with no end to it"));
+                }
+                return Ok(None);
+            };
+            let line = String::from_utf8_lossy(&self.buffered()[..end])
+                .trim_end_matches('\r')
+                .to_string();
+            self.consume(end + 1);
+            if !line.trim().is_empty() {
+                return Ok(Some(line));
+            }
+        }
+    }
+
+    /// The byte count IIOD answers a command with, or the refusal it answered instead.
+    pub(crate) fn answer(&mut self, what: &str, timeout: Duration) -> Result<usize, DeviceError> {
+        let line = self.read_line(timeout)?;
+        parse_answer(&line, what)
     }
 
     pub(crate) fn read_exact(
@@ -220,7 +261,7 @@ impl Link {
     }
 
     fn wait(&mut self, deadline: Instant, what: &str) -> Result<(), DeviceError> {
-        match self.fill(remaining(deadline)) {
+        match self.fill(1, remaining(deadline)) {
             Read::Got(_) => Ok(()),
             Read::Idle => self.at_deadline(deadline, what),
             Read::Ended => Err(self.ended()),
@@ -239,7 +280,7 @@ impl Link {
         DeviceError::Io(reason.to_string())
     }
 
-    fn ended(&self) -> DeviceError {
+    pub(crate) fn ended(&self) -> DeviceError {
         let failure = self.transport.failure();
         if failure.gone {
             DeviceError::Disconnected(failure.reason)
@@ -249,34 +290,50 @@ impl Link {
     }
 }
 
-fn remaining(deadline: Instant) -> Duration {
+pub(crate) fn parse_answer(line: &str, what: &str) -> Result<usize, DeviceError> {
+    Response::parse(line)
+        .ok_or_else(|| DeviceError::Io(format!("{what}: iiod answered {line:?}")))?
+        .bytes(what)
+}
+
+pub(crate) fn remaining(deadline: Instant) -> Duration {
     deadline
         .saturating_duration_since(Instant::now())
         .max(Duration::from_millis(1))
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod testing {
     use std::sync::Mutex;
 
     use sdrmm_device::lock;
 
     use super::*;
 
+    /// A transport that answers from a script, one chunk per read, and is quiet once it runs out.
     #[derive(Debug, Default)]
-    struct Scripted {
+    pub(crate) struct Scripted {
         chunks: Mutex<Vec<Vec<u8>>>,
-        sent: Mutex<Vec<u8>>,
+        pub(crate) sent: Mutex<Vec<u8>>,
         failure: Mutex<Option<String>>,
     }
 
     impl Scripted {
-        fn with(chunks: &[&[u8]]) -> Arc<Self> {
-            Arc::new(Self {
-                chunks: Mutex::new(chunks.iter().rev().map(|c| c.to_vec()).collect()),
-                sent: Mutex::new(Vec::new()),
-                failure: Mutex::new(None),
-            })
+        pub(crate) fn with(chunks: &[&[u8]]) -> Arc<Self> {
+            let scripted = Arc::new(Self::default());
+            scripted.feed(chunks);
+            scripted
+        }
+
+        pub(crate) fn feed(&self, chunks: &[&[u8]]) {
+            let mut queued = lock(&self.chunks);
+            for chunk in chunks {
+                queued.insert(0, chunk.to_vec());
+            }
+        }
+
+        pub(crate) fn failed(&self) -> Option<String> {
+            lock(&self.failure).clone()
         }
     }
 
@@ -286,7 +343,7 @@ mod tests {
             Ok(())
         }
 
-        fn read(&self, buf: &mut [u8], _timeout: Duration) -> Read {
+        fn read(&self, buf: &mut [u8], _wanted: usize, _timeout: Duration) -> Read {
             let mut chunks = lock(&self.chunks);
             let Some(chunk) = chunks.last_mut() else {
                 return Read::Idle;
@@ -322,6 +379,13 @@ mod tests {
             Stopper::flag()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_device::lock;
+
+    use super::{testing::Scripted, *};
 
     fn link(chunks: &[&[u8]]) -> Link {
         Link::new(Scripted::with(chunks))
@@ -362,6 +426,41 @@ mod tests {
     }
 
     #[test]
+    fn polling_for_a_line_that_has_not_come_leaves_the_link_whole() {
+        let transport = Scripted::with(&[]);
+        let mut link = Link::new(transport.clone());
+        assert_eq!(link.poll_line(SHORT).expect("quiet"), None);
+        assert_eq!(
+            transport.failed(),
+            None,
+            "a quiet radio is not a broken one"
+        );
+        transport.feed(&[b"40", b"96\n"]);
+        assert_eq!(
+            link.poll_line(SHORT).expect("half a line"),
+            None,
+            "a line is not handed over until it ends"
+        );
+        assert_eq!(
+            link.poll_line(SHORT).expect("line"),
+            Some("4096".to_string()),
+            "and the half that came first is not lost"
+        );
+    }
+
+    #[test]
+    fn an_answer_is_the_count_it_carries_or_the_refusal_it_is() {
+        let mut link = link(&[b"4096\n-22\nwhat\n"]);
+        assert_eq!(link.answer("refill", SHORT).expect("count"), 4096);
+        assert!(matches!(
+            link.answer("set rate", SHORT),
+            Err(DeviceError::Unsupported(_))
+        ));
+        let error = link.answer("read", SHORT).expect_err("not a number");
+        assert!(error.to_string().contains("what"), "{error}");
+    }
+
+    #[test]
     fn take_hands_over_what_is_buffered_without_waiting_for_the_rest() {
         let mut link = link(&[b"abcdef"]);
         let mut dst = [0u8; 4];
@@ -370,6 +469,17 @@ mod tests {
         assert_eq!(link.take(&mut dst, SHORT), Read::Got(2));
         assert_eq!(&dst[..2], b"ef");
         assert_eq!(link.take(&mut dst, SHORT), Read::Idle);
+    }
+
+    #[test]
+    fn a_large_payload_is_read_straight_into_its_destination() {
+        let payload: Vec<u8> = (0..DIRECT_MIN * 2).map(|n| n as u8).collect();
+        let mut link = link(&[b"8192\n", &payload, b"0\n"]);
+        assert_eq!(link.answer("refill", SHORT).expect("count"), payload.len());
+        let mut dst = vec![0u8; payload.len()];
+        link.read_exact(&mut dst, SHORT).expect("payload");
+        assert_eq!(dst, payload);
+        assert_eq!(link.answer("refill", SHORT).expect("end"), 0);
     }
 
     #[test]

@@ -1,8 +1,10 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
-use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue};
+use sdrmm_wire::{
+    Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, StreamSettings,
+};
 
 use crate::{
-    caps::{BB_DC, FIR, Front, GAIN_MODE, QUADRATURE, RF_DC, TX_PORT, TX_STAGE},
+    caps::{BB_DC, FIR, Front, GAIN_MODE, QUADRATURE, RF_DC, RX_STAGE, TX_PORT, TX_STAGE},
     iio::{Client, Direction},
     layout::{
         BB_DC_TRACKING, FILTER_FIR_EN, FREQUENCY, GAIN_CONTROL_MODE, HARDWAREGAIN, Layout,
@@ -81,28 +83,62 @@ pub(crate) fn plan(
     plan_bandwidth(delta, capabilities, front, layout, &mut writes)?;
     plan_tuning(delta, capabilities, layout, &mut writes)?;
     plan_trim(delta, front, &mut writes)?;
-    plan_gains(&delta.gains, capabilities, layout, 0, &mut writes)?;
-    plan_antenna(
-        delta.antenna.as_deref(),
-        capabilities,
-        layout,
-        0,
-        &mut writes,
-    )?;
+    plan_lanes(delta, capabilities, layout, &mut writes)?;
     plan_extra(delta, capabilities, front, layout, &mut writes)?;
+    settle_lanes(&mut next, delta);
+    next.gains = snapped(&next.gains, capabilities);
+    for stream in &mut next.streams {
+        stream.gains = snapped(&stream.gains, capabilities);
+    }
+    Ok((next, writes))
+}
+
+/// A top-level value reached every lane, so a lane's own earlier value for it is gone unless
+/// this same delta set the lane apart again.
+fn settle_lanes(next: &mut DeviceSettings, delta: &DeviceSettings) {
+    for stream in &mut next.streams {
+        let own = delta.streams.iter().find(|s| s.stream == stream.stream);
+        if delta.antenna.is_some() && own.is_none_or(|s| s.antenna.is_none()) {
+            stream.antenna = None;
+        }
+        for gain in &delta.gains {
+            if own.is_none_or(|s| s.gains.iter().all(|g| g.stage != gain.stage)) {
+                stream.gains.retain(|g| g.stage != gain.stage);
+            }
+        }
+    }
+}
+
+/// The top-level gain and antenna are every lane's, and a `streams` entry is one lane's own on
+/// top of that, which is the contract `DeviceSettings::for_stream` reads them by.
+fn plan_lanes(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+    layout: &Layout,
+    writes: &mut Vec<Write>,
+) -> Result<(), DeviceError> {
+    plan_gains(&delta.gains, capabilities, layout, None, writes)?;
+    plan_antenna(delta.antenna.as_deref(), capabilities, layout, None, writes)?;
     for stream in &delta.streams {
-        let lane = stream.stream as usize;
-        plan_gains(&stream.gains, capabilities, layout, lane, &mut writes)?;
+        let lane = Some(stream.stream as usize);
+        plan_gains(&stream.gains, capabilities, layout, lane, writes)?;
         plan_antenna(
             stream.antenna.as_deref(),
             capabilities,
             layout,
             lane,
-            &mut writes,
+            writes,
         )?;
     }
-    next.gains = snapped(&next.gains, capabilities);
-    Ok((next, writes))
+    Ok(())
+}
+
+/// The lanes a setting reaches: the one named, or every one this direction has.
+fn lanes(layout: &Layout, output: bool, lane: Option<usize>) -> std::ops::Range<usize> {
+    match lane {
+        Some(lane) => lane..lane + 1,
+        None => 0..layout.ports(output).len(),
+    }
 }
 
 fn plan_rate(
@@ -211,7 +247,7 @@ fn plan_gains(
     gains: &[GainValue],
     capabilities: &Capabilities,
     layout: &Layout,
-    lane: usize,
+    lane: Option<usize>,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
     for gain in gains {
@@ -223,15 +259,24 @@ fn plan_gains(
                 DeviceError::Unsupported(format!("this radio has no {} gain stage", gain.stage))
             })?;
         let output = stage.name == TX_STAGE;
-        let port = layout.port(output, lane).ok_or_else(|| {
-            DeviceError::Unsupported(format!("this radio has no {} lane {lane}", gain.stage))
-        })?;
-        writes.push(Write::channel(
-            output,
-            port,
-            HARDWAREGAIN,
-            decibels(stage.snap(gain.value_db)),
-        ));
+        let reached = lanes(layout, output, lane);
+        if reached.is_empty() {
+            return Err(DeviceError::Unsupported(format!(
+                "this radio has no {} lane to set",
+                gain.stage
+            )));
+        }
+        for lane in reached {
+            let port = layout.port(output, lane).ok_or_else(|| {
+                DeviceError::Unsupported(format!("this radio has no {} lane {lane}", gain.stage))
+            })?;
+            writes.push(Write::channel(
+                output,
+                port,
+                HARDWAREGAIN,
+                decibels(stage.snap(gain.value_db)),
+            ));
+        }
     }
     Ok(())
 }
@@ -240,7 +285,7 @@ fn plan_antenna(
     antenna: Option<&str>,
     capabilities: &Capabilities,
     layout: &Layout,
-    lane: usize,
+    lane: Option<usize>,
     writes: &mut Vec<Write>,
 ) -> Result<(), DeviceError> {
     let Some(antenna) = antenna else {
@@ -252,12 +297,14 @@ fn plan_antenna(
             capabilities.antennas.join(", ")
         )));
     }
-    writes.push(Write::channel(
-        false,
-        rx_port(layout, lane)?,
-        RF_PORT_SELECT,
-        antenna.to_string(),
-    ));
+    for lane in lanes(layout, false, lane) {
+        writes.push(Write::channel(
+            false,
+            rx_port(layout, lane)?,
+            RF_PORT_SELECT,
+            antenna.to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -426,8 +473,40 @@ pub(crate) fn read_settings(
         ppm: read_ppm(client, front, phy),
         gains: read_gains(capabilities, layout, &read),
         extra: read_extra(capabilities, layout, &read),
+        streams: read_streams(capabilities, layout, &read),
         ..DeviceSettings::default()
     }
+}
+
+/// What every lane past the first holds of its own, so a two-lane board whose lanes were set
+/// apart comes back that way rather than as two copies of lane 0.
+fn read_streams(
+    capabilities: &Capabilities,
+    layout: &Layout,
+    read: &dyn Fn(Direction, &str, &str) -> Option<String>,
+) -> Vec<StreamSettings> {
+    if !capabilities.per_stream.gain && !capabilities.per_stream.antenna {
+        return Vec::new();
+    }
+    (1..layout.ports(false).len())
+        .filter_map(|lane| {
+            let port = layout.port(false, lane)?;
+            let gain = read(Direction::In, port, HARDWAREGAIN).and_then(|v| number(&v));
+            Some(StreamSettings {
+                stream: lane as u32,
+                center_hz: None,
+                gains: gain
+                    .map(|value_db| {
+                        vec![GainValue {
+                            stage: RX_STAGE.to_string(),
+                            value_db,
+                        }]
+                    })
+                    .unwrap_or_default(),
+                antenna: read(Direction::In, port, RF_PORT_SELECT),
+            })
+        })
+        .collect()
 }
 
 fn read_ppm(client: &Client, front: &Front, phy: &str) -> Option<f64> {
@@ -602,9 +681,53 @@ mod tests {
             writes,
             vec![
                 channel(false, "voltage0", HARDWAREGAIN, "40.000000"),
+                channel(false, "voltage1", HARDWAREGAIN, "40.000000"),
                 channel(true, "voltage0", HARDWAREGAIN, "-10.000000"),
+                channel(true, "voltage1", HARDWAREGAIN, "-10.000000"),
             ],
-            "each stage snaps to a setting the part can actually hold"
+            "a top-level gain is every lane's, snapped to a setting the part can hold"
+        );
+    }
+
+    #[test]
+    fn a_top_level_antenna_reaches_every_receive_lane() {
+        let writes = planned(DeviceSettings {
+            antenna: Some("B_BALANCED".to_string()),
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", RF_PORT_SELECT, "B_BALANCED"),
+                channel(false, "voltage1", RF_PORT_SELECT, "B_BALANCED"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lane_of_its_own_is_written_after_the_base_every_lane_shares() {
+        let writes = planned(DeviceSettings {
+            gains: vec![GainValue {
+                stage: RX_STAGE.to_string(),
+                value_db: 30.0,
+            }],
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 1,
+                gains: vec![GainValue {
+                    stage: RX_STAGE.to_string(),
+                    value_db: 20.0,
+                }],
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        });
+        assert_eq!(
+            writes,
+            vec![
+                channel(false, "voltage0", HARDWAREGAIN, "30.000000"),
+                channel(false, "voltage1", HARDWAREGAIN, "30.000000"),
+                channel(false, "voltage1", HARDWAREGAIN, "20.000000"),
+            ]
         );
     }
 
@@ -802,6 +925,56 @@ mod tests {
             "what was set before survives"
         );
         assert_eq!(next.gains[0].value_db, 40.0);
+    }
+
+    #[test]
+    fn a_value_for_every_lane_clears_what_a_lane_held_apart_unless_it_is_set_apart_again() {
+        let layout = crate::layout::tests::two_by_two_layout();
+        let front = front();
+        let capabilities = capabilities(&front, &layout);
+        let held = DeviceSettings {
+            antenna: Some("A_BALANCED".to_string()),
+            gains: vec![GainValue {
+                stage: RX_STAGE.to_string(),
+                value_db: 40.0,
+            }],
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 1,
+                gains: vec![GainValue {
+                    stage: RX_STAGE.to_string(),
+                    value_db: 20.0,
+                }],
+                antenna: Some("B_BALANCED".to_string()),
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        let (next, _) = plan(
+            &DeviceSettings {
+                antenna: Some("A_BALANCED".to_string()),
+                gains: vec![GainValue {
+                    stage: RX_STAGE.to_string(),
+                    value_db: 30.0,
+                }],
+                streams: vec![sdrmm_wire::StreamSettings {
+                    stream: 1,
+                    gains: vec![GainValue {
+                        stage: RX_STAGE.to_string(),
+                        value_db: 10.0,
+                    }],
+                    ..sdrmm_wire::StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            },
+            &capabilities,
+            &front,
+            &layout,
+            &held,
+        )
+        .expect("planned");
+        let lane = next.for_stream(1, &capabilities.per_stream);
+        assert_eq!(lane.antenna.as_deref(), Some("A_BALANCED"));
+        assert_eq!(lane.gains[0].value_db, 10.0);
     }
 
     #[test]

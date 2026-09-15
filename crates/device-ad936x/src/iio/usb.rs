@@ -1,21 +1,32 @@
 use std::{
+    num::NonZeroU8,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use nusb::{
     Interface, MaybeFuture,
-    transfer::{Bulk, ControlOut, ControlType, Direction as EpDirection, In, Out, Recipient},
+    transfer::{
+        Buffer, Bulk, Completion, ControlOut, ControlType, Direction as EpDirection,
+        EndpointDirection, In, Out, Recipient, TransferError,
+    },
 };
 use sdrmm_device::{DeviceError, StopHandle, StreamFailure, lock, net::Read};
+use sdrmm_usb_stream::is_disconnect;
 
-use crate::iio::link::{Stopper, Transport};
+use crate::iio::link::{Stopper, Transport, remaining};
 
 /// The interface string every libiio USB gadget names itself with, and the only way to find the
 /// right interface on a radio that also presents storage, serial and a network gadget.
 pub(crate) const INTERFACE_NAME: &str = "IIO";
 
 const CTRL_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// How often a parked read looks for a stop, so that a radio that has gone quiet does not hold
+/// the thread for the whole of its read timeout.
+const STOP_POLL: Duration = Duration::from_millis(50);
+
+const ENGLISH_US: u16 = 0x0409;
 
 const CMD_RESET_PIPES: u8 = 0;
 const CMD_OPEN_PIPE: u8 = 1;
@@ -50,8 +61,8 @@ impl std::fmt::Debug for UsbBus {
 
 impl UsbBus {
     pub(crate) fn open(info: &nusb::DeviceInfo) -> Result<Arc<Self>, DeviceError> {
-        let number = iio_interface(info)?;
         let device = info.open().wait().map_err(|e| open_error(&e))?;
+        let number = iio_interface(info, &device)?;
         let interface = device
             .detach_and_claim_interface(number)
             .wait()
@@ -109,8 +120,8 @@ impl UsbBus {
             bus: self.clone(),
             pipe,
             packet: endpoint_in.max_packet_size().max(1),
-            endpoint_in: Mutex::new(endpoint_in),
-            endpoint_out: Mutex::new(endpoint_out),
+            inbound: Mutex::new(Pipe::new(endpoint_in)),
+            outbound: Mutex::new(Pipe::new(endpoint_out)),
             stopper: Stopper::flag(),
             failure: Mutex::new(None),
         })
@@ -137,7 +148,14 @@ impl UsbBus {
                 CTRL_TIMEOUT,
             )
             .wait()
-            .map_err(|e| DeviceError::Io(format!("usb control request {request}: {e}")))
+            .map_err(|e| {
+                let reason = format!("usb control request {request}: {e}");
+                if is_disconnect(&e) {
+                    DeviceError::Disconnected(reason)
+                } else {
+                    DeviceError::Io(reason)
+                }
+            })
     }
 }
 
@@ -149,13 +167,44 @@ impl Drop for UsbBus {
     }
 }
 
+/// One endpoint and the buffer its last transfer came back in, kept so the next transfer does
+/// not map a fresh one.
+struct Pipe<Dir: EndpointDirection> {
+    endpoint: nusb::Endpoint<Bulk, Dir>,
+    spare: Option<Buffer>,
+}
+
+impl<Dir: EndpointDirection> Pipe<Dir> {
+    const fn new(endpoint: nusb::Endpoint<Bulk, Dir>) -> Self {
+        Self {
+            endpoint,
+            spare: None,
+        }
+    }
+
+    fn buffer(&mut self, len: usize) -> Buffer {
+        match self.spare.take() {
+            Some(mut buffer) if buffer.capacity() >= len => {
+                buffer.clear();
+                buffer.set_requested_len(len);
+                buffer
+            }
+            _ => self.endpoint.allocate(len),
+        }
+    }
+
+    fn keep(&mut self, buffer: Buffer) {
+        self.spare = Some(buffer);
+    }
+}
+
 /// One endpoint couple, spoken to as an ordered request and answer stream.
 pub(crate) struct UsbTransport {
     bus: Arc<UsbBus>,
     pipe: usize,
     packet: usize,
-    endpoint_in: Mutex<nusb::Endpoint<Bulk, In>>,
-    endpoint_out: Mutex<nusb::Endpoint<Bulk, Out>>,
+    inbound: Mutex<Pipe<In>>,
+    outbound: Mutex<Pipe<Out>>,
     stopper: Stopper,
     failure: Mutex<Option<StreamFailure>>,
 }
@@ -175,15 +224,39 @@ impl UsbTransport {
             *failure = Some(StreamFailure { reason, gone });
         }
     }
+
+    /// Waits for the transfer in flight, looking for a stop while it does, and cancels it once
+    /// either the stop or the deadline arrives. What the device sent before that is kept.
+    fn complete(&self, pipe: &mut Pipe<In>, timeout: Duration) -> Completion {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let slice = remaining(deadline).min(STOP_POLL);
+            if let Some(completion) = pipe.endpoint.wait_next_complete(slice) {
+                return completion;
+            }
+            if self.stopper.is_stopped() || Instant::now() >= deadline {
+                pipe.endpoint.cancel_all();
+                loop {
+                    if let Some(completion) = pipe.endpoint.wait_next_complete(CTRL_TIMEOUT) {
+                        return completion;
+                    }
+                    tracing::warn!(
+                        pipe = self.pipe,
+                        "a cancelled usb transfer has not come back"
+                    );
+                }
+            }
+        }
+    }
 }
 
 impl Transport for UsbTransport {
     fn send(&self, bytes: &[u8]) -> Result<(), DeviceError> {
-        let mut endpoint = lock(&self.endpoint_out);
-        let mut buffer = endpoint.allocate(bytes.len());
+        let mut pipe = lock(&self.outbound);
+        let mut buffer = pipe.buffer(bytes.len());
         buffer.extend_from_slice(bytes);
-        let completion = endpoint.transfer_blocking(buffer, CTRL_TIMEOUT);
-        match completion.status {
+        let completion = pipe.endpoint.transfer_blocking(buffer, CTRL_TIMEOUT);
+        let outcome = match completion.status {
             Ok(()) if completion.actual_len == bytes.len() => Ok(()),
             Ok(()) => Err(DeviceError::Io(format!(
                 "usb pipe {} took {} of {} bytes",
@@ -192,7 +265,7 @@ impl Transport for UsbTransport {
                 bytes.len()
             ))),
             Err(e) => {
-                let gone = is_gone(e);
+                let gone = is_disconnect(&e);
                 let reason = format!("usb pipe {} send: {e}", self.pipe);
                 self.record(reason.clone(), gone);
                 Err(if gone {
@@ -201,33 +274,40 @@ impl Transport for UsbTransport {
                     DeviceError::Io(reason)
                 })
             }
-        }
+        };
+        pipe.keep(completion.buffer);
+        outcome
     }
 
-    fn read(&self, buf: &mut [u8], timeout: Duration) -> Read {
+    fn read(&self, buf: &mut [u8], wanted: usize, timeout: Duration) -> Read {
         if self.stopper.is_stopped() {
             self.record(format!("usb pipe {} was stopped", self.pipe), false);
             return Read::Ended;
         }
-        // A bulk IN transfer is refused unless its length is a whole number of packets, and it
-        // ends early on the first short one, so asking for more than is coming costs nothing.
-        let want = (buf.len() / self.packet) * self.packet;
-        if want == 0 {
+        let Some(want) = request_len(buf.len(), wanted, self.packet) else {
             return Read::Idle;
-        }
-        let mut endpoint = lock(&self.endpoint_in);
-        let buffer = endpoint.allocate(want);
-        let completion = endpoint.transfer_blocking(buffer, timeout);
-        match completion.status {
-            Ok(()) => {
-                let got = completion.actual_len.min(want);
-                buf[..got].copy_from_slice(&completion.buffer[..got]);
-                if got == 0 { Read::Idle } else { Read::Got(got) }
+        };
+        let mut pipe = lock(&self.inbound);
+        let buffer = pipe.buffer(want);
+        pipe.endpoint.submit(buffer);
+        let completion = self.complete(&mut pipe, timeout);
+        let got = completion.actual_len.min(want);
+        buf[..got].copy_from_slice(&completion.buffer[..got]);
+        let status = completion.status;
+        pipe.keep(completion.buffer);
+        match status {
+            Ok(()) | Err(TransferError::Cancelled) if got > 0 => Read::Got(got),
+            Ok(()) => Read::Idle,
+            Err(TransferError::Cancelled) if self.stopper.is_stopped() => {
+                self.record(format!("usb pipe {} was stopped", self.pipe), false);
+                Read::Ended
             }
-            Err(nusb::transfer::TransferError::Cancelled) => Read::Idle,
+            Err(TransferError::Cancelled) => Read::Idle,
             Err(e) => {
-                let gone = is_gone(e);
-                self.record(format!("usb pipe {} read: {e}", self.pipe), gone);
+                self.record(
+                    format!("usb pipe {} read: {e}", self.pipe),
+                    is_disconnect(&e),
+                );
                 Read::Ended
             }
         }
@@ -255,14 +335,20 @@ impl Transport for UsbTransport {
 
 impl Drop for UsbTransport {
     fn drop(&mut self) {
-        lock(&self.endpoint_in).cancel_all();
-        lock(&self.endpoint_out).cancel_all();
+        lock(&self.inbound).endpoint.cancel_all();
+        lock(&self.outbound).endpoint.cancel_all();
         self.bus.release(self.pipe);
     }
 }
 
-const fn is_gone(error: nusb::transfer::TransferError) -> bool {
-    matches!(error, nusb::transfer::TransferError::Disconnected)
+/// How much to ask the endpoint for. A bulk IN transfer must be whole packets and ends only at
+/// a short one, so it asks for just enough packets to cover `wanted`: any more would leave the
+/// transfer waiting on a device that has already sent everything it was going to.
+fn request_len(room: usize, wanted: usize, packet: usize) -> Option<usize> {
+    let whole = room / packet * packet;
+    let asked = wanted.max(1).div_ceil(packet) * packet;
+    let want = asked.min(whole);
+    (want > 0).then_some(want)
 }
 
 fn open_error(error: &nusb::Error) -> DeviceError {
@@ -276,19 +362,39 @@ fn open_error(error: &nusb::Error) -> DeviceError {
     }
 }
 
-/// The interface number of this device's IIO gadget, as the operating system already describes it.
-pub(crate) fn iio_interface(info: &nusb::DeviceInfo) -> Result<u8, DeviceError> {
+/// The interface number of this device's IIO gadget: as the operating system already describes
+/// it, or, where the operating system does not report interface names, as the device itself
+/// does when asked for its string descriptors.
+fn iio_interface(info: &nusb::DeviceInfo, device: &nusb::Device) -> Result<u8, DeviceError> {
+    if let Some(number) = named_interface(info) {
+        return Ok(number);
+    }
+    described_interface(device).ok_or_else(|| {
+        DeviceError::NotFound(format!(
+            "usb device {:04x}:{:04x} exposes no {INTERFACE_NAME} interface; the radio is \
+             running firmware that does not serve iiod over usb",
+            info.vendor_id(),
+            info.product_id()
+        ))
+    })
+}
+
+pub(crate) fn named_interface(info: &nusb::DeviceInfo) -> Option<u8> {
     info.interfaces()
         .find(|interface| interface.interface_string() == Some(INTERFACE_NAME))
         .map(|interface| interface.interface_number())
-        .ok_or_else(|| {
-            DeviceError::NotFound(format!(
-                "usb device {:04x}:{:04x} exposes no {INTERFACE_NAME} interface; the radio is \
-                 running firmware that does not serve iiod over usb",
-                info.vendor_id(),
-                info.product_id()
-            ))
-        })
+}
+
+fn described_interface(device: &nusb::Device) -> Option<u8> {
+    let configuration = device.active_configuration().ok()?;
+    configuration.interfaces().find_map(|interface| {
+        let index: NonZeroU8 = interface.first_alt_setting().string_index()?;
+        let name = device
+            .get_string_descriptor(index, ENGLISH_US, CTRL_TIMEOUT)
+            .wait()
+            .ok()?;
+        (name.trim() == INTERFACE_NAME).then(|| interface.interface_number())
+    })
 }
 
 fn couples(interface: &Interface) -> Result<Vec<Couple>, DeviceError> {
@@ -365,5 +471,19 @@ mod tests {
     fn an_address_reads_as_the_direction_its_top_bit_says() {
         assert_eq!(direction(0x81), EpDirection::In);
         assert_eq!(direction(0x01), EpDirection::Out);
+    }
+
+    #[test]
+    fn a_transfer_asks_for_just_the_packets_that_cover_what_is_wanted() {
+        assert_eq!(
+            request_len(65_536, 60_928, 512),
+            Some(60_928),
+            "a tail that is whole packets is asked for exactly, or it would never end"
+        );
+        assert_eq!(request_len(65_536, 60_930, 512), Some(61_440));
+        assert_eq!(request_len(65_536, 1, 512), Some(512));
+        assert_eq!(request_len(65_536, 100_000, 512), Some(65_536));
+        assert_eq!(request_len(60_930, 60_930, 512), Some(60_928));
+        assert_eq!(request_len(100, 5, 512), None, "no room for a packet");
     }
 }

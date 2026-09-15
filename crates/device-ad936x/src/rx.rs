@@ -1,14 +1,17 @@
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use sdrmm_device::{
     Block, BlockPool, CaptureRadio, CaptureStream, DeviceError, FatalHandle, Next, RxSink, Sample,
-    StreamFailure, lock,
+    StreamFailure, lock, net::Read,
 };
 
 use crate::{
     iio::{
-        Link, Response, Stopper, close_buffer, mask, mask_len, open_buffer, read_buf,
-        set_remote_timeout,
+        Link, Stopper, close_buffer, mask, mask_len, open_buffer, parse_answer, read_buf,
+        remaining, set_remote_timeout,
     },
     layout::Stream,
     source::Source,
@@ -103,10 +106,15 @@ impl CaptureRadio for RxRadio {
             samples = self.samples,
             "ad936x receive buffer opened"
         );
+        let refill = self.samples * self.stream.sample_bytes(self.lanes);
         Ok(RxStream {
-            inner: Mutex::new(link),
+            inner: Mutex::new(Inner {
+                link,
+                pending: None,
+            }),
             device: self.stream.device.clone(),
-            refill: self.samples * self.stream.sample_bytes(self.lanes),
+            command: read_buf(&self.stream.device, refill),
+            refill,
             mask_bytes: mask_len(mask.len()),
             pool: self.pool.clone(),
             stopper,
@@ -122,12 +130,18 @@ impl CaptureRadio for RxRadio {
 
 /// One open receive buffer, refilled a block at a time.
 pub(crate) struct RxStream {
-    inner: Mutex<Link>,
+    inner: Mutex<Inner>,
     device: String,
+    command: String,
     refill: usize,
     mask_bytes: usize,
     pool: BlockPool,
     stopper: Stopper,
+}
+
+struct Inner {
+    link: Link,
+    pending: Option<Refill>,
 }
 
 impl std::fmt::Debug for RxStream {
@@ -138,44 +152,156 @@ impl std::fmt::Debug for RxStream {
     }
 }
 
+/// One buffer on its way in.
+///
+/// IIOD answers a refill as a run of length-prefixed pieces, the first of which is followed by
+/// the mask of what is enabled. The pieces are gathered across as many polls as they take, so a
+/// stop is felt between any two reads rather than after the whole buffer.
+struct Refill {
+    block: Block,
+    got: usize,
+    piece: usize,
+    masked: bool,
+    stage: Stage,
+    started: Instant,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    Count,
+    Mask { left: usize },
+    Data { left: usize },
+    Done,
+}
+
+enum Progress {
+    Made,
+    Waiting,
+}
+
+impl Refill {
+    fn new(block: Block) -> Self {
+        Self {
+            block,
+            got: 0,
+            piece: 0,
+            masked: false,
+            stage: Stage::Count,
+            started: Instant::now(),
+        }
+    }
+
+    fn finished(&self, room: usize) -> bool {
+        self.stage == Stage::Done || self.got >= room
+    }
+
+    fn step(
+        &mut self,
+        link: &mut Link,
+        mask_bytes: usize,
+        room: usize,
+        timeout: Duration,
+    ) -> Result<Progress, DeviceError> {
+        match self.stage {
+            Stage::Count => self.count(link, mask_bytes, room, timeout),
+            Stage::Mask { left } => {
+                let mut sink = [0u8; 64];
+                let want = left.min(sink.len());
+                let n = match link.take(&mut sink[..want], timeout) {
+                    Read::Got(n) => n,
+                    Read::Idle => return Ok(Progress::Waiting),
+                    Read::Ended => return Err(link.ended()),
+                };
+                self.stage = if n == left {
+                    Stage::Data { left: self.piece }
+                } else {
+                    Stage::Mask { left: left - n }
+                };
+                Ok(Progress::Made)
+            }
+            Stage::Data { left } => {
+                let at = self.got;
+                let n = match link.take(&mut self.block.bytes_mut()[at..at + left], timeout) {
+                    Read::Got(n) => n,
+                    Read::Idle => return Ok(Progress::Waiting),
+                    Read::Ended => return Err(link.ended()),
+                };
+                self.got += n;
+                self.stage = if n == left {
+                    Stage::Count
+                } else {
+                    Stage::Data { left: left - n }
+                };
+                Ok(Progress::Made)
+            }
+            Stage::Done => Ok(Progress::Made),
+        }
+    }
+
+    fn count(
+        &mut self,
+        link: &mut Link,
+        mask_bytes: usize,
+        room: usize,
+        timeout: Duration,
+    ) -> Result<Progress, DeviceError> {
+        let Some(line) = link.poll_line(timeout)? else {
+            return Ok(Progress::Waiting);
+        };
+        let piece = parse_answer(&line, "refill the sample buffer")?;
+        if piece > room - self.got {
+            return Err(DeviceError::Io(format!(
+                "the radio sent {piece} bytes into a buffer with room for {}",
+                room - self.got
+            )));
+        }
+        self.piece = piece;
+        self.stage = if piece == 0 {
+            Stage::Done
+        } else if self.masked {
+            Stage::Data { left: piece }
+        } else {
+            self.masked = true;
+            Stage::Mask { left: mask_bytes }
+        };
+        Ok(Progress::Made)
+    }
+}
+
 impl RxStream {
-    /// Asks for one buffer and takes it.
-    ///
-    /// IIOD answers a refill as a run of length-prefixed pieces, the first of which is followed
-    /// by the mask of what is enabled, so the pieces are gathered until the buffer is full or the
-    /// radio says it has no more.
-    fn refill(&self, link: &mut Link) -> Result<Block, DeviceError> {
-        link.send(&read_buf(&self.device, self.refill))?;
-        let mut block = self.pool.take(self.refill);
-        let mut got = 0;
-        let mut masked = false;
-        while got < self.refill {
-            let line = link.read_line(REFILL_TIMEOUT)?;
-            let piece = Response::parse(&line)
-                .ok_or_else(|| {
-                    DeviceError::Io(format!("refill the sample buffer: iiod answered {line:?}"))
-                })?
-                .bytes("refill the sample buffer")?;
-            if piece == 0 {
-                break;
+    /// Carries the refill in flight as far as `timeout` allows, starting one if none is.
+    fn advance(
+        &self,
+        link: &mut Link,
+        pending: &mut Option<Refill>,
+        timeout: Duration,
+    ) -> Result<Option<Block>, DeviceError> {
+        let refill = match pending {
+            Some(refill) => refill,
+            None => {
+                link.send(&self.command)?;
+                pending.insert(Refill::new(self.pool.take(self.refill)))
             }
-            if !masked {
-                let mut enabled = vec![0u8; self.mask_bytes];
-                link.read_exact(&mut enabled, REFILL_TIMEOUT)?;
-                masked = true;
-            }
-            if piece > self.refill - got {
-                link.discard(piece, REFILL_TIMEOUT)?;
+        };
+        let deadline = Instant::now() + timeout;
+        while !refill.finished(self.refill) {
+            if refill.started.elapsed() > REFILL_TIMEOUT {
                 return Err(DeviceError::Io(format!(
-                    "the radio sent {piece} bytes into a buffer with room for {}",
-                    self.refill - got
+                    "the radio did not fill its buffer within {REFILL_TIMEOUT:?}"
                 )));
             }
-            link.read_exact(&mut block.bytes_mut()[got..got + piece], REFILL_TIMEOUT)?;
-            got += piece;
+            if let Progress::Waiting =
+                refill.step(link, self.mask_bytes, self.refill, remaining(deadline))?
+            {
+                return Ok(None);
+            }
         }
-        block.truncate(got);
-        Ok(block)
+        let Some(done) = pending.take() else {
+            return Ok(None);
+        };
+        let mut block = done.block;
+        block.truncate(done.got);
+        Ok(Some(block))
     }
 }
 
@@ -187,14 +313,16 @@ impl CaptureStream for RxStream {
         self.stopper.clone()
     }
 
-    fn next_block(&self, _timeout: Duration) -> Next<Block> {
-        let mut link = lock(&self.inner);
+    fn next_block(&self, timeout: Duration) -> Next<Block> {
+        let mut inner = lock(&self.inner);
         if self.stopper.is_stopped() {
             return Next::Ended;
         }
-        match self.refill(&mut link) {
-            Ok(block) if block.is_empty() => Next::Idle,
-            Ok(block) => Next::Block(block),
+        let Inner { link, pending } = &mut *inner;
+        match self.advance(link, pending, timeout) {
+            Ok(Some(block)) if block.is_empty() => Next::Idle,
+            Ok(Some(block)) => Next::Block(block),
+            Ok(None) => Next::Idle,
             Err(e) => {
                 link.transport().fail(e.to_string());
                 Next::Ended
@@ -207,7 +335,7 @@ impl CaptureStream for RxStream {
     }
 
     fn failure(&self) -> StreamFailure {
-        lock(&self.inner).failure()
+        lock(&self.inner).link.failure()
     }
 }
 
@@ -215,9 +343,10 @@ impl Drop for RxStream {
     fn drop(&mut self) {
         // The buffer is closed even when the conversation was already stopped: over usb the
         // command still reaches the radio, and a buffer left open refuses the next one.
-        let mut link = lock(&self.inner);
-        close_buffer(&mut link, &self.device);
-        link.close();
+        let inner = &mut *lock(&self.inner);
+        inner.pending = None;
+        close_buffer(&mut inner.link, &self.device);
+        inner.link.close();
     }
 }
 
@@ -259,29 +388,90 @@ pub(crate) fn fan_out(sinks: Vec<RxSink>) -> RxSink {
         },
         move |error| {
             for failure in &failures {
-                failure.fail(clone_error(&error));
+                failure.fail(error.clone());
             }
         },
     )
 }
 
-/// The same fault, told to every lane. A fault reaches one handler but every lane of a radio
-/// that has stopped needs to hear about it.
-fn clone_error(error: &DeviceError) -> DeviceError {
-    match error {
-        DeviceError::NotFound(why) => DeviceError::NotFound(why.clone()),
-        DeviceError::Unsupported(why) => DeviceError::Unsupported(why.clone()),
-        DeviceError::Disconnected(why) => DeviceError::Disconnected(why.clone()),
-        DeviceError::InUse(why) => DeviceError::InUse(why.clone()),
-        other => DeviceError::Io(other.to_string()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
+    use std::sync::{Arc, mpsc};
 
     use super::*;
+    use crate::iio::testing::Scripted;
+
+    const POLL: Duration = Duration::from_millis(20);
+
+    fn stream(transport: &Arc<Scripted>, refill: usize) -> RxStream {
+        RxStream {
+            inner: Mutex::new(Inner {
+                link: Link::new(transport.clone()),
+                pending: None,
+            }),
+            device: "cf-ad9361-lpc".to_string(),
+            command: read_buf("cf-ad9361-lpc", refill),
+            refill,
+            mask_bytes: mask_len(1),
+            pool: BlockPool::default(),
+            stopper: Stopper::flag(),
+        }
+    }
+
+    #[test]
+    fn a_refill_is_gathered_across_polls_and_a_stop_is_felt_between_them() {
+        let transport = Scripted::with(&[b"8\n", b"00000003\n", b"abcd"]);
+        let stream = stream(&transport, 8);
+        assert!(
+            matches!(stream.next_block(POLL), Next::Idle),
+            "half a piece is not a block"
+        );
+        assert_eq!(
+            &*lock(&transport.sent),
+            b"READBUF cf-ad9361-lpc 8\r\n",
+            "one request for the whole refill"
+        );
+        transport.feed(&[b"efgh"]);
+        let Next::Block(block) = stream.next_block(POLL) else {
+            panic!("the rest of the piece completes the block");
+        };
+        assert_eq!(&*block, b"abcdefgh");
+        assert!(transport.failed().is_none(), "waiting is not a fault");
+    }
+
+    #[test]
+    fn a_refill_in_pieces_reads_the_mask_once_and_ends_at_an_empty_piece() {
+        let transport = Scripted::with(&[b"4\n00000003\nabcd", b"2\nef", b"0\n"]);
+        let stream = stream(&transport, 16);
+        let Next::Block(block) = stream.next_block(POLL) else {
+            panic!("an empty piece ends the refill");
+        };
+        assert_eq!(&*block, b"abcdef");
+    }
+
+    #[test]
+    fn a_piece_larger_than_the_room_left_ends_the_stream_rather_than_the_buffer() {
+        let transport = Scripted::with(&[b"64\n"]);
+        let stream = stream(&transport, 8);
+        assert!(matches!(stream.next_block(POLL), Next::Ended));
+        assert!(
+            stream.failure().reason.contains("room for 8"),
+            "{}",
+            stream.failure().reason
+        );
+    }
+
+    #[test]
+    fn a_refused_refill_carries_the_radios_reason() {
+        let transport = Scripted::with(&[b"-5\n"]);
+        let stream = stream(&transport, 8);
+        assert!(matches!(stream.next_block(POLL), Next::Ended));
+        assert!(
+            stream.failure().reason.contains("input/output error"),
+            "{}",
+            stream.failure().reason
+        );
+    }
 
     #[test]
     fn a_buffer_holds_about_a_frame_of_signal_whatever_the_rate() {

@@ -4807,6 +4807,7 @@ dependencies = [
  "num-complex",
  "nusb",
  "sdrmm-device",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
  "serde_json",
  "tracing",

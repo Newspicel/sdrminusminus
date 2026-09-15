@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use sdrmm_device::{
     Capture, CaptureConfig, DeviceDriver, DeviceError, Direction, DuplexState, RxSink, SdrDevice,
@@ -34,30 +38,90 @@ const DRIVER_ID: &str = "ad936x";
 /// sees the signal while the rest of the buffer is still being taken apart.
 const SINK_BLOCK_SAMPLES: usize = 32_768;
 
+/// How long the well-known addresses are left alone after a search tried them. A search is what
+/// every open goes through, and a radio being reconnected to must not dial the whole network on
+/// each attempt.
+const SWEEP_INTERVAL: Duration = Duration::from_secs(10);
+
 /// Every AD936x board that serves libiio, over its own ethernet or usb: AntSDR, PlutoSDR,
 /// and anything else built around the same transceiver.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Ad936xDriver {
     adopted: Adopted,
+    serials: Mutex<BTreeMap<Endpoint, String>>,
+    well_known: Vec<Endpoint>,
+    swept: Mutex<Option<Instant>>,
+}
+
+impl Default for Ad936xDriver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Ad936xDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self::searching(discovery::WELL_KNOWN.iter().map(|host| host.to_string()))
     }
 
-    fn endpoints(&self) -> Vec<DeviceInfo> {
-        self.adopted.list().iter().map(net_info).collect()
+    /// A driver whose search tries these addresses instead of the ones the boards ship on.
+    #[must_use]
+    pub fn searching(hosts: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            adopted: Adopted::default(),
+            serials: Mutex::new(BTreeMap::new()),
+            well_known: discovery::endpoints(hosts),
+            swept: Mutex::new(None),
+        }
+    }
+
+    /// The adopted addresses, less any that turned out to be a radio already listed: a board
+    /// reachable by name, by address and over usb is one radio.
+    fn endpoints(&self, listed: &[DeviceInfo]) -> Vec<DeviceInfo> {
+        let serials = lock(&self.serials);
+        let mut known: Vec<String> = listed
+            .iter()
+            .filter_map(|info| info.serial.clone())
+            .collect();
+        self.adopted
+            .list()
+            .into_iter()
+            .filter_map(|endpoint| {
+                let serial = serials.get(&endpoint).cloned();
+                if let Some(serial) = &serial {
+                    if known.contains(serial) {
+                        return None;
+                    }
+                    known.push(serial.clone());
+                }
+                Some(net_info(&endpoint, serial))
+            })
+            .collect()
+    }
+
+    fn remember(&self, endpoint: Endpoint, serial: Option<&str>) {
+        if let Some(serial) = serial {
+            lock(&self.serials).insert(endpoint, serial.to_string());
+        }
+    }
+
+    fn due_for_a_sweep(&self) -> bool {
+        let mut swept = lock(&self.swept);
+        if swept.is_some_and(|at| at.elapsed() < SWEEP_INTERVAL) {
+            return false;
+        }
+        *swept = Some(Instant::now());
+        true
     }
 }
 
-fn net_info(endpoint: &Endpoint) -> DeviceInfo {
+fn net_info(endpoint: &Endpoint, serial: Option<String>) -> DeviceInfo {
     DeviceInfo {
         driver: DRIVER_ID.to_string(),
         key: endpoint.to_string(),
         label: format!("AD936x {endpoint}"),
-        serial: None,
+        serial,
         profile: None,
     }
 }
@@ -79,39 +143,41 @@ impl DeviceDriver for Ad936xDriver {
 
     fn probe(&self) -> Vec<DeviceInfo> {
         let mut found: Vec<DeviceInfo> = discovery::usb_radios().iter().map(usb_info).collect();
-        found.extend(self.endpoints());
+        found.extend(self.endpoints(&found));
         found
     }
 
     /// Tries the addresses these radios ship on as well, so one straight out of its box is found
     /// without the operator having to know where it lives.
     fn probe_deep(&self) -> Vec<DeviceInfo> {
-        let known = self.adopted.list();
-        let untried: Vec<Endpoint> = discovery::well_known()
-            .into_iter()
-            .filter(|endpoint| !known.contains(endpoint))
-            .collect();
-        for endpoint in discovery::reachable(untried) {
-            tracing::info!(%endpoint, "found an AD936x radio at a well-known address");
-            self.adopted.adopt(endpoint);
+        if self.due_for_a_sweep() {
+            let known = self.adopted.list();
+            let untried: Vec<Endpoint> = self
+                .well_known
+                .iter()
+                .filter(|endpoint| !known.contains(endpoint))
+                .cloned()
+                .collect();
+            for found in discovery::sweep(untried) {
+                tracing::info!(endpoint = %found.endpoint, "found an AD936x radio at a well-known address");
+                self.adopted.adopt(found.endpoint.clone());
+                self.remember(found.endpoint, found.serial.as_deref());
+            }
         }
         self.probe()
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        Ok(Box::new(Ad936xDevice::open(source(&info.key)?)?))
+        let device = Ad936xDevice::open(source(&info.key)?)?;
+        if let Source::Net(endpoint) = &device.source {
+            self.remember(endpoint.clone(), device.serial.as_deref());
+        }
+        Ok(Box::new(device))
     }
 
     fn resolve(&self, key: &str) -> Option<DeviceInfo> {
         if key.starts_with(USB_PREFIX) {
-            let info = discovery::find_usb(key).ok()?;
-            return discovery::has_iio_interface(&info).then(|| {
-                usb_info(&discovery::UsbRadio {
-                    key: key.to_string(),
-                    label: key.to_string(),
-                    serial: None,
-                })
-            });
+            return discovery::attached(key).map(|radio| usb_info(&radio));
         }
         let endpoint = Endpoint::parse(key, DEFAULT_PORT)
             .inspect_err(|e| tracing::warn!("ad936x endpoint: {e}"))
@@ -120,7 +186,8 @@ impl DeviceDriver for Ad936xDriver {
             tracing::warn!(%endpoint, "too many ad936x endpoints; refusing to adopt another");
             return None;
         }
-        Some(net_info(&endpoint))
+        let serial = lock(&self.serials).get(&endpoint).cloned();
+        Some(net_info(&endpoint, serial))
     }
 }
 
@@ -135,6 +202,7 @@ fn source(key: &str) -> Result<Source, DeviceError> {
 pub struct Ad936xDevice {
     client: Arc<Client>,
     source: Source,
+    serial: Option<String>,
     layout: Layout,
     front: Front,
     capabilities: Capabilities,
@@ -173,6 +241,7 @@ impl Ad936xDevice {
             duplex: Arc::new(Mutex::new(DuplexState::new(capabilities.duplex))),
             client: Arc::new(client),
             source,
+            serial: context.attribute("hw_serial").map(str::to_string),
             layout,
             front,
             capabilities,
@@ -206,6 +275,8 @@ impl SdrDevice for Ad936xDevice {
         &self.settings
     }
 
+    /// Writes reach the radio one at a time, so one it refuses part-way leaves the ones before
+    /// it in place. What is reported afterwards is read back rather than assumed either way.
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         let (next, writes) = apply::plan(
             settings,
@@ -214,9 +285,22 @@ impl SdrDevice for Ad936xDevice {
             &self.layout,
             &self.settings,
         )?;
-        apply::execute(&self.client, &self.layout.phy, &writes)?;
-        self.settings = next;
-        Ok(())
+        match apply::execute(&self.client, &self.layout.phy, &writes) {
+            Ok(()) => {
+                self.settings = next;
+                Ok(())
+            }
+            Err(e) => {
+                let held = apply::read_settings(
+                    &self.client,
+                    &self.capabilities,
+                    &self.front,
+                    &self.layout,
+                );
+                self.settings.merge_from(&held);
+                Err(e)
+            }
+        }
     }
 
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
@@ -326,6 +410,38 @@ mod tests {
         let driver = Ad936xDriver::new();
         assert!(driver.resolve("192.168.1.10:not-a-port").is_none());
         assert!(driver.resolve("usb-nothing-is-plugged-in-here").is_none());
+    }
+
+    #[test]
+    fn two_addresses_that_answered_with_one_serial_are_listed_as_one_radio() {
+        let driver = Ad936xDriver::searching([]);
+        let by_name = driver.resolve("pluto.local").expect("addressable");
+        let by_address = driver.resolve("192.168.2.1").expect("addressable");
+        driver.remember(
+            Endpoint::parse("pluto.local", DEFAULT_PORT).expect("endpoint"),
+            Some("1044734c960500111e002e0041984fc267"),
+        );
+        driver.remember(
+            Endpoint::parse("192.168.2.1", DEFAULT_PORT).expect("endpoint"),
+            Some("1044734c960500111e002e0041984fc267"),
+        );
+        let listed = driver.probe();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(
+            listed[0].serial.as_deref(),
+            Some("1044734c960500111e002e0041984fc267")
+        );
+        assert!(
+            driver.resolve(&by_name.key).is_some() && driver.resolve(&by_address.key).is_some(),
+            "either spelling still opens the radio"
+        );
+    }
+
+    #[test]
+    fn a_search_leaves_the_network_alone_for_a_while_after_trying_it() {
+        let driver = Ad936xDriver::searching([]);
+        assert!(driver.due_for_a_sweep());
+        assert!(!driver.due_for_a_sweep(), "one search per interval");
     }
 
     #[test]

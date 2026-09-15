@@ -103,12 +103,16 @@ impl Layout {
 
     /// The transceiver channel that carries one lane's gain, port and squelch settings.
     pub(crate) fn port(&self, output: bool, stream: usize) -> Option<&str> {
-        let ports = if output {
+        self.ports(output).get(stream).map(String::as_str)
+    }
+
+    /// The transceiver channels of one direction, in lane order.
+    pub(crate) fn ports(&self, output: bool) -> &[String] {
+        if output {
             &self.tx_ports
         } else {
             &self.rx_ports
-        };
-        ports.get(stream).map(String::as_str)
+        }
     }
 }
 

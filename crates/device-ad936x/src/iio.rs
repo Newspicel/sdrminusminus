@@ -6,8 +6,10 @@ mod usb;
 mod xml;
 
 pub(crate) use client::{Client, Direction, close_buffer, open_buffer, set_remote_timeout};
-pub(crate) use link::{Link, Stopper, Transport};
+#[cfg(test)]
+pub(crate) use link::testing;
+pub(crate) use link::{Link, Stopper, Transport, parse_answer, remaining};
 pub(crate) use net::NetTransport;
-pub(crate) use proto::{DEFAULT_PORT, Response, mask, mask_len, read_buf, write_buf};
-pub(crate) use usb::{INTERFACE_NAME, MIN_COUPLES, UsbBus, iio_interface};
+pub(crate) use proto::{DEFAULT_PORT, mask, mask_len, read_buf, write_buf};
+pub(crate) use usb::{MIN_COUPLES, UsbBus, named_interface};
 pub(crate) use xml::{Channel, Context, Device, Format};
