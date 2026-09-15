@@ -14,6 +14,26 @@ for (const fallback of [false, true]) {
         Object.defineProperty(globalThis, "AudioDecoder", { value: undefined, configurable: true }),
       );
     }
+    await page.addInitScript(() => {
+      const scope = globalThis as unknown as { playedPcmFrames: number };
+      scope.playedPcmFrames = 0;
+      const Base = globalThis.AudioWorkletNode;
+      globalThis.AudioWorkletNode = class extends Base {
+        constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
+          super(context, name, options);
+          const port = this.port as unknown as {
+            postMessage: (message: unknown, transfer?: Transferable[]) => void;
+          };
+          const post = port.postMessage.bind(port);
+          port.postMessage = (message, transfer) => {
+            if (message instanceof Float32Array) {
+              scope.playedPcmFrames += message.length;
+            }
+            post(message, transfer);
+          };
+        }
+      };
+    });
     const snapshot: WorkspaceSnapshot = {
       version: 3,
       graph: {
@@ -53,7 +73,15 @@ for (const fallback of [false, true]) {
       await speaker.locator("header").click();
       await speaker.getByRole("button", { name: "Play", exact: true }).click();
       await expect(speaker.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-      await expect(speaker.getByText("Buffer", { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              () => (globalThis as unknown as { playedPcmFrames: number }).playedPcmFrames,
+            ),
+          { timeout: 15_000 },
+        )
+        .toBeGreaterThan(0);
       await expect(
         page.locator('.react-flow__node[data-id="radio"]').getByText("running", { exact: true }),
       ).toBeVisible();
