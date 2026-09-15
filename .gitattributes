@@ -1,0 +1,3 @@
+# The nightly `-Z` flags here pin a development environment; a source export must build on
+# stable, so the archive homebrew/core and other packagers unpack does not carry them.
+.cargo/config.toml export-ignore

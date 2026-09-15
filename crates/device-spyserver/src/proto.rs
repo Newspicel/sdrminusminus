@@ -82,7 +82,7 @@ impl IqFormat {
             2 => Ok(Some(Self::Int16)),
             4 => Ok(Some(Self::Float32)),
             other => Err(DeviceError::Unsupported(format!(
-                "this server forces IQ format {other}, which sdr-- cannot decode"
+                "this server forces IQ format {other}, which SDR-- cannot decode"
             ))),
         }
     }
@@ -169,7 +169,7 @@ impl MessageHeader {
         let protocol = word(0);
         if major(protocol) != major(PROTOCOL_VERSION) {
             return Err(DeviceError::Io(format!(
-                "SpyServer protocol {}.{}.{} is not one sdr-- speaks (expected major {})",
+                "SpyServer protocol {}.{}.{} is not one SDR-- speaks (expected major {})",
                 major(protocol),
                 (protocol >> 16) & 0xFF,
                 protocol & 0xFFFF,
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn a_hello_carries_the_version_then_the_client_name() {
-        let frame = hello("sdr--");
+        let frame = hello("SDR--");
         assert_eq!(&frame[..4], &0u32.to_le_bytes(), "CMD_HELLO");
         assert_eq!(
             &frame[4..8],
@@ -306,7 +306,7 @@ mod tests {
             "four bytes plus the name"
         );
         assert_eq!(&frame[8..12], &PROTOCOL_VERSION.to_le_bytes());
-        assert_eq!(&frame[12..], b"sdr--");
+        assert_eq!(&frame[12..], b"SDR--");
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
     fn a_header_from_another_protocol_or_with_an_impossible_body_is_refused() {
         let wrong_version = MessageHeader::parse(&header_bytes(3 << 24, 101, 0, 1, 0, 64));
         assert!(
-            wrong_version.is_err_and(|e| e.to_string().contains("is not one sdr-- speaks")),
+            wrong_version.is_err_and(|e| e.to_string().contains("is not one SDR-- speaks")),
             "a major version this cannot frame must be named"
         );
         let huge =

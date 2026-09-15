@@ -26,7 +26,7 @@ mod stream;
 
 const DRIVER_ID: &str = "spyserver";
 
-const CLIENT_NAME: &str = "sdr--";
+const CLIENT_NAME: &str = "SDR--";
 
 #[derive(Debug, Default)]
 pub struct SpyServerDriver {

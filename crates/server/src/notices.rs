@@ -22,7 +22,7 @@ static NOTICES: LazyLock<NoticesDocument> = LazyLock::new(|| {
 #[must_use]
 pub fn about() -> AboutResponse {
     AboutResponse {
-        name: "sdr--".to_string(),
+        name: "SDR--".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         license: NOTICES.license.clone(),
         license_text: NOTICES.license_text.clone(),

@@ -34,12 +34,12 @@ The stream carries no metadata, timestamps, or stream IDs.
 Datagrams contain whole complex samples, with payloads up to 1,400 bytes. Configure GNU Radio's
 **UDP Source** with header `None`, matching data type, and payload size 1,400.
 
-There are no sequence numbers. sdr-- reports loss before the socket but cannot detect missing or
+There are no sequence numbers. SDR-- reports loss before the socket but cannot detect missing or
 reordered network datagrams.
 
 ### TCP
 
-sdr-- connects to a listening receiver and writes a continuous byte stream. TCP preserves order
+SDR-- connects to a listening receiver and writes a continuous byte stream. TCP preserves order
 and delivery, but a slow receiver can fill the bounded export queue. The export then stops and
 reports an error.
 
@@ -54,4 +54,4 @@ and network controls.
 The output is raw IQ. Receiving software must accept the selected encoding and use the displayed
 rate and frequency. VITA 49 and DIFI framing are not supported.
 
-`rtl_tcp` is a separate protocol for controlling remote radios. sdr-- supports it as a Device source.
+`rtl_tcp` is a separate protocol for controlling remote radios. SDR-- supports it as a Device source.

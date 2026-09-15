@@ -448,7 +448,7 @@ mod tests {
         }
         let status = status(&out);
         assert!(status.locked, "{status:?}");
-        assert_eq!(status.ensemble_label.as_deref(), Some("sdr-- test"));
+        assert_eq!(status.ensemble_label.as_deref(), Some("SDR-- test"));
         assert_eq!(status.ensemble_id, Some(0x10CD));
         assert_eq!(status.services.len(), 2);
         assert_eq!(status.services[0].label, "Rust FM");

@@ -146,7 +146,7 @@ end
 fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
     let mut sums = Vec::new();
     for arch in CASK_ARCHES {
-        sums.push(digest(digests, &format!("sdr--_{version}_{arch}.dmg"))?);
+        sums.push(digest(digests, &format!("SDR--_{version}_{arch}.dmg"))?);
     }
     let [arm, intel] = sums.try_into().ok().context("one dmg per cask arch")?;
 
@@ -158,8 +158,8 @@ fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
   sha256 arm:   "{arm}",
          intel: "{intel}"
 
-  url "https://github.com/{repo}/releases/download/v#{{version}}/sdr--_#{{version}}_#{{arch}}.dmg"
-  name "sdr--"
+  url "https://github.com/{repo}/releases/download/v#{{version}}/SDR--_#{{version}}_#{{arch}}.dmg"
+  name "SDR--"
   name "sdr minus minus"
   desc "Modular, client-server software-defined radio"
   homepage "https://github.com/{repo}"
@@ -170,9 +170,9 @@ fn cask(digests: &Digests, version: &str, repo: &str) -> Result<String> {
   end
 
   auto_updates true
-  depends_on macos: :catalina
+  depends_on macos: :big_sur
 
-  app "sdr--.app"
+  app "SDR--.app"
 
   zap trash: [
     "~/Library/Application Support/dev.newspicel.sdrmm",
@@ -199,7 +199,7 @@ mod tests {
             lines.push(format!("{}  sdrmm-1.2.3-{triple}.tar.gz", "a".repeat(64)));
         }
         for arch in CASK_ARCHES {
-            lines.push(format!("{}  sdr--_1.2.3_{arch}.dmg", "b".repeat(64)));
+            lines.push(format!("{}  SDR--_1.2.3_{arch}.dmg", "b".repeat(64)));
         }
         lines.push(format!("{}  latest.json", "c".repeat(64)));
         lines.join("\n") + "\n"
@@ -223,17 +223,17 @@ mod tests {
     fn cask_pairs_each_slice_with_its_own_digest() {
         let cask = cask(&parse(&sums()).unwrap(), "1.2.3", REPO).unwrap();
         assert!(cask.contains(&format!("arm:   \"{}\"", "b".repeat(64))));
-        assert!(cask.contains("sdr--_#{version}_#{arch}.dmg"));
-        assert!(cask.contains("app \"sdr--.app\""));
+        assert!(cask.contains("SDR--_#{version}_#{arch}.dmg"));
+        assert!(cask.contains("app \"SDR--.app\""));
     }
 
     #[test]
     fn a_release_missing_an_artifact_is_refused() {
-        let sums = sums().replace(&format!("{}  sdr--_1.2.3_x64.dmg", "b".repeat(64)), "");
+        let sums = sums().replace(&format!("{}  SDR--_1.2.3_x64.dmg", "b".repeat(64)), "");
         let err = cask(&parse(&sums).unwrap(), "1.2.3", REPO)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("sdr--_1.2.3_x64.dmg"), "{err}");
+        assert!(err.contains("SDR--_1.2.3_x64.dmg"), "{err}");
     }
 
     #[test]

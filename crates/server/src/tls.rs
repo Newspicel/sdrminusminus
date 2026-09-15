@@ -172,7 +172,7 @@ fn generate(names: &[String]) -> Result<rcgen::CertifiedKey<rcgen::KeyPair>, rcg
 
 fn distinguished_name() -> rcgen::DistinguishedName {
     let mut name = rcgen::DistinguishedName::new();
-    name.push(rcgen::DnType::CommonName, "sdr--");
+    name.push(rcgen::DnType::CommonName, "SDR--");
     name
 }
 

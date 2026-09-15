@@ -65,9 +65,9 @@ default-members = [
 edition = "2024"
 version = "0.0.0"
 license = "GPL-3.0-or-later"
-authors = ["sdr-- contributors"]
+authors = ["SDR-- contributors"]
 repository = "https://github.com/newspicel/sdrminusminus"
-rust-version = "1.99"
+rust-version = "1.98"
 
 [workspace.dependencies]
 sdrmm-test-support = { path = "crates/test-support" }

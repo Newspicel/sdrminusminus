@@ -14,7 +14,7 @@ use crate::dab::{
 };
 
 pub const ENSEMBLE_ID: u16 = 0x10CD;
-pub const ENSEMBLE_LABEL: &str = "sdr-- test";
+pub const ENSEMBLE_LABEL: &str = "SDR-- test";
 pub const MUSIC_SERVICE: u32 = 0xC1A1;
 pub const TALK_SERVICE: u32 = 0xC1A2;
 pub const MUSIC_BITRATE_KBPS: u16 = 96;

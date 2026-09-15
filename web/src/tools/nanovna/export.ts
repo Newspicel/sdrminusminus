@@ -125,7 +125,7 @@ function header(sweep: NanoVnaSweep, context: ExportContext): string[] {
   const device = sweep.device;
   const calibration = device.calibration.raw === "" ? "none" : device.calibration.raw;
   return [
-    "! Measured with sdr-- (https://github.com/sdrminusminus)",
+    "! Measured with SDR-- (https://github.com/sdrminusminus)",
     ...(context.recordedAt === undefined ? [] : [`! Recorded ${context.recordedAt}`]),
     `! Instrument ${device.board ?? "NanoVNA"} firmware ${device.firmware} on ${device.port}`,
     `! Points ${sweep.points.length} averages ${sweep.averages}`,

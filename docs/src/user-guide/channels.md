@@ -60,7 +60,7 @@ lists recording origins and expected output, including DMR, ADS-B, FreeDV 1600, 
 Some modes also use published protocol vectors. Iridium uses off-air bits in a synthetic waveform.
 
 VDL Mode 2, HFDL, Inmarsat Classic Aero, Inmarsat STD-C, and DSC use
-[xng](https://github.com/airframesio/xng). Their labels describe the sdr-- integration's coverage.
+[xng](https://github.com/airframesio/xng). Their labels describe the SDR-- integration's coverage.
 
 ## ISM sensors
 
@@ -103,7 +103,7 @@ expected decoded output. See [Build and test](../development/building.md) and th
 ## Pager text
 
 POCSAG uses seven-bit text. Some German networks substitute umlauts and ß using DIN 66003.
-sdr-- applies that mapping inside words next to lowercase letters: `M}nchen` becomes `München`
+SDR-- applies that mapping inside words next to lowercase letters: `M}nchen` becomes `München`
 and `Stra~e` becomes `Straße`.
 
 Other text stays ASCII, including `[ALARM]` and entirely uppercase messages. There is no manual

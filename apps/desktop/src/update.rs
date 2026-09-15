@@ -37,7 +37,7 @@ async fn prompt(app: &AppHandle, version: &str) -> bool {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .message(format!(
-            "sdr-- {version} is available.\n\nInstalling restarts the app, which stops any \
+            "SDR-- {version} is available.\n\nInstalling restarts the app, which stops any \
              recording or stream that is running."
         ))
         .title("Update available")

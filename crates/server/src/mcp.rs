@@ -771,9 +771,9 @@ impl SdrMcp {
 impl ServerHandler for SdrMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("sdr--", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new("SDR--", env!("CARGO_PKG_VERSION")))
             .with_instructions(
-                "Control an sdr-- software-defined-radio server. Call get_state first: device \
+                "Control an SDR-- software-defined-radio server. Call get_state first: device \
                  sets and channels are created explicitly and every other tool works from \
                  those ids. Frequencies are always in Hz. Channels are offset from their \
                  device set's centre frequency, so retuning the device moves them with it. \

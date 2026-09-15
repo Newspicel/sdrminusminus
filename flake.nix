@@ -1,5 +1,5 @@
 {
-  description = "sdr-- software-defined radio receiver";
+  description = "SDR-- software-defined radio receiver";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

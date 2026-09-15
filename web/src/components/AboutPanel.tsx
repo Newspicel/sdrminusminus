@@ -34,7 +34,7 @@ export function AboutPanel({
         >
           <div className="flex shrink-0 items-baseline justify-between gap-4">
             <Dialog.Title className="text-base font-medium text-ink">
-              sdr-- {about.data?.version ?? ""}
+              SDR-- {about.data?.version ?? ""}
             </Dialog.Title>
             <Dialog.Description className="legend">
               {about.data ? `${about.data.license} licensed` : "Loading…"}

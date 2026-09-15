@@ -184,7 +184,7 @@ async fn main() -> anyhow::Result<()> {
     let handle = serve(config, engine.clone())
         .await
         .context("failed to start server")?;
-    tracing::info!(url = %format!("{}://{}", handle.scheme, handle.local_addr), "sdr-- ready");
+    tracing::info!(url = %format!("{}://{}", handle.scheme, handle.local_addr), "SDR-- ready");
 
     tokio::select! {
         res = handle.join() => res.context("server task failed")?,

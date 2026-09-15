@@ -1,8 +1,8 @@
-# Contributing to sdr--
+# Contributing to SDR--
 
 ## Make a change
 
-1. Follow the [build and test guide](https://newspicel.github.io/sdrminusminus/development/building.html).
+1. Follow the [build and test guide](https://sdrmm.newspicel.dev/development/building.html).
 2. Branch from the latest `main`.
 3. Keep the change focused and add tests that demonstrate the behaviour.
 4. Run the checks for the parts you changed.
@@ -25,7 +25,7 @@ Use an issue to discuss substantial changes to behaviour or crate boundaries.
 - Prefer clear names and small functions. Reserve comments for rare, non-obvious constraints.
 - Prefer Rust implementations. Preserve attribution and license notices for reused code or tables.
 
-See [Architecture](https://newspicel.github.io/sdrminusminus/development/architecture.html)
+See [Architecture](https://sdrmm.newspicel.dev/development/architecture.html)
 for dependencies and runtime data flow.
 
 ## Tests and checks
@@ -72,7 +72,7 @@ Commit generated output with its source change:
 - `web/pnpm-lock.yaml`, or a git dependency's `rev`: `cargo xtask nix-hash` to update the Nix pnpm
   store hash and cargo git hashes. This requires Nix on Linux or a `nixos/nix` container elsewhere.
 
-The [generated-file reference](https://newspicel.github.io/sdrminusminus/development/building.html#generated-files)
+The [generated-file reference](https://sdrmm.newspicel.dev/development/building.html#generated-files)
 also covers decoder fixtures, band plans, and icons. `cargo xtask check` detects stale contracts,
 lockfile digests, and git revisions recorded with Nix hashes.
 

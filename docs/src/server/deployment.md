@@ -1,6 +1,6 @@
 # Containers and remote radios
 
-Run sdr-- beside the radio and connect through a desktop browser. The server sends audio,
+Run SDR-- beside the radio and connect through a desktop browser. The server sends audio,
 decoded data, and display frames over the network, keeping raw device IQ local.
 
 ## Docker Compose
@@ -148,7 +148,7 @@ network IQ can require substantial bandwidth.
 
 ## SoapyRemote
 
-Install SoapyRemote where sdr-- runs and start `SoapySDRServer` beside the hardware. Choose the
+Install SoapyRemote where SDR-- runs and start `SoapySDRServer` beside the hardware. Choose the
 remote receiver from the normal Device search. The container includes the module; desktop and
 portable packages use the host's installation.
 

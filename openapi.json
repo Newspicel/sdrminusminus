@@ -1,10 +1,10 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "sdr-- API",
+    "title": "SDR-- API",
     "description": "",
     "contact": {
-      "name": "sdr-- contributors"
+      "name": "SDR-- contributors"
     },
     "license": {
       "name": "GPL-3.0-or-later",

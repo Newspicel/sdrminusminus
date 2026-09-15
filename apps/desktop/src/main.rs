@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
 
             let url: tauri::Url = format!("http://127.0.0.1:{port}").parse()?;
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title("sdr--")
+                .title("SDR--")
                 .inner_size(1280.0, 800.0)
                 .build()?;
 
@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .context("failed to start sdr-- desktop")?
+        .context("failed to start SDR-- desktop")?
         .run(|app, event| {
             if matches!(event, RunEvent::Exit)
                 && let Some(engine) = app.try_state::<Arc<Engine>>()

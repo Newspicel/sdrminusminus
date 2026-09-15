@@ -16,9 +16,9 @@ pub fn channel_filter(rate: f64, half_bandwidth: f64) -> ChannelFilter {
 
 pub fn provenance() -> Provenance {
     Provenance {
-        station: StationIdentity::new("sdr--"),
+        station: StationIdentity::new("SDR--"),
         app: AppInfo {
-            name: "sdr--".to_owned(),
+            name: "SDR--".to_owned(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         sdr: None,

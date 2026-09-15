@@ -121,7 +121,7 @@ to establish trust manually.
 
 Use HTTPS to protect tokens and receiver traffic. For a reverse proxy:
 
-- Bind sdr-- to loopback or firewall its direct port.
+- Bind SDR-- to loopback or firewall its direct port.
 - Serve the application at the origin root.
 - Forward WebSocket upgrades for `/api/ws`.
 

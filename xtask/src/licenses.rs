@@ -21,7 +21,7 @@ const NOTES: &[(&str, &str)] = &[
         "codec2",
         "LGPL-2.1-only, statically linked into the binary. The LGPL permits this under any \
          outer license provided users can relink the executable against a modified Codec2; \
-         sdr-- satisfies that by publishing its complete source, which is the \"work that uses \
+         SDR-- satisfies that by publishing its complete source, which is the \"work that uses \
          the library\" LGPL-2.1 §6 asks for.",
     ),
     (
@@ -33,22 +33,22 @@ const NOTES: &[(&str, &str)] = &[
     (
         "cssparser",
         "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in sdr--.",
+         which reaches nothing in SDR--.",
     ),
     (
         "selectors",
         "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in sdr--.",
+         which reaches nothing in SDR--.",
     ),
     (
         "option-ext",
         "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in sdr--.",
+         which reaches nothing in SDR--.",
     ),
     (
         "serialport",
         "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
-         which reaches nothing in sdr--.",
+         which reaches nothing in SDR--.",
     ),
 ];
 
@@ -78,12 +78,12 @@ const NATIVE: &[Native] = &[
         license: "GPL-2.0-or-later",
         url: "https://gitea.osmocom.org/sdr/rtl-sdr",
         note: Some(
-            "sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB \
+            "SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB \
              stack. No part of librtlsdr is linked or shipped, but the register and I2C \
              encodings, the PLL and filter programming and the tuner gain table in \
              `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only \
              specification these parts have. That makes them a derived work under \
-             GPL-2.0-or-later. sdr-- exercises the \"or later\" option and distributes them \
+             GPL-2.0-or-later. SDR-- exercises the \"or later\" option and distributes them \
              under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced \
              at the top of this file, so no separate GPL-2.0 text accompanies them.",
         ),
@@ -94,7 +94,7 @@ const NATIVE: &[Native] = &[
         license: "BSD-3-Clause",
         url: "https://github.com/airspy/airspyone_host",
         note: Some(
-            "sdr-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and \
+            "SDR-- drives the Airspy R2 and Mini itself, in Rust, over its own USB stack, and \
              forms their complex baseband with its own filter. No part of libairspy is linked \
              or shipped, but the vendor request numbers, the wValue and wIndex layout of each \
              request and the packed sample format in `crates/device-airspy/src/driver` were \
@@ -120,10 +120,10 @@ const NATIVE: &[Native] = &[
         license: "GPL-2.0-or-later",
         url: "https://github.com/greatscottgadgets/hackrf",
         note: Some(
-            "As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, \
+            "As with librtlsdr: SDR-- speaks the HackRF's USB protocol itself and links nothing, \
              but the vendor request numbers, the register maps and the sweep framing in \
              `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the \
-             same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr \
+             same terms, distributed under SDR--'s own GPL-3.0-or-later exactly as librtlsdr \
              above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is \
              below because that licence asks to accompany the binary.",
         ),
@@ -150,7 +150,7 @@ const NATIVE: &[Native] = &[
              receive chain carries, the control chain's GPIO pin for the calibration noise \
              source, and the pins for the lanes' bias tees — is published only as KrakenRF's own \
              acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No \
-             code was taken and nothing is linked or shipped; sdr-- distributes under \
+             code was taken and nothing is linked or shipped; SDR-- distributes under \
              GPL-3.0-or-later regardless.",
         ),
         files: &[],
@@ -169,7 +169,7 @@ const NATIVE: &[Native] = &[
              BCH and VL-SNR block lengths were cross-checked against gr-dvbs2rx. The VL-SNR \
              header sequence in `dvbs2/vlsnr.rs` is the standard's own, and reproduces gr-dtv's \
              sixteen patterns exactly, which is how both readings are known to agree. All three \
-             sources are GPL-3.0-or-later, the same terms sdr-- distributes under, so no \
+             sources are GPL-3.0-or-later, the same terms SDR-- distributes under, so no \
              separate text accompanies them.",
         ),
         files: &[],
@@ -182,7 +182,7 @@ const NATIVE: &[Native] = &[
             "A codeplug is a vendor binary with no published specification, so the memory maps \
              and serial protocols in `crates/cps` were written from qdmr, which is where those \
              formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, \
-             the same terms sdr-- distributes under, so no separate text accompanies them. The \
+             the same terms SDR-- distributes under, so no separate text accompanies them. The \
              AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map \
              decodes firmware V100's digital channels as analogue, and the field layout in \
              `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against \
@@ -510,7 +510,7 @@ fn markdown(document: &NoticesDocument) -> String {
         "# Third-party notices\n\n\
          <!-- Generated by `cargo xtask licenses`. Do not edit by hand: `cargo xtask check` \
          regenerates this file and fails on any difference. -->\n\n\
-         sdr-- itself is licensed under the GNU General Public License, version 3 or later — \
+         SDR-- itself is licensed under the GNU General Public License, version 3 or later — \
          see [`LICENSE`](LICENSE).\n\n\
          This file lists every third-party component a release distributes: crates compiled into \
          the binaries and npm packages bundled into the web UI. Dev-only tooling is excluded, \

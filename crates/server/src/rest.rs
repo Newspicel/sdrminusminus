@@ -320,7 +320,7 @@ fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
 
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "sdr-- API", version = env!("CARGO_PKG_VERSION")),
+    info(title = "SDR-- API", version = env!("CARGO_PKG_VERSION")),
     components(schemas(
         ServerEvent,
         ClientCommand,

@@ -1,6 +1,6 @@
 # Radios and hardware
 
-Select a radio on a **Device** node. sdr-- supports built-in drivers, SoapySDR modules, network
+Select a radio on a **Device** node. SDR-- supports built-in drivers, SoapySDR modules, network
 receivers, and virtual sources. Use **Check hardware** or `sdrmm --doctor` if a receiver is missing.
 
 ## Built-in drivers
@@ -40,7 +40,7 @@ SoapySDRUtil --find
 SoapySDRUtil --probe="driver=bladerf"
 ```
 
-Replace `bladerf` with your module's driver name. If the utility finds a library that sdr-- misses,
+Replace `bladerf` with your module's driver name. If the utility finds a library that SDR-- misses,
 set `SDRMM_SOAPY_LIBRARY` to its full path. Use `sdrmm --doctor` to check built-in drivers;
 `SoapySDRUtil` reports only its own modules and devices.
 
@@ -48,7 +48,7 @@ set `SDRMM_SOAPY_LIBRARY` to its full path. Use `sdrmm --doctor` to check built-
 
 Install your receiver's udev rules and join the group they grant, usually `plugdev`. Reload udev
 and reconnect the radio after changing rules. The server account needs permission to open the
-USB device; sdr-- does not require root.
+USB device; SDR-- does not require root.
 
 Containers need the USB bus passed through and the owning group's numeric ID in `group_add`.
 Check it on the host with `stat -c '%g %G %a' /dev/bus/usb/*/*`. See
@@ -153,7 +153,7 @@ by serial number and USB hub. The vendor Raspberry Pi image is not required.
 | `agc` | R82xx tuner AGC |
 
 All lanes tune together. Direct sampling is unavailable. The shared clock provides `time_sync`
-coherence; relative phase must be recalibrated after each retune. sdr-- controls the built-in
+coherence; relative phase must be recalibrated after each retune. SDR-- controls the built-in
 noise source during [array calibration](user-guide/arrays.md#krakensdr).
 
 If the array is missing, check that every tuner appears in `sdrmm --doctor` or Linux `lsusb`.
@@ -179,7 +179,7 @@ corresponding SoapySDR modules.
 ### Airspy R2 and Airspy Mini
 
 The displayed sample rate is complex IQ output. The USB stream carries real ADC samples at twice
-that rate; sdr-- converts them to IQ.
+that rate; SDR-- converts them to IQ.
 
 LNA, mixer, and VGA gain use firmware step numbers rather than dB. The Device also exposes
 LNA AGC, mixer AGC, and bias-tee switches.
@@ -289,7 +289,7 @@ The tuning range follows the hardware documentation because the SDK does not rep
 ## How radios are discovered
 
 Discovery runs when USB devices change and once per minute for network radios. SoapySDR probing
-uses a child process so a crashing or stalled vendor module does not terminate sdr--.
+uses a child process so a crashing or stalled vendor module does not terminate SDR--.
 For debugging, `SDRMM_SOAPY_PROBE=in-process` disables that isolation.
 
 ## Before an unattended deployment

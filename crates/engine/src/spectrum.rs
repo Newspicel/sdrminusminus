@@ -252,13 +252,13 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
             }
             let (device, queue) =
                 pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                    label: Some("sdr-- spectrum FFT"),
+                    label: Some("SDR-- spectrum FFT"),
                     ..Default::default()
                 }))
                 .map_err(|error| format!("request device: {error}"))?;
 
             let fft_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sdr-- FFT stage layout"),
+                label: Some("SDR-- FFT stage layout"),
                 entries: &[
                     storage_entry(0, false),
                     storage_entry(1, true),
@@ -266,7 +266,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 ],
             });
             let power_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sdr-- FFT power layout"),
+                label: Some("SDR-- FFT power layout"),
                 entries: &[
                     storage_entry(0, true),
                     storage_entry(1, false),
@@ -313,7 +313,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
             let (bits, bit_reversed, twiddles) = fft_tables(size);
             let data = buffer(
                 &context.device,
-                "sdr-- FFT data",
+                "SDR-- FFT data",
                 complex_bytes,
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             );
@@ -321,19 +321,19 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 context
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("sdr-- FFT twiddles"),
+                        label: Some("SDR-- FFT twiddles"),
                         contents: bytemuck::cast_slice(&twiddles),
                         usage: wgpu::BufferUsages::STORAGE,
                     });
             let output = buffer(
                 &context.device,
-                "sdr-- FFT dB output",
+                "SDR-- FFT dB output",
                 power_bytes,
                 wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             );
             let readback = buffer(
                 &context.device,
-                "sdr-- FFT readback",
+                "SDR-- FFT readback",
                 power_bytes,
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             );
@@ -378,11 +378,11 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 self.context
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("sdr-- spectrum FFT"),
+                        label: Some("SDR-- spectrum FFT"),
                     });
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("sdr-- FFT stages"),
+                    label: Some("SDR-- FFT stages"),
                     timestamp_writes: None,
                 });
                 pass.set_pipeline(&self.context.fft_pipeline);
@@ -505,7 +505,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
         let stage_params = context
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("sdr-- FFT stage parameters"),
+                label: Some("SDR-- FFT stage parameters"),
                 contents: &stage_bytes,
                 usage: wgpu::BufferUsages::UNIFORM,
             });
@@ -514,7 +514,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 context
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("sdr-- FFT stage bind group"),
+                        label: Some("SDR-- FFT stage bind group"),
                         layout: &context.fft_layout,
                         entries: &[
                             bind(0, data.as_entire_binding()),
@@ -543,7 +543,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
         let power_params = context
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("sdr-- FFT power parameters"),
+                label: Some("SDR-- FFT power parameters"),
                 contents: bytemuck::bytes_of(&PowerParams {
                     size,
                     inv_gain,
@@ -554,7 +554,7 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
         context
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("sdr-- FFT power bind group"),
+                label: Some("SDR-- FFT power bind group"),
                 layout: &context.power_layout,
                 entries: &[
                     bind(0, data.as_entire_binding()),

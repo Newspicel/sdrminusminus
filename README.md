@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon.svg" alt="sdr-- logo" width="96" height="96">
+  <img src="assets/icon.svg" alt="SDR-- logo" width="96" height="96">
 </p>
 
-# sdr--
+# SDR--
 
 A software-defined radio application for listening, decoding, and recording. Connect radios,
 channels, and displays in **Patch** view, then pin your everyday controls to **Rack** view.
@@ -18,7 +18,7 @@ a browser. Both use the same receiver engine and interface.
 
 Download a desktop installer or portable server from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
-The [installation guide](https://newspicel.github.io/sdrminusminus/getting-started/install.html)
+The [installation guide](https://sdrmm.newspicel.dev/getting-started/install.html)
 covers macOS, Windows, Linux, Homebrew, Nix, and Docker.
 
 On macOS:
@@ -36,19 +36,19 @@ brew services start sdrmm
 ```
 
 Open <http://localhost:8080>. For remote access, configure
-[authentication and HTTPS](https://newspicel.github.io/sdrminusminus/server/configuration.html).
+[authentication and HTTPS](https://sdrmm.newspicel.dev/server/configuration.html).
 
 ## Start with an RTL-SDR
 
-1. Attach an antenna and plug the RTL-SDR into the computer running sdr--.
+1. Attach an antenna and plug the RTL-SDR into the computer running SDR--.
 2. Select it on the **Device** node. Set the sample rate to **2.4 MS/s** and tune to a local FM station.
 3. Add a **WFM** channel from **+ Node** and set it to the station's frequency.
 4. Connect Device `IQ` to WFM `IQ`, then WFM `audio` to Speaker `audio`.
 5. Start playback on the Speaker. Select a node and press `p` to pin it to the Rack.
 
-[Your first receiver](https://newspicel.github.io/sdrminusminus/getting-started/first-receiver.html)
+[Your first receiver](https://sdrmm.newspicel.dev/getting-started/first-receiver.html)
 walks through tuning, gain, audio, and RDS. See the
-[hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for other receivers and
+[hardware guide](https://sdrmm.newspicel.dev/hardware.html) for other receivers and
 package-specific driver requirements.
 
 ## What it supports
@@ -60,8 +60,8 @@ package-specific driver requirements.
 - **Radio tools:** scanning, signal identification, coherent arrays, direction finding, and passive radar.
 - **Automation:** REST, WebSocket, MCP, network IQ export, and event forwarding.
 
-sdr-- is under active development. The
-[channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
+SDR-- is under active development. The
+[channel catalog](https://sdrmm.newspicel.dev/user-guide/channels.html#channel-catalog)
 lists each mode's test coverage and limitations, including partial experimental decoders.
 
 ## Screenshots
@@ -116,19 +116,19 @@ support real receivers and recording playback.
 | `cargo xtask audit` | Dependency checks |
 
 Read [Contributing](CONTRIBUTING.md), the
-[build guide](https://newspicel.github.io/sdrminusminus/development/building.html), and
-[architecture](https://newspicel.github.io/sdrminusminus/development/architecture.html)
+[build guide](https://sdrmm.newspicel.dev/development/building.html), and
+[architecture](https://sdrmm.newspicel.dev/development/architecture.html)
 for prerequisites, crate boundaries, and tests.
 
 ## Documentation and API
 
-- [User and developer guide](https://newspicel.github.io/sdrminusminus/)
+- [User and developer guide](https://sdrmm.newspicel.dev/introduction.html)
 - Swagger UI: `/api/docs` on a running server
 - OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 
 ## License
 
-Copyright (C) 2026 sdr-- contributors.
+Copyright (C) 2026 SDR-- contributors.
 
 Licensed under the [GNU General Public License, version 3 or later](LICENSE).
 [Third-party notices](THIRD_PARTY_NOTICES.md) and license texts are also available in the app's

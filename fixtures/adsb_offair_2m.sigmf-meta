@@ -3,7 +3,7 @@
     "core:datatype": "cf32_le",
     "core:version": "1.2.6",
     "core:sample_rate": 2000000.0,
-    "core:recorder": "sdr--",
+    "core:recorder": "SDR--",
     "core:hw": "Generic RTL2832U OEM",
     "core:description": "Mode S downlink off air at 1090 MHz — 200 ms over the Eifel with four aircraft answering interrogations, carrying DF4, DF5, DF11, DF17, DF20 and DF21"
   },
@@ -16,7 +16,7 @@
   ],
   "annotations": [
     {
-      "core:comment": "sdr-- off-air recording rec_0_20260814T174132Z, 2 Msps at 1090 MHz; source SHA-256 7cff202fd9fbeae3f11587bb025ac4f441012f7fdb92c8d26c0c352fb68d275c; samples 7380000..7780000 at 2000000 Hz",
+      "core:comment": "SDR-- off-air recording rec_0_20260814T174132Z, 2 Msps at 1090 MHz; source SHA-256 7cff202fd9fbeae3f11587bb025ac4f441012f7fdb92c8d26c0c352fb68d275c; samples 7380000..7780000 at 2000000 Hz",
       "core:sample_count": 400000,
       "core:sample_start": 0
     }

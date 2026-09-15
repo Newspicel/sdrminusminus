@@ -16,7 +16,7 @@ const MAX_READING_AGE: jiff::SignedDuration = jiff::SignedDuration::from_hours(6
 const MIN_MUF_MHZ: f64 = 1.0;
 const MAX_MUF_MHZ: f64 = 100.0;
 const USER_AGENT: &str = concat!(
-    "sdr--/",
+    "SDR--/",
     env!("CARGO_PKG_VERSION"),
     " (+",
     "propagation map)"

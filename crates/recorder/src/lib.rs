@@ -19,7 +19,7 @@ pub const SIGMF_VERSION: &str = "1.2.6";
 pub const DATATYPE_CF32_LE: &str = "cf32_le";
 pub const BYTES_PER_SAMPLE: u64 = 8;
 
-const RECORDER_NAME: &str = "sdr--";
+const RECORDER_NAME: &str = "SDR--";
 const META_SUFFIX: &str = ".sigmf-meta";
 const DATA_SUFFIX: &str = ".sigmf-data";
 const TMP_META_SUFFIX: &str = ".sigmf-meta.tmp";
@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(meta.global.datatype, DATATYPE_CF32_LE);
         assert_eq!(meta.global.version, SIGMF_VERSION);
         assert_eq!(meta.global.sample_rate, Some(2_400_000.0));
-        assert_eq!(meta.global.recorder.as_deref(), Some("sdr--"));
+        assert_eq!(meta.global.recorder.as_deref(), Some("SDR--"));
         assert_eq!(meta.global.hw.as_deref(), Some("Signal Generator"));
         assert_eq!(meta.captures.len(), 1);
         assert_eq!(meta.captures[0].sample_start, 0);
@@ -804,7 +804,7 @@ mod tests {
                 datatype: DATATYPE_CF32_LE.to_string(),
                 version: SIGMF_VERSION.to_string(),
                 sample_rate: Some(2_400_000.0),
-                recorder: Some("sdr--".to_string()),
+                recorder: Some("SDR--".to_string()),
                 hw: None,
                 description: None,
                 name: None,
@@ -823,7 +823,7 @@ mod tests {
         assert_eq!(json["global"]["core:datatype"], "cf32_le");
         assert_eq!(json["global"]["core:version"], "1.2.6");
         assert_eq!(json["global"]["core:sample_rate"], 2_400_000.0);
-        assert_eq!(json["global"]["core:recorder"], "sdr--");
+        assert_eq!(json["global"]["core:recorder"], "SDR--");
         assert!(json["global"].get("core:hw").is_none());
         assert!(json["global"].get("sdrmm:rx_stream").is_none());
         assert_eq!(json["captures"][0]["core:sample_start"], 7);

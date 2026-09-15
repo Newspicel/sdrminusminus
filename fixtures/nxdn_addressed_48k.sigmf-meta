@@ -3,8 +3,8 @@
     "core:datatype": "cf32_le",
     "core:version": "1.2.6",
     "core:sample_rate": 48000.0,
-    "core:recorder": "sdr--",
-    "core:hw": "sdr-- reference modulator"
+    "core:recorder": "SDR--",
+    "core:hw": "SDR-- reference modulator"
   },
   "captures": [
     {

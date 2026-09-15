@@ -10,7 +10,7 @@ The report checks drivers, libraries, discovery, USB permissions, and storage pa
 
 ## The page does not open
 
-- Find the address printed beside `sdr-- ready` in the server log.
+- Find the address printed beside `SDR-- ready` in the server log.
 - On the server itself, try <http://127.0.0.1:8080>.
 - For remote access, bind to a reachable interface, for example `sdrmm --bind 0.0.0.0:8080`.
 - Check firewall rules and container port mappings.

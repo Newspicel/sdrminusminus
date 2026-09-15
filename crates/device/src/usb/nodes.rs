@@ -14,7 +14,7 @@ struct UsbIdentity {
     name: &'static str,
 }
 
-/// The radios sdr-- can drive over USB, by the identity they announce on the bus.
+/// The radios SDR-- can drive over USB, by the identity they announce on the bus.
 ///
 /// A product of `None` claims the whole vendor, which is only correct for a vendor that makes
 /// nothing else. The entries match the identities the vendors' own udev rules match.

@@ -340,7 +340,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     } else {
         "http"
     };
-    tracing::info!(%local_addr, scheme, "sdr-- server listening");
+    tracing::info!(%local_addr, scheme, "SDR-- server listening");
     let task = match tls_config {
         Some(tls_config) => {
             let server = axum_server::from_tcp_rustls(

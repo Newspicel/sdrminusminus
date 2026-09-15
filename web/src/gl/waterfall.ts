@@ -67,7 +67,7 @@ const CONTEXT_LOST = "graphics context lost, waiting for it back";
 const NO_WEBGL2 = "no WebGL2 context";
 
 export const GRAPHICS_HELP =
-  "This system refused a WebGL2 context. On Linux it is usually the WebKitGTK renderer: start sdr-- with SDRMM_LINUX_GRAPHICS=safe, or run the sdrmm server and open it in a browser. See Troubleshooting in the documentation.";
+  "This system refused a WebGL2 context. On Linux it is usually the WebKitGTK renderer: start SDR-- with SDRMM_LINUX_GRAPHICS=safe, or run the sdrmm server and open it in a browser. See Troubleshooting in the documentation.";
 
 export function attachWaterfall(
   canvas: HTMLCanvasElement,

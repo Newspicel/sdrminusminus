@@ -217,7 +217,7 @@ impl CaptureStream for SpyStream {
                     {
                         tracing::warn!(
                             message_type = header.kind,
-                            "SpyServer is sending IQ in a format sdr-- cannot decode; skipping it"
+                            "SpyServer is sending IQ in a format SDR-- cannot decode; skipping it"
                         );
                     }
                     None => {}

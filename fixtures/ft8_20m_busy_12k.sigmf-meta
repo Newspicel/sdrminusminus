@@ -3,7 +3,7 @@
     "core:datatype": "cf32_le",
     "core:version": "1.2.6",
     "core:sample_rate": 12000.0,
-    "core:recorder": "sdr--",
+    "core:recorder": "SDR--",
     "core:hw": "ft8_lib test recording 191111_110615.wav",
     "core:description": "FT8 on a crowded 20 m band, recorded 2019-11-11 11:06:15 UTC — one 15-second slot holding twenty stations, represented as real-valued complex IQ"
   },

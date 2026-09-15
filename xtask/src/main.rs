@@ -27,10 +27,12 @@ mod licenses;
 mod linkage;
 mod nixhash;
 mod replay;
+#[cfg(test)]
+mod site;
 mod updater;
 
 #[derive(Parser)]
-#[command(name = "xtask", about = "sdr-- workspace tasks")]
+#[command(name = "xtask", about = "SDR-- workspace tasks")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -82,6 +84,7 @@ enum Cmd {
         #[arg(long)]
         target: Option<String>,
     },
+    SourceDist,
     Desktop {
         #[arg(long)]
         target: Option<String>,
@@ -145,6 +148,7 @@ fn main() -> Result<()> {
         Cmd::IdentMatrix => ident_matrix::run(&root()),
         Cmd::NixHash => nixhash::run(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
+        Cmd::SourceDist => source_dist(&root()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
         Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
         Cmd::SetVersion { version } => set_version(&root(), &version),
@@ -831,6 +835,82 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+fn source_dist(root: &Path) -> Result<()> {
+    web_build(root)?;
+    assert_web_dist(root)?;
+
+    let out = root.join("dist");
+    let name = format!("sdrmm-{}-src", env!("CARGO_PKG_VERSION"));
+    let staged = out.join(&name);
+    if staged.exists() {
+        std::fs::remove_dir_all(&staged)
+            .with_context(|| format!("cannot clear {}", staged.display()))?;
+    }
+    std::fs::create_dir_all(&staged)
+        .with_context(|| format!("cannot create {}", staged.display()))?;
+
+    // `git archive` rather than the working tree: it carries the committed sources and honours
+    // the `export-ignore` that keeps the nightly cargo config out of a stable build.
+    let tar = out.join(format!("{name}.tar"));
+    run(
+        "git",
+        &[
+            "archive",
+            "--format=tar",
+            "--output",
+            tar.to_str().expect("utf8 path"),
+            "HEAD",
+        ],
+        root,
+    )?;
+    run(
+        "tar",
+        &[
+            "-xf",
+            tar.to_str().expect("utf8 path"),
+            "-C",
+            staged.to_str().expect("utf8 path"),
+        ],
+        root,
+    )?;
+    std::fs::remove_file(&tar).with_context(|| format!("cannot clear {}", tar.display()))?;
+    ensure!(
+        !staged.join(".cargo/config.toml").exists(),
+        "the export carries .cargo/config.toml, whose nightly `-Z` flags stop a stable \
+         toolchain. `git archive` reads .gitattributes from the commit, so an uncommitted \
+         `export-ignore` does not apply."
+    );
+
+    // The stamped manifests and the built UI are what the commit cannot carry: one names the
+    // release, the other is embedded by `crates/server` at compile time.
+    for manifest in ["Cargo.toml", "Cargo.lock"] {
+        std::fs::copy(root.join(manifest), staged.join(manifest))
+            .with_context(|| format!("cannot stage {manifest}"))?;
+    }
+    copy_tree(&root.join("web/dist"), &staged.join("web/dist"))?;
+
+    let archive = archive(root, &out, &name, false)?;
+    println!("source dist: {}", archive.display());
+    Ok(())
+}
+
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to).with_context(|| format!("cannot create {}", to.display()))?;
+    for entry in
+        std::fs::read_dir(from).with_context(|| format!("cannot read {}", from.display()))?
+    {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)
+                .with_context(|| format!("cannot copy {}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn archive(root: &Path, out: &Path, name: &str, windows: bool) -> Result<PathBuf> {
     let ext = if windows { "zip" } else { "tar.gz" };
     let path = out.join(format!("{name}.{ext}"));
@@ -1333,7 +1413,7 @@ fn fixtures(root: &Path) -> Result<()> {
             &fixture.iq,
             fixture.rate,
             CENTER_HZ,
-            "sdr-- reference modulator",
+            "SDR-- reference modulator",
             &fixture.note,
         )?;
     }
@@ -1371,7 +1451,7 @@ fn aprs_burst() -> Vec<Complex<f32>> {
         "DL1ABC-9",
         "APRS",
         &["WIDE1-1"],
-        "!5230.00N/01324.00E>sdr-- fixture",
+        "!5230.00N/01324.00E>SDR-- fixture",
     )))
     .expect("a ui frame is a payload the modulator carries");
     testgen::burst(&mut tx)
@@ -1612,7 +1692,7 @@ fn broadcast_fixtures(out: &mut Vec<Fixture>) {
                 &testgen::rds::Station {
                     pi: 0xD3C2,
                     ps: "SDR-M4  ".to_string(),
-                    radiotext: "sdr-- reference fixture".to_string(),
+                    radiotext: "SDR-- reference fixture".to_string(),
                     pty: 10,
                     tp: true,
                     ta: false,

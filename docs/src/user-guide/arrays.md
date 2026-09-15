@@ -22,7 +22,7 @@ and subsequent outputs directly to processing nodes.
 KrakenSDR has five lanes; KerberosSDR has four. Their shared clock provides `time_sync` coherence,
 but tuner phases change after every retune.
 
-Set **Cal source** to **Noise**. sdr-- switches the built-in noise source on when calibration is
+Set **Cal source** to **Noise**. SDR-- switches the built-in noise source on when calibration is
 needed, including after a retune or a press of **Calibrate**, then returns to the antennas.
 During calibration, the display shows `noise source in` and suppresses bearings.
 

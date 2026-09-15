@@ -1,4 +1,4 @@
-# Install sdr--
+# Install SDR--
 
 Choose a desktop app for local use or a server to control from a browser. Both provide the same
 receiver and interface.
@@ -14,7 +14,7 @@ receiver and interface.
 ## Desktop application
 
 Download your platform's installer from
-[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases), install it, and open sdr--.
+[GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases), install it, and open SDR--.
 The app starts its server automatically on a private local port.
 
 | Platform | Package |
@@ -130,7 +130,7 @@ automatically update to nightlies.
 
 ## Build from source
 
-Follow [Build and test](../development/building.md) to develop sdr-- or choose custom backends.
+Follow [Build and test](../development/building.md) to develop SDR-- or choose custom backends.
 
 ## Next step
 

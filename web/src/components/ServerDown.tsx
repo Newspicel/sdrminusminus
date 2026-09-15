@@ -44,12 +44,12 @@ export function ServerDown({ reason, onReachable }: { reason: string; onReachabl
       >
         <div className="flex items-center gap-2">
           <img src="/icon.svg" alt="" width={28} height={28} className="shrink-0" />
-          <div className="font-mono text-lg font-semibold text-accent">sdr--</div>
+          <div className="font-mono text-lg font-semibold text-accent">SDR--</div>
         </div>
         <div>
           <h1 className="text-sm font-semibold text-ink">Can't reach the server</h1>
           <p className="mt-1 text-sm text-ink-dim">
-            This window is running, but the sdr-- server behind it is not answering. Nothing you
+            This window is running, but the SDR-- server behind it is not answering. Nothing you
             arranged is lost — it lives on the server, and this page picks it up again by itself as
             soon as the server is back.
           </p>

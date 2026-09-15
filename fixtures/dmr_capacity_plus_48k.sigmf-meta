@@ -3,7 +3,7 @@
     "core:datatype": "cf32_le",
     "core:version": "1.2.6",
     "core:sample_rate": 48000.0,
-    "core:recorder": "sdr--",
+    "core:recorder": "SDR--",
     "core:hw": "Nooelec NESDR SMArt v5",
     "core:description": "Motorola Capacity Plus rest channel, colour code 5, down-converted to the channel rate from a 2.4 Msps capture centred on 460.802929 MHz. A talkgroup 101 call ends on timeslot 1 and the next one opens on timeslot 2, with the channel-status CSBKs naming the busy slot and the rest channel moving with them."
   },

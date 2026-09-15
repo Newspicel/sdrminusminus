@@ -677,7 +677,7 @@ mod tests {
         TxStation {
             pi: 0xD3C2,
             ps: "SDR--FM".to_owned(),
-            radiotext: "sdr-- reference transmission".to_owned(),
+            radiotext: "SDR-- reference transmission".to_owned(),
             pty: 10,
             tp: true,
             ta: false,
@@ -854,7 +854,7 @@ mod tests {
         assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
         assert_eq!(
             update.radiotext.as_deref(),
-            Some("sdr-- reference transmission")
+            Some("SDR-- reference transmission")
         );
         assert_eq!(update.pty, Some(10));
         assert_eq!(update.pty_name.as_deref(), Some("Pop Music"));
@@ -921,7 +921,7 @@ mod tests {
         assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
         assert_eq!(
             update.radiotext.as_deref(),
-            Some("sdr-- reference transmission")
+            Some("SDR-- reference transmission")
         );
         assert!(
             update.block_errors > 0,
@@ -1067,7 +1067,7 @@ mod tests {
         assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
         assert_eq!(
             update.radiotext.as_deref(),
-            Some("sdr-- reference transmission")
+            Some("SDR-- reference transmission")
         );
         assert_eq!(update.pty_name.as_deref(), Some("Pop Music"));
         assert_eq!(update.tp, Some(true));
@@ -1096,7 +1096,7 @@ mod tests {
         assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
         assert_eq!(
             update.radiotext.as_deref(),
-            Some("sdr-- reference transmission")
+            Some("SDR-- reference transmission")
         );
         assert_eq!(decoder.frames.block_errors, 0);
     }
@@ -1110,7 +1110,7 @@ mod tests {
         assert_eq!(update.ps.as_deref(), Some("SDR--FM"));
         assert_eq!(
             update.radiotext.as_deref(),
-            Some("sdr-- reference transmission")
+            Some("SDR-- reference transmission")
         );
         let (blocks, errors) = (decoder.frames.blocks_read, decoder.frames.block_errors);
         assert!(blocks > 500, "only {blocks} blocks read");

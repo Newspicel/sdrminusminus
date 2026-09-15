@@ -229,6 +229,60 @@ jobs:
             dist/*.zip
           if-no-files-found: error
 
+  # What a packager builds from. The tag's own tarball is not it: the version lives in the tag
+  # rather than the tree, the UI is not built, and `.cargo/config.toml` pins a nightly whose `-Z`
+  # flags stop a stable toolchain dead. This folds the stamped manifests and the built UI into an
+  # export that already drops that config, so `cargo build --locked` on stable is the whole
+  # recipe.
+  source:
+    name: Source tarball
+    needs: version
+    if: needs.version.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Building xtask reaches sdrmm-server, and opusic-sys compiles vendored libopus.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: source
+      - uses: actions/download-artifact@v8
+        with:
+          name: version-stamp
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: cargo xtask source-dist
+      - name: Smoke the tarball
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="sdrmm-${VERSION}-src"
+          tarball="dist/${root}.tar.gz"
+          test -s "$tarball"
+          tar -tzf "$tarball" > listing
+          grep -qx "${root}/apps/sdrmm/src/main.rs" listing
+          grep -qx "${root}/web/dist/index.html" listing
+          grep -qx "${root}/Cargo.lock" listing
+          if grep -qx "${root}/.cargo/config.toml" listing; then
+            echo "the export carries the nightly cargo config" >&2
+            exit 1
+          fi
+          tar -xzOf "$tarball" "${root}/Cargo.toml" > manifest
+          grep -qx "version = \"${VERSION}\"" manifest
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdrmm-source
+          path: dist/*-src.tar.gz
+          if-no-files-found: error
+
   image:
     name: Image (${{ matrix.platform }})
     needs: version
@@ -554,7 +608,7 @@ jobs:
                -o -name '*.msi' -o -name '*-setup.exe' \
                -o -name '*.app.tar.gz' -o -name '*.sig' \) \
             -exec cp {} bundles/ \;
-          # macOS names its updater artifact after the product alone (`sdr--.app.tar.gz`), with
+          # macOS names its updater artifact after the product alone (`SDR--.app.tar.gz`), with
           # no architecture in it — so both slices would reach one release under the same name
           # and whichever uploaded second would win. The other three targets carry their arch.
           if [ "$RUNNER_OS" = macOS ]; then
@@ -570,6 +624,25 @@ jobs:
           test -n "$(find bundles -name '*.sig')" \
             || { echo "no .sig files — is TAURI_SIGNING_PRIVATE_KEY set?" >&2; exit 1; }
           ls -l bundles
+      # The bundler notarizes and staples the `.app`, and then signs the `.dmg` around it and
+      # stops. Gatekeeper assesses a downloaded disk image on its own ticket, so without this the
+      # installer every macOS user double-clicks is refused with "Apple cannot check it for
+      # malicious software" — while the app inside it was notarized all along.
+      - name: Notarize the disk image
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for dmg in bundles/*.dmg; do
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+            spctl --assess --type open --context context:primary-signature -v "$dmg"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.label }}
@@ -628,7 +701,7 @@ jobs:
   # rewritten in place on each rebuild rather than appended to.
   pull-request-build:
     name: Pull request build
-    needs: [version, binaries, image, desktop, updater-manifest]
+    needs: [version, binaries, source, image, desktop, updater-manifest]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
@@ -666,7 +739,7 @@ jobs:
     # Dispatch rehearsals and labelled pull requests stop at the uploaded artifacts; a tag and a
     # nightly publish.
     if: github.ref_type == 'tag' || github.event_name == 'schedule'
-    needs: [version, binaries, image-manifest, desktop, updater-manifest]
+    needs: [version, binaries, source, image-manifest, desktop, updater-manifest]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

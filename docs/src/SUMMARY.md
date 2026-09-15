@@ -4,7 +4,7 @@
 
 # Get started
 
-- [Install sdr--](getting-started/install.md)
+- [Install SDR--](getting-started/install.md)
 - [Your first receiver](getting-started/first-receiver.md)
 - [Understand the workspace](getting-started/workspace.md)
 

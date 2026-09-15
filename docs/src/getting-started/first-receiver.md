@@ -1,14 +1,14 @@
 # Your first receiver
 
 Listen to a local FM broadcast station with an RTL-SDR. You need the receiver, an antenna, and
-an [installed copy of sdr--](install.md).
+an [installed copy of SDR--](install.md).
 
 ## 1. Connect the RTL-SDR
 
-Attach the antenna and plug the receiver into the computer running sdr--. For a remote setup,
+Attach the antenna and plug the receiver into the computer running SDR--. For a remote setup,
 plug it into the server.
 
-Open sdr-- and select your RTL-SDR on the **Device** node. A new installation also includes a
+Open SDR-- and select your RTL-SDR on the **Device** node. A new installation also includes a
 connected **Scope** and a **Speaker**. If these nodes are missing, add them from **+ Node** and
 connect Device `IQ` to Scope `IQ`.
 

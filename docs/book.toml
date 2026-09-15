@@ -1,7 +1,7 @@
 [book]
-title = "sdr--"
-description = "Install, operate, and develop sdr--, a software-defined radio application for desktop and browser."
-authors = ["sdr-- contributors"]
+title = "SDR--"
+description = "Install, operate, and develop SDR--, a software-defined radio application for desktop and browser."
+authors = ["SDR-- contributors"]
 src = "src"
 language = "en"
 
@@ -17,7 +17,7 @@ no-section-label = true
 smart-punctuation = false
 git-repository-url = "https://github.com/Newspicel/sdrminusminus"
 edit-url-template = "https://github.com/Newspicel/sdrminusminus/edit/main/docs/{path}"
-site-url = "/sdrminusminus/"
+site-url = "/"
 
 [output.html.fold]
 enable = true
