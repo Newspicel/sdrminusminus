@@ -96,6 +96,11 @@ sdrmm-server = { path = "crates/server", default-features = false }
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
 axum = { version = "0.8", features = ["ws"] }
+# TLS termination for `--tls-*`. `tls-rustls-no-provider` keeps the crypto provider ours to pick:
+# the graph already enables both rustls backends, so an implicit default would be ambiguous.
+axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
+rustls = "0.23"
+rcgen = "0.14"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"

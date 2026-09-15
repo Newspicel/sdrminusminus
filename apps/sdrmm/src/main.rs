@@ -1,9 +1,12 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use clap::Parser;
 use sdrmm_engine::Engine;
-use sdrmm_server::{Config, ServerOptions, routing::RoutingOptions, serve};
+use sdrmm_server::{Config, ServerOptions, routing::RoutingOptions, serve, tls::Tls};
 use sdrmm_wire::RoutingBackend;
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -36,6 +39,19 @@ struct Args {
     playback_speed: f64,
     #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]
     token: Option<String>,
+    #[arg(long, requires = "tls_key", conflicts_with = "tls_self_signed")]
+    tls_cert: Option<PathBuf>,
+    #[arg(long, requires = "tls_cert", conflicts_with = "tls_self_signed")]
+    tls_key: Option<PathBuf>,
+    #[arg(long)]
+    tls_self_signed: bool,
+    #[arg(
+        long = "tls-name",
+        env = "SDRMM_TLS_NAMES",
+        value_delimiter = ',',
+        requires = "tls_self_signed"
+    )]
+    tls_names: Vec<String>,
     #[arg(
         long,
         env = "SDRMM_ROUTING_BACKEND",
@@ -61,6 +77,26 @@ fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
             .join("sdrmm.db"),
     };
     std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
+}
+
+fn resolve_tls(args: &Args, db_path: &Path) -> anyhow::Result<Option<Tls>> {
+    match (&args.tls_cert, &args.tls_key) {
+        (Some(cert), Some(key)) => Ok(Some(Tls::Files {
+            cert: cert.clone(),
+            key: key.clone(),
+        })),
+        (None, None) if args.tls_self_signed => {
+            let dir = db_path
+                .parent()
+                .context("no directory to keep the self-signed certificate in")?;
+            Ok(Some(Tls::SelfSigned {
+                dir: dir.to_path_buf(),
+                names: args.tls_names.clone(),
+            }))
+        }
+        (None, None) => Ok(None),
+        _ => anyhow::bail!("--tls-cert and --tls-key must be given together"),
+    }
 }
 
 fn parse_playback_speed(raw: &str) -> Result<f64, String> {
@@ -96,9 +132,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let args = Args::parse();
-    let db_path = resolve_db_path(args.db)?;
-    let recordings_dir = resolve_recordings_dir(args.recordings_dir)?;
+    let mut args = Args::parse();
+    let db_path = resolve_db_path(args.db.take())?;
+    let recordings_dir = resolve_recordings_dir(args.recordings_dir.take())?;
     if args.doctor {
         print!(
             "{}",
@@ -117,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
         );
         return Ok(());
     }
+    let tls = resolve_tls(&args, &db_path)?;
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
@@ -132,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Config {
         bind: args.bind,
         db_path: Some(db_path),
+        tls,
         options: ServerOptions {
             dev_cors: args.dev_cors,
             token: args.token,
@@ -146,7 +184,7 @@ async fn main() -> anyhow::Result<()> {
     let handle = serve(config, engine.clone())
         .await
         .context("failed to start server")?;
-    tracing::info!(addr = %handle.local_addr, "sdr-- ready");
+    tracing::info!(url = %format!("{}://{}", handle.scheme, handle.local_addr), "sdr-- ready");
 
     tokio::select! {
         res = handle.join() => res.context("server task failed")?,
@@ -210,6 +248,95 @@ mod tests {
     fn playback_speed_defaults_to_real_time() {
         let args = Args::parse_from(["sdrmm"]);
         assert_eq!(args.playback_speed, 1.0);
+    }
+
+    #[test]
+    fn tls_is_off_unless_asked_for() {
+        let args = Args::parse_from(["sdrmm"]);
+        assert_eq!(
+            resolve_tls(&args, Path::new("/data/sdrmm.db")).expect("resolve"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_certificate_pair_is_taken_as_given() {
+        let args = Args::parse_from(["sdrmm", "--tls-cert", "a.pem", "--tls-key", "a.key"]);
+        assert_eq!(
+            resolve_tls(&args, Path::new("/data/sdrmm.db")).expect("resolve"),
+            Some(Tls::Files {
+                cert: PathBuf::from("a.pem"),
+                key: PathBuf::from("a.key"),
+            })
+        );
+    }
+
+    #[test]
+    fn self_signed_material_is_kept_beside_the_database() {
+        let args = Args::parse_from(["sdrmm", "--tls-self-signed"]);
+        assert_eq!(
+            resolve_tls(&args, Path::new("/data/sdrmm.db")).expect("resolve"),
+            Some(Tls::SelfSigned {
+                dir: PathBuf::from("/data"),
+                names: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn the_names_a_self_signed_certificate_must_cover_are_carried_through() {
+        let args = Args::parse_from([
+            "sdrmm",
+            "--tls-self-signed",
+            "--tls-name",
+            "radio.example,192.0.2.10",
+            "--tls-name",
+            "nas.local",
+        ]);
+        assert_eq!(
+            resolve_tls(&args, Path::new("/data/sdrmm.db")).expect("resolve"),
+            Some(Tls::SelfSigned {
+                dir: PathBuf::from("/data"),
+                names: vec![
+                    "radio.example".to_owned(),
+                    "192.0.2.10".to_owned(),
+                    "nas.local".to_owned(),
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn a_name_without_a_self_signed_certificate_is_rejected() {
+        assert!(
+            Args::try_parse_from(["sdrmm", "--tls-name", "radio.example"]).is_err(),
+            "a name was accepted with nothing to put it on"
+        );
+    }
+
+    #[test]
+    fn half_a_certificate_pair_is_rejected() {
+        for half in [
+            vec!["sdrmm", "--tls-cert", "a.pem"],
+            vec!["sdrmm", "--tls-key", "a.key"],
+        ] {
+            assert!(Args::try_parse_from(&half).is_err(), "accepted {half:?}");
+        }
+    }
+
+    #[test]
+    fn a_certificate_and_a_self_signed_one_cannot_both_be_asked_for() {
+        assert!(
+            Args::try_parse_from([
+                "sdrmm",
+                "--tls-self-signed",
+                "--tls-cert",
+                "a.pem",
+                "--tls-key",
+                "a.key",
+            ])
+            .is_err()
+        );
     }
 
     #[test]

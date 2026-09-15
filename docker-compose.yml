@@ -9,7 +9,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Database and SigMF recordings; the image passes --db/--recordings-dir under /data.
+      # Database, SigMF recordings, and any self-signed TLS material; the image passes
+      # --db/--recordings-dir under /data and keeps a certificate beside them.
       - sdrmm-data:/data
     devices:
       # The whole USB bus, not one node: which bus/device an SDR lands on is decided at plug

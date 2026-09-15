@@ -64,7 +64,7 @@ A codeplug is a vendor binary with no published specification, so the memory map
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
 
-## Rust crates (698)
+## Rust crates (714)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -84,6 +84,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [arc-swap](https://github.com/vorner/arc-swap) | 1.9.2 | MIT OR Apache-2.0 |
 | [arrayvec](https://github.com/bluss/arrayvec) | 0.7.8 | MIT OR Apache-2.0 |
 | [ash](https://github.com/ash-rs/ash) | 0.38.0+1.3.281 | MIT OR Apache-2.0 |
+| [asn1-rs](https://github.com/rusticata/asn1-rs.git) | 0.7.2 | MIT OR Apache-2.0 |
+| [asn1-rs-derive](https://github.com/rusticata/asn1-rs.git) | 0.6.0 | MIT OR Apache-2.0 |
+| [asn1-rs-impl](https://github.com/rusticata/asn1-rs.git) | 0.2.0 | MIT/Apache-2.0 |
 | [async-compression](https://github.com/Nullus157/async-compression) | 0.4.44 | MIT OR Apache-2.0 |
 | [async-trait](https://github.com/dtolnay/async-trait) | 0.1.92 | MIT OR Apache-2.0 |
 | [async-tungstenite](https://github.com/sdroege/async-tungstenite) | 0.34.1 | MIT |
@@ -96,6 +99,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [axum](https://github.com/tokio-rs/axum) | 0.8.9 | MIT |
 | [axum-core](https://github.com/tokio-rs/axum) | 0.5.6 | MIT |
 | [axum-macros](https://github.com/tokio-rs/axum) | 0.5.1 | MIT |
+| [axum-server](https://github.com/programatik29/axum-server) | 0.8.0 | MIT |
 | [base64](https://github.com/marshallpierce/rust-base64) | 0.21.7 | MIT OR Apache-2.0 |
 | [base64](https://github.com/marshallpierce/rust-base64) | 0.22.1 | MIT OR Apache-2.0 |
 | [base64](https://github.com/marshallpierce/rust-base64) | 0.23.1 | MIT OR Apache-2.0 |
@@ -179,6 +183,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [defmt](https://github.com/knurling-rs/defmt) | 1.1.1 | MIT OR Apache-2.0 |
 | [defmt-macros](https://github.com/knurling-rs/defmt) | 1.1.1 | MIT OR Apache-2.0 |
 | [defmt-parser](https://github.com/knurling-rs/defmt) | 1.0.0 | MIT OR Apache-2.0 |
+| [der-parser](https://github.com/rusticata/der-parser.git) | 10.0.0 | MIT OR Apache-2.0 |
 | [deranged](https://github.com/jhpratt/deranged) | 0.5.8 | MIT OR Apache-2.0 |
 | [derive_arbitrary](https://github.com/rust-fuzz/arbitrary) | 1.4.2 | MIT OR Apache-2.0 |
 | [derive_builder](https://github.com/colin-kiegel/rust-derive-builder) | 0.20.2 | MIT OR Apache-2.0 |
@@ -226,6 +231,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [foreign-types-macros](https://github.com/sfackler/foreign-types) | 0.2.4 | MIT/Apache-2.0 |
 | [foreign-types-shared](https://github.com/sfackler/foreign-types) | 0.3.1 | MIT/Apache-2.0 |
 | [form_urlencoded](https://github.com/servo/rust-url) | 1.2.2 | MIT OR Apache-2.0 |
+| [fs-err](https://github.com/andrewhickman/fs-err) | 3.3.1 | MIT OR Apache-2.0 |
 | [fs_extra](https://github.com/webdesus/fs_extra) | 1.3.0 | MIT |
 | [futures](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
 | [futures-channel](https://github.com/rust-lang/futures-rs) | 0.3.34 | MIT OR Apache-2.0 |
@@ -262,6 +268,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [gtk](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [gtk-sys](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
 | [gtk3-macros](https://github.com/gtk-rs/gtk3-rs) | 0.18.2 | MIT |
+| [h2](https://github.com/hyperium/h2) | 0.4.19 | MIT |
 | [half](https://github.com/VoidStarKat/half-rs) | 2.7.1 | MIT OR Apache-2.0 |
 | [hashbrown](https://github.com/rust-lang/hashbrown) | 0.12.3 | MIT OR Apache-2.0 |
 | [hashbrown](https://github.com/rust-lang/hashbrown) | 0.16.1 | MIT OR Apache-2.0 |
@@ -350,6 +357,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [mfsk-core](https://github.com/jl1nie/mfsk-core) | 0.10.0 | GPL-3.0-or-later |
 | [mime](https://github.com/hyperium/mime) | 0.3.17 | MIT OR Apache-2.0 |
 | [mime_guess](https://github.com/abonander/mime_guess) | 2.0.5 | MIT |
+| [minimal-lexical](https://github.com/Alexhuszagh/minimal-lexical) | 0.2.1 | MIT/Apache-2.0 |
 | [minisign-verify](https://github.com/jedisct1/rust-minisign-verify) | 0.2.5 | MIT |
 | [miniz_oxide](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | [miniz_oxide](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) | 0.9.1 | MIT OR Zlib OR Apache-2.0 |
@@ -366,7 +374,9 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [new_debug_unreachable](https://github.com/mbrubeck/rust-debug-unreachable) | 1.0.6 | MIT |
 | [nix](https://github.com/nix-rust/nix) | 0.26.4 | MIT |
 | [nix](https://github.com/nix-rust/nix) | 0.31.3 | MIT |
+| [nom](https://github.com/Geal/nom) | 7.1.3 | MIT |
 | [nu-ansi-term](https://github.com/nushell/nu-ansi-term) | 0.50.3 | MIT |
+| [num-bigint](https://github.com/rust-num/num-bigint) | 0.4.8 | MIT OR Apache-2.0 |
 | [num-complex](https://github.com/rust-num/num-complex) | 0.4.6 | MIT OR Apache-2.0 |
 | [num-conv](https://github.com/jhpratt/num-conv) | 0.2.2 | MIT OR Apache-2.0 |
 | [num-integer](https://github.com/rust-num/num-integer) | 0.1.47 | MIT OR Apache-2.0 |
@@ -393,6 +403,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [objc2-ui-kit](https://github.com/madsmtm/objc2) | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | [objc2-user-notifications](https://github.com/madsmtm/objc2) | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | [objc2-web-kit](https://github.com/madsmtm/objc2) | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| [oid-registry](https://github.com/rusticata/oid-registry.git) | 0.8.1 | MIT OR Apache-2.0 |
 | [once_cell](https://github.com/matklad/once_cell) | 1.21.4 | MIT OR Apache-2.0 |
 | [once_cell_polyfill](https://github.com/polyfill-rs/once_cell_polyfill) | 1.70.2 | MIT OR Apache-2.0 |
 | [openssl-probe](https://github.com/rustls/openssl-probe) | 0.2.1 | MIT OR Apache-2.0 |
@@ -407,6 +418,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [parking_lot_core](https://github.com/Amanieu/parking_lot) | 0.9.12 | MIT OR Apache-2.0 |
 | [paste](https://github.com/dtolnay/paste) | 1.0.15 | MIT OR Apache-2.0 |
 | [pastey](https://github.com/as1100k/pastey) | 0.2.3 | MIT OR Apache-2.0 |
+| [pem](https://github.com/jcreekmore/pem-rs.git) | 4.0.0 | MIT |
 | [percent-encoding](https://github.com/servo/rust-url/) | 2.3.2 | MIT OR Apache-2.0 |
 | [phf](https://github.com/rust-phf/rust-phf) | 0.13.1 | MIT |
 | [phf_codegen](https://github.com/rust-phf/rust-phf) | 0.13.1 | MIT |
@@ -452,6 +464,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [raw-window-metal](https://github.com/rust-windowing/raw-window-metal) | 1.1.0 | MIT OR Apache-2.0 |
 | [rayon](https://github.com/rayon-rs/rayon) | 1.12.0 | MIT OR Apache-2.0 |
 | [rayon-core](https://github.com/rayon-rs/rayon) | 1.13.0 | MIT OR Apache-2.0 |
+| [rcgen](https://github.com/rustls/rcgen) | 0.14.10 | MIT OR Apache-2.0 |
 | [redox_syscall](https://gitlab.redox-os.org/redox-os/syscall) | 0.5.18 | MIT |
 | [redox_users](https://gitlab.redox-os.org/redox-os/users) | 0.5.2 | MIT |
 | [ref-cast](https://github.com/dtolnay/ref-cast) | 1.0.27 | MIT OR Apache-2.0 |
@@ -477,6 +490,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [rustc-hash](https://github.com/rust-lang/rustc-hash) | 2.1.3 | Apache-2.0 OR MIT |
 | [rustc_version](https://github.com/djc/rustc-version-rs) | 0.4.1 | MIT OR Apache-2.0 |
 | [rustfft](https://github.com/ejmahler/RustFFT) | 6.4.1 | MIT OR Apache-2.0 |
+| [rusticata-macros](https://github.com/rusticata/rusticata-macros.git) | 4.1.0 | MIT/Apache-2.0 |
 | [rustix](https://github.com/bytecodealliance/rustix) | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | [rustls](https://github.com/rustls/rustls) | 0.23.45 | Apache-2.0 OR ISC OR MIT |
 | [rustls-native-certs](https://github.com/rustls/rustls-native-certs) | 0.8.4 | Apache-2.0 OR ISC OR MIT |
@@ -740,6 +754,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [wry](https://github.com/tauri-apps/wry) | 0.55.1 | Apache-2.0 OR MIT |
 | [x11](https://github.com/AltF02/x11-rs.git) | 2.21.0 | MIT |
 | [x11-dl](https://github.com/AltF02/x11-rs.git) | 2.21.0 | MIT |
+| [x509-parser](https://github.com/rusticata/x509-parser.git) | 0.18.1 | MIT OR Apache-2.0 |
 | [xattr](https://github.com/Stebalien/xattr) | 1.6.1 | MIT OR Apache-2.0 |
 | [xml-rs](https://github.com/kornelski/xml-rs) | 0.8.29 | MIT |
 | [xng-acars](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
@@ -751,6 +766,7 @@ sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 | [xng-mode-stdc](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
 | [xng-mode-vdl2](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
 | [xng-types](https://github.com/airframesio/xng) | 0.21.0 | MIT OR Apache-2.0 |
+| [yasna](https://github.com/qnighy/yasna.rs) | 0.6.0 | MIT OR Apache-2.0 |
 | [yoke](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
 | [yoke-derive](https://github.com/unicode-org/icu4x) | 0.8.2 | Unicode-3.0 |
 | [zerocopy](https://github.com/google/zerocopy) | 0.8.56 | BSD-2-Clause OR Apache-2.0 OR MIT |

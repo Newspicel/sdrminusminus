@@ -43,6 +43,7 @@ mod rest;
 pub mod routing;
 mod store;
 mod templates;
+pub mod tls;
 mod tracks;
 mod trunking;
 mod workspace;
@@ -118,6 +119,7 @@ impl AppState {
 pub struct Config {
     pub bind: SocketAddr,
     pub db_path: Option<PathBuf>,
+    pub tls: Option<tls::Tls>,
     pub options: ServerOptions,
 }
 
@@ -126,6 +128,7 @@ impl Default for Config {
         Self {
             bind: SocketAddr::from(([0, 0, 0, 0], 8080)),
             db_path: None,
+            tls: None,
             options: ServerOptions::default(),
         }
     }
@@ -287,6 +290,7 @@ where
 
 pub struct ServerHandle {
     pub local_addr: SocketAddr,
+    pub scheme: &'static str,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
     _background: Background,
 }
@@ -322,12 +326,37 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();
     let (app, background) = router_with_state(state, &config.options);
-    let listener = tokio::net::TcpListener::bind(config.bind).await?;
+    let tls_config = config
+        .tls
+        .as_ref()
+        .map(tls::server_config)
+        .transpose()
+        .map_err(std::io::Error::other)?;
+    let listener = std::net::TcpListener::bind(config.bind)?;
+    listener.set_nonblocking(true)?;
     let local_addr = listener.local_addr()?;
-    tracing::info!(%local_addr, "sdr-- server listening");
-    let task = tokio::spawn(async move { axum::serve(listener, app).await });
+    let scheme = if tls_config.is_some() {
+        "https"
+    } else {
+        "http"
+    };
+    tracing::info!(%local_addr, scheme, "sdr-- server listening");
+    let task = match tls_config {
+        Some(tls_config) => {
+            let server = axum_server::from_tcp_rustls(
+                listener,
+                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config)),
+            )?;
+            tokio::spawn(async move { server.serve(app.into_make_service()).await })
+        }
+        None => {
+            let listener = tokio::net::TcpListener::from_std(listener)?;
+            tokio::spawn(async move { axum::serve(listener, app).await })
+        }
+    };
     Ok(ServerHandle {
         local_addr,
+        scheme,
         task,
         _background: background,
     })

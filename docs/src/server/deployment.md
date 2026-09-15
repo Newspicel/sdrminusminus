@@ -90,6 +90,32 @@ SDRMM_TOKEN=replace-with-a-long-random-secret
 Protect the environment file and back up the `sdrmm-data` volume. See
 [Configuration and security](configuration.md) before exposing the service outside a trusted LAN.
 
+### HTTPS
+
+The service reads its TLS options from the same command line as everything else. Mount a
+certificate and its key read-only:
+
+```yaml
+volumes:
+  - sdrmm-data:/data
+  - /etc/letsencrypt/live/radio.example:/certs:ro
+command: ["--bind", "0.0.0.0:8080", "--tls-cert", "/certs/fullchain.pem", "--tls-key", "/certs/privkey.pem"]
+```
+
+Give the container user read access to both files; it runs as uid `10001`, not root.
+
+A self-signed certificate instead needs no mount — it is written to `/data/tls` beside the
+database, inside the `sdrmm-data` volume, so it survives a restart or an image update the same way
+the database does. Name the host, because a container only ever sees its own bridge address:
+
+```yaml
+command: ["--bind", "0.0.0.0:8080", "--tls-self-signed", "--tls-name", "radio.example"]
+```
+
+Back up `/data/tls` with the database, or accept that clients have to trust a new certificate
+after a restore. The bundled health check tries HTTPS when plain HTTP is refused, so the container
+still reports healthy either way.
+
 ## Run the portable server as a service
 
 For a non-container deployment, give `sdrmm` a dedicated unprivileged account, explicit data
@@ -134,3 +160,7 @@ normally requires HTTPS. Manual region selection does not.
 
 When proxying through HTTPS, forward normal HTTP routes and WebSocket upgrades on the same origin.
 The UI uses `/api/*`, `/api/ws`, and `/mcp` root-relative paths.
+
+Where no proxy is wanted, `--tls-cert` and `--tls-key` let the server terminate TLS itself, and
+`--tls-self-signed` covers a LAN with no certificate authority. See
+[Configuration and security](configuration.md).

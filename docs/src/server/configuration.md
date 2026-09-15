@@ -15,6 +15,10 @@ sdrmm [OPTIONS]
 | `--db <PATH>` | Platform data directory | SQLite database for workspaces, presets, bookmarks, recording index, and decoder log |
 | `--recordings-dir <PATH>` | Platform data directory | Directory containing SigMF recording pairs |
 | `--token <TOKEN>` | None | Require one shared bearer token for API, WebSocket, and MCP requests |
+| `--tls-cert <PATH>` | None | PEM certificate chain to serve HTTPS with; requires `--tls-key` |
+| `--tls-key <PATH>` | None | PEM private key for that chain |
+| `--tls-self-signed` | Off | Serve HTTPS with a self-signed certificate kept beside the database |
+| `--tls-name <NAME>` | Discovered addresses | Name or address that certificate must cover; repeatable |
 | `--routing-backend <NAME>` | `open-route-service` | Routing service: `open-route-service` or `graph-hopper` |
 | `--routing-url <URL>` | The backend's own service | Base URL, for a self-hosted instance |
 | `--routing-key <KEY>` | None | API key for that service |
@@ -82,12 +86,55 @@ The application shell and `GET /api/auth` remain reachable without authenticatio
 can load and discover that it needs a token. Other API, WebSocket, documentation, and MCP routes
 are protected.
 
+## HTTPS
+
+The server can terminate TLS itself. Give it a certificate chain and its key:
+
+```sh
+sdrmm --tls-cert /etc/sdrmm/fullchain.pem --tls-key /etc/sdrmm/privkey.pem
+```
+
+Both files are PEM. The chain holds the leaf certificate first and any intermediates after it; the
+key may be PKCS#8, PKCS#1, or SEC1. The two options are given together, and the server refuses to
+start if either file is unreadable or the key does not match the certificate.
+
+Without a certificate authority, ask for a self-signed one instead:
+
+```sh
+sdrmm --tls-self-signed
+```
+
+The certificate covers `localhost`, both loopback addresses, and every LAN address the machine
+reports for itself, so the [field-mode](../user-guide/field-mode.md) handoff to a phone works over
+the same certificate. It is written to a `tls` directory beside the database and reused on every
+later start, so a browser or phone that accepted it keeps trusting it; it is replaced shortly
+before it expires. The key is owner-readable only. Note the SHA-256 fingerprint the server logs at
+startup and compare it the first time a client warns about the unknown issuer.
+
+Where the addresses the server sees are not the ones clients dial — behind a container bridge, a
+NAT, or a DNS name — name them instead:
+
+```sh
+sdrmm --tls-self-signed --tls-name radio.example --tls-name 192.168.1.20
+```
+
+`SDRMM_TLS_NAMES` takes the same list, comma separated. Named addresses replace the discovered
+ones, which is what keeps the certificate stable: a container's own address changes from run to
+run, and a certificate following it would be minted again, and have to be trusted again, on most
+restarts. Loopback is always covered. A certificate is also replaced when the set of names
+changes, because one that does not name the address a client dialled is worse than an unknown
+one.
+
+A self-signed certificate encrypts the connection but proves nothing about the host. Use a real
+certificate wherever an authority is available.
+
 ## Network security
 
 The shared token is access control, not transport encryption. A plain HTTP client on the network
 can expose it and receiver traffic to an observer. For access beyond a trusted LAN:
 
-- bind to loopback and place an HTTPS reverse proxy or authenticated tunnel in front;
+- serve HTTPS directly, or bind to loopback and place an HTTPS reverse proxy or authenticated
+  tunnel in front;
 - preserve WebSocket upgrade headers for `/api/ws`;
 - proxy the application at the origin root rather than a path prefix;
 - keep the direct `8080` port firewalled;

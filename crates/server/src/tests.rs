@@ -29,6 +29,7 @@ mod presets;
 mod recordings;
 mod scanning;
 mod templates;
+mod tls;
 mod workspaces;
 
 struct NanoVnaStub;
