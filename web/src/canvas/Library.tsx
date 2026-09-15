@@ -12,7 +12,7 @@ import { ToolsPanel } from "../tools/ToolsPanel";
 import { refFromDeviceId } from "./binding";
 import { useWorkspaceContext } from "./context";
 import { FieldPanel } from "./FieldPanel";
-import { addNode, MAX_NAME_LEN, newNodeId } from "./graph";
+import { addNode, MAX_NAME_LEN, newNodeId, nodeIds } from "./graph";
 import { useNodePlacement } from "./placement";
 
 const TABS = [
@@ -41,7 +41,7 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
       pushToast(`${recording.file} has no playable device id`);
       return;
     }
-    const id = newNodeId("device");
+    const id = newNodeId("device", nodeIds(workspace.graph));
     workspace.edit((snapshot) => ({
       ...snapshot,
       graph: addNode(snapshot.graph, {

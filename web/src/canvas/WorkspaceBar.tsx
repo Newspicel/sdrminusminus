@@ -6,7 +6,7 @@ import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
 import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { addNode, newNodeId } from "./graph";
+import { addNode, newNodeId, nodeIds } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
 import { newNodeBody } from "./newNode";
@@ -61,7 +61,7 @@ export function WorkspaceBar({
   const pinned = workspace.rack.slots?.length ?? 0;
 
   const add = (kind: NodeKind, channelType?: string) => {
-    const id = newNodeId(kind);
+    const id = newNodeId(kind, nodeIds(workspace.graph));
     workspace.edit((snapshot) => {
       const node = {
         id,

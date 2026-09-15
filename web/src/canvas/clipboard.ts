@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, Position } from "../lib/types";
 import type { Workspace } from "./context";
-import { MAX_EDGES, MAX_NODES, newNodeId } from "./graph";
+import { MAX_EDGES, MAX_NODES, newNodeId, nodeIds } from "./graph";
 import { isTyping } from "./useHotkeys";
 
 export interface Clipboard {
@@ -35,8 +35,13 @@ export function pasteRefusal(graph: PatchGraph, clipboard: Clipboard): string | 
   return null;
 }
 
-function pasteIds(clipboard: Clipboard): string[] {
-  return clipboard.nodes.map((node) => newNodeId(node.kind));
+export function pasteIds(graph: PatchGraph, clipboard: Clipboard): string[] {
+  const taken = nodeIds(graph);
+  return clipboard.nodes.map((node) => {
+    const id = newNodeId(node.kind, taken);
+    taken.add(id);
+    return id;
+  });
 }
 
 export function pasteNodes(
@@ -45,8 +50,13 @@ export function pasteNodes(
   offset: Position,
   ids: readonly string[],
 ): PatchGraph {
+  const taken = nodeIds(graph);
   const minted = new Map(
-    clipboard.nodes.map((node, index) => [node.id, ids[index] ?? newNodeId(node.kind)]),
+    clipboard.nodes.map((node, index) => {
+      const id = ids[index] ?? newNodeId(node.kind, taken);
+      taken.add(id);
+      return [node.id, id] as const;
+    }),
   );
   const rename = (node: string): string => minted.get(node) ?? node;
   return {
@@ -119,7 +129,7 @@ export function useClipboard(
       }
       pastes.current += 1;
       const step = PASTE_OFFSET_PX * pastes.current;
-      const ids = pasteIds(held);
+      const ids = pasteIds(active.graph, held);
       active.edit((snapshot) => ({
         ...snapshot,
         graph: pasteNodes(snapshot.graph, held, { x: step, y: step }, ids),

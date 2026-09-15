@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ChannelDescriptor,
   DeviceSet,
@@ -12,6 +12,7 @@ import type {
 } from "../lib/types";
 import {
   addEdge,
+  addNode,
   clampCells,
   connectionRefusal,
   edgeKey,
@@ -24,6 +25,7 @@ import {
   NODE_SIZE,
   type NodeSize,
   newNodeId,
+  nodeIds,
   nodeMinSize,
   PORT_STEP_PX,
   PORT_TOP_PX,
@@ -449,6 +451,40 @@ describe("connectionRefusal", () => {
   });
 });
 
+describe("node ids", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("names a node after its kind and keeps every one distinct", () => {
+    const taken = nodeIds(workspace());
+    const first = newNodeId("scope", taken);
+    taken.add(first);
+
+    expect(first).toMatch(/^scope:[0-9a-f]{8}$/);
+    expect(newNodeId("scope", taken)).not.toEqual(first);
+  });
+
+  it("mints them where randomUUID is absent, as on a plain-HTTP origin", () => {
+    const real = globalThis.crypto;
+    vi.stubGlobal("crypto", {
+      getRandomValues: (buffer: Uint8Array<ArrayBuffer>) => real.getRandomValues(buffer),
+    });
+
+    expect(newNodeId("scope", new Set())).toMatch(/^scope:[0-9a-f]{8}$/);
+  });
+
+  it("draws again when the id it drew is already spoken for", () => {
+    const drawn = [0x11, 0x22];
+    vi.stubGlobal("crypto", {
+      getRandomValues: (buffer: Uint8Array) => {
+        buffer.fill(drawn.shift() ?? 0x33);
+        return buffer;
+      },
+    });
+
+    expect(newNodeId("scope", new Set(["scope:11111111"]))).toBe("scope:22222222");
+  });
+});
+
 describe("editing", () => {
   it("removing a node takes its wires with it", () => {
     const graph = removeNode(workspace(), "nfm");
@@ -456,9 +492,13 @@ describe("editing", () => {
     expect(graph.edges?.map(edgeKey)).toEqual(["dev.iq->scope.iq"]);
   });
 
-  it("ids are unique per node", () => {
-    expect(newNodeId("scope")).not.toEqual(newNodeId("scope"));
-    expect(newNodeId("scope").startsWith("scope:")).toBe(true);
+  it("refuses to draw two nodes under one id", () => {
+    const graph = workspace();
+    const drawn = graph.nodes[0];
+    if (drawn === undefined) {
+      throw new Error("an empty patch");
+    }
+    expect(() => addNode(graph, drawn)).toThrow(/duplicate node id/);
   });
 
   it("turns a stored scanner's IQ wire into the control wire that drives the radio", () => {

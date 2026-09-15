@@ -70,7 +70,15 @@ import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { basebandSourceOf, channelNodesOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
-import { addEdge, addNode, newNodeId, patchNode, streamPort, tuningLocked } from "../graph";
+import {
+  addEdge,
+  addNode,
+  newNodeId,
+  nodeIds,
+  patchNode,
+  streamPort,
+  tuningLocked,
+} from "../graph";
 import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
@@ -366,7 +374,7 @@ function Spectrum({
     if (deviceNode === undefined) {
       return;
     }
-    const id = newNodeId("channel");
+    const id = newNodeId("channel", nodeIds(workspace.graph));
     tuneOnCreate(id, pick.hz);
     workspace.edit((snapshot) => ({
       ...snapshot,

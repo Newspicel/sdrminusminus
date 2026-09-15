@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PatchGraph, PatchNode } from "../lib/types";
-import { copyNodes, pasteNodes, pasteRefusal } from "./clipboard";
+import { copyNodes, pasteIds, pasteNodes, pasteRefusal } from "./clipboard";
 import { MAX_EDGES, MAX_NODES } from "./graph";
 
 function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): PatchNode {
@@ -84,6 +84,60 @@ describe("pasteNodes", () => {
       to: { node: "ch2", port: "iq" },
     });
     expect((pasted.edges ?? []).filter((edge) => edge.to.node === "ch")).toHaveLength(1);
+  });
+});
+
+describe("pasteIds", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("mints one per copied node, clear of the patch and of each other", () => {
+    const copied = copyNodes(graph, ["ch", "spk"]);
+    if (copied === null) {
+      throw new Error("nothing copied");
+    }
+    const ids = pasteIds(graph, copied);
+
+    expect(ids).toEqual([
+      expect.stringMatching(/^channel:[0-9a-f]{8}$/),
+      expect.stringMatching(/^speaker:[0-9a-f]{8}$/),
+    ]);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.some((id) => graph.nodes.some((entry) => entry.id === id))).toBe(false);
+  });
+
+  it("does not hand the same id to two nodes of one kind", () => {
+    const pair: PatchGraph = {
+      nodes: [node("a", { kind: "speaker" }), node("b", { kind: "speaker" })],
+      edges: [],
+    };
+    const copied = copyNodes(pair, ["a", "b"]);
+    if (copied === null) {
+      throw new Error("nothing copied");
+    }
+    const drawn = [0x11, 0x11, 0x22];
+    vi.stubGlobal("crypto", {
+      getRandomValues: (buffer: Uint8Array) => {
+        buffer.fill(drawn.shift() ?? 0x44);
+        return buffer;
+      },
+    });
+
+    expect(pasteIds(pair, copied)).toEqual(["speaker:11111111", "speaker:22222222"]);
+  });
+
+  it("pastes without the secure-context randomUUID", () => {
+    const real = globalThis.crypto;
+    vi.stubGlobal("crypto", {
+      getRandomValues: (buffer: Uint8Array<ArrayBuffer>) => real.getRandomValues(buffer),
+    });
+    const copied = copyNodes(graph, ["ch", "spk"]);
+    if (copied === null) {
+      throw new Error("nothing copied");
+    }
+    const pasted = pasteNodes(graph, copied, { x: 32, y: 32 }, pasteIds(graph, copied));
+
+    expect(pasted.nodes).toHaveLength(5);
+    expect(new Set(pasted.nodes.map((entry) => entry.id)).size).toBe(5);
   });
 });
 

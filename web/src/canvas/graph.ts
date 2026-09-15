@@ -75,8 +75,23 @@ export function portStream(base: string, name: string): number | null {
 export const MAX_NODES = 128;
 export const MAX_EDGES = 256;
 
-export function newNodeId(kind: NodeKind): string {
-  return `${kind}:${crypto.randomUUID().slice(0, 8)}`;
+const ID_BYTES = 4;
+
+export function nodeIds(graph: PatchGraph): Set<string> {
+  return new Set(graph.nodes.map((node) => node.id));
+}
+
+export function newNodeId(kind: NodeKind, taken: ReadonlySet<string>): string {
+  let id = `${kind}:${randomHex()}`;
+  while (taken.has(id)) {
+    id = `${kind}:${randomHex()}`;
+  }
+  return id;
+}
+
+function randomHex(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(ID_BYTES));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function descriptorOf(
@@ -329,6 +344,9 @@ export function nodeMinSize(kind: NodeKind, ports: readonly PortSpec[]): { w: nu
 }
 
 export function addNode(graph: PatchGraph, node: PatchNode): PatchGraph {
+  if (graph.nodes.some((drawn) => drawn.id === node.id)) {
+    throw new Error(`duplicate node id ${node.id}`);
+  }
   return { ...graph, nodes: [...graph.nodes, node] };
 }
 
