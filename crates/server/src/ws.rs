@@ -748,7 +748,7 @@ fn spawn_decoded(
         loop {
             match decoded_rx.recv().await {
                 Ok(text) => {
-                    if out_tx.send(Message::Text(text)).await.is_err() {
+                    if out_tx.send_decoded(Message::Text(text)).await.is_err() {
                         break;
                     }
                 }

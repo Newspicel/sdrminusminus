@@ -9,6 +9,7 @@ use sdrmm_wire::FrameKind;
 use tokio::sync::Notify;
 
 const CONTROL_LIMIT: usize = 64;
+const DECODED_LIMIT: usize = 1024;
 const BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const FRAME_LIMIT: usize = 8 * 1024 * 1024;
 const AUDIO_AGE: Duration = Duration::from_millis(100);
@@ -23,15 +24,18 @@ struct Packet {
     queued: Instant,
     key: Option<(u8, u16)>,
     barrier: Option<u16>,
+    lossy: bool,
 }
 
 #[derive(Default)]
 struct Queue {
     control: VecDeque<Packet>,
+    decoded: VecDeque<Packet>,
     audio: VecDeque<Packet>,
     media: VecDeque<Packet>,
     bytes: usize,
     dropped: u64,
+    lost: u64,
     closed: bool,
     senders: usize,
 }
@@ -76,6 +80,14 @@ fn packet(message: Message) -> Packet {
         queued: Instant::now(),
         key,
         barrier,
+        lossy: false,
+    }
+}
+
+fn decoded_packet(message: Message) -> Packet {
+    Packet {
+        lossy: true,
+        ..packet(message)
     }
 }
 
@@ -109,6 +121,10 @@ impl Queue {
             return Err(());
         }
         self.expire(packet.queued);
+        if packet.lossy {
+            self.push_lossy(packet);
+            return Ok(());
+        }
         let len = packet.len();
         if packet.key.is_none() {
             if self.control.len() >= CONTROL_LIMIT || len > BYTE_LIMIT {
@@ -152,8 +168,33 @@ impl Queue {
         Ok(())
     }
 
+    fn push_lossy(&mut self, packet: Packet) {
+        let len = packet.len();
+        while self.decoded.len() >= DECODED_LIMIT || self.bytes + len > BYTE_LIMIT {
+            let Some(old) = self.decoded.pop_front() else {
+                self.forget_lossy();
+                return;
+            };
+            self.bytes -= old.len();
+            self.forget_lossy();
+        }
+        self.bytes += len;
+        self.decoded.push_back(packet);
+    }
+
+    fn forget_lossy(&mut self) {
+        self.dropped += 1;
+        self.lost += 1;
+    }
+
     fn pop(&mut self) -> Option<Message> {
         self.expire(Instant::now());
+        if self.lost > 0 {
+            let count = std::mem::take(&mut self.lost);
+            return Some(super::text_event(&sdrmm_wire::ServerEvent::DecodedLost {
+                count,
+            }));
+        }
         let control = self.control.iter().position(|p| {
             p.barrier.is_none_or(|id| {
                 !self
@@ -166,6 +207,7 @@ impl Queue {
         let packet = control
             .and_then(|index| self.control.remove(index))
             .or_else(|| self.audio.pop_front())
+            .or_else(|| self.decoded.pop_front())
             .or_else(|| self.media.pop_front())?;
         self.bytes -= packet.len();
         Some(packet.message)
@@ -190,6 +232,7 @@ impl Outbox {
         let oldest = queue
             .control
             .iter()
+            .chain(queue.decoded.iter())
             .chain(queue.audio.iter())
             .chain(queue.media.iter())
             .map(|packet| packet.queued)
@@ -203,12 +246,20 @@ impl Outbox {
     }
 
     pub(super) async fn send(&self, message: Message) -> Result<(), ()> {
+        self.enqueue(packet(message))
+    }
+
+    pub(super) async fn send_decoded(&self, message: Message) -> Result<(), ()> {
+        self.enqueue(decoded_packet(message))
+    }
+
+    fn enqueue(&self, packet: Packet) -> Result<(), ()> {
         let result = self
             .0
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(packet(message));
+            .push(packet);
         self.0.ready.notify_one();
         result
     }
@@ -358,6 +409,48 @@ mod tests {
                 .is_err()
         );
         assert!(queue.closed);
+    }
+
+    fn decoded(id: u8) -> Message {
+        Message::Text(format!(r#"{{"type":"Decoded","data":{id}}}"#).into())
+    }
+
+    #[test]
+    fn a_decoded_burst_sheds_its_oldest_records_instead_of_closing_the_connection() {
+        let mut queue = Queue::default();
+        let overshoot = 5;
+        for id in 0..DECODED_LIMIT + overshoot {
+            queue
+                .push(decoded_packet(decoded(id as u8)))
+                .expect("decoded records never congest the connection");
+        }
+        assert!(!queue.closed);
+
+        let lost = sdrmm_wire::ServerEvent::DecodedLost {
+            count: overshoot as u64,
+        };
+        assert_eq!(queue.pop(), Some(super::super::text_event(&lost)));
+        assert_eq!(queue.pop(), Some(decoded(overshoot as u8)));
+    }
+
+    #[test]
+    fn decoded_records_wait_behind_control_and_audio_but_lead_the_visuals() {
+        let mut queue = Queue::default();
+        queue
+            .push(packet(media(FrameKind::Spectrum, 1, 1)))
+            .expect("media");
+        queue.push(decoded_packet(decoded(9))).expect("decoded");
+        queue
+            .push(packet(media(FrameKind::AudioOpus, 2, 2)))
+            .expect("audio");
+        queue
+            .push(packet(Message::Text("control".into())))
+            .expect("control");
+
+        assert_eq!(queue.pop(), Some(Message::Text("control".into())));
+        assert_eq!(queue.pop(), Some(media(FrameKind::AudioOpus, 2, 2)));
+        assert_eq!(queue.pop(), Some(decoded(9)));
+        assert_eq!(queue.pop(), Some(media(FrameKind::Spectrum, 1, 1)));
     }
 
     #[test]

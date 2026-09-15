@@ -35,7 +35,7 @@ function ToastList() {
       >
         <Toast.Content className="flex items-start gap-2 p-2 pl-3">
           <span className={`legend pt-1 ${error ? "text-danger" : "text-ink-dim"}`}>
-            {error ? "Rejected" : "Note"}
+            {error ? "Error" : "Note"}
           </span>
           <Toast.Title className="min-w-0 flex-1 font-mono text-xs break-words text-ink">
             {toast.title}
