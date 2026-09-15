@@ -325,7 +325,13 @@ export function FaceBody({
 }
 
 export function FaceEmpty({ hint }: { hint?: string }) {
-  return <div className="min-h-12 flex-1" title={hint} />;
+  return (
+    <div className="flex min-h-12 flex-1 items-center justify-center p-3">
+      {hint !== undefined && (
+        <span className="text-center text-xs text-balance text-ink-faint">{hint}</span>
+      )}
+    </div>
+  );
 }
 
 export function FaceFooter({ children }: { children: ReactNode }) {
