@@ -60,7 +60,11 @@ pub(crate) fn argument_info(info: &soapysdr::ArgInfo) -> ArgumentInfo {
 }
 
 pub(crate) fn argument_infos(infos: &[soapysdr::ArgInfo]) -> Vec<ArgumentInfo> {
-    infos.iter().map(argument_info).collect()
+    infos
+        .iter()
+        .filter(|info| !info.key.is_empty())
+        .map(argument_info)
+        .collect()
 }
 
 pub(crate) fn extra_write_value(
@@ -536,6 +540,23 @@ mod tests {
         assert_eq!(mapped.value_type, ArgumentType::Int);
         assert_eq!(mapped.range.expect("range").step, Some(1.0));
         assert_eq!(mapped.options[0].label.as_deref(), Some("Off"));
+    }
+
+    #[test]
+    fn keyless_arguments_are_dropped() {
+        let infos = vec![
+            soapy_arg("buffers", ArgType::Int),
+            soapy_arg("", ArgType::String),
+            soapy_arg("transfers", ArgType::Int),
+        ];
+        let mapped = argument_infos(&infos);
+        assert_eq!(
+            mapped
+                .iter()
+                .map(|arg| arg.key.as_str())
+                .collect::<Vec<_>>(),
+            ["buffers", "transfers"]
+        );
     }
 
     #[test]

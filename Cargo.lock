@@ -5477,7 +5477,7 @@ checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
 [[package]]
 name = "soapysdr"
 version = "0.5.1"
-source = "git+https://github.com/Newspicel/rust-soapysdr?rev=5f05fb65366d75e4706285df5bc3864abbd51284#5f05fb65366d75e4706285df5bc3864abbd51284"
+source = "git+https://github.com/Newspicel/rust-soapysdr?rev=fc09ef25d0313263e7633f1887c61457e0c4e442#fc09ef25d0313263e7633f1887c61457e0c4e442"
 dependencies = [
  "log",
  "num-complex",
@@ -5487,7 +5487,7 @@ dependencies = [
 [[package]]
 name = "soapysdr-sys"
 version = "0.8.1"
-source = "git+https://github.com/Newspicel/rust-soapysdr?rev=5f05fb65366d75e4706285df5bc3864abbd51284#5f05fb65366d75e4706285df5bc3864abbd51284"
+source = "git+https://github.com/Newspicel/rust-soapysdr?rev=fc09ef25d0313263e7633f1887c61457e0c4e442#fc09ef25d0313263e7633f1887c61457e0c4e442"
 dependencies = [
  "pkg-config",
 ]
