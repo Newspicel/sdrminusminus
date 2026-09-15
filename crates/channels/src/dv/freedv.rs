@@ -360,4 +360,32 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn noise_never_leaves_the_modem_without_presentable_audio() {
+        let params = FreeDvParams::default();
+        let mut channel = FreeDvChannel::new(
+            ChannelCtx {
+                input_rate: INPUT_RATE_HZ,
+            },
+            settings(ChannelParams::Freedv(params)),
+        )
+        .unwrap();
+        let mut filter = channel_filter(&params).unwrap();
+        let mut filtered = Vec::new();
+        let mut out = ChannelOutputs::default();
+        for block in crate::testutil::complex_noise(97, 1.0, 400_000).chunks(997) {
+            filter.process(block, &mut filtered);
+            out.reset();
+            channel.process(&filtered, &mut out);
+            assert!(
+                out.audio_pcm.iter().all(|sample| sample.is_finite()),
+                "the FreeDV modem produced a non-finite sample from noise"
+            );
+            assert!(
+                out.audio_pcm.iter().all(|sample| sample.abs() <= 1.0),
+                "the FreeDV modem produced a sample outside full scale from noise"
+            );
+        }
+    }
 }

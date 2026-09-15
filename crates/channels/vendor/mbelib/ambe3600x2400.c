@@ -213,29 +213,18 @@ mbe_decodeAmbe2400Parms (char *ambe_d, mbe_parms * cur_mp, mbe_parms * prev_mp)
     b2 |= ambe_d[17];      //v0 1   a guess based on data
     // the order of the last 3 bits may really be 17,44,45 not 44,45,17 as above
 
-    fprintf(stderr,"Tone volume: %d; ", b2);
+    /* Local fix: upstream reports every tone frame on stderr. A received frame must not write
+       to a stream from the decode path, so only the silence decision is kept. */
     if (b1 < 5)
     {
-      fprintf(stderr, "index: %d, was <5, invalid!\n", b1);
       silence = 1;
-    }
-    else if ((b1 >= 5) && (b1 <= 122))
-    {
-      fprintf(stderr, "index: %d, Single tone hz: %f\n", b1, (float)b1*31.25);
     }
     else if ((b1 > 122) && (b1 < 128))
     {
-      fprintf(stderr, "index: %d, was >122 and <128, invalid!\n", b1);
       silence = 1;
     }
-    else if ((b1 >= 128) && (b1 <= 163))
+    else if (b1 > 163)
     {
-      fprintf(stderr, "index: %d, Dual tone\n", b1);
-	  // note: dual tone index is different on ambe(dstar) and ambe2+
-    }
-    else
-    {
-      fprintf(stderr, "index: %d, was >163, invalid!\n", b1);
       silence = 1;
     }
 
@@ -565,6 +554,13 @@ mbe_decodeAmbe2400Parms (char *ambe_d, mbe_parms * cur_mp, mbe_parms * prev_mp)
       // eq. 40
       flokl[l] = ((float) prev_mp->L / (float) cur_mp->L) * (float) l;
       intkl[l] = (int) (flokl[l]);
+      /* Local fix: eq. 43 and eq. 44 also read log2Ml[intkl + 1], which reaches 57 when the
+         previous frame used the longest harmonic set. deltal is 1 at the clamped index, so the
+         weighted sum is unchanged. */
+      if (intkl[l] > 55)
+        {
+          intkl[l] = 55;
+        }
 #ifdef AMBE_DEBUG
       printf ("flok%i: %f, intk%i: %i ", l, flokl[l], l, intkl[l]);
 #endif

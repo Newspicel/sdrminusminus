@@ -449,3 +449,90 @@ pub(crate) mod testutil {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(seed: u32) -> impl FnMut() -> u32 {
+        let mut state = seed | 1;
+        move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        }
+    }
+
+    fn assert_presentable(out: &ChannelOutputs) {
+        assert!(
+            out.audio_pcm.iter().all(|sample| sample.is_finite()),
+            "vocoder produced a non-finite sample"
+        );
+        assert!(
+            out.audio_pcm.iter().all(|sample| sample.abs() <= 1.0),
+            "vocoder produced a sample outside full scale"
+        );
+    }
+
+    #[test]
+    fn the_dstar_vocoder_survives_arbitrary_air_bits() {
+        let mut next = words(0x5EED_BEEF);
+        let mut vocoder = DstarVocoder::new();
+        let mut out = ChannelOutputs::default();
+        for _ in 0..4_000 {
+            let frame: [bool; 72] = std::array::from_fn(|_| next() & 1 == 1);
+            out.reset();
+            vocoder.decode(&frame, false, &mut out);
+            assert_presentable(&out);
+        }
+    }
+
+    #[test]
+    fn the_dstar_vocoder_still_decodes_speech_after_arbitrary_air_bits() {
+        let mut next = words(0x0BAD_F00D);
+        let mut vocoder = DstarVocoder::new();
+        let mut out = ChannelOutputs::default();
+        for _ in 0..500 {
+            let frame: [bool; 72] = std::array::from_fn(|_| next() & 1 == 1);
+            out.reset();
+            vocoder.decode(&frame, false, &mut out);
+        }
+        vocoder.reset();
+        out.reset();
+        vocoder.decode(&[false; 72], false, &mut out);
+        assert_eq!(out.audio_rate, AUDIO_RATE);
+        assert_presentable(&out);
+    }
+
+    #[test]
+    fn the_half_rate_decoder_survives_arbitrary_frames() {
+        let mut next = words(0x1234_5678);
+        let mut decoder = MbeDecoder::half_rate();
+        let mut out = ChannelOutputs::default();
+        for _ in 0..2_000 {
+            out.reset();
+            decoder.decode_half_code_vectors(std::array::from_fn(|_| next()), false, &mut out);
+            decoder.decode_half_soft(&std::array::from_fn(|_| next() as i8), false, &mut out);
+            decoder.decode_half_info(&std::array::from_fn(|_| next() & 1 == 1), false, &mut out);
+            assert_presentable(&out);
+        }
+    }
+
+    #[test]
+    fn the_full_rate_decoder_survives_arbitrary_frames() {
+        let mut next = words(0x9ABC_DEF0);
+        let mut decoder = MbeDecoder::full_rate();
+        let mut out = ChannelOutputs::default();
+        for _ in 0..2_000 {
+            out.reset();
+            decoder.decode_full_code_vectors(std::array::from_fn(|_| next()), false, &mut out);
+            decoder.decode_full_dibits(
+                &std::array::from_fn(|_| (next() & 3) as u8),
+                false,
+                &mut out,
+            );
+            assert_presentable(&out);
+        }
+    }
+}
