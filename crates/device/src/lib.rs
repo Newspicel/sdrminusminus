@@ -308,7 +308,10 @@ pub trait SdrDevice: Send {
 pub mod capture;
 pub mod convert;
 pub mod duplex;
+#[cfg(feature = "net")]
+pub mod net;
 pub mod playback;
+pub mod pool;
 pub mod registry;
 pub mod restart;
 pub mod schedule;
@@ -322,6 +325,7 @@ pub use capture::{
 pub use convert::{LutConverter, SampleConverter};
 pub use duplex::DuplexState;
 pub use playback::PlaybackShared;
+pub use pool::{Block, BlockPool};
 pub use registry::DeviceRegistry;
 pub use restart::{Recovery, RestartPolicy, SILENT_STREAM_TIMEOUT};
 pub use schedule::Latency;

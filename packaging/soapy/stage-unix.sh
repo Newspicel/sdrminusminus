@@ -32,16 +32,16 @@ while IFS= read -r core; do cp -L "$core" "$destination/lib/$(basename "$core")"
 
 module_dir="$(find "$prefix/lib" -type d -path '*/SoapySDR/modules0.8' | head -1)"
 test -n "$module_dir" || { echo "SoapySDR modules0.8 not found under $prefix/lib" >&2; exit 1; }
-# LimeSuite, Pluto and SoapyRemote search the network while they look for a radio, which costs
-# seconds per enumeration. They are staged apart so that finding what is attached to this machine
-# does not wait for them, and are loaded only when a search is meant to reach that far.
+# LimeSuite and SoapyRemote search the network while they look for a radio, which costs seconds
+# per enumeration. They are staged apart so that finding what is attached to this machine does
+# not wait for them, and are loaded only when a search is meant to reach that far.
 stage_modules() {
   find "$module_dir" -maxdepth 1 -type f \
     | grep -Ei "/(lib)?($1).*\.(so|dylib)" \
     | while IFS= read -r module; do cp -L "$module" "$destination/lib/SoapySDR/$2/"; done
 }
 stage_modules 'airspyhf|airspy|bladerf' modules0.8
-stage_modules 'lms7|plutosdr|remote' modules0.8-network
+stage_modules 'lms7|remote' modules0.8-network
 
 test -n "$(find "$destination/lib/SoapySDR/modules0.8" -iname '*airspy*')" \
   || { echo "SoapyAirspy was not staged" >&2; exit 1; }
@@ -76,7 +76,7 @@ copy_dependencies_macos() {
           # `-type l` as well as `-type f`: a library's install name is usually its soname, and
           # conda ships that as a symlink onto the fully versioned file — `libairspy.0.dylib`
           # onto `libairspy.0.3.0.dylib`. Matching files alone silently staged no driver library
-          # at all for airspy, LimeSuite or Pluto, and none of them missed a thing until a radio
+          # at all for airspy or LimeSuite, and neither of them missed a thing until a radio
           # was plugged in. `cp -L` below copies the content under the name the module asks for.
           source="$(find "$prefix/lib" \( -type f -o -type l \) \
             -name "$(basename "$dependency")" -print -quit)"

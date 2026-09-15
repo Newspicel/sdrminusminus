@@ -63,6 +63,22 @@ const fn named(
     }
 }
 
+const fn family(
+    stem: &'static str,
+    rate: f64,
+    offset_hz: f64,
+    dial_hz: f64,
+    families: &'static [Modulation],
+) -> Fixture {
+    Fixture {
+        stem,
+        rate,
+        offset_hz,
+        dial_hz,
+        expect: Expect::Family(families),
+    }
+}
+
 const fn beyond(
     stem: &'static str,
     rate: f64,
@@ -104,12 +120,11 @@ pub const FIXTURES: &[Fixture] = &[
         "pocsag",
         TWO_LEVEL,
     ),
-    named(
+    family(
         "flex_1600_2_240k",
         240_000.0,
         30_000.0,
         929_662_500.0,
-        "flex",
         TWO_LEVEL_OR_IDLE,
     ),
     named(
@@ -224,13 +239,12 @@ pub const FIXTURES: &[Fixture] = &[
         "ysf",
         FOUR_LEVEL,
     ),
-    named(
+    beyond(
         "rds_station_960k",
         960_000.0,
         200_000.0,
         95_500_000.0,
-        "wfm",
-        &[Modulation::Fm],
+        "a single tone at broadcast deviation reads as four discrete frequency levels",
     ),
     named(
         "subghz_ev1527_500k",

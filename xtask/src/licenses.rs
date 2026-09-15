@@ -99,6 +99,32 @@ const NATIVE: &[Native] = &[
         files: &["HackRF-BSD-3-Clause.txt"],
     },
     Native {
+        name: "librtlsdr (KrakenRF fork)",
+        license: "GPL-2.0-or-later",
+        url: "https://github.com/krakenrf/librtlsdr",
+        note: Some(
+            "The tuner register that stops the PLL dithering, without which two dongles on one \
+             clock have no stable phase between them, is documented only in KrakenRF's fork of \
+             librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and \
+             is a derived work on the same terms as librtlsdr above.",
+        ),
+        files: &[],
+    },
+    Native {
+        name: "heimdall_daq_fw",
+        license: "GPL-3.0-or-later",
+        url: "https://github.com/krakenrf/heimdall_daq_fw",
+        note: Some(
+            "How a KrakenSDR identifies itself and how its bank is wired — the serial each \
+             receive chain carries, the control chain's GPIO pin for the calibration noise \
+             source, and the pins for the lanes' bias tees — is published only as KrakenRF's own \
+             acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No \
+             code was taken and nothing is linked or shipped; sdr-- distributes under \
+             GPL-3.0-or-later regardless.",
+        ),
+        files: &[],
+    },
+    Native {
         name: "gr-dtv, gr-dvbs2rx, gr-dvbgse",
         license: "GPL-3.0-or-later",
         url: "https://github.com/gnuradio/gnuradio",
@@ -134,7 +160,7 @@ const NATIVE: &[Native] = &[
         files: &[],
     },
     Native {
-        name: "Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote",
+        name: "Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote",
         license: "See the bundled package metadata",
         url: "https://github.com/pothosware",
         note: Some(

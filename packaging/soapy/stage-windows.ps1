@@ -19,9 +19,9 @@ if ($atRoot -or $atOrAboveWorkingDirectory) {
 if (Test-Path $Destination) { Remove-Item -Recurse -Force $Destination }
 $bin = Join-Path $Destination "bin"
 $modules = Join-Path $Destination "lib\SoapySDR\modules0.8"
-# LimeSuite, Pluto and SoapyRemote search the network while they look for a radio, which costs
-# seconds per enumeration. They are staged apart so that finding what is attached to this machine
-# does not wait for them, and are loaded only when a search is meant to reach that far.
+# LimeSuite and SoapyRemote search the network while they look for a radio, which costs seconds
+# per enumeration. They are staged apart so that finding what is attached to this machine does
+# not wait for them, and are loaded only when a search is meant to reach that far.
 $networkModules = Join-Path $Destination "lib\SoapySDR\modules0.8-network"
 $licenses = Join-Path $Destination "licenses"
 New-Item -ItemType Directory -Force $bin, $modules, $networkModules, $licenses | Out-Null
@@ -30,7 +30,7 @@ Get-ChildItem (Join-Path $Prefix "Library\bin") -Filter "*.dll" | Copy-Item -Des
 $sourceModules = Join-Path $Prefix "Library\lib\SoapySDR\modules0.8"
 Get-ChildItem $sourceModules -Filter "*.dll" | Where-Object { $_.Name -match "airspy|bladerf" } |
   Copy-Item -Destination $modules
-Get-ChildItem $sourceModules -Filter "*.dll" | Where-Object { $_.Name -match "lms7|pluto|remote" } |
+Get-ChildItem $sourceModules -Filter "*.dll" | Where-Object { $_.Name -match "lms7|remote" } |
   Copy-Item -Destination $networkModules
 if (-not (Get-ChildItem $modules | Where-Object { $_.Name -match "airspy" })) { throw "SoapyAirspy was not staged" }
 if (-not (Get-ChildItem $networkModules | Where-Object { $_.Name -match "remote" })) { throw "SoapyRemote was not staged" }

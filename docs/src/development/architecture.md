@@ -28,9 +28,11 @@ The browser and desktop window run the same React client.
 | `sdrmm-device-virtual` | Signal generators and SigMF playback |
 | `sdrmm-device-rtlsdr` | Native RTL-SDR driver |
 | `sdrmm-device-hackrf` | Native HackRF driver |
+| `sdrmm-device-ad936x` | AntSDR, PlutoSDR and other AD936x boards, speaking iiod over ethernet or USB |
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
 | `sdrmm-device-sdrplay` | SDRplay RSP receivers through the vendor API, loaded at runtime |
-| `sdrmm-device-net` | Direct `rtl_tcp` and SpyServer clients |
+| `sdrmm-device-rtltcp` | Direct `rtl_tcp` client |
+| `sdrmm-device-spyserver` | Direct SpyServer client |
 | `sdrmm-device-cr8` | Dragon Labs CR-8 through the vendor SDK, loaded at runtime |
 | `sdrmm-device-array` | Already-open streams composed as logical lanes; no hardware opens |
 | `sdrmm-channels` | Analog demodulators, protocol decoders, and their descriptors |

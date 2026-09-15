@@ -1,27 +1,24 @@
 use std::sync::{Arc, Mutex};
 
 use sdrmm_device::{
-    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
+    BlockPool, Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice,
+    lock,
+    net::{Adopted, CONNECT_TIMEOUT, Connection, Endpoint, Read},
     single_rx_sink,
 };
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
 
 use crate::{
-    adopted::Adopted,
-    endpoint::Endpoint,
-    rtltcp::{
-        caps::Remote,
-        proto::{Command, GREETING_LEN, Greeting, frame},
-        stream::RtlTcpStream,
-    },
-    socket::{BlockPool, Connection},
+    caps::Remote,
+    proto::{Command, GREETING_LEN, Greeting, frame},
+    stream::RtlTcpStream,
 };
 
 mod caps;
 mod proto;
 mod stream;
 
-pub(crate) const DRIVER_ID: &str = "rtltcp";
+const DRIVER_ID: &str = "rtltcp";
 
 #[derive(Debug, Default)]
 pub struct RtlTcpDriver {
@@ -76,16 +73,15 @@ fn connect(endpoint: &Endpoint) -> Result<(Connection, Greeting), DeviceError> {
     let mut bytes = [0u8; GREETING_LEN];
     let mut got = 0;
     while got < GREETING_LEN {
-        match connection.read(&mut bytes[got..], crate::endpoint::CONNECT_TIMEOUT) {
-            crate::socket::Read::Got(n) => got += n,
-            crate::socket::Read::Idle => {
+        match connection.read(&mut bytes[got..], CONNECT_TIMEOUT) {
+            Read::Got(n) => got += n,
+            Read::Idle => {
                 return Err(DeviceError::InUse(format!(
-                    "{endpoint}: no rtl_tcp greeting within {:?}; the server serves one client at \
-                     a time",
-                    crate::endpoint::CONNECT_TIMEOUT
+                    "{endpoint}: no rtl_tcp greeting within {CONNECT_TIMEOUT:?}; the server serves \
+                     one client at a time"
                 )));
             }
-            crate::socket::Read::Ended => {
+            Read::Ended => {
                 return Err(DeviceError::Io(format!(
                     "{endpoint}: {}",
                     connection.failure().reason

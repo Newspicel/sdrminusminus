@@ -4289,7 +4289,7 @@
     },
     {
       "name": "rustls",
-      "version": "0.23.43",
+      "version": "0.23.45",
       "license": "Apache-2.0 OR ISC OR MIT",
       "source": "rust",
       "url": "https://github.com/rustls/rustls",
@@ -4677,7 +4677,7 @@
     },
     {
       "name": "serialport",
-      "version": "4.10.0",
+      "version": "4.10.1",
       "license": "MPL-2.0",
       "source": "rust",
       "url": "https://github.com/serialport/serialport-rs",
@@ -8018,7 +8018,7 @@
       ]
     },
     {
-      "name": "Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote",
+      "name": "Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote",
       "license": "See the bundled package metadata",
       "source": "native",
       "url": "https://github.com/pothosware",
@@ -8042,6 +8042,22 @@
         "95438184ed5affd9"
       ],
       "note": "As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary."
+    },
+    {
+      "name": "heimdall_daq_fw",
+      "license": "GPL-3.0-or-later",
+      "source": "native",
+      "url": "https://github.com/krakenrf/heimdall_daq_fw",
+      "texts": [],
+      "note": "How a KrakenSDR identifies itself and how its bank is wired — the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees — is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; sdr-- distributes under GPL-3.0-or-later regardless."
+    },
+    {
+      "name": "librtlsdr (KrakenRF fork)",
+      "license": "GPL-2.0-or-later",
+      "source": "native",
+      "url": "https://github.com/krakenrf/librtlsdr",
+      "texts": [],
+      "note": "The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above."
     },
     {
       "name": "qdmr (libdmrconf)",
