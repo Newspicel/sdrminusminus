@@ -146,7 +146,7 @@ pub(crate) struct RtlSdr {
     rtl_xtal_freq: u32,
     tuner_xtal_freq: u32,
     ppm: i32,
-    force_bias_t: bool,
+    eeprom_bias_t: bool,
     board_variant: BoardVariant,
     direct_sampling: DirectSampling,
 }
@@ -192,7 +192,7 @@ impl RtlSdr {
             rtl_xtal_freq: DEF_RTL_XTAL_FREQ,
             tuner_xtal_freq: DEF_RTL_XTAL_FREQ,
             ppm: 0,
-            force_bias_t: false,
+            eeprom_bias_t: false,
             board_variant: info.board_variant,
             direct_sampling: DirectSampling::Off,
         };
@@ -225,9 +225,9 @@ impl RtlSdr {
 
         match self.dev.read_eeprom_byte(EEPROM_BIAS_T_OFFSET) {
             Ok(flags) => {
-                self.force_bias_t = flags & 0x02 == 0;
-                if self.force_bias_t {
-                    debug!("EEPROM forces bias-T on");
+                self.eeprom_bias_t = flags & 0x02 == 0;
+                if self.eeprom_bias_t {
+                    debug!("EEPROM asks for bias-T at startup");
                 }
             }
             Err(e) => debug!("failed to read EEPROM: {e}, continuing"),
@@ -493,8 +493,16 @@ impl RtlSdr {
         Ok(if_freq)
     }
 
+    /// What the dongle's EEPROM asks the bias tee to come up as. The IR-endpoint bit doubles as
+    /// the flag the RTL-SDR Blog tools clear to power an amplifier on a headless machine, so it
+    /// decides where the bias tee starts — never where it stays, or a shorted feed could not be
+    /// switched off again.
+    pub(crate) fn bias_t_at_startup(&self) -> bool {
+        self.eeprom_bias_t
+    }
+
     pub(crate) fn set_bias_t(&mut self, enable: bool) -> Result<()> {
-        self.set_gpio(0, enable || self.force_bias_t)
+        self.set_gpio(0, enable)
     }
 
     pub(crate) fn set_gpio(&self, pin: u8, on: bool) -> Result<()> {

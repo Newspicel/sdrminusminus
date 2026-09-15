@@ -137,12 +137,13 @@ impl RtlSdrDevice {
             .map_err(map_err)?;
         sdr.set_center_freq(DEFAULT_CENTER_HZ).map_err(map_err)?;
         sdr.set_gain_auto().map_err(map_err)?;
-        sdr.set_bias_t(false).map_err(map_err)?;
+        let bias_tee = sdr.bias_t_at_startup();
+        sdr.set_bias_t(bias_tee).map_err(map_err)?;
 
         let mut extra = vec![
             ExtraValue {
                 name: caps::BIAS_TEE.to_string(),
-                value: false.into(),
+                value: bias_tee.into(),
             },
             ExtraValue {
                 name: caps::AGC.to_string(),
