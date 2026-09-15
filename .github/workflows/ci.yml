@@ -3,10 +3,9 @@
 # on `device-virtual`. One subcommand per job rather than four in sequence: they share no state,
 # and running them serially made the pull-request wall clock their sum.
 #
-# Pull requests pay for Linux only. macOS bills at 10x the Linux minute rate and Windows at 2x,
-# so both run on `main` and on release tags, where a platform-specific break still gets caught
-# before it can ship. `workflow_dispatch` forces the full set onto a branch when a change is
-# genuinely platform-shaped.
+# Every platform runs on every pull request. A break in macOS- or Windows-gated code is found
+# by the change that caused it, not by `main` after the merge — the runners are free on a public
+# repository, so there is nothing to trade the signal against.
 name: CI
 
 on:
@@ -14,11 +13,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      all-platforms:
-        description: "Run the macOS and Windows jobs on this branch too"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -103,15 +97,43 @@ jobs:
       - name: cargo xtask test
         run: cargo xtask test
 
-  smoke:
-    name: Browser smoke + GPU FFT (ubuntu)
+  gpu-fft:
+    name: GPU FFT parity (ubuntu)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # mesa-vulkan-drivers supplies Lavapipe for the GPU FFT step below.
+      # mesa-vulkan-drivers supplies Lavapipe, the only adapter a headless runner offers.
       - run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+      - run: rustup show
+      # Restore-only on the test job's cache: it compiles the same dependency graph in the same
+      # profile and has nothing of its own worth storing.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu
+          save-if: false
+      # Separate from the browser smoke below: the two share no compiled artifacts — this builds
+      # `sdrmm-engine` with every feature, that builds the `sdrmm` binary with the defaults — so
+      # one job only made them queue behind each other and report a single ambiguous failure.
+      # `crates/engine` has no build script, so nothing here needs Node or a UI on disk.
+      #
+      # Exercise WGSL compilation and the complete compute/readback path even on a headless
+      # runner. Lavapipe is deliberately accepted by the test but rejected by production
+      # selection, where a software adapter would only move CPU work around.
+      - name: GPU FFT parity (Lavapipe)
+        env:
+          SDRMM_REQUIRE_GPU_FFT_TEST: "1"
+        run: >
+          cargo test -p sdrmm-engine --all-features
+          --lib spectrum::tests::gpu_matches_cpu_when_a_hardware_adapter_is_available
+          -- --ignored --exact
+
+  smoke:
+    name: Browser smoke (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -128,16 +150,6 @@ jobs:
         with:
           shared-key: ubuntu
           save-if: false
-      # Exercise WGSL compilation and the complete compute/readback path even on a headless
-      # runner. Lavapipe is deliberately accepted by the test but rejected by production
-      # selection, where a software adapter would only move CPU work around.
-      - name: GPU FFT parity (Lavapipe)
-        env:
-          SDRMM_REQUIRE_GPU_FFT_TEST: "1"
-        run: >
-          cargo test -p sdrmm-engine --all-features
-          --lib spectrum::tests::gpu_matches_cpu_when_a_hardware_adapter_is_available
-          -- --ignored --exact
       # The browser flow needs a browser binary the other gates do not; it drives the real
       # server on `device-virtual`, so still no hardware.
       - name: install the smoke browser
@@ -270,7 +282,7 @@ jobs:
           test -f result/share/applications/sdrmm-desktop.desktop
           test -f result/share/icons/hicolor/128x128/apps/dev.newspicel.sdrmm.png
           ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libwebkit2gtk-4.1'
-          ! ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'
+          if ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'; then exit 1; fi
           grep -q 'SDRMM_SOAPY_LIBRARY' result/bin/sdrmm-desktop
           grep -q 'SOAPY_SDR_PLUGIN_PATH' result/bin/sdrmm-desktop
           grep -q 'soapybladerf' result/bin/sdrmm-desktop
@@ -306,10 +318,11 @@ jobs:
         run: cargo xtask audit
 
   rust-macos:
-    name: Rust tests (macos-arm64)
-    # See the header: macOS bills at 10x and has never been the job that caught a break, so
-    # pull requests skip it and `main` does not.
-    if: github.event_name == 'push' || inputs.all-platforms
+    name: Rust + web tests (macos-arm64)
+    # The whole suite, not the handful of `#[cfg(target_os = "macos")]` tests: a test does not
+    # need a cfg gate to fail only here. A case-insensitive filesystem, the dylib search order,
+    # thread scheduling and timer resolution all differ, and the gated tests are by definition
+    # the ones somebody already knew to write.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -333,14 +346,28 @@ jobs:
           tool: cargo-nextest
       - run: cargo xtask test
 
+  desktop-macos:
+    name: Desktop shell (macos-arm64)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-macos
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `apps/desktop` is outside `default-members`, so the test job above never reaches it and
+      # the macOS Tauri shell used to compile for the first time on tag day — the same gap the
+      # Windows job below was added to close.
+      - name: cargo xtask desktop
+        run: cargo xtask desktop
+
   desktop-windows:
     name: Desktop shell (windows)
-    # Same rule as macOS above, for the same reason at 2x instead of 10x. Windows is the one
-    # platform whose dependency graph nothing else compiles: `windows-rs` appears in it twice
-    # (Tauri's 0.61 next to wgpu's 0.62), so a lockfile that unifies the two wrongly still
-    # builds cleanly on Linux and macOS and only fails here. Before this job the release matrix
-    # was the first thing to find that out, on tag day.
-    if: github.event_name == 'push' || inputs.all-platforms
+    # Windows is the one platform whose dependency graph nothing else compiles: `windows-rs`
+    # appears in it twice (Tauri's 0.61 next to wgpu's 0.62), so a lockfile that unifies the two
+    # wrongly still builds cleanly on Linux and macOS and only fails here. Before this job the
+    # release matrix was the first thing to find that out, on tag day.
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
