@@ -56,6 +56,14 @@ impl DecodedSink {
         self.dropped.fetch_add(count, Ordering::Relaxed);
     }
 
+    pub(crate) fn device_set(&self) -> u32 {
+        self.device_set
+    }
+
+    pub(crate) fn channel(&self) -> u32 {
+        self.channel
+    }
+
     pub(crate) fn new(
         tx: mpsc::SyncSender<RawDecoded>,
         image_tx: mpsc::SyncSender<RawImage>,
@@ -143,7 +151,6 @@ pub(crate) struct ChannelHost {
     band_low_hz: f64,
     band_high_hz: f64,
     in_band: bool,
-    decoded: DecodedSink,
     emits_events: bool,
     gated: Vec<Complex<f32>>,
     publisher: ChannelPublisher,
@@ -200,14 +207,11 @@ impl ChannelHost {
             SQUELCH_HOLD_S,
         );
         squelch.set_auto_margin_db(settings.squelch.auto_margin_db());
-        let publisher = ChannelPublisher::new(
-            input_rate,
-            settings,
-            (DSP_BLOCK as f64 * input_rate / device_rate).ceil() as usize + 64,
-            sinks.clone(),
-            decoded.clone(),
-        )
-        .map_err(|error| ChannelError::InvalidSettings(format!("start publisher: {error}")))?;
+        let publisher =
+            ChannelPublisher::new(input_rate, device_rate, settings, sinks.clone(), decoded)
+                .map_err(|error| {
+                    ChannelError::InvalidSettings(format!("start publisher: {error}"))
+                })?;
         Ok(Box::new(Self {
             ddc,
             filter,
@@ -236,7 +240,6 @@ impl ChannelHost {
             band_low_hz,
             band_high_hz,
             in_band: reaches(offset_hz, band_low_hz, band_high_hz, device_rate),
-            decoded,
             emits_events,
             gated: Vec::new(),
             publisher,
@@ -424,7 +427,6 @@ impl ChannelHost {
             packet.baseband_recorder = self.baseband_rec.clone();
         });
         if !published {
-            self.decoded.dropped.fetch_add(1, Ordering::Relaxed);
             if let Some(tap) = self.baseband_rec.take() {
                 tap.publication_failed();
             }

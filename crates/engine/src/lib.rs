@@ -776,10 +776,7 @@ impl Engine {
                     if lost > lost_seen {
                         let count = lost - lost_seen;
                         lost_seen = lost;
-                        tracing::warn!(
-                            count,
-                            "decoder or media frames dropped: control plane behind"
-                        );
+                        tracing::warn!(count, "decoded events dropped: the decoder log is behind");
                         engine.emit(ServerEvent::DecodedLost { count });
                     }
                     let Some(raw) = raw else { continue };

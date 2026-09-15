@@ -46,6 +46,9 @@ impl QueueMetrics {
     pub(crate) fn dropped(&self, count: usize) {
         self.dropped.fetch_add(count as u64, Ordering::Relaxed);
     }
+    pub(crate) fn dropped_total(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
+    }
     pub(crate) fn snapshot(&self) -> QueueHealth {
         let queued = self.queued.load(Ordering::Relaxed);
         QueueHealth {
