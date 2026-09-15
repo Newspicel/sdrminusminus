@@ -47,21 +47,23 @@ for (const fallback of [false, true]) {
     expect((await page.request.post(`/api/workspaces/${id}/activate`, { data: {} })).ok()).toBe(
       true,
     );
-    await page.goto("/");
-    const speaker = page.locator('.react-flow__node[data-id="speaker"]');
-    await speaker.locator("header").click();
-    await speaker.getByRole("button", { name: "Play", exact: true }).click();
-    await expect(speaker.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-    await expect(speaker.getByText("Buffer", { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(
-      page.locator('.react-flow__node[data-id="radio"]').getByText(/^Queue \d+ ms$/),
-    ).toBeVisible();
-    if (fallback) expect(workers.some((url) => url.includes("opusWorker"))).toBe(true);
-    await speaker.getByRole("button", { name: "Stop", exact: true }).click();
-    await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
-    expect(errors).toEqual([]);
-
-    await page.request.post(`/api/workspaces/${desk.active}/activate`);
-    await page.request.delete(`/api/workspaces/${id}`);
+    try {
+      await page.goto("/");
+      const speaker = page.locator('.react-flow__node[data-id="speaker"]');
+      await speaker.locator("header").click();
+      await speaker.getByRole("button", { name: "Play", exact: true }).click();
+      await expect(speaker.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+      await expect(speaker.getByText("Buffer", { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect(
+        page.locator('.react-flow__node[data-id="radio"]').getByText("running", { exact: true }),
+      ).toBeVisible();
+      if (fallback) expect(workers.some((url) => url.includes("opusWorker"))).toBe(true);
+      await speaker.getByRole("button", { name: "Stop", exact: true }).click();
+      await expect(speaker.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+      expect(errors).toEqual([]);
+    } finally {
+      await page.request.post(`/api/workspaces/${desk.active}/activate`);
+      await page.request.delete(`/api/workspaces/${id}`);
+    }
   });
 }
