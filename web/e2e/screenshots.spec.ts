@@ -168,9 +168,9 @@ test("one radio feeding several channels", async ({ page }) => {
         channel("nfm", "nfm", { x: 0, y: 520, w: 440, h: 541 }),
         channel("am", "am", { x: 480, y: 520, w: 440, h: 445 }),
         channel("wfm", "wfm", { x: 960, y: 520, w: 440, h: 469 }),
-        node("speaker", { kind: "speaker" }, { x: 1440, y: 520, w: 320, h: 210 }),
-        node("rec", { kind: "audio_recorder" }, { x: 1440, y: 780, w: 340, h: 92 }),
-        node("udp", { kind: "network_export", data: {} }, { x: 1440, y: 920, w: 380, h: 254 }),
+        node("speaker", { kind: "speaker" }, { x: 1440, y: 520, w: 320, h: 270 }),
+        node("rec", { kind: "audio_recorder" }, { x: 1440, y: 830, w: 340, h: 70 }),
+        node("udp", { kind: "network_export", data: {} }, { x: 1440, y: 940, w: 380, h: 240 }),
       ],
       edges: [
         wire(["dev", "iq"], ["scope", "iq"]),
