@@ -14,6 +14,7 @@ default-theme = "navy"
 preferred-dark-theme = "navy"
 additional-css = ["custom.css"]
 no-section-label = true
+smart-punctuation = false
 git-repository-url = "https://github.com/Newspicel/sdrminusminus"
 edit-url-template = "https://github.com/Newspicel/sdrminusminus/edit/main/docs/{path}"
 site-url = "/sdrminusminus/"
