@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { capturedImageUrl, imagesQuery } from "../lib/api";
+import { copyText } from "../lib/copyText";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind, IdentSignal } from "../lib/types";
 import { Button } from "./BaseControls";
@@ -309,7 +310,7 @@ function TextView({ kind, scope = {} }: { kind: "rtty" | "morse" | "psk"; scope?
   const copy = (): void => {
     void (async () => {
       try {
-        await navigator.clipboard.writeText(text);
+        await copyText(text);
         setCopyError(null);
       } catch (e) {
         setCopyError(e instanceof Error ? e.message : String(e));

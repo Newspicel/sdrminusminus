@@ -4,6 +4,7 @@ import { Button, Form, Input } from "../../components/BaseControls";
 import { BTN_QUIET, FIELD, LABEL, SURFACE } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { BOOKMARKS_KEY, createBookmark } from "../../lib/api";
+import { copyText } from "../../lib/copyText";
 import { pushToast } from "../../lib/toasts";
 import { pickText, type ScopePick } from "./scopePick";
 
@@ -35,7 +36,7 @@ export function ScopeMenu({
   const copy = (what: string, value: string): void => {
     void (async () => {
       try {
-        await navigator.clipboard.writeText(value);
+        await copyText(value);
         pushToast(`${what} copied: ${value}`, "info");
         onClose();
       } catch (error) {
