@@ -83,6 +83,8 @@ The built-in virtual driver and recording playback are always available.
 | `cargo xtask smoke` | Playwright against a real `sdrmm` process and the virtual signal generator |
 | `cargo xtask audit` | `cargo-deny` and the RustSec advisory database |
 | `cargo xtask desktop` | Tauri desktop compile gate without building installers |
+| `cargo xtask sanitize` | Decoder tests with the vendored C under AddressSanitizer and UndefinedBehaviorSanitizer |
+| `cargo xtask fuzz` | libFuzzer against every decoder, channel settings, and the dPMR vocoder chain |
 
 Install the smoke browser once before running the Playwright gate:
 
@@ -95,6 +97,12 @@ cargo xtask smoke
 
 ```sh
 cargo install --locked cargo-nextest cargo-deny
+```
+
+`cargo xtask fuzz` requires `cargo-fuzz`, and `cargo xtask sanitize` requires `clang`:
+
+```sh
+cargo install --locked cargo-fuzz
 ```
 
 Tests never enumerate real hardware in CI. Engine and server tests construct a registry with the

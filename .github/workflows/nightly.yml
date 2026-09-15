@@ -58,3 +58,75 @@ jobs:
           path: target/ber
           if-no-files-found: ignore
           retention-days: 14
+
+  sanitizers:
+    name: Decoder sanitizers (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # The vendored AMBE and FDMDV sources are the only C the workspace compiles itself, and
+      # they decode whatever bits an antenna hands them. clang instruments them; the address pass
+      # needs clang's runtime for the C and Rust's own for everything else, so both are built
+      # against the same sanitizer.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang
+      - run: rustup show
+      # Its own key: both passes build the workspace with sanitizer flags, which nothing else
+      # here or in ci.yml can reuse.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: sanitize
+      - name: cargo xtask sanitize
+        run: cargo xtask sanitize
+
+  fuzz:
+    name: Fuzz ${{ matrix.target }} (ubuntu)
+    runs-on: ubuntu-24.04
+    # GitHub kills a job at six hours. The budget below plus a cold build and a corpus replay
+    # fits inside this with room to spare, so a run ends by finishing rather than by being cut.
+    timeout-minutes: 330
+    strategy:
+      # One target finding a crash must not cancel the other two: they are independent searches,
+      # and the night's other corpora are worth keeping either way.
+      fail-fast: false
+      matrix:
+        target: [channel_chain, channel_settings, dv_voice]
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      # Restore and save are split so the corpus is stored even when the run fails — the night a
+      # target finds a crash is the night its inputs are worth most.
+      - uses: actions/cache/restore@v6
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: cargo xtask fuzz
+        run: cargo xtask fuzz --target ${{ matrix.target }} --seconds 14400 --jobs 4
+      # Without this the corpus only grows, and libFuzzer replays all of it before fuzzing
+      # anything — eventually the replay is the run. `cmin` keeps one input per coverage edge.
+      - name: shrink the corpus for tomorrow
+        if: always()
+        run: cargo xtask fuzz --target ${{ matrix.target }} --minimize
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      # libFuzzer writes the input that crashed to fuzz/artifacts; without this it dies with the
+      # runner and the failure is a stack trace with nothing to reproduce it.
+      - name: keep the crashing input
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts
+          if-no-files-found: ignore
+          retention-days: 14

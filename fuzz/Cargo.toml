@@ -1,0 +1,46 @@
+[package]
+name = "sdrmm-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+num-complex = "0.4"
+serde_json = "1"
+sdrmm-channels = { path = "../crates/channels", features = ["test-signals"] }
+sdrmm-wire = { path = "../crates/wire" }
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
+[[bin]]
+name = "channel_chain"
+path = "fuzz_targets/channel_chain.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "channel_settings"
+path = "fuzz_targets/channel_settings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dv_voice"
+path = "fuzz_targets/dv_voice.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+
+[workspace]

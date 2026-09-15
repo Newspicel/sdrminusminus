@@ -47,6 +47,17 @@ enum Cmd {
     Check,
     Test,
     Perf,
+    Sanitize,
+    Fuzz {
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long, default_value_t = 60)]
+        seconds: u64,
+        #[arg(long, default_value_t = 1)]
+        jobs: u8,
+        #[arg(long)]
+        minimize: bool,
+    },
     Audit,
     Smoke,
     Screenshots,
@@ -119,6 +130,13 @@ fn main() -> Result<()> {
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
         Cmd::Perf => perf(&root()),
+        Cmd::Sanitize => sanitize(&root()),
+        Cmd::Fuzz {
+            target,
+            seconds,
+            jobs,
+            minimize,
+        } => fuzz(&root(), target.as_deref(), seconds, jobs, minimize),
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
         Cmd::Screenshots => screenshots(&root()),
@@ -1239,6 +1257,153 @@ fn ensure_tool(subcommand: &str, crate_name: &str) -> Result<()> {
         installed,
         "{crate_name} is missing: `cargo install --locked {crate_name}`"
     );
+    Ok(())
+}
+
+fn host_target() -> Result<String> {
+    let output = Command::new("rustc")
+        .arg("-vV")
+        .output()
+        .context("failed to spawn `rustc`")?;
+    let report = String::from_utf8(output.stdout).context("rustc -vV is not UTF-8")?;
+    report
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_owned)
+        .context("rustc -vV reported no host triple")
+}
+
+fn clang_runtime_dir() -> Result<PathBuf> {
+    let output = Command::new("clang")
+        .arg("-print-runtime-dir")
+        .output()
+        .context("failed to spawn `clang` (the sanitizer gate compiles the vendored C with it)")?;
+    ensure!(output.status.success(), "`clang -print-runtime-dir` failed");
+    let dir = PathBuf::from(
+        String::from_utf8(output.stdout)
+            .context("clang -print-runtime-dir is not UTF-8")?
+            .trim(),
+    );
+    ensure!(
+        dir.is_dir(),
+        "clang has no sanitizer runtimes at {}",
+        dir.display()
+    );
+    Ok(dir)
+}
+
+// Rust links its own AddressSanitizer runtime through `-Zsanitizer`, but has no flag for
+// UndefinedBehaviorSanitizer, and `-nodefaultlibs` keeps clang from adding one at link time.
+fn ubsan_runtime(dir: &Path, target: &str) -> Result<PathBuf> {
+    let arch = target.split('-').next().unwrap_or_default();
+    let names = if cfg!(target_os = "macos") {
+        vec!["libclang_rt.ubsan_osx_dynamic.dylib".to_owned()]
+    } else {
+        vec![
+            format!("libclang_rt.ubsan_standalone-{arch}.so"),
+            "libclang_rt.ubsan_standalone.so".to_owned(),
+            format!("libclang_rt.ubsan_standalone-{arch}.a"),
+            "libclang_rt.ubsan_standalone.a".to_owned(),
+        ]
+    };
+    names
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+        .with_context(|| {
+            format!(
+                "no UndefinedBehaviorSanitizer runtime in {}: install the clang runtime package",
+                dir.display()
+            )
+        })
+}
+
+fn encoded_rustflags(flags: &[String]) -> String {
+    flags.join("\u{1f}")
+}
+
+fn sanitize(root: &Path) -> Result<()> {
+    let target = host_target()?;
+    let runtime_dir = clang_runtime_dir()?;
+    let ubsan = ubsan_runtime(&runtime_dir, &target)?;
+    let args = [
+        "test",
+        "-p",
+        "sdrmm-channels",
+        "--target",
+        target.as_str(),
+        "--lib",
+    ];
+
+    // Apple's clang emits a version check its own runtime answers; the Rust runtime does not.
+    run_with_env(
+        "cargo",
+        &args,
+        root,
+        &[
+            ("CARGO_TARGET_DIR", "target/sanitize-address"),
+            ("CC", "clang"),
+            (
+                "CFLAGS",
+                "-fsanitize=address -mllvm -asan-guard-against-version-mismatch=0 \
+                 -fno-omit-frame-pointer -g",
+            ),
+            ("CARGO_ENCODED_RUSTFLAGS", "-Zsanitizer=address"),
+        ],
+    )?;
+
+    let link = encoded_rustflags(&[
+        format!("-Clink-arg={}", ubsan.display()),
+        format!("-Clink-arg=-Wl,-rpath,{}", runtime_dir.display()),
+    ]);
+    run_with_env(
+        "cargo",
+        &args,
+        root,
+        &[
+            ("CARGO_TARGET_DIR", "target/sanitize-undefined"),
+            ("CC", "clang"),
+            (
+                "CFLAGS",
+                "-fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g",
+            ),
+            ("CARGO_ENCODED_RUSTFLAGS", &link),
+        ],
+    )
+}
+
+const FUZZ_TARGETS: [&str; 3] = ["channel_chain", "channel_settings", "dv_voice"];
+
+fn fuzz_targets(target: Option<&str>) -> Result<Vec<&str>> {
+    let Some(name) = target else {
+        return Ok(FUZZ_TARGETS.to_vec());
+    };
+    ensure!(
+        FUZZ_TARGETS.contains(&name),
+        "unknown fuzz target `{name}`, expected one of: {}",
+        FUZZ_TARGETS.join(", ")
+    );
+    Ok(vec![name])
+}
+
+fn fuzz(root: &Path, target: Option<&str>, seconds: u64, jobs: u8, minimize: bool) -> Result<()> {
+    ensure_tool("fuzz", "cargo-fuzz")?;
+    let budget = format!("-max_total_time={seconds}");
+    let workers = jobs.to_string();
+    // Each worker holds its own copy of the corpus and the target's own state, so the runner's
+    // memory is what caps this rather than any one input.
+    let rss = format!("-rss_limit_mb={}", 8_192 / u32::from(jobs.max(1)));
+    for name in fuzz_targets(target)? {
+        if minimize {
+            run("cargo", &["fuzz", "cmin", name], root)?;
+            continue;
+        }
+        run(
+            "cargo",
+            &["fuzz", "run", "--jobs", &workers, name, "--", &budget, &rss],
+            root,
+        )?;
+    }
     Ok(())
 }
 

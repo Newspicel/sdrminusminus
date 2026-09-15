@@ -56,6 +56,8 @@ Additional checks depend on the change:
 | `cargo xtask smoke` | Browser workflows |
 | `cargo xtask desktop` | Tauri shell |
 | `cargo xtask perf` | DSP allocation and throughput |
+| `cargo xtask sanitize` | Changes to the vendored AMBE or FDMDV C |
+| `cargo xtask fuzz` | Changes to a decoder's framing or to channel settings |
 | `cargo xtask audit` | Dependency changes |
 
 For manual hardware tests, record the receiver model, driver and module versions, operating system,
