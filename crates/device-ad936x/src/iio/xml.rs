@@ -62,9 +62,19 @@ impl Format {
             Some((storage, shift)) => (storage, shift.trim()),
             None => (rest, "0"),
         };
+        let little_endian = match endian.trim().to_ascii_lowercase().as_str() {
+            "le" => true,
+            "be" => false,
+            _ => return None,
+        };
+        let signed = match sign.to_ascii_lowercase() {
+            's' => true,
+            'u' => false,
+            _ => return None,
+        };
         Some(Self {
-            little_endian: !endian.eq_ignore_ascii_case("be"),
-            signed: sign.eq_ignore_ascii_case(&'s'),
+            little_endian,
+            signed,
             bits: bits.trim().parse().ok()?,
             storage_bits: storage_bits.trim().parse().ok()?,
             shift: shift.parse().ok()?,
@@ -393,9 +403,8 @@ mod tests {
         assert!(Format::parse("le:").is_none());
         assert!(Format::parse("le:S").is_none());
         assert!(Format::parse(":").is_none());
-        let odd = Format::parse("le:é12/16>>0").expect("an unknown sign is unsigned");
-        assert!(!odd.signed);
-        assert_eq!(odd.bits, 12);
+        assert!(Format::parse("le:é12/16>>0").is_none());
+        assert!(Format::parse("xx:S12/16>>0").is_none());
     }
 
     #[test]

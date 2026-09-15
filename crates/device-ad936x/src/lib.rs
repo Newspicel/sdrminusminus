@@ -321,7 +321,7 @@ impl SdrDevice for Ad936xDevice {
         let started = self.capture.start(
             radio,
             converter,
-            fan_out(sinks),
+            fan_out(sinks, SINK_BLOCK_SAMPLES),
             CaptureConfig {
                 // Lanes share one buffer, so the block the supervisor cuts must hold whole
                 // frames of every lane and the rate it counts a gap in is the frame rate.

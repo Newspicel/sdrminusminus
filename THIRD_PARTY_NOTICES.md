@@ -36,7 +36,7 @@ MPL-2.0. File-level copyleft: modifications to the crate's own files must be pub
 
 MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, which reaches nothing in sdr--.
 
-**Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote** — See the bundled package metadata
+**Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote** — See the bundled package metadata
 
 Resolved from platform packages at packaging time, so the exact versions and licenses are whatever each installer pinned. `packaging/soapy/stage-unix.sh` copies every one of their license texts and package manifests into `soapy/licenses` inside the bundle; that directory, not this row, is the authoritative record for a given release.
 
@@ -48,6 +48,14 @@ DVB-S2 is specified by ETSI EN 302 307-1 and -2, and `crates/channels/src/datv` 
 
 As with librtlsdr: sdr-- speaks the HackRF's USB protocol itself and links nothing, but the vendor request numbers, the register maps and the sweep framing in `crates/device-hackrf/src/driver` follow libhackrf and are a derived work on the same terms, distributed under sdr--'s own GPL-3.0-or-later exactly as librtlsdr above. The public API declarations in `hackrf.h` are BSD-3-Clause, whose text is below because that licence asks to accompany the binary.
 
+**heimdall_daq_fw** — GPL-3.0-or-later
+
+How a KrakenSDR identifies itself and how its bank is wired — the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees — is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; sdr-- distributes under GPL-3.0-or-later regardless.
+
+**librtlsdr (KrakenRF fork)** — GPL-2.0-or-later
+
+The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
+
 **qdmr (libdmrconf)** — GPL-3.0-or-later
 
 A codeplug is a vendor binary with no published specification, so the memory maps and serial protocols in `crates/cps` were written from qdmr, which is where those formats are documented. That makes them a derived work. qdmr is GPL-3.0-or-later, the same terms sdr-- distributes under, so no separate text accompanies them. The AnyTone AT-D890UV channel element is the exception: qdmr's second-generation map decodes firmware V100's digital channels as analogue, and the field layout in `crates/cps/src/anytone/channel.rs` was re-derived from a radio and checked against `fixtures/cps/anytone-d890uv-v100.img`.
@@ -55,14 +63,6 @@ A codeplug is a vendor binary with no published specification, so the memory map
 **rtl-sdr (librtlsdr)** — GPL-2.0-or-later
 
 sdr-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB stack. No part of librtlsdr is linked or shipped, but the register and I2C encodings, the PLL and filter programming and the tuner gain table in `crates/device-rtlsdr/src/driver` were written from librtlsdr, which is the only specification these parts have. That makes them a derived work under GPL-2.0-or-later. sdr-- exercises the "or later" option and distributes them under its own GPL-3.0-or-later, whose full text ships as LICENSE and is reproduced at the top of this file, so no separate GPL-2.0 text accompanies them.
-
-**librtlsdr (KrakenRF fork)** — GPL-2.0-or-later
-
-The tuner register that stops the PLL dithering, without which two dongles on one clock have no stable phase between them, is documented only in KrakenRF's fork of librtlsdr. The write in `crates/device-rtlsdr/src/driver/tuner.rs` follows it and is a derived work on the same terms as librtlsdr above.
-
-**heimdall_daq_fw** — GPL-3.0-or-later
-
-How a KrakenSDR identifies itself and how its bank is wired — the serial each receive chain carries, the control chain's GPIO pin for the calibration noise source, and the pins for the lanes' bias tees — is published only as KrakenRF's own acquisition firmware. `crates/device-rtlsdr/src/kraken` was written from it. No code was taken and nothing is linked or shipped; sdr-- distributes under GPL-3.0-or-later regardless.
 
 ## Rust crates (698)
 
@@ -478,7 +478,7 @@ How a KrakenSDR identifies itself and how its bank is wired — the serial each 
 | [rustc_version](https://github.com/djc/rustc-version-rs) | 0.4.1 | MIT OR Apache-2.0 |
 | [rustfft](https://github.com/ejmahler/RustFFT) | 6.4.1 | MIT OR Apache-2.0 |
 | [rustix](https://github.com/bytecodealliance/rustix) | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
-| [rustls](https://github.com/rustls/rustls) | 0.23.43 | Apache-2.0 OR ISC OR MIT |
+| [rustls](https://github.com/rustls/rustls) | 0.23.45 | Apache-2.0 OR ISC OR MIT |
 | [rustls-native-certs](https://github.com/rustls/rustls-native-certs) | 0.8.4 | Apache-2.0 OR ISC OR MIT |
 | [rustls-pki-types](https://github.com/rustls/pki-types) | 1.15.1 | MIT OR Apache-2.0 |
 | [rustls-platform-verifier](https://github.com/rustls/rustls-platform-verifier) | 0.7.0 | MIT OR Apache-2.0 |
@@ -514,7 +514,7 @@ How a KrakenSDR identifies itself and how its bank is wired — the serial each 
 | [serde_with_macros](https://github.com/jonasbb/serde_with/) | 3.22.0 | MIT OR Apache-2.0 |
 | [serialize-to-javascript](https://github.com/chippers/serialize-to-javascript) | 0.1.2 | MIT OR Apache-2.0 |
 | [serialize-to-javascript-impl](https://github.com/chippers/serialize-to-javascript) | 0.1.2 | MIT OR Apache-2.0 |
-| [serialport](https://github.com/serialport/serialport-rs) | 4.10.0 | MPL-2.0 |
+| [serialport](https://github.com/serialport/serialport-rs) | 4.10.1 | MPL-2.0 |
 | [servo_arc](https://github.com/servo/stylo) | 0.4.3 | MIT OR Apache-2.0 |
 | [sha1](https://github.com/RustCrypto/hashes) | 0.10.7 | MIT OR Apache-2.0 |
 | [sha2](https://github.com/RustCrypto/hashes) | 0.10.9 | MIT OR Apache-2.0 |
@@ -841,11 +841,11 @@ How a KrakenSDR identifies itself and how its bank is wired — the serial each 
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
 | [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
-## Hardware libraries (6)
+## Hardware libraries (8)
 
 | Component | Version | License |
 | --- | --- | --- |
-| [Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
+| [Airspy, AirspyHF, bladeRF, LimeSuite, SoapyRemote](https://github.com/pothosware) | — | See the bundled package metadata |
 | [gr-dtv, gr-dvbs2rx, gr-dvbgse](https://github.com/gnuradio/gnuradio) | — | GPL-3.0-or-later |
 | [hackrf (libhackrf)](https://github.com/greatscottgadgets/hackrf) | — | GPL-2.0-or-later |
 | [heimdall_daq_fw](https://github.com/krakenrf/heimdall_daq_fw) | — | GPL-3.0-or-later |

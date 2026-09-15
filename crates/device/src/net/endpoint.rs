@@ -1,7 +1,7 @@
 use std::{
     fmt,
     net::{TcpStream, ToSocketAddrs},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::DeviceError;
@@ -63,8 +63,13 @@ impl Endpoint {
             .to_socket_addrs()
             .map_err(|e| DeviceError::NotFound(format!("{self}: {e}")))?;
         let mut last = None;
+        let deadline = Instant::now() + timeout;
         for addr in addrs {
-            match TcpStream::connect_timeout(&addr, timeout) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match TcpStream::connect_timeout(&addr, left) {
                 Ok(stream) => {
                     let _ = stream.set_nodelay(true);
                     return Ok(stream);

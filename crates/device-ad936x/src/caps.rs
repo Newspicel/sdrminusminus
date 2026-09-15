@@ -8,7 +8,7 @@ use crate::{
     iio::{Client, Context, Direction},
     layout::{
         BB_DC_TRACKING, FILTER_FIR_EN, FREQUENCY, GAIN_CONTROL_MODE, HARDWAREGAIN, Layout,
-        NOMINAL_XO_HZ, QUADRATURE_TRACKING, RF_BANDWIDTH, RF_DC_TRACKING, RF_PORT_SELECT, RX_LO,
+        QUADRATURE_TRACKING, RF_BANDWIDTH, RF_DC_TRACKING, RF_PORT_SELECT, RX_LO,
         SAMPLING_FREQUENCY, XO_CORRECTION, available,
     },
 };
@@ -242,8 +242,8 @@ impl Reader<'_> {
             .and_then(|value| parse_range(&value))
             .filter(|range| range.max > range.min)
             .unwrap_or(Range {
-                min: reference - NOMINAL_XO_HZ * 200.0 / 1e6,
-                max: reference + NOMINAL_XO_HZ * 200.0 / 1e6,
+                min: reference - reference * 200.0 / 1e6,
+                max: reference + reference * 200.0 / 1e6,
                 step: None,
             });
         Some(Trim { reference, range })

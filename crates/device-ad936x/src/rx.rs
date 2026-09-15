@@ -355,7 +355,7 @@ impl Drop for RxStream {
 /// The capture path carries one sink, so a radio whose lanes share a buffer hands over a sink
 /// that de-interleaves. A gap the supervisor reports as a jump in the sample index is divided
 /// back out per lane, so every lane stays on the same timeline as its neighbours.
-pub(crate) fn fan_out(sinks: Vec<RxSink>) -> RxSink {
+pub(crate) fn fan_out(sinks: Vec<RxSink>, lane_samples: usize) -> RxSink {
     let lanes = sinks.len();
     if lanes <= 1 {
         return sinks
@@ -365,7 +365,9 @@ pub(crate) fn fan_out(sinks: Vec<RxSink>) -> RxSink {
     }
     let mut sinks = sinks;
     let failures: Vec<FatalHandle> = sinks.iter_mut().map(RxSink::share_failure).collect();
-    let mut lane_buffers: Vec<Vec<Sample>> = vec![Vec::new(); lanes];
+    let mut lane_buffers: Vec<Vec<Sample>> = (0..lanes)
+        .map(|_| Vec::with_capacity(lane_samples))
+        .collect();
     let mut expected: Option<u64> = None;
     RxSink::with_fatal_handler(
         move |samples, index| {
@@ -509,7 +511,7 @@ mod tests {
     #[test]
     fn one_sink_is_handed_straight_through() {
         let (sink, seen) = recording();
-        let mut sink = fan_out(vec![sink]);
+        let mut sink = fan_out(vec![sink], 4);
         sink.push(&[Sample::new(1.0, 0.0), Sample::new(2.0, 0.0)]);
         assert_eq!(seen.try_recv().expect("pushed"), (0, vec![1.0, 2.0]));
     }
@@ -518,7 +520,7 @@ mod tests {
     fn two_lanes_are_split_apart_and_each_keeps_its_own_count() {
         let (first, left) = recording();
         let (second, right) = recording();
-        let mut sink = fan_out(vec![first, second]);
+        let mut sink = fan_out(vec![first, second], 4);
         let block: Vec<Sample> = (1..=6).map(|n| Sample::new(n as f32, 0.0)).collect();
         sink.push(&block);
         sink.push(&block);
@@ -532,7 +534,7 @@ mod tests {
     fn a_gap_the_supervisor_reports_moves_every_lane_by_its_own_share() {
         let (first, left) = recording();
         let (second, right) = recording();
-        let mut sink = fan_out(vec![first, second]);
+        let mut sink = fan_out(vec![first, second], 4);
         let block = [Sample::new(1.0, 0.0), Sample::new(2.0, 0.0)];
         sink.push(&block);
         sink.dropped(100);
@@ -561,7 +563,7 @@ mod tests {
                 )
             })
             .collect();
-        let mut sink = fan_out(sinks);
+        let mut sink = fan_out(sinks, 4);
         sink.fail(DeviceError::Disconnected("unplugged".to_string()));
         let mut told: Vec<usize> = seen
             .try_iter()
@@ -576,7 +578,7 @@ mod tests {
 
     #[test]
     fn no_sinks_at_all_still_yields_something_that_can_be_pushed_to() {
-        let mut sink = fan_out(Vec::new());
+        let mut sink = fan_out(Vec::new(), 4);
         sink.push(&[Sample::new(1.0, 0.0)]);
     }
 }

@@ -87,7 +87,12 @@ const SOAPY_PRIORITY: u8 = 20;
 const SDRPLAY_PRIORITY: u8 = 25;
 // The USB backends speak to their radios directly and are hidden from Soapy's enumeration, so
 // this rank only settles a tie against a driver that reports the same serial by another route.
-#[cfg(any(feature = "rtlsdr", feature = "hackrf", feature = "ad936x"))]
+#[cfg(any(
+    feature = "cr8",
+    feature = "rtlsdr",
+    feature = "hackrf",
+    feature = "ad936x"
+))]
 const NATIVE_PRIORITY: u8 = 25;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;

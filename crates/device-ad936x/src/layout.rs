@@ -18,10 +18,6 @@ pub(crate) const FILTER_FIR_EN: &str = "filter_fir_en";
 pub(crate) const XO_CORRECTION: &str = "xo_correction";
 pub(crate) const AVAILABLE: &str = "_available";
 
-/// The nominal crystal an AD936x board runs, against which a correction becomes a part per
-/// million. Read from the radio when it says so, because a board may be built around another.
-pub(crate) const NOMINAL_XO_HZ: f64 = 40_000_000.0;
-
 /// What one radio's IIO context actually carries: which device is the transceiver, which devices
 /// carry the sample buffers, and how many lanes each of those has.
 ///

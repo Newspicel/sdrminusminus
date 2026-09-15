@@ -1038,15 +1038,7 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         })
         .map(|(_, name)| name)
         .collect();
-    for driver in [
-        "airspyhf",
-        "airspy",
-        "bladerf",
-        "limesuite",
-        "iio",
-        "ad9361",
-        "usb",
-    ] {
+    for driver in ["airspyhf", "airspy", "bladerf", "limesuite", "usb"] {
         ensure!(
             outside_modules.iter().any(|name| name.contains(driver)),
             "{} carries a module for {driver} but not the library it loads. Staged beside the \
@@ -1204,6 +1196,9 @@ mod perf_tests {
 
 fn test(root: &Path) -> Result<()> {
     ensure_tool("nextest", "cargo-nextest")?;
+    // The synthesized SigMF pairs are never committed, so the tests that read them off disk have
+    // nothing to read until the generator has run.
+    fixtures(root)?;
     let soapy_root = root.join("target/hermetic-soapy");
     let modules = soapy_root.join("lib/SoapySDR/modules0.8");
     std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;

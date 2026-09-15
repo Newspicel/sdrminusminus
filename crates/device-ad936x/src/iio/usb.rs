@@ -26,6 +26,10 @@ const CTRL_TIMEOUT: Duration = Duration::from_secs(1);
 /// the thread for the whole of its read timeout.
 const STOP_POLL: Duration = Duration::from_millis(50);
 
+/// How long a cancelled transfer is given to come back before the pipe is called broken. A host
+/// that never returns the completion would otherwise park the capture thread for good.
+const CANCEL_DRAIN: Duration = Duration::from_secs(2);
+
 const ENGLISH_US: u16 = 0x0409;
 
 const CMD_RESET_PIPES: u8 = 0;
@@ -226,26 +230,40 @@ impl UsbTransport {
     }
 
     /// Waits for the transfer in flight, looking for a stop while it does, and cancels it once
-    /// either the stop or the deadline arrives. What the device sent before that is kept.
-    fn complete(&self, pipe: &mut Pipe<In>, timeout: Duration) -> Completion {
+    /// either the stop or the deadline arrives. What the device sent before that is kept, and
+    /// `None` means the cancellation itself never came back.
+    fn complete(&self, pipe: &mut Pipe<In>, timeout: Duration) -> Option<Completion> {
         let deadline = Instant::now() + timeout;
         loop {
             let slice = remaining(deadline).min(STOP_POLL);
             if let Some(completion) = pipe.endpoint.wait_next_complete(slice) {
-                return completion;
+                return Some(completion);
             }
             if self.stopper.is_stopped() || Instant::now() >= deadline {
                 pipe.endpoint.cancel_all();
-                loop {
-                    if let Some(completion) = pipe.endpoint.wait_next_complete(CTRL_TIMEOUT) {
-                        return completion;
-                    }
-                    tracing::warn!(
-                        pipe = self.pipe,
-                        "a cancelled usb transfer has not come back"
-                    );
-                }
+                return self.drain(pipe);
             }
+        }
+    }
+
+    fn drain(&self, pipe: &mut Pipe<In>) -> Option<Completion> {
+        let deadline = Instant::now() + CANCEL_DRAIN;
+        loop {
+            let slice = remaining(deadline).min(CTRL_TIMEOUT);
+            if let Some(completion) = pipe.endpoint.wait_next_complete(slice) {
+                return Some(completion);
+            }
+            if Instant::now() >= deadline {
+                self.record(
+                    format!("usb pipe {} never returned a cancelled transfer", self.pipe),
+                    false,
+                );
+                return None;
+            }
+            tracing::warn!(
+                pipe = self.pipe,
+                "a cancelled usb transfer has not come back"
+            );
         }
     }
 }
@@ -290,7 +308,9 @@ impl Transport for UsbTransport {
         let mut pipe = lock(&self.inbound);
         let buffer = pipe.buffer(want);
         pipe.endpoint.submit(buffer);
-        let completion = self.complete(&mut pipe, timeout);
+        let Some(completion) = self.complete(&mut pipe, timeout) else {
+            return Read::Ended;
+        };
         let got = completion.actual_len.min(want);
         buf[..got].copy_from_slice(&completion.buffer[..got]);
         let status = completion.status;
