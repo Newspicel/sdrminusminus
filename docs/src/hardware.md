@@ -99,8 +99,13 @@ sdr-- does not need root as long as the receiver's udev rules are installed. On 
 systems the driver package usually installs them. After adding or changing a rule, reload udev or
 reconnect the device.
 
+The rules grant a group rather than the whole machine, usually `plugdev`, so being in that group is
+part of the installation.
+
 In containers, the host rules still decide whether the unprivileged container user can open the USB
-node. Passing `/dev/bus/usb` is necessary but does not override its permissions. See
+node. Passing `/dev/bus/usb` is necessary but does not override its permissions, and the container
+user is in no host group until it is given one: run with `--group-add <gid>`, the group that owns
+the node, or `0` for a node no udev rule has touched. See
 [Containers and remote radios](server/deployment.md#usb-devices) for a Compose example that also
 survives reconnects.
 

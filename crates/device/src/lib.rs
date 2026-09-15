@@ -20,6 +20,8 @@ pub enum DeviceError {
     Disconnected(String),
     #[error("this radio is already in use — another program has it open ({0})")]
     InUse(String),
+    #[error("this radio may not be opened by this user ({0})")]
+    PermissionDenied(String),
     #[error("device is already streaming")]
     AlreadyStreaming,
     #[error("device is {active} and cannot start {requested} until that stops")]

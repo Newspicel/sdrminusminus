@@ -102,12 +102,20 @@ docker run --rm \
   -p 8080:8080 \
   -v sdrmm-data:/data \
   --device /dev/bus/usb:/dev/bus/usb \
+  --group-add 46 \
   ghcr.io/newspicel/sdrminusminus:latest
 ```
 
-On Linux, USB access still depends on host udev permissions. The repository's
-`docker-compose.yml` also includes a device cgroup rule that keeps replugged USB devices
-accessible. See [Containers and remote radios](../server/deployment.md) for a durable setup.
+The image runs as an unprivileged user, so passing the bus is not enough on its own: it also
+needs the group that owns the radio's device node. `46` is `plugdev`, which is what the vendor
+udev rules grant on Debian and Ubuntu. Where no rule is installed the node stays `root:root`
+mode `0664`, so pass `--group-add 0` instead. On the host, `stat -c '%g %G %a' /dev/bus/usb/*/*`
+names the group; inside the container, **Check hardware** and `sdrmm --doctor` name the node
+that could not be opened and the group that owns it.
+
+The repository's `docker-compose.yml` also includes a device cgroup rule that keeps replugged
+USB devices accessible. See [Containers and remote radios](../server/deployment.md) for a
+durable setup.
 
 ## Stable and nightly builds
 

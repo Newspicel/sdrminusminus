@@ -10625,6 +10625,7 @@
         "enum": [
           "unplugged",
           "in_use",
+          "permissions",
           "other"
         ]
       },

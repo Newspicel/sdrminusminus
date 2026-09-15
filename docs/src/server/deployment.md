@@ -34,12 +34,26 @@ devices:
   - /dev/bus/usb:/dev/bus/usb
 device_cgroup_rules:
   - "c 189:* rmw"
+group_add: ["46"]
 ```
 
-The rule matters after a reconnect: a USB device may return with a different minor number than the
-one present when the container started. Host udev permissions still apply to the nodes. Prefer
-installing the receiver's normal udev rule; when that is not possible, add the numeric group that
-owns the device with `group_add`. Running the whole service as root should be a last resort.
+The cgroup rule matters after a reconnect: a USB device may return with a different minor number
+than the one present when the container started.
+
+`group_add` matters from the first start. The service runs as an unprivileged user, and host udev
+permissions still decide the node: a radio with no rule installed stays `root:root` mode `0664`,
+and the vendor rules hand it to a group — `plugdev`, gid `46` on Debian and Ubuntu — rather than
+to everyone. So the container user must carry that group, numerically, because the name would have
+to resolve inside the container:
+
+```sh
+stat -c '%g %G %a' /dev/bus/usb/*/*
+```
+
+Add every gid that owns a radio node, or `0` where none of them has a rule. **Check hardware** in
+the interface and `sdrmm --doctor` report the same thing from inside the container: the radio, its
+node, and whether this user may open it. Running the whole service as root should be a last
+resort.
 
 ### SDRplay receivers
 

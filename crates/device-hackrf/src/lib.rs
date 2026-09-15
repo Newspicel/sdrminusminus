@@ -28,6 +28,9 @@ fn map_err(err: driver::Error) -> DeviceError {
     if err.is_disconnected() {
         return DeviceError::Disconnected(text);
     }
+    if err.is_permission_denied() {
+        return DeviceError::PermissionDenied(text);
+    }
     match err {
         driver::Error::DeviceNotFound => DeviceError::NotFound(text),
         driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),

@@ -138,10 +138,11 @@ RUN install -d -o sdrmm -g sdrmm /data
 VOLUME ["/data"]
 
 # USB access is the one thing the image cannot grant this user: /dev/bus/usb nodes are
-# root-owned unless the *host* udev rules relax them (the stock rtl-sdr and hackrf rules ship
-# MODE="0666"/GROUP="plugdev", in which case this works as-is). Where they do not, run with
-# `--group-add <gid owning /dev/bus/usb/*>` or `--user root`. OS USB permissions remain a host
-# concern; static linking cannot change device-node permissions.
+# root-owned and mode 0664 by default, and the vendor udev rules hand them to a group
+# (plugdev, gid 46 on Debian) rather than to the world, so passing the bus is never enough on
+# its own. Run with `--group-add <gid owning /dev/bus/usb/*>`, or `--user root` as a last
+# resort. OS USB permissions remain a host concern; static linking cannot change device-node
+# permissions.
 USER sdrmm
 
 EXPOSE 8080

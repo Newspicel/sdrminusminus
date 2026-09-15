@@ -964,6 +964,30 @@ impl DeviceDriver for UnopenableDriver {
     }
 }
 
+#[test]
+fn a_fault_the_operator_can_act_on_keeps_its_own_name() {
+    assert_eq!(
+        fault_kind(&DeviceError::PermissionDenied(
+            "LIBUSB_ERROR_ACCESS".to_string()
+        )),
+        DeviceFault::Permissions
+    );
+    assert_eq!(
+        fault_kind(&DeviceError::InUse(
+            "usb_claim_interface error -6".to_string()
+        )),
+        DeviceFault::InUse
+    );
+    assert_eq!(
+        fault_kind(&DeviceError::Disconnected("gone".to_string())),
+        DeviceFault::Unplugged
+    );
+    assert_eq!(
+        fault_kind(&DeviceError::Io("stream setup failed".to_string())),
+        DeviceFault::Other
+    );
+}
+
 struct BusyDriver;
 
 impl DeviceDriver for BusyDriver {

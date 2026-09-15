@@ -153,6 +153,11 @@ describe("faultSaid", () => {
     expect(faultSaid(set)).toContain("open in another program");
   });
 
+  it("points a permission fault at the hardware check", () => {
+    const set = deviceSet({ status: "error", fault: "permissions", error: "EACCES" });
+    expect(faultSaid(set)).toContain("Check hardware");
+  });
+
   it("leaves a fault nobody can act on to its own message", () => {
     expect(faultSaid(deviceSet({ status: "error", fault: "other", error: "boom" }))).toBeNull();
     expect(faultSaid(deviceSet({ status: "error", error: "boom" }))).toBeNull();

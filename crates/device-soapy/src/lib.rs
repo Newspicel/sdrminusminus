@@ -40,25 +40,26 @@ fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::E
     soapysdr::enumerate(filter)
 }
 
-const BUSY_HINTS: [&str; 6] = [
-    "busy",
-    "in use",
-    "claim",
+const BUSY_HINTS: [&str; 4] = ["busy", "in use", "claim", "unable to open"];
+
+const PERMISSION_HINTS: [&str; 4] = [
     "access denied",
     "libusb_error_access",
-    "unable to open",
+    "permission denied",
+    "insufficient permissions",
 ];
 
-fn reads_as_busy(message: &str) -> bool {
+fn reads_as(message: &str, hints: &[&str]) -> bool {
     let message = message.to_ascii_lowercase();
-    BUSY_HINTS.iter().any(|hint| message.contains(hint))
+    hints.iter().any(|hint| message.contains(hint))
 }
 
 fn map_err(error: soapysdr::Error) -> DeviceError {
     let message = error.to_string();
     match error.code {
         ErrorCode::NotSupported => DeviceError::Unsupported(message),
-        _ if reads_as_busy(&message) => DeviceError::InUse(message),
+        _ if reads_as(&message, &PERMISSION_HINTS) => DeviceError::PermissionDenied(message),
+        _ if reads_as(&message, &BUSY_HINTS) => DeviceError::InUse(message),
         _ => DeviceError::Io(message),
     }
 }
@@ -1182,13 +1183,26 @@ mod tests {
         for message in [
             "SoapySDR::Device::make() failed: Unable to open RTL-SDR device",
             "usb_claim_interface error -6",
-            "LIBUSB_ERROR_ACCESS",
             "Device or resource busy",
             "the device is in use",
         ] {
             assert!(
                 matches!(failed(message), DeviceError::InUse(_)),
                 "{message} must name the radio as taken, not as a plain I/O fault"
+            );
+        }
+    }
+
+    #[test]
+    fn a_node_the_user_may_not_open_is_not_blamed_on_another_program() {
+        for message in [
+            "LIBUSB_ERROR_ACCESS",
+            "libusb_open() failed: Access denied (insufficient permissions)",
+            "Permission denied",
+        ] {
+            assert!(
+                matches!(failed(message), DeviceError::PermissionDenied(_)),
+                "{message} is a permission fault, not a busy radio"
             );
         }
     }

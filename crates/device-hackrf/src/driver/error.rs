@@ -55,4 +55,16 @@ impl Error {
             Self::InvalidConfig { .. } | Self::DeviceNotFound | Self::Protocol { .. } => false,
         }
     }
+
+    /// Whether the operating system refused this user the device node.
+    pub(crate) fn is_permission_denied(&self) -> bool {
+        match self {
+            Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::PermissionDenied,
+            Self::Stream(_)
+            | Self::ControlTransfer(_)
+            | Self::InvalidConfig { .. }
+            | Self::DeviceNotFound
+            | Self::Protocol { .. } => false,
+        }
+    }
 }

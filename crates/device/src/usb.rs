@@ -1,11 +1,18 @@
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
+    path::PathBuf,
     sync::mpsc::{self, Receiver, RecvTimeoutError},
     time::Duration,
 };
 
 use futures::StreamExt;
 use nusb::{MaybeFuture, hotplug::HotplugEvent};
+
+#[cfg(target_os = "linux")]
+mod nodes;
+
+#[cfg(target_os = "linux")]
+pub use nodes::radio_nodes;
 
 /// How long the bus is given to settle once a device announces itself, so that a radio whose
 /// interfaces appear one after another is enumerated once and after it can be opened.
@@ -15,6 +22,25 @@ const SETTLE: Duration = Duration::from_millis(250);
 pub enum BusChange {
     Arrived,
     Departed,
+}
+
+/// A USB radio as its device node presents it to this process.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RadioNode {
+    pub name: &'static str,
+    pub path: PathBuf,
+    pub present: bool,
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: u32,
+    pub openable: bool,
+}
+
+/// The device nodes of the attached USB radios, which only Linux hands out.
+#[cfg(not(target_os = "linux"))]
+#[must_use]
+pub fn radio_nodes() -> Vec<RadioNode> {
+    Vec::new()
 }
 
 /// Reports plugged and unplugged USB devices as the OS sees them.

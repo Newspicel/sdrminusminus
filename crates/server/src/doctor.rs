@@ -343,55 +343,116 @@ fn rate_check(
 }
 
 fn usb_checks() -> Vec<DoctorCheck> {
+    if !cfg!(target_os = "linux") {
+        return Vec::new();
+    }
+    vec![usb_permission_check(&sdrmm_device::usb::radio_nodes())]
+}
+
+fn current_user() -> u32 {
     #[cfg(target_os = "linux")]
     {
-        const RULES: &[&str] = &[
-            "/etc/udev/rules.d/rtl-sdr.rules",
-            "/lib/udev/rules.d/rtl-sdr.rules",
-            "/usr/lib/udev/rules.d/rtl-sdr.rules",
-            "/etc/udev/rules.d/53-hackrf.rules",
-            "/lib/udev/rules.d/53-hackrf.rules",
-            "/usr/lib/udev/rules.d/53-hackrf.rules",
-            "/etc/udev/rules.d/53-adi-plutosdr-usb.rules",
-            "/lib/udev/rules.d/53-adi-plutosdr-usb.rules",
-            "/usr/lib/udev/rules.d/53-adi-plutosdr-usb.rules",
-        ];
-        let found: Vec<&str> = RULES
-            .iter()
-            .copied()
-            .filter(|p| Path::new(p).exists())
-            .collect();
-        let root = unsafe { libc::geteuid() } == 0;
-        if !found.is_empty() || root {
-            return vec![DoctorCheck {
-                id: "usb.permissions".to_string(),
-                name: "USB permissions".to_string(),
-                status: CheckStatus::Ok,
-                detail: if found.is_empty() {
-                    "running as root".to_string()
-                } else {
-                    format!("udev rules: {}", found.join(", "))
-                },
-                hint: None,
-            }];
-        }
-        vec![DoctorCheck {
-            id: "usb.permissions".to_string(),
-            name: "USB permissions".to_string(),
-            status: CheckStatus::Warn,
-            detail: "no RTL-SDR, HackRF or AD936x udev rules found and not running as root"
-                .to_string(),
-            hint: Some(
-                "install the vendor udev rules (the rtl-sdr, hackrf and libiio packages ship \
-                 them), then `sudo udevadm control --reload-rules && sudo udevadm trigger` and \
-                 replug the device. Without them the device enumerates but cannot be opened."
-                    .to_string(),
-            ),
-        }]
+        unsafe { libc::geteuid() }
     }
     #[cfg(not(target_os = "linux"))]
     {
-        Vec::new()
+        0
+    }
+}
+
+fn in_container() -> bool {
+    Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists()
+}
+
+fn node_line(node: &sdrmm_device::usb::RadioNode, user: u32) -> String {
+    let path = node.path.display();
+    if !node.present {
+        return format!("{}: {path} is not visible to this process", node.name);
+    }
+    let owner = format!("owner {}:{}, mode {:04o}", node.uid, node.gid, node.mode);
+    if node.openable {
+        format!("{}: {path} can be opened ({owner})", node.name)
+    } else {
+        format!(
+            "{}: {path} cannot be opened by uid {user} ({owner})",
+            node.name
+        )
+    }
+}
+
+fn permission_hint(blocked: &[&sdrmm_device::usb::RadioNode]) -> String {
+    let container = in_container();
+    if blocked.iter().any(|node| !node.present) {
+        return if container {
+            "the USB bus is not in this container: pass `--device /dev/bus/usb:/dev/bus/usb`, \
+             and the cgroup rule `c 189:* rmw` so a replugged radio stays reachable"
+                .to_string()
+        } else {
+            "the radio enumerates but its device node is missing; reload udev with `sudo udevadm \
+             control --reload-rules && sudo udevadm trigger` and replug it"
+                .to_string()
+        };
+    }
+    let group = blocked
+        .iter()
+        .find(|node| node.mode & 0o060 == 0o060)
+        .map(|node| node.gid);
+    match (container, group) {
+        (true, Some(gid)) => format!(
+            "the container user may not open this node. Give it the group that owns the node on \
+             the host: `docker run --group-add {gid}`, or `group_add: [\"{gid}\"]` in Compose. \
+             Running the container as root is the last resort."
+        ),
+        (true, None) => "the container user may not open this node, and its group may not \
+             either. Install the receiver's udev rule on the host — vendor rules grant a group, \
+             usually plugdev — then pass that group's numeric id with `--group-add`. Running the \
+             container as root is the last resort."
+            .to_string(),
+        (false, Some(gid)) => format!(
+            "join the group that owns the node: `sudo usermod -aG {gid} $USER`, then log in \
+             again. Installing the receiver's vendor udev rule does the same for every radio of \
+             that kind."
+        ),
+        (false, None) => "install the receiver's vendor udev rule (the rtl-sdr, hackrf, \
+             libbladerf and libiio packages ship them), then `sudo udevadm control \
+             --reload-rules && sudo udevadm trigger` and replug the radio."
+            .to_string(),
+    }
+}
+
+fn usb_permission_check(nodes: &[sdrmm_device::usb::RadioNode]) -> DoctorCheck {
+    let user = current_user();
+    if nodes.is_empty() {
+        return DoctorCheck {
+            id: "usb.permissions".to_string(),
+            name: "USB permissions".to_string(),
+            status: CheckStatus::Ok,
+            detail: "no USB radio attached".to_string(),
+            hint: None,
+        };
+    }
+    let blocked: Vec<&sdrmm_device::usb::RadioNode> =
+        nodes.iter().filter(|node| !node.openable).collect();
+    let detail = nodes
+        .iter()
+        .map(|node| node_line(node, user))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if blocked.is_empty() {
+        return DoctorCheck {
+            id: "usb.permissions".to_string(),
+            name: "USB permissions".to_string(),
+            status: CheckStatus::Ok,
+            detail,
+            hint: None,
+        };
+    }
+    DoctorCheck {
+        id: "usb.permissions".to_string(),
+        name: "USB permissions".to_string(),
+        status: CheckStatus::Fail,
+        detail,
+        hint: Some(permission_hint(&blocked)),
     }
 }
 
@@ -477,6 +538,79 @@ mod tests {
             detail: "line one\nline two".to_string(),
             hint: hint.map(str::to_string),
         }
+    }
+
+    fn node(name: &'static str, openable: bool, mode: u32) -> sdrmm_device::usb::RadioNode {
+        sdrmm_device::usb::RadioNode {
+            name,
+            path: std::path::PathBuf::from("/dev/bus/usb/001/004"),
+            present: true,
+            uid: 0,
+            gid: 46,
+            mode,
+            openable,
+        }
+    }
+
+    #[test]
+    fn a_radio_this_user_may_open_passes_the_check() {
+        let check = usb_permission_check(&[node("RTL-SDR", true, 0o666)]);
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.detail.contains("can be opened"), "{}", check.detail);
+        assert!(check.hint.is_none());
+    }
+
+    #[test]
+    fn a_radio_this_user_may_not_open_fails_and_names_its_node() {
+        let check = usb_permission_check(&[node("bladeRF 2.0 micro", false, 0o660)]);
+        assert_eq!(check.status, CheckStatus::Fail);
+        assert!(
+            check
+                .detail
+                .contains("bladeRF 2.0 micro: /dev/bus/usb/001/004 cannot be opened"),
+            "{}",
+            check.detail
+        );
+        assert!(
+            check.detail.contains("owner 0:46, mode 0660"),
+            "{}",
+            check.detail
+        );
+        assert!(check.hint.is_some());
+    }
+
+    #[test]
+    fn a_bus_with_no_radio_on_it_is_not_a_permission_problem() {
+        let check = usb_permission_check(&[]);
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert_eq!(check.detail, "no USB radio attached");
+    }
+
+    #[test]
+    fn a_node_whose_group_may_open_it_is_answered_with_that_group() {
+        let blocked = node("bladeRF 2.0 micro", false, 0o660);
+        let hint = permission_hint(&[&blocked]);
+        assert!(hint.contains("46"), "{hint}");
+    }
+
+    #[test]
+    fn a_node_no_group_may_open_is_answered_with_udev() {
+        let blocked = node("bladeRF 2.0 micro", false, 0o600);
+        let hint = permission_hint(&[&blocked]);
+        assert!(hint.contains("udev"), "{hint}");
+    }
+
+    #[test]
+    fn a_missing_node_says_the_bus_never_arrived() {
+        let mut missing = node("HackRF One", false, 0);
+        missing.present = false;
+        let check = usb_permission_check(std::slice::from_ref(&missing));
+        assert_eq!(check.status, CheckStatus::Fail);
+        assert!(
+            check.detail.contains("is not visible to this process"),
+            "{}",
+            check.detail
+        );
     }
 
     #[test]

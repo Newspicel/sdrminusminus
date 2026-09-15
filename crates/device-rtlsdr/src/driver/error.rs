@@ -51,4 +51,14 @@ impl Error {
             _ => false,
         }
     }
+
+    /// Whether the operating system refused this user the device node.
+    pub(crate) fn is_permission_denied(&self) -> bool {
+        match self {
+            Self::OpenFailed(error) | Self::ClaimFailed(error) => {
+                error.kind() == nusb::ErrorKind::PermissionDenied
+            }
+            _ => false,
+        }
+    }
 }

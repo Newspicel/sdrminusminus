@@ -3018,7 +3018,7 @@ export interface components {
          * @description Why a device set stopped, for the times a reader can act on it rather than only read it.
          * @enum {string}
          */
-        DeviceFault: "unplugged" | "in_use" | "other";
+        DeviceFault: "unplugged" | "in_use" | "permissions" | "other";
         DeviceInfo: {
             driver: string;
             key: string;

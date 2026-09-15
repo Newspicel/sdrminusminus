@@ -27,6 +27,8 @@ pub enum DeviceFault {
     Unplugged,
     /// Another program holds the radio open.
     InUse,
+    /// The operating system will not let this user open the radio.
+    Permissions,
     Other,
 }
 

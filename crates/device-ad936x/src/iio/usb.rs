@@ -377,7 +377,8 @@ fn open_error(error: &nusb::Error) -> DeviceError {
         nusb::ErrorKind::NotFound | nusb::ErrorKind::Disconnected => {
             DeviceError::Disconnected(text)
         }
-        nusb::ErrorKind::Busy | nusb::ErrorKind::PermissionDenied => DeviceError::InUse(text),
+        nusb::ErrorKind::Busy => DeviceError::InUse(text),
+        nusb::ErrorKind::PermissionDenied => DeviceError::PermissionDenied(text),
         _ => DeviceError::Io(text),
     }
 }

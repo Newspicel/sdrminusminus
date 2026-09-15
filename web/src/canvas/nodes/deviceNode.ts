@@ -40,6 +40,8 @@ export function scannerOwnsTuning(set: DeviceSet): boolean {
 const FAULTS: Record<string, string> = {
   unplugged: "is no longer attached. Plug it back in and it picks up where it left off.",
   in_use: "is open in another program. Close that one, and this radio comes back.",
+  permissions:
+    "may not be opened by this user. Open Check hardware for the USB permission line, which names the device node and the group that owns it.",
 };
 
 /** What a fault means for the operator, or null when only the raw message can say. */

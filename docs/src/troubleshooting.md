@@ -73,7 +73,9 @@ URLs may send the same value as the `token` query parameter.
 2. Run `sdrmm --doctor`.
 3. For a SoapySDR receiver using the host runtime, run `SoapySDRUtil --find`.
 4. For SoapySDR modules, confirm ABI `0.8` and a directory in the reported search path.
-5. On Linux, check the USB node permissions and reconnect after installing udev rules.
+5. On Linux, read the USB permissions line of the report: it names the node and whether this user
+   may open it. Install the receiver's udev rules and join the group they grant, or, in a
+   container, pass that group with `--group-add`.
 6. Stop other SDR programs; most devices can be claimed by only one process.
 
 Desktop installers and containers use their bundled SoapySDR modules. To load an additional

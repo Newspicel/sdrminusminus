@@ -277,6 +277,7 @@ fn fault_kind(error: &DeviceError) -> DeviceFault {
     match error {
         DeviceError::Disconnected(_) => DeviceFault::Unplugged,
         DeviceError::InUse(_) => DeviceFault::InUse,
+        DeviceError::PermissionDenied(_) => DeviceFault::Permissions,
         _ => DeviceFault::Other,
     }
 }
