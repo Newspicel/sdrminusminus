@@ -31,7 +31,6 @@ Desktop installers and containers ship a private SoapySDR 0.8.1 runtime with the
 | Airspy and Airspy HF+ | SoapyAirspy / SoapyAirspyHF |
 | bladeRF | SoapyBladeRF |
 | LimeSDR | SoapyLMS7 |
-| PlutoSDR and libiio devices | SoapyPlutoSDR, superseded by the built-in driver |
 | Remote Soapy server | SoapyRemote |
 
 The exact versions are pinned in

@@ -26,7 +26,7 @@ RUN case "$TARGETARCH" in \
     && micromamba install --yes --name base --file "$lock" \
     && micromamba clean --all --yes \
     && test -f /opt/conda/lib/libSoapySDR.so \
-    && for module in airspy blade lms7 pluto remote; do \
+    && for module in airspy blade lms7 remote; do \
          test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname "*$module*" -print -quit)"; \
        done
 

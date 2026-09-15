@@ -7,5 +7,4 @@ dependencies:
   - soapysdr-module-airspyhf=0.2.0
   - soapysdr-module-bladerf=0.4.2
   - soapysdr-module-lms7=23.11.0
-  - soapysdr-module-plutosdr=0.2.2
   - soapysdr-module-remote=0.5.2

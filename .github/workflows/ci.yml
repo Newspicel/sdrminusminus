@@ -224,7 +224,6 @@ jobs:
           grep -qi 'airspy' <<< "$doctor"
           grep -qi 'bladerf' <<< "$doctor"
           grep -qi 'lms7' <<< "$doctor"
-          grep -qi 'pluto' <<< "$doctor"
           grep -qi 'remote' <<< "$doctor"
           docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
           trap 'docker rm --force sdrmm-ci >/dev/null 2>&1 || true' EXIT
