@@ -764,24 +764,25 @@ mod tests {
     }
 
     #[test]
+    fn a_station_carrying_one_tone_is_still_broadcast_fm() {
+        let len = (INPUT_RATE_HZ * 2.2) as usize;
+        let tone = testgen::tone_audio(1_000.0, 1.0, INPUT_RATE_HZ, len);
+        let mut iq = testgen::wfm::transmission(&tone, &tone, true, INPUT_RATE_HZ);
+        testgen::add_noise(&mut iq, 0x6f02, 0.004);
+        let reports = run_at(settings_at(params(), 95_500_000.0), &iq);
+        assert_eq!(consensus(&reports), Modulation::Fm, "{reports:?}");
+        assert!(
+            reports.iter().any(|r| best(r) == Some("FM broadcast")),
+            "candidates: {:?}",
+            reports.iter().map(best).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn a_keyed_carrier_is_morse_rather_than_a_bare_carrier() {
         let mut iq = testgen::morse::transmission("CQ CQ DE TEST", 20.0, 800.0, INPUT_RATE_HZ);
         testgen::add_noise(&mut iq, 0x3311, 0.004);
         let reports = run(params(), &iq);
-        eprintln!(
-            "DEBUG-MORSE {:?}",
-            reports
-                .iter()
-                .map(|r| r.loudest().map(|s| (
-                    s.modulation,
-                    s.bandwidth_hz,
-                    s.burst_ms,
-                    s.features.duty,
-                    s.features.keying_depth_db,
-                    s.symbol_rate_hz
-                )))
-                .collect::<Vec<_>>()
-        );
         assert_eq!(consensus(&reports), Modulation::Ook);
         assert!(
             reports.iter().any(|r| best(r) == Some("Morse (CW)")),

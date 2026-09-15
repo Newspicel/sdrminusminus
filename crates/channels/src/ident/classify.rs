@@ -15,6 +15,7 @@ const FLAT_SPECTRUM: f32 = 0.55;
 const FM_SPREAD_HZ: f64 = 200.0;
 const FM_SPREAD_FRACTION: f64 = 0.02;
 const LEVEL_SEPARATION: f64 = 0.7;
+const MAX_SHIFT_INDEX: f64 = 12.0;
 const DWELL_VALLEY: f32 = 0.25;
 const NO_CLOCK_FIRMNESS: f32 = 0.5;
 const STEADY_RIPPLE: f32 = 1e-3;
@@ -51,11 +52,20 @@ fn amplitude_modulation(waveform: &Waveform) -> f32 {
         .sqrt()
 }
 
+fn swept(waveform: &Waveform) -> bool {
+    waveform
+        .symbol_rate_hz
+        .is_some_and(|rate| waveform.deviation_hz > rate * MAX_SHIFT_INDEX)
+}
+
 fn shift_levels(band: &Band, waveform: &Waveform, modulated: f32) -> Option<u8> {
     let levels = match waveform.frequency_levels {
         levels @ (2 | 4 | 8) => levels,
         _ => return None,
     };
+    if swept(waveform) {
+        return None;
+    }
     let parted = if levels == 2 {
         waveform.level_valley <= DWELL_VALLEY
     } else {
@@ -223,6 +233,35 @@ mod tests {
         let verdict = classify(&band(12_500.0), &w);
         assert_eq!(verdict.modulation, Modulation::Fsk4);
         assert!(verdict.confidence > 0.7, "{}", verdict.confidence);
+    }
+
+    #[test]
+    fn a_tone_at_broadcast_deviation_is_analog_fm_not_four_level_keying() {
+        let w = Waveform {
+            frequency_levels: 4,
+            deviation_hz: 31_370.0,
+            frequency_spread_hz: 24_484.0,
+            level_valley: 0.74,
+            symbol_rate_hz: Some(1_998.0),
+            ..steady()
+        };
+        let mut b = band(192_000.0);
+        b.carrier_db = 49.7;
+        b.flatness = 0.0;
+        assert_eq!(classify(&b, &w).modulation, Modulation::Fm);
+    }
+
+    #[test]
+    fn a_slow_pager_at_a_wide_shift_is_still_two_level_keying() {
+        let w = Waveform {
+            frequency_levels: 2,
+            deviation_hz: 4_500.0,
+            frequency_spread_hz: 4_500.0,
+            level_valley: 0.02,
+            symbol_rate_hz: Some(512.0),
+            ..steady()
+        };
+        assert_eq!(classify(&band(16_000.0), &w).modulation, Modulation::Fsk2);
     }
 
     #[test]

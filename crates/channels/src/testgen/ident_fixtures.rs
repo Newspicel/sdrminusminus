@@ -434,12 +434,17 @@ fn weight(signal: &IdentSignal) -> f32 {
         .map_or(0.5, |m| if m.confirmed { 4.0 } else { m.score })
 }
 
-fn summarise(reports: &[IdentReport]) -> Outcome {
-    let found: Vec<&IdentSignal> = reports.iter().filter_map(nearest).collect();
-    let best = weighted(found.iter().filter_map(|s| {
+fn tally<'a>(found: impl Iterator<Item = &'a &'a IdentSignal>) -> Option<(Option<String>, String)> {
+    weighted(found.filter_map(|s| {
         s.best()
             .map(|m| ((m.type_id.clone(), m.name.clone()), weight(s)))
-    }));
+    }))
+}
+
+fn summarise(reports: &[IdentReport]) -> Outcome {
+    let found: Vec<&IdentSignal> = reports.iter().filter_map(nearest).collect();
+    let named = |s: &&&IdentSignal| s.best().is_some_and(|m| m.type_id.is_some());
+    let best = tally(found.iter().filter(named)).or_else(|| tally(found.iter()));
     let chosen: Vec<&&IdentSignal> = found
         .iter()
         .filter(|s| {
@@ -529,5 +534,74 @@ pub fn judge(fixture: &Fixture, outcome: &Outcome) -> Result<(), String> {
             }
         }
         Expect::Beyond(_) => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_wire::ProtocolMatch;
+
+    use super::*;
+
+    fn matched(name: &str, type_id: Option<&str>, score: f32) -> ProtocolMatch {
+        ProtocolMatch {
+            name: name.to_owned(),
+            type_id: type_id.map(str::to_owned),
+            score,
+            confirmed: false,
+            why: String::new(),
+        }
+    }
+
+    fn window(modulation: Modulation, best: ProtocolMatch) -> IdentReport {
+        IdentReport {
+            snr_db: 40.0,
+            signals: vec![IdentSignal {
+                modulation,
+                candidates: vec![best],
+                ..IdentSignal::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn a_named_protocol_outvotes_a_generic_label_it_is_outscored_by() {
+        let reports = [
+            window(Modulation::Fsk2, matched("FLEX", Some("flex"), 0.70)),
+            window(Modulation::Fsk2, matched("FLEX", Some("flex"), 1.00)),
+            window(
+                Modulation::Carrier,
+                matched("Unmodulated carrier", None, 0.95),
+            ),
+            window(
+                Modulation::Carrier,
+                matched("Unmodulated carrier", None, 0.95),
+            ),
+            window(
+                Modulation::Fm,
+                matched("FM voice (narrowband)", Some("nfm"), 0.95),
+            ),
+        ];
+        let outcome = summarise(&reports);
+        assert_eq!(outcome.type_id.as_deref(), Some("flex"));
+        assert_eq!(outcome.modulation, Modulation::Fsk2);
+    }
+
+    #[test]
+    fn a_recording_that_names_nothing_keeps_its_generic_label() {
+        let reports = [
+            window(
+                Modulation::Carrier,
+                matched("Unmodulated carrier", None, 0.95),
+            ),
+            window(
+                Modulation::Carrier,
+                matched("Unmodulated carrier", None, 0.95),
+            ),
+        ];
+        let outcome = summarise(&reports);
+        assert_eq!(outcome.type_id, None);
+        assert_eq!(outcome.name.as_deref(), Some("Unmodulated carrier"));
+        assert_eq!(outcome.modulation, Modulation::Carrier);
     }
 }
