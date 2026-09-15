@@ -8,14 +8,10 @@
 - [Your first receiver](getting-started/first-receiver.md)
 - [Understand the workspace](getting-started/workspace.md)
 
-# User guide
+# Use the receiver
 
 - [Radios and hardware](hardware.md)
 - [Channels and decoding](user-guide/channels.md)
-- [Coherent arrays](user-guide/arrays.md)
-- [Direction finding](user-guide/direction-finding.md)
-- [Passive radar](user-guide/passive-radar.md)
-- [Field mode](user-guide/field-mode.md)
 - [Scanning](user-guide/scanning.md)
 - [Propagation map](user-guide/propagation.md)
 - [Recording and playback](user-guide/recording.md)
@@ -23,6 +19,13 @@
 - [Workspaces, templates, and presets](user-guide/workspaces.md)
 - [Keyboard controls](user-guide/keyboard.md)
 - [Troubleshooting](troubleshooting.md)
+
+# Arrays and field work
+
+- [Coherent arrays](user-guide/arrays.md)
+- [Direction finding](user-guide/direction-finding.md)
+- [Passive radar](user-guide/passive-radar.md)
+- [Field mode](user-guide/field-mode.md)
 
 # Run a server
 

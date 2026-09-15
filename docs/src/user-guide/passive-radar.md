@@ -1,52 +1,45 @@
 # Passive radar
 
-Passive radar detects reflections of an existing transmitter, usually a broadcast station.
-A reference antenna receives the transmitter directly; a surveillance antenna receives the area
-of interest. Comparing the signals gives the echo's delay and Doppler shift.
+Passive radar compares a transmitter's direct signal with its reflections to measure echo delay
+and Doppler shift. Use two receiver lanes sharing a sample clock. A
+[time-synced array](arrays.md) is sufficient; relative phase calibration is unnecessary.
 
-The two receiver lanes must share a sample clock. A [time-synced array](arrays.md) is sufficient;
-relative phase calibration is not required.
+## Set up the receiver
 
-## Wire one up
-
-1. Set up a Device or Array with at least two time-synced lanes.
-2. Add a **Passive radar** node.
-3. Connect the antenna aimed at the transmitter to `ref` and the surveillance antenna to `surv`.
-4. Connect a **GPS position** source to `position` if you want map output.
+1. Add a Device or Array with at least two time-synced lanes.
+2. Add **Passive radar**.
+3. Connect the antenna aimed at the transmitter to `ref`.
+4. Connect the surveillance antenna aimed at the area of interest to `surv`.
+5. Connect GPS `position` for map output.
 
 ## Processing and settings
 
 | Stage | Purpose |
 |---|---|
-| ECA | Cancel the direct signal and zero-Doppler clutter in the surveillance lane |
-| CAF | Correlate the remaining signal with the reference across delay and Doppler offsets |
-| CFAR | Detect cells above a threshold calculated from their neighbourhood |
-| Cluster | Merge adjacent detections into one echo |
-| Track | Associate echoes across successive integrations |
+| ECA | Cancel the direct signal and stationary clutter |
+| CAF | Compare reference and surveillance signals across delay and Doppler offsets |
+| CFAR | Detect cells above their local background |
+| Cluster | Merge adjacent detections |
+| Track | Associate echoes across observations |
 
-**Integration** sets the coherent processing interval. Longer intervals can reveal weaker echoes,
-but target motion during the interval can blur them. **Range bins** sets the delay extent of the
-surface. **Doppler span** sets the frequency-shift range searched.
+| Setting | Effect |
+|---|---|
+| Integration | Longer intervals can reveal weaker echoes, but motion can blur them |
+| Range bins | Delay extent of the display |
+| Doppler span | Frequency-shift range searched |
 
 ## Reading the surface
 
-The display plots range against Doppler and marks detections. New detections have no target number.
-After repeated observations, the tracker assigns a number and retains it as the echo moves.
-A brief detection may be noise or an echo the tracker cannot confirm.
+The display plots range against Doppler and marks detections. Repeated observations receive a
+track number. A brief detection may be noise or an unconfirmed echo.
 
 ## Echoes on the map
 
-A detection measures **bistatic range**: the extra distance travelled by the reflected signal
-compared with the direct path. Possible target locations lie on an ellipse whose foci are the
-transmitter and receiver. A detection alone does not provide a target position or bearing.
+Enable **Transmitter** and enter its coordinates and frequency. With receiver position available,
+the map draws an ellipse of possible locations for each echo.
 
-Enable **Transmitter** and enter its latitude, longitude, and frequency. With the receiver position
-available, the map can draw the ellipse for each echo. Without transmitter coordinates, no ellipse
-is drawn.
+The measurement is **bistatic range**, the extra distance travelled by the reflected signal.
+One echo does not give a unique position or bearing. Tracks follow range and Doppler, not geographic
+coordinates. Without transmitter coordinates, no ellipse is drawn.
 
-Tracking operates in range and Doppler. The map does not track geographic target positions.
-
-## In the field
-
-The **Radar watch** mission shows the range–Doppler display and tracked echoes on a phone.
-See [field mode](field-mode.md).
+Use the **Radar watch** mission in [field mode](field-mode.md) to view the surface and tracks on a phone.

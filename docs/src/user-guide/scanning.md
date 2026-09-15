@@ -1,45 +1,48 @@
 # Scanning
 
-The Scanner node repeatedly retunes one device and measures activity across a list or range of
-frequencies. Use it to find intermittent signals that are easy to miss while parked on one
-channel.
+Use **Scanner** to search frequency lists or ranges and hold on activity. Scanning controls the
+radio's tuning, so stop it before retuning manually.
 
 ## Build a scanner
 
-1. Add a Scanner from **+ Node**.
-2. Wire the Scanner's `control` output into the Device's `control` input.
-3. Enter the scan targets or ranges in the Scanner face.
-4. Choose the step, dwell time, threshold, and action.
-5. Start the scan.
+1. Add **Scanner** from **+ Node**.
+2. Connect Scanner `control` to Device `control`.
+3. Enter frequency ranges or targets and choose a scan mode.
+4. Set the detection level and timing.
+5. Start scanning and watch the frequency, level, hit count, and status.
 
-The control wire represents ownership. While a scan runs, it owns the device center frequency and
-manual retuning is refused. Stop the scanner to return the dial to normal operation.
+## Configure detection
 
-## Configure the sweep
+| Mode | Behaviour |
+|---|---|
+| Targets | Hold on a listed frequency above the threshold |
+| Close call | Find the strongest carrier above the noise-floor margin within the searched span |
 
-A range consists of a start frequency, end frequency, and step. Keep the step aligned with the
-channel spacing used by the service you are monitoring. A smaller step examines more frequencies
-but lengthens each sweep.
+For target ranges, match the step to the service's channel spacing. Smaller steps cover more
+frequencies per sweep and take longer. Use longer dwell times for weak signals or short digital
+bursts. Measurement bandwidth sets the slice used to measure activity.
 
-The dwell time controls how long the scanner observes each target. Digital bursts and weak
-squelched voice may need a longer dwell; strong continuous carriers can use a shorter one.
+The resume delay controls how long the scanner waits after activity ends before continuing.
 
-The activity threshold is measured from the device spectrum. Set it above the local noise floor,
-then adjust after watching several sweeps.
+## Listen to a detected signal
 
-## Scan actions
+Add a channel with the required mode and connect it to a Speaker. Select it under **Listen on**.
+When the scanner holds on a signal, it tunes that channel to the detected frequency.
 
-The scanner can continue through active signals or hold according to its configured action. Its
-live face reports the current frequency, progress, detected level, state, and any fault.
+Other channels retain their frequencies and receive only while the radio covers them.
+For continuous reception across a fixed band, use ordinary channels without a scanner.
 
-Scanning retunes the whole device, so channels attached to that device move with it. For a
-listening scanner, configure a channel on the radio's own centre with the appropriate mode and
-connect it to
-a Speaker. For a fixed wideband task such as two-channel AIS, use normal channels instead of a
-retuning scanner.
+## Sweep methods
 
-## Practical limits
+On supported hardware, the scanner can use the radio's firmware sweep. Otherwise it retunes
+through the targets. If firmware sweeping fails, it returns to retuning and reports the change.
+The **Sweep** readout shows the method in use.
 
-The current scanner sweeps by retuning the receiver. It does not use firmware-assisted wideband
-sweep modes, and each retune needs time for the hardware and DSP path to settle. Scanning very
-large ranges is therefore best divided into smaller service-specific workspaces.
+Firmware sweeping interrupts ordinary reception while active. Channels are restored when normal
+reception resumes. Retuning sweeps need time for the radio and processing to settle.
+
+## Multiple radios
+
+Use **Also sweep with** to share targets across eligible running radios. Each must be free of
+another scan or hunt and support a single tuning control. Receivers with independently tuned streams cannot
+participate in this scan workflow.

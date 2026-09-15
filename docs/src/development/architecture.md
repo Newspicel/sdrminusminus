@@ -1,19 +1,12 @@
 # Architecture
 
-The headless binary and desktop app use the same Rust server library and receiver engine.
-The browser and desktop window run the same React client.
+The desktop app and headless binary share the Rust server and receiver engine. Both serve the
+same React interface.
 
 ```text
-                         control and state
-┌──────────────┐       REST / WebSocket / MCP       ┌──────────────┐
-│ React client │ ◀────────────────────────────────▶ │ Rust server  │
-└──────────────┘                                    └──────┬───────┘
-                                                           │ commands
-                                                           ▼
-┌──────────────┐   IQ blocks   ┌──────────────┐   ┌────────────────┐
-│ SDR / file / │ ────────────▶ │ DSP engine   │ ─▶│ audio, events, │
-│ network      │               │ and channels │   │ spectrum, IQ   │
-└──────────────┘               └──────────────┘   └────────────────┘
+React client ↔ REST / WebSocket / MCP ↔ Server control plane
+                                              ↓ commands
+Radio / network / recording → DSP engine → audio, events, spectrum, IQ
 ```
 
 ## Crate boundaries
@@ -27,6 +20,7 @@ The browser and desktop window run the same React client.
 | `sdrmm-device` | Hardware-independent device traits, capabilities, settings, and registry |
 | `sdrmm-device-virtual` | Signal generators and SigMF playback |
 | `sdrmm-device-rtlsdr` | Native RTL-SDR driver |
+| `sdrmm-device-airspy`, `sdrmm-device-airspyhf` | Native Airspy drivers |
 | `sdrmm-device-hackrf` | Native HackRF driver |
 | `sdrmm-device-ad936x` | AntSDR, PlutoSDR and other AD936x boards, speaking iiod over ethernet or USB |
 | `sdrmm-device-soapy` | Local hardware through SoapySDR |
@@ -40,97 +34,78 @@ The browser and desktop window run the same React client.
 | `sdrmm-engine` | Device supervision, channelization, scanning, streams, recording, and state snapshots |
 | `sdrmm-server` | REST, WebSocket, MCP, persistence, band plans, auth, and embedded assets |
 
-`apps/sdrmm` handles CLI configuration and process lifetime. `apps/desktop` binds the server to an
-ephemeral loopback port and points a Tauri WebView at it. With SoapySDR enabled, both call
-`sdrmm_device_soapy::enable_isolated_probes` during startup. Discovery re-executes the binary as
-a short-lived probe helper, isolating the application from crashes in vendor discovery code.
+`apps/sdrmm` owns CLI configuration and process lifetime. `apps/desktop` starts the server on
+an ephemeral loopback port and opens a Tauri WebView. Both isolate SoapySDR discovery in a
+short-lived child process.
 
 ## One source of truth for wire types
 
-REST bodies, WebSocket messages, settings, and patch types are declared in `crates/wire`.
-`utoipa` derives the OpenAPI schemas, and `cargo xtask codegen` generates the TypeScript client
-types. A new field should not be re-declared independently in Rust, OpenAPI, and TypeScript.
+Define REST bodies, WebSocket messages, settings, and patch types in `crates/wire`. OpenAPI
+schemas derive from those types; `cargo xtask codegen` generates TypeScript declarations.
 
-The frontend asks the server for device capabilities, channel descriptors, and the node palette.
-This keeps UI controls and connection rules aligned with the running build.
+The client reads device capabilities, channel descriptors, and the node palette from the server,
+keeping controls aligned with the running build.
 
 ## Data plane and control plane
 
-The real-time DSP path does not perform HTTP, database I/O, asynchronous work, or UI formatting.
-It receives settings through command queues and publishes bounded snapshots and output buffers.
-Hot processing avoids locks and allocation so timing is predictable under a continuous sample
-stream.
+The DSP path uses command queues for settings and bounded snapshots or buffers for output.
+It performs no I/O, locking, allocation, or async work in hot processing.
 
-The control plane can block or allocate where appropriate. It owns Axum handlers, SQLite,
-workspace reconciliation, recording indexes, client subscriptions, and protocol serialization.
+The control plane owns HTTP handlers, SQLite, workspace reconciliation, subscriptions, recording
+indexes, and serialization. It may allocate or block as needed.
 
-High-rate data uses binary WebSocket frames. Durable state stays behind REST, and WebSocket state
-events tell clients which query scope to refetch. Decoder events are typed JSON because their rate
-and structure suit it; audio is Opus-compressed before crossing to the browser.
+Spectrum, audio, and video use binary WebSocket frames; browser audio is Opus-compressed.
+Decoder events use typed JSON. Durable state is fetched through REST after WebSocket invalidations.
 
 ## Coherent processing
 
-An ordinary channel reads one lane. A coherent processor needs aligned samples from every lane
-of one source.
+Each capture block carries its first sample index, including gaps from reported hardware loss.
+Coherent processing taps each lane into a ring and selects the sample range common to all lanes.
+After a gap, it advances to the next shared index before applying calibrated delays and weights.
 
-Each capture block carries its first sample index. Drivers advance the index over hardware-reported
-losses, preserving gaps. While coherent processing is active, each lane also writes to a tap ring
-that records any samples it cannot retain.
+Beamforming sums weighted lanes into a normal capture ring. Channels, recorders, and scopes
+consume that beam through the ordinary single-lane path.
 
-The aggregator finds the largest sample range common to all lanes. After a gap, it discards samples
-up to the next common index, then applies calibrated delays and complex weights. Like `dsp_loop`,
-it runs without locks, allocation, or async work.
+An Array node combines streams already owned by Device nodes. `device-array` provides logical
+ingress lanes; the engine forwards corrected IQ, coordinates tuning, and handles member recovery.
+The array adapter never opens hardware.
 
-Processors can return beamforming weights. The aggregator sums the weighted lanes into an ordinary
-capture ring after the source's physical lanes. Channels, recorders, and spectrum subscriptions
-consume this beam through the normal single-lane path.
+Media and recording outputs cross preallocated single-producer/single-consumer buffer pools.
+Workers allocate transport payloads and publish them. Full queues never block DSP: media loss
+is reported and recordings fail explicitly. Shutdown drains pending buffers. Some decoder
+algorithms still allocate variable-sized results.
 
-A patch **Array** node composes streams from existing Device nodes. `sdrmm-device-array` supplies
-logical ingress lanes; the engine forwards the members' corrected IQ through bounded rings and
-coordinates tuning. Device nodes retain ownership of their radios and channels. The engine handles
-membership changes and member recovery without opening hardware through the array adapter.
-
-Channel media, spectrum, recording blocks, and coherent results cross preallocated SPSC buffer
-pools before workers allocate transport payloads or call broadcast senders. Saturation never waits
-on the DSP thread: media loss is reported, and recordings fail explicitly. Worker shutdown drains
-pending buffers. Decoder algorithms may still allocate their own variable-sized results.
-
-`channels` depends on `dsp`, `modem`, and `wire`; protocol-independent modem algorithms stay in
-`modem`. `sdrmm-test-support` contains allocation and throughput measurement helpers.
-`modem-test-support` owns the modem measurement harness and JSON baseline tooling. Neither
-appears in the application's normal dependency graph. `cargo xtask check` enforces these boundaries;
-`cargo xtask perf` runs the DSP allocation and throughput gates, full-slot decoder search baselines,
-and engine publication checks.
+`channels` depends on `dsp`, `modem`, and `wire`. Shared modem algorithms belong in `modem`.
+Allocation, throughput, and modem measurement tooling belongs in test-support crates outside the
+application dependency graph. `cargo xtask check` enforces boundaries; `cargo xtask perf` checks
+DSP throughput, allocation, decoder searches, and engine publication.
 
 ## Workspaces and live engine state
 
-A workspace graph is desired state. Applying it binds durable Device nodes to currently discovered
-devices, opens or closes engine objects, restores device settings, and creates the channels implied
-by IQ connections.
+The workspace graph describes desired state. Applying it binds saved Device references to
+discovered radios, restores settings, and reconciles channels and engine objects.
 
-The graph never stores engine IDs because those are allocated anew on each run. Device references
-use backend, serial, key, and variant identity; channel binding follows graph order and source
-ports. An unplugged receiver therefore leaves a meaningful disconnected graph instead of corrupting
-the saved workspace.
+Saved references use backend, serial, key, and variant identity. Engine IDs are temporary and
+never stored in the graph. Disconnected radios retain their nodes and settings until reconnection.
 
 ## Failure and backpressure
 
-The project favors bounded queues and explicit loss reporting over unbounded memory growth. Device
-overruns, dropped decoder frames, recording faults, truncated exports, WebSocket lag, and reconnect
-state surface to clients. A busy consumer should not be able to stall the capture thread or grow
-the process indefinitely.
+Queues are bounded. Overruns, dropped frames, recording faults, truncated exports, WebSocket lag,
+and reconnection state surface to clients. Slow consumers cannot block capture or grow memory
+without a limit.
 
 ## Testing layers
 
-- DSP primitives use analytic and golden-vector tests.
-- Decoders use synthesized or recorded IQ fixtures with expected typed output.
-- Engine tests run end-to-end through virtual devices.
-- Server tests exercise handlers, persistence, WebSocket behavior, auth, and OpenAPI shape.
-- Frontend tests cover pure view logic and stores; Playwright runs a complete browser flow.
-- CI builds the Soapy release shape without enumerating host modules or requiring hardware.
+| Layer | Coverage |
+|---|---|
+| DSP | Analytic and golden vectors, allocation and throughput gates |
+| Decoders | Recorded IQ and expected output, plus generated vectors |
+| Engine | End-to-end virtual-device tests |
+| Server | Handlers, persistence, streams, authentication, OpenAPI, codegen drift |
+| Client | Unit tests and browser smoke flows |
 
-Keep tests at the narrowest layer that proves a behavior, then add an end-to-end fixture when a
-decoder or cross-layer workflow needs it.
+CI builds release configurations without enumerating host radios. Test at the narrowest layer
+that proves the behaviour, adding end-to-end coverage for cross-layer workflows.
 
 ## Standard tables and their provenance
 

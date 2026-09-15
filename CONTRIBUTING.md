@@ -8,7 +8,7 @@
 4. Run the checks for the parts you changed.
 5. Open a pull request describing the result and how you verified it.
 
-For a substantial new feature, discuss the behaviour and crate boundaries in an issue first.
+Use an issue to discuss substantial changes to behaviour or crate boundaries.
 
 ## Code boundaries
 
@@ -25,8 +25,8 @@ For a substantial new feature, discuss the behaviour and crate boundaries in an 
 - Prefer clear names and small functions. Reserve comments for rare, non-obvious constraints.
 - Prefer Rust implementations. Preserve attribution and license notices for reused code or tables.
 
-The [architecture guide](https://newspicel.github.io/sdrminusminus/development/architecture.html)
-describes the crate dependencies and runtime data flow.
+See [Architecture](https://newspicel.github.io/sdrminusminus/development/architecture.html)
+for dependencies and runtime data flow.
 
 ## Tests and checks
 
@@ -35,7 +35,7 @@ Use the narrowest test that demonstrates the change:
 | Changed area | Required coverage |
 |---|---|
 | DSP primitives | Analytic or golden-vector tests, plus relevant performance gates |
-| Decoders | IQ fixture and expected decoded output |
+| Decoders | Recorded IQ fixture and expected decoded output |
 | Engine | End-to-end tests through `device-virtual` |
 | Server | Handler tests, OpenAPI snapshot, and codegen drift |
 | Client | Unit tests and affected browser flows |
@@ -60,8 +60,8 @@ Additional checks depend on the change:
 | `cargo xtask fuzz` | Changes to a decoder's framing or to channel settings |
 | `cargo xtask audit` | Dependency changes |
 
-For manual hardware tests, record the receiver model, driver and module versions, operating system,
-test duration, reconnect result, and overrun or underflow counts in the pull request.
+Report manual hardware tests with the receiver, driver versions, OS, duration, reconnect result,
+and overrun or underflow counts.
 
 ## Generated files
 
@@ -73,9 +73,8 @@ Commit generated output with its source change:
   store hash and cargo git hashes. This requires Nix on Linux or a `nixos/nix` container elsewhere.
 
 The [generated-file reference](https://newspicel.github.io/sdrminusminus/development/building.html#generated-files)
-also covers decoder fixtures, band plans, and icons. `cargo xtask check` detects stale generated
-contracts, a changed pnpm lockfile whose recorded digest was not updated, and a git dependency
-moved past the commit its Nix hash was taken at.
+also covers decoder fixtures, band plans, and icons. `cargo xtask check` detects stale contracts,
+lockfile digests, and git revisions recorded with Nix hashes.
 
 ## Pull requests
 

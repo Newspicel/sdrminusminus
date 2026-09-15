@@ -4,85 +4,69 @@
 
 # sdr--
 
-sdr-- is a software-defined radio application with a visual signal path. Connect devices,
-decoders, displays, and recorders on a canvas, then pin the controls you use to a rack.
+A software-defined radio application for listening, decoding, and recording. Connect radios,
+channels, and displays in **Patch** view, then pin your everyday controls to **Rack** view.
 
-A Rust server handles the radio and signal processing. The React interface runs in a desktop
-window or browser. You can run both on one computer, or leave the server beside the antenna and
-connect over the network. A built-in signal generator lets you try it without an SDR.
+Run the desktop app with a local SDR, or place the server near your antenna and connect through
+a browser. Both use the same receiver engine and interface.
 
 <p align="center">
-  <img src="assets/screenshots/patch.png" alt="A device connected to three channels, a speaker, an audio recorder, and a network IQ output">
+  <img src="assets/screenshots/patch.png" alt="A receiver patch with three channels, a speaker, recording, and network IQ output">
 </p>
-
-## Status
-
-sdr-- is under active development. Most decoders have been tested with generated IQ fixtures;
-only some have been verified on air. The [channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
-lists the evidence for each mode and its limitations. Experimental modes may provide acquisition
-or measurements without decoded audio or video.
-
-## What you can do
-
-- Listen to AM, NFM, broadcast FM with stereo and RDS, SSB, and supported digital voice modes.
-- Decode aircraft, ship, amateur, pager, sensor, and other radio traffic. See the
-  [full channel list](https://newspicel.github.io/sdrminusminus/user-guide/channels.html).
-- View spectrum, waterfalls, decoded messages, position maps, and received images.
-- Scan frequencies and save workspaces, presets, and bookmarks.
-- Record device IQ, channel baseband, or audio; replay IQ through the same decoders.
-- Use coherent receivers for direction finding, antenna combining, beamforming, and passive radar.
-- Export IQ over UDP or TCP and forward decoded events to webhooks, Matrix, or MQTT.
-- Control the running receiver through REST, WebSocket, or MCP.
 
 ## Install
 
 Download a desktop installer or portable server from
 [GitHub Releases](https://github.com/Newspicel/sdrminusminus/releases).
-[Installation instructions](https://newspicel.github.io/sdrminusminus/getting-started/install.html)
-cover each package, Homebrew, Nix, and containers.
+The [installation guide](https://newspicel.github.io/sdrminusminus/getting-started/install.html)
+covers macOS, Windows, Linux, Homebrew, Nix, and Docker.
 
-On macOS, install the desktop app with Homebrew:
+On macOS:
 
 ```sh
 brew tap newspicel/tap
 brew install --cask sdrminusminus
 ```
 
-For the headless server, use `brew install sdrmm`.
-
-To run the server with Docker Compose on Linux:
+For a headless server on macOS or Linux, install `sdrmm` from the same tap:
 
 ```sh
-git clone https://github.com/Newspicel/sdrminusminus.git
-cd sdrminusminus
-docker compose up -d
+brew install sdrmm
+brew services start sdrmm
 ```
 
-Open <http://localhost:8080>. The server has no authentication by default; see
-[configuration and security](https://newspicel.github.io/sdrminusminus/server/configuration.html)
-when setting up network access.
+Open <http://localhost:8080>. For remote access, configure
+[authentication and HTTPS](https://newspicel.github.io/sdrminusminus/server/configuration.html).
 
-## Try a receiver
+## Start with an RTL-SDR
 
-1. On the starter **Device** node, choose **Signal Generator (virtual)**. The connected Scope
-   shows the generated signals.
-2. Choose **+ Node** and add an **NFM** channel.
-3. Connect Device `IQ` to NFM `IQ`, then NFM `audio` to Speaker `audio`.
-4. Set the channel to 300 kHz above the radio's centre and start audio on the Speaker. You should hear a 1 kHz tone.
+1. Attach an antenna and plug the RTL-SDR into the computer running sdr--.
+2. Select it on the **Device** node. Set the sample rate to **2.4 MS/s** and tune to a local FM station.
+3. Add a **WFM** channel from **+ Node** and set it to the station's frequency.
+4. Connect Device `IQ` to WFM `IQ`, then WFM `audio` to Speaker `audio`.
+5. Start playback on the Speaker. Select a node and press `p` to pin it to the Rack.
 
 [Your first receiver](https://newspicel.github.io/sdrminusminus/getting-started/first-receiver.html)
-walks through the controls and switching to hardware.
+walks through tuning, gain, audio, and RDS. See the
+[hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for other receivers and
+package-specific driver requirements.
 
-Standard builds include native RTL-SDR, HackRF, Airspy, Airspy HF+, AD936x (AntSDR, PlutoSDR),
-SDRplay, and CR-8 drivers. SDRplay and CR-8 also require their vendor libraries. Nothing ships
-SoapySDR: it is
-opened at runtime from the system's own installation, which is what reaches bladeRF, LimeSDR and
-other module-only hardware. See the
-[hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for requirements.
+## What it supports
+
+- **Listening:** AM, NFM, broadcast FM with stereo and RDS, SSB, and digital voice.
+- **Decoding:** aircraft, ships, amateur radio, pagers, sensors, images, and more.
+- **Displays:** spectrum, waterfalls, maps, decoded messages, and video.
+- **Recording:** device IQ, channel baseband, and audio, with SigMF playback.
+- **Radio tools:** scanning, signal identification, coherent arrays, direction finding, and passive radar.
+- **Automation:** REST, WebSocket, MCP, network IQ export, and event forwarding.
+
+sdr-- is under active development. The
+[channel catalog](https://newspicel.github.io/sdrminusminus/user-guide/channels.html#channel-catalog)
+lists each mode's test coverage and limitations, including partial experimental decoders.
 
 ## Screenshots
 
-These captures use the built-in signal generator or repository IQ fixtures. Regenerate them with
+These captures use debug-build signal sources and repository IQ fixtures. Regenerate them with
 `cargo xtask screenshots`.
 
 | Spectrum and waterfall | Rack view |
@@ -105,11 +89,9 @@ These captures use the built-in signal generator or repository IQ fixtures. Rege
 |---|---|
 | ![POCSAG messages with webhook output](assets/screenshots/pocsag.png) | ![RDS station name, text, and alternate frequencies](assets/screenshots/rds.png) |
 
-## Build from source
+## Build and contribute
 
-You need the repository's pinned Rust toolchain, a C/C++ compiler, CMake, Node 26, pnpm 11, and
-SoapySDR 0.8 development files. The [build guide](https://newspicel.github.io/sdrminusminus/development/building.html)
-lists platform prerequisites.
+Use the repository's pinned Rust toolchain, a C/C++ compiler, CMake, Node 26, and pnpm 11.
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
@@ -119,53 +101,35 @@ pnpm --dir web build
 cargo run -p sdrmm
 ```
 
-Open <http://localhost:8080>. For development, `cargo xtask dev` starts the server and a frontend
-with hot reload at <http://localhost:5173>. Add `--watch` to restart the backend when its files
-change.
+Open <http://localhost:8080>. For frontend hot reload and backend watching, run
+`cargo xtask dev --watch` and open <http://localhost:5173>.
 
-To build with only virtual sources and network receivers:
-
-```sh
-cargo run -p sdrmm --no-default-features --features net-client
-```
-
-## Development
-
-| Path | Purpose |
-|---|---|
-| `apps/sdrmm` | Headless server binary |
-| `apps/desktop` | Tauri desktop shell |
-| `crates/dsp`, `crates/modem` | Signal-processing primitives and reusable modem algorithms |
-| `crates/engine` | Device and signal-processing orchestration |
-| `crates/channels` | Demodulators and protocol decoders |
-| `crates/device-*` | Native, SoapySDR, network, virtual, and array backends |
-| `crates/wire` | Shared API, WebSocket, and settings types |
-| `crates/server` | HTTP, WebSocket, MCP, persistence, and embedded frontend |
-| `web` | React application |
-| `docs` | mdBook documentation |
+The signal generator and synthetic test radios are available in debug builds. Release builds
+support real receivers and recording playback.
 
 | Command | Purpose |
 |---|---|
-| `cargo xtask check` | Format, lint, type-check, build, and check generated-code drift |
-| `cargo xtask test` | Run Rust and frontend tests without hardware |
-| `cargo xtask smoke` | Run the browser test against the server |
-| `cargo xtask codegen` | Regenerate OpenAPI and TypeScript API types |
-| `cargo xtask audit` | Check dependencies with cargo-deny |
+| `cargo xtask check` | Format, lint, type-check, build, and check generated files |
+| `cargo xtask test` | Rust and frontend tests without hardware |
+| `cargo xtask smoke` | Browser tests against the server |
+| `cargo xtask codegen` | Generate OpenAPI and TypeScript types |
+| `cargo xtask audit` | Dependency checks |
 
-See [Contributing](CONTRIBUTING.md) and the
-[development guide](https://newspicel.github.io/sdrminusminus/development/building.html)
-for testing, generated files, and releases.
+Read [Contributing](CONTRIBUTING.md), the
+[build guide](https://newspicel.github.io/sdrminusminus/development/building.html), and
+[architecture](https://newspicel.github.io/sdrminusminus/development/architecture.html)
+for prerequisites, crate boundaries, and tests.
 
 ## Documentation and API
 
 - [User and developer guide](https://newspicel.github.io/sdrminusminus/)
 - Swagger UI: `/api/docs` on a running server
-- OpenAPI: `/api/openapi.json` or the checked-in [openapi.json](openapi.json)
+- OpenAPI: `/api/openapi.json` or [openapi.json](openapi.json)
 
 ## License
 
 Copyright (C) 2026 sdr-- contributors.
 
-sdr-- is licensed under the [GNU General Public License, version 3 or later](LICENSE).
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists distributed dependencies and bundled
-hardware components. Their license texts are also available in the app's About panel.
+Licensed under the [GNU General Public License, version 3 or later](LICENSE).
+[Third-party notices](THIRD_PARTY_NOTICES.md) and license texts are also available in the app's
+About panel.

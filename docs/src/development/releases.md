@@ -1,69 +1,58 @@
 # Release process
 
-Releases are tag-driven and build portable server archives, desktop installers, update bundles,
-and multi-architecture container images. A scheduled workflow publishes a rolling nightly only
-when `main` has changed since the previous nightly.
+Tagged releases publish portable servers, desktop installers, signed update bundles, and container
+images. A scheduled workflow updates the rolling nightly when `main` changes.
 
 ## Versioning
 
-The root `[workspace.package] version` is the source of truth. The desktop configuration inherits
-it, and the release workflow stamps it from the tag with:
+The root workspace version is the source of truth. Set it with:
 
 ```sh
 cargo xtask set-version 1.2.3
 ```
 
-Release versions must be plain `major.minor.patch`. The major and minor components must fit in
-eight bits and patch in sixteen bits because Windows MSI ProductVersion cannot represent larger
-values or prerelease suffixes. The task rejects invalid versions before a bundle job starts.
-
-Stable release tags use `v<major>.<minor>.<patch>`. Nightlies use the UTC date as `YY.M.D`, which
-also remains within the MSI limits.
+Stable tags use `v<major>.<minor>.<patch>`. Nightlies use the UTC date as `YY.M.D`.
+Windows MSI requires major and minor to fit in eight bits and patch in sixteen bits; prerelease
+suffixes are unsupported. The task validates these limits.
 
 ## Portable archives
-
-Build the same archive produced in CI:
 
 ```sh
 cargo xtask dist
 cargo xtask dist --target aarch64-unknown-linux-gnu
 ```
 
-The command installs a missing Rust target, builds the frontend, compiles the release binary with
-Soapy and network backends, verifies the embedded UI, and writes a `.tar.gz` or `.zip` under
-`dist/` with README and license files.
+The task installs a missing Rust target, builds the frontend and release binary, verifies embedded
+assets, and writes a `.tar.gz` or `.zip` under `dist/` with README and license files.
 
-Portable archives link against SoapySDR but do not bundle its runtime. Test the archive on a clean
-machine with the documented SoapySDR 0.8 dependency.
+Archives load SoapySDR at runtime without linking or bundling it. Verify startup on a clean machine
+both with and without a system SoapySDR installation.
 
 ## Desktop bundles
 
-Without `--bundles`, the desktop task is the compile gate used on pull requests:
+Run the compile gate:
 
 ```sh
 cargo xtask desktop
 ```
 
-Creating installers requires the Tauri CLI:
+To create installers, install the Tauri CLI:
 
 ```sh
 cargo install --locked tauri-cli
 cargo xtask desktop --bundles dmg
 ```
 
-Use `deb,appimage` on Linux and `msi,nsis` on Windows. Nothing is staged beforehand: no artifact
-carries SoapySDR, and no build step links it.
+Use `deb,appimage` on Linux and `msi,nsis` on Windows. Installers use system SoapySDR at runtime.
 
 ## Desktop updates
 
-The desktop app checks the newest non-prerelease GitHub release once at startup. Update archives
-are signed separately from platform code signing with the Tauri updater key. The public key is
-compiled into the application; losing the private key prevents updates to already installed
-clients.
+The app checks the latest stable GitHub release at startup. Update archives use a Tauri updater
+signature separate from platform code signing. Preserve the private updater key; installed clients
+trust its compiled public key.
 
-When a local signing key is absent, the bundle task passes `--no-sign` and produces installers that
-cannot be published as application updates. Release CI requires signatures and creates
-`latest.json` from them:
+Without a local signing key, the bundle task uses `--no-sign`. Those installers cannot serve as
+application updates. Release CI requires signatures and builds the update manifest:
 
 ```sh
 cargo xtask updater-manifest \
@@ -74,35 +63,33 @@ cargo xtask updater-manifest \
 
 ## Containers
 
-The release workflow builds Linux `amd64` and `arm64` images and publishes a manifest at:
+Releases publish Linux `amd64` and `arm64` images:
 
 ```text
 ghcr.io/newspicel/sdrminusminus:<version>
 ghcr.io/newspicel/sdrminusminus:latest
 ```
 
-Nightlies update only the `nightly` tag. Image smoke tests run the binary, inspect Soapy modules,
-start the server, and verify that it serves the built frontend.
+Nightlies update only `:nightly`. Smoke tests check the binary, SoapySDR modules, server startup,
+and embedded frontend.
 
 ## Homebrew tap
 
-`Newspicel/homebrew-tap` carries a `sdrmm` formula for the portable server and a `sdrminusminus`
-cask for the desktop application. Both describe published downloads rather than a source build, so
-the release workflow writes them after the release exists:
+The release workflow updates the `sdrmm` formula and `sdrminusminus` cask in
+`Newspicel/homebrew-tap` after publishing stable downloads:
 
 ```sh
 cargo xtask homebrew-tap \
-  --version 0.4.0 \
+  --version 1.2.3 \
   --sums SHA256SUMS \
   --repo Newspicel/sdrminusminus \
   --out ../homebrew-tap
 ```
 
-The generator reads digests from the release's `SHA256SUMS` and fails if a required artifact is
-missing. Updating the tap requires `HOMEBREW_TAP_TOKEN` with write access. Without that secret,
-the tap job is skipped while the release continues.
+The generator checks required artifacts against `SHA256SUMS`. The tap job needs a writable
+`HOMEBREW_TAP_TOKEN`; without it, the job is skipped. Other release jobs continue.
 
-The tap publishes stable releases only. Validate generator changes with Homebrew:
+Validate generator changes:
 
 ```sh
 brew style newspicel/tap
@@ -112,32 +99,24 @@ brew audit --strict --online --cask newspicel/tap/sdrminusminus
 
 ## Building a pull request
 
-Label a pull request `build_nightly` to run the same rehearsal against the branch. The release
-workflow builds the full matrix — portable archives, desktop installers and update bundles for
-every platform, `latest.json`, and a container image per architecture — and attaches everything to
-the run as artifacts. A comment on the pull request links to them and is rewritten on each rebuild.
+Add `build_nightly` to a same-repository pull request to build the full release matrix. The run
+uploads portable archives, installers, update bundles, `latest.json`, and container tarballs.
+A pull-request comment links to the artifacts.
 
-Nothing is published: no tag, no GitHub release, and no registry push. The container images are
-uploaded as `docker load`-able tarballs instead. The version is fixed at the manifest's own `0.0.0`
-rather than derived from the branch or the pull request, so two builds of the same commit produce
-identical artifacts.
+This rehearsal publishes no release, tag, or registry image. Containers can be imported with
+`docker load`. The build uses the manifest version, currently `0.0.0`.
 
-Every push rebuilds while the label is attached, cancelling the superseded run; remove the label to
-stop. The build runs only for branches in this repository, because a fork's run receives none of
-the signing secrets the desktop bundles require.
+Each push rebuilds and cancels the older run. Remove the label to stop. Forks cannot use this
+workflow because the bundle jobs require signing secrets.
 
 ## Release checklist
 
-Before tagging:
-
-1. Run `cargo xtask check`, `cargo xtask test`, `cargo xtask smoke`, and `cargo xtask audit`.
+1. Run `cargo xtask check`, `test`, `smoke`, and `audit`.
 2. Run `cargo xtask desktop` and build the container.
-3. Confirm generated API, license, fixture, icon, and band-plan outputs are current.
-4. Validate supported hardware with the candidate package, including a reconnect and recording.
-5. Confirm the updater signing secret and platform signing credentials are available.
-6. Tag the exact reviewed commit and watch every artifact matrix job.
-7. Install or unpack at least one published artifact and run `sdrmm --version` and
-   `sdrmm --doctor`.
+3. Check generated API, license, fixture, icon, and band-plan outputs.
+4. Validate hardware with the candidate package, including reconnect and recording.
+5. Confirm updater and platform signing credentials.
+6. Tag the reviewed commit and check every artifact job.
+7. Install a published artifact and run `sdrmm --version` and `sdrmm --doctor`.
 
-Use the release workflow's manual dispatch as a rehearsal. It builds and uploads the full artifact
-matrix without publishing a GitHub release.
+Manual workflow dispatch rehearses the artifact matrix without publishing a GitHub release.

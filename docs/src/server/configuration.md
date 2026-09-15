@@ -1,7 +1,7 @@
 # Configuration and security
 
-The `sdrmm` binary runs the receiver engine, REST API, WebSocket and MCP endpoints, Swagger UI,
-and embedded React application in one process.
+`sdrmm` serves the interface, receiver engine, REST API, WebSocket, and MCP in one process.
+By default it listens on `0.0.0.0:8080` without authentication.
 
 ## Command-line options
 
@@ -24,16 +24,16 @@ sdrmm [OPTIONS]
 | `--routing-key <KEY>` | None | API key for that service |
 | `--dev-cors` | Off | Allow a separate frontend development origin |
 | `--doctor` | Off | Print environment diagnostics and exit |
+| `--doctor-rates` | Off | Probe connected receivers' sample rates and exit |
 | `--help` | | Show CLI help |
 | `--version` | | Show the build version |
 
-Relative database and recording paths are resolved at startup. Use absolute paths for services
-and containers so storage does not depend on the working directory.
+Use absolute database and recording paths for services so storage does not depend on the working
+directory.
 
 ## Persistent data
 
-The SQLite database contains configuration and structured history. The recordings directory
-contains large IQ files. Back up both when you need a complete installation:
+Back up the database and recordings for a complete installation:
 
 ```text
 /srv/sdrmm/
@@ -43,120 +43,100 @@ contains large IQ files. Back up both when you need a complete installation:
     └── <capture>.sigmf-data
 ```
 
-Stop the server or use SQLite's supported backup mechanism before copying a live database. Raw
-recording pairs can be copied while idle; do not assume an actively written pair is complete.
+The database holds settings and decoded history; recording files hold IQ and audio. Stop the
+server before copying its database, or use SQLite's backup mechanism. Finish recordings before
+copying their files.
 
 ## Logging
 
-sdr-- uses the standard `RUST_LOG` filter. Without an override it logs general information and
-more detailed sdr-- messages. Examples:
+Set the `RUST_LOG` filter to adjust logging:
 
 ```sh
 RUST_LOG=info sdrmm
 RUST_LOG=sdrmm=trace,info sdrmm
 ```
 
-Trace logging can be noisy on an active receiver. Capture it for a short diagnostic session rather
-than leaving it enabled on an unattended server.
+Use trace logging for short diagnostic sessions; it can produce substantial output.
 
 ## Shared-token authentication
 
-By default, a headless server is unauthenticated and trusts its local network. Set a long random
-token whenever untrusted clients can reach the port:
+Set a long random token before allowing untrusted clients to reach the server:
 
 ```sh
 export SDRMM_TOKEN='replace-with-a-long-random-secret'
 sdrmm
 ```
 
-The environment variable avoids exposing the secret in the process list. `--token` and
-`SDRMM_TOKEN` configure the same value.
+`--token` sets the same value, but the environment variable keeps it out of the process arguments.
+The browser prompts for the token and stores it for that origin.
 
-The browser prompts for the token and stores it in local storage for that origin. REST and MCP
-clients should send:
+REST and MCP clients send:
 
 ```http
 Authorization: Bearer replace-with-a-long-random-secret
 ```
 
-WebSocket handshakes and browser download links can use `?token=...` because those requests cannot
-always attach an authorization header.
+WebSocket handshakes and browser downloads can use `?token=...`. The application shell and
+`GET /api/auth` stay public so clients can load the login prompt. Other API, documentation,
+WebSocket, and MCP routes require the token.
 
-The application shell and `GET /api/auth` remain reachable without authentication so the browser
-can load and discover that it needs a token. Other API, WebSocket, documentation, and MCP routes
-are protected.
+All authenticated clients have the same permissions, including changing the active receiver.
+There are no per-user accounts or read-only roles.
 
 ## HTTPS
 
-The server can terminate TLS itself. Give it a certificate chain and its key:
+Use a certificate chain and matching private key:
 
 ```sh
 sdrmm --tls-cert /etc/sdrmm/fullchain.pem --tls-key /etc/sdrmm/privkey.pem
 ```
 
-Both files are PEM. The chain holds the leaf certificate first and any intermediates after it; the
-key may be PKCS#8, PKCS#1, or SEC1. The two options are given together, and the server refuses to
-start if either file is unreadable or the key does not match the certificate.
+Both files must be PEM. Put the leaf certificate first, followed by intermediates. Keys may use
+PKCS#8, PKCS#1, or SEC1. Missing, unreadable, or mismatched files prevent startup.
 
-Without a certificate authority, ask for a self-signed one instead:
+For a local setup without a certificate authority:
 
 ```sh
 sdrmm --tls-self-signed
 ```
 
-The certificate covers `localhost`, both loopback addresses, and every LAN address the machine
-reports for itself, so the [field-mode](../user-guide/field-mode.md) handoff to a phone works over
-the same certificate. It is written to a `tls` directory beside the database and reused on every
-later start, so a browser or phone that accepted it keeps trusting it; it is replaced shortly
-before it expires. The key is owner-readable only. Note the SHA-256 fingerprint the server logs at
-startup and compare it the first time a client warns about the unknown issuer.
+The certificate covers localhost, loopback, and discovered LAN addresses. It is saved under `tls`
+beside the database and reused until renewal is needed. Compare the logged SHA-256 fingerprint
+when first accepting it on a client.
 
-Where the addresses the server sees are not the ones clients dial — behind a container bridge, a
-NAT, or a DNS name — name them instead:
+For containers, NAT, or a DNS name, specify the addresses clients actually use:
 
 ```sh
 sdrmm --tls-self-signed --tls-name radio.example --tls-name 192.168.1.20
 ```
 
-`SDRMM_TLS_NAMES` takes the same list, comma separated. Named addresses replace the discovered
-ones, which is what keeps the certificate stable: a container's own address changes from run to
-run, and a certificate following it would be minted again, and have to be trusted again, on most
-restarts. Loopback is always covered. A certificate is also replaced when the set of names
-changes, because one that does not name the address a client dialled is worse than an unknown
-one.
+`SDRMM_TLS_NAMES` accepts the same comma-separated list. Explicit names replace discovered
+addresses; loopback remains covered. Changing names regenerates the certificate. Stable names
+avoid repeated certificate changes when a container address changes.
 
-A self-signed certificate encrypts the connection but proves nothing about the host. Use a real
-certificate wherever an authority is available.
+Prefer an authority-issued certificate where available. Self-signed certificates require clients
+to establish trust manually.
 
 ## Network security
 
-The shared token is access control, not transport encryption. A plain HTTP client on the network
-can expose it and receiver traffic to an observer. For access beyond a trusted LAN:
+Use HTTPS to protect tokens and receiver traffic. For a reverse proxy:
 
-- serve HTTPS directly, or bind to loopback and place an HTTPS reverse proxy or authenticated
-  tunnel in front;
-- preserve WebSocket upgrade headers for `/api/ws`;
-- proxy the application at the origin root rather than a path prefix;
-- keep the direct `8080` port firewalled;
-- rotate the shared token if it may have leaked.
+- Bind sdr-- to loopback or firewall its direct port.
+- Serve the application at the origin root.
+- Forward WebSocket upgrades for `/api/ws`.
 
-sdr-- has one shared privilege level. It does not currently provide per-user accounts or
-read-only roles, and every authenticated client can change the active receiver.
+An authenticated tunnel is another option. Rotate the shared token if it may have leaked.
 
 ## Turn-by-turn routing
 
-[Field mode](../user-guide/field-mode.md) can request driving routes to direction-finding waypoints.
-The server proxies requests to OpenRouteService or GraphHopper and sends the API key in an
-`Authorization` header. The key is not sent to the browser or included in URLs.
+[Field mode](../user-guide/field-mode.md) uses OpenRouteService or GraphHopper for driving routes.
+Set `--routing-key`, choose the service with `--routing-backend`, and use `--routing-url` for a
+self-hosted instance. The key stays on the server and is sent in an authorization header.
 
-Set `--routing-key` for the hosted backend. Use `--routing-backend` to choose the service and
-`--routing-url` for a self-hosted instance.
-
-Without a configured or reachable backend, field mode reports that routing is unavailable and
-uses heading guidance. The phone's navigation app remains available through **Navigate in Maps**.
+Without a reachable backend, field mode reports the problem and keeps heading guidance.
+**Navigate in Maps** can open the target in the phone's navigation app.
 
 ## Development CORS
 
-`--dev-cors` installs a permissive CORS policy for the separate Vite origin used during frontend
-development. It is not needed when the UI is served by `sdrmm`, and should not be enabled as a
-production cross-origin access policy.
+`--dev-cors` permits requests from a separate frontend origin during development. Leave it off
+for production and when the interface is served directly by `sdrmm`.

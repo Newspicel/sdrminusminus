@@ -1,16 +1,16 @@
 # Build and test
 
-The workspace contains the headless server, desktop shell, frontend, DSP libraries, hardware
-backends, protocol decoders, and project tooling. CI calls the same `cargo xtask` commands used
-locally.
+Build the web interface, then the Rust server. Local development and CI use the same `cargo xtask`
+commands.
 
 ## Prerequisites
 
-- Rust through `rustup`. The repository pins a nightly toolchain and the `rustfmt`, `clippy`, and
-  `rust-src` components in `rust-toolchain.toml`.
-- Node 26.
-- pnpm 11; the exact package-manager version is declared in `web/package.json`.
-- A C/C++ toolchain and CMake for native dependencies.
+| Tool | Requirement |
+|---|---|
+| Rust | Install through rustup; use `rust-toolchain.toml` |
+| Node | 26 |
+| pnpm | 11; exact version in `web/package.json` |
+| Native build tools | C/C++ compiler and CMake |
 
 On Debian or Ubuntu:
 
@@ -25,8 +25,9 @@ On macOS:
 brew install cmake
 ```
 
-The first Cargo command automatically installs the pinned Rust toolchain. Do not substitute stable
-Rust: the workspace intentionally uses its pinned compiler and `-Zpolonius=next` configuration.
+Cargo installs the pinned nightly compiler and components automatically. The workspace uses
+`-Zpolonius=next`, so the pinned toolchain is required. SoapySDR loads at runtime and needs no
+build-time development package.
 
 ## Build and run
 
@@ -38,40 +39,46 @@ pnpm --dir web build
 cargo run -p sdrmm
 ```
 
-The server embeds `web/dist` at compile time and listens on <http://localhost:8080>. Build the web
-application before compiling a distributable binary; when the directory is absent, the server
-build script creates a placeholder so backend-only development can still compile.
+Open <http://localhost:8080>. Distributable builds embed `web/dist`; build the frontend first.
+Backend-only builds can compile with a placeholder interface if that directory is missing.
 
-For local development:
-
-```sh
-cargo xtask dev
-```
-
-This runs `sdrmm` with development CORS on port `8080` and Vite with hot module replacement on
-<http://localhost:5173>. Vite proxies API and WebSocket traffic to the Rust server. Pass `--watch`
-to restart the Rust server whenever backend inputs change:
+For frontend hot reload and automatic backend restarts:
 
 ```sh
 cargo xtask dev --watch
 ```
 
+Open <http://localhost:5173>. Vite proxies API and WebSocket traffic to port `8080`.
+Omit `--watch` to leave backend restarts manual.
+
 ## Backend feature flags
 
-The default features are `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `ad936x`, `net-client`, and `gpu-fft`.
-Disable defaults to build with virtual sources only:
+The server defaults enable `soapy`, `sdrplay`, `cr8`, `rtlsdr`, `hackrf`, `airspy`, `airspyhf`,
+`ad936x`, `net-client`, and `gpu-fft`. Packaged releases use a selected subset; see
+[hardware requirements](../hardware.md).
+
+Disable hardware backends:
 
 ```sh
 cargo run -p sdrmm --no-default-features
 ```
 
-To retain direct `rtl_tcp` and SpyServer support:
+Keep direct `rtl_tcp` and SpyServer clients:
 
 ```sh
 cargo run -p sdrmm --no-default-features --features net-client
 ```
 
-The built-in virtual driver and recording playback are always available.
+SigMF playback remains available in both builds.
+
+## Development signal sources
+
+Debug builds expose the signal generator and synthetic array/transceiver sources. Release builds
+hide them and keep recording playback available.
+
+To test audio in a debug build, select **Signal Generator (virtual)** on Device, connect an NFM
+channel at 300 kHz above the Device centre, then connect its audio to Speaker. Starting playback
+produces a 1 kHz tone.
 
 ## Local gates
 
@@ -85,32 +92,19 @@ The built-in virtual driver and recording playback are always available.
 | `cargo xtask sanitize` | Decoder tests with the vendored C under AddressSanitizer and UndefinedBehaviorSanitizer |
 | `cargo xtask fuzz` | libFuzzer against every decoder, channel settings, and the dPMR vocoder chain |
 
-Install the smoke browser once before running the Playwright gate:
+Install the tools needed for your checks:
 
 ```sh
+cargo install --locked cargo-nextest cargo-deny cargo-fuzz
 pnpm --dir web exec playwright install chromium
-cargo xtask smoke
 ```
 
-`cargo xtask test` requires `cargo-nextest`, and `cargo xtask audit` requires `cargo-deny`:
-
-```sh
-cargo install --locked cargo-nextest cargo-deny
-```
-
-`cargo xtask fuzz` requires `cargo-fuzz`, and `cargo xtask sanitize` requires `clang`:
-
-```sh
-cargo install --locked cargo-fuzz
-```
-
-Tests never enumerate real hardware in CI. Engine and server tests construct a registry with the
-virtual backend, which keeps them deterministic and prevents test runs from claiming an attached
-radio.
+`test` needs cargo-nextest, `audit` needs cargo-deny, and `fuzz` needs cargo-fuzz. Sanitizer tests
+also require clang. Automated tests use virtual devices and never require real hardware.
 
 ## Generated files
 
-Run the matching task whenever its source changes:
+Regenerate and commit outputs when their sources change:
 
 | Source change | Command | Generated output |
 |---|---|---|
@@ -122,30 +116,25 @@ Run the matching task whenever its source changes:
 | Band-plan source imports | `cargo xtask bandplan` | Embedded regional tables |
 | `assets/icon.svg` | `cargo xtask icons` | Desktop and web icon variants |
 
-Generated outputs are committed. `cargo xtask check` detects drift for the outputs that must match
-on every change.
-
-`cargo xtask nix-hash` uses Nix on Linux and a `nixos/nix` container elsewhere to compute the pnpm
-store hash and the fixed-output hash of every git dependency `Cargo.lock` names. `cargo xtask check`
-compares the lockfile digest and the commit recorded beside each hash against the lockfiles on disk;
-it builds nothing. The Nix CI job verifies the hashes themselves.
+`cargo xtask check` detects stale contracts and metadata. `nix-hash` uses Nix on Linux or a
+`nixos/nix` container elsewhere. It updates the pnpm store hash and Cargo git-dependency hashes.
+Local checks compare lockfile digests and commits; Nix CI verifies the hashes by building.
 
 ## Desktop prerequisites
 
-The Tauri app is outside the workspace's default members because Linux builds need WebKit and
-desktop integration packages. Build it explicitly through `cargo xtask desktop`. To create local
-installers, install the Tauri CLI and the platform prerequisites, then follow
-[Release process](releases.md#desktop-bundles).
+The Tauri app is outside the default workspace members. Linux needs WebKitGTK and desktop
+integration libraries. Use `cargo xtask desktop` for the compile gate and follow
+[Desktop bundles](releases.md#desktop-bundles) to create installers.
 
 ## Before opening a pull request
 
-Run the checks proportional to the change. For documentation changes, build the book with
-`mdbook build docs` and validate local links and heading anchors. Code changes should normally run:
+Format, lint, check, and test the affected parts. For documentation, run `mdbook build docs`
+and check local links and anchors. For code, the full gates are:
 
 ```sh
 cargo xtask check
 cargo xtask test
 ```
 
-Add `cargo xtask smoke`, `cargo xtask desktop`, or a hardware validation when the affected surface
-requires it.
+Add browser, desktop, DSP performance, or hardware validation when the change needs it.
+See [Contributing](https://github.com/Newspicel/sdrminusminus/blob/main/CONTRIBUTING.md).

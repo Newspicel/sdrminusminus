@@ -1,41 +1,22 @@
 # API and automation
 
-REST, WebSocket, and MCP control the same receiver as the web interface. Shared types in
-`crates/wire` define the API contract and generate OpenAPI schemas and TypeScript declarations.
+REST, WebSocket, and MCP control the same live receiver as the interface. Changes affect every
+connected client.
 
 ## Interactive reference
 
-On a running server:
-
-- Swagger UI: `/api/docs`
-- OpenAPI JSON: `/api/openapi.json`
-- WebSocket: `/api/ws`
-- MCP streamable HTTP: `/mcp`
-
-The repository also commits the generated
-[`openapi.json`](https://github.com/Newspicel/sdrminusminus/blob/main/openapi.json) so clients can
-be generated without a running receiver.
-
-When authentication is enabled, Swagger, REST, WebSocket, and MCP require the shared token. See
-[Configuration and security](configuration.md#shared-token-authentication).
-
-## REST resources
-
-The API covers:
-
-| Area | Example routes |
+| Endpoint | Purpose |
 |---|---|
-| Discovery and state | `/api/devices`, `/api/channeltypes`, `/api/state`, `/api/clients` |
-| Live receiver | `/api/devicesets`, device settings, channels, scanner, recording, playback |
-| Workspaces | `/api/workspaces`, activate, apply, undo and redo, export and import |
-| Reuse | `/api/templates`, `/api/presets`, `/api/bookmarks` |
-| Data | `/api/decoderlog`, exports, `/api/recordings`, downloads |
-| Reference | `/api/bandplan/regions`, `/api/about`, `/api/doctor` |
+| `/api/docs` | Swagger UI |
+| `/api/openapi.json` | OpenAPI schema |
+| `/api/ws` | WebSocket |
+| `/mcp` | MCP over streamable HTTP |
 
-Use Swagger for exact request bodies, status codes, and schemas. Errors use a consistent JSON body
-with `error` and optional `detail` fields instead of framework-specific plain text.
+The checked-in [OpenAPI schema](https://github.com/Newspicel/sdrminusminus/blob/main/openapi.json)
+can generate clients without a running server. Swagger lists request bodies, responses, and errors.
 
-For an authenticated request:
+When [authentication](configuration.md#shared-token-authentication) is enabled, these endpoints
+require the shared token:
 
 ```sh
 curl \
@@ -43,44 +24,46 @@ curl \
   http://receiver.local:8080/api/state
 ```
 
+## REST resources
+
+| Area | Routes and operations |
+|---|---|
+| Discovery and state | `/api/devices`, `/api/channeltypes`, `/api/state`, `/api/clients` |
+| Live receiver | `/api/devicesets`, settings, channels, scanning, recording, playback |
+| Workspaces | `/api/workspaces`, activate, apply, undo, redo, export, import |
+| Saved setups | `/api/templates`, `/api/presets`, `/api/bookmarks` |
+| Data | `/api/decoderlog`, exports, `/api/recordings`, downloads |
+| Reference | `/api/bandplan/regions`, `/api/about`, `/api/doctor` |
+
+Errors use JSON with `error` and optional `detail` fields.
+
 ## WebSocket events and streams
 
-The WebSocket carries control commands, state invalidations, decoder events, scanner progress, and
-binary spectrum, audio, and video frames. Stream-start events allocate identifiers per connection,
-so clients should not assume that another connection uses the same stream ID.
+The WebSocket carries commands, state invalidations, decoder events, scanner progress, and binary
+spectrum, audio, and video. Stream IDs belong to one connection; do not reuse them across clients.
 
-Use the generated schema and existing web client as the protocol reference. REST remains the
-authoritative way to fetch current durable state after an invalidation; high-rate samples and
-events are streamed rather than stored in that state response.
+Refetch durable state through REST after an invalidation. High-rate samples and events arrive on
+the stream. Use the generated types and existing web client as the protocol reference.
 
 ## MCP
 
-The MCP endpoint exposes receiver tools suitable for an automation client or assistant. Current
-tools can:
+Connect an MCP client to `http://<server>:8080/mcp`, adding the bearer header when required.
+Tools cover:
 
-- get state and discover devices or channel types;
-- open, close, and tune devices;
-- add or remove channels;
-- start and stop scans;
-- start or stop recordings;
-- query decoded history;
-- capture a spectrum snapshot;
-- list available measurement tools;
-- calculate antenna dimensions for a frequency;
-- discover, interrogate, sweep, and calibrate a NanoVNA.
+- Device discovery, opening, closing, and tuning.
+- Channel creation and removal.
+- Scanning, recording, decoded history, and spectrum snapshots.
+- Measurement tools, antenna dimensions, and NanoVNA discovery, sweeps, and calibration.
 
-Configure an MCP client for streamable HTTP at `http://<server>:8080/mcp` and attach the same
-bearer authorization header when the server uses a token. MCP actions affect the live shared
-receiver just like changes made in the interface.
+MCP operates the shared live receiver with the same permissions as the interface.
 
 ## Generated-code workflow
 
-After changing a REST type or route in `crates/wire` or `crates/server`, regenerate the checked-in
-contract and TypeScript declarations:
+Shared types live in `crates/wire`. After changing API types or server routes, run:
 
 ```sh
 cargo xtask codegen
 ```
 
-This updates `openapi.json` and `web/src/generated`. `cargo xtask check` fails when either output
-has drifted from the Rust source.
+Commit `openapi.json` and the generated TypeScript declarations under `web/src/generated`.
+`cargo xtask check` detects drift from the Rust source.

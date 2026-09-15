@@ -4,32 +4,35 @@
 
 # Welcome to sdr--
 
-sdr-- receives and decodes radio signals. Connect an SDR, a network receiver, or an IQ recording
-to channels and displays on a canvas. Use the rack view for the controls you operate regularly.
+sdr-- is a software-defined radio application. Listen, decode, view, and record signals from an
+SDR, a network receiver, or an IQ recording.
 
-The Rust server runs the hardware, signal processing, decoders, and recordings. The desktop app
-and browser use the same interface to control it:
+Build a receiver by connecting nodes in **Patch** view. Pin frequently used controls and displays
+to **Rack** view. Start with an RTL-SDR and a local FM station.
 
-```text
-SDR or recording → Rust server → desktop app or browser
-```
+## Get started
 
-Run the server on your computer or on a separate machine near the antenna. All connected clients
-share the active receiver. A built-in signal generator lets you learn the controls without hardware.
+1. [Install sdr--](getting-started/install.md).
+2. Build [your first receiver](getting-started/first-receiver.md).
+3. Learn the [workspace controls](getting-started/workspace.md).
 
-## Start here
+## Find a guide
 
-- [Install sdr--](getting-started/install.md), then build [your first receiver](getting-started/first-receiver.md).
-- For a remote installation, read [Configuration and security](server/configuration.md) and
-  [Containers and remote radios](server/deployment.md).
-- To contribute, start with [Build and test](development/building.md) and
-  [Architecture](development/architecture.md).
+| Task | Guide |
+|---|---|
+| Connect a radio | [Radios and hardware](hardware.md) |
+| Listen or decode | [Channels and decoding](user-guide/channels.md) |
+| Save and replay signals | [Recording and playback](user-guide/recording.md) |
+| Operate over a network | [Containers and remote radios](server/deployment.md) |
+| Use a phone in the field | [Field mode](user-guide/field-mode.md) |
+| Fix a problem | [Troubleshooting](troubleshooting.md) |
+| Develop sdr-- | [Build and test](development/building.md) |
 
-## Project status
+## How it runs
+
+The server handles the radio and signal processing. The desktop app and browser provide the same
+interface. Run everything on one computer, or place the server near the antenna and connect over
+the network. All clients share the active workspace.
 
 sdr-- is under active development. The [channel catalog](user-guide/channels.md#channel-catalog)
-lists supported modes and their maturity. Most decoders are tested with generated fixtures;
-that does not establish how well they handle signals from real transmitters.
-
-Nightly builds follow `main` and may change saved-data formats without migration guarantees.
-Use stable releases for persistent installations.
+lists supported modes, test coverage, and experimental limits.

@@ -1,73 +1,59 @@
 # Direction finding
 
-A Direction finder estimates a signal's arrival direction from phase differences across a
-[coherent array](arrays.md). It displays a bearing, confidence, and angular response so you can
-see competing peaks.
+A **Direction finder** estimates signal arrival direction from a [coherent array](arrays.md).
+It shows a bearing, confidence, and angular response. Triangulation combines bearings into a
+position estimate.
 
-## Wire one up
+## Set up a finder
 
-1. Add a multi-lane **Device**, or an [Array node](arrays.md#radios-you-wired-together-yourself)
-   for separate radios sharing a clock.
-2. Add a **Direction finder**. Set **Geometry** to your antenna layout: a circle with a radius,
-   a line with element spacing, or explicit element positions. Set **Elements** to the antenna count.
-3. Connect every source lane to the corresponding `iq`, `iq2`, `iq3`… input. All lanes must come
-   from the same Device or Array. Applying an incomplete set of connections reports an error.
-4. Connect a **GPS position** source to `position` to place bearings on a map or use triangulation.
-5. Set **Offset** and **Bandwidth** to select the signal within the source's tuned span.
+1. Add a multi-lane Device or an [Array](arrays.md#radios-you-wired-together-yourself).
+2. Add **Direction finder**. Set **Geometry** to your antenna layout and **Elements** to its count.
+3. Connect every lane to the matching `iq`, `iq2`, and subsequent inputs. All must come from one source.
+4. Set **Offset** and **Bandwidth** to cover the signal.
+5. [Calibrate the array](arrays.md#calibration).
+6. Connect GPS `position` for map output or triangulation.
+
+Geometry supports a circle with radius, a line with element spacing, or explicit element positions.
 
 ## Algorithm
 
-| Algorithm | Behaviour |
+| Algorithm | Use |
 |---|---|
-| Beamformer | Broader angular response; useful as a baseline with limited covariance data |
-| MUSIC | Sharper peaks; depends on an accurate source count |
+| Beamformer | Broad response; useful with limited covariance data |
+| MUSIC | Sharper peaks; requires an accurate source count |
 
-**Sources** sets the number of arrivals MUSIC should assume. Start with one for a single source.
+For one transmitter, start with **Sources** set to one.
 
-## The compass and what it is telling you
+## Read the compass
 
-The compass shows the angular response, selected bearing, and confidence. A strip below it shows
-calibration quality for each lane. Bearings run clockwise from north at 0°.
+The compass shows response peaks, the selected bearing, and confidence. Bearings run clockwise
+from north at 0°. The strip below shows calibration quality per lane.
 
-When calibration reports **phase unknown**, the node neither displays nor publishes a bearing.
-Check the array's clock connections and calibration reference.
+**Phase unknown** suppresses bearings. Check clock connections and the calibration reference.
 
-## The beam output
+## Listen along a bearing
 
-The `beam` output sums the elements toward a selected bearing. Connect it to a channel to listen
-in that direction.
-
-| Beam | Behaviour |
-|---|---|
-| Follow bearing | Tracks the current estimated bearing |
-| Fixed azimuth | Holds a chosen direction |
-
-Switching to fixed azimuth starts at the beam's current direction.
+Connect `beam` to a channel. **Follow bearing** steers toward the current estimate.
+**Fixed azimuth** holds a chosen direction and starts at the beam's current bearing.
 
 ## Crossing bearings from several finders
 
-Add a **Triangulation** node and connect each Direction finder's `events` output. Bearings from
-different positions constrain the transmitter's estimated location.
+1. Add **Triangulation** and connect the finders' `events` outputs.
+2. Give each finder its own position source, using GPS or fixed coordinates.
+3. View the estimate, error ellipse, guidance, and age of each bearing. **Clear** resets the estimate.
 
-Each finder needs its own position source. Use GPS for a moving receiver, or a **GPS position**
-node with fixed latitude and longitude for a stationary one.
-
-The Triangulation node shows the position estimate, error ellipse, guidance, and the age of each
-finder's latest report. **Clear** resets the accumulated estimate.
-
-A Direction finder works without triangulation, but then provides no position estimate, driving
-guidance, or event announcing a converged fix.
+Bearings from different positions constrain the transmitter location. A finder alone provides
+bearings; position estimates and driving guidance require Triangulation.
 
 ## On the map
 
-Connect a Direction finder's `events` output to a **Map** to draw bearing rays that fade with age.
-Connect Triangulation events to add the combined position estimate, uncertainty ellipse,
-contributing stations, and suggested next waypoint.
+Connect finder `events` to **Map** for bearing rays that fade with age. Connect Triangulation
+events for the estimated location, uncertainty ellipse, contributing stations, and next waypoint.
 
 ## Guidance
 
-When the estimate has a long, narrow error ellipse, guidance suggests moving **across** the bearing
-to improve the intersection angle. Once the estimate converges, it switches to **approach**.
+For a long, narrow uncertainty ellipse, guidance suggests moving across the bearing to improve
+the intersection angle. Once the estimate converges, it suggests approaching the location.
 
-The first converged fix publishes a decoded event. Connected webhook, MQTT, or Matrix outputs can
-forward it. Use [field mode](field-mode.md) for the phone interface and navigation.
+The first converged fix emits an event that connected webhook, MQTT, or Matrix outputs can forward.
+Use [field mode](field-mode.md) for phone guidance and navigation.

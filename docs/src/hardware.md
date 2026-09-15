@@ -1,136 +1,38 @@
 # Radios and hardware
 
-sdr-- opens a receiver in one of four ways: a built-in driver, a SoapySDR module from the host's
-own SoapySDR installation, a network protocol, or a virtual source. This page lists what each one
-supports and how to get a radio working.
+Select a radio on a **Device** node. sdr-- supports built-in drivers, SoapySDR modules, network
+receivers, and virtual sources. Use **Check hardware** or `sdrmm --doctor` if a receiver is missing.
 
 ## Built-in drivers
 
-Standard builds include native drivers for RTL-SDR, KrakenSDR, HackRF, Airspy, Airspy HF+, AD936x
-boards, SDRplay RSP, and Dragon Labs CR-8. These drivers do not require SoapySDR modules. Custom
-builds can omit them through feature flags.
+Standard desktop and portable builds include the drivers below, except where noted.
+The Nix package uses SoapySDR for local hardware. Custom builds can select their own backends.
 
 | Receiver | Extra software |
 |---|---|
-| RTL-SDR | none |
-| KrakenSDR and KerberosSDR | none |
-| HackRF | none |
-| Airspy R2 and Airspy Mini | none, see [Airspy](#airspy) |
-| Airspy HF+ and HF+ Discovery | none, see [Airspy](#airspy) |
-| AntSDR E200 and E310, ADALM-Pluto, and other AD936x boards serving libiio | none, see [AntSDR, PlutoSDR and other AD936x boards](#antsdr-plutosdr-and-other-ad936x-boards) |
-| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | SDRplay API 3.15 or newer, see [SDRplay](#sdrplay) |
-| Dragon Labs CR-8 | the vendor CR-8 library, see [Dragon Labs CR-8](#dragon-labs-cr-8) |
+| RTL-SDR | None |
+| KrakenSDR and KerberosSDR | None |
+| HackRF | None |
+| Airspy R2 and Mini | None; [experimental driver](#airspy) |
+| Airspy HF+ and HF+ Discovery | None; [experimental driver](#airspy) |
+| AntSDR, ADALM-Pluto, and compatible AD936x boards | None; the board must serve [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
+| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15 or newer |
+| Dragon Labs CR-8 | [Vendor CR-8 library](#dragon-labs-cr-8); requires a server build with `cr8` enabled |
 
-If a host SoapyRTLSDR, SoapyHackRF, SoapyAirspy, SoapyAirspyHF, SoapyPlutoSDR or SoapySDRPlay3
-module is installed, it is skipped for these receivers so that one radio is never listed twice.
-
-## Airspy
-
-Both Airspy drivers speak to the radio over their own USB stack, so neither needs libairspy,
-libairspyhf, or a SoapySDR module.
-
-**These two drivers have not yet been confirmed on air.** Their USB encodings and signal
-processing are covered by unit tests, and the control protocol was written from the vendor
-firmware interface, but no Airspy has been connected to this build. Treat them as experimental
-and report what you find. Installing SoapySDR with `soapysdr-module-airspy` or
-`soapysdr-module-airspyhf` is the fallback: build without the `airspy` and `airspyhf` features,
-and the SoapySDR modules become visible again.
-
-### Airspy R2 and Airspy Mini
-
-The R2 and the Mini sample one real signal centred a quarter of the way up their own ADC rate,
-and the complex baseband is formed here rather than in the radio. The rate shown in the interface
-is the complex rate you receive; twice that many samples cross the USB bus.
-
-LNA, mixer and VGA appear as separate gain stages numbered in steps rather than decibels, because
-that is what the firmware takes and the decibels each step buys change with the band. LNA and
-mixer AGC, and the bias tee, are switches on the Device node.
-
-### Airspy HF+ and HF+ Discovery
-
-The HF+ covers up to 31 MHz and 60 to 260 MHz. Nothing tunes between those two windows, so a
-frequency in the gap is refused rather than tuned badly.
-
-The preamp appears as a switch and the attenuator as negative gain, from 0 to −48 dB in 6 dB
-steps, since taking signal away is what it does. AGC, its threshold, and the bias tee are
-switches.
-
-At the rates where the radio works at zero IF, the wanted signal sits on the converter's own DC
-term. The engine parks the local oscillator clear of each channel and removes that term, which is
-the same treatment every other zero-IF receiver here gets. The vendor library additionally runs an
-adaptive IQ balancer that this driver does not, so image rejection may be poorer than libairspyhf
-achieves on those rates.
-
-## SoapySDR modules
-
-sdr-- does not ship SoapySDR. No package links it and no installer carries it: the core library
-is opened at runtime from whatever SoapySDR the host has, and a machine without one simply reports
-no SoapySDR hardware and keeps every built-in driver working.
-
-Install it the way you install anything else on your system, then add the module for your radio:
-
-| System | SoapySDR core | Example module |
-|---|---|---|
-| Debian, Ubuntu, Raspberry Pi OS | `sudo apt install libsoapysdr0.8` | `sudo apt install soapysdr-module-bladerf` |
-| Fedora | `sudo dnf install SoapySDR` | `sudo dnf install SoapySDR-bladeRF` |
-| Arch | `sudo pacman -S soapysdr` | `sudo pacman -S soapybladerf` |
-| macOS (Homebrew) | `brew install soapysdr` | `brew install soapybladerf` |
-| Windows | [PothosSDR](https://github.com/pothosware/PothosSDR/wiki/Tutorial) installs the core and modules together |
-| NixOS | see [Nix](getting-started/install.md#nix) — modules are selected in your configuration |
-
-Receivers that need a module, because no built-in driver covers them:
-
-| Receiver | Module |
-|---|---|
-| bladeRF | SoapyBladeRF |
-| LimeSDR | SoapyLMS7 |
-| Remote SoapySDR server | SoapyRemote |
-| USRP | SoapyUHD |
-
-Airspy receivers need no module; see [Airspy](#airspy) if you would rather use one anyway.
-
-Any module matching the SoapySDR 0.8 ABI works; a module built against a different SoapySDR
-generation is refused and logged rather than loaded. Modules for hardware sdr-- drives itself are
-ignored, so installing `soapysdr-module-all` does not produce duplicate entries.
-
-`sdrmm --doctor` reports which SoapySDR was found, where it was loaded from, and which modules it
-loaded. Two environment variables override the search when a system puts things somewhere
-unusual:
-
-| Variable | Effect |
-|---|---|
-| `SDRMM_SOAPY_LIBRARY` | Full path to the SoapySDR core to open, instead of searching for one |
-| `SDRMM_SOAPY_MODULE_PATH` | Extra module directories, searched before the host's own |
-
-## Network receivers
-
-On an unbound Device node, open the **Network** tab and enter a hostname or address. Ports
-default to `1234` for `rtl_tcp`, `5555` for SpyServer, and `30431` for an AD936x board. All three
-protocols are built in and work without SoapySDR.
-
-SoapyRemote is a separate path: a host running `SoapySDRServer` is discovered automatically and
-appears in the normal device list, so use that instead of the network form.
-
-## Virtual sources
-
-Every build includes sources that need no hardware: a signal generator, a four-lane coherent array,
-a 2×2 transceiver, a half-duplex 1×1 transceiver, and playback of any SigMF recording in the
-library. [Your first receiver](getting-started/first-receiver.md) builds a working receiver on the
-signal generator.
+SoapySDR modules for receivers handled by enabled built-in drivers are skipped to avoid duplicate
+entries. Virtual sources and direct network protocols do not need SoapySDR.
 
 ## Check the installation
-
-Run the diagnostic report before opening a radio:
 
 ```sh
 sdrmm --doctor
 ```
 
-It lists compiled backends, whether a SoapySDR runtime was found and where, its module search
-paths, discovered modules and devices, data paths, and Linux USB permission checks. The same
-report is available from **Hardware not showing up?** on an unbound Device node.
+The report lists compiled backends, loaded libraries, SoapySDR paths and modules, discovered
+receivers, data paths, and Linux USB permissions. **Check hardware** on an unbound Device node
+runs the same checks.
 
-A SoapySDR install brings its own utility, which is worth running when a module is involved:
+For a radio using SoapySDR, also run:
 
 ```sh
 SoapySDRUtil --info
@@ -138,247 +40,264 @@ SoapySDRUtil --find
 SoapySDRUtil --probe="driver=bladerf"
 ```
 
-If `SoapySDRUtil --info` finds a SoapySDR that `sdrmm --doctor` does not, the two are looking in
-different places: set `SDRMM_SOAPY_LIBRARY` to the path `SoapySDRUtil` reports. Fix discovery and
-permission errors there before starting sdr--. Receivers handled by built-in drivers do not
-appear in `SoapySDRUtil` at all; use `sdrmm --doctor` for those.
-
-## How radios are discovered
-
-SoapySDR discovery runs in a short-lived child process because vendor modules can crash or hang
-while probing hardware. A failed probe produces a warning without terminating the application.
-
-Discovery runs when attached USB devices change and once a minute to find network radios.
-For driver debugging, `SDRMM_SOAPY_PROBE=in-process` runs discovery in the application process.
+Replace `bladerf` with your module's driver name. If the utility finds a library that sdr-- misses,
+set `SDRMM_SOAPY_LIBRARY` to its full path. Use `sdrmm --doctor` to check built-in drivers;
+`SoapySDRUtil` reports only its own modules and devices.
 
 ## Linux USB permissions
 
-sdr-- does not need root as long as the receiver's udev rules are installed. On Debian-derived
-systems the driver package usually installs them. After adding or changing a rule, reload udev or
-reconnect the device.
+Install your receiver's udev rules and join the group they grant, usually `plugdev`. Reload udev
+and reconnect the radio after changing rules. The server account needs permission to open the
+USB device; sdr-- does not require root.
 
-The rules grant a group rather than the whole machine, usually `plugdev`, so being in that group is
-part of the installation.
+Containers need the USB bus passed through and the owning group's numeric ID in `group_add`.
+Check it on the host with `stat -c '%g %G %a' /dev/bus/usb/*/*`. See
+[container USB setup](server/deployment.md#usb-devices) for reconnect support and examples.
 
-In containers, the host rules still decide whether the unprivileged container user can open the USB
-node. Passing `/dev/bus/usb` is necessary but does not override its permissions, and the container
-user is in no host group until it is given one: run with `--group-add <gid>`, the group that owns
-the node, or `0` for a node no udev rule has touched. See
-[Containers and remote radios](server/deployment.md#usb-devices) for a Compose example that also
-survives reconnects.
+## SoapySDR modules
+
+Install SoapySDR and a matching module for hardware without a built-in driver.
+
+| Receiver | Module |
+|---|---|
+| bladeRF | SoapyBladeRF |
+| LimeSDR | SoapyLMS7 |
+| USRP | SoapyUHD |
+| Remote SoapySDR server | SoapyRemote |
+
+### Package contents
+
+| Package | SoapySDR availability |
+|---|---|
+| Desktop installer or portable archive | Uses a separately installed system library and modules |
+| Homebrew server formula | Installs the core as a dependency; add modules separately |
+| Nix | Provides the core; select modules with `soapyPlugins` |
+| Container | Includes Debian's core and bladeRF, LimeSDR, and SoapyRemote modules |
+
+The core loads at runtime. Built-in drivers work when SoapySDR is absent.
+
+### Install the core and modules
+
+| System | Core | Example module |
+|---|---|---|
+| Debian, Ubuntu, Raspberry Pi OS | `sudo apt install libsoapysdr0.8` | `sudo apt install soapysdr-module-bladerf` |
+| Fedora | `sudo dnf install SoapySDR` | `sudo dnf install SoapySDR-bladeRF` |
+| Arch | `sudo pacman -S soapysdr` | `sudo pacman -S soapybladerf` |
+| macOS with Homebrew | `brew install soapysdr` | `brew install soapybladerf` |
+| Windows | [PothosSDR](https://github.com/pothosware/PothosSDR/wiki/Tutorial) | Included modules |
+| NixOS | [Nix configuration](getting-started/install.md#nix) | `soapyPlugins` |
+
+Modules must match the SoapySDR 0.8 ABI. Incompatible modules are rejected and logged.
+Use these overrides for nonstandard locations:
+
+| Variable | Value |
+|---|---|
+| `SDRMM_SOAPY_LIBRARY` | Full path to the core library |
+| `SDRMM_SOAPY_MODULE_PATH` | Extra module directories, searched before system paths |
+
+On macOS, discovery includes Homebrew prefixes. On Windows, put the PothosSDR installation on
+`PATH`. To add container modules, see [SoapySDR in containers](server/deployment.md#soapysdr-modules).
+
+## Network receivers
+
+Open the **Network** tab on an unbound Device node and enter the receiver's address.
+
+| Protocol | Default port |
+|---|---:|
+| `rtl_tcp` | 1234 |
+| SpyServer | 5555 |
+| AD936x / iiod | 30431 |
+
+All three protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
+appears through the normal device search.
+
+## Virtual sources
+
+Release builds support [SigMF recording playback](user-guide/recording.md#play-a-recording).
+Synthetic sources are available only in debug builds: a signal generator, a four-lane coherent
+array, and test transceivers. See [Build and test](development/building.md#development-signal-sources).
 
 ## Device controls
 
-The device face is generated from the capabilities and setting metadata the driver reports, so it
-differs by model. A radio may expose:
+Controls reflect the selected driver's capabilities: RX/TX lanes, tuning, sample rate, bandwidth,
+antennas, gain, AGC, clock sources, and model-specific settings. Changing a setting can change
+other available controls. For example, RTL-SDR direct sampling changes the tuning range.
 
-- separate RX and TX streams;
-- device-wide or per-stream tuning;
-- sample rates as a menu, as continuous windows, or as both;
-- analog bandwidths, likewise;
-- antennas, gain stages, AGC, and clock and time sources;
-- driver-specific booleans, enums, ranges, and text settings.
-
-Changing a setting that affects capabilities makes sdr-- re-read the device before validating the
-rest. RTL-SDR direct sampling is one example: it changes the available frequency range.
+The interface reports transmit capabilities, but the transmit workflow is not yet available.
 
 ## RTL-SDR
 
-The built-in driver exposes:
-
 | Setting | Effect |
 |---|---|
-| `TUNER` | the tuner gain stage |
-| `ppm` | crystal frequency correction |
-| `bias_tee` | phantom power on the antenna port |
+| `TUNER` | Tuner gain |
+| `ppm` | Crystal frequency correction |
+| `bias_tee` | Antenna-port power |
 | `agc` | R82xx tuner AGC |
 | `direct_sampling` | `off`, `i`, or `q` |
 
-**Gain.** The slider uses the tuner's actual gain table. Values from the API or saved settings
-are rounded to the nearest supported entry; for example, an R820T request for 20 dB returns 19.7 dB.
-
-**Sample rate.** The RTL2832U supports 225–300 kHz and 900 kHz–3.2 MHz. Rates in the gap are
-rejected. The picker also offers a menu of common rates.
-
-**IF filter.** The R82xx driver exposes a 0–8 MHz setting. Use `0` for automatic bandwidth matched
-to the sample rate.
-
-**Direct sampling.** This is available except on RTL-SDR Blog V4 boards. The V4 uses an upconverter
-for HF; tune below 28.8 MHz without changing the direct-sampling setting.
+- **Gain:** uses the tuner's supported steps. An R820T request for 20 dB rounds to 19.7 dB.
+- **Sample rate:** 225–300 kHz or 900 kHz–3.2 MHz. Rates in the gap are rejected.
+- **IF filter:** 0–8 MHz on R82xx tuners; `0` selects bandwidth automatically.
+- **Direct sampling:** unavailable on RTL-SDR Blog V4. Its upconverter handles tuning below 28.8 MHz.
 
 ## KrakenSDR
 
-A KrakenSDR is five receive chains on one clock in one case, and sdr-- opens it as one receiver
-with five lanes. Its dongles are recognised by the serial numbers KrakenRF gives them and by the
-hub they hang off, so they are not also offered individually. A KerberosSDR is opened the same way
-with four lanes. Nothing from the vendor's Raspberry Pi image is needed or used.
+KrakenSDR opens as one Device with five lanes; KerberosSDR has four. Discovery groups the tuners
+by serial number and USB hub. The vendor Raspberry Pi image is not required.
 
 | Setting | Effect |
 |---|---|
-| `TUNER` | the tuner gain stage, set per lane |
-| `ppm` | crystal frequency correction |
-| `bias_tee` | phantom power on all five antenna ports |
+| `TUNER` | Gain per lane |
+| `ppm` | Crystal correction |
+| `bias_tee` | Power on the array's antenna ports |
 | `agc` | R82xx tuner AGC |
 
-The lanes are tuned together, and their gain is set for each lane from the Device node. Direct
-sampling is not offered: an array's elements are wired to antennas.
+All lanes tune together. Direct sampling is unavailable. The shared clock provides `time_sync`
+coherence; relative phase must be recalibrated after each retune. sdr-- controls the built-in
+noise source during [array calibration](user-guide/arrays.md#krakensdr).
 
-The five tuners share a clock but not a synthesizer, so the receiver reports the `time_sync`
-coherence tier and comes up at a new set of relative phases after every retune. The built-in
-calibration noise source is not a setting: it belongs to the calibration that switches it in and
-out, which sdr-- runs for you. See [Coherent arrays](user-guide/arrays.md#krakensdr).
-
-If the unit does not appear, check that all five chains enumerate — `lsusb` on Linux, `sdrmm
---doctor` anywhere. A unit missing a chain is reported as loose dongles rather than as a radio,
-which is the fault showing rather than a smaller array being invented.
+If the array is missing, check that every tuner appears in `sdrmm --doctor` or Linux `lsusb`.
+Incomplete units appear as individual dongles.
 
 ## HackRF
 
-Three gain stages and one switch:
-
-| Setting | Range |
+| Setting | Effect |
 |---|---|
-| `LNA` | 8 dB steps |
-| `VGA` | 2 dB steps |
-| `AMP` | the switched +14 dB RF amplifier, rendered as a switch |
-| `bias_tee` | phantom power on the antenna port |
+| `LNA` | Gain in 8 dB steps |
+| `VGA` | Gain in 2 dB steps |
+| `AMP` | Switchable +14 dB RF amplifier; included in total gain |
+| `bias_tee` | Antenna-port power |
 
-`AMP` appears as a switch and contributes to the displayed total gain.
+## Airspy
+
+The built-in Airspy drivers need no libairspy, libairspyhf, or SoapySDR module. Both are
+**experimental**: USB and signal-processing tests pass, but live reception has not been verified.
+
+To use SoapySDR instead, build without the `airspy` and `airspyhf` features and install the
+corresponding SoapySDR modules.
+
+### Airspy R2 and Airspy Mini
+
+The displayed sample rate is complex IQ output. The USB stream carries real ADC samples at twice
+that rate; sdr-- converts them to IQ.
+
+LNA, mixer, and VGA gain use firmware step numbers rather than dB. The Device also exposes
+LNA AGC, mixer AGC, and bias-tee switches.
+
+### Airspy HF+ and HF+ Discovery
+
+Tuning covers up to 31 MHz and 60–260 MHz. Frequencies in the gap are rejected.
+
+Controls include a preamp switch, attenuation from 0 to −48 dB in 6 dB steps, AGC, AGC threshold,
+and bias tee.
+
+At zero-IF rates, the engine offsets the local oscillator and removes DC. The driver does not
+implement the vendor library's adaptive IQ balancing, so image rejection may be lower at these rates.
 
 ## AntSDR, PlutoSDR and other AD936x boards
 
-A board running the libiio firmware is opened by a driver built into sdr--, which speaks the iiod
-protocol itself over ethernet or over USB. No libiio, no SoapySDR module and no vendor software is
-involved. One driver covers every board built around an AD936x transceiver: an AntSDR E200 or E310,
-an ADALM-Pluto, and anything else that serves the same devices through iiod.
+The built-in driver connects directly to iiod over Ethernet or USB. It supports AntSDR E200/E310,
+ADALM-Pluto, and compatible AD936x boards without a host libiio or SoapySDR installation.
 
-Everything the device face offers is read from the board rather than assumed, so an AD9361 reports
-70 MHz – 6 GHz and an AD9363 reports 325 MHz – 3.8 GHz, and a 2×2 board is opened with two receive
-and two transmit lanes.
+Capabilities come from the board. An AD9361 typically reports 70 MHz–6 GHz; an AD9363 reports
+325 MHz–3.8 GHz. A 2×2 board exposes two RX and two TX lanes; a stock Pluto exposes one of each.
 
 | Setting | Effect |
 |---|---|
-| `RX` | receive gain, set per lane |
-| `TX` | transmit attenuation, set per lane |
-| `ppm` | crystal correction, counted from the value the board was trimmed to at the factory |
-| `gain_mode` | `manual`, `slow_attack`, `fast_attack` or `hybrid` AGC |
-| `quadrature_tracking`, `rf_dc_tracking`, `bb_dc_tracking` | the transceiver's own corrections |
-| `fir_filter` | the programmable decimating filter |
-| `tx_port` | which transmit port is driven |
+| `RX` | Receive gain per lane |
+| `TX` | Transmit attenuation per lane |
+| `ppm` | Crystal correction relative to factory trim |
+| `gain_mode` | `manual`, `slow_attack`, `fast_attack`, or `hybrid` |
+| `quadrature_tracking`, `rf_dc_tracking`, `bb_dc_tracking` | Hardware corrections |
+| `fir_filter` | Programmable decimating filter |
+| `tx_port` | Transmit port |
+| Antenna | Receive port; usually `A_BALANCED` on a single-input board |
 
-The antenna control selects the receive port, `A_BALANCED` on a board with one input.
+**Discovery:** USB boards appear automatically. **Search** checks `ant.local`, `192.168.1.10`,
+`pluto.local`, and `192.168.2.1`. Enter other addresses in the **Network** tab.
 
-**Finding one.** A board attached over USB appears on its own. A board on the network is found at
-the addresses these radios ship on — `ant.local`, `192.168.1.10`, `pluto.local` and `192.168.2.1`
-— when you press **Search**; anywhere else, type its address into the **Network** tab.
+**Tuning and lanes:** the dial tunes RX and TX together. Two RX lanes share a synthesizer and
+sample clock and report phase coherence. Gain and input port are set per lane.
 
-**Tuning.** Receive and transmit share the dial: setting a centre frequency moves both
-synthesizers, so a transmission lands where the receiver is tuned.
+**Sample rate:** roughly 2.084–61.44 MS/s, limited in practice by the connection. USB 2.0 carries
+a few MS/s; gigabit Ethernet allows higher rates.
 
-**Two lanes.** Both receivers on one AD936x run from the same synthesizer and the same converter
-clock, so sdr-- treats a 2×2 board as phase coherent and a bearing taken across its lanes means
-something. Their gain and input port are set per lane; the dial is shared. A board wired 1×1, which
-is what a stock ADALM-Pluto is, opens with one lane in each direction.
-
-**Sample rate.** The board resamples continuously between roughly 2.084 MS/s and 61.44 MS/s. What
-actually arrives is limited by the link: USB 2.0 carries a few megasamples per second, and the
-E200's gigabit ethernet carries considerably more.
-
-**Over USB.** The board's IIO interface is claimed directly. On Linux that needs the libiio udev
-rules, the same ones the vendor packages install; `sdrmm --doctor` reports whether they are there.
-A board that offers only two endpoint couples is opened half duplex, because receiving and
-transmitting at once needs a conversation for each alongside the control one.
+**USB:** Linux requires the libiio udev rules. `sdrmm --doctor` checks them. Boards exposing only
+two endpoint pairs operate half duplex; simultaneous RX and TX requires another pair.
 
 ## SDRplay
 
-RSP receivers use a driver built into sdr--, with no SoapySDR module involved. That driver needs
-SDRplay's own API, which is licensed for use with genuine SDRplay hardware and cannot be
-redistributed, so you install it yourself:
+Install [SDRplay API](https://www.sdrplay.com/downloads/) 3.15 or newer and keep
+`sdrplay_apiService` running. The built-in driver loads the vendor library at runtime, usually
+from `/usr/local/lib` or `C:\Program Files\SDRplay\API`. No SoapySDR module is needed.
 
-1. Download and install the API from [SDRplay](https://www.sdrplay.com/downloads/). Version 3.15 or
-   newer is required.
-2. Plug in the RSP. It appears in the device list.
-
-sdr-- loads the vendor library at runtime from the install location, usually `/usr/local/lib`
-on Linux and macOS or `C:\Program Files\SDRplay\API` on Windows. The library is not bundled.
-Without it, no RSP appears in the device list. `sdrmm --doctor` reports the result under
-**SDRplay API**.
-
-The API also runs a background service (`sdrplay_apiService`). If the service is stopped, the
-doctor check reports that the API is not responding even though it is installed. Start the service
-and retry.
+The API is installed separately. If an RSP is missing, check **SDRplay API** in `sdrmm --doctor`.
+Container setup requires [the library and host IPC](server/deployment.md#sdrplay-receivers).
 
 ### Gain
 
-SDRplay hardware is specified in gain *reduction*. sdr-- presents both stages as gain, so higher is
-always more signal:
+Both sliders show gain, so increasing either raises the signal level.
 
-- **RF** — the LNA state, in dB of gain relative to that band's weakest state. The available steps
-  change with frequency, the selected port and HDR mode, so the range is re-read whenever tuning
-  moves to another band.
-- **IF** — 0 to 39 dB, the inverse of the API's 20–59 dB IF gain reduction.
+| Stage | Control |
+|---|---|
+| RF | LNA gain relative to the band's weakest state; steps depend on frequency, port, and HDR mode |
+| IF | 0–39 dB, corresponding to the inverse of the API's 20–59 dB gain reduction |
 
-AGC controls the IF stage. With AGC enabled, the IF slider sets the starting point and the setpoint
-extra sets the target level in dBFS.
+AGC controls IF gain. With AGC enabled, the IF slider sets the starting gain and the setpoint
+sets the target level in dBFS.
 
 ### Sample rates
 
-Single-tuner modes sample the ADC between 2 and 10.66 MHz. Rates below 2 MHz are reached by
-decimating a legal ADC rate, so anything from 62.5 kHz to 10.66 MHz is available.
+Single-tuner modes provide 62.5 kS/s–10.66 MS/s. Rates below 2 MS/s use hardware decimation.
 
 ### RSPduo
 
-The RSPduo appears once per operating mode it can currently offer: Tuner 1, Tuner 2, Dual Tuner,
-Master and Slave. The chosen mode is part of the stored device identity, so a saved node comes back
-in the same mode. Dual Tuner gives one device with two independently tuned streams.
+Available operating modes appear as separate choices: Tuner 1, Tuner 2, Dual Tuner, Master, and
+Slave. The workspace saves the chosen mode. Modes held by another application are unavailable.
 
-Dual Tuner, Master and Slave run the ADC at a fixed 6 MHz with a 1.62 MHz IF. Their sample rates
-are therefore 2 MHz and each halving below it down to 62.5 kHz, with analog bandwidth capped at
-1.536 MHz. A Slave waits for its master application to start; if no master appears, starting the
-stream reports that it is still waiting. The master owns the clock, so a slave cannot change the
-sample rate beyond its own decimation and cannot apply a ppm correction.
+Dual Tuner exposes two independently tuned streams. Dual Tuner, Master, and Slave use a 6 MHz
+ADC rate and 1.62 MHz IF. Output rates are 2 MS/s and successive halvings down to 62.5 kS/s;
+analog bandwidth is capped at 1.536 MHz.
 
-If another application already holds the RSPduo, only the modes still free are listed.
+Slave mode waits for a master application. The master owns the clock; a slave can change its
+own decimation but cannot apply ppm correction.
 
 ### Licensing
 
-The interface to the vendor library is written in Rust from the public
-[SDRplay API specification](https://www.sdrplay.com/api/), whose legal notice grants a royalty-free
-licence to use the information in it to design software that uses SDRplay receivers. No SDRplay
-source, header or binary is copied into this project or shipped with it, and the gain tables above
-come from the same document.
+The Rust interface follows the public [SDRplay API specification](https://www.sdrplay.com/api/).
+The specification grants use of its information for software supporting SDRplay receivers.
+No vendor source, headers, or binaries are included. Gain tables come from that specification.
 
 ## Dragon Labs CR-8
 
-The CR-8 provides eight `phase_coherent` lanes sharing a clock and synthesizer. Add one Device
-node and use `iq` through `iq8`; no Array node is needed. These lanes support calibration,
-direction finding, beamforming, and passive radar.
+The CR-8 has eight `phase_coherent` lanes sharing a clock and synthesizer. Use one Device node
+with outputs `iq` through `iq8` for calibration, direction finding, beamforming, or passive radar.
 
-The vendor library is loaded at runtime and must be installed separately. Run `sdrmm --doctor`
-to check whether it loaded. Without it, no CR-8 is discovered.
+Install the vendor library separately and run `sdrmm --doctor` to verify loading. Set
+`SDRMM_DLCR_LIBRARY` to its full path if it is outside the normal search locations.
+Use a server build with the `cr8` feature enabled. Standard packaged builds exclude this backend.
 
 | Setting | Behaviour |
 |---|---|
-| Frequency | All eight channels are tuned together, in one coherent call |
-| Sample rate | Fixed at 12.5 MS/s; any other rate is refused |
-| Gain | LNA, mixer and VGA, settable per channel |
-| Clock source | The on-board oscillator, or a 10 MHz reference on the external input |
+| Frequency | Tunes all eight lanes together |
+| Sample rate | Fixed at 12.5 MS/s |
+| Gain | LNA, mixer, and VGA per lane |
+| Clock | Onboard oscillator or external 10 MHz reference |
 
-If the library is somewhere the loader will not look, point `SDRMM_DLCR_LIBRARY` at it.
+The tuning range follows the hardware documentation because the SDK does not report it.
 
-The reported CR-8 tuning range comes from its documentation; the SDK does not expose that range.
+## How radios are discovered
+
+Discovery runs when USB devices change and once per minute for network radios. SoapySDR probing
+uses a child process so a crashing or stalled vendor module does not terminate sdr--.
+For debugging, `SDRMM_SOAPY_PROBE=in-process` disables that isolation.
 
 ## Before an unattended deployment
 
-Test the exact packaged build against the exact radio:
+Test the packaged build with your radio:
 
-1. Run `sdrmm --doctor` and save the module versions.
-2. For a SoapySDR receiver, probe the device with `SoapySDRUtil`.
-3. Stream for at least 30 minutes and watch the Device overrun counter.
-4. Unplug and reconnect once, and confirm the workspace binds to the same radio again.
-5. Exercise tuning, gain, AGC, bandwidth, antenna, and the advertised advanced settings.
-6. Make a short recording and replay it.
-
-sdr-- reports the TX capabilities of transmit-capable radios, but the transmit workflow is not
-available yet. Validate driver TX behaviour only in a shielded, attenuated, legally authorized
-bench setup.
+1. Save the `sdrmm --doctor` report.
+2. Stream for at least 30 minutes and check overruns.
+3. Test tuning, gain, sample rate, and the controls you intend to use.
+4. Reconnect the radio and confirm the workspace restores it.
+5. Record a short capture and replay it.

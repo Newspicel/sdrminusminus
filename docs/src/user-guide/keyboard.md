@@ -1,8 +1,7 @@
 # Keyboard controls
 
-Keyboard commands act on the selected node or on the device connected to the selected channel.
-They are ignored while a text field or control has focus. Press `?` at any time to open the same
-reference inside the app.
+Shortcuts act on the selected node or its connected Device. They are inactive while editing a
+text field or control. Press `?` to open the reference in the app.
 
 | Keys | Action |
 |---|---|
@@ -35,5 +34,4 @@ Once the frequency dial has focus:
 - Home and End jump to the first or last place.
 - Enter opens direct frequency entry.
 
-Click a Device node before using the mouse wheel on its dial. This prevents a wheel gesture from
-retuning the receiver when you intended to pan the canvas.
+Select a Device before scrolling its dial. This keeps canvas scrolling from changing the frequency.

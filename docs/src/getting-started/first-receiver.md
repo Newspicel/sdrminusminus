@@ -1,62 +1,65 @@
 # Your first receiver
 
-Build an NFM receiver using the built-in signal generator. You will see its spectrum and hear
-a test tone without an SDR or antenna.
+Listen to a local FM broadcast station with an RTL-SDR. You need the receiver, an antenna, and
+an [installed copy of sdr--](install.md).
 
-## 1. Open the signal generator
+## 1. Connect the RTL-SDR
 
-Start sdr-- and open its interface. A fresh installation creates a workspace with three nodes:
+Attach the antenna and plug the receiver into the computer running sdr--. For a remote setup,
+plug it into the server.
 
-- a Device waiting for a radio;
-- a Scope already connected to the Device's IQ output;
-- a Speaker waiting for channel audio.
+Open sdr-- and select your RTL-SDR on the **Device** node. A new installation also includes a
+connected **Scope** and a **Speaker**. If these nodes are missing, add them from **+ Node** and
+connect Device `IQ` to Scope `IQ`.
 
-On the Device node, choose **Signal Generator (virtual)**. The device opens immediately and the
-Scope begins drawing a synthetic spectrum and waterfall.
+If the radio is missing, open **Check hardware** on Device. The
+[hardware guide](../hardware.md#rtl-sdr) covers driver requirements and USB permissions.
 
-If you do not see the starter nodes, create them from **+ Node**. Draw a wire from the Device's
-`IQ` port to the Scope's `IQ` port.
+## 2. Tune a broadcast station
 
-## 2. Add a channel
+On Device, set the sample rate to **2.4 MS/s** and tune to a local FM station's frequency.
+For example, enter `100.0 MHz` only if a station broadcasts there in your area.
 
-Choose **+ Node**, search for `NFM`, and add an NFM channel. Connect the nodes from left to right:
+Start with moderate tuner gain. Adjust it until the station is visible on the Scope without
+clipping or a large rise in the surrounding noise.
+
+## 3. Add a WFM channel
+
+Choose **+ Node**, search for **WFM**, and add it. WFM is the mode for broadcast FM.
+Connect the nodes:
 
 ```text
-Device IQ → NFM IQ
-NFM audio → Speaker audio
+Device IQ → Scope IQ
+Device IQ → WFM IQ
+WFM audio → Speaker audio
 ```
 
-The patch applies as you work. If a channel says it has not been created, press **Apply patch** on
-that node.
+Set the WFM channel to the station's frequency. The Device dial selects the received frequency
+range; the channel dial selects one station inside it. Both must cover the station.
 
-Set the NFM channel to 300 kHz above the radio's centre. The generator places an NFM carrier there with a 1 kHz
-audio tone.
+Changes apply automatically. Press **Apply patch** if the node requests it.
 
-## 3. Start audio
+## 4. Start audio
 
-Use the Speaker node's control. Your browser may require a click before it permits audio playback.
-Adjust the channel squelch if the tone stays muted.
+Start playback on the Speaker and adjust the volume. If audio stays silent:
 
-## 4. Explore the interface
+- Turn off channel squelch temporarily.
+- Check that the channel marker covers the station on the Scope.
+- Click the page to allow browser audio, and check the system output device.
 
-Try these next:
+See [audio troubleshooting](../troubleshooting.md#spectrum-works-but-audio-is-silent) if needed.
 
-- Drag the channel marker across the Scope to change its frequency.
-- Use the Device dial to retune the whole receiver.
-- Press `[` or `]` to change the tuning step, then use the arrow keys to tune.
-- Select a node and press `p` to pin its face to the Rack view.
-- Open **Library → Templates** to inspect ready-made FM, airband, ADS-B, ACARS, AIS, APRS, pager,
-  PMR446, digital voice, ISM, and HF setups. Templates that require real off-air traffic still
-  configure the signal generator, but their decoders will remain quiet.
-- Add a Recorder and wire the Device IQ output into it to create a short SigMF recording.
+## 5. Arrange your receiver
 
-The `?` button in the top-right corner opens the complete keyboard reference.
+Select the controls you use most and press `p` to pin them to **Rack** view. Press `v` to switch
+between Patch and Rack. Your layout is saved automatically.
 
-## Move to real hardware
+To display station names and radio text, connect WFM `events` to a **Readout**. RDS appears when
+the station transmits it and reception is strong enough.
 
-On the Device node, choose **Forget this radio**, then select the attached receiver. Device
-controls are built from the capabilities reported by its driver, so gain stages, antennas,
-sample rates, bandwidths, and advanced settings vary by model.
+## Next steps
 
-Run `sdrmm --doctor` or press **Check hardware** on an unbound Device node if your receiver is
-missing. The [hardware guide](../hardware.md) covers supported modules and USB setup.
+- Learn [workspace controls](workspace.md) and [keyboard shortcuts](../user-guide/keyboard.md).
+- Use **Library → Templates** for other receiver setups.
+- [Record IQ or audio](../user-guide/recording.md) for later use.
+- Explore the [channel catalog](../user-guide/channels.md#channel-catalog).
