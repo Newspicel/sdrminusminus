@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Download SDR--</title>
+<meta name="description" content="Installers for macOS, Windows and Linux, portable servers for a machine by the antenna, and the package managers that carry SDR--.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://sdrmm.newspicel.dev/download.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sdrmm.newspicel.dev/download.html">
+<meta property="og:title" content="Download SDR--">
+<meta property="og:description" content="Pick the file for the computer you will run the radio on.">
+<meta property="og:image" content="https://sdrmm.newspicel.dev/screens/patch.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/site.css">
+<style>
+.pick {
+  margin-top: 30px;
+  max-width: 640px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.pick .btn.primary { font-size: 15px; padding: 13px 22px; }
+.pick .file { margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); overflow-wrap: anywhere; }
+.pick .hint { margin: 0; font-size: 14px; color: var(--ink-dim); max-width: 52ch; }
+.pick .alts { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; }
+.pick .alts a { color: var(--ink-dim); }
+.pick .alts a:hover { color: var(--accent); }
+
+.bar nav a.get[aria-current] { border-color: var(--accent); color: var(--accent); }
+
+.stamp { margin: 0 0 28px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--ink-faint); }
+
+.files { border-top: 1px solid var(--line); }
+.group {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 10px 40px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+.group h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.group h3 .legend { display: block; color: var(--ink-faint); margin-bottom: 4px; }
+.group ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  align-items: baseline;
+  padding: 10px 12px;
+  margin-inline: -12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.row:hover { background: var(--panel); border-color: var(--line-strong); }
+.row .what { font-size: 15px; }
+.row .what em { font-style: normal; color: var(--ink-faint); }
+.row .size { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); text-align: right; white-space: nowrap; }
+.row .name { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); overflow-wrap: anywhere; }
+
+.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 20px; max-width: var(--measure); }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; }
+.steps li::before {
+  content: counter(step);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+.steps h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; }
+.steps p { margin: 0; color: var(--ink-dim); font-size: 15px; }
+.steps code { font-family: var(--mono); font-size: 0.88em; color: var(--ink); }
+
+@media (max-width: 720px) {
+  .group { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="bar">
+  <div class="wrap">
+    <a class="mark" href="/"><img src="/icon.svg" alt="" width="24" height="24">SDR--</a>
+    <nav>
+      <a href="/introduction.html">Docs</a>
+      <a class="hardware" href="/hardware.html">Hardware</a>
+      <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
+      <a class="get" href="/download.html" aria-current="page">Download</a>
+    </nav>
+  </div>
+</div>
+
+<main id="main">
+
+<div class="wrap hero">
+  <h1>Download SDR--</h1>
+  <p class="lede">One release, a handful of files. Take the one for the computer the radio will be
+    plugged into — or put the server on the machine that sits by the antenna and drive it from any
+    browser.</p>
+
+  <div class="pick">
+    <p class="legend" id="pick-who">Latest release</p>
+    <a class="btn primary" id="pick-btn" href="https://github.com/Newspicel/sdrminusminus/releases/latest">Download SDR--</a>
+    <p class="file" id="pick-file">Desktop app for macOS, Windows and Linux.</p>
+    <p class="hint" id="pick-hint" hidden></p>
+    <p class="alts" id="pick-alts"><a href="#files">Every file in the release</a><a href="#choose">Not sure which you want?</a></p>
+  </div>
+</div>
+
+<section class="wrap" id="choose">
+  <h2>App or server</h2>
+  <p class="section-lede">This is the only choice that matters, and it is about where the radio
+    sits — not about how much you know.</p>
+
+  <div class="install">
+    <div class="lane">
+      <h3>Desktop app</h3>
+      <p>The radio is plugged into this computer. It installs like any other application and runs
+        its own server on a private port, so there is nothing else to set up. Take this one if you
+        are undecided.</p>
+      <p class="foot"><a href="#files">macOS, Windows and Linux installers</a></p>
+    </div>
+
+    <div class="lane">
+      <h3>Portable server</h3>
+      <p>The radio is somewhere else — a Pi in the loft, a box by the antenna, a machine left
+        running. Unpack the archive, start <code>sdrmm</code>, and open port 8080 from any browser
+        on the network. Same receiver, no window.</p>
+      <p class="foot"><a href="/server/deployment.html">Run it as a service</a></p>
+    </div>
+  </div>
+
+  <p class="note">The server listens on every interface without authentication by default. Set
+    <a href="/server/configuration.html">a token and HTTPS</a> before it faces a network you do
+    not trust.</p>
+</section>
+
+<section class="wrap" id="files">
+  <h2>Every file</h2>
+  <p class="stamp" id="stamp">Latest stable release · <a href="https://github.com/Newspicel/sdrminusminus/releases/latest">release notes</a></p>
+
+  <div class="files">
+    <div class="group">
+      <h3><span class="legend">macOS</span>Apple silicon and Intel</h3>
+      <ul>
+        <li><a class="row" data-file="_aarch64.dmg" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>Apple silicon</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_aarch64.dmg</span>
+        </a></li>
+        <li><a class="row" data-file="_x64.dmg" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>Intel</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_x64.dmg</span>
+        </a></li>
+        <li><a class="row" data-file="-aarch64-apple-darwin.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Server <em>Apple silicon</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-aarch64-apple-darwin.tar.gz</span>
+        </a></li>
+        <li><a class="row" data-file="-x86_64-apple-darwin.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Server <em>Intel</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-x86_64-apple-darwin.tar.gz</span>
+        </a></li>
+      </ul>
+    </div>
+
+    <div class="group">
+      <h3><span class="legend">Windows</span>64-bit x86</h3>
+      <ul>
+        <li><a class="row" data-file="_x64-setup.exe" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>installer</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_x64-setup.exe</span>
+        </a></li>
+        <li><a class="row" data-file="_x64_en-US.msi" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>MSI package</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_x64_en-US.msi</span>
+        </a></li>
+        <li><a class="row" data-file="-x86_64-pc-windows-msvc.zip" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Server <em>zip archive</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-x86_64-pc-windows-msvc.zip</span>
+        </a></li>
+      </ul>
+    </div>
+
+    <div class="group">
+      <h3><span class="legend">Linux</span>x86-64 and ARM64</h3>
+      <ul>
+        <li><a class="row" data-file="_amd64.AppImage" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>AppImage, any distribution</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_amd64.AppImage</span>
+        </a></li>
+        <li><a class="row" data-file="_amd64.deb" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>Debian and Ubuntu</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_amd64.deb</span>
+        </a></li>
+        <li><a class="row" data-file="-x86_64-unknown-linux-gnu.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Server <em>x86-64</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-x86_64-unknown-linux-gnu.tar.gz</span>
+        </a></li>
+        <li><a class="row" data-file="-aarch64-unknown-linux-gnu.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Server <em>ARM64, Raspberry Pi</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-aarch64-unknown-linux-gnu.tar.gz</span>
+        </a></li>
+      </ul>
+    </div>
+
+    <div class="group">
+      <h3><span class="legend">Source</span>Build it yourself</h3>
+      <ul>
+        <li><a class="row" data-file="-src.tar.gz" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Source tarball <em>vendored, builds offline</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-src.tar.gz</span>
+        </a></li>
+        <li><a class="row" data-file="SHA256SUMS" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Checksums <em>verify what you downloaded</em></span>
+          <span class="size"></span>
+          <span class="name">SHA256SUMS</span>
+        </a></li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="note">There is no ARM Linux desktop bundle yet: on a Pi, run the server and open it in
+    a browser. The rolling
+    <a href="https://github.com/Newspicel/sdrminusminus/releases/tag/nightly">nightly</a> follows
+    <code>main</code> and can change saved-data formats without migrating them — use a stable
+    release unless you are testing one.</p>
+</section>
+
+<section class="wrap">
+  <h2>Or install it with a package manager</h2>
+  <p class="section-lede">These track the same releases, and they keep it updated with everything
+    else on the machine.</p>
+
+  <div class="install">
+    <div class="lane">
+      <h3>Homebrew</h3>
+      <p>The cask installs the app; the formula installs the headless server.</p>
+      <pre>brew tap newspicel/tap
+brew install --cask sdrminusminus
+
+<span class="p">or, for a server</span>
+brew install sdrmm
+brew services start sdrmm</pre>
+    </div>
+
+    <div class="lane">
+      <h3>Nix</h3>
+      <p>Flake package for x86-64 and ARM64 Linux, with SoapySDR modules selectable.</p>
+      <pre>nix profile install \
+  github:Newspicel/sdrminusminus
+sdrmm-desktop</pre>
+      <p class="foot"><a href="/getting-started/install.html#nix">NixOS module options</a></p>
+    </div>
+
+    <div class="lane">
+      <h3>Container</h3>
+      <p>Persists its database and recordings in a volume. Pass through the USB group that owns
+        your radio.</p>
+      <pre>git clone https://github.com/Newspicel/sdrminusminus.git
+cd sdrminusminus
+docker compose up -d</pre>
+      <p class="foot"><a href="/server/deployment.html">Container setup, auth and HTTPS</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Once it has downloaded</h2>
+
+  <ol class="steps">
+    <li>
+      <div>
+        <h3>Install it</h3>
+        <p>macOS: open the disk image and drag SDR-- to Applications. Windows: run the installer —
+          it is not code-signed yet, so SmartScreen asks first; choose <b>More info</b>, then
+          <b>Run anyway</b>. Linux: <code>chmod +x</code> the AppImage, or
+          <code>sudo apt install ./SDR--*.deb</code>. Servers: unpack the archive and run
+          <code>./sdrmm</code>.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Open it</h3>
+        <p>The app opens its own window. The server prints its address — reach it at
+          <code>http://localhost:8080</code>, or <code>http://&lt;machine&gt;:8080</code> from
+          another computer on the network.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Patch a receiver</h3>
+        <p>Drop a <b>Device</b> node, select your radio, wire its IQ output into a channel and the
+          channel into a speaker. If the radio is not listed, use <b>Check hardware</b> on the node
+          or run <code>sdrmm --doctor</code>.</p>
+      </div>
+    </li>
+  </ol>
+
+  <p class="note">Next: <a href="/getting-started/first-receiver.html">your first receiver</a>,
+    the <a href="/hardware.html">hardware guide</a> for what each radio needs, or
+    <a href="/troubleshooting.html">troubleshooting</a> when something stays silent.</p>
+
+  <div class="actions" style="margin-top: 28px">
+    <a class="btn ghost" href="/getting-started/install.html">All install methods</a>
+    <a class="btn ghost" href="/development/building.html">Build from source</a>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>SDR-- · GPL-3.0-or-later</span>
+    <nav>
+      <a href="/download.html">Download</a>
+      <a href="/introduction.html">Docs</a>
+      <a href="/hardware.html">Hardware</a>
+      <a href="/troubleshooting.html">Troubleshooting</a>
+      <a href="/development/building.html">Build from source</a>
+      <a href="https://github.com/Newspicel/sdrminusminus">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+const RELEASE = "https://api.github.com/repos/Newspicel/sdrminusminus/releases/latest";
+
+const PICKS = {
+  "mac-arm": { who: "macOS · Apple silicon", file: "_aarch64.dmg", label: "Download for macOS", alts: ["mac-intel"] },
+  "mac-intel": { who: "macOS · Intel", file: "_x64.dmg", label: "Download for macOS", alts: ["mac-arm"] },
+  windows: { who: "Windows · 64-bit", file: "_x64-setup.exe", label: "Download for Windows", alts: ["windows-msi"] },
+  "windows-msi": { who: "Windows · MSI package", file: "_x64_en-US.msi", label: "Download for Windows", alts: ["windows"] },
+  "windows-arm": {
+    who: "Windows on ARM",
+    file: "_x64-setup.exe",
+    label: "Download for Windows",
+    hint: "There is no ARM build yet; this x64 installer runs under emulation.",
+    alts: [],
+  },
+  linux: { who: "Linux · x86-64", file: "_amd64.AppImage", label: "Download for Linux", alts: ["linux-deb"] },
+  "linux-deb": { who: "Linux · Debian and Ubuntu", file: "_amd64.deb", label: "Download for Linux", alts: ["linux"] },
+  "linux-arm": {
+    who: "Linux · ARM64",
+    file: "-aarch64-unknown-linux-gnu.tar.gz",
+    label: "Download the server",
+    hint: "No desktop bundle for ARM Linux yet. Run this server on the Pi and open port 8080 in a browser.",
+    alts: [],
+  },
+};
+
+const ALT_LABELS = {
+  "mac-arm": "Apple silicon Mac instead",
+  "mac-intel": "Intel Mac instead",
+  windows: "Plain installer instead",
+  "windows-msi": "MSI package instead",
+  linux: "AppImage instead",
+  "linux-deb": "Debian package instead",
+};
+
+const el = (id) => document.getElementById(id);
+const filesize = (bytes) =>
+  bytes >= 1048576 ? Math.round(bytes / 1048576) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
+
+async function architecture() {
+  const data = navigator.userAgentData;
+  if (!data || !data.getHighEntropyValues) return "";
+  try {
+    const values = await data.getHighEntropyValues(["architecture"]);
+    return values.architecture || "";
+  } catch {
+    return "";
+  }
+}
+
+function handheld() {
+  const agent = navigator.userAgent;
+  if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
+  if (/Android|iPhone|iPod/.test(agent)) return true;
+  return /iPad/.test(agent) || (/Mac/.test(agent) && navigator.maxTouchPoints > 2);
+}
+
+async function detect() {
+  if (handheld()) return "";
+  const agent = navigator.userAgent;
+  const family = (navigator.userAgentData && navigator.userAgentData.platform) || agent;
+  const chip = await architecture();
+  const arm = chip.startsWith("arm");
+  if (/Mac/i.test(family)) return chip.startsWith("x86") ? "mac-intel" : "mac-arm";
+  if (/Win/i.test(family)) return arm ? "windows-arm" : "windows";
+  if (/Linux|X11|CrOS/i.test(family)) return arm || /aarch64|arm64/i.test(agent) ? "linux-arm" : "linux";
+  return "";
+}
+
+function handheldCard() {
+  el("pick-who").textContent = "Phone or tablet";
+  el("pick-btn").textContent = "See every file";
+  el("pick-btn").href = "#files";
+  el("pick-file").textContent = "SDR-- runs on a desktop or a server.";
+  el("pick-hint").textContent =
+    "Install it on a computer, then open that machine's address in this browser to operate the receiver from here.";
+  el("pick-hint").hidden = false;
+  el("pick-alts").replaceChildren(link("#choose", "App or server?"));
+}
+
+function link(href, text, onClick) {
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.textContent = text;
+  if (onClick) {
+    anchor.addEventListener("click", (event) => {
+      event.preventDefault();
+      onClick();
+    });
+  }
+  return anchor;
+}
+
+function show(key, assets) {
+  const pick = PICKS[key];
+  const asset = assets.find((candidate) => candidate.name.endsWith(pick.file));
+
+  el("pick-who").textContent = pick.who;
+  el("pick-btn").textContent = pick.label;
+  el("pick-file").textContent = asset ? asset.name + " · " + filesize(asset.size) : "";
+  el("pick-file").hidden = !asset;
+  if (asset) el("pick-btn").href = asset.browser_download_url;
+  el("pick-hint").textContent = pick.hint || "";
+  el("pick-hint").hidden = !pick.hint;
+
+  const alts = pick.alts.map((other) => link("#files", ALT_LABELS[other], () => show(other, assets)));
+  alts.push(link("#files", "Every file in the release"), link("#choose", "App or server?"));
+  el("pick-alts").replaceChildren(...alts);
+}
+
+async function release() {
+  try {
+    const answer = await fetch(RELEASE, { headers: { accept: "application/vnd.github+json" } });
+    if (!answer.ok) return null;
+    return await answer.json();
+  } catch {
+    return null;
+  }
+}
+
+async function start() {
+  const [key, latest] = await Promise.all([detect(), release()]);
+  const assets = (latest && latest.assets) || [];
+
+  if (latest) {
+    el("stamp").replaceChildren(
+      document.createTextNode(latest.name + " · released " + new Date(latest.published_at).toLocaleDateString(undefined, { dateStyle: "medium" }) + " · "),
+      link(latest.html_url, "release notes"),
+    );
+    for (const row of document.querySelectorAll(".row[data-file]")) {
+      const asset = assets.find((candidate) => candidate.name.endsWith(row.dataset.file));
+      if (!asset) continue;
+      row.href = asset.browser_download_url;
+      row.querySelector(".name").textContent = asset.name;
+      row.querySelector(".size").textContent = filesize(asset.size);
+    }
+  }
+
+  if (handheld()) handheldCard();
+  else if (key) show(key, assets);
+}
+
+start();
+</script>
+</body>
+</html>
