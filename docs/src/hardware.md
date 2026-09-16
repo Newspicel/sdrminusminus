@@ -16,7 +16,7 @@ The Nix package uses SoapySDR for local hardware. Custom builds can select their
 | Airspy R2 and Mini | None; [experimental driver](#airspy) |
 | Airspy HF+ and HF+ Discovery | None; [experimental driver](#airspy) |
 | AntSDR, ADALM-Pluto, and compatible AD936x boards | None; the board must serve [iiod](#antsdr-plutosdr-and-other-ad936x-boards) |
-| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15 or newer |
+| SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo, RSPdx, RSPdx-R2 | [SDRplay API](#sdrplay) 3.15 or newer, or [SDRconnect](#over-the-network-with-sdrconnect) on another machine |
 | Dragon Labs CR-8 | [Vendor CR-8 library](#dragon-labs-cr-8); requires a server build with `cr8` enabled |
 
 SoapySDR modules for receivers handled by enabled built-in drivers are skipped to avoid duplicate
@@ -106,9 +106,10 @@ Open the **Network** tab on an unbound Device node and enter the receiver's addr
 |---|---:|
 | `rtl_tcp` | 1234 |
 | SpyServer | 5555 |
+| SDRconnect | 5454 |
 | AD936x / iiod | 30431 |
 
-All three protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
+All four protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
 appears through the normal device search.
 
 ## Virtual sources
@@ -261,6 +262,28 @@ analog bandwidth is capped at 1.536 MHz.
 
 Slave mode waits for a master application. The master owns the clock; a slave can change its
 own decimation but cannot apply ppm correction.
+
+### Over the network with SDRconnect
+
+An RSP attached to another machine is reachable through [SDRconnect](https://www.sdrplay.com/sdrconnect/)
+without the SDRplay API on this one. Enable the WebSocket API in SDRconnect, or start
+`SDRconnect_headless --websocket_port=5454`, then enter `host:5454` on the Device node's
+**Network** tab.
+
+SDR-- tunes the receiver, sets its sample rate, RF gain state and antenna, and takes the 16-bit
+IQ stream; demodulation stays here. A tuner of an RSPduo is addressed by appending it to the
+address: `host:5454/secondary`, with `host:5454` meaning the primary tuner.
+
+| Setting | Effect |
+|---|---|
+| `lna_state` | RF gain state, between the receiver's own minimum and maximum |
+| `receiver` | Which radio attached to the SDRconnect host to use |
+| `network_mode` | Stream quality for a receiver SDRconnect itself reaches over the network |
+| `device_profile` | Applies a device profile saved in SDRconnect |
+| `recording` | Starts an IQ, audio, or compressed-audio recording on the SDRconnect host |
+
+A session someone was already running is left running when SDR-- stops; one SDR-- started is
+stopped again.
 
 ### Licensing
 

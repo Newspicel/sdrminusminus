@@ -63,7 +63,7 @@ Disable hardware backends:
 cargo run -p sdrmm --no-default-features
 ```
 
-Keep direct `rtl_tcp` and SpyServer clients:
+Keep the direct `rtl_tcp`, SpyServer and SDRconnect clients:
 
 ```sh
 cargo run -p sdrmm --no-default-features --features net-client

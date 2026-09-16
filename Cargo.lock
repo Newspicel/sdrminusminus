@@ -5078,6 +5078,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-sdrconnect"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-sdrplay"
 version = "0.0.0"
 dependencies = [
@@ -5159,6 +5171,7 @@ dependencies = [
  "sdrmm-device-hackrf",
  "sdrmm-device-rtlsdr",
  "sdrmm-device-rtltcp",
+ "sdrmm-device-sdrconnect",
  "sdrmm-device-sdrplay",
  "sdrmm-device-soapy",
  "sdrmm-device-spyserver",
