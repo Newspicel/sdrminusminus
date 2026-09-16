@@ -60,22 +60,25 @@ pub(super) async fn apply_template(
         .ok_or_else(|| AppError::not_found(format!("template {id} not found")))?;
     let engine = state.engine.clone();
     let store = state.store.clone();
-    let settings = DeviceSettings {
-        center_hz: Some(template.center_hz),
-        sample_rate: Some(template.sample_rate),
-        ..DeviceSettings::default()
-    };
     let channels = template.channels.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         let open = engine.snapshot();
-        if let Some(set) = open.device_sets.iter().find(|set| set.id == req.device_set)
-            && let Some(reason) = template.unmet_by(&set.capabilities.profile())
-        {
-            return Err(AppError::bad_request(format!(
-                "{} cannot run this template: {reason}",
-                set.device.label
-            )));
+        let mut rate = template.sample_rate;
+        if let Some(set) = open.device_sets.iter().find(|set| set.id == req.device_set) {
+            let profile = set.capabilities.profile();
+            if let Some(reason) = template.unmet_by(&profile) {
+                return Err(AppError::bad_request(format!(
+                    "{} cannot run this template: {reason}",
+                    set.device.label
+                )));
+            }
+            rate = template.rate_on(&profile).unwrap_or(rate);
         }
+        let settings = DeviceSettings {
+            center_hz: Some(template.center_hz),
+            sample_rate: Some(rate),
+            ..DeviceSettings::default()
+        };
         apply_configuration(&engine, req.device_set, settings, channels, "template")?;
         apply_template_patch(&engine, &store, template, req.device_set)
     })

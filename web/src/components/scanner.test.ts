@@ -162,7 +162,7 @@ const TEMPLATE: TemplateInfo = {
   min_freq_hz: 1_090_000_000,
   max_freq_hz: 1_090_000_000,
   direction: "rx",
-  exact_rate: true,
+  max_sample_rate: 4_000_000,
   supported_devices: ["rtlsdr:00000001"],
 };
 

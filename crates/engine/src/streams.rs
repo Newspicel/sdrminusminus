@@ -183,7 +183,7 @@ impl Engine {
 
     #[must_use]
     pub fn channel_types(&self) -> Vec<ChannelDescriptor> {
-        sdrmm_channels::descriptors()
+        crate::channel_types()
     }
 
     pub fn start_scan(

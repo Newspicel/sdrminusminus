@@ -5258,13 +5258,16 @@ export interface components {
             channels: components["schemas"]["ChannelSettings"][];
             description: string;
             direction?: components["schemas"]["Direction"];
-            exact_rate?: boolean;
             explainer: string;
             id: string;
             /** Format: double */
             max_freq_hz: number;
             /** Format: double */
+            max_sample_rate?: number | null;
+            /** Format: double */
             min_freq_hz: number;
+            /** Format: double */
+            min_sample_rate?: number | null;
             name: string;
             patch?: null | components["schemas"]["PatchGraph"];
             /** Format: double */

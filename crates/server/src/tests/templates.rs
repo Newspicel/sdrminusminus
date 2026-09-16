@@ -88,6 +88,11 @@ async fn templates_list_and_apply_over_http() {
     );
     let set = &get_state(&app).await.device_sets[0];
     assert_eq!(set.settings.center_hz, Some(98_000_000.0));
+    assert_eq!(
+        set.settings.sample_rate,
+        Some(2_400_000.0),
+        "a radio that offers the template's own rate runs it"
+    );
     assert_eq!(set.channels.len(), 1);
     assert_eq!(set.channels[0].settings.params.type_id(), "wfm");
 

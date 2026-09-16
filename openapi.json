@@ -18649,9 +18649,6 @@
           "direction": {
             "$ref": "#/components/schemas/Direction"
           },
-          "exact_rate": {
-            "type": "boolean"
-          },
           "explainer": {
             "type": "string"
           },
@@ -18662,8 +18659,22 @@
             "type": "number",
             "format": "double"
           },
+          "max_sample_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "min_freq_hz": {
             "type": "number",
+            "format": "double"
+          },
+          "min_sample_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
             "format": "double"
           },
           "name": {

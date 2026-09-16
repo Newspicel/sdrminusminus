@@ -107,6 +107,11 @@ const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 const TIME_MACHINE_STOP_POLL: Duration = Duration::from_millis(10);
 const TIME_MACHINE_STOP_POLLS: u32 = 200;
 
+#[must_use]
+pub fn channel_types() -> Vec<sdrmm_wire::ChannelDescriptor> {
+    sdrmm_channels::descriptors()
+}
+
 /// The SoapySDR driver names this build speaks to over its own USB stack, and therefore hides
 /// from Soapy's enumeration so one radio is never listed twice.
 #[must_use]

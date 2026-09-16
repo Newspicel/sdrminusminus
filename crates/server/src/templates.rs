@@ -1,12 +1,12 @@
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
-    AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AudioProcessing, ChannelNode,
-    ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams, ErmesParams,
-    FlexParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams, NodeBody,
-    PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position, PskParams, RadioClockParams,
-    RttyParams, Squelch, SsbParams, SstvParams, SubghzParams, TemplateInfo, WfmParams, WsjtParams,
-    WsprParams, YsfParams,
+    AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AudioProcessing, ChannelDescriptor,
+    ChannelNode, ChannelParams, ChannelSettings, DabParams, DeviceNode, DmrParams, DstarParams,
+    ErmesParams, FlexParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams,
+    NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef, Position,
+    PskParams, RadioClockParams, RttyParams, Squelch, SsbParams, SstvParams, SubghzParams,
+    TemplateInfo, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -98,7 +98,6 @@ struct Entry {
     center_hz: f64,
     sample_rate: f64,
     channels: &'static [Channel],
-    exact_rate: bool,
 }
 
 const COLUMN: f32 = 400.0;
@@ -191,7 +190,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::Wfm(WfmParams::default()),
             LISTEN_READ,
         )],
-        exact_rate: false,
     },
     Entry {
         id: "airband",
@@ -209,7 +207,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::Am(AmParams::default()),
             LISTEN,
         )],
-        exact_rate: false,
     },
     Entry {
         id: "adsb",
@@ -226,7 +223,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::Adsb(AdsbParams::default()),
             TRACK_READ,
         )],
-        exact_rate: false,
     },
     Entry {
         id: "acars",
@@ -247,7 +243,6 @@ static TEMPLATES: &[Entry] = &[
             Channel::at(131_725_000.0, acars, LOG),
             Channel::at(131_850_000.0, acars, LOG),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "ais",
@@ -274,7 +269,6 @@ static TEMPLATES: &[Entry] = &[
                 TRACK_READ,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "aprs",
@@ -290,7 +284,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::Aprs(AprsParams::default()),
             TRACK,
         )],
-        exact_rate: false,
     },
     Entry {
         id: "pagers",
@@ -319,7 +312,6 @@ static TEMPLATES: &[Entry] = &[
                 LOG,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "radio-clock",
@@ -336,7 +328,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::RadioClock(RadioClockParams::default()),
             LOG,
         )],
-        exact_rate: false,
     },
     Entry {
         id: "navtex",
@@ -361,7 +352,6 @@ static TEMPLATES: &[Entry] = &[
                 LOG,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "gnss-lab",
@@ -379,7 +369,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::Gnss(GnssParams::default()),
             LOG,
         )],
-        exact_rate: true,
     },
     Entry {
         id: "ham-2m",
@@ -391,7 +380,6 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 145_700_000.0,
         sample_rate: 1_024_000.0,
         channels: &[Channel::at(145_700_000.0, fm_voice, LISTEN)],
-        exact_rate: false,
     },
     Entry {
         id: "marine-vhf",
@@ -403,7 +391,6 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 156_800_000.0,
         sample_rate: 1_024_000.0,
         channels: &[Channel::at(156_800_000.0, fm_voice, LISTEN)],
-        exact_rate: false,
     },
     Entry {
         id: "pmr446",
@@ -428,7 +415,6 @@ static TEMPLATES: &[Entry] = &[
             Channel::at(446_081_250.0, fm_voice, LISTEN_READ).squelched(8.0),
             Channel::at(446_093_750.0, fm_voice, LISTEN_READ).squelched(8.0),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "digital-voice",
@@ -464,7 +450,6 @@ static TEMPLATES: &[Entry] = &[
                 LISTEN_LOG,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "ism-433",
@@ -490,7 +475,6 @@ static TEMPLATES: &[Entry] = &[
                 LOG_READ,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "dab-check",
@@ -509,7 +493,6 @@ static TEMPLATES: &[Entry] = &[
             || ChannelParams::Dab(DabParams::default()),
             LOG,
         )],
-        exact_rate: false,
     },
     Entry {
         id: "hf-digital",
@@ -540,7 +523,6 @@ static TEMPLATES: &[Entry] = &[
                 LOG,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "hf-keyboard",
@@ -577,7 +559,6 @@ static TEMPLATES: &[Entry] = &[
                 LISTEN,
             ),
         ],
-        exact_rate: false,
     },
     Entry {
         id: "hf-sstv",
@@ -602,13 +583,60 @@ static TEMPLATES: &[Entry] = &[
                 LISTEN,
             ),
         ],
-        exact_rate: false,
     },
 ];
+
+fn descriptor_of<'a>(
+    channel: &Channel,
+    descriptors: &'a [ChannelDescriptor],
+) -> Option<&'a ChannelDescriptor> {
+    let type_id = (channel.params)().type_id();
+    descriptors.iter().find(|d| d.type_id == type_id)
+}
+
+/// The narrowest window that still carries the template: every channel inside the flat band, and
+/// every decoder handed at least the rate it reads.
+fn floor_hz(entry: &Entry, descriptors: &[ChannelDescriptor]) -> f64 {
+    let half_flat = sdrmm_dsp::flat_bandwidth_hz(1.0) / 2.0;
+    let spread = entry
+        .channels
+        .iter()
+        .map(|channel| (channel.freq_hz - entry.center_hz).abs() / half_flat)
+        .fold(0.0, f64::max);
+    let decoders = entry
+        .channels
+        .iter()
+        .filter_map(|channel| descriptor_of(channel, descriptors))
+        .map(|descriptor| descriptor.input_rate_hz)
+        .fold(0.0, f64::max);
+    spread.max(decoders).min(entry.sample_rate)
+}
+
+/// The widest the radio may run before one of the template's decoders stops reading it: a decoder
+/// handed the radio's own samples has a ceiling of its own, and one whose signal fills its whole
+/// channel leaves no guard band for a resampler and so is pinned to a single rate.
+fn ceiling_hz(entry: &Entry, descriptors: &[ChannelDescriptor]) -> Option<f64> {
+    entry
+        .channels
+        .iter()
+        .filter_map(|channel| {
+            let descriptor = descriptor_of(channel, descriptors)?;
+            descriptor
+                .native_rate_range()
+                .map(|(_, high)| high)
+                .or_else(|| {
+                    descriptor
+                        .exact_rate_only
+                        .then_some(descriptor.input_rate_hz)
+                })
+        })
+        .reduce(f64::min)
+}
 
 #[must_use]
 pub(crate) fn all() -> &'static [TemplateInfo] {
     static BUILT: LazyLock<Vec<TemplateInfo>> = LazyLock::new(|| {
+        let descriptors = sdrmm_engine::channel_types();
         TEMPLATES
             .iter()
             .map(|entry| {
@@ -640,7 +668,8 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     max_freq_hz: max.max(entry.center_hz),
                     patch: Some(patch(entry.channels)),
                     direction: sdrmm_wire::Direction::Rx,
-                    exact_rate: entry.exact_rate,
+                    min_sample_rate: Some(floor_hz(entry, &descriptors)),
+                    max_sample_rate: ceiling_hz(entry, &descriptors),
                     supported_devices: Vec::new(),
                 }
             })
@@ -679,13 +708,17 @@ mod tests {
     }
 
     #[test]
-    fn every_channel_fits_its_templates_passband() {
+    fn every_channel_fits_the_narrowest_window_the_template_accepts() {
         for template in all() {
-            let usable = template.sample_rate * 0.4;
+            let floor = template
+                .min_sample_rate
+                .expect("every template names a floor");
+            assert!(floor <= template.sample_rate, "{}", template.id);
+            let usable = sdrmm_dsp::flat_bandwidth_hz(floor) / 2.0;
             for channel in &template.channels {
                 let offset_hz = channel.frequency_hz - template.center_hz;
                 assert!(
-                    offset_hz.abs() < usable,
+                    offset_hz.abs() <= usable,
                     "{}: channel at {offset_hz} Hz is outside the flat ±{usable} Hz",
                     template.id
                 );
@@ -696,8 +729,13 @@ mod tests {
 
     #[test]
     fn every_channel_gets_a_rate_its_decoder_can_use() {
-        let descriptors = sdrmm_engine::Engine::new(None).channel_types();
+        let descriptors = sdrmm_engine::channel_types();
         for template in all() {
+            let floor = template
+                .min_sample_rate
+                .expect("every template names a floor");
+            let ceiling = template.max_sample_rate.unwrap_or(f64::INFINITY);
+            assert!(template.sample_rate <= ceiling, "{}", template.id);
             for channel in &template.channels {
                 let type_id = channel.params.type_id();
                 let descriptor = descriptors
@@ -705,15 +743,14 @@ mod tests {
                     .find(|d| d.type_id == type_id)
                     .unwrap_or_else(|| panic!("{}: unknown channel {type_id}", template.id));
                 assert!(
-                    template.sample_rate >= descriptor.input_rate_hz,
-                    "{}: {type_id} needs {} Hz, template runs at {} Hz",
+                    floor >= descriptor.input_rate_hz,
+                    "{}: {type_id} needs {} Hz, the narrowest window is {floor} Hz",
                     template.id,
-                    descriptor.input_rate_hz,
-                    template.sample_rate
+                    descriptor.input_rate_hz
                 );
                 if let Some((_, high)) = descriptor.native_rate_range() {
                     assert!(
-                        template.sample_rate <= high,
+                        ceiling <= high,
                         "{}: {type_id} reads raw samples up to {high} Hz",
                         template.id
                     );
@@ -742,9 +779,73 @@ mod tests {
     fn adsb_template_runs_the_device_at_the_channel_rate() {
         let adsb = get("adsb").expect("adsb template");
         assert_eq!(adsb.sample_rate, 2_000_000.0);
-        assert!(!adsb.exact_rate);
+        assert_eq!(adsb.max_sample_rate, Some(4_000_000.0));
         assert_eq!(adsb.channels.len(), 1);
         assert_eq!(adsb.channels[0].frequency_hz, adsb.center_hz);
+    }
+
+    #[test]
+    fn only_a_template_whose_decoder_reads_raw_samples_caps_the_receiver() {
+        let gnss = get("gnss-lab").expect("gnss template");
+        assert_eq!(gnss.max_sample_rate, Some(gnss.sample_rate), "pinned");
+        assert_eq!(get("fm-radio").expect("fm template").max_sample_rate, None);
+    }
+
+    #[test]
+    fn a_radio_that_only_runs_wide_gets_a_rate_for_every_template() {
+        let mut transceiver = sdrmm_wire::DeviceProfile {
+            freq_ranges: vec![sdrmm_wire::Range {
+                min: 70_000_000.0,
+                max: 6_000_000_000.0,
+                step: None,
+            }],
+            ..sdrmm_wire::DeviceProfile::default()
+        };
+        transceiver.sample_rate_ranges = vec![sdrmm_wire::Range {
+            min: 2_100_000.0,
+            max: 61_440_000.0,
+            step: None,
+        }];
+
+        for template in all() {
+            if template.min_freq_hz < 70_000_000.0 {
+                continue;
+            }
+            let Some(rate) = template.rate_on(&transceiver) else {
+                assert_eq!(
+                    template.max_sample_rate,
+                    Some(template.sample_rate),
+                    "{}: only a pinned template may be refused a wider receiver",
+                    template.id
+                );
+                continue;
+            };
+            assert!(
+                rate >= 2_100_000.0,
+                "{}: {rate} Hz is below the floor",
+                template.id
+            );
+            assert_eq!(template.unmet_by(&transceiver), None, "{}", template.id);
+        }
+    }
+
+    #[test]
+    fn a_narrow_template_is_refused_by_a_radio_that_cannot_reach_its_decoders() {
+        let acars = get("acars").expect("acars template");
+        let floor = acars.min_sample_rate.expect("a floor");
+        assert!(floor < acars.sample_rate, "the five channels fit in less");
+
+        let narrow = sdrmm_wire::DeviceProfile {
+            sample_rates: vec![floor / 2.0],
+            ..sdrmm_wire::DeviceProfile::default()
+        };
+        assert!(acars.unmet_by(&narrow).is_some());
+
+        let stand_in = sdrmm_wire::DeviceProfile {
+            sample_rates: vec![floor],
+            ..sdrmm_wire::DeviceProfile::default()
+        };
+        assert_eq!(acars.rate_on(&stand_in), Some(floor));
     }
 
     #[test]
