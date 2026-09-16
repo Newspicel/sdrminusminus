@@ -44,5 +44,9 @@ tokio-tungstenite = "0.30"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[dev-dependencies]
+sdrmm-device = { path = "../../crates/device" }
+sdrmm-device-virtual = { path = "../../crates/device-virtual" }
+
 [profile.dev.package."*"]
 opt-level = 3

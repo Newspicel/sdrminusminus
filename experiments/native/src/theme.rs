@@ -243,6 +243,7 @@ pub const SHEET: &str = css!(
 .pick__wrap { position: relative; flex: 1 1 auto; min-width: 0; }
 
 .pick {
+    display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -410,6 +411,19 @@ pub const SHEET: &str = css!(
 .log__when { flex: 0 0 auto; color: var(--ink-faint); }
 .log__what { flex: 1 1 auto; overflow: hidden; }
 
+.params { gap: 4px; }
+.entry { flex: 1 1 auto; min-width: 0; }
+.entry .native-input, .pal__search .native-input {
+    height: 26px; min-width: 0; width: 100%; padding: 3px 8px;
+    font-family: var(--mono); font-size: 11px; line-height: 18px;
+    background-color: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 5px;
+}
+.entry .native-input:focus-visible, .pal__search .native-input:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); }
+.entry .native-input:invalid { border-color: var(--danger); }
+.params__row { flex-direction: column; }
+.audio-controls { gap: 9px; }
+.field__error { color: #f87171; font-size: 11px; }
 .hint { color: var(--ink-faint); font-size: 11px; }
 
 .rack { flex-direction: row; flex-wrap: wrap; align-content: flex-start; gap: 14px; padding: 14px; overflow: auto; }
@@ -447,9 +461,12 @@ pub const SHEET: &str = css!(
 }
 
 .pal__head { align-items: center; padding: 9px 13px; border-bottom: 1px solid var(--line); background-color: var(--panel-2); }
+.pal__search { margin: 8px; }
+.pal > .seg { margin: 0 8px 8px; }
+.pal__row:focus-visible { outline: 2px solid var(--accent); }
 .pal__list { flex-direction: column; padding: 6px; overflow: auto; }
 
-.pal__row { align-items: center; justify-content: space-between; padding: 6px 9px; border-radius: 6px; color: var(--ink-dim); }
+.pal__row { display: flex; width: 100%; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 9px; border-radius: 6px; color: var(--ink-dim); }
 .pal__row:hover { background-color: var(--panel-2); color: var(--ink); }
 .pal__cat { font-family: var(--mono); font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-faint); }
 "#

@@ -135,7 +135,8 @@ fn leading_zero(hz: f64, index: usize) -> bool {
     index < 3 && digits[..=index].iter().all(|digit| *digit == 0)
 }
 
-pub fn row_field(name: &'static str, body: impl IntoView + 'static) -> impl IntoView {
+pub fn row_field(name: impl Into<String>, body: impl IntoView + 'static) -> impl IntoView {
+    let name = name.into();
     view! {
         row(class = "field") {
             label(class = "field__name") {{name}}
@@ -165,6 +166,38 @@ where
                 .map_or_else(|| String::from("—"), |(_, label)| label.clone())
         }
     };
+    let keys = {
+        let options = options.clone();
+        let on_pick = on_pick.clone();
+        move |ev: &mut EventCx<'_, events::KeyDown>| {
+            let current = options
+                .iter()
+                .position(|(value, _)| chosen.get_untracked().as_ref() == Some(value));
+            let index = match ev.key {
+                Key::Named(NamedKey::ArrowDown) => choice_index(current, options.len(), 1),
+                Key::Named(NamedKey::ArrowUp) => choice_index(current, options.len(), -1),
+                Key::Named(NamedKey::Home) => (!options.is_empty()).then_some(0),
+                Key::Named(NamedKey::End) => options.len().checked_sub(1),
+                Key::Named(NamedKey::Escape) => {
+                    owner.set(0);
+                    None
+                }
+                Key::Named(NamedKey::Enter) => {
+                    owner.set(toggled(owner.get_untracked(), id));
+                    None
+                }
+                _ if ev.key.inserted_text() == Some(" ") => {
+                    owner.set(toggled(owner.get_untracked(), id));
+                    None
+                }
+                _ => return,
+            };
+            if let Some(index) = index {
+                on_pick(options[index].0.clone());
+            }
+            ev.prevent_default();
+        }
+    };
     let rows = move || {
         options
             .iter()
@@ -176,6 +209,8 @@ where
                 view! {
                     control(
                         class = "menu__row",
+                        tabindex = Focus::Sequential,
+                        a11y:role = Role::Button,
                         class:on = move || chosen.get().as_ref() == Some(&marked),
                         on:pointer_down:stop = move |_| {
                             owner.set(0);
@@ -193,6 +228,8 @@ where
         box(class = "pick__wrap") {
             control(
                 class = "pick",
+                on:key_down = keys,
+                a11y:role = Role::Button,
                 class:on = move || open.get(),
                 tabindex = Focus::Sequential,
                 on:pointer_down:stop = move |_| owner.set(toggled(owner.get_untracked(), id))
@@ -205,6 +242,16 @@ where
             }))}
         }
     }
+}
+
+fn choice_index(current: Option<usize>, count: usize, direction: i32) -> Option<usize> {
+    let last = count.checked_sub(1)?;
+    Some(match current {
+        Some(index) if direction < 0 => index.saturating_sub(1),
+        Some(index) => (index + 1).min(last),
+        None if direction < 0 => last,
+        None => 0,
+    })
 }
 
 pub fn segments<T>(
@@ -224,6 +271,8 @@ where
             view! {
                 control(
                     class = "seg__item",
+                    tabindex = Focus::Sequential,
+                    a11y:role = Role::Button,
                     class:on = move || chosen.get() == marked,
                     on:click:stop = move |_| on_pick(picked.clone())
                 ) {
@@ -359,6 +408,16 @@ mod tests {
 
     fn at(x: f32) -> Point<CssPx, Css> {
         Point::new(CssPx(x), CssPx(0.0))
+    }
+
+    #[test]
+    fn keyboard_choices_stay_in_range_and_start_at_the_nearest_end() {
+        assert_eq!(choice_index(None, 0, 1), None);
+        assert_eq!(choice_index(None, 3, 1), Some(0));
+        assert_eq!(choice_index(None, 3, -1), Some(2));
+        assert_eq!(choice_index(Some(0), 3, -1), Some(0));
+        assert_eq!(choice_index(Some(2), 3, 1), Some(2));
+        assert_eq!(choice_index(Some(1), 3, -1), Some(0));
     }
 
     #[test]

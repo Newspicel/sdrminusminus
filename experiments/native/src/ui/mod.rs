@@ -2,6 +2,7 @@ pub mod faces;
 pub mod gpu;
 pub mod node;
 pub mod palette;
+pub mod params;
 pub mod patch;
 pub mod rack;
 pub mod scope;
@@ -51,7 +52,8 @@ fn head(store: Store) -> impl IntoView {
     let tab = move |pane: Pane, label: &'static str| {
         view! {
             control(
-                class = "tab",
+                tabindex = Focus::Sequential,
+                a11y:role = Role::Button,                class = "tab",
                 class:on = move || store.pane.get() == pane,
                 on:click = move |_| store.pane.set(pane)
             ) {
@@ -68,14 +70,16 @@ fn head(store: Store) -> impl IntoView {
             {tab(Pane::Rack, "Rack")}
             box(class = "head__rule")
             control(
-                class = "head__link",
+                tabindex = Focus::Sequential,
+                a11y:role = Role::Button,                class = "head__link",
                 on:click = move |_| store.palette.update(|open| *open = !*open)
             ) {
                 "+ Node"
             }
             spacer()
             control(
-                class = "head__step",
+                tabindex = Focus::Sequential,
+                a11y:role = Role::Button,                class = "head__step",
                 state:disabled = move || !store.can_undo.get(),
                 a11y:label = "Undo",
                 on:click = move |_| store.step_history(true)
@@ -83,7 +87,8 @@ fn head(store: Store) -> impl IntoView {
                 "\u{21ba}"
             }
             control(
-                class = "head__step",
+                tabindex = Focus::Sequential,
+                a11y:role = Role::Button,                class = "head__step",
                 state:disabled = move || !store.can_redo.get(),
                 a11y:label = "Redo",
                 on:click = move |_| store.step_history(false)
@@ -92,7 +97,8 @@ fn head(store: Store) -> impl IntoView {
             }
             box(class = "head__rule") {}
             control(
-                class = "head__link",
+                tabindex = Focus::Sequential,
+                a11y:role = Role::Button,                class = "head__link",
                 on:click = move |_| store.palette.set(true)
             ) {
                 "Library"

@@ -1,6 +1,6 @@
 # sdr-- native (experiment)
 
-A proof of concept: the sdr-- interface drawn as a native window with
+The sdr-- interface drawn as a native window with
 [zgui](https://github.com/zortax/zgui) instead of React in a webview.
 
 It is a separate workspace on purpose. zgui is pre-1.0, pulls in around sixty crates, and is
@@ -37,16 +37,18 @@ speaker, decoder log — centred on 100 MHz with the channel on 100.3 MHz.
   waterfall on an embedded wgpu `surface` — a scrolling `R8Unorm` history texture with a palette
   lookup in WGSL, which is the same shape as the WebGL waterfall in `web/src/gl`.
 - Live state over the WebSocket: device sets, channel levels, decoded records, spectrum frames.
-- The node palette, the rack view, workspace undo and redo.
+- Searchable node palette with category filters and constructors for the entire server catalog.
+- Decoder settings with typed toggles, choices, text and numeric fields generated from the wire
+  schema, descriptor limits, and contextual NFM tone and scrambler controls.
+- The rack view and ordered workspace undo/redo. Graph edits preserve rack placement and workspace
+  settings; graph, radio and channel writes are serialized. Revision conflicts surface to the user.
 
 ## What is missing
 
 - No audio output. The speaker face shows what is wired to it and its level; it does not decode
   Opus or open an output device.
-- Only the node kinds listed in `ui::palette::body_for` can be added. The rest of the catalogue
-  refuses rather than guessing.
 - No map, video, images, scanner, hunt, coherent or CPS panels.
-- Text entry is limited to the dial; there are no free-text fields.
+- Several specialized node faces still show placeholders, although they can be added and wired.
 
 ## Layout
 
@@ -63,6 +65,18 @@ speaker, decoder log — centred on 100 MHz with the channel on 100.3 MHz.
 | `src/ui/gpu.rs` | The waterfall's wgpu pipeline |
 | `src/ui/scope.rs` | The spectrum trace, axes, and palettes |
 | `src/ui/widgets.rs` | Dial, select, segmented control, slider, checkbox, meters |
+| `src/params.rs` | Decoder control metadata and validation from the shared wire schema |
+| `src/ui/params.rs` | Decoder settings and native text entry |
+| `src/workspace.rs` | Ordered workspace and settings writes |
 
 `cargo test` covers the parts that are not drawing: frame decoding, node binding, the dial's
-arithmetic, port geometry, wire curves, palette lookups, and the starter patch.
+arithmetic, port geometry, wire curves, palette lookups, and the starter patch. Server-backed
+smoke tests cover ordered saves and undo/redo, preservation of rack/settings, external revision
+conflicts, and decoder edits against a registry containing only `device-virtual`.
+
+```sh
+cargo fmt --check
+cargo clippy --no-default-features --all-targets -- -D warnings
+cargo check
+cargo test --no-default-features
+```

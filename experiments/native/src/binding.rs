@@ -190,6 +190,7 @@ mod tests {
                 directional: None,
                 dc_artifact: Default::default(),
                 hardware_sweep: false,
+                noise_source: false,
                 coherence: Default::default(),
             },
             settings: DeviceSettings::default(),
