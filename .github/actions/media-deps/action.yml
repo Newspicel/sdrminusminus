@@ -13,19 +13,21 @@ runs:
     - if: runner.os == 'Windows'
       uses: ilammy/msvc-dev-cmd@v1
     - if: runner.os == 'Windows'
+      id: msys2
       uses: msys2/setup-msys2@v2
       with:
         install: make diffutils
         path-type: inherit
+    # MSYS2 stays off the job's PATH: its `usr/bin` carries a `link.exe` that would shadow the
+    # MSVC linker for every later cargo step. The media script prepends it for its own children.
     - if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        "C:\msys64\usr\bin" >> $env:GITHUB_PATH
-        "C:\Program Files\LLVM\bin" >> $env:GITHUB_PATH
+        "MEDIA_SHELL_BIN=${{ steps.msys2.outputs.msys2-location }}\usr\bin;C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
         "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
     - uses: actions/cache@v5
       with:
-        path: target/media
+        path: .media
         key: media-${{ runner.os }}-${{ runner.arch }}-${{ inputs.target }}-${{ hashFiles('scripts/build-media.py') }}
     - shell: bash
       env:
@@ -33,4 +35,4 @@ runs:
       run: |
         python3 scripts/build-media.py
         if [ -n "$MEDIA_TARGET" ]; then python3 scripts/build-media.py --target "$MEDIA_TARGET"; fi
-        python3 -c 'import importlib.util, os; s=importlib.util.spec_from_file_location("media", "scripts/build-media.py"); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); p=m.ROOT / "target/media" / m.target_name(); open(os.environ["GITHUB_ENV"], "a").write("FFMPEG_DIR="+str(p)+"\n")'
+        echo "FFMPEG_DIR=$(python3 scripts/build-media.py --print-prefix)" >> "$GITHUB_ENV"

@@ -544,7 +544,7 @@ jobs:
           # If any are missing the build still succeeds and produces an *unsigned* .dmg —
           # Gatekeeper then quarantines the app with no ticket to staple, and users have to
           # clear the quarantine attribute by hand.
-          FFMPEG_DIR: ${{ github.workspace }}/target/media/${{ matrix.target }}
+          FFMPEG_DIR: ${{ github.workspace }}/.media/${{ matrix.target }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -587,7 +587,7 @@ jobs:
         if: runner.os == 'macOS' && steps.bundle.outcome == 'failure'
         uses: tauri-apps/tauri-action@v1
         env:
-          FFMPEG_DIR: ${{ github.workspace }}/target/media/${{ matrix.target }}
+          FFMPEG_DIR: ${{ github.workspace }}/.media/${{ matrix.target }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

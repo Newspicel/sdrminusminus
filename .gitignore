@@ -6,6 +6,10 @@
 **/target
 # Cargo.lock IS committed: this workspace ships binaries and needs reproducible builds.
 
+# FFmpeg source tree and install prefix (scripts/build-media.py)
+/.media
+/.media-build
+
 # Python
 __pycache__/
 *.pyc

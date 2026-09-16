@@ -35,17 +35,19 @@ build-time development package.
 git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
 python3 scripts/build-media.py
-export FFMPEG_DIR="$PWD/target/media/$(rustc -vV | sed -n 's/^host: //p')"
+export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 cargo run -p sdrmm
 ```
 
 The media build downloads the checksummed FFmpeg 9.0.1 source and builds only the required
-codec libraries. It caches the result in `target/media/<target>`. Keep `FFMPEG_DIR` set for Cargo
+codec libraries. It caches the result in `.media/<target>`. Keep `FFMPEG_DIR` set for Cargo
 commands. Cross builds use `--target <triple>` on the media script and the corresponding prefix.
 Windows builds require a Visual Studio developer shell, LLVM and MSYS2 Make; the CI media action
-shows the same setup. Nix uses its packaged FFmpeg development libraries.
+shows the same setup. Set `MEDIA_SHELL_BIN` to the directories holding that `bash`, `make` and
+`clang-cl` — the script prepends it for the tools it spawns rather than for the whole shell, so
+MSYS2's `link.exe` never shadows the MSVC linker. Nix uses its packaged FFmpeg development libraries.
 
 Open <http://localhost:8080>. Distributable builds embed `web/dist`; build the frontend first.
 Backend-only builds can compile with a placeholder interface if that directory is missing.

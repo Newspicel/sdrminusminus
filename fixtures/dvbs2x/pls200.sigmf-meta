@@ -1,0 +1,22 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:sample_rate": 1000000,
+    "core:version": "1.2.6",
+    "core:description": "Synthetic DVB-S2X PLS 200, symbol-rate IQ, 0.37 rad rotation, Gaussian noise sigma 0.0005",
+    "core:sha512": "09b52efd240ce5697b697036df7d708ea71a66e6265c21762f2386fd039f9156a16f84a9d349e73854af8338283d64662d9c6ce99478dd44e4cf27c77c36f50e"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 9360,
+      "core:comment": "32 packets, PID 0x123, packet i payload byte j = (200+i+j)%256"
+    }
+  ]
+}

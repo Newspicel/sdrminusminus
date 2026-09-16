@@ -1,0 +1,22 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:sample_rate": 1000000,
+    "core:version": "1.2.6",
+    "core:description": "Synthetic DVB-S2X PLS 138, symbol-rate IQ, 0.37 rad rotation, Gaussian noise sigma 0.0005",
+    "core:sha512": "c904767b0ed1b3578c6eba86e03e009ac2c6fdaffdbc1b59e367a67cad01fca55d9dccc37c9c9eacf8c2f8f1a35ba8d10919187d37a0ff3856fe9ab239daba11"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 21690,
+      "core:comment": "23 packets, PID 0x123, packet i payload byte j = (138+i+j)%256"
+    }
+  ]
+}

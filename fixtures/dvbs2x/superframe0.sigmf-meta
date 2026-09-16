@@ -1,0 +1,22 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:sample_rate": 1000000,
+    "core:version": "1.2.6",
+    "core:description": "Synthetic Annex E format 0, 256APSK, default scrambling codes, SF pilots enabled, 0.19 rad phase",
+    "core:sha512": "193ec37dff4f55764da1b562b575cfde88ae8be14ad7ac8eae5106c5c89c60f5fd3080c246b46c29f59606006b811c28d0e21e530efff163f7918af915c80704"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 612540,
+      "core:comment": "32 packets, PID 0x123, packet i payload byte j = (214+i+j)%256"
+    }
+  ]
+}

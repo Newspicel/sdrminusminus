@@ -97,7 +97,7 @@ Use the repository's pinned Rust toolchain, a C/C++ compiler, Clang/libclang, CM
 git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
 python3 scripts/build-media.py
-export FFMPEG_DIR="$PWD/target/media/$(rustc -vV | sed -n 's/^host: //p')"
+export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 cargo run -p sdrmm

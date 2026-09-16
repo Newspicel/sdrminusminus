@@ -1,0 +1,23 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:sample_rate": 2048000,
+    "core:version": "1.2.5",
+    "core:license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "core:description": "Frozen independent Python/NumPy synthetic DAB Mode IV frame; EN 300 401 V1.4.1 clauses 11.2 and 14. Not an off-air recording. MSC is random data.",
+    "core:sha512": "3b01926bed09747c51c96de3f0ac336652263fd449434be1d12f5497a264a5a5ac3a73e5e03599974ab5ccde82799a3da449b6bbd77a46ccc4362d94fe11164e"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 220352000
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 98304,
+      "core:label": "Expected ensemble 0x4a2c Reference DAB; service 0xc201 Reference audio; 96 kbit/s DAB+"
+    }
+  ]
+}

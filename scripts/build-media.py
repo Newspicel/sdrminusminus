@@ -21,8 +21,35 @@ def target_name():
     return f"{arch}-{suffix}"
 
 
-def run(args, cwd):
-    subprocess.run(args, cwd=cwd, check=True)
+# Both stay out of `target/`: Swatinem/rust-cache prunes that directory on a partial cache restore
+# and would delete the installed libraries between the build and the link that needs them.
+def install_prefix(target):
+    return ROOT / ".media" / target
+
+
+def work_dir(target):
+    return ROOT / ".media-build" / target
+
+
+def shell_env():
+    env = os.environ.copy()
+    extra = env.get("MEDIA_SHELL_BIN")
+    if extra:
+        env["PATH"] = os.pathsep.join([extra, env.get("PATH", "")])
+    return env
+
+
+# Windows `CreateProcess` resolves a bare name against the parent's `PATH`, not the one handed to
+# the child, so every tool is looked up in the shell environment and spawned by absolute path.
+def tool(name, env):
+    found = shutil.which(name, path=env.get("PATH"))
+    if found is None:
+        raise RuntimeError(f"{name} is required to build FFmpeg")
+    return found
+
+
+def run(args, cwd, env):
+    subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
 def prepare_source(work, archive):
@@ -40,9 +67,9 @@ def prepare_source(work, archive):
     return source
 
 
-def configure(source, prefix, target):
+def configure(source, prefix, target, env):
     args = [
-        "bash", str(source / "configure"), f"--prefix={prefix.as_posix()}",
+        tool("bash", env), str(source / "configure"), f"--prefix={prefix.as_posix()}",
         "--disable-autodetect", "--disable-everything", "--disable-network",
         "--disable-programs", "--disable-doc", "--disable-debug", "--disable-shared",
         "--enable-static", "--enable-pic", "--enable-gpl", "--enable-version3", "--disable-avdevice", "--disable-avfilter",
@@ -52,7 +79,7 @@ def configure(source, prefix, target):
     ]
     arch = target.split("-", 1)[0]
     args.append(f"--arch={arch}")
-    if not shutil.which("nasm"):
+    if not shutil.which("nasm", path=env.get("PATH")):
         args.append("--disable-x86asm")
     if "windows-msvc" in target:
         args.extend(["--toolchain=msvc", "--target-os=win32", "--cc=clang-cl", "--ld=lld-link", "--ar=llvm-lib"])
@@ -70,19 +97,24 @@ def main():
     parser.add_argument("--target", default=target_name())
     parser.add_argument("--prefix", type=Path)
     parser.add_argument("--archive", type=Path)
+    parser.add_argument("--print-prefix", action="store_true")
     args = parser.parse_args()
-    prefix = (args.prefix or ROOT / "target" / "media" / args.target).resolve()
-    work = ROOT / "target" / "media-build" / args.target
+    prefix = (args.prefix or install_prefix(args.target)).resolve()
+    if args.print_prefix:
+        print(prefix)
+        return
     fingerprint = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     marker = prefix / "sdrmm-build.txt"
     if marker.exists() and marker.read_text() == fingerprint:
         print(prefix)
         return
+    work = work_dir(args.target)
     work.mkdir(parents=True, exist_ok=True)
+    env = shell_env()
     source = prepare_source(work, args.archive)
-    run(configure(source, prefix, args.target), work)
-    run(["make", "-j", str(os.cpu_count() or 2)], work)
-    run(["make", "install"], work)
+    run(configure(source, prefix, args.target, env), work, env)
+    run([tool("make", env), "-j", str(os.cpu_count() or 2)], work, env)
+    run([tool("make", env), "install"], work, env)
     marker.write_text(fingerprint)
     print(prefix)
 

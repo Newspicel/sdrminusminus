@@ -799,7 +799,7 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
         args.push(triple);
     }
     let media_target = target.map(str::to_owned).map_or_else(host_triple, Ok)?;
-    let media = root.join("target/media").join(&media_target);
+    let media = root.join(".media").join(&media_target);
     if media.join("sdrmm-build.txt").is_file() {
         run_with_env(
             "cargo",
