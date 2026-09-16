@@ -3,16 +3,25 @@ use std::{f32::consts::PI, sync::Arc};
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use sdrmm_dsp::{CONFIDENT, Soft};
+use sdrmm_wire::DabTransmissionMode;
 
+use super::mode::Mode;
+
+#[cfg(test)]
 pub const CARRIERS: usize = 1_536;
+#[cfg(test)]
 pub const USEFUL: usize = 2_048;
+#[cfg(test)]
 pub const GUARD: usize = 504;
+#[cfg(test)]
 pub const SYMBOL: usize = USEFUL + GUARD;
+#[cfg(test)]
 pub const NULL: usize = 2_656;
+#[cfg(test)]
 pub const SYMBOLS: usize = 76;
+#[cfg(test)]
 pub const FRAME: usize = NULL + SYMBOLS * SYMBOL;
-pub const FIC_SYMBOLS: std::ops::Range<usize> = 1..4;
-pub const MSC_SYMBOLS: std::ops::Range<usize> = 4..SYMBOLS;
+#[cfg(test)]
 pub const SYMBOL_BITS: usize = 2 * CARRIERS;
 
 #[cfg(any(test, feature = "test-signals"))]
@@ -87,47 +96,121 @@ const H: [[u8; 32]; 4] = [
     ],
 ];
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(test)]
 #[must_use]
 pub fn reference_phase(carrier: i16) -> Option<f32> {
-    let &(low, _, table, offset) = PHASE_STEPS
-        .iter()
-        .find(|&&(low, high, _, _)| (low..=high).contains(&carrier))?;
-    let step = usize::try_from(carrier - low).ok()?;
-    Some(PI / 2.0 * f32::from(H[usize::from(table)][step] + offset))
+    reference_phase_for_mode(DabTransmissionMode::I, carrier)
 }
 
 #[cfg(any(test, feature = "test-signals"))]
 #[must_use]
-pub fn reference_symbol() -> Vec<Complex<f32>> {
-    let mut bins = vec![Complex::new(0.0, 0.0); USEFUL];
-    for carrier in -768i16..=768 {
-        if carrier == 0 {
-            continue;
+pub fn reference_phase_for_mode(mode: DabTransmissionMode, carrier: i16) -> Option<f32> {
+    const II: [(u8, u8); 12] = [
+        (0, 2),
+        (1, 3),
+        (2, 2),
+        (3, 2),
+        (0, 1),
+        (1, 2),
+        (2, 0),
+        (1, 2),
+        (0, 2),
+        (3, 1),
+        (2, 0),
+        (1, 3),
+    ];
+    const III: [(u8, u8); 6] = [(0, 2), (1, 3), (2, 0), (3, 2), (2, 2), (1, 2)];
+    const IV: [(u8, u8); 24] = [
+        (0, 0),
+        (1, 1),
+        (2, 1),
+        (3, 2),
+        (0, 2),
+        (1, 2),
+        (2, 0),
+        (3, 3),
+        (0, 3),
+        (1, 1),
+        (2, 3),
+        (3, 2),
+        (0, 0),
+        (3, 1),
+        (2, 0),
+        (1, 2),
+        (0, 0),
+        (3, 1),
+        (2, 2),
+        (1, 2),
+        (0, 2),
+        (3, 1),
+        (2, 3),
+        (1, 0),
+    ];
+    let half = Mode::new(mode).carriers() as i16 / 2;
+    if carrier == 0 || !(-half..=half).contains(&carrier) {
+        return None;
+    }
+    let index = usize::try_from(if carrier < 0 {
+        carrier + half
+    } else {
+        carrier + half - 1
+    })
+    .ok()?;
+    let (table, offset) = match mode {
+        DabTransmissionMode::I => {
+            let &(_, _, table, offset) = PHASE_STEPS.get(index / 32)?;
+            (table, offset)
         }
-        let Some(phase) = reference_phase(carrier) else {
-            continue;
-        };
-        bins[carrier_bin(carrier)] = Complex::from_polar(1.0, phase);
+        DabTransmissionMode::Ii => II[index / 32],
+        DabTransmissionMode::Iii => III[index / 32],
+        DabTransmissionMode::Iv => IV[index / 32],
+    };
+    Some(PI / 2.0 * f32::from(H[usize::from(table)][index % 32] + offset))
+}
+
+#[cfg(test)]
+#[must_use]
+pub fn reference_symbol() -> Vec<Complex<f32>> {
+    reference_symbol_for_mode(DabTransmissionMode::I)
+}
+
+#[cfg(any(test, feature = "test-signals"))]
+#[must_use]
+pub fn reference_symbol_for_mode(transmission_mode: DabTransmissionMode) -> Vec<Complex<f32>> {
+    let mode = Mode::new(transmission_mode);
+    let mut bins = vec![Complex::new(0.0, 0.0); mode.useful];
+    let half = mode.carriers() as i16 / 2;
+    for carrier in -half..=half {
+        if let Some(phase) = reference_phase_for_mode(transmission_mode, carrier) {
+            bins[mode.carrier_bin(carrier)] = Complex::from_polar(1.0, phase);
+        }
     }
     bins
 }
 
+#[cfg(test)]
 #[must_use]
 pub fn carrier_bin(carrier: i16) -> usize {
-    (i32::from(carrier).rem_euclid(USEFUL as i32)) as usize
+    Mode::new(DabTransmissionMode::I).carrier_bin(carrier)
+}
+
+#[cfg(test)]
+#[must_use]
+pub fn interleaving() -> Vec<usize> {
+    interleaving_for_mode(DabTransmissionMode::I)
 }
 
 #[must_use]
-pub fn interleaving() -> Vec<usize> {
+pub fn interleaving_for_mode(transmission_mode: DabTransmissionMode) -> Vec<usize> {
+    let mode = Mode::new(transmission_mode);
     let mut value = 0usize;
-    let mut table = Vec::with_capacity(CARRIERS);
-    for _ in 0..USEFUL {
-        value = (13 * value + 511) % USEFUL;
-        if value == USEFUL / 2 || !(256..=1_792).contains(&value) {
+    let mut table = Vec::with_capacity(mode.carriers());
+    for _ in 1..mode.useful {
+        value = (13 * value + mode.useful / 4 - 1) % mode.useful;
+        if value == mode.useful / 2 || !(mode.useful / 8..=7 * mode.useful / 8).contains(&value) {
             continue;
         }
-        table.push(carrier_bin((value as i32 - USEFUL as i32 / 2) as i16));
+        table.push(mode.carrier_bin((value as i32 - mode.useful as i32 / 2) as i16));
     }
     table
 }
@@ -138,6 +221,8 @@ fn clamp(value: f32) -> Soft {
 }
 
 pub struct SymbolDemod {
+    mode: Mode,
+    fft_scratch: Vec<Complex<f32>>,
     fft: Arc<dyn Fft<f32>>,
     bins: Vec<usize>,
     scratch: Vec<Complex<f32>>,
@@ -151,13 +236,23 @@ pub struct SymbolDemod {
 impl SymbolDemod {
     #[must_use]
     pub fn new() -> Self {
+        Self::for_mode(DabTransmissionMode::I)
+    }
+
+    #[must_use]
+    pub fn for_mode(transmission_mode: DabTransmissionMode) -> Self {
+        let mode = Mode::new(transmission_mode);
         let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(mode.useful);
+        let fft_scratch = vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()];
         Self {
-            fft: planner.plan_fft_forward(USEFUL),
-            bins: interleaving(),
-            scratch: vec![Complex::new(0.0, 0.0); USEFUL],
-            previous: vec![Complex::new(0.0, 0.0); USEFUL],
-            current: vec![Complex::new(0.0, 0.0); USEFUL],
+            mode,
+            fft,
+            fft_scratch,
+            bins: interleaving_for_mode(transmission_mode),
+            scratch: vec![Complex::new(0.0, 0.0); mode.useful],
+            previous: vec![Complex::new(0.0, 0.0); mode.useful],
+            current: vec![Complex::new(0.0, 0.0); mode.useful],
             have_reference: false,
             signal: 0.0,
             noise: 0.0,
@@ -178,17 +273,18 @@ impl SymbolDemod {
         (10.0 * (self.signal / self.noise).log10()).clamp(0.0, 40.0) as f32
     }
 
-    pub fn transform(&mut self, symbol: &[Complex<f32>]) {
+    fn transform(&mut self, symbol: &[Complex<f32>]) {
         std::mem::swap(&mut self.previous, &mut self.current);
         self.scratch.clear();
         self.scratch
-            .extend_from_slice(&symbol[GUARD..GUARD + USEFUL]);
-        self.fft.process(&mut self.scratch);
+            .extend_from_slice(&symbol[self.mode.guard..self.mode.symbol()]);
+        self.fft
+            .process_with_scratch(&mut self.scratch, &mut self.fft_scratch);
         self.current.copy_from_slice(&self.scratch);
     }
 
     pub fn demodulate(&mut self, symbol: &[Complex<f32>], out: &mut Vec<Soft>) -> bool {
-        if symbol.len() < SYMBOL {
+        if symbol.len() < self.mode.symbol() {
             return false;
         }
         self.transform(symbol);
@@ -203,14 +299,14 @@ impl SymbolDemod {
         let mean = (power / (2 * self.bins.len()) as f32).max(1e-20);
         let scale = std::f32::consts::SQRT_2 / mean;
         let start = out.len();
-        out.resize(start + SYMBOL_BITS, 0);
+        out.resize(start + self.mode.symbol_bits(), 0);
         for (index, &bin) in self.bins.iter().enumerate() {
             let product = self.current[bin] * self.previous[bin].conj() * scale;
             let ideal = Complex::new(product.re.signum(), product.im.signum());
             self.signal += f64::from(ideal.norm_sqr());
             self.noise += f64::from((product - ideal).norm_sqr());
             out[start + index] = clamp(-product.re);
-            out[start + CARRIERS + index] = clamp(-product.im);
+            out[start + self.mode.carriers() + index] = clamp(-product.im);
         }
         true
     }
@@ -222,15 +318,25 @@ impl Default for SymbolDemod {
     }
 }
 
-#[cfg(any(test, feature = "test-signals"))]
+#[cfg(test)]
 #[must_use]
 pub fn map_symbol(bits: &[bool]) -> Vec<Complex<f32>> {
+    map_symbol_for_mode(DabTransmissionMode::I, bits)
+}
+
+#[cfg(any(test, feature = "test-signals"))]
+#[must_use]
+pub fn map_symbol_for_mode(
+    transmission_mode: DabTransmissionMode,
+    bits: &[bool],
+) -> Vec<Complex<f32>> {
+    let carriers = Mode::new(transmission_mode).carriers();
     let amplitude = std::f32::consts::FRAC_1_SQRT_2;
-    (0..CARRIERS)
+    (0..carriers)
         .map(|index| {
             Complex::new(
                 if bits[index] { -amplitude } else { amplitude },
-                if bits[CARRIERS + index] {
+                if bits[carriers + index] {
                     -amplitude
                 } else {
                     amplitude
@@ -241,6 +347,7 @@ pub fn map_symbol(bits: &[bool]) -> Vec<Complex<f32>> {
 }
 
 pub struct FrameSync {
+    null: usize,
     average: f32,
     quiet: usize,
     started: bool,
@@ -249,7 +356,13 @@ pub struct FrameSync {
 impl FrameSync {
     #[must_use]
     pub const fn new() -> Self {
+        Self::for_mode(DabTransmissionMode::I)
+    }
+
+    #[must_use]
+    pub const fn for_mode(mode: DabTransmissionMode) -> Self {
         Self {
+            null: Mode::new(mode).null,
             average: 0.0,
             quiet: 0,
             started: false,
@@ -272,7 +385,7 @@ impl FrameSync {
             self.quiet += 1;
         } else {
             self.average += 0.00002 * (power - self.average);
-            let ended = self.started && (NULL / 2..2 * NULL).contains(&self.quiet);
+            let ended = self.started && (self.null / 2..2 * self.null).contains(&self.quiet);
             self.quiet = 0;
             self.started = true;
             return ended;
@@ -288,21 +401,30 @@ impl Default for FrameSync {
     }
 }
 
+#[cfg(test)]
 #[must_use]
 pub fn prefix_offset(frame: &[Complex<f32>]) -> Option<(f32, f32)> {
-    if frame.len() < SYMBOL {
+    prefix_offset_for_mode(Mode::new(DabTransmissionMode::I), frame)
+}
+
+#[must_use]
+pub fn prefix_offset_for_mode(mode: Mode, frame: &[Complex<f32>]) -> Option<(f32, f32)> {
+    if frame.len() < mode.symbol() {
         return None;
     }
     let mut correlation = Complex::new(0.0f32, 0.0);
     let mut energy = 0.0f32;
-    for index in 0..GUARD {
+    for index in 0..mode.guard {
         let prefix = frame[index];
-        let tail = frame[USEFUL + index];
+        let tail = frame[mode.useful + index];
         correlation += prefix * tail.conj();
         energy += prefix.norm_sqr() + tail.norm_sqr();
     }
     let coherence = 2.0 * correlation.norm() / energy.max(1e-20);
-    Some((coherence, -correlation.arg() / (2.0 * PI * USEFUL as f32)))
+    Some((
+        coherence,
+        -correlation.arg() / (2.0 * PI * mode.useful as f32),
+    ))
 }
 
 #[cfg(test)]
@@ -320,6 +442,30 @@ mod tests {
         assert!(seen.iter().all(|&bin| bin <= 768 || bin >= 1_280));
         assert!(!seen.contains(&0));
         assert_eq!(table[0], carrier_bin(511 - 1_024));
+    }
+
+    #[test]
+    fn every_mode_matches_the_published_interleaver_examples() {
+        use DabTransmissionMode::{I, Ii, Iii, Iv};
+        for (mode, expected) in [
+            (I, [-513, -14, 329, 692, -733]),
+            (Ii, [-129, -14, -55, -76, 163]),
+            (Iii, [-65, -14, 52, -29, -58]),
+            (Iv, [-257, -14, 73, 180, 198]),
+        ] {
+            let parameters = Mode::new(mode);
+            let table = interleaving_for_mode(mode);
+            assert_eq!(table.len(), parameters.carriers());
+            assert_eq!(
+                &table[..5],
+                &expected.map(|carrier| parameters.carrier_bin(carrier))
+            );
+            let mut unique = table;
+            unique.sort_unstable();
+            unique.dedup();
+            assert_eq!(unique.len(), parameters.carriers());
+            assert!(!unique.contains(&0));
+        }
     }
 
     #[test]

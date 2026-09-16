@@ -1750,6 +1750,11 @@ export interface components {
         /** @enum {string} */
         BroadcastServiceKind: "audio" | "data" | "video";
         BroadcastStatus: {
+            audio_error?: string | null;
+            /** Format: int32 */
+            audio_frames_bad?: number;
+            /** Format: int32 */
+            audio_frames_ok?: number;
             /** Format: float */
             bit_error_rate?: number | null;
             /** Format: int32 */
@@ -2684,7 +2689,10 @@ export interface components {
             mode?: components["schemas"]["DabMode"];
             /** Format: int32 */
             service_id?: number | null;
+            transmission_mode?: components["schemas"]["DabTransmissionMode"];
         };
+        /** @enum {string} */
+        DabTransmissionMode: "i" | "ii" | "iii" | "iv";
         DataLinkMessage: {
             crc_ok: boolean;
             details: unknown;

@@ -20,6 +20,8 @@ use sdrmm_wire::{
 };
 use tempfile::TempDir;
 
+mod common;
+
 const DECODE_TIMEOUT: Duration = Duration::from_secs(90);
 
 const NARROW_DEVICE_RATE: f64 = 240_000.0;
@@ -1082,37 +1084,48 @@ async fn ident_names_an_unknown_transmission_end_to_end() {
 
 #[tokio::test]
 async fn a_dab_ensemble_reaches_the_decoded_stream_through_a_virtual_device() {
-    const DEVICE_RATE: f64 = 2_400_000.0;
-    let dir = TempDir::new().unwrap();
-    let engine = engine_for(dir.path());
-    let iq = testgen::resample(&testgen::dab::ensemble(16), 2_048_000.0, DEVICE_RATE);
-    let device = plant(dir.path(), "dab-ensemble", iq, DEVICE_RATE);
-    let record = decode_first(
+    for mode in [
+        sdrmm_wire::DabTransmissionMode::I,
+        sdrmm_wire::DabTransmissionMode::Ii,
+        sdrmm_wire::DabTransmissionMode::Iii,
+        sdrmm_wire::DabTransmissionMode::Iv,
+    ] {
+        const DEVICE_RATE: f64 = 2_400_000.0;
+        let dir = TempDir::new().unwrap();
+        let engine = engine_for(dir.path());
+        let iq = testgen::resample(
+            &testgen::dab::ensemble_for_mode(mode, 16),
+            2_048_000.0,
+            DEVICE_RATE,
+        );
+        let device = plant(dir.path(), "dab-ensemble", iq, DEVICE_RATE);
+        let record = decode_first(
         &engine,
         &device,
         ChannelSettings {
             frequency_hz: CENTER_HZ,
             squelch: sdrmm_wire::Squelch::Off,
-            params: ChannelParams::Dab(DabParams::default()),
+            params: ChannelParams::Dab(DabParams { transmission_mode: mode, ..DabParams::default() }),
             audio: Default::default(),
         },
         |event| matches!(event, DecoderEvent::Broadcast(status) if status.locked && !status.services.is_empty()),
     )
     .await;
-    let DecoderEvent::Broadcast(status) = record.event else {
-        unreachable!("filtered above")
-    };
-    assert_eq!(
-        status.ensemble_label.as_deref(),
-        Some(testgen::dab::ENSEMBLE_LABEL)
-    );
-    assert_eq!(
-        status.ensemble_id,
-        Some(u32::from(testgen::dab::ENSEMBLE_ID))
-    );
-    assert_eq!(status.services.len(), 2, "{status:?}");
-    assert_eq!(status.services[0].label, "Rust FM");
-    assert!(status.snr_db > 10.0, "{status:?}");
+        let DecoderEvent::Broadcast(status) = record.event else {
+            unreachable!("filtered above")
+        };
+        assert_eq!(
+            status.ensemble_label.as_deref(),
+            Some(testgen::dab::ENSEMBLE_LABEL)
+        );
+        assert_eq!(
+            status.ensemble_id,
+            Some(u32::from(testgen::dab::ENSEMBLE_ID))
+        );
+        assert_eq!(status.services.len(), 2, "{status:?}");
+        assert_eq!(status.services[0].label, "Rust FM");
+        assert!(status.snr_db > 10.0, "{status:?}");
+    }
 }
 
 #[tokio::test]
@@ -1611,4 +1624,76 @@ async fn a_dect_capabilities_broadcast_reaches_the_decoded_stream() {
     assert_eq!(frame.security.authentication_supported, Some(true));
     assert_eq!(frame.security.ciphering_supported, Some(true));
     assert_eq!(frame.security.cipher_state, DectCipherState::Clear);
+}
+
+#[tokio::test]
+async fn broadcast_layer_two_audio_reaches_stereo_opus_through_virtual_devices() {
+    for system in [
+        BroadcastSystem::Dab,
+        BroadcastSystem::DvbS,
+        BroadcastSystem::DvbS2,
+    ] {
+        let dir = TempDir::new().unwrap();
+        let engine = engine_for(dir.path());
+        let (iq, rate, params) = match system {
+            BroadcastSystem::Dab => (
+                testgen::dab::ensemble(30),
+                2048000.0,
+                ChannelParams::Dab(DabParams {
+                    mode: sdrmm_wire::DabMode::Dab,
+                    ..DabParams::default()
+                }),
+            ),
+            BroadcastSystem::DvbS => (
+                testgen::datv::dvbs(4),
+                2000000.0,
+                ChannelParams::Datv(DatvParams {
+                    symbol_rate: testgen::datv::SYMBOL_RATE,
+                    code_rate: testgen::datv::CODE_RATE,
+                    ..DatvParams::default()
+                }),
+            ),
+            BroadcastSystem::DvbS2 => (
+                testgen::datv::dvbs2(4),
+                2000000.0,
+                ChannelParams::Datv(DatvParams {
+                    standard: DatvStandard::DvbS2,
+                    symbol_rate: testgen::datv::SYMBOL_RATE,
+                    ..DatvParams::default()
+                }),
+            ),
+            _ => unreachable!(),
+        };
+        let device = plant(dir.path(), "broadcast-audio", iq, rate);
+        let ds = engine.create_device_set(&device).unwrap();
+        let ch = engine
+            .add_channel(
+                ds,
+                0,
+                ChannelSettings {
+                    frequency_hz: CENTER_HZ,
+                    squelch: sdrmm_wire::Squelch::Off,
+                    params,
+                    audio: Default::default(),
+                },
+            )
+            .unwrap();
+        let mut receiver = engine.subscribe_audio(ds, ch).unwrap();
+        let packets = common::collect_packets(&mut receiver, 12).await;
+        assert!(
+            packets.iter().all(|packet| packet.channels == 2),
+            "{system:?}"
+        );
+        let mut decoder = opus::Decoder::new(48000, opus::Channels::Stereo).unwrap();
+        let mut channels = vec![Vec::new(), Vec::new()];
+        let mut pcm = vec![0.0; 1920];
+        for packet in &packets {
+            let frames = decoder.decode_float(&packet.opus, &mut pcm, false).unwrap();
+            for (index, sample) in pcm[..frames * 2].iter().enumerate() {
+                channels[index % 2].push(*sample);
+            }
+        }
+        common::assert_tone_dominates(&channels);
+        engine.remove_device_set(ds).unwrap();
+    }
 }

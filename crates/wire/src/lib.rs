@@ -41,11 +41,11 @@ pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvColor,
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams,
     ChannelSettings, CwSkimmerParams, DECT_CARRIER_SPACING_HZ, DEFAULT_FREQUENCY_HZ, DabMode,
-    DabParams, DatvCodeRate, DatvParams, DatvStandard, DectBand, DectParams, DectSides, DmrParams,
-    DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams, DstarParams, ErmesParams, FlexParams,
-    FreeDvMode, FreeDvParams, GnssParams, HfdlParams, IdentParams, IlsComponent, IlsParams,
-    InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
-    MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS,
+    DabParams, DabTransmissionMode, DatvCodeRate, DatvParams, DatvStandard, DectBand, DectParams,
+    DectSides, DmrParams, DmrSlots, DpmrParams, DrmMode, DrmParams, DscParams, DstarParams,
+    ErmesParams, FlexParams, FreeDvMode, FreeDvParams, GnssParams, HfdlParams, IdentParams,
+    IlsComponent, IlsParams, InmarsatAeroParams, InmarsatStdcParams, IridiumParams, M17Params,
+    MAX_IDENT_BANDWIDTH_HZ, MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MAX_NAVAID_REPORT_MS,
     MAX_SQUELCH_AUTO_MARGIN_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
     MIN_IDENT_THRESHOLD_DB, MIN_NAVAID_REPORT_MS, MIN_SQUELCH_AUTO_MARGIN_DB, MorseParams,
     NavtexParams, NfmParams, NfmScramblerMode, NfmToneMode, NxdnBandwidth, NxdnParams, P25Params,
@@ -613,6 +613,31 @@ mod contract_tests {
         assert!(json["audio_recording"].get("error").is_none());
         let back: ChannelInfo = serde_json::from_value(json).unwrap();
         assert_eq!(back, info);
+    }
+
+    #[test]
+    fn dab_transmission_mode_defaults_and_round_trips() {
+        let old: DabParams = serde_json::from_str(r#"{"mode":"dab_plus","service_id":49569}"#)
+            .expect("old settings");
+        assert_eq!(old.transmission_mode, DabTransmissionMode::I);
+        for (mode, name) in [
+            (DabTransmissionMode::I, "i"),
+            (DabTransmissionMode::Ii, "ii"),
+            (DabTransmissionMode::Iii, "iii"),
+            (DabTransmissionMode::Iv, "iv"),
+        ] {
+            let params = DabParams {
+                transmission_mode: mode,
+                ..old
+            };
+            let json = serde_json::to_value(params).expect("serialized settings");
+            assert_eq!(json["transmission_mode"], name);
+            assert_eq!(
+                serde_json::from_value::<DabParams>(json).expect("settings"),
+                params
+            );
+        }
+        assert!(serde_json::from_str::<DabParams>(r#"{"transmission_mode":"v"}"#).is_err());
     }
 
     #[test]

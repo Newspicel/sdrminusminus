@@ -139,6 +139,12 @@ const DAB_MODES: Options<NonNullable<ChannelParamsOf<"dab">["mode"]>> = [
   { value: "dab", label: "DAB" },
   { value: "dab_plus", label: "DAB+" },
 ];
+const DAB_TRANSMISSION_MODES: Options<NonNullable<ChannelParamsOf<"dab">["transmission_mode"]>> = [
+  { value: "i", label: "I" },
+  { value: "ii", label: "II" },
+  { value: "iii", label: "III" },
+  { value: "iv", label: "IV" },
+];
 const DATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"datv">["standard"]>> = [
   { value: "dvb_s", label: "DVB-S" },
   { value: "dvb_s2", label: "DVB-S2" },
@@ -1142,14 +1148,26 @@ function ModeControls({
       );
     case "dab":
       return (
-        <SettingRow label="Generation">
-          <Segmented
-            label="DAB generation"
-            value={params.settings.mode ?? "auto"}
-            options={DAB_MODES}
-            onChange={(mode) => onParams({ type: "dab", settings: { ...params.settings, mode } })}
-          />
-        </SettingRow>
+        <>
+          <SettingRow label="Generation">
+            <Segmented
+              label="DAB generation"
+              value={params.settings.mode ?? "auto"}
+              options={DAB_MODES}
+              onChange={(mode) => onParams({ type: "dab", settings: { ...params.settings, mode } })}
+            />
+          </SettingRow>
+          <SettingRow label="Transmission">
+            <Segmented
+              label="DAB transmission mode"
+              value={params.settings.transmission_mode ?? "i"}
+              options={DAB_TRANSMISSION_MODES}
+              onChange={(transmission_mode) =>
+                onParams({ type: "dab", settings: { ...params.settings, transmission_mode } })
+              }
+            />
+          </SettingRow>
+        </>
       );
     case "datv":
       return (

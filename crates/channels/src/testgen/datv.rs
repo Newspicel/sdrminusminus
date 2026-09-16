@@ -82,7 +82,9 @@ impl Multiplex {
                 0x0102,
                 0xC0,
                 pts,
-                &elementary(400, self.frame * 2 + 2),
+                include_bytes!("../../../../fixtures/broadcast_audio/tone_48k_mono.mp2")
+                    .get((self.frame as usize % 20) * 192..(self.frame as usize % 20 + 1) * 192)
+                    .expect("one MP2 frame"),
                 &mut batch,
             );
             self.frame += 1;

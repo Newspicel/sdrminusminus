@@ -161,6 +161,8 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 opus = "0.4"
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 codec2 = "0.3.1"
+symphonia-core = "0.6.1"
+symphonia-bundle-mp3 = { version = "0.6.1", default-features = false, features = ["mp2"] }
 
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }

@@ -1,6 +1,7 @@
 mod channel;
 pub mod fic;
 pub mod fig;
+pub mod mode;
 pub mod msc;
 pub mod ofdm;
 pub mod protection;

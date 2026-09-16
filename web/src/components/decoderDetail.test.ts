@@ -656,6 +656,27 @@ describe("eventDetail", () => {
     expect(detail.body).toBe("Now playing something");
   });
 
+  it("shows broadcast audio failures independently of radio lock", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dab",
+        locked: true,
+        snr_db: 20,
+        frequency_error_hz: 0,
+        audio_frames_ok: 41,
+        audio_frames_bad: 2,
+        audio_error: "Broadcast audio input queue overflow",
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Lock: "locked",
+      "Audio frames": "41",
+      "Audio failures": "2",
+      "Audio error": "Broadcast audio input queue overflow",
+    });
+  });
+
   it("shows a broadcast acquisition without inventing multiplex metadata", () => {
     const detail = eventDetail({
       kind: "broadcast",

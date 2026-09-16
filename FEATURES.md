@@ -41,24 +41,24 @@ If something is shipped, then remove it.
 
 ### Broadcast & wideband digital
 
-The multiplexes now decode: DAB down to CRC-checked DAB+ access units, DVB-S and DVB-S2 down to
-MPEG-TS packets and a program table. DVB-S2 covers the whole EN 302 307-1 MODCOD table and the
+The multiplexes now decode: DAB modes I–IV down to classic MPEG Layer II audio or CRC-checked
+DAB+ access units, DVB-S and DVB-S2 down to MPEG-TS packets, a program table, and MPEG Layer II
+audio. DVB-S2 covers the whole EN 302 307-1 MODCOD table and the
 S2X very-low-SNR frames, carries generic streams as well as transport streams, and picks one
 input stream out of a multi-stream carrier. What is left above it is the media, and DRM's whole
 multiplex.
 
+- DVB-T reception — acquisition, TPS signalling, pilot equalization, symbol and bit
+  deinterleaving, channel decoding, and transport-stream delivery are not implemented
 - DAB+ audio — the superframe hands over HE-AAC v2 access units and nothing turns them into
   sound. It needs an AAC-LC decoder over the 960-sample transform DAB+ uses, then SBR, then
   parametric stereo. `symphonia-codec-aac` cannot stand in: it refuses any stream with SBR and
   only handles 1024-sample frames. The same decoder is what DRM audio needs, so it is worth one
   careful implementation rather than two
-- Classic DAB audio — MPEG-1 Layer II, which DVB's audio streams also want
-- DAB transmission modes II, III and IV; only Mode I is implemented, which is what is on the air
-  in Band III but not what a shortwave or satellite DAB feed would use
 - DAB data services — packet mode, MOT slideshow, and the DLS text riding in the PAD
 - DVB video — MPEG-2 and H.264. The transport stream is demultiplexed and the PES units come out
   whole with their timestamps; nothing decodes them into pictures yet
-- DVB audio — MPEG-1 Layer II, AAC and AC-3 off the same PES units
+- DVB audio — AAC and AC-3 off the same PES units
 - The rest of DVB-S2X: 8APSK, the 64/128/256APSK constellations, the finer code rates between
   the S2 ones, and the super-frame formats of its annex E. What is here is every S2 MODCOD plus
   the VL-SNR set, which is the part a receiver meets on a real transponder
@@ -70,8 +70,9 @@ multiplex.
   pilot-based channel estimation, the multilevel coding the MSC uses, and then the audio
 - Signal quality worth trusting on a real antenna. Every chain here is proven against a
   transmitter written beside it, which catches structural mistakes but shares any misreading of a
-  standard — except DVB-S2's tables and VL-SNR framing, which are checked against both
-  EN 302 307-2 and an unrelated implementation. DAB resynchronizes per frame off the null with no
+  standard. DAB modes II–IV also have independently generated synthetic IQ fixtures; MPEG Layer II
+  audio is compared with FFmpeg output. DVB-S2's tables and VL-SNR framing are checked against
+  both EN 302 307-2 and an unrelated implementation. DAB resynchronizes per frame off the null with no
   timing loop. DVB-S2 does better: it takes a coarse carrier estimate off the sync word, filters
   it across frames, anchors phase on the whole PLHEADER and interpolates between pilot blocks —
   so it rides out a carrier offset, at the cost of losing the frames it spends acquiring one.

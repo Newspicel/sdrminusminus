@@ -5,6 +5,7 @@ mod am;
 mod aprs;
 mod atv;
 pub mod audio_chain;
+mod broadcast_audio;
 pub mod coherent;
 mod combiner;
 mod cw_skimmer;
@@ -109,6 +110,7 @@ pub const AUDIO_RATE: u32 = 48_000;
 pub fn audio_channels(params: &ChannelParams) -> u8 {
     match params {
         ChannelParams::Wfm(p) if p.stereo => 2,
+        ChannelParams::Dab(_) | ChannelParams::Datv(_) => 2,
         _ => 1,
     }
 }
@@ -885,6 +887,8 @@ mod tests {
                         | "ssb"
                         | "wfm"
                         | "atv"
+                        | "dab"
+                        | "datv"
                         | "dmr"
                         | "dstar"
                         | "ysf"
@@ -926,7 +930,7 @@ mod tests {
                 "{} emitted a partial sample frame",
                 d.type_id
             );
-            if d.decoder_kind.as_deref() == Some("dv") {
+            if matches!(d.decoder_kind.as_deref(), Some("dv" | "broadcast")) {
                 continue;
             }
             if d.type_id == "atv" && audio.is_empty() {

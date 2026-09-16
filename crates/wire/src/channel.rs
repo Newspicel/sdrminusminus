@@ -855,8 +855,20 @@ pub enum DabMode {
     DabPlus,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DabTransmissionMode {
+    #[default]
+    I,
+    Ii,
+    Iii,
+    Iv,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DabParams {
+    #[serde(default)]
+    pub transmission_mode: DabTransmissionMode,
     #[serde(default)]
     pub mode: DabMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]

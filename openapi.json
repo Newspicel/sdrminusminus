@@ -5865,6 +5865,22 @@
           "frequency_error_hz"
         ],
         "properties": {
+          "audio_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audio_frames_bad": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "audio_frames_ok": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "bit_error_rate": {
             "type": [
               "number",
@@ -9252,8 +9268,20 @@
             ],
             "format": "int32",
             "minimum": 0
+          },
+          "transmission_mode": {
+            "$ref": "#/components/schemas/DabTransmissionMode"
           }
         }
+      },
+      "DabTransmissionMode": {
+        "type": "string",
+        "enum": [
+          "i",
+          "ii",
+          "iii",
+          "iv"
+        ]
       },
       "DataLinkMessage": {
         "type": "object",

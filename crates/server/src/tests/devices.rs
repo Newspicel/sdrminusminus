@@ -164,3 +164,52 @@ async fn extractor_rejections_return_api_error_body() {
     let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
     assert_eq!(err.error, "invalid path parameter");
 }
+
+#[tokio::test]
+async fn dab_transmission_modes_round_trip_over_http() {
+    let app = test_router();
+    let ds = create_virtual_set(&app).await;
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        &format!("/api/devicesets/{ds}/channels"),
+        Some(r#"{"settings":{"frequency_hz":100000000.0,"params":{"type":"dab","settings":{}}}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let ch = serde_json::from_slice::<CreatedId>(&body)
+        .expect("created channel")
+        .id;
+    for (name, expected) in [
+        ("i", sdrmm_wire::DabTransmissionMode::I),
+        ("ii", sdrmm_wire::DabTransmissionMode::Ii),
+        ("iii", sdrmm_wire::DabTransmissionMode::Iii),
+        ("iv", sdrmm_wire::DabTransmissionMode::Iv),
+    ] {
+        let body = serde_json::json!({"params": {"type": "dab", "settings": {"transmission_mode": name, "service_id": 49569}}}).to_string();
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/channels/{ch}"),
+            Some(&body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let snapshot = get_state(&app).await;
+        let sdrmm_wire::ChannelParams::Dab(params) =
+            snapshot.device_sets[0].channels[0].settings.params
+        else {
+            panic!("DAB params");
+        };
+        assert_eq!(params.transmission_mode, expected);
+        assert_eq!(params.service_id, Some(49569));
+    }
+    let (status, _) = request(
+        app,
+        "PATCH",
+        &format!("/api/devicesets/{ds}/channels/{ch}"),
+        Some(r#"{"params":{"type":"dab","settings":{"transmission_mode":"v"}}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}

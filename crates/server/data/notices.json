@@ -5150,6 +5150,26 @@
       ]
     },
     {
+      "name": "symphonia-bundle-mp3",
+      "version": "0.6.1",
+      "license": "MPL-2.0",
+      "source": "rust",
+      "url": "https://github.com/pdeljanov/Symphonia",
+      "texts": [
+        "c76f740d1521b9be"
+      ]
+    },
+    {
+      "name": "symphonia-core",
+      "version": "0.6.1",
+      "license": "MPL-2.0",
+      "source": "rust",
+      "url": "https://github.com/pdeljanov/Symphonia",
+      "texts": [
+        "c76f740d1521b9be"
+      ]
+    },
+    {
       "name": "syn",
       "version": "1.0.109",
       "license": "MIT OR Apache-2.0",

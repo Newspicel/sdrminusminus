@@ -744,6 +744,12 @@ pub struct BroadcastService {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
+    #[serde(default)]
+    pub audio_frames_ok: u32,
+    #[serde(default)]
+    pub audio_frames_bad: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_error: Option<String>,
     pub system: BroadcastSystem,
     pub locked: bool,
     pub snr_db: f32,

@@ -90,8 +90,8 @@ Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines f
 
 | Mode | Available output | Missing or limited functionality |
 |---|---|---|
-| DAB / DAB+ | FIC and MSC decoding, CRC-checked DAB+ access units | No audio codec or playback |
-| DATV | DVB-S/S2 transport packets and programme tables, or generic-stream datagrams | No audio or video codec output |
+| DAB / DAB+ | Modes I–IV, FIC and MSC decoding, classic DAB MPEG Layer II audio, CRC-checked DAB+ access units | DAB+ audio and data services remain unavailable |
+| DATV | DVB-S/S2 transport packets, programme tables, MPEG Layer II audio, or generic-stream datagrams | AAC, AC-3 and video decoding remain unavailable; DVB-T is not implemented |
 | DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
 | GNSS lab | GPS L1 C/A acquisition and NAV telemetry | No position solution |
 | VOR / ILS | Radial or difference in depth of modulation | Tested only against analytically generated signals |
@@ -272,3 +272,19 @@ for message history, **Map** for positions, and **Export** for saved rows.
 
 Decoder-log retention is bounded. SSTV images use a separate picture store: the log records
 arrival, while `GET /api/images` serves the pictures.
+
+## DAB and DVB audio
+
+For classic DAB, choose **Generation → DAB** and connect `audio` to a **Speaker** node.
+**Auto** selects the first audio service, which may use DAB+ and therefore have no playback yet.
+**Transmission** selects I, II, III or IV; existing channels default to I. All modes require
+2.048 MS/s at the channel input. Changing mode resets acquisition and service selection.
+
+DVB-S/S2 plays the first MPEG Layer II audio stream in the selected programme. Mono is copied
+to both output channels; other supported sample rates are converted to 48 kHz. The decoder log
+shows audio-frame counts and decode or queue failures separately from radio lock. Unsupported
+AAC, AC-3 and DAB+ audio is reported explicitly.
+
+Mode and audio tests include independent synthetic waveforms, an independent MPEG Layer II
+PCM reference, and virtual-device playback through the normal audio output. These checks do
+not establish reception quality under real antenna fading.

@@ -56,6 +56,7 @@ impl Ensemble {
         })
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn pick(&self, wanted: Option<u32>) -> Option<(&Service, &SubChannel)> {
         match wanted {

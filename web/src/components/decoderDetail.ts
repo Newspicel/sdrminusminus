@@ -394,6 +394,15 @@ const DETAIL: {
       ["Ensemble ID", status.ensemble_id == null ? undefined : hex(status.ensemble_id, 4)],
       ["Service ID", status.service_id == null ? undefined : hex(status.service_id, 4)],
       ["Label", status.label],
+      [
+        "Audio frames",
+        (status.audio_frames_ok ?? 0) > 0 ? String(status.audio_frames_ok) : undefined,
+      ],
+      [
+        "Audio failures",
+        (status.audio_frames_bad ?? 0) > 0 ? String(status.audio_frames_bad) : undefined,
+      ],
+      ["Audio error", status.audio_error],
     ]),
     body: null,
   }),

@@ -4,11 +4,13 @@ use std::sync::Arc;
 
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
+use sdrmm_wire::DabTransmissionMode;
 
 use crate::dab::{
-    fic::{FIB_BYTES, FIBS_PER_BLOCK, FicEncoder, append_fib_crc},
+    fic::{FIB_BYTES, FicEncoder, append_fib_crc},
+    mode::Mode,
     msc::{CIF_BITS, SubChannelEncoder, subchannel_range},
-    ofdm::{GUARD, NULL, SYMBOL_BITS, SYMBOLS, USEFUL, interleaving, reference_symbol},
+    ofdm::{interleaving_for_mode, map_symbol_for_mode, reference_symbol_for_mode},
     protection::{Eep, Protection},
     superframe::{AudioFormat, SuperframeBuilder},
 };
@@ -26,8 +28,6 @@ const MUSIC_START_CU: u16 = 0;
 const MUSIC_SIZE_CU: u16 = 72;
 const TALK_START_CU: u16 = 72;
 const TALK_SIZE_CU: u16 = 48;
-const CIFS_PER_FRAME: usize = 4;
-const FIBS_PER_FRAME: usize = 12;
 
 fn label_figure(extension: u8, id: &[u8], text: &str) -> Vec<u8> {
     let mut data = vec![extension];
@@ -182,47 +182,58 @@ impl Talk {
 
     fn logical(&mut self) -> Vec<u8> {
         self.counter += 1;
-        access_unit(self.frame_bytes, self.counter)
+        let fixture = include_bytes!("../../../../fixtures/broadcast_audio/tone_48k_mono.mp2");
+        let start = ((self.counter as usize - 1) * self.frame_bytes) % fixture.len();
+        fixture[start..start + self.frame_bytes].to_vec()
     }
 }
 
 struct Modulator {
+    mode: Mode,
+    transmission_mode: DabTransmissionMode,
     inverse: Arc<dyn Fft<f32>>,
     bins: Vec<usize>,
     reference: Vec<Complex<f32>>,
 }
 
 impl Modulator {
-    fn new() -> Self {
+    fn new(transmission_mode: DabTransmissionMode) -> Self {
+        let mode = Mode::new(transmission_mode);
         let mut planner = FftPlanner::<f32>::new();
-        let bins = interleaving();
-        let spectrum = reference_symbol();
+        let bins = interleaving_for_mode(transmission_mode);
+        let spectrum = reference_symbol_for_mode(transmission_mode);
         let reference = bins.iter().map(|&bin| spectrum[bin]).collect();
         Self {
-            inverse: planner.plan_fft_inverse(USEFUL),
+            mode,
+            transmission_mode,
+            inverse: planner.plan_fft_inverse(mode.useful),
             bins,
             reference,
         }
     }
 
     fn emit(&self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        let mut spectrum = vec![Complex::new(0.0, 0.0); USEFUL];
+        let mut spectrum = vec![Complex::new(0.0, 0.0); self.mode.useful];
         for (index, &bin) in self.bins.iter().enumerate() {
             spectrum[bin] = points[index];
         }
         let mut time = spectrum;
         self.inverse.process(&mut time);
-        let scale = 1.0 / (USEFUL as f32).sqrt();
-        out.extend(time[USEFUL - GUARD..].iter().map(|&value| value * scale));
+        let scale = 1.0 / (self.mode.useful as f32).sqrt();
+        out.extend(
+            time[self.mode.useful - self.mode.guard..]
+                .iter()
+                .map(|&value| value * scale),
+        );
         out.extend(time.iter().map(|&value| value * scale));
     }
 
     fn frame(&self, symbols: &[Vec<bool>], out: &mut Vec<Complex<f32>>) {
-        out.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), NULL));
+        out.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), self.mode.null));
         let mut previous = self.reference.clone();
         self.emit(&previous, out);
         for bits in symbols {
-            let mapped = crate::dab::ofdm::map_symbol(bits);
+            let mapped = map_symbol_for_mode(self.transmission_mode, bits);
             let points: Vec<Complex<f32>> = mapped
                 .iter()
                 .zip(&previous)
@@ -244,25 +255,34 @@ fn place(cif: &mut [bool], start_cu: u16, size_cu: u16, fragment: &[bool]) {
 
 #[must_use]
 pub fn ensemble(frames: usize) -> Vec<Complex<f32>> {
-    let modulator = Modulator::new();
-    let mut fic = FicEncoder::new();
+    ensemble_for_mode(DabTransmissionMode::I, frames)
+}
+
+#[must_use]
+pub fn ensemble_for_mode(
+    transmission_mode: DabTransmissionMode,
+    frames: usize,
+) -> Vec<Complex<f32>> {
+    let mode = Mode::new(transmission_mode);
+    let modulator = Modulator::new(transmission_mode);
+    let mut fic = FicEncoder::for_mode(transmission_mode);
     let mut music = Music::new();
     let mut talk = Talk::new();
     let information = service_information();
     let mut fib_at = 0usize;
-    let mut iq = Vec::with_capacity(frames * (NULL + SYMBOLS * (USEFUL + GUARD)));
+    let mut iq = Vec::with_capacity(frames * mode.frame());
     let mut fragment = Vec::new();
     for _ in 0..frames {
-        let mut bits = Vec::with_capacity(SYMBOLS * SYMBOL_BITS);
-        for _ in 0..FIBS_PER_FRAME / FIBS_PER_BLOCK {
-            let mut group = [[0u8; FIB_BYTES]; FIBS_PER_BLOCK];
+        let mut bits = Vec::with_capacity(mode.symbols * mode.symbol_bits());
+        for _ in 0..mode.cifs {
+            let mut group = vec![[0u8; FIB_BYTES]; mode.fibs_per_block];
             for slot in &mut group {
                 *slot = information[fib_at % information.len()];
                 fib_at += 1;
             }
             fic.block(&group, &mut bits);
         }
-        for _ in 0..CIFS_PER_FRAME {
+        for _ in 0..mode.cifs {
             let mut cif = vec![false; CIF_BITS];
             let payload = music.logical();
             music.encoder.frame(&payload, &mut fragment);
@@ -272,7 +292,10 @@ pub fn ensemble(frames: usize) -> Vec<Complex<f32>> {
             place(&mut cif, TALK_START_CU, TALK_SIZE_CU, &fragment);
             bits.extend_from_slice(&cif);
         }
-        let symbols: Vec<Vec<bool>> = bits.chunks(SYMBOL_BITS).map(<[bool]>::to_vec).collect();
+        let symbols: Vec<Vec<bool>> = bits
+            .chunks(mode.symbol_bits())
+            .map(<[bool]>::to_vec)
+            .collect();
         modulator.frame(&symbols, &mut iq);
     }
     iq
@@ -281,7 +304,7 @@ pub fn ensemble(frames: usize) -> Vec<Complex<f32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dab::ofdm::{FRAME, SYMBOL};
+    use crate::dab::ofdm::{FRAME, NULL, SYMBOL, SYMBOL_BITS, interleaving};
 
     #[test]
     fn a_generated_frame_has_the_documented_length_and_a_null_symbol() {

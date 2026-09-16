@@ -109,6 +109,21 @@ describe("mergeChannelSettings", () => {
     });
   });
 
+  it("keeps the DAB transmission mode and service when tuning", () => {
+    for (const transmission_mode of ["i", "ii", "iii", "iv"] as const) {
+      const dab: ChannelSettings = {
+        frequency_hz: 220_352_000,
+        params: {
+          type: "dab",
+          settings: { transmission_mode, mode: "dab_plus", service_id: 49569 },
+        },
+      };
+      const next = mergeChannelSettings(dab, { frequency_hz: 225_648_000 });
+      expect(next.params).toEqual(dab.params);
+      expect(next.frequency_hz).toBe(225_648_000);
+    }
+  });
+
   it("keeps an explicit null (auto) inside params", () => {
     const next = mergeChannelSettings(base, {
       params: { type: "morse", settings: { bandwidth_hz: 400, wpm: null } },

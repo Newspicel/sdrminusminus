@@ -20,9 +20,12 @@ use super::{
         gse::protocol_name,
         receiver::{Dvbs2Decoder, Dvbs2Output},
     },
-    ts::{PesUnit, TsDemux},
+    ts::{PesUnit, StreamKind as ElementaryKind, TsDemux},
 };
-use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
+use crate::{
+    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    broadcast_audio::LayerTwoAudio, check_input_rate,
+};
 
 const INPUT_RATE_HZ: f64 = 2_000_000.0;
 const BANDWIDTH_HZ: f64 = 1_500_000.0;
@@ -38,7 +41,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "DATV (DVB-S / S2)".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("broadcast".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -122,6 +125,8 @@ pub struct DatvChannel {
     last: Acquired,
     video_units: u64,
     audio_units: u64,
+    audio: LayerTwoAudio,
+    audio_stream: Option<(u16, u16)>,
 }
 
 impl DatvChannel {
@@ -138,6 +143,8 @@ impl DatvChannel {
         self.last = Acquired::default();
         self.video_units = 0;
         self.audio_units = 0;
+        self.audio.reset();
+        self.audio_stream = None;
         Ok(())
     }
 
@@ -177,6 +184,33 @@ impl DatvChannel {
         self.second
             .stream
             .filter(|kind| self.params.standard == DatvStandard::DvbS2 && kind.is_encapsulated())
+    }
+
+    fn read_audio(&mut self, out: &mut ChannelOutputs) {
+        let stream = self.demux.program().and_then(|program| {
+            program
+                .streams
+                .iter()
+                .find(|stream| {
+                    matches!(
+                        stream.kind,
+                        ElementaryKind::Mpeg1Audio | ElementaryKind::Mpeg2Audio
+                    )
+                })
+                .map(|stream| (program.number, stream.pid))
+        });
+        if stream != self.audio_stream {
+            self.audio.reset();
+            self.audio_stream = stream;
+        }
+        if let Some((_, pid)) = stream {
+            for unit in &self.units {
+                if unit.pid == pid {
+                    self.audio.push(&unit.payload);
+                }
+            }
+        }
+        self.audio.drain(out);
     }
 
     fn streams(&self) -> Vec<BroadcastService> {
@@ -297,6 +331,32 @@ impl DatvChannel {
         let program = self.demux.program();
         out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
             system: self.system(),
+            audio_frames_ok: self.audio.frames_ok,
+            audio_frames_bad: self.audio.frames_bad,
+            audio_error: self
+                .audio
+                .error
+                .or_else(|| {
+                    self.demux
+                        .program()
+                        .and_then(|program| {
+                            let audio = program
+                                .streams
+                                .iter()
+                                .find(|stream| stream.kind.is_audio())?;
+                            match audio.kind {
+                                ElementaryKind::AacAudio => {
+                                    Some("AAC audio decoding is unavailable")
+                                }
+                                ElementaryKind::Ac3Audio => {
+                                    Some("AC-3 audio decoding is unavailable")
+                                }
+                                _ => None,
+                            }
+                        })
+                        .filter(|_| self.audio_stream.is_none())
+                })
+                .map(str::to_owned),
             locked: acquired.locked,
             snr_db: acquired.snr_db,
             frequency_error_hz: self.frequency_error_hz(acquired),
@@ -343,6 +403,8 @@ impl ChannelRx for DatvChannel {
             last: Acquired::default(),
             video_units: 0,
             audio_units: 0,
+            audio: LayerTwoAudio::new()?,
+            audio_stream: None,
         };
         channel.demux.select(params.program);
         channel.second.select(params.input_stream);
@@ -374,6 +436,8 @@ impl ChannelRx for DatvChannel {
         self.protocols.clear();
         self.video_units = 0;
         self.audio_units = 0;
+        self.audio.reset();
+        self.audio_stream = None;
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
@@ -413,6 +477,7 @@ impl ChannelRx for DatvChannel {
         }
         self.units = units;
         self.count();
+        self.read_audio(out);
         for acquired in &reports {
             self.report(*acquired, out);
         }
