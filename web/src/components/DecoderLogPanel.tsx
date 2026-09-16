@@ -4,6 +4,7 @@ import { FaceBody, FaceFooter } from "../canvas/nodes/NodeShell";
 import { callAudioUrl, clearDecoderLog, DECODER_LOG_KEY, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
 import { Button, Input } from "./BaseControls";
+import { BroadcastDataView } from "./BroadcastDataView";
 import { ALERT, BTN, FIELD, TABLE_CELL, TABLE_HEAD } from "./controls";
 import { DownloadMenu } from "./DownloadMenu";
 import { eventDetail } from "./decoderDetail";
@@ -357,6 +358,7 @@ function RowDetail({ row }: { row: LogRow }) {
           src={callAudioUrl(row.event.data.audio.url)}
         />
       )}
+      {row.event.kind === "broadcast_data" && <BroadcastDataView data={row.event.data} />}
       {detail.fields.length > 0 && (
         <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
           {detail.fields.map(([label, value]) => (

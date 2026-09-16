@@ -702,6 +702,7 @@ pub enum BroadcastSystem {
     DabPlus,
     DvbS,
     DvbS2,
+    DvbT,
     Drm30,
     DrmPlus,
 }
@@ -714,6 +715,7 @@ impl BroadcastSystem {
             Self::DabPlus => "DAB+",
             Self::DvbS => "DVB-S",
             Self::DvbS2 => "DVB-S2",
+            Self::DvbT => "DVB-T",
             Self::Drm30 => "DRM30",
             Self::DrmPlus => "DRM+",
         }
@@ -742,8 +744,41 @@ pub struct BroadcastService {
     pub selected: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct BroadcastData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub label: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_id: Option<u32>,
+    pub name: String,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BroadcastStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_label: Option<String>,
+    #[serde(default)]
+    pub data_groups_ok: u32,
+    #[serde(default)]
+    pub data_groups_bad: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_error: Option<String>,
+    #[serde(default)]
+    pub video_frames_ok: u32,
+    #[serde(default)]
+    pub video_frames_bad: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_error: Option<String>,
+    #[serde(default)]
+    pub audio_frames_ok: u32,
+    #[serde(default)]
+    pub audio_frames_bad: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_error: Option<String>,
     pub system: BroadcastSystem,
     pub locked: bool,
     pub snr_db: f32,
@@ -1144,6 +1179,7 @@ pub enum DecoderEvent {
     Wspr(WsprSpot),
     Ident(IdentReport),
     Broadcast(BroadcastStatus),
+    BroadcastData(BroadcastData),
     RadioClock(RadioClockFrame),
     Gnss(GnssFrame),
     Sstv(SstvPicture),
@@ -1400,6 +1436,7 @@ impl DecoderEvent {
             Self::Wspr(_) => "wspr",
             Self::Ident(_) => "ident",
             Self::Broadcast(_) => "broadcast",
+            Self::BroadcastData(_) => "broadcast_data",
             Self::RadioClock(_) => "radio_clock",
             Self::Gnss(_) => "gnss",
             Self::Sstv(_) => "sstv",
@@ -1524,6 +1561,7 @@ impl DecoderEvent {
             Self::Psk(t) => t.text.clone(),
             Self::Wspr(s) => format!("{} · {:+.0} dB · {:.0} Hz", s.text, s.snr_db, s.audio_hz),
             Self::Ident(r) => ident_summary(r),
+            Self::BroadcastData(data) => format!("{} · {} bytes", data.name, data.bytes.len()),
             Self::Broadcast(status) => {
                 let mut parts = vec![status.system.label().to_owned()];
                 parts.push(if status.locked { "locked" } else { "searching" }.to_owned());
@@ -1666,6 +1704,7 @@ impl DecoderEvent {
             | Self::Scrambler(_)
             | Self::Ident(_)
             | Self::Selcall(_) => None,
+            Self::BroadcastData(_) => None,
             Self::Broadcast(status) => status
                 .service_id
                 .or(status.ensemble_id)
@@ -1851,6 +1890,14 @@ mod tests {
                 drift_hz: 0.0,
             }),
             DecoderEvent::Broadcast(BroadcastStatus::default()),
+            DecoderEvent::BroadcastData(BroadcastData {
+                protocol: None,
+                label: Vec::new(),
+                service_id: Some(1),
+                name: "slide.png".to_owned(),
+                media_type: "image/png".to_owned(),
+                bytes: vec![137, 80, 78, 71],
+            }),
             DecoderEvent::RadioClock(RadioClockFrame {
                 standard: RadioClockStandard::Dcf77,
                 datetime: "2026-08-15T12:34:00+02:00".to_owned(),

@@ -9,6 +9,7 @@ use super::{
     gse::{Gse, GseMetrics, GsePdu},
     ldpc::{Frame, Ldpc, Rate},
     pl::{self, Scrambler, Signalling},
+    superframe::{Container, Content},
     vlsnr::{self, Piece, VlMode, VlSnrCodec},
 };
 use crate::datv::dvbs::PACKET;
@@ -24,6 +25,7 @@ pub struct Dvbs2Metrics {
     pub frames_ok: u32,
     pub frames_bad: u32,
     pub frames_skipped: u32,
+    pub transport_errors: u32,
     pub corrected_bits: u32,
     pub iterations: u32,
     pub gse: GseMetrics,
@@ -59,6 +61,10 @@ pub struct Codec {
 impl Codec {
     #[must_use]
     pub fn new(modcod: ModCod, short: bool) -> Option<Self> {
+        let extended = super::s2x::mode(modcod.index);
+        if extended.is_some_and(|mode| mode.short != short) {
+            return None;
+        }
         let message = message_bits(modcod, short);
         if message == 0 {
             return None;
@@ -69,7 +75,10 @@ impl Codec {
             ldpc: Ldpc::new(modcod.rate, Frame::of(short))?,
             bch: Bch::new(Frame::of(short), modcod.correct(short), message),
             baseband: BaseBandFrame::new(message),
-            constellation: Constellation::new(modcod.modulation, modcod.rate),
+            constellation: extended.map_or_else(
+                || Constellation::new(modcod.modulation, modcod.rate),
+                super::s2x::Mode::constellation,
+            ),
         })
     }
 
@@ -141,10 +150,15 @@ impl Dvbs2Encoder {
         self.codec.bch.encode(baseband, &mut protected);
         self.coded.clear();
         self.codec.ldpc.encode(&protected, &mut self.coded);
-        let interleaved = interleave(
-            &self.coded,
-            self.codec.modcod.modulation,
-            self.codec.modcod.rate,
+        let interleaved = super::s2x::mode(self.codec.modcod.index).map_or_else(
+            || {
+                interleave(
+                    &self.coded,
+                    self.codec.modcod.modulation,
+                    self.codec.modcod.rate,
+                )
+            },
+            |mode| mode.interleave(&self.coded),
         );
         self.payload.clear();
         modulate(&interleaved, &self.codec.constellation, &mut self.payload);
@@ -167,6 +181,11 @@ impl Dvbs2Encoder {
 }
 
 pub struct Dvbs2Decoder {
+    transport: super::transport::Transport,
+    transport_isi: Option<Option<u8>>,
+    container: Option<Container>,
+    contained: Vec<Complex<f32>>,
+    content: Content,
     codec: Option<Codec>,
     scrambler: Scrambler,
     pending: Vec<Complex<f32>>,
@@ -193,6 +212,11 @@ impl Dvbs2Decoder {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            transport: super::transport::Transport::new(),
+            transport_isi: None,
+            container: None,
+            contained: Vec::new(),
+            content: Content::Plain,
             codec: None,
             scrambler: Scrambler::new(),
             pending: Vec::new(),
@@ -219,11 +243,20 @@ impl Dvbs2Decoder {
     pub fn select(&mut self, isi: Option<u8>) {
         if self.wanted != isi {
             self.wanted = isi;
+            self.transport.reset();
+            self.transport_isi = None;
             self.gse.reset();
         }
     }
 
     pub fn reset(&mut self) {
+        self.transport.reset();
+        self.transport_isi = None;
+        if let Some(container) = &mut self.container {
+            container.reset();
+        }
+        self.content = Content::Plain;
+        self.contained.clear();
         self.codec = None;
         self.very_low = None;
         self.pending.clear();
@@ -265,7 +298,48 @@ impl Dvbs2Decoder {
         self.frequency
     }
 
+    pub fn superframes(&mut self, enabled: bool) {
+        if enabled != self.container.is_some() {
+            self.reset();
+            self.container = enabled.then(Container::new);
+        }
+    }
+
+    pub fn superframe_format(&self) -> Option<u8> {
+        match self.content {
+            Content::Plain => None,
+            Content::Extended => Some(0),
+            Content::Legacy => Some(1),
+            Content::Unsupported(format) => Some(format),
+        }
+    }
+
     pub fn push(&mut self, symbols: &[Complex<f32>], out: &mut Dvbs2Output) {
+        if self.container.is_none() {
+            self.push_plain(symbols, out);
+            return;
+        }
+        if let Some(container) = &mut self.container {
+            container.push(symbols);
+        }
+        let mut contained = std::mem::take(&mut self.contained);
+        while let Some(content) = self
+            .container
+            .as_mut()
+            .and_then(|container| container.next(&mut contained))
+        {
+            if matches!(content, Content::Unsupported(_)) && self.content != content {
+                self.metrics.frames_skipped += 1;
+                self.pending.clear();
+                self.searched = 0;
+            }
+            self.content = content;
+            self.push_plain(&contained, out);
+        }
+        self.contained = contained;
+    }
+
+    fn push_plain(&mut self, symbols: &[Complex<f32>], out: &mut Dvbs2Output) {
         self.pending.extend_from_slice(symbols);
         while self.step(out) {}
         if self.pending.len() > 4 * (pl::HEADER + 360 * pl::SLOT) {
@@ -302,16 +376,33 @@ impl Dvbs2Decoder {
                 self.searched += 1;
                 continue;
             };
-            let set = vlsnr::set_of(signalling);
+            let set = vlsnr::set_of(if self.content == Content::Extended {
+                Signalling {
+                    pilots: true,
+                    ..signalling
+                }
+            } else {
+                signalling
+            });
             let span = match (set, ModCod::from_index(signalling.modcod)) {
-                (Some(set), _) => vlsnr::frame_symbols(set),
-                (None, Some(modcod)) => {
-                    pl::frame_symbols(modcod.slots(signalling.short), signalling.pilots)
+                (Some(set), _) => {
+                    if self.content == Content::Extended {
+                        vlsnr::superframe_symbols(set)
+                    } else {
+                        vlsnr::frame_symbols(set)
+                    }
                 }
-                (None, None) => {
-                    self.searched += 1;
-                    continue;
-                }
+                (None, Some(modcod)) => pl::frame_symbols(
+                    modcod.slots(signalling.short),
+                    signalling.pilots && self.content == Content::Plain,
+                ),
+                (None, None) => match super::s2x::reserved_symbols(signalling.code()) {
+                    Some(length) => length,
+                    None => {
+                        self.searched += 1;
+                        continue;
+                    }
+                },
             };
             if at + span > self.pending.len() {
                 return false;
@@ -326,9 +417,21 @@ impl Dvbs2Decoder {
             );
             match ModCod::from_index(signalling.modcod) {
                 Some(modcod) if set.is_none() => {
-                    self.consume(signalling, modcod, modcod.slots(signalling.short), out);
+                    let payload_signalling = Signalling {
+                        pilots: signalling.pilots && self.content == Content::Plain,
+                        ..signalling
+                    };
+                    self.consume(
+                        payload_signalling,
+                        modcod,
+                        modcod.slots(signalling.short),
+                        out,
+                    );
                 }
-                _ => self.consume_very_low(out),
+                _ if set.is_some() => self.consume_very_low(out),
+                _ => {
+                    self.metrics.frames_skipped += 1;
+                }
             }
             let gain = if self.good > 0 {
                 TRACK_GAIN
@@ -406,6 +509,13 @@ impl Dvbs2Decoder {
         {
             self.very_low = VlSnrCodec::new(mode);
         }
+        if let Some(codec) = &mut self.very_low {
+            codec.layout = if self.content == Content::Extended {
+                vlsnr::superframe_layout(mode.set)
+            } else {
+                vlsnr::layout(mode.set)
+            };
+        }
         let Some(codec) = &mut self.very_low else {
             self.fail();
             return;
@@ -436,6 +546,13 @@ impl Dvbs2Decoder {
             }
             at += piece.len();
         }
+        if let Some(codec) = &mut self.very_low {
+            codec.layout = if self.content == Content::Extended {
+                vlsnr::superframe_layout(mode.set)
+            } else {
+                vlsnr::layout(mode.set)
+            };
+        }
         let Some(codec) = &mut self.very_low else {
             self.fail();
             return;
@@ -451,6 +568,7 @@ impl Dvbs2Decoder {
     }
 
     fn fail(&mut self) {
+        self.transport.reset();
         self.metrics.frames_bad += 1;
         self.good = 0;
     }
@@ -472,7 +590,13 @@ impl Dvbs2Decoder {
             self.gse.push(&data.field, &mut out.pdus);
             self.metrics.gse = self.gse.metrics;
         } else {
-            out.packets.extend(data.transport());
+            let isi = (!data.header.single).then_some(data.header.isi);
+            if self.transport_isi.is_some_and(|selected| selected != isi) {
+                self.metrics.frames_skipped += 1;
+                return;
+            }
+            self.transport_isi = Some(isi);
+            self.metrics.transport_errors += self.transport.push(&data, &mut out.packets);
         }
     }
 
@@ -513,9 +637,15 @@ impl Dvbs2Decoder {
             self.fail();
             return;
         };
+        if !signalling.pilots {
+            track_decisions(&mut self.payload, &codec.constellation);
+        }
         self.llrs.clear();
         demodulate(&self.payload, &codec.constellation, NOISE, &mut self.llrs);
-        let ordered = deinterleave(&self.llrs, modcod.modulation, modcod.rate);
+        let ordered = super::s2x::mode(modcod.index).map_or_else(
+            || deinterleave(&self.llrs, modcod.modulation, modcod.rate),
+            |mode| mode.deinterleave(&self.llrs),
+        );
         self.bits.clear();
         let Some(iterations) = codec.ldpc.decode(&ordered, &mut self.bits) else {
             self.fail();
@@ -535,6 +665,30 @@ impl Dvbs2Decoder {
         self.metrics.frames_ok += 1;
         self.good = self.good.saturating_add(1);
         self.deliver(data, out);
+    }
+}
+
+fn track_decisions(symbols: &mut [Complex<f32>], constellation: &Constellation) {
+    let mut phase = 0.0f32;
+    let mut frequency = 0.0f32;
+    for symbol in symbols {
+        let corrected = *symbol * Complex::from_polar(1.0, -phase);
+        let mut decision = constellation.point(0);
+        let mut distance = (corrected - decision).norm_sqr();
+        for label in 1..constellation.count() {
+            let point = constellation.point(label);
+            let candidate = (corrected - point).norm_sqr();
+            if candidate < distance {
+                distance = candidate;
+                decision = point;
+            }
+        }
+        let error = (corrected * decision.conj()).arg().clamp(-0.3, 0.3);
+        frequency = (frequency + 0.0001 * error).clamp(-0.02, 0.02);
+        phase = (phase + frequency + 0.03 * error + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        *symbol = corrected;
     }
 }
 
@@ -570,11 +724,15 @@ mod tests {
 
     fn assert_tail(sent: &[[u8; PACKET]], received: &[[u8; PACKET]], least: usize, what: &str) {
         assert!(
-            received.len() >= least,
+            received.len() >= least.saturating_sub(1),
             "{what}: {} packets of {least} wanted",
             received.len()
         );
-        assert_eq!(received, &sent[sent.len() - received.len()..], "{what}");
+        assert_eq!(
+            received,
+            &sent[sent.len() - received.len() - 1..sent.len() - 1],
+            "{what}"
+        );
     }
 
     fn round_trip(
@@ -597,17 +755,61 @@ mod tests {
     }
 
     #[test]
+    fn transport_reassembly_handles_partial_packets_and_frames_without_a_sync_byte() {
+        use super::super::bb::{self, BaseBandHeader};
+        let mode = ModCod::find(Modulation::Qpsk, Rate::R1_2).unwrap();
+        let mut encoder = Dvbs2Encoder::new(mode, true, false).unwrap();
+        let packets = transport(11, 63917);
+        let mut adapted = Vec::new();
+        let mut carry = 0;
+        for packet in &packets {
+            adapted.push(carry);
+            adapted.extend_from_slice(&packet[1..]);
+            carry = bb::crc8(&packet[1..]);
+        }
+        adapted.push(carry);
+        let mut symbols = Vec::new();
+        let mut offset = 0;
+        while offset < adapted.len() {
+            let count = (if offset % 2 == 0 { 73 } else { 511 }).min(adapted.len() - offset);
+            let distance = (PACKET - offset % PACKET) % PACKET;
+            let header = BaseBandHeader {
+                data_field_bits: (count * 8) as u16,
+                sync_distance: if distance < count {
+                    (distance * 8) as u16
+                } else {
+                    u16::MAX
+                },
+                ..Default::default()
+            };
+            let mut frame = Vec::new();
+            bb::unpack(&header.bytes(), &mut frame);
+            bb::unpack(&adapted[offset..offset + count], &mut frame);
+            frame.resize(encoder.codec.bch.message(), false);
+            bb::scramble(&mut frame);
+            encoder.emit(&frame, &mut symbols);
+            offset += count;
+        }
+        let mut decoder = Dvbs2Decoder::new();
+        let mut output = Dvbs2Output::default();
+        drive(&symbols, &mut decoder, &mut output);
+        assert_eq!(output.packets, packets);
+        assert_eq!(decoder.metrics.transport_errors, 0);
+        assert_eq!(decoder.metrics.frames_bad, 0);
+    }
+
+    #[test]
     fn a_short_frame_round_trips_through_the_whole_chain() {
         let modcod = ModCod::find(Modulation::Qpsk, Rate::R1_2).expect("QPSK 1/2");
         let (sent, received) = round_trip(modcod, true, false);
-        assert_eq!(received, sent);
+        assert_eq!(received, sent[..sent.len() - 1]);
     }
 
     #[test]
     fn pilot_blocks_are_stepped_over() {
         let modcod = ModCod::find(Modulation::Qpsk, Rate::R3_4).expect("QPSK 3/4");
         let (sent, received) = round_trip(modcod, false, true);
-        assert_eq!(received, sent);
+        assert_eq!(received, sent[..sent.len() - 1]);
     }
 
     #[test]
@@ -622,7 +824,7 @@ mod tests {
                 let (sent, received) = round_trip(modcod, short, false);
                 assert_eq!(
                     received,
-                    sent,
+                    sent[..sent.len() - 1],
                     "modcod {index}: {:?} {} short={short}",
                     modcod.modulation,
                     modcod.rate.label()
@@ -636,7 +838,7 @@ mod tests {
         let modcod = ModCod::find(Modulation::Psk8, Rate::R3_5).expect("8PSK 3/5");
         assert_eq!(modcod.index, 12);
         let (sent, received) = round_trip(modcod, false, true);
-        assert_eq!(received, sent);
+        assert_eq!(received, sent[..sent.len() - 1]);
     }
 
     #[test]
@@ -649,7 +851,12 @@ mod tests {
         ] {
             let modcod = ModCod::find(modulation, rate).expect("a catalogued mode");
             let (sent, received) = round_trip(modcod, false, true);
-            assert_eq!(received, sent, "{modulation:?} {}", rate.label());
+            assert_eq!(
+                received,
+                sent[..sent.len() - 1],
+                "{modulation:?} {}",
+                rate.label()
+            );
         }
     }
 
@@ -684,7 +891,7 @@ mod tests {
         let mut decoder = Dvbs2Decoder::new();
         let mut received = Dvbs2Output::default();
         decoder.push(&symbols, &mut received);
-        assert_eq!(received.packets, sent);
+        assert_eq!(received.packets, sent[..sent.len() - 1]);
     }
 
     #[test]
@@ -702,7 +909,11 @@ mod tests {
             let mut decoder = Dvbs2Decoder::new();
             let mut received = Dvbs2Output::default();
             decoder.push(&turned, &mut received);
-            assert_eq!(received.packets, sent, "turned by {turn} rad");
+            assert_eq!(
+                received.packets,
+                sent[..sent.len() - 1],
+                "turned by {turn} rad"
+            );
         }
     }
 
@@ -769,6 +980,44 @@ mod tests {
             3 * encoder.capacity(),
             "16APSK 2/3 short",
         );
+    }
+
+    #[test]
+    fn pilotless_frames_track_residual_rotation_despite_noisy_headers() {
+        for (modulation, rate) in [
+            (Modulation::Qpsk, Rate::R3_4),
+            (Modulation::Apsk16, Rate::R2_3),
+        ] {
+            let modcod = ModCod::find(modulation, rate).expect("mode");
+            let mut encoder = Dvbs2Encoder::new(modcod, true, false).expect("encoder");
+            let sent = transport(6 * encoder.capacity(), 47);
+            let mut symbols = Vec::new();
+            for packets in sent.chunks(encoder.capacity()) {
+                encoder.frame(packets, &mut symbols);
+            }
+            let mut state = 0x87230a91u32;
+            for (index, symbol) in symbols.iter_mut().enumerate() {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                let noise = Complex::new(
+                    (state >> 16) as f32 / 32768.0 - 1.0,
+                    (state & 65535) as f32 / 32768.0 - 1.0,
+                );
+                *symbol = *symbol * Complex::from_polar(1.0, 0.0007 * index as f32) + noise * 0.03;
+            }
+            let mut decoder = Dvbs2Decoder::new();
+            let mut output = Dvbs2Output::default();
+            for chunk in symbols.chunks(997) {
+                decoder.push(chunk, &mut output);
+            }
+            assert_tail(
+                &sent,
+                &output.packets,
+                5 * encoder.capacity(),
+                "noisy pilotless carrier",
+            );
+        }
     }
 
     fn drive(symbols: &[Complex<f32>], decoder: &mut Dvbs2Decoder, out: &mut Dvbs2Output) {
@@ -865,11 +1114,14 @@ mod tests {
             (Modulation::Apsk16, Rate::R9_10),
         ];
         let mut symbols = Vec::new();
-        let mut sent = Vec::new();
+        let mut sent: Vec<[u8; PACKET]> = Vec::new();
         let mut seed = 43u32;
         for (modulation, rate) in modes {
             let modcod = ModCod::find(modulation, rate).expect("a catalogued mode");
             let mut encoder = Dvbs2Encoder::new(modcod, false, true).expect("a supported mode");
+            if let Some(previous) = sent.last() {
+                encoder.carry = super::super::bb::crc8(&previous[1..]);
+            }
             let packets = transport(encoder.capacity(), seed);
             seed += 2;
             assert!(encoder.frame(&packets, &mut symbols));
@@ -878,7 +1130,7 @@ mod tests {
         let mut decoder = Dvbs2Decoder::new();
         let mut received = Dvbs2Output::default();
         drive(&symbols, &mut decoder, &mut received);
-        assert_eq!(received.packets, sent);
+        assert_eq!(received.packets, sent[..sent.len() - 1]);
         assert_eq!(decoder.metrics.frames_ok, modes.len() as u32);
         assert_eq!(decoder.metrics.frames_bad, 0);
         assert_eq!(decoder.mode(), Some((Modulation::Apsk16, Rate::R9_10)));
@@ -898,7 +1150,7 @@ mod tests {
             let mut decoder = Dvbs2Decoder::new();
             let mut received = Dvbs2Output::default();
             drive(&symbols, &mut decoder, &mut received);
-            assert_eq!(received.packets, sent, "{}", mode.label);
+            assert_eq!(received.packets, sent[..sent.len() - 1], "{}", mode.label);
             assert_eq!(decoder.metrics.frames_bad, 0, "{}", mode.label);
             assert_eq!(decoder.very_low_mode(), Some(mode), "{}", mode.label);
             assert_eq!(decoder.mode(), None, "{}", mode.label);

@@ -86,6 +86,7 @@ export function kindsOffered(
     const kind = descriptors.find((d) => d.type_id === source.channelType)?.decoder_kind;
     if (kind != null) {
       kinds.add(kind);
+      if (kind === "broadcast") kinds.add("broadcast_data");
     }
     if (source.recordsCalls) {
       kinds.add("call");

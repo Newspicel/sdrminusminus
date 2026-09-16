@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ListenerRegistry } from "./listeners";
+import { registerMediaLatency } from "./mediaLatency";
 import type { ClientCommand } from "./types";
 import { VideoHub, type VideoSocket } from "./video";
 
@@ -50,6 +51,28 @@ describe("VideoHub", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("paces pictures against the matching audio output and cancels stopped pictures", () => {
+    const fake = fakeSocket();
+    const hub = new VideoHub();
+    const remove = registerMediaLatency("1:2", () => 80);
+    hub.attach(fake.socket);
+    const shown: number[] = [];
+    hub.subscribe(1, 2, (frame) => shown.push(frame.width));
+    fake.started(0x8000, 1, 2);
+    fake.push(0x8000, 160);
+    expect(shown).toEqual([]);
+    vi.advanceTimersByTime(79);
+    expect(shown).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(shown).toEqual([160]);
+    fake.push(0x8000, 320);
+    fake.stopped(0x8000);
+    vi.advanceTimersByTime(100);
+    expect(shown).toEqual([160]);
+    remove();
+    hub.detach();
   });
 
   it("subscribes once for many watchers of one channel and stops on the last one", () => {

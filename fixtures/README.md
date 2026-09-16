@@ -43,7 +43,8 @@ Generated pairs are ignored by Git. Commit generator and expected-output changes
 
 ## Committed fixtures
 
-These eight pairs are not regenerated: six are recordings and two are frozen synthetic waveforms.
+These nineteen pairs are not regenerated: six are recordings, two are frozen synthetic waveforms,
+and eleven are reference waveforms from generators that are independent of the Rust modulators.
 They retain cases that the current generators do not reproduce.
 
 `cargo xtask excerpt` trims a SigMF pair, WAV, or raw `cu8`/`cs8`/`cs16`/`cf32` capture. It shifts
@@ -60,6 +61,17 @@ SHA-256 in a SigMF annotation.
 | `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
 | `adsb_offair_2m` | 2 M | `adsb` @ 0 Hz | 17 Mode S replies from four aircraft — DF4/5/11/17/20/21, FL370 and squawk 5245 from 4D2256, a TC11 position and a TC19 velocity from 3FF91D |
 | `ft8_20m_busy_12k` | 12 k | `ft8` @ 0 Hz | 19 of the 20 decodes `ft8_lib` publishes for this slot |
+| `dvbt/qpsk_2k_reference` | 9.142857 M | `dvbt` @ 0 Hz | 2K QPSK, rate 1/2, guard 1/8, 1750 Hz offset; PID 0x123 packets, TPS cell 0x5a |
+| `dab/mode_ii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | Mode II frame: ensemble `0x4a2c`, service `0xc201`, no failed FIB CRCs |
+| `dab/mode_iii_reference_2m048` | 2.048 M | `dab` @ 0 Hz | the same ensemble in Mode III |
+| `dab/mode_iv_reference_2m048` | 2.048 M | `dab` @ 0 Hz | the same ensemble in Mode IV |
+| `dvbs2x/pls132` | symbol rate | `datv` unit tests | PLS 132 QPSK, PID 0x123 packets with payload `(132 + i + j) % 256` |
+| `dvbs2x/pls138` | symbol rate | `datv` unit tests | PLS 138 8APSK |
+| `dvbs2x/pls184` | symbol rate | `datv` unit tests | PLS 184 64APSK |
+| `dvbs2x/pls200` | symbol rate | `datv` unit tests | PLS 200 128APSK |
+| `dvbs2x/pls214` | symbol rate | `datv` unit tests | PLS 214 256APSK |
+| `dvbs2x/pls248` | symbol rate | `datv` unit tests | PLS 248 short-frame 32APSK |
+| `dvbs2x/superframe0` | symbol rate | `datv` unit tests | 72 repeated 256APSK PLFRAMEs in one Annex E format 0 container |
 
 ## Playback notes
 
@@ -83,6 +95,18 @@ Give frozen renders a separate stem from generated fixtures. Otherwise regenerat
 the waveform a regression test is supposed to preserve.
 
 ## Provenance and regression coverage
+
+### Independent reference waveforms: `dab/`, `dvbs2x/`, `dvbt/`
+
+Python and NumPy generators outside the Rust modulators produce these pairs, so a broadcast
+decoder cannot pass by agreeing with a transmitter that shares its mistake. `cargo xtask fixtures`
+does not rebuild them and CI does not run their generators: the tests read them with
+`include_bytes!`, so the pairs are force-added past `.gitignore`. Each directory's README records
+its generator, the standard clauses it follows, and the expected output.
+
+The `dvbt` and `dvbs2x` pairs are `ci16_le` rather than `cf32_le`, because their generators write
+what the receivers read. The `dvbs2x` pairs carry one sample per symbol and feed the receiver
+stages directly rather than a device-rate channel, so they have no playback offset.
 
 ### DMR direct mode: `dmr_call_48k`
 

@@ -17,6 +17,11 @@ apps/desktop/gen
 # Recorded IQ test fixtures — megabytes, and no build stage reads them.
 fixtures
 
+# The media stage builds FFmpeg itself; a developer's local build tree and prefix are megabytes
+# of context no stage reads.
+.media
+.media-build
+
 # Plans, docs and generated specs: not inputs to any stage (the TS client is checked in under
 # web/src/generated, so the image never needs openapi.json).
 *.md

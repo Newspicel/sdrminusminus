@@ -17,6 +17,8 @@ use tokio::sync::{broadcast::error::RecvError, mpsc};
 
 use crate::{Store, calls::Calls, events::EventPath};
 
+mod tunnel;
+
 const DELIVERY_QUEUE: usize = 64;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_ERROR_BODY: usize = 1_024;
@@ -102,6 +104,8 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
     let (delivery_tx, delivery_rx) = mpsc::channel(DELIVERY_QUEUE);
     let worker = tokio::spawn(deliver_all(client, delivery_rx));
     let mut routing = load_routing(store.clone(), engine.clone()).await;
+    let mut tunnels = tunnel::Outputs::default();
+    tunnels.configure(&routing.bindings);
     let mut decoded_open = true;
     let mut decoded_sequence = 0_u64;
     loop {
@@ -112,16 +116,23 @@ pub(crate) async fn run(engine: std::sync::Weak<Engine>, store: Arc<Store>, call
                         | StateScope::Devices
                         | StateScope::DeviceSet(_)
                         | StateScope::Workspaces,
-                }) => routing = load_routing(store.clone(), engine.clone()).await,
+                }) => {
+                    routing = load_routing(store.clone(), engine.clone()).await;
+                    tunnels.configure(&routing.bindings);
+                },
                 Ok(_) => {}
                 Err(RecvError::Lagged(count)) => {
                     tracing::error!(count, "event output missed server events");
                     routing = load_routing(store.clone(), engine.clone()).await;
+                    tunnels.configure(&routing.bindings);
                 }
                 Err(RecvError::Closed) => break,
             },
             record = decoded.recv(), if decoded_open => match record {
                 Ok(record) => {
+                    if let Some(source) = routing.decoded_sources.get(&(record.device_set,record.channel)) {
+                        tunnels.push(&routing.bindings,source,&record);
+                    }
                     decoded_sequence = decoded_sequence.wrapping_add(1);
                     for delivery in decoded_deliveries(&routing, &record, decoded_sequence, &calls) {
                         enqueue(&delivery_tx, delivery);
@@ -173,6 +184,7 @@ fn decoded_deliveries(
     routing
         .bindings
         .iter()
+        .filter(|binding| !matches!(binding.target, EventOutputTarget::Tunnel { .. }))
         .filter(|binding| {
             binding
                 .paths
@@ -280,6 +292,9 @@ async fn deliver_all(client: Client, mut deliveries: mpsc::Receiver<Delivery>) {
 
 async fn deliver(client: &Client, delivery: &Delivery) -> Result<(), DeliveryError> {
     match &delivery.target {
+        EventOutputTarget::Tunnel { .. } => Err(DeliveryError::Failed(
+            "TUN datagrams use the bounded network writer".to_owned(),
+        )),
         EventOutputTarget::Webhook { url, format } => {
             send_webhook(client, url, *format, &delivery.message).await
         }

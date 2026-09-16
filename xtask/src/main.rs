@@ -18,6 +18,7 @@ use num_complex::Complex;
 mod architecture;
 mod bandplan;
 mod ber;
+mod broadcast_fixtures;
 mod bundle;
 mod excerpt;
 mod homebrew;
@@ -65,6 +66,10 @@ enum Cmd {
     Smoke,
     Screenshots,
     Fixtures,
+    BroadcastFixtures {
+        #[arg(long)]
+        out: PathBuf,
+    },
     Excerpt(excerpt::Excerpt),
     Replay(replay::Replay),
     Bandplan {
@@ -141,6 +146,7 @@ fn main() -> Result<()> {
         Cmd::Smoke => smoke(&root()),
         Cmd::Screenshots => screenshots(&root()),
         Cmd::Fixtures => fixtures(&root()),
+        Cmd::BroadcastFixtures { out } => broadcast_fixtures::run(&out),
         Cmd::Excerpt(args) => excerpt::run(&root(), &args),
         Cmd::Replay(args) => replay::run(&args),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
@@ -794,7 +800,7 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
         args.push("--target");
         args.push(triple);
     }
-    run("cargo", &args, root)?;
+    run_against_media(&args, root, media_dir(root, target)?.as_deref())?;
 
     let triple = match target {
         Some(triple) => triple.to_string(),
@@ -980,9 +986,30 @@ fn host_triple() -> Result<String> {
         .context("`rustc -vV` printed no host line")
 }
 
+// Every codec build lands in its own `.media/<triple>`, so a cross build has to be pointed at the
+// tree for the target rather than the one the host happens to have.
+fn media_dir(root: &Path, target: Option<&str>) -> Result<Option<PathBuf>> {
+    let triple = target.map(str::to_owned).map_or_else(host_triple, Ok)?;
+    let dir = root.join(".media").join(triple);
+    Ok(dir.join("sdrmm-build.txt").is_file().then_some(dir))
+}
+
+fn run_against_media(args: &[&str], cwd: &Path, media: Option<&Path>) -> Result<()> {
+    match media {
+        Some(dir) => run_with_env(
+            "cargo",
+            args,
+            cwd,
+            &[("FFMPEG_DIR", &dir.to_string_lossy())],
+        ),
+        None => run("cargo", args, cwd),
+    }
+}
+
 fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<()> {
     ensure_target(root, target)?;
     let features = release_features();
+    let media = media_dir(root, target)?;
 
     let Some(bundles) = bundles else {
         let mut args = vec![
@@ -999,7 +1026,7 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
             args.push(triple);
         }
         args.extend(["--", "-D", "warnings"]);
-        return run("cargo", &args, root);
+        return run_against_media(&args, root, media.as_deref());
     };
 
     web_build(root)?;
@@ -1040,7 +1067,7 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
     if unsigned {
         args.insert(2, "--no-sign");
     }
-    run("cargo", &args, &root.join("apps/desktop"))
+    run_against_media(&args, &root.join("apps/desktop"), media.as_deref())
 }
 
 fn set_version(root: &Path, version: &str) -> Result<()> {

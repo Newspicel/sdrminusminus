@@ -19,6 +19,10 @@ function dataLink(
 describe("eventDetail", () => {
   it("answers for every decoder the wire union declares", () => {
     const sample: Record<DecoderKind, DecoderEvent> = {
+      broadcast_data: {
+        kind: "broadcast_data",
+        data: { name: "slide.png", media_type: "image/png", bytes: [] },
+      },
       rds: { kind: "rds", data: { groups: 0, blocks: 0, block_errors: 0 } },
       call: {
         kind: "call",
@@ -654,6 +658,27 @@ describe("eventDetail", () => {
       "Block errors": "2",
     });
     expect(detail.body).toBe("Now playing something");
+  });
+
+  it("shows broadcast audio failures independently of radio lock", () => {
+    const detail = eventDetail({
+      kind: "broadcast",
+      data: {
+        system: "dab",
+        locked: true,
+        snr_db: 20,
+        frequency_error_hz: 0,
+        audio_frames_ok: 41,
+        audio_frames_bad: 2,
+        audio_error: "Broadcast audio input queue overflow",
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Lock: "locked",
+      "Audio frames": "41",
+      "Audio failures": "2",
+      "Audio error": "Broadcast audio input queue overflow",
+    });
   });
 
   it("shows a broadcast acquisition without inventing multiplex metadata", () => {

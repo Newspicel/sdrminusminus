@@ -1,9 +1,31 @@
 fn main() {
     build_dstar_vocoder();
     build_fdmdv();
+    link_whole_media_util();
     if std::env::var("CARGO_CFG_UNIX").is_ok() {
         println!("cargo:rustc-link-lib=m");
     }
+}
+
+// GNU ld reads archives once, in order, keeping only the members something has already asked for.
+// ffmpeg-sys names avutil ahead of the libraries that call into it and rustc names this crate's
+// libraries ahead of that, so avutil is always read before avcodec asks for anything in it and
+// every call into it comes out undefined. Taking the whole archive settles that wherever avutil
+// lands. The Apple and MSVC linkers resolve archives in any order and need none of this.
+fn link_whole_media_util() {
+    println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
+        return;
+    }
+    let Ok(prefix) = std::env::var("FFMPEG_DIR") else {
+        return;
+    };
+    let lib = std::path::Path::new(&prefix).join("lib");
+    if !lib.join("libavutil.a").is_file() {
+        return;
+    }
+    println!("cargo:rustc-link-search=native={}", lib.display());
+    println!("cargo:rustc-link-lib=static:+whole-archive=avutil");
 }
 
 fn build_dstar_vocoder() {

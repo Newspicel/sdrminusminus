@@ -1,5 +1,7 @@
 use super::conv::{ERASURE, Soft};
 
+mod butterfly;
+
 pub const STATES: usize = 64;
 const MAX_OUTPUTS: usize = 8;
 const STATE_MASK: usize = STATES - 1;
@@ -8,6 +10,7 @@ const STATE_MASK: usize = STATES - 1;
 pub struct ConvCode {
     outputs: usize,
     branch: [u8; 128],
+    pair_signs: Option<[[i32; 32]; 2]>,
 }
 
 impl ConvCode {
@@ -27,8 +30,21 @@ impl ConvCode {
             }
             *slot = mask;
         }
+        let pair_signs =
+            (polys.len() == 2 && polys.iter().all(|poly| poly & 0x41 == 0x41)).then(|| {
+                std::array::from_fn(|bit| {
+                    std::array::from_fn(|state| {
+                        if branch[2 * state] & (1 << bit) == 0 {
+                            -1
+                        } else {
+                            0
+                        }
+                    })
+                })
+            });
         Self {
             outputs: polys.len(),
+            pair_signs,
             branch,
         }
     }
@@ -124,9 +140,35 @@ impl Depuncturer {
     }
 }
 
+fn scalar_step(
+    code: &ConvCode,
+    metrics: &[i32; STATES],
+    next: &mut [i32; STATES],
+    symbol: &[Soft],
+) -> u64 {
+    let mut branches = [0i32; 256];
+    branches[0] = -symbol.iter().map(|&value| i32::from(value)).sum::<i32>();
+    for (bit, &value) in symbol.iter().enumerate() {
+        for mask in 0..1 << bit {
+            branches[mask | (1 << bit)] = branches[mask] + 2 * i32::from(value);
+        }
+    }
+    let mut decisions = 0u64;
+    for state in 0..STATES {
+        let previous = (state & 31) * 2;
+        let first = metrics[previous].saturating_add(branches[usize::from(code.branch[state * 2])]);
+        let second =
+            metrics[previous + 1].saturating_add(branches[usize::from(code.branch[state * 2 + 1])]);
+        next[state] = first.max(second);
+        decisions |= u64::from(second > first) << state;
+    }
+    decisions
+}
+
 struct Trellis {
-    metrics: [i32; STATES],
-    next: [i32; STATES],
+    survivors: [[i32; STATES]; 2],
+    front: usize,
+    normalization_steps: u16,
 }
 
 impl Trellis {
@@ -135,58 +177,65 @@ impl Trellis {
 
     fn new() -> Self {
         Self {
-            metrics: [Self::FLOOR; STATES],
-            next: [Self::FLOOR; STATES],
+            survivors: [[Self::FLOOR; STATES]; 2],
+            front: 0,
+            normalization_steps: 0,
         }
+    }
+
+    fn metrics(&self) -> &[i32; STATES] {
+        &self.survivors[self.front]
     }
 
     fn restart(&mut self) {
-        self.metrics = [Self::FLOOR; STATES];
-        self.metrics[0] = 0;
+        self.survivors[self.front] = [Self::FLOOR; STATES];
+        self.survivors[self.front][0] = 0;
     }
 
     fn open(&mut self) {
-        self.metrics = [0; STATES];
+        self.survivors[self.front] = [0; STATES];
     }
 
+    // The survivors alternate between the two halves rather than being copied back, because a
+    // 256-byte move per trellis step costs as much as the butterfly that produced it.
     fn step(&mut self, code: &ConvCode, symbol: &[Soft]) -> u64 {
-        let mut decisions = 0u64;
-        for state in 0..STATES {
-            let input = state >> 5 == 1;
-            let low = (state & 0x1F) << 1;
-            let mut best = (i32::MIN, false);
-            for lsb in [false, true] {
-                let previous = low | usize::from(lsb);
-                let mask = code.branch[ConvCode::register(previous, input)];
-                let mut branch = 0i32;
-                for (index, &value) in symbol.iter().enumerate() {
-                    let soft = i32::from(value);
-                    branch += if mask >> index & 1 == 1 { soft } else { -soft };
-                }
-                let metric = self.metrics[previous].saturating_add(branch);
-                if metric > best.0 {
-                    best = (metric, lsb);
-                }
-            }
-            self.next[state] = best.0;
-            decisions |= u64::from(best.1) << state;
-        }
-        self.metrics = self.next;
+        let [even, odd] = &mut self.survivors;
+        let (metrics, next) = if self.front == 0 {
+            (&*even, odd)
+        } else {
+            (&*odd, even)
+        };
+        let decisions = match &code.pair_signs {
+            Some(signs) => butterfly::step(
+                metrics,
+                next,
+                signs,
+                [i32::from(symbol[0]), i32::from(symbol[1])],
+            ),
+            None => scalar_step(code, metrics, next, symbol),
+        };
+        self.front ^= 1;
         decisions
     }
 
     fn normalize(&mut self) {
-        let peak = self.metrics.iter().copied().max().unwrap_or(0);
+        self.normalization_steps += 1;
+        if self.normalization_steps < 256 {
+            return;
+        }
+        self.normalization_steps = 0;
+        let peak = self.metrics().iter().copied().max().unwrap_or(0);
         if peak > Self::CEILING {
-            for metric in &mut self.metrics {
+            for metric in &mut self.survivors[self.front] {
                 *metric -= peak;
             }
         }
     }
 
     fn best_state(&self) -> usize {
+        let metrics = self.metrics();
         (0..STATES)
-            .max_by_key(|&state| self.metrics[state])
+            .max_by_key(|&state| metrics[state])
             .unwrap_or_default()
     }
 }
@@ -241,7 +290,7 @@ impl ViterbiK7 {
             self.trellis.normalize();
         }
         let state = end.unwrap_or_else(|| self.trellis.best_state());
-        let metric = self.trellis.metrics[state];
+        let metric = self.trellis.metrics()[state];
         let start = out.len();
         trace(&self.decisions, state, |bit| out.push(bit));
         out[start..].reverse();
@@ -254,6 +303,7 @@ pub struct StreamViterbiK7 {
     trellis: Trellis,
     decisions: Vec<u64>,
     depth: usize,
+    batch: usize,
     pending: Vec<bool>,
     carry: [Soft; MAX_OUTPUTS],
     carried: usize,
@@ -263,14 +313,18 @@ impl StreamViterbiK7 {
     #[must_use]
     pub fn new(code: ConvCode, depth: usize) -> Self {
         let depth = depth.max(8);
+        // Every release traces `depth` decisions to find the surviving path before it emits a
+        // single bit, so releasing in large batches spreads that fixed cost over more output.
+        let batch = 8 * depth;
         let mut trellis = Trellis::new();
         trellis.open();
         Self {
             code,
             trellis,
-            decisions: Vec::with_capacity(2 * depth),
+            decisions: Vec::with_capacity(batch),
             depth,
-            pending: Vec::with_capacity(depth),
+            batch,
+            pending: Vec::with_capacity(batch - depth),
             carry: [ERASURE; MAX_OUTPUTS],
             carried: 0,
         }
@@ -293,7 +347,7 @@ impl StreamViterbiK7 {
         let word = self.trellis.step(&self.code, symbol);
         self.decisions.push(word);
         self.trellis.normalize();
-        if self.decisions.len() >= 2 * self.depth {
+        if self.decisions.len() >= self.batch {
             self.release(out);
         }
     }
@@ -315,24 +369,21 @@ impl StreamViterbiK7 {
         }
         let usable = source.len() / outputs * outputs;
         for index in (0..usable).step_by(outputs) {
-            let mut symbol = [ERASURE; MAX_OUTPUTS];
-            symbol[..outputs].copy_from_slice(&source[index..index + outputs]);
-            self.step(&symbol[..outputs], out);
+            self.step(&source[index..index + outputs], out);
         }
         self.carried = source.len() - usable;
         self.carry[..self.carried].copy_from_slice(&source[usable..]);
     }
 
     fn release(&mut self, out: &mut Vec<bool>) {
+        let settled = self.decisions.len() - self.depth;
         let survivor = self.trellis.best_state();
-        let state = trace(&self.decisions[self.depth..], survivor, |_| {});
+        let state = trace(&self.decisions[settled..], survivor, |_| {});
         self.pending.clear();
         let pending = &mut self.pending;
-        trace(&self.decisions[..self.depth], state, |bit| {
-            pending.push(bit)
-        });
+        trace(&self.decisions[..settled], state, |bit| pending.push(bit));
         out.extend(self.pending.iter().rev().copied());
-        self.decisions.copy_within(self.depth.., 0);
+        self.decisions.copy_within(settled.., 0);
         self.decisions.truncate(self.depth);
     }
 
@@ -379,6 +430,31 @@ mod tests {
         let mut bits = message(len, seed);
         bits.extend([false; 6]);
         bits
+    }
+
+    #[test]
+    fn vector_butterflies_match_scalar_survivors_with_extreme_soft_values() {
+        let mut scalar_code = ConvCode::new(&DVB_S);
+        scalar_code.pair_signs = None;
+        let fast_code = ConvCode::new(&DVB_S);
+        let mut fast = Trellis::new();
+        fast.open();
+        let mut scalar = Trellis::new();
+        scalar.open();
+        let mut seed = 0x91ab21u32;
+        for _ in 0..4096 {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let symbol = [seed as i16, (seed >> 16) as i16];
+            assert_eq!(
+                fast.step(&fast_code, &symbol),
+                scalar.step(&scalar_code, &symbol)
+            );
+            fast.normalize();
+            scalar.normalize();
+            assert_eq!(fast.metrics(), scalar.metrics());
+        }
     }
 
     #[test]

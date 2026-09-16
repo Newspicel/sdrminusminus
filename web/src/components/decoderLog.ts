@@ -39,6 +39,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   psk: "PSK",
   wspr: "WSPR",
   broadcast: "Digital broadcast",
+  broadcast_data: "Broadcast data",
   radio_clock: "Radio clock",
   gnss: "GNSS lab",
   sstv: "SSTV",

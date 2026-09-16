@@ -1,5 +1,11 @@
 import { type ReactNode, useState } from "react";
-import type { ChannelDescriptor, ChannelParams, ChannelSettings, ParamLimit } from "../lib/types";
+import type {
+  ChannelDescriptor,
+  ChannelParams,
+  ChannelSettings,
+  DecoderEvent,
+  ParamLimit,
+} from "../lib/types";
 import type { ChannelEdit } from "../lib/useChannelPatch";
 import { AudioControls } from "./AudioControls";
 import { Checkbox } from "./Checkbox";
@@ -34,6 +40,8 @@ import { TextAutocomplete } from "./TextAutocomplete";
 import { TuneTo } from "./TuneTo";
 import { TuningLock } from "./TuningLock";
 import { useDebouncedCommit } from "./useDebouncedCommit";
+
+type BroadcastStatus = Extract<DecoderEvent, { kind: "broadcast" }>["data"];
 
 const SQUELCH_MODES: Options<SquelchMode> = [
   { value: "off", label: "Off", title: "Pass everything through" },
@@ -138,6 +146,12 @@ const DAB_MODES: Options<NonNullable<ChannelParamsOf<"dab">["mode"]>> = [
   { value: "auto", label: "Auto" },
   { value: "dab", label: "DAB" },
   { value: "dab_plus", label: "DAB+" },
+];
+const DAB_TRANSMISSION_MODES: Options<NonNullable<ChannelParamsOf<"dab">["transmission_mode"]>> = [
+  { value: "i", label: "I" },
+  { value: "ii", label: "II" },
+  { value: "iii", label: "III" },
+  { value: "iv", label: "IV" },
 ];
 const DATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"datv">["standard"]>> = [
   { value: "dvb_s", label: "DVB-S" },
@@ -264,17 +278,20 @@ export function ChannelControls({
   descriptor,
   onEdit,
   extra,
+  broadcast,
 }: {
   settings: ChannelSettings;
   descriptor: ChannelDescriptor | undefined;
   onEdit: (edit: ChannelEdit) => void;
   extra?: ReactNode;
+  broadcast?: BroadcastStatus;
 }) {
   return (
     <Settings className="p-2">
       <SquelchRow settings={settings} onEdit={onEdit} />
       <ModeControls
         params={settings.params}
+        broadcast={broadcast}
         limits={descriptor?.limits ?? []}
         onParams={(params) => onEdit({ params })}
       />
@@ -343,11 +360,13 @@ function SquelchRow({
 }
 
 function ModeControls({
+  broadcast,
   params,
   limits,
   onParams,
 }: {
   params: ChannelParams;
+  broadcast?: BroadcastStatus;
   limits: readonly ParamLimit[];
   onParams: (params: ChannelParams) => void;
 }) {
@@ -1142,14 +1161,34 @@ function ModeControls({
       );
     case "dab":
       return (
-        <SettingRow label="Generation">
-          <Segmented
-            label="DAB generation"
-            value={params.settings.mode ?? "auto"}
-            options={DAB_MODES}
-            onChange={(mode) => onParams({ type: "dab", settings: { ...params.settings, mode } })}
+        <>
+          <SettingRow label="Generation">
+            <Segmented
+              label="DAB generation"
+              value={params.settings.mode ?? "auto"}
+              options={DAB_MODES}
+              onChange={(mode) => onParams({ type: "dab", settings: { ...params.settings, mode } })}
+            />
+          </SettingRow>
+          <SettingRow label="Transmission">
+            <Segmented
+              label="DAB transmission mode"
+              value={params.settings.transmission_mode ?? "i"}
+              options={DAB_TRANSMISSION_MODES}
+              onChange={(transmission_mode) =>
+                onParams({ type: "dab", settings: { ...params.settings, transmission_mode } })
+              }
+            />
+          </SettingRow>
+          <BroadcastServicePicker
+            status={broadcast}
+            value={params.settings.service_id ?? null}
+            max={0xffffffff}
+            onChange={(service_id) =>
+              onParams({ type: "dab", settings: { ...params.settings, service_id } })
+            }
           />
-        </SettingRow>
+        </>
       );
     case "datv":
       return (
@@ -1176,6 +1215,95 @@ function ModeControls({
             />
             <span className="legend">Bd</span>
           </SettingRow>
+          <BroadcastServicePicker
+            status={broadcast}
+            value={params.settings.program ?? null}
+            max={65535}
+            onChange={(program) =>
+              onParams({ type: "datv", settings: { ...params.settings, program } })
+            }
+          />
+          {params.settings.standard === "dvb_s2" ? (
+            <>
+              <Toggle
+                label="Superframes"
+                title="Receive Annex E format 0 or 1 with the default reference and payload scrambling codes"
+                checked={params.settings.superframes ?? false}
+                onChange={(superframes) =>
+                  onParams({ type: "datv", settings: { ...params.settings, superframes } })
+                }
+              />
+              <SettingRow
+                label="Input stream"
+                title="Choose an input stream identifier on a multistream carrier"
+              >
+                <OptionalNumberField
+                  label="DVB-S2 input stream"
+                  placeholder="Auto"
+                  value={params.settings.input_stream ?? null}
+                  min={0}
+                  max={255}
+                  step={1}
+                  onCommit={(input_stream) =>
+                    onParams({ type: "datv", settings: { ...params.settings, input_stream } })
+                  }
+                />
+              </SettingRow>
+            </>
+          ) : (
+            <SettingRow label="Code rate">
+              <Select
+                label="DVB-S code rate"
+                value={params.settings.code_rate ?? "auto"}
+                options={[
+                  { value: "auto", label: "Auto" },
+                  { value: "half", label: "1/2" },
+                  { value: "two_thirds", label: "2/3" },
+                  { value: "three_quarters", label: "3/4" },
+                  { value: "five_sixths", label: "5/6" },
+                  { value: "seven_eighths", label: "7/8" },
+                ]}
+                onChange={(code_rate) =>
+                  onParams({ type: "datv", settings: { ...params.settings, code_rate } })
+                }
+              />
+            </SettingRow>
+          )}
+        </>
+      );
+    case "dvbt":
+      return (
+        <>
+          <SettingRow label="Bandwidth">
+            <Segmented
+              label="DVB-T bandwidth"
+              value={params.settings.bandwidth ?? "mhz8"}
+              options={[
+                { value: "mhz6", label: "6 MHz" },
+                { value: "mhz7", label: "7 MHz" },
+                { value: "mhz8", label: "8 MHz" },
+              ]}
+              onChange={(bandwidth) =>
+                onParams({ type: "dvbt", settings: { ...params.settings, bandwidth } })
+              }
+            />
+          </SettingRow>
+          <Toggle
+            label="Low priority stream"
+            title="Decode the low priority transport stream of a hierarchical DVB-T multiplex"
+            checked={params.settings.low_priority ?? false}
+            onChange={(low_priority) =>
+              onParams({ type: "dvbt", settings: { ...params.settings, low_priority } })
+            }
+          />
+          <BroadcastServicePicker
+            status={broadcast}
+            value={params.settings.program ?? null}
+            max={65535}
+            onChange={(program) =>
+              onParams({ type: "dvbt", settings: { ...params.settings, program } })
+            }
+          />
         </>
       );
     case "drm": {
@@ -1448,5 +1576,53 @@ function PresetNumberField({
       <Segmented label={`${label} presets`} value={value} options={presets} onChange={onCommit} />
       <NumberField label={label} value={value} {...limit} onCommit={onCommit} />
     </>
+  );
+}
+
+function BroadcastServicePicker({
+  status,
+  value,
+  max,
+  onChange,
+}: {
+  status?: BroadcastStatus;
+  value: number | null;
+  max: number;
+  onChange: (id: number | null) => void;
+}) {
+  const services = status?.services ?? [];
+  const options = [
+    { value: "", label: "Auto" },
+    ...services.map((service) => ({
+      value: String(service.id),
+      label: service.label || String(service.id),
+    })),
+  ];
+  if (value !== null && !services.some((service) => service.id === value))
+    options.push({ value: String(value), label: String(value) });
+  return (
+    <SettingRow
+      label="Service"
+      title="Select a discovered audio, video or data service; Auto chooses the first playable service"
+    >
+      {services.length > 0 ? (
+        <Select
+          label="Broadcast service"
+          value={value === null ? "" : String(value)}
+          options={options}
+          onChange={(id) => onChange(id === "" ? null : Number(id))}
+        />
+      ) : (
+        <OptionalNumberField
+          label="Broadcast service identifier"
+          placeholder="Auto"
+          value={value}
+          min={0}
+          max={max}
+          step={1}
+          onCommit={onChange}
+        />
+      )}
+    </SettingRow>
   );
 }

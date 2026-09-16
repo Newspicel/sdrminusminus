@@ -169,6 +169,7 @@ pub struct BaseBandData {
     pub field: Vec<u8>,
 }
 
+#[cfg(test)]
 impl BaseBandData {
     #[must_use]
     pub fn transport(&self) -> Vec<[u8; PACKET]> {

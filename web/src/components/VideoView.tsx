@@ -9,6 +9,7 @@ const STALE_MS = 2_000;
 interface Geometry {
   width: number;
   height: number;
+  aspect: number;
 }
 
 export interface VideoScope {
@@ -38,7 +39,11 @@ export function VideoView({ scope }: { scope: VideoScope }) {
         canvas.width = frame.width;
         canvas.height = frame.height;
         image = ctx.createImageData(frame.width, frame.height);
-        setGeometry({ width: frame.width, height: frame.height });
+        setGeometry({
+          width: frame.width,
+          height: frame.height,
+          aspect: frame.format === "rgb" ? frame.width / frame.height : DISPLAY_ASPECT,
+        });
       }
       const rgba = image.data;
       const count = frame.width * frame.height;
@@ -77,7 +82,7 @@ export function VideoView({ scope }: { scope: VideoScope }) {
     <div className="flex flex-col gap-1 p-2">
       <div
         className="w-full overflow-hidden rounded-xs bg-black"
-        style={{ aspectRatio: DISPLAY_ASPECT }}
+        style={{ aspectRatio: geometry?.aspect ?? DISPLAY_ASPECT }}
       >
         <canvas
           ref={canvasRef}

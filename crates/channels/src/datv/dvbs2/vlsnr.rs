@@ -93,9 +93,9 @@ impl VlSet {
 
 #[must_use]
 pub fn set_of(signalling: Signalling) -> Option<VlSet> {
-    match signalling.code() & !1 {
-        SET1_CODE => Some(VlSet::One),
-        SET2_CODE => Some(VlSet::Two),
+    match signalling.code() {
+        code if code == SET1_CODE | 1 => Some(VlSet::One),
+        code if code == SET2_CODE | 1 => Some(VlSet::Two),
         _ => None,
     }
 }
@@ -353,6 +353,29 @@ pub fn layout(set: VlSet) -> Vec<Piece> {
     out
 }
 
+pub fn superframe_layout(set: VlSet) -> Vec<Piece> {
+    let mut pieces = vec![Piece::Header];
+    let mut remaining = set.payload();
+    while remaining > 1440 {
+        pieces.push(Piece::Payload(1440));
+        pieces.push(Piece::Pilot(90));
+        remaining -= 1440;
+    }
+    pieces.push(Piece::Payload(remaining));
+    if set == VlSet::Two {
+        pieces.push(Piece::Pilot(54));
+    }
+    pieces
+}
+
+pub fn superframe_symbols(set: VlSet) -> usize {
+    pl::HEADER
+        + superframe_layout(set)
+            .iter()
+            .map(|piece| piece.len())
+            .sum::<usize>()
+}
+
 #[must_use]
 pub fn frame_symbols(set: VlSet) -> usize {
     pl::HEADER + layout(set).iter().map(|piece| piece.len()).sum::<usize>()
@@ -503,6 +526,15 @@ impl VlSnrEncoder {
     #[must_use]
     pub const fn field_bytes(&self) -> usize {
         self.codec.field_bytes()
+    }
+
+    #[cfg(test)]
+    pub fn superframes(&mut self, enabled: bool) {
+        self.codec.layout = if enabled {
+            superframe_layout(self.codec.mode.set)
+        } else {
+            layout(self.codec.mode.set)
+        };
     }
 
     pub fn frame(&mut self, packets: &[[u8; PACKET]], out: &mut Vec<Complex<f32>>) -> bool {
@@ -702,7 +734,7 @@ mod tests {
             assert!(signalling.pilots);
             assert_eq!(set_of(signalling), Some(mode.set), "{}", mode.label);
         }
-        assert_eq!(set_of(Signalling::from_code(128)), Some(VlSet::One));
+        assert_eq!(set_of(Signalling::from_code(128)), None);
         assert_eq!(set_of(Signalling::from_code(131)), Some(VlSet::Two));
         assert_eq!(set_of(Signalling::from_code(28 << 2 | 1)), None);
     }

@@ -43,7 +43,7 @@ vary by mode:
 | Paging and telemetry | POCSAG | tested on air |
 | Paging and telemetry | FLEX, ERMES, Selcall (CCIR/ZVEI), Sub-GHz OOK/FSK frames, ISM sensors, radio clocks (DCF77, WWVB, MSF, JJY) | fixture-only |
 | Video | ATV, SSTV | fixture-only |
-| Wideband digital | DAB / DAB+, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
+| Wideband digital | DAB / DAB+, DVB-T, DATV (DVB-S / S2), DRM30 / DRM+ | experimental |
 | Utility | Signal identifier, Iridium bursts, DECT base station survey | fixture-only |
 | Utility | GNSS lab (GPS L1 C/A) | experimental |
 
@@ -96,8 +96,9 @@ Pulse slicing, payload layouts, validation rules, and CRC/LFSR digest routines f
 
 | Mode | Available output | Missing or limited functionality |
 |---|---|---|
-| DAB / DAB+ | FIC and MSC decoding, CRC-checked DAB+ access units | No audio codec or playback |
-| DATV | DVB-S/S2 transport packets and programme tables, or generic-stream datagrams | No audio or video codec output |
+| DAB / DAB+ | Modes I–IV, FIC and MSC, MPEG Layer II and AAC audio, dynamic labels, PAD and packet-mode MOT, packet-mode FEC and IP data | Synthetic IQ validation |
+| DATV | DVB-S/S2/S2X, programme tables, MPEG Layer II/AAC/AC-3/E-AC-3 audio, MPEG-2/H.264/HEVC video, GSE datagrams | Synthetic IQ validation |
+| DVB-T | 2K/8K OFDM, 6/7/8 MHz channels, all guard intervals and code rates, QPSK/16-QAM/64-QAM, hierarchical HP/LP streams, audio and video | Synthetic IQ validation |
 | DRM30 / DRM+ | Acquisition, lock, SNR, and frequency error | No FAC, SDC, or MSC decoding; no service labels or media |
 | GNSS lab | GPS L1 C/A acquisition and NAV telemetry | No position solution |
 | VOR / ILS | Radial or difference in depth of modulation | Tested only against analytically generated signals |
@@ -278,3 +279,52 @@ for message history, **Map** for positions, and **Export** for saved rows.
 
 Decoder-log retention is bounded. SSTV images use a separate picture store: the log records
 arrival, while `GET /api/images` serves the pictures.
+
+## DAB and DVB playback
+
+Connect `audio` to a **Speaker** node. **Auto** selects the first DAB audio service;
+**Generation** restricts selection to classic DAB or DAB+. **Transmission** selects I, II,
+III or IV. All four modes use 2.048 MS/s at the channel input. Changing mode or service clears
+buffered audio and data.
+
+DAB+ supports 960-sample AAC-LC, HE-AAC and parametric stereo. DVB-T and DVB-S/S2 play the selected
+programme's first audio and video streams. Supported media includes MPEG Layer II, AAC/HE-AAC,
+AC-3/E-AC-3, MPEG-2 video, H.264 and HEVC. Audio is converted to stereo at 48 kHz. Connect the
+receiver’s `video` output to a **Video** node. Presentation timestamps pace DVB media output. Video follows the browser audio-buffer delay when
+the same channel is playing, and anamorphic video is converted to square pixels.
+
+A broadcast **Readout** shows the dynamic label and latest MOT slideshow. The **Decoder log**
+keeps received MOT objects with a download link to their original bytes. HTML and other data
+files are downloadable without being executed in the interface. Reassembly checks CRCs and
+bounds object size and segment count. The log also reports audio, video and data errors.
+
+For DVB-T choose **Bandwidth** to match the transmitter. FFT size, guard interval, constellation
+and code rate are detected from TPS signalling. **Low priority stream** selects the LP stream of
+a hierarchical multiplex. The channel input is 64/7 MS/s; the engine resamples supported wider
+receiver rates to this rate. Select a discovered service or enter its programme number manually.
+
+DVB-S2 automatically detects standard and extended MODCODs, including 8/64/128/256APSK,
+normal and short frames and VL-SNR modes. **Input stream** selects an ISI on multistream
+carriers; automatic transport selection uses the first received stream. Transport packets are
+reassembled across baseband boundaries and delivered after their CRC is verified.
+
+Enable **Superframes** for Annex E formats 0 or 1 with default scrambling and WH codes.
+The receiver removes superframe headers and pilots while preserving physical frames that span
+container boundaries, including VL-SNR frames. Unsupported formats are reported in the readout.
+Formats 2–7 and non-default superframe codes are not implemented.
+
+DAB packet services appear in the same service selector as audio services. Selecting one receives
+its data rather than audio. Packet-mode FEC is selected from the ensemble's signalling. IP services
+and DVB-S2 GSE emit datagrams with their protocol and destination label in decoded events.
+
+To receive IP traffic, connect the channel's `events` port to an **Event output** node and select
+**Network interface**. Set an interface name, local IPv4 address and prefix. IPv4 and IPv6 datagrams
+are written to that TUN interface after length and IPv4 checksum validation. This creates a local
+network device when the output becomes active; it does not select or open a radio. On Linux the
+server needs `CAP_NET_ADMIN`; macOS needs permission to create a `utun` interface (use a name such
+as `utun8`). Windows needs administrator privileges and the matching
+[Wintun DLL](https://www.wintun.net/) beside the executable. Interface and queue failures appear in
+the server log. Configure routing and multicast listeners in the operating system as needed.
+
+Tests use synthetic IQ, independently encoded audio/video fixtures, and virtual devices.
+They do not establish reception quality under real antenna fading.

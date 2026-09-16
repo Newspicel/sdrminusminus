@@ -5,6 +5,8 @@ mod am;
 mod aprs;
 mod atv;
 pub mod audio_chain;
+mod broadcast_audio;
+mod broadcast_media;
 pub mod coherent;
 mod combiner;
 mod cw_skimmer;
@@ -62,9 +64,9 @@ pub use atv::AtvChannel;
 pub use audio_chain::{AudioChain, ClickProfile};
 pub use cw_skimmer::CwSkimmerChannel;
 pub use dab::DabChannel;
-pub use datv::DatvChannel;
 #[cfg(any(test, feature = "test-signals"))]
 pub use datv::dvbs2::{frame::Modulation as Dvbs2Modulation, ldpc::Rate as Dvbs2Rate};
+pub use datv::{DatvChannel, dvbt::DvbtChannel};
 pub use dect::DectChannel;
 pub use drm::DrmChannel;
 pub use dsc::DscChannel;
@@ -109,6 +111,7 @@ pub const AUDIO_RATE: u32 = 48_000;
 pub fn audio_channels(params: &ChannelParams) -> u8 {
     match params {
         ChannelParams::Wfm(p) if p.stereo => 2,
+        ChannelParams::Dab(_) | ChannelParams::Datv(_) | ChannelParams::Dvbt(_) => 2,
         _ => 1,
     }
 }
@@ -149,6 +152,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Sstv(p) => sstv::occupied_band(p),
         ChannelParams::Dab(_) => dab::occupied_band(),
         ChannelParams::Datv(p) => datv::occupied_band(p),
+        ChannelParams::Dvbt(p) => datv::dvbt::occupied_band(p),
         ChannelParams::Drm(p) => drm::occupied_band(p),
         ChannelParams::Dmr(_) => dv::dmr::occupied_band(),
         ChannelParams::Dstar(_) => dv::dstar::occupied_band(),
@@ -227,6 +231,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Sstv(p) => sstv::channel_filter(p),
         ChannelParams::Dab(_) => Ok(dab::channel_filter()),
         ChannelParams::Datv(p) => datv::channel_filter(p),
+        ChannelParams::Dvbt(p) => Ok(datv::dvbt::channel_filter(p)),
         ChannelParams::Drm(p) => drm::channel_filter(p),
         ChannelParams::Dmr(_) => Ok(dv::dmr::channel_filter()),
         ChannelParams::Dstar(_) => Ok(dv::dstar::channel_filter()),
@@ -481,6 +486,11 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: DabChannel::descriptor,
         create: boxed::<DabChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: DvbtChannel::descriptor,
+        create: boxed::<DvbtChannel>,
         create_tx: None,
     },
     Registration {
@@ -740,6 +750,7 @@ mod tests {
             "sstv" => ChannelParams::Sstv(SstvParams::default()),
             "dab" => ChannelParams::Dab(DabParams::default()),
             "datv" => ChannelParams::Datv(DatvParams::default()),
+            "dvbt" => ChannelParams::Dvbt(sdrmm_wire::DvbtParams::default()),
             "drm" => ChannelParams::Drm(DrmParams::default()),
             "dmr" => ChannelParams::Dmr(DmrParams::default()),
             "dstar" => ChannelParams::Dstar(DstarParams::default()),
@@ -772,7 +783,7 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 46);
+        assert_eq!(all.len(), 47);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
@@ -798,6 +809,7 @@ mod tests {
                 "sstv",
                 "dab",
                 "datv",
+                "dvbt",
                 "drm",
                 "dmr",
                 "dstar",
@@ -847,6 +859,7 @@ mod tests {
                 "sstv" => (1_600.0, 16_000.0),
                 "dab" => (1_536_000.0, 2_048_000.0),
                 "datv" => (1_500_000.0, 2_000_000.0),
+                "dvbt" => (8_000_000.0, 64_000_000.0 / 7.0),
                 "drm" => (100_000.0, 192_000.0),
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
@@ -885,6 +898,9 @@ mod tests {
                         | "ssb"
                         | "wfm"
                         | "atv"
+                        | "dab"
+                        | "datv"
+                        | "dvbt"
                         | "dmr"
                         | "dstar"
                         | "ysf"
@@ -899,7 +915,7 @@ mod tests {
             );
             assert_eq!(
                 d.has_video,
-                matches!(d.type_id.as_str(), "atv" | "sstv"),
+                matches!(d.type_id.as_str(), "atv" | "sstv" | "datv" | "dvbt"),
                 "{} video flag does not match its mode class",
                 d.type_id
             );
@@ -926,7 +942,7 @@ mod tests {
                 "{} emitted a partial sample frame",
                 d.type_id
             );
-            if d.decoder_kind.as_deref() == Some("dv") {
+            if matches!(d.decoder_kind.as_deref(), Some("dv" | "broadcast")) {
                 continue;
             }
             if d.type_id == "atv" && audio.is_empty() {

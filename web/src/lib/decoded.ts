@@ -193,8 +193,9 @@ function publish(): void {
     for (const [kind, added] of byKind) {
       added.reverse();
       const next = added.concat(state.frames[kind] ?? NO_FRAMES);
-      if (next.length > RING_CAPACITY) {
-        next.length = RING_CAPACITY;
+      const capacity = kind === "broadcast_data" ? 8 : RING_CAPACITY;
+      if (next.length > capacity) {
+        next.length = capacity;
       }
       assignFrames(frames, kind, next);
       if (stationIndex.has(kind)) {
@@ -281,6 +282,7 @@ function stationId(event: DecoderEvent): string | null {
     case "scrambler":
     case "dv":
     case "ident":
+    case "broadcast_data":
     case "broadcast":
     case "radio_clock":
     case "gnss":

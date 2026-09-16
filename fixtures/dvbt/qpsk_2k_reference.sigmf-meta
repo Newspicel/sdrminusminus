@@ -1,0 +1,21 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:sample_rate": 9142857.142857144,
+    "core:version": "1.2.6",
+    "core:description": "Independent synthetic DVB-T 2K QPSK 1/2 guard 1/8, 1750 Hz carrier offset; PID 0x123 deterministic packet payload",
+    "core:sha512": "ba1e690719def5b30d8c784cee130053239959e91cffba5cca94643608a91250967ed32ab83f789abb7e350909f7d94d708f31ff4d5a4ab525216c277a46fe8a"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 650000000.0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 368640
+    }
+  ]
+}

@@ -20,7 +20,7 @@ const PAT_TABLE: u8 = 0x00;
 const PMT_TABLE: u8 = 0x02;
 const SDT_TABLE: u8 = 0x42;
 const MAX_SECTION: usize = 1_024;
-const MAX_PES: usize = 1 << 20;
+const MAX_PES: usize = 8 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StreamKind {
@@ -30,7 +30,9 @@ pub enum StreamKind {
     Mpeg1Audio,
     Mpeg2Audio,
     AacAudio,
+    LatmAudio,
     Ac3Audio,
+    Eac3Audio,
     Other(u8),
 }
 
@@ -43,8 +45,10 @@ impl StreamKind {
             0x24 => Self::H265Video,
             0x03 => Self::Mpeg1Audio,
             0x04 => Self::Mpeg2Audio,
-            0x0F | 0x11 => Self::AacAudio,
-            0x81 | 0x06 => Self::Ac3Audio,
+            0x0F => Self::AacAudio,
+            0x11 => Self::LatmAudio,
+            0x81 => Self::Ac3Audio,
+            0x87 => Self::Eac3Audio,
             other => Self::Other(other),
         }
     }
@@ -58,7 +62,12 @@ impl StreamKind {
     pub const fn is_audio(self) -> bool {
         matches!(
             self,
-            Self::Mpeg1Audio | Self::Mpeg2Audio | Self::AacAudio | Self::Ac3Audio
+            Self::Mpeg1Audio
+                | Self::Mpeg2Audio
+                | Self::AacAudio
+                | Self::LatmAudio
+                | Self::Ac3Audio
+                | Self::Eac3Audio
         )
     }
 
@@ -71,7 +80,9 @@ impl StreamKind {
             Self::Mpeg1Audio => "MPEG-1 audio",
             Self::Mpeg2Audio => "MPEG-2 audio",
             Self::AacAudio => "AAC audio",
+            Self::LatmAudio => "AAC LATM audio",
             Self::Ac3Audio => "AC-3 audio",
+            Self::Eac3Audio => "E-AC-3 audio",
             Self::Other(_) => "private data",
         }
     }
@@ -117,6 +128,9 @@ impl SectionBuffer {
             };
             if usize::from(pointer) > rest.len() {
                 return;
+            }
+            if pointer > 0 && !self.data.is_empty() {
+                self.push(&rest[..usize::from(pointer)], false, out);
             }
             self.data.clear();
             self.want = 0;
@@ -165,7 +179,7 @@ struct PesBuffer {
 }
 
 fn read_timestamp(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < 5 {
+    if bytes.len() < 5 || bytes[0] & 1 == 0 || bytes[2] & 1 == 0 || bytes[4] & 1 == 0 {
         return None;
     }
     let value = u64::from(bytes[0] >> 1 & 0x07) << 30
@@ -175,11 +189,14 @@ fn read_timestamp(bytes: &[u8]) -> Option<u64> {
 }
 
 fn parse_pes(pid: u16, data: &[u8]) -> Option<PesUnit> {
-    if data.len() < 9 || data[..3] != [0x00, 0x00, 0x01] {
+    if data.len() < 9 || data[..3] != [0x00, 0x00, 0x01] || data[6] & 0xc0 != 0x80 {
         return None;
     }
     let stream_id = data[3];
     let declared = usize::from(u16::from_be_bytes([data[4], data[5]]));
+    if declared != 0 && data.len() < declared + 6 {
+        return None;
+    }
     let end = if declared == 0 {
         data.len()
     } else {
@@ -190,9 +207,19 @@ fn parse_pes(pid: u16, data: &[u8]) -> Option<PesUnit> {
     if start > end {
         return None;
     }
-    let pts = (data[7] & 0x80 != 0)
-        .then(|| read_timestamp(&data[9..]))
-        .flatten();
+    let pts = match data[7] >> 6 {
+        0 => None,
+        flags @ (2 | 3) if header_len >= if flags == 3 { 10 } else { 5 } => {
+            if data[9] >> 4 != flags {
+                return None;
+            }
+            if flags == 3 && (data[14] >> 4 != 1 || read_timestamp(&data[14..19]).is_none()) {
+                return None;
+            }
+            Some(read_timestamp(&data[9..14])?)
+        }
+        _ => return None,
+    };
     Some(PesUnit {
         pid,
         stream_id,
@@ -218,7 +245,9 @@ pub struct TsDemux {
     programs: BTreeMap<u16, Program>,
     pmt_pids: BTreeMap<u16, u16>,
     selected: Option<u16>,
-    continuity: BTreeMap<u16, u8>,
+    continuity: BTreeMap<u16, (u8, u32)>,
+    pub dropped: u32,
+    pub scrambled: u32,
     pub discontinuities: u32,
     pub packets: u64,
     scratch: Vec<Vec<u8>>,
@@ -238,6 +267,7 @@ impl TsDemux {
         if self.selected != program {
             self.selected = program;
             self.pes.clear();
+            self.scrambled = 0;
         }
     }
 
@@ -261,52 +291,80 @@ impl TsDemux {
         self.pmt_pids.clear();
         self.continuity.clear();
         self.discontinuities = 0;
+        self.dropped = 0;
+        self.scrambled = 0;
         self.packets = 0;
     }
 
     pub fn push(&mut self, packet: &[u8; PACKET], units: &mut Vec<PesUnit>) {
         if packet[0] != SYNC {
+            self.dropped = self.dropped.saturating_add(1);
             return;
         }
-        let pid = u16::from_be_bytes([packet[1] & 0x1F, packet[2]]);
+        let pid = u16::from_be_bytes([packet[1] & 0x1f, packet[2]]);
         if pid == NULL_PID {
             return;
         }
         self.packets += 1;
-        let start = packet[1] & 0x40 != 0;
-        let scrambled = packet[3] & 0xC0 != 0;
         let has_adaptation = packet[3] & 0x20 != 0;
         let has_payload = packet[3] & 0x10 != 0;
-        let counter = packet[3] & 0x0F;
-        self.track_continuity(pid, counter, has_payload);
+        if packet[1] & 0x80 != 0 || (!has_adaptation && !has_payload) {
+            self.drop_pid(pid);
+            return;
+        }
         let mut offset = 4;
         if has_adaptation {
             let length = usize::from(packet[4]);
             if 5 + length > PACKET {
+                self.drop_pid(pid);
                 return;
+            }
+            if length > 0 && packet[5] & 0x80 != 0 {
+                self.pes.remove(&pid);
+                self.sections.remove(&pid);
+                self.continuity.remove(&pid);
             }
             offset = 5 + length;
         }
-        if !has_payload || scrambled || offset >= PACKET {
-            return;
-        }
-        let payload = &packet[offset..];
-        if self.is_section_pid(pid) {
-            self.push_section(pid, payload, start);
-        } else if self.is_selected_stream(pid) {
-            self.push_pes(pid, payload, start, units);
-        }
-    }
-
-    fn track_continuity(&mut self, pid: u16, counter: u8, has_payload: bool) {
         if !has_payload {
             return;
         }
-        if let Some(previous) = self.continuity.insert(pid, counter)
-            && (previous + 1) & 0x0F != counter
-        {
-            self.discontinuities += 1;
+        if packet[3] & 0xc0 != 0 {
+            if self.is_selected_stream(pid) {
+                self.scrambled = self.scrambled.saturating_add(1);
+            }
+            self.drop_pid(pid);
+            return;
         }
+        if offset >= PACKET {
+            self.drop_pid(pid);
+            return;
+        }
+        let counter = packet[3] & 15;
+        let fingerprint = crc32_mpeg(packet);
+        if let Some((previous, old)) = self.continuity.insert(pid, (counter, fingerprint)) {
+            if previous == counter && old == fingerprint {
+                return;
+            }
+            if (previous + 1) & 15 != counter {
+                self.discontinuities = self.discontinuities.saturating_add(1);
+                self.pes.remove(&pid);
+                self.sections.remove(&pid);
+            }
+        }
+        let start = packet[1] & 0x40 != 0;
+        if self.is_section_pid(pid) {
+            self.push_section(pid, &packet[offset..], start);
+        } else if self.is_selected_stream(pid) {
+            self.push_pes(pid, &packet[offset..], start, units);
+        }
+    }
+
+    fn drop_pid(&mut self, pid: u16) {
+        self.dropped = self.dropped.saturating_add(1);
+        self.pes.remove(&pid);
+        self.sections.remove(&pid);
+        self.continuity.remove(&pid);
     }
 
     fn is_section_pid(&self, pid: u16) -> bool {
@@ -341,6 +399,9 @@ impl TsDemux {
     }
 
     fn apply_pat(&mut self, section: &[u8]) {
+        if section.len() < 12 {
+            return;
+        }
         let body = &section[8..section.len() - 4];
         self.pmt_pids.clear();
         for entry in body.as_chunks::<4>().0 {
@@ -371,7 +432,7 @@ impl TsDemux {
         let end = section.len() - 4;
         let mut streams = Vec::new();
         while at + 5 <= end {
-            let kind = StreamKind::from_type(section[at]);
+            let mut kind = StreamKind::from_type(section[at]);
             let stream_pid = u16::from_be_bytes([section[at + 1] & 0x1F, section[at + 2]]);
             let descriptors = usize::from(u16::from_be_bytes([
                 section[at + 3] & 0x0F,
@@ -380,6 +441,9 @@ impl TsDemux {
             let next = at + 5 + descriptors;
             if next > end {
                 break;
+            }
+            if kind == StreamKind::Other(0x06) {
+                kind = private_audio_descriptor(&section[at + 5..next]).unwrap_or(kind);
             }
             streams.push(ElementaryStream {
                 pid: stream_pid,
@@ -424,10 +488,12 @@ impl TsDemux {
     fn push_pes(&mut self, pid: u16, payload: &[u8], start: bool, units: &mut Vec<PesUnit>) {
         let buffer = self.pes.entry(pid).or_default();
         if start {
-            if buffer.active
-                && let Some(unit) = parse_pes(pid, &buffer.data)
-            {
-                units.push(unit);
+            if buffer.active {
+                if let Some(unit) = parse_pes(pid, &buffer.data) {
+                    units.push(unit);
+                } else {
+                    self.dropped = self.dropped.saturating_add(1);
+                }
             }
             buffer.data.clear();
             buffer.active = true;
@@ -435,12 +501,41 @@ impl TsDemux {
             return;
         }
         if buffer.data.len() + payload.len() > MAX_PES {
+            self.dropped = self.dropped.saturating_add(1);
             buffer.data.clear();
             buffer.active = false;
             return;
         }
         buffer.data.extend_from_slice(payload);
+        if buffer.data.len() >= 6 {
+            let length = usize::from(u16::from_be_bytes([buffer.data[4], buffer.data[5]]));
+            if length > 0 && buffer.data.len() >= length + 6 {
+                if let Some(unit) = parse_pes(pid, &buffer.data) {
+                    units.push(unit);
+                } else {
+                    self.dropped = self.dropped.saturating_add(1);
+                }
+                buffer.data.clear();
+                buffer.active = false;
+            }
+        }
     }
+}
+
+fn private_audio_descriptor(mut descriptors: &[u8]) -> Option<StreamKind> {
+    while let Some((&tag, rest)) = descriptors.split_first() {
+        let (&length, rest) = rest.split_first()?;
+        let body = rest.get(..usize::from(length))?;
+        match tag {
+            0x6a => return Some(StreamKind::Ac3Audio),
+            0x7a => return Some(StreamKind::Eac3Audio),
+            5 if body.starts_with(b"AC-3") => return Some(StreamKind::Ac3Audio),
+            5 if body.starts_with(b"EAC3") => return Some(StreamKind::Eac3Audio),
+            _ => {}
+        }
+        descriptors = &rest[usize::from(length)..];
+    }
+    None
 }
 
 fn language_descriptor(descriptors: &[u8]) -> Option<String> {
@@ -511,7 +606,7 @@ impl TsWriter {
         unit.extend_from_slice(&(((pts >> 15) as u16 & 0x7FFF) << 1 | 1).to_be_bytes());
         unit.extend_from_slice(&((pts as u16 & 0x7FFF) << 1 | 1).to_be_bytes());
         unit.extend_from_slice(payload);
-        let length = (unit.len() - 6).min(0xFFFF) as u16;
+        let length = u16::try_from(unit.len() - 6).unwrap_or(0);
         unit[4..6].copy_from_slice(&length.to_be_bytes());
         self.payload(pid, &unit, out);
     }
@@ -658,9 +753,125 @@ mod tests {
     }
 
     #[test]
+    fn duplicates_do_not_repeat_payload_or_trigger_continuity_errors() {
+        let mut demux = TsDemux::new();
+        let mut units = Vec::new();
+        for packet in multiplex(&[42; 1000], b"audio") {
+            demux.push(&packet, &mut units);
+            demux.push(&packet, &mut units);
+        }
+        assert_eq!(demux.discontinuities, 0);
+        assert_eq!(demux.dropped, 0);
+        assert_eq!(units.len(), 4);
+        assert_eq!(units[0].payload, [42; 1000]);
+    }
+
+    #[test]
+    fn transport_errors_drop_partial_pes_and_recover_at_a_new_start() {
+        let mut packets = multiplex(&[42; 1000], b"audio");
+        packets[4][1] |= 0x80;
+        let mut demux = TsDemux::new();
+        let mut units = Vec::new();
+        for packet in &packets {
+            demux.push(packet, &mut units);
+        }
+        assert_eq!(demux.dropped, 1);
+        assert_eq!(units.len(), 3);
+        assert_eq!(units[0].payload, b"audio");
+        assert_eq!(units[1].pts, Some(93600));
+    }
+
+    #[test]
+    fn adaptation_discontinuity_resets_continuity_and_partial_assemblies() {
+        let mut demux = TsDemux::new();
+        let mut units = Vec::new();
+        for packet in multiplex(b"video", b"audio") {
+            demux.push(&packet, &mut units);
+        }
+        let mut packet = [0xff; PACKET];
+        packet[..6].copy_from_slice(&[
+            SYNC,
+            (VIDEO_PID >> 8) as u8,
+            VIDEO_PID as u8,
+            0x29,
+            183,
+            0x80,
+        ]);
+        demux.push(&packet, &mut units);
+        assert!(!demux.continuity.contains_key(&VIDEO_PID));
+        packet[3] = 0x10;
+        packet[1] |= 0x40;
+        packet[4..18].copy_from_slice(&[0, 0, 1, 0xe0, 0, 8, 0x80, 0x80, 5, 0x21, 0, 1, 0, 1]);
+        demux.push(&packet, &mut units);
+        assert_eq!(demux.discontinuities, 0);
+        assert_eq!(units.last().expect("PES").pts, Some(0));
+    }
+
+    #[test]
+    fn pts_flags_markers_and_dts_lengths_are_validated() {
+        let valid = [0, 0, 1, 0xe0, 0, 8, 0x80, 0x80, 5, 0x21, 0, 1, 0, 1];
+        assert_eq!(parse_pes(1, &valid).expect("PTS").pts, Some(0));
+        for index in [9, 11, 13] {
+            let mut bad = valid;
+            bad[index] &= 0xfe;
+            assert!(parse_pes(1, &bad).is_none());
+        }
+        for flags in [0x40, 0xc0] {
+            let mut bad = valid;
+            bad[7] = flags;
+            assert!(parse_pes(1, &bad).is_none());
+        }
+    }
+
+    #[test]
     fn the_mpeg_crc_matches_the_reference_check_value() {
         assert_eq!(crc32_mpeg(b"123456789"), 0x0376_E6E7);
         assert_eq!(crc32_mpeg(&pat()), 0);
+    }
+
+    #[test]
+    fn private_audio_requires_a_codec_descriptor() {
+        assert_eq!(StreamKind::from_type(0x06), StreamKind::Other(6));
+        assert_eq!(private_audio_descriptor(&[0x59, 2, 0, 0]), None);
+        assert_eq!(
+            private_audio_descriptor(&[0x6a, 1, 0]),
+            Some(StreamKind::Ac3Audio)
+        );
+        assert_eq!(
+            private_audio_descriptor(&[0x7a, 1, 0]),
+            Some(StreamKind::Eac3Audio)
+        );
+        assert_eq!(
+            private_audio_descriptor(&[5, 4, b'A', b'C', b'-', b'3']),
+            Some(StreamKind::Ac3Audio)
+        );
+        assert_eq!(private_audio_descriptor(&[5, 4, b'A']), None);
+        assert_eq!(StreamKind::from_type(0x11), StreamKind::LatmAudio);
+    }
+
+    #[test]
+    fn a_pointer_field_finishes_the_previous_section_before_starting_another() {
+        let mut buffer = SectionBuffer::default();
+        let mut sections = Vec::new();
+        let section = pat();
+        let mut first = vec![0];
+        first.extend_from_slice(&section[..10]);
+        buffer.push(&first, true, &mut sections);
+        let mut second = vec![(section.len() - 10) as u8];
+        second.extend_from_slice(&section[10..]);
+        second.extend_from_slice(&section);
+        buffer.push(&second, true, &mut sections);
+        assert_eq!(sections, vec![section.clone(), section]);
+    }
+
+    #[test]
+    fn a_short_crc_valid_pat_and_a_truncated_pes_do_not_escape_validation() {
+        let mut demux = TsDemux::default();
+        let mut short = vec![0, 0, 0];
+        short.extend_from_slice(&crc32_mpeg(&short).to_be_bytes());
+        demux.apply_pat(&short);
+        assert!(demux.programs.is_empty());
+        assert!(parse_pes(1, &[0, 0, 1, 0xe0, 1, 0, 0x80, 0, 0]).is_none());
     }
 
     #[test]
@@ -700,12 +911,27 @@ mod tests {
             demux.push(&packet, &mut units);
         }
         let frames: Vec<&PesUnit> = units.iter().filter(|unit| unit.pid == VIDEO_PID).collect();
-        assert_eq!(frames.len(), 2);
+        assert_eq!(frames.len(), 3);
         assert_eq!(frames[0].payload.len(), video.len());
         assert!(frames[0].payload == video);
         assert_eq!(frames[0].stream_id, 0xE0);
         assert_eq!(frames[0].pts, Some(90_000));
         assert_eq!(frames[1].pts, Some(93_600));
+        assert_eq!(frames[2].pts, Some(97_200));
+    }
+
+    #[test]
+    fn video_pes_larger_than_the_length_field_survives_until_the_next_start() {
+        let video: Vec<u8> = (0..90_000usize).map(|value| (value / 23) as u8).collect();
+        let mut demux = TsDemux::new();
+        let mut units = Vec::new();
+        for packet in multiplex(&video, b"audio") {
+            demux.push(&packet, &mut units);
+        }
+        let frames: Vec<_> = units.iter().filter(|unit| unit.pid == VIDEO_PID).collect();
+        assert_eq!(frames.len(), 2);
+        assert!(frames.iter().all(|frame| frame.payload == video));
+        assert_eq!(demux.dropped, 0);
     }
 
     #[test]

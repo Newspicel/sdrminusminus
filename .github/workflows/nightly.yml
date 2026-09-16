@@ -25,6 +25,7 @@ jobs:
       - run: rustup show
       # Its own cache key: everything here builds in release, so sharing the gate's
       # debug-profile cache would just thrash both.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly
@@ -74,6 +75,7 @@ jobs:
       - run: rustup show
       # Its own key: both passes build the workspace with sanitizer flags, which nothing else
       # here or in ci.yml can reuse.
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: sanitize
@@ -95,6 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
+      - uses: ./.github/actions/media-deps
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: fuzz

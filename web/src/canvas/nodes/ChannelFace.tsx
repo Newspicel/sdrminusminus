@@ -17,6 +17,7 @@ import { formatHz, formatMhz, formatSampleRate } from "../../components/format";
 import { LevelMeter } from "../../components/LevelMeter";
 import { SettingRow } from "../../components/Settings";
 import { devicesQuery } from "../../lib/api";
+import { useDecodedKind } from "../../lib/decoded";
 import { useLevelStore } from "../../lib/levels";
 import type { DeviceSet, PatchNode, PatchNodeOf } from "../../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../../lib/useChannelPatch";
@@ -46,6 +47,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const levels = useLevelStore((state) => (set === null ? undefined : state.byDeviceSet[set.id]));
   const attached = useQuery(devicesQuery());
   const { applyEdit } = useChannelPatch();
+  const broadcasts = useDecodedKind("broadcast");
   if (node.kind !== "channel") {
     return null;
   }
@@ -139,6 +141,11 @@ export function ChannelFace({ node }: { node: PatchNode }) {
           <ChannelControls
             settings={settings}
             descriptor={descriptor}
+            broadcast={
+              broadcasts.find(
+                (record) => record.device_set === live?.deviceSet && record.channel === live?.id,
+              )?.event.data
+            }
             onEdit={onEdit}
             extra={
               keepsCalls(descriptor) && (

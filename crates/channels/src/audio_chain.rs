@@ -31,6 +31,7 @@ impl ClickProfile {
             | ChannelParams::Freedv(_)
             | ChannelParams::Dab(_)
             | ChannelParams::Datv(_)
+            | ChannelParams::Dvbt(_)
             | ChannelParams::Drm(_) => Self::Vocoder,
             _ => Self::Discriminator,
         }
