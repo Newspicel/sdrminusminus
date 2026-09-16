@@ -1,9 +1,7 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{
-    Decimator, HdlcDeframer, NrziDecoder, bits_be, design_lowpass, hdlc_fcs_ok, reverse_byte,
-};
+use sdrmm_dsp::{Decimator, HdlcDeframer, NrziDecoder, bits_be, design_lowpass, hdlc_fcs_ok};
 use sdrmm_modem::{
     cpm::{CpmDemod, CpmParams, Mapping, TIMING_BW_BURST},
     pulse::{self, Norm},
@@ -56,7 +54,6 @@ pub struct AisChannelRx {
     carrier_phase: f64,
     mixed: Vec<Complex<f32>>,
     soft: Vec<f32>,
-    msg: Vec<u8>,
     seq: u8,
 }
 
@@ -127,7 +124,6 @@ impl ChannelRx for AisChannelRx {
             carrier_phase: 0.0,
             mixed: Vec::new(),
             soft: Vec::new(),
-            msg: Vec::with_capacity(MAX_FRAME_BYTES),
             seq: 0,
         })
     }
@@ -163,12 +159,10 @@ impl ChannelRx for AisChannelRx {
             let Some((payload, _fcs)) = frame.split_last_chunk::<2>() else {
                 continue;
             };
-            self.msg.clear();
-            self.msg.extend(payload.iter().copied().map(reverse_byte));
-            let bits = self.msg.len() * 8;
+            let bits = payload.len() * 8;
             let fill = (6 - bits % 6) % 6;
-            let nmea = sentences(&armour(&self.msg, bits), fill, self.letter, &mut self.seq);
-            if let Some(message) = decode(&self.msg, bits, self.letter, nmea) {
+            let nmea = sentences(&armour(payload, bits), fill, self.letter, &mut self.seq);
+            if let Some(message) = decode(payload, bits, self.letter, nmea) {
                 out.events.push(DecoderEvent::Ais(message));
             }
         }
@@ -756,5 +750,78 @@ mod tests {
             ais_settings(AisChannel::A),
         );
         assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));
+    }
+
+    fn armoured_bits(payload: &str) -> Vec<bool> {
+        let mut bits = Vec::with_capacity(payload.len() * 6);
+        for ch in payload.chars() {
+            let mut v = ch as u8 - 48;
+            if v > 40 {
+                v -= 8;
+            }
+            for k in (0..6).rev() {
+                bits.push(v >> k & 1 == 1);
+            }
+        }
+        bits
+    }
+
+    const REFERENCE_SENTENCES: [(&str, u32, f64, f64); 3] = [
+        (
+            "177KQJ5000G?tO`K>RA1wUbN0TKH",
+            477_553_000,
+            47.582_833,
+            -122.345_833,
+        ),
+        (
+            "15M67FC000G?ufbE`FepT@3n00Sa",
+            366_053_209,
+            37.802_117,
+            -122.341_617,
+        ),
+        (
+            "B6CdCm0t3`tba35f@V9faHi7kP06",
+            423_302_100,
+            40.005_283,
+            53.010_996,
+        ),
+    ];
+
+    #[test]
+    fn fields_read_most_significant_bit_first_from_the_deframed_octets() {
+        for (payload, mmsi, lat, lon) in REFERENCE_SENTENCES {
+            let octets = sdrmm_dsp::pack_msb(&armoured_bits(payload));
+            let m = decode(&octets, octets.len() * 8, 'A', String::new()).unwrap();
+            assert_eq!(m.mmsi, mmsi, "{payload}");
+            assert!(
+                (m.lat.unwrap() - lat).abs() < 1e-4,
+                "{payload} lat {:?}",
+                m.lat
+            );
+            assert!(
+                (m.lon.unwrap() - lon).abs() < 1e-4,
+                "{payload} lon {:?}",
+                m.lon
+            );
+        }
+    }
+
+    #[test]
+    fn reference_sentences_decode_to_their_published_positions() {
+        for (payload, mmsi, lat, lon) in REFERENCE_SENTENCES {
+            let m = only(run(&transmission(&armoured_bits(payload))));
+            assert_eq!(m.mmsi, mmsi, "{payload}");
+            assert!(
+                (m.lat.unwrap() - lat).abs() < 1e-4,
+                "{payload} lat {:?}",
+                m.lat
+            );
+            assert!(
+                (m.lon.unwrap() - lon).abs() < 1e-4,
+                "{payload} lon {:?}",
+                m.lon
+            );
+            assert!(m.nmea.contains(payload), "{}", m.nmea);
+        }
     }
 }

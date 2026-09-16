@@ -113,9 +113,10 @@ so it does not establish the full address-field width.
 
 ### AIS frozen render: `ais_position_pre_cpm_240k`
 
-A 0.03-second burst from the earlier AIS generator, including its stepped envelope.
+A 0.03-second burst from the earlier AIS generator, including its stepped envelope, re-rendered
+once with the corrected octet order on the wire.
 `ais::tests::decodes_the_committed_fixture` checks that the general CPM receiver still decodes it.
-The old render has 6,250 samples; the current generator produces 6,425.
+This render has 6,250 samples; the current generator produces 6,425.
 
 ### NXDN frozen render: `nxdn_addressed_48k`
 

@@ -1,5 +1,5 @@
 use num_complex::Complex;
-use sdrmm_dsp::{crc16_x25, pack_lsb};
+use sdrmm_dsp::{crc16_x25, pack_msb};
 use sdrmm_modem::{
     cpm::{CpmMod, CpmParams, Mapping},
     pulse::{self, Norm},
@@ -225,12 +225,12 @@ fn cog_code(deg: f64) -> u64 {
 }
 
 fn with_fcs(payload: &[bool]) -> Vec<bool> {
-    let crc = crc16_x25(&pack_lsb(payload));
-    let mut out = payload.to_vec();
-    for k in 0..16 {
-        out.push(crc >> k & 1 == 1);
-    }
-    out
+    let mut octets = pack_msb(payload);
+    octets.extend_from_slice(&crc16_x25(&octets).to_le_bytes());
+    octets
+        .iter()
+        .flat_map(|&octet| (0..8).map(move |k| octet >> k & 1 == 1))
+        .collect()
 }
 
 fn stuff(bits: &[bool]) -> Vec<bool> {
@@ -261,7 +261,7 @@ fn nrzi_encode(bits: &[bool]) -> Vec<bool> {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_dsp::hdlc_fcs_ok;
+    use sdrmm_dsp::{hdlc_fcs_ok, pack_lsb};
 
     use super::*;
 
@@ -290,6 +290,14 @@ mod tests {
     fn fcs_closes_the_frame_the_deframer_will_check() {
         let framed = with_fcs(&position_payload(&report()));
         assert!(hdlc_fcs_ok(&pack_lsb(&framed)));
+    }
+
+    #[test]
+    fn octets_go_out_least_significant_bit_first() {
+        let payload = position_payload(&report());
+        let octets = pack_msb(&payload);
+        let recovered = pack_lsb(&with_fcs(&payload));
+        assert_eq!(recovered[..octets.len()], octets[..]);
     }
 
     #[test]
