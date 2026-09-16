@@ -10,6 +10,7 @@ use std::{
 
 use common::{assert_tone_dominates, settle_then_collect_second};
 use sdrmm_device::DeviceRegistry;
+use sdrmm_device_recording::RecordingDriver;
 use sdrmm_device_virtual::{NFM_CARRIER_OFFSET_HZ, VirtualDriver};
 use sdrmm_engine::{Engine, FinalizedRecording};
 use sdrmm_recorder::{BYTES_PER_SAMPLE, SigmfReader};
@@ -23,10 +24,8 @@ const RECORD_SAMPLES: u64 = (2.0 * TEST_RATE) as u64;
 
 fn recording_engine(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
-    registry.register(
-        10,
-        Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
-    );
+    registry.register(10, Box::new(VirtualDriver::new()));
+    registry.register(10, Box::new(RecordingDriver::new(Some(dir.to_path_buf()))));
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 
@@ -77,7 +76,10 @@ async fn recorded_siggen_replays_and_demodulates() {
     assert_eq!(reader.meta().global.sample_rate, Some(TEST_RATE));
     assert_eq!(reader.total_samples(), finalized.samples);
 
-    let playback_id = format!("virtual:file:{}", finalized.stem.display());
+    let playback_id = format!(
+        "recording:{}",
+        finalized.stem.file_name().unwrap().display()
+    );
     assert!(
         engine.probe_devices().iter().any(|d| d.id() == playback_id),
         "finalized recording must probe as a playback device"
@@ -107,7 +109,10 @@ async fn a_recording_takes_back_the_settings_a_receiver_left_on_the_node() {
     let finalized = record_siggen(&engine, TEST_RATE, TEST_RATE as u64 / 4).await;
 
     let ds = engine
-        .create_device_set(&format!("virtual:file:{}", finalized.stem.display()))
+        .create_device_set(&format!(
+            "recording:{}",
+            finalized.stem.file_name().unwrap().display()
+        ))
         .unwrap();
     let left_by_a_receiver = DeviceSettings {
         center_hz: Some(100_000_000.0),
@@ -150,7 +155,10 @@ async fn playback_streams_spectrum_frames() {
     let finalized = record_siggen(&engine, TEST_RATE, TEST_RATE as u64 / 4).await;
 
     let ds = engine
-        .create_device_set(&format!("virtual:file:{}", finalized.stem.display()))
+        .create_device_set(&format!(
+            "recording:{}",
+            finalized.stem.file_name().unwrap().display()
+        ))
         .unwrap();
     let mut rx = engine.subscribe_spectrum(ds, 0).unwrap();
     let snap = tokio::time::timeout(Duration::from_secs(3), rx.recv())

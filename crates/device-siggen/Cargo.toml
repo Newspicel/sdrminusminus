@@ -1,0 +1,19 @@
+[package]
+name = "sdrmm-device-siggen"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-wire.workspace = true
+sdrmm-device.workspace = true
+sdrmm-channels = { workspace = true, features = ["test-signals"] }
+num-complex.workspace = true
+arc-swap.workspace = true
+serde_json.workspace = true

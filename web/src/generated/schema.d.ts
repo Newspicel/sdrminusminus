@@ -989,7 +989,7 @@ export interface paths {
         };
         get: operations["list_recordings"];
         put?: never;
-        post?: never;
+        post: operations["upload_recording"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4220,6 +4220,14 @@ export interface components {
             /** @enum {string} */
             kind: "device";
         } | {
+            data: components["schemas"]["RecordingNode"];
+            /** @enum {string} */
+            kind: "recording";
+        } | {
+            data: components["schemas"]["SignalGenNode"];
+            /** @enum {string} */
+            kind: "signal_gen";
+        } | {
             data: components["schemas"]["ArrayNode"];
             /** @enum {string} */
             kind: "array";
@@ -4808,6 +4816,9 @@ export interface components {
             samples: number;
             tags?: string[];
         };
+        RecordingNode: {
+            recording?: string | null;
+        };
         RecordingsResponse: {
             recordings: components["schemas"]["RecordingInfo"][];
         };
@@ -4823,6 +4834,14 @@ export interface components {
             started_at: string;
             /** Format: int32 */
             stream?: number;
+        };
+        RecordingUpload: {
+            /** Format: binary */
+            archive?: string;
+            /** Format: binary */
+            data?: string;
+            /** Format: binary */
+            meta?: string;
         };
         RecordRequest: {
             action: components["schemas"]["RecordAction"];
@@ -5173,6 +5192,10 @@ export interface components {
         };
         /** @enum {string} */
         Sideband: "usb" | "lsb";
+        SignalGenNode: {
+            /** @default true */
+            running: boolean;
+        };
         SignalMapNode: {
             /**
              * Format: int64
@@ -8260,6 +8283,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingsResponse"];
+                };
+            };
+        };
+    };
+    upload_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["RecordingUpload"];
+            };
+        };
+        responses: {
+            /** @description The uploaded recording, indexed and ready to play */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingInfo"];
+                };
+            };
+            /** @description Not a SigMF recording this build can play: a missing part, a datatype that is not complex samples, or no samples at all */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Larger than a recording may be */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description This server keeps no recording library */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

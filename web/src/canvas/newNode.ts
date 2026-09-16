@@ -30,6 +30,10 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
       return { kind, data: { channel_type: seed.channelType ?? "nfm", record_calls: false } };
     case "device":
       return { kind, data: {} };
+    case "recording":
+      return { kind, data: {} };
+    case "signal_gen":
+      return { kind, data: { running: true } };
     case "array":
       return { kind, data: { members: 0, coherence: "time_sync", shared_tuning: true } };
     case "gps":
@@ -80,4 +84,8 @@ export function newNodeBody(kind: NodeKind, seed: NewNodeSeed = {}): NodeBody {
 
 export function carriesSettings(kind: NodeKind): boolean {
   return !WITHOUT_DATA.has(kind);
+}
+
+export function startsOnItsOwn(kind: NodeKind): boolean {
+  return kind === "signal_gen";
 }

@@ -1,0 +1,22 @@
+[package]
+name = "sdrmm-device-recording"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-wire.workspace = true
+sdrmm-device.workspace = true
+sdrmm-recorder.workspace = true
+num-complex.workspace = true
+arc-swap.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

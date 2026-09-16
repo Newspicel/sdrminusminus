@@ -4,7 +4,9 @@ import type {
   DeviceRef,
   DeviceSet,
   EventFilterNode,
+  NodeKind,
   PatchGraph,
+  PatchNode,
   PatchNodeOf,
   TrunkSystemStatus,
 } from "../lib/types";
@@ -18,6 +20,13 @@ export interface Input {
 import { portStream } from "./graph";
 import { arrayKey } from "./nodes/arrayNode";
 import type { WiredSource } from "./nodes/eventFilter";
+import { siggenKey } from "./nodes/signalGen";
+
+const SOURCE_KINDS: readonly NodeKind[] = ["device", "recording", "signal_gen", "array"];
+
+export function opensDevice(kind: NodeKind): boolean {
+  return SOURCE_KINDS.includes(kind);
+}
 
 export function deviceRefOf(info: DeviceInfo): DeviceRef {
   return {
@@ -25,14 +34,6 @@ export function deviceRefOf(info: DeviceInfo): DeviceRef {
     ...(info.serial == null ? {} : { serial: info.serial }),
     ...(info.serial == null || info.key.startsWith(`${info.serial}@`) ? { key: info.key } : {}),
   };
-}
-
-export function refFromDeviceId(id: string): DeviceRef | null {
-  const at = id.indexOf(":");
-  if (at <= 0 || at === id.length - 1) {
-    return null;
-  }
-  return { backend: id.slice(0, at), key: id.slice(at + 1) };
 }
 
 export function refMatches(reference: DeviceRef, info: DeviceInfo): boolean {
@@ -57,16 +58,28 @@ export function claimedDevices(graph: PatchGraph, exceptNode: string): DeviceRef
   return claimed;
 }
 
+export function nodeDeviceRef(node: PatchNode): DeviceRef | null {
+  switch (node.kind) {
+    case "device":
+      return node.data.device ?? null;
+    case "recording":
+      return node.data.recording == null || node.data.recording === ""
+        ? null
+        : { backend: "recording", key: node.data.recording };
+    case "signal_gen":
+      return node.data.running ? { backend: "siggen", key: siggenKey(node.id) } : null;
+    case "array":
+      return { backend: "array", key: arrayKey(node.id) };
+    default:
+      return null;
+  }
+}
+
 export function bindDevices(graph: PatchGraph, sets: readonly DeviceSet[]): Map<string, DeviceSet> {
   const bound = new Map<string, DeviceSet>();
   const claimed = new Set<number>();
   for (const node of graph.nodes) {
-    const reference =
-      node.kind === "array"
-        ? { backend: "array", key: arrayKey(node.id) }
-        : node.kind === "device"
-          ? node.data.device
-          : null;
+    const reference = nodeDeviceRef(node);
     if (reference == null) {
       continue;
     }
@@ -160,11 +173,14 @@ export function channelNodesOf(
 }
 
 export function deviceNodeOf(graph: PatchGraph, node: string): string | null {
-  if (graph.nodes.find((candidate) => candidate.id === node)?.kind === "device") {
+  const kind = graph.nodes.find((candidate) => candidate.id === node)?.kind;
+  if (kind !== undefined && opensDevice(kind) && kind !== "array") {
     return node;
   }
   const devices = new Set(
-    graph.nodes.filter((candidate) => candidate.kind === "device").map((candidate) => candidate.id),
+    graph.nodes
+      .filter((candidate) => opensDevice(candidate.kind) && candidate.kind !== "array")
+      .map((candidate) => candidate.id),
   );
   const upstream = iqSourceOf(graph, node);
   if (upstream !== null && devices.has(upstream.source)) {

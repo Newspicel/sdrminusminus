@@ -1150,9 +1150,10 @@ fn nfm_settings(offset_hz: f64) -> ChannelSettings {
 
 fn recording_engine(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
+    registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
     registry.register(
         VIRTUAL_PRIORITY,
-        Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
+        Box::new(RecordingDriver::new(Some(dir.to_path_buf()))),
     );
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }

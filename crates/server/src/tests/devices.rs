@@ -230,8 +230,10 @@ async fn terrestrial_bandwidth_priority_and_service_round_trip_over_http() {
         .expect("IQ");
     writer.finalize().expect("recording");
     let app = recording_router(dir.path());
-    let body =
-        serde_json::json!({"device_id":format!("virtual:file:{}",stem.display())}).to_string();
+    let body = serde_json::json!({
+        "device_id": format!("recording:{}", stem.file_name().expect("stem").display()),
+    })
+    .to_string();
     let (status, body) = request(app.clone(), "POST", "/api/devicesets", Some(&body)).await;
     assert_eq!(status, StatusCode::OK);
     let ds = serde_json::from_slice::<CreatedId>(&body)

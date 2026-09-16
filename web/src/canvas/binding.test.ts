@@ -11,7 +11,6 @@ import {
   hasWire,
   inputsOf,
   iqSourceOf,
-  refFromDeviceId,
   refMatches,
 } from "./binding";
 
@@ -382,41 +381,5 @@ describe("binding", () => {
         { node: "high", deviceSet: 1, channel: channel(5, "nfm", 2) },
       ]);
     });
-  });
-});
-
-describe("refFromDeviceId", () => {
-  it("splits on the first colon so a file key survives", () => {
-    expect(refFromDeviceId("virtual:file:/data/rec/airband-2026")).toEqual({
-      backend: "virtual",
-      key: "file:/data/rec/airband-2026",
-    });
-    expect(refFromDeviceId("rtlsdr:00000001")).toEqual({
-      backend: "rtlsdr",
-      key: "00000001",
-    });
-  });
-
-  it("round-trips a recording onto the device it names, and not onto the siggen", () => {
-    const recording = refFromDeviceId("virtual:file:/data/rec/airband");
-    expect(recording).not.toBeNull();
-    if (recording === null) {
-      throw new Error("parsed");
-    }
-    const playback: DeviceInfo = {
-      driver: "virtual",
-      key: "file:/data/rec/airband",
-      label: "airband (recording)",
-    };
-    const siggen: DeviceInfo = { driver: "virtual", key: "siggen", label: "Signal Generator" };
-    expect(refMatches(recording, playback)).toBe(true);
-    expect(refMatches(recording, siggen)).toBe(false);
-  });
-
-  it("refuses a handle with no key rather than producing one that matches anything", () => {
-    expect(refFromDeviceId("virtual")).toBeNull();
-    expect(refFromDeviceId("virtual:")).toBeNull();
-    expect(refFromDeviceId(":siggen")).toBeNull();
-    expect(refFromDeviceId("")).toBeNull();
   });
 });

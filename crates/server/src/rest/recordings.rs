@@ -1,3 +1,8 @@
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
 use super::*;
 
 #[utoipa::path(
@@ -20,7 +25,7 @@ pub(super) async fn list_recordings(
         };
         let _gate = lock_gate(&gate);
         reconcile_recordings(dir, &store)?;
-        Ok(store.list_recordings(dir)?)
+        Ok(store.list_recordings()?)
     })
     .await??;
     Ok(Json(RecordingsResponse { recordings }))
@@ -73,7 +78,7 @@ pub(super) async fn annotate_recording(
         .map_err(|err| annotate_error(id, err))?;
         reconcile_recordings(dir, &store)?;
         let info = store
-            .list_recordings(dir)?
+            .list_recordings()?
             .into_iter()
             .find(|recording| recording.id == id)
             .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
@@ -229,3 +234,187 @@ pub(super) async fn delete_recording(
     .await??;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[utoipa::path(
+    post, path = "/api/recordings",
+    request_body(content = RecordingUpload, content_type = "multipart/form-data"),
+    responses(
+        (status = 201, description = "The uploaded recording, indexed and ready to play", body = RecordingInfo),
+        (
+            status = 400,
+            description = "Not a SigMF recording this build can play: a missing part, a \
+                           datatype that is not complex samples, or no samples at all",
+            body = ApiError,
+        ),
+        (status = 413, description = "Larger than a recording may be", body = ApiError),
+        (status = 503, description = "This server keeps no recording library", body = ApiError),
+    ),
+)]
+pub(super) async fn upload_recording(
+    State(state): State<AppState>,
+    mut form: Multipart,
+) -> Result<(StatusCode, Json<RecordingInfo>), AppError> {
+    let dir = state
+        .engine
+        .recordings_dir()
+        .ok_or_else(|| AppError::unavailable("this server keeps no recording library"))?
+        .to_path_buf();
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|err| AppError::internal(format!("create {}: {err}", dir.display())))?;
+
+    let mut upload = Upload::default();
+    while let Some(field) = form
+        .next_field()
+        .await
+        .map_err(|err| AppError::bad_request(format!("upload: {err}")))?
+    {
+        upload.take(&dir, field).await?;
+    }
+
+    let store = state.store.clone();
+    let gate = state.recordings_gate.clone();
+    let indexed = tokio::task::spawn_blocking(move || -> Result<RecordingInfo, AppError> {
+        let imported = upload.import(&dir).map_err(import_error)?;
+        let _gate = lock_gate(&gate);
+        reconcile_recordings(&dir, &store)?;
+        let stem = imported
+            .stem
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        store
+            .list_recordings()?
+            .into_iter()
+            .find(|recording| recording.file == stem)
+            .ok_or_else(|| AppError::internal(format!("uploaded recording {stem} is not indexed")))
+    })
+    .await??;
+    state.engine.emit_scope(StateScope::Recordings);
+    Ok((StatusCode::CREATED, Json(indexed)))
+}
+
+#[derive(Default)]
+struct Upload {
+    archive: Option<Spooled>,
+    meta: Option<Vec<u8>>,
+    data: Option<Spooled>,
+    name: Option<String>,
+}
+
+impl Upload {
+    async fn take(&mut self, dir: &std::path::Path, mut field: Field<'_>) -> Result<(), AppError> {
+        let slot = field.name().unwrap_or_default().to_owned();
+        if let Some(name) = field.file_name()
+            && !name.is_empty()
+            && (self.name.is_none() || slot != "meta")
+        {
+            self.name = Some(name.to_owned());
+        }
+        match slot.as_str() {
+            "meta" => {
+                let mut bytes = Vec::new();
+                while let Some(chunk) = next_chunk(&mut field).await? {
+                    if bytes.len() + chunk.len() > MAX_META_BYTES {
+                        return Err(AppError::bad_request(
+                            "the metadata is larger than any SigMF metadata",
+                        ));
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                self.meta = Some(bytes);
+            }
+            "archive" => self.archive = Some(Spooled::fill(dir, &mut field).await?),
+            "data" => self.data = Some(Spooled::fill(dir, &mut field).await?),
+            other => {
+                return Err(AppError::bad_request(format!(
+                    "a recording upload carries `archive`, or `meta` and `data`, not `{other}`"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn import(&self, dir: &std::path::Path) -> Result<sdrmm_recorder::Imported, SigmfError> {
+        let name = self.name.as_deref().unwrap_or("upload");
+        match (&self.archive, &self.meta, &self.data) {
+            (Some(archive), _, _) => sdrmm_recorder::import_archive(dir, archive.open()?),
+            (None, Some(meta), Some(data)) => {
+                sdrmm_recorder::import_pair(dir, name, meta, data.open()?)
+            }
+            _ => Err(SigmfError::Malformed(
+                "a recording upload carries a .sigmf archive, or a .sigmf-meta and a \
+                 .sigmf-data together"
+                    .to_owned(),
+            )),
+        }
+    }
+}
+
+struct Spooled {
+    path: PathBuf,
+}
+
+impl Drop for Spooled {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+impl Spooled {
+    async fn fill(dir: &std::path::Path, field: &mut Field<'_>) -> Result<Self, AppError> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let spooled = Self {
+            path: dir.join(format!(
+                ".upload-{}-{}.tmp",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            )),
+        };
+        let mut file = tokio::fs::File::create(&spooled.path)
+            .await
+            .map_err(|err| AppError::internal(format!("spool upload: {err}")))?;
+        let mut written = 0u64;
+        while let Some(chunk) = next_chunk(field).await? {
+            written += chunk.len() as u64;
+            if written > MAX_RECORDING_UPLOAD_BYTES {
+                return Err(AppError::too_large(format!(
+                    "a recording may be at most {} GiB",
+                    MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024 * 1024)
+                )));
+            }
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                .await
+                .map_err(|err| AppError::internal(format!("spool upload: {err}")))?;
+        }
+        tokio::io::AsyncWriteExt::flush(&mut file)
+            .await
+            .map_err(|err| AppError::internal(format!("spool upload: {err}")))?;
+        Ok(spooled)
+    }
+
+    fn open(&self) -> Result<std::fs::File, SigmfError> {
+        Ok(std::fs::File::open(&self.path)?)
+    }
+}
+
+async fn next_chunk(field: &mut Field<'_>) -> Result<Option<axum::body::Bytes>, AppError> {
+    field
+        .chunk()
+        .await
+        .map_err(|err| AppError::bad_request(format!("upload: {err}")))
+}
+
+fn import_error(err: SigmfError) -> AppError {
+    match err {
+        SigmfError::UnsupportedDatatype(datatype) => AppError::bad_request(format!(
+            "`{datatype}` is not a complex SigMF datatype this build can play"
+        )),
+        SigmfError::Malformed(reason) => AppError::bad_request(reason),
+        SigmfError::Meta(meta) => AppError::bad_request(format!("metadata: {meta}")),
+        other => AppError::internal(format!("import recording: {other}")),
+    }
+}
+
+const MAX_META_BYTES: usize = 8 * 1024 * 1024;

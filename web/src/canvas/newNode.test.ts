@@ -4,6 +4,8 @@ import { carriesSettings, newNodeBody } from "./newNode";
 
 const EVERY_KIND: Record<NodeKind, true> = {
   device: true,
+  recording: true,
+  signal_gen: true,
   array: true,
   gps: true,
   channel: true,

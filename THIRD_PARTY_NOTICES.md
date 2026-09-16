@@ -84,7 +84,7 @@ SDR-- drives the RTL2832U and its R82xx tuner itself, in Rust, over its own USB 
 
 Opened at runtime from whatever SoapySDR the host has installed, and never linked or distributed by this project. A release that finds none simply reports no SoapySDR hardware. The modules it loads, and their licenses, belong to that installation.
 
-## Rust crates (747)
+## Rust crates (748)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -402,6 +402,7 @@ Opened at runtime from whatever SoapySDR the host has installed, and never linke
 | [mio-serial](https://github.com/berkowski/mio-serial) | 5.0.7 | MIT |
 | [mqttbytes-core-next](https://github.com/thehouseisonfire/rumqtt) | 0.34.0 | Apache-2.0 |
 | [muda](https://github.com/tauri-apps/muda) | 0.19.3 | Apache-2.0 OR MIT |
+| [multer](https://github.com/rwf2/multer) | 3.1.0 | MIT |
 | [multiversion](https://github.com/calebzulawski/multiversion) | 0.9.0 | MIT OR Apache-2.0 |
 | [multiversion-macros](https://github.com/calebzulawski/multiversion) | 0.9.0 | MIT OR Apache-2.0 |
 | [multiversion_no_op](https://github.com/hsivonen/multiversion_no_op) | 1.0.0 | Apache-2.0 OR MIT |

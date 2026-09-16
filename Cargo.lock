@@ -336,6 +336,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
@@ -3372,6 +3373,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin",
+ "version_check",
+]
+
+[[package]]
 name = "multiversion"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5373,6 +5391,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-recording"
+version = "0.0.0"
+dependencies = [
+ "arc-swap",
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-recorder",
+ "sdrmm-wire",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
@@ -5417,6 +5448,18 @@ dependencies = [
  "sdrmm-wire",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "sdrmm-device-siggen"
+version = "0.0.0"
+dependencies = [
+ "arc-swap",
+ "num-complex",
+ "sdrmm-channels",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde_json",
 ]
 
 [[package]]
@@ -5487,10 +5530,12 @@ dependencies = [
  "sdrmm-device-array",
  "sdrmm-device-cr8",
  "sdrmm-device-hackrf",
+ "sdrmm-device-recording",
  "sdrmm-device-rtlsdr",
  "sdrmm-device-rtltcp",
  "sdrmm-device-sdrconnect",
  "sdrmm-device-sdrplay",
+ "sdrmm-device-siggen",
  "sdrmm-device-soapy",
  "sdrmm-device-spyserver",
  "sdrmm-device-virtual",
@@ -5569,7 +5614,9 @@ dependencies = [
  "sdrmm-cps",
  "sdrmm-device",
  "sdrmm-device-cr8",
+ "sdrmm-device-recording",
  "sdrmm-device-sdrplay",
+ "sdrmm-device-siggen",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",
  "sdrmm-dsp",

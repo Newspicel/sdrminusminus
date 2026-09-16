@@ -56,11 +56,18 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
         .map(|(_, id)| id)
         .collect();
     ids.sort_unstable();
-    // A composite is only as real as its members, so it never makes a build hardware-capable.
     let hardware: Vec<&str> = ids
         .iter()
         .copied()
-        .filter(|id| *id != "virtual" && *id != sdrmm_wire::ARRAY_DRIVER_ID)
+        .filter(|id| {
+            !matches!(
+                *id,
+                "virtual"
+                    | sdrmm_wire::ARRAY_DRIVER_ID
+                    | sdrmm_wire::RECORDING_DRIVER_ID
+                    | sdrmm_wire::SIGGEN_DRIVER_ID
+            )
+        })
         .collect();
     let detail = format!("compiled backends: {}", ids.join(", "));
     if hardware.is_empty() {

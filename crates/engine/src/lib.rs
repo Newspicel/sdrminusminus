@@ -12,6 +12,8 @@ use std::{
 
 use sdrmm_channels::ChannelError;
 use sdrmm_device::{DeviceError, DeviceRegistry, PlaybackShared};
+use sdrmm_device_recording::RecordingDriver;
+use sdrmm_device_siggen::SigGenDriver;
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
@@ -142,8 +144,12 @@ pub fn builtin_registry_accelerated(
     playback_speed: f64,
 ) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
-    let virtual_driver = VirtualDriver::for_build_accelerated(recordings_dir, playback_speed);
-    registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
+    registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::for_build()));
+    registry.register(
+        VIRTUAL_PRIORITY,
+        Box::new(RecordingDriver::accelerated(recordings_dir, playback_speed)),
+    );
+    registry.register(VIRTUAL_PRIORITY, Box::new(SigGenDriver::new()));
     #[cfg(feature = "soapy")]
     registry.register(
         SOAPY_PRIORITY,

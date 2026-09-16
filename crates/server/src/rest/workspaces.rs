@@ -193,6 +193,12 @@ pub(super) fn bring_up(
             continue;
         }
         let devices = attached.get_or_insert_with(|| engine.probe_devices());
+        if !devices.iter().any(|info| reference.matches(info))
+            && let Some(key) = &reference.key
+            && let Some(adopted) = engine.adopt_device(&format!("{}:{key}", reference.backend))
+        {
+            devices.push(adopted);
+        }
         let open = devices
             .iter()
             .filter(|info| reference.matches(info))

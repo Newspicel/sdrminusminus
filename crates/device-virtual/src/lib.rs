@@ -1,5 +1,4 @@
 use std::{
-    path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
@@ -10,18 +9,14 @@ use sdrmm_device::{
     DeviceDriver, DeviceError, RxSink, SdrDevice, SweepPlan, SweepSink, Worker,
     check_stream_settings, single_rx_sink,
 };
-use sdrmm_recorder::scan_stems;
 use sdrmm_wire::{
     Capabilities, Coherence, DcArtifact, DeviceInfo, DeviceSettings, Duplex, Range, StreamScope,
 };
 
 pub mod array;
-mod playback;
-pub use playback::{FilePlayback, LOOP_SETTING};
 
 const DRIVER_ID: &str = "virtual";
 const SIGGEN_KEY: &str = "siggen";
-const FILE_KEY_PREFIX: &str = "file:";
 const BLOCK_SECS: f64 = 0.025;
 
 pub const NFM_CARRIER_OFFSET_HZ: f64 = 300_000.0;
@@ -52,64 +47,27 @@ const DEFAULT_SAMPLE_RATE_HZ: f64 = 2_048_000.0;
 const NOISE_SEED: u64 = 0x5DEE_CE66_D00D_1234;
 
 pub struct VirtualDriver {
-    recordings_dir: Option<PathBuf>,
     synthetic_devices: bool,
-    playback_speed: f64,
-}
-
-fn checked_speed(playback_speed: f64) -> f64 {
-    assert!(
-        playback_speed.is_finite() && playback_speed >= 1.0,
-        "playback speed must be finite and at least real time"
-    );
-    playback_speed
 }
 
 impl Default for VirtualDriver {
     fn default() -> Self {
-        Self::for_build(None)
+        Self::for_build()
     }
 }
 
 impl VirtualDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self::configured(None, true, 1.0)
-    }
-
-    #[must_use]
-    pub fn with_recordings(dir: PathBuf) -> Self {
-        Self::configured(Some(dir), true, 1.0)
-    }
-
-    #[must_use]
-    pub fn with_accelerated_recordings(dir: PathBuf, playback_speed: f64) -> Self {
-        Self::configured(Some(dir), true, checked_speed(playback_speed))
-    }
-
-    #[must_use]
-    pub fn for_build(recordings_dir: Option<PathBuf>) -> Self {
-        Self::for_build_accelerated(recordings_dir, 1.0)
-    }
-
-    #[must_use]
-    pub fn for_build_accelerated(recordings_dir: Option<PathBuf>, playback_speed: f64) -> Self {
-        Self::configured(
-            recordings_dir,
-            cfg!(debug_assertions),
-            checked_speed(playback_speed),
-        )
-    }
-
-    fn configured(
-        recordings_dir: Option<PathBuf>,
-        synthetic_devices: bool,
-        playback_speed: f64,
-    ) -> Self {
         Self {
-            recordings_dir,
-            synthetic_devices,
-            playback_speed,
+            synthetic_devices: true,
+        }
+    }
+
+    #[must_use]
+    pub fn for_build() -> Self {
+        Self {
+            synthetic_devices: cfg!(debug_assertions),
         }
     }
 
@@ -132,18 +90,6 @@ impl VirtualDriver {
             profile: Some(marker_capabilities(shape).profile()),
         }
     }
-
-    fn playback_info(stem: &Path) -> Option<DeviceInfo> {
-        let stem_str = stem.to_str()?;
-        let name = stem.file_name()?.to_str()?;
-        Some(DeviceInfo {
-            driver: DRIVER_ID.to_string(),
-            key: format!("{FILE_KEY_PREFIX}{stem_str}"),
-            label: format!("{name} (recording)"),
-            serial: None,
-            profile: None,
-        })
-    }
 }
 
 impl DeviceDriver for VirtualDriver {
@@ -157,21 +103,10 @@ impl DeviceDriver for VirtualDriver {
             infos.push(Self::siggen_info());
             infos.extend(MARKER_SHAPES.iter().map(Self::marker_info));
         }
-        if let Some(dir) = &self.recordings_dir
-            && let Ok(stems) = scan_stems(dir)
-        {
-            infos.extend(stems.iter().filter_map(|stem| Self::playback_info(stem)));
-        }
         infos
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        if let Some(stem) = info.key.strip_prefix(FILE_KEY_PREFIX) {
-            return Ok(Box::new(FilePlayback::open_at_speed(
-                Path::new(stem),
-                self.playback_speed,
-            )?));
-        }
         if !self.synthetic_devices {
             return Err(DeviceError::NotFound(format!("{DRIVER_ID}:{}", info.key)));
         }
@@ -1038,57 +973,19 @@ mod tests {
 
     #[test]
     fn application_build_policy_matches_the_profile() {
-        assert_synthetic_policy(&VirtualDriver::for_build(None), cfg!(debug_assertions));
+        assert_synthetic_policy(&VirtualDriver::for_build(), cfg!(debug_assertions));
         assert_synthetic_policy(&VirtualDriver::default(), cfg!(debug_assertions));
-        assert_synthetic_policy(&VirtualDriver::configured(None, true, 1.0), true);
-        assert_synthetic_policy(&VirtualDriver::configured(None, false, 1.0), false);
+        assert_synthetic_policy(&VirtualDriver::new(), true);
     }
 
     #[test]
-    fn probe_lists_finalized_recordings() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let stem = dir.path().join("capture");
-        let mut writer =
-            sdrmm_recorder::SigmfWriter::create(&stem, 250_000.0, 100_000_000.0, "test").unwrap();
-        writer.write_block(&[Complex::new(0.5, -0.5)]).unwrap();
-        writer.finalize().unwrap();
-        drop(
-            sdrmm_recorder::SigmfWriter::create(
-                &dir.path().join("crashed"),
-                250_000.0,
-                100_000_000.0,
-                "test",
-            )
-            .unwrap(),
+    fn a_production_build_shows_no_synthetic_radios() {
+        let production = VirtualDriver::for_build();
+        assert_eq!(
+            production.probe().is_empty(),
+            !cfg!(debug_assertions),
+            "synthetic radios belong to debug builds only"
         );
-
-        let d = VirtualDriver::with_recordings(dir.path().to_path_buf());
-        let infos = d.probe();
-        assert_eq!(infos.len(), 2 + MARKER_SHAPES.len());
-        assert_eq!(infos[0].id(), "virtual:siggen");
-        let recording = infos.last().unwrap();
-        assert_eq!(recording.id(), format!("virtual:file:{}", stem.display()));
-        assert_eq!(recording.label, "capture (recording)");
-        assert!(recording.serial.is_none());
-        d.open(recording).unwrap();
-
-        let production = VirtualDriver::configured(Some(dir.path().to_path_buf()), false, 1.0);
-        let production_infos = production.probe();
-        assert_eq!(production_infos.len(), 1);
-        assert_eq!(production_infos[0].id(), recording.id());
-        production.open(&production_infos[0]).unwrap();
-        assert_synthetic_policy(&production, false);
-
-        assert!(matches!(
-            d.open(&DeviceInfo {
-                driver: "virtual".to_string(),
-                key: format!("file:{}", dir.path().join("crashed").display()),
-                label: String::new(),
-                serial: None,
-                profile: None,
-            }),
-            Err(DeviceError::NotFound(_))
-        ));
     }
 
     fn open_virtual(key: &str) -> Box<dyn SdrDevice> {

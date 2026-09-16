@@ -8,6 +8,8 @@ members = [
     "crates/modem-test-support",
     "crates/device",
     "crates/device-virtual",
+    "crates/device-recording",
+    "crates/device-siggen",
     "crates/device-array",
     "crates/device-ad936x",
     "crates/device-airspy",
@@ -40,6 +42,8 @@ default-members = [
     "crates/modem-test-support",
     "crates/device",
     "crates/device-virtual",
+    "crates/device-recording",
+    "crates/device-siggen",
     "crates/device-array",
     "crates/device-ad936x",
     "crates/device-airspy",
@@ -81,6 +85,8 @@ sdrmm-modem = { path = "crates/modem" }
 sdrmm-modem-test-support = { path = "crates/modem-test-support" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
+sdrmm-device-recording = { path = "crates/device-recording" }
+sdrmm-device-siggen = { path = "crates/device-siggen" }
 sdrmm-device-array = { path = "crates/device-array" }
 sdrmm-device-ad936x = { path = "crates/device-ad936x" }
 sdrmm-device-airspy = { path = "crates/device-airspy" }
@@ -105,7 +111,7 @@ sdrmm-server = { path = "crates/server", default-features = false }
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
 # TLS termination for `--tls-*`. `tls-rustls-no-provider` keeps the crypto provider ours to pick:
 # the graph already enables both rustls backends, so an implicit default would be ambiguous.
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
@@ -273,6 +279,12 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-virtual]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-recording]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-siggen]
 opt-level = 3
 
 [profile.dev.package.sdrmm-recorder]

@@ -3096,6 +3096,61 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "upload_recording",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The uploaded recording, indexed and ready to play",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a SigMF recording this build can play: a missing part, a datatype that is not complex samples, or no samples at all",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Larger than a recording may be",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server keeps no recording library",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/recordings/{id}": {
@@ -14839,6 +14894,42 @@
             ],
             "properties": {
               "data": {
+                "$ref": "#/components/schemas/RecordingNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "recording"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SignalGenNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "signal_gen"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
                 "$ref": "#/components/schemas/ArrayNode"
               },
               "kind": {
@@ -16948,6 +17039,17 @@
           }
         }
       },
+      "RecordingNode": {
+        "type": "object",
+        "properties": {
+          "recording": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "RecordingStatus": {
         "type": "object",
         "required": [
@@ -16989,6 +17091,23 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "RecordingUpload": {
+        "type": "object",
+        "properties": {
+          "archive": {
+            "type": "string",
+            "format": "binary"
+          },
+          "data": {
+            "type": "string",
+            "format": "binary"
+          },
+          "meta": {
+            "type": "string",
+            "format": "binary"
           }
         }
       },
@@ -18272,6 +18391,15 @@
           "usb",
           "lsb"
         ]
+      },
+      "SignalGenNode": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "boolean",
+            "default": true
+          }
+        }
       },
       "SignalMapNode": {
         "type": "object",

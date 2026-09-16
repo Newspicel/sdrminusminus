@@ -384,7 +384,13 @@ impl Store {
             )
             .optional()?
             .ok_or(StoreError::PresetNotFound(id))?;
-        Ok(serde_json::from_str(&json)?)
+        let mut snapshot: PresetSnapshot = serde_json::from_str(&json)?;
+        for device in &mut snapshot.devices {
+            if let Some(migrated) = migrated_recording_device_id(&device.device_id) {
+                device.device_id = migrated;
+            }
+        }
+        Ok(snapshot)
     }
 
     pub fn delete_preset(&self, id: i64) -> Result<(), StoreError> {
@@ -458,7 +464,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn list_recordings(&self, dir: &Path) -> Result<Vec<RecordingInfo>, StoreError> {
+    pub fn list_recordings(&self) -> Result<Vec<RecordingInfo>, StoreError> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
             "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes, \
@@ -470,7 +476,7 @@ impl Store {
             let samples = row.get::<_, i64>(6)? as u64;
             Ok(RecordingInfo {
                 id: row.get(0)?,
-                device_id: format!("virtual:file:{}", dir.join(&stem).display()),
+                device_id: format!("{}:{stem}", sdrmm_wire::RECORDING_DRIVER_ID),
                 file: stem,
                 name: row.get(10)?,
                 created_at: row.get(2)?,
@@ -1272,7 +1278,49 @@ fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json:
     migrate_call_buffers(&mut value);
     migrate_trunk_carriers(&mut value);
     migrate_event_outputs(&mut value);
+    migrate_recording_devices(&mut value);
     serde_json::from_value(value)
+}
+
+fn migrate_recording_devices(snapshot: &mut serde_json::Value) {
+    let Some(nodes) = snapshot
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for node in nodes {
+        if node.get("kind").and_then(serde_json::Value::as_str) != Some("device") {
+            continue;
+        }
+        let Some(device) = node.get("data").and_then(|data| data.get("device")) else {
+            continue;
+        };
+        if device.get("backend").and_then(serde_json::Value::as_str) != Some("virtual") {
+            continue;
+        }
+        let Some(stem) = device
+            .get("key")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|key| key.strip_prefix("file:"))
+            .and_then(legacy_recording_stem)
+        else {
+            continue;
+        };
+        node["kind"] = serde_json::Value::String("recording".to_owned());
+        node["data"] = serde_json::json!({ "recording": stem });
+    }
+}
+
+fn migrated_recording_device_id(device_id: &str) -> Option<String> {
+    let stem = legacy_recording_stem(device_id.strip_prefix("virtual:file:")?)?;
+    Some(format!("{}:{stem}", sdrmm_wire::RECORDING_DRIVER_ID))
+}
+
+fn legacy_recording_stem(path: &str) -> Option<String> {
+    let stem = path.rsplit(['/', '\\']).next()?;
+    sdrmm_wire::recording_stem_valid(stem).then(|| stem.to_owned())
 }
 
 /// Discord and Matrix used to be the only sinks a decoder could feed. Discord is one shape of

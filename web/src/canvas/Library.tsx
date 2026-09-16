@@ -6,13 +6,12 @@ import { OccupancyPanel } from "../components/OccupancyPanel";
 import { PresetsPanel } from "../components/PresetsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
 import { TemplatesPanel } from "../components/TemplatesPanel";
-import { pushToast } from "../lib/toasts";
 import type { RecordingInfo } from "../lib/types";
 import { ToolsPanel } from "../tools/ToolsPanel";
-import { refFromDeviceId } from "./binding";
 import { useWorkspaceContext } from "./context";
 import { FieldPanel } from "./FieldPanel";
-import { addNode, MAX_NAME_LEN, newNodeId, nodeIds } from "./graph";
+import { addNode, newNodeId, nodeIds } from "./graph";
+import { recordingNodeFor } from "./nodes/recordingNode";
 import { useNodePlacement } from "./placement";
 
 const TABS = [
@@ -36,21 +35,13 @@ export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
   const active = selected ?? only;
 
   const openRecording = (recording: RecordingInfo): void => {
-    const device = refFromDeviceId(recording.device_id);
-    if (device === null) {
-      pushToast(`${recording.file} has no playable device id`);
-      return;
-    }
-    const id = newNodeId("device", nodeIds(workspace.graph));
+    const id = newNodeId("recording", nodeIds(workspace.graph));
     workspace.edit((snapshot) => ({
       ...snapshot,
-      graph: addNode(snapshot.graph, {
-        id,
-        kind: "device",
-        data: { device },
-        position: placeNode(snapshot.graph, "device"),
-        label: recording.file.slice(0, MAX_NAME_LEN),
-      }),
+      graph: addNode(
+        snapshot.graph,
+        recordingNodeFor(recording, id, placeNode(snapshot.graph, "recording")),
+      ),
     }));
     workspace.select(id);
     workspace.apply();

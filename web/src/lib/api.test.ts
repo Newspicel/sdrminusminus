@@ -9,6 +9,7 @@ import {
   TOOL_RUN_KEY,
   toolRunQuery,
   unwrap,
+  uploadRecording,
 } from "./api";
 import { setToken } from "./auth";
 
@@ -119,5 +120,57 @@ describe("toolRunQuery", () => {
 
   it("stays idle without a request", () => {
     expect(toolRunQuery(null).enabled).toBe(false);
+  });
+});
+
+function bodyOf(call: unknown): unknown {
+  return (call as [string, { body?: unknown }] | undefined)?.[1]?.body;
+}
+
+function fields(body: unknown): [string, string][] {
+  expect(body).toBeInstanceOf(FormData);
+  return [...(body as FormData).entries()].map(([field, value]) => [
+    field,
+    value instanceof File ? value.name : "text",
+  ]);
+}
+
+describe("uploadRecording", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("posts a pair as the meta and data parts the server names", async () => {
+    const post = vi.spyOn(client, "POST").mockResolvedValue({
+      data: { id: 1, file: "take" },
+      response: new Response(null, { status: 201 }),
+    });
+    await uploadRecording([
+      new File([new Uint8Array(8)], "take.sigmf-data"),
+      new File(["{}"], "take.sigmf-meta"),
+    ]);
+
+    expect(post).toHaveBeenCalledWith("/api/recordings", expect.anything());
+    expect(fields(bodyOf(post.mock.calls[0]))).toEqual([
+      ["data", "take.sigmf-data"],
+      ["meta", "take.sigmf-meta"],
+    ]);
+  });
+
+  it("posts anything else as the archive part", async () => {
+    const post = vi.spyOn(client, "POST").mockResolvedValue({
+      data: { id: 2, file: "take" },
+      response: new Response(null, { status: 201 }),
+    });
+    await uploadRecording([new File([new Uint8Array(8)], "take.sigmf")]);
+    expect(fields(bodyOf(post.mock.calls[0]))).toEqual([["archive", "take.sigmf"]]);
+  });
+
+  it("sets no Content-Type of its own, so the boundary the browser picks survives", async () => {
+    const post = vi.spyOn(client, "POST").mockResolvedValue({
+      data: { id: 3, file: "take" },
+      response: new Response(null, { status: 201 }),
+    });
+    await uploadRecording([new File(["x"], "take.sigmf")]);
+    const call = post.mock.calls[0] as [string, { headers?: unknown }] | undefined;
+    expect(call?.[1]?.headers).toBeUndefined();
   });
 });

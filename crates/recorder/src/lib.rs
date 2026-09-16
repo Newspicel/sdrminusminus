@@ -1,5 +1,6 @@
 mod audio;
 mod export;
+mod import;
 
 use std::{
     fs::{self, File},
@@ -11,6 +12,9 @@ pub use audio::{
     AUDIO_BYTES_PER_SAMPLE, AUDIO_SUFFIX, AudioInfo, AudioWriter, read_audio_info, scan_audio,
 };
 pub use export::{Export, ExportKind};
+pub use import::{
+    ARCHIVE_SUFFIX, Datatype, Imported, MAX_IMPORT_NAME_LEN, import_archive, import_pair,
+};
 use num_complex::Complex;
 use sdrmm_wire::PositionFix;
 use serde::{Deserialize, Serialize};
@@ -32,6 +36,8 @@ pub enum SigmfError {
     Meta(#[from] serde_json::Error),
     #[error("unsupported datatype `{0}`: only {DATATYPE_CF32_LE} is supported")]
     UnsupportedDatatype(String),
+    #[error("{0}")]
+    Malformed(String),
     #[error("stem `{}` is already claimed by another recording", .0.display())]
     StemTaken(PathBuf),
     #[error("cannot export `{}` as {format}: {reason}", .stem.display())]

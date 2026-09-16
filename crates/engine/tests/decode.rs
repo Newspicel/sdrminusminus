@@ -5,7 +5,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 use num_complex::Complex;
 use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, MicE, MicEBit, TxPayload, testgen};
 use sdrmm_device::DeviceRegistry;
-use sdrmm_device_virtual::VirtualDriver;
+use sdrmm_device_recording::RecordingDriver;
 use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
@@ -52,10 +52,7 @@ fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
 
 fn engine_for(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
-    registry.register(
-        10,
-        Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
-    );
+    registry.register(10, Box::new(RecordingDriver::new(Some(dir.to_path_buf()))));
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 
@@ -63,10 +60,7 @@ fn accelerated_engine_for(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
     registry.register(
         10,
-        Box::new(VirtualDriver::with_accelerated_recordings(
-            dir.to_path_buf(),
-            20.0,
-        )),
+        Box::new(RecordingDriver::accelerated(Some(dir.to_path_buf()), 20.0)),
     );
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
@@ -80,7 +74,7 @@ fn plant(dir: &Path, stem: &str, mut iq: Vec<Complex<f32>>, rate: f64) -> String
     let mut writer = SigmfWriter::create(&path, rate, CENTER_HZ, "decoder fixture").unwrap();
     writer.write_block(&iq).unwrap();
     writer.finalize().unwrap();
-    format!("virtual:file:{}", path.display())
+    format!("recording:{}", path.file_name().unwrap().display())
 }
 
 async fn decode_first(

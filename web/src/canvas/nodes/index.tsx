@@ -16,7 +16,9 @@ import { NetworkExportFace } from "./NetworkExportFace";
 import { CanvasSurface } from "./NodeShell";
 import { PropagationFace } from "./PropagationFace";
 import { RangeDopplerFace } from "./RangeDopplerFace";
+import { RecordingFace } from "./RecordingFace";
 import { ScopeFace } from "./ScopeFace";
+import { SignalGenFace } from "./SignalGenFace";
 import { SignalMapFace } from "./SignalMapFace";
 import {
   AudioRecorderFace,
@@ -48,6 +50,8 @@ function mount(Face: Face) {
 
 export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>>>> = {
   device: mount(DeviceFace),
+  recording: mount(RecordingFace),
+  signal_gen: mount(SignalGenFace),
   array: mount(ArrayFace),
   gps: mount(GpsFace),
   channel: mount(ChannelFace),
@@ -78,6 +82,8 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
 
 export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
+  recording: RecordingFace,
+  signal_gen: SignalGenFace,
   array: ArrayFace,
   gps: GpsFace,
   channel: ChannelFace,

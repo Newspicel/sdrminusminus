@@ -1,7 +1,8 @@
 use axum::{
     body::Body,
     extract::{
-        FromRequest, FromRequestParts, State,
+        DefaultBodyLimit, FromRequest, FromRequestParts, Multipart, State,
+        multipart::Field,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
     http::{StatusCode, header},
@@ -9,7 +10,7 @@ use axum::{
 };
 use sdrmm_engine::EngineError;
 use sdrmm_recorder::{
-    AUDIO_SUFFIX, Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path,
+    AUDIO_SUFFIX, Export, ExportKind, SigmfError, SigmfMeta, SigmfReader, data_path, meta_path,
     read_audio_info, scan_audio, scan_stems,
 };
 use sdrmm_tools::ToolError;
@@ -22,16 +23,17 @@ use sdrmm_wire::{
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
     DeviceInfo, DeviceSettings, DevicesResponse, DfFusionState, DiagnosticsReport, DoctorReport,
     ErrorCode, ExportFormat, HuntAction, HuntRequest, HuntStatus, IonosondeReport,
-    LicenseTextResponse, LocateQuery, NetworkExportAction, NetworkExportRequest,
-    NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport, PRESET_SNAPSHOT_VERSION,
-    PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph, PatchRefusal, PlaybackRequest,
-    PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
-    RecordingAnnotation, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingStatus,
-    RecordingsResponse, Route, RouteRequest, ScanAction, ScanRequest, ScanSessionRequest,
-    ScanSessionStatus, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
-    TemplatesResponse, TimeMachineAction, TimeMachineRequest, TimeMachineStatus, ToolRequest,
-    ToolResponse, ToolsResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail,
-    WorkspaceExport, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    LicenseTextResponse, LocateQuery, MAX_RECORDING_UPLOAD_BYTES, NetworkExportAction,
+    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody, OccupancyReport,
+    PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchGraph,
+    PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot,
+    RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery, RecordingFormat,
+    RecordingInfo, RecordingStatus, RecordingUpload, RecordingsResponse, Route, RouteRequest,
+    ScanAction, ScanRequest, ScanSessionRequest, ScanSessionStatus, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, TimeMachineAction,
+    TimeMachineRequest, TimeMachineStatus, ToolRequest, ToolResponse, ToolsResponse,
+    UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceExport, WorkspaceInfo,
+    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -87,8 +89,8 @@ impl AppError {
         }
     }
 
-    fn bad_request(message: String) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, ErrorCode::Request, message)
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, ErrorCode::Request, message.into())
     }
 
     fn not_found(message: String) -> Self {
@@ -100,6 +102,22 @@ impl AppError {
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorCode::Internal,
             message,
+        )
+    }
+
+    fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::Unavailable,
+            message.into(),
+        )
+    }
+
+    fn too_large(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ErrorCode::Request,
+            message.into(),
         )
     }
 
@@ -301,6 +319,10 @@ fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
 )]
 struct ApiDoc;
 
+fn upload_limit() -> usize {
+    usize::try_from(MAX_RECORDING_UPLOAD_BYTES).unwrap_or(usize::MAX)
+}
+
 pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(get_state))
@@ -331,7 +353,11 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(delete_audio_recording))
         .routes(routes!(network_export_device_set))
         .routes(routes!(control_playback))
-        .routes(routes!(list_recordings))
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(list_recordings, upload_recording))
+                .layer(DefaultBodyLimit::max(upload_limit())),
+        )
         .routes(routes!(delete_recording))
         .routes(routes!(annotate_recording))
         .routes(routes!(download_recording))

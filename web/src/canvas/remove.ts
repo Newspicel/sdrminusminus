@@ -5,7 +5,7 @@ import {
   networkExportChannel,
   networkExportDeviceSet,
 } from "../lib/api";
-import { basebandSourceOf, iqSourceOf } from "./binding";
+import { basebandSourceOf, iqSourceOf, opensDevice } from "./binding";
 import type { Workspace } from "./context";
 import { nodeOf } from "./graph";
 
@@ -24,7 +24,7 @@ export async function closeEngineObjects(
 ): Promise<void> {
   for (const id of ids) {
     const node = nodeOf(workspace.graph, id);
-    if (node?.kind === "device") {
+    if (node !== undefined && opensDevice(node.kind) && node.kind !== "array") {
       const set = workspace.devices.get(id);
       if (set !== undefined) {
         await deleteDeviceSet(set.id);

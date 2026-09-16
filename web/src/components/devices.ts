@@ -1,14 +1,15 @@
 import { refMatches } from "../canvas/binding";
-import type { DeviceInfo, DeviceRef, RecordingInfo } from "../lib/types";
+import type { DeviceInfo, DeviceRef } from "../lib/types";
 import type { Options } from "./controls";
-import { recordingTitle } from "./recordings";
+
+const NODE_OWNED_DRIVERS = ["recording", "siggen", "array"];
 
 function deviceRank(device: DeviceInfo): number {
   return device.driver === "virtual" ? 1 : 0;
 }
 
-export function isRecordingDevice(device: DeviceInfo): boolean {
-  return device.driver === "virtual" && device.key.startsWith("file:");
+export function isVirtualDevice(device: DeviceInfo): boolean {
+  return device.driver === "virtual";
 }
 
 export function rankDevices(devices: readonly DeviceInfo[]): readonly DeviceInfo[] {
@@ -21,10 +22,9 @@ export function visibleDevices(
   devices: readonly DeviceInfo[],
   showSynthetic = import.meta.env.DEV || import.meta.env.VITE_ENABLE_SYNTHETIC_DEVICES === "true",
 ): readonly DeviceInfo[] {
+  const pickable = devices.filter((device) => !NODE_OWNED_DRIVERS.includes(device.driver));
   return rankDevices(
-    showSynthetic
-      ? devices
-      : devices.filter((device) => device.driver !== "virtual" || isRecordingDevice(device)),
+    showSynthetic ? pickable : pickable.filter((device) => !isVirtualDevice(device)),
   );
 }
 
@@ -35,23 +35,17 @@ export function unclaimedDevices(
   return devices.filter((device) => !claimed.some((reference) => refMatches(reference, device)));
 }
 
-function isVirtualDevice(device: DeviceInfo): boolean {
-  return device.driver === "virtual" && !isRecordingDevice(device);
-}
-
 export function groupDevices(devices: readonly DeviceInfo[]): {
   radios: readonly DeviceInfo[];
   virtual: readonly DeviceInfo[];
-  recordings: readonly DeviceInfo[];
 } {
   return {
-    radios: devices.filter((device) => device.driver !== "virtual"),
+    radios: devices.filter((device) => !isVirtualDevice(device)),
     virtual: devices.filter(isVirtualDevice),
-    recordings: devices.filter(isRecordingDevice),
   };
 }
 
-export type SourceTab = "radios" | "recordings" | "network" | "virtual";
+export type SourceTab = "radios" | "network" | "virtual";
 
 function counted(label: string, count: number): string {
   return count > 0 ? `${label} (${count})` : label;
@@ -60,15 +54,9 @@ function counted(label: string, count: number): string {
 export function sourceTabs(groups: {
   radios: readonly DeviceInfo[];
   virtual: readonly DeviceInfo[];
-  recordings: readonly DeviceInfo[];
 }): Options<SourceTab> {
   const tabs: { value: SourceTab; label: string; title: string }[] = [
     { value: "radios", label: "Radios", title: "Radios attached to this machine" },
-    {
-      value: "recordings",
-      label: counted("Recordings", groups.recordings.length),
-      title: "Saved IQ recordings, played back like a radio",
-    },
     {
       value: "network",
       label: "Network",
@@ -83,38 +71,6 @@ export function sourceTabs(groups: {
     });
   }
   return tabs;
-}
-
-export interface RecordingChoice {
-  device: DeviceInfo;
-  info: RecordingInfo | null;
-  title: string;
-}
-
-export function recordingChoices(
-  recordings: readonly DeviceInfo[],
-  library: readonly RecordingInfo[],
-): readonly RecordingChoice[] {
-  const details = new Map(library.map((recording) => [recording.device_id, recording]));
-  return recordings.map((device) => {
-    const info = details.get(deviceId(device)) ?? null;
-    return { device, info, title: info === null ? device.label : recordingTitle(info) };
-  });
-}
-
-export function filterRecordingChoices(
-  choices: readonly RecordingChoice[],
-  query: string,
-): readonly RecordingChoice[] {
-  const normalized = query.trim().toLowerCase();
-  if (normalized === "") {
-    return choices;
-  }
-  return choices.filter((choice) =>
-    [choice.title, choice.device.label, choice.info?.note ?? "", ...(choice.info?.tags ?? [])].some(
-      (field) => field.toLowerCase().includes(normalized),
-    ),
-  );
 }
 
 export function deviceId(device: DeviceInfo): string {

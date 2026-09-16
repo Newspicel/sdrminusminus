@@ -7,7 +7,6 @@ import { inTuningRange, isTunable, tuningRange } from "../../components/dial";
 import { dialId, FrequencyDial } from "../../components/FrequencyDial";
 import { formatMhz } from "../../components/format";
 import { DeviceChoices } from "../../components/OpenRadio";
-import { PlaybackTransport } from "../../components/PlaybackTransport";
 import { RadioSettings } from "../../components/RadioSettings";
 import { Readout, ReadoutRow } from "../../components/Readout";
 import { TuneTo } from "../../components/TuneTo";
@@ -262,8 +261,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           locked={locked}
           onLock={(next) => editNode({ tuning_locked: next })}
         />
-
-        {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
 
         <RadioSettings active={set} className="p-2" sampleRateLocked={arrayTuning} />
 

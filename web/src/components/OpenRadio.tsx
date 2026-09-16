@@ -1,28 +1,22 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { devicesQuery, doctorQuery, recordingsQuery } from "../lib/api";
+import { devicesQuery, doctorQuery } from "../lib/api";
 import type { DeviceInfo, DeviceRef } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
 import { BTN, BTN_QUIET, FIELD, LABEL } from "./controls";
 import {
   deviceId,
-  filterRecordingChoices,
   groupDevices,
   NETWORK_BACKENDS,
   networkDeviceId,
-  type RecordingChoice,
-  recordingChoices,
   type SourceTab,
   sourceTabs,
   unclaimedDevices,
   visibleDevices,
 } from "./devices";
-import { describeRecording, recordingProvenance } from "./recordings";
 import { Segmented } from "./Segmented";
 import { Select } from "./Select";
-
-const SEARCH_FROM = 4;
 
 type Choose = (device: DeviceInfo) => void;
 
@@ -67,80 +61,6 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
         </Button>
       </div>
     </Form>
-  );
-}
-
-function RecordingRow({
-  device,
-  info,
-  title,
-  busy,
-  onChoose,
-}: RecordingChoice & { busy: boolean; onChoose: Choose }) {
-  return (
-    <Button
-      type="button"
-      className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
-      title={info?.note ?? undefined}
-      disabled={busy}
-      onClick={() => onChoose(device)}
-    >
-      <span className="flex w-full min-w-0 flex-col gap-0.5">
-        <span className="truncate">{title}</span>
-        {info !== null && (
-          <>
-            <span className="truncate font-mono text-[10px] text-ink-dim tabular-nums">
-              {describeRecording(info)}
-            </span>
-            <span className="truncate font-mono text-[10px] text-ink-faint">
-              {recordingProvenance(info)}
-            </span>
-          </>
-        )}
-      </span>
-    </Button>
-  );
-}
-
-function Recordings({
-  recordings,
-  busy,
-  onChoose,
-}: {
-  recordings: readonly DeviceInfo[];
-  busy: boolean;
-  onChoose: Choose;
-}) {
-  const [query, setQuery] = useState("");
-  const library = useQuery(recordingsQuery());
-  const filtered = filterRecordingChoices(
-    recordingChoices(recordings, library.data?.recordings ?? []),
-    query,
-  );
-
-  return (
-    <>
-      {recordings.length >= SEARCH_FROM && (
-        <Input
-          className={`${FIELD} w-full`}
-          type="search"
-          name="recording-filter"
-          placeholder="Search recordings"
-          aria-label="Search recordings"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      )}
-      <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-        {filtered.map((choice) => (
-          <RecordingRow key={deviceId(choice.device)} {...choice} busy={busy} onChoose={onChoose} />
-        ))}
-      </div>
-      {recordings.length === 0 && <p className="text-sm text-ink-dim">No recordings yet.</p>}
-      {recordings.length > 0 && filtered.length === 0 && (
-        <p className="text-sm text-ink-dim">No recording matches that.</p>
-      )}
-    </>
   );
 }
 
@@ -245,9 +165,6 @@ export function DeviceChoices({
           busy={busy}
           onChoose={onChoose}
         />
-      )}
-      {shown === "recordings" && (
-        <Recordings recordings={groups.recordings} busy={busy} onChoose={onChoose} />
       )}
       {shown === "network" && <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />}
       {shown === "virtual" && (

@@ -28,7 +28,10 @@ async fn record_start_stop_produces_a_finalized_sigmf_pair() {
     assert_eq!(reader.meta().global.sample_rate, Some(2_048_000.0));
     assert_eq!(reader.meta().captures[0].frequency, Some(100_000_000.0));
 
-    let playback_id = format!("virtual:file:{}", finalized.stem.display());
+    let playback_id = format!(
+        "recording:{}",
+        finalized.stem.file_name().unwrap().display()
+    );
     assert!(engine.probe_devices().iter().any(|d| d.id() == playback_id));
     engine.remove_device_set(ds).unwrap();
 }

@@ -769,6 +769,8 @@ fn every_node_the_palette_offers_round_trips_and_validates_on_its_own() {
 fn default_body(kind: &str) -> NodeBody {
     match kind {
         "device" => NodeBody::Device(DeviceNode::default()),
+        "recording" => NodeBody::Recording(RecordingNode::default()),
+        "signal_gen" => NodeBody::SignalGen(SignalGenNode::default()),
         "array" => NodeBody::Array(ArrayNode::default()),
         "gps" => NodeBody::Gps(GpsNode::default()),
         "channel" => NodeBody::Channel(ChannelNode {
@@ -1788,4 +1790,131 @@ fn an_array_with_one_radio_in_it_is_not_an_array() {
             .valid(),
         "radios that share no clock are a bank of receivers, not an array"
     );
+}
+
+fn recording(id: &str, stem: Option<&str>) -> PatchNode {
+    node(
+        id,
+        NodeBody::Recording(RecordingNode {
+            recording: stem.map(str::to_owned),
+        }),
+    )
+}
+
+#[test]
+fn a_recording_node_opens_the_recording_its_stem_names() {
+    let body = NodeBody::Recording(RecordingNode {
+        recording: Some("2026-09-16T10-00-00".to_owned()),
+    });
+    assert_eq!(
+        body.device_ref("recording:9f2c"),
+        Some(DeviceRef {
+            backend: RECORDING_DRIVER_ID.to_owned(),
+            serial: None,
+            key: Some("2026-09-16T10-00-00".to_owned()),
+        })
+    );
+    assert!(
+        NodeBody::Recording(RecordingNode::default())
+            .device_ref("recording:9f2c")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_signal_generator_opens_the_generator_its_node_names() {
+    let body = NodeBody::SignalGen(SignalGenNode::default());
+    assert_eq!(
+        body.device_ref("signal_gen:9f2c"),
+        Some(DeviceRef {
+            backend: SIGGEN_DRIVER_ID.to_owned(),
+            serial: None,
+            key: Some("signal_gen-9f2c".to_owned()),
+        })
+    );
+}
+
+#[test]
+fn a_stopped_generator_stays_stopped_when_the_patch_is_applied_again() {
+    let stopped = NodeBody::SignalGen(SignalGenNode { running: false });
+    assert!(stopped.device_ref("signal_gen:9f2c").is_none());
+    assert!(stopped.opens_device());
+
+    let saved: NodeBody = serde_json::from_value(serde_json::json!({
+        "kind": "signal_gen",
+        "data": { "running": false }
+    }))
+    .expect("a stopped generator round-trips");
+    assert_eq!(saved, stopped);
+
+    let older: NodeBody =
+        serde_json::from_value(serde_json::json!({ "kind": "signal_gen", "data": {} }))
+            .expect("a generator saved before the switch existed");
+    assert_eq!(older, NodeBody::SignalGen(SignalGenNode { running: true }));
+}
+
+#[test]
+fn every_source_that_opens_a_radio_is_bound_like_one() {
+    let graph = PatchGraph {
+        nodes: vec![
+            node("dev", NodeBody::Device(DeviceNode::default())),
+            recording("rec", Some("take")),
+            node("gen", NodeBody::SignalGen(SignalGenNode::default())),
+            node("arr", NodeBody::Array(ArrayNode::default())),
+            node("scope", NodeBody::Scope),
+        ],
+        edges: Vec::new(),
+    };
+    let bound: Vec<&str> = graph.device_nodes().map(|node| node.id.as_str()).collect();
+    assert_eq!(bound, ["dev", "rec", "gen", "arr"]);
+    assert!(!NodeBody::Scope.opens_device());
+}
+
+#[test]
+fn a_recording_and_a_generator_each_carry_one_iq_output() {
+    for body in [
+        NodeBody::Recording(RecordingNode::default()),
+        NodeBody::SignalGen(SignalGenNode::default()),
+    ] {
+        let ports = body.ports();
+        assert_eq!(ports.len(), 1, "{}", body.kind());
+        assert_eq!(ports[0].port_type, PortType::Iq);
+        assert_eq!(ports[0].direction, PortDirection::Out);
+        assert_eq!(body.category(), NodeCategory::Source);
+    }
+}
+
+#[test]
+fn a_recording_that_reaches_out_of_the_library_is_refused() {
+    for stem in ["../escape", "sub/dir", "", "..", "back\\slash"] {
+        let graph = PatchGraph {
+            nodes: vec![recording("rec", Some(stem))],
+            edges: Vec::new(),
+        };
+        assert_eq!(
+            graph.validate(),
+            Err(PatchError::NodeSettings("rec".to_owned())),
+            "{stem} must be refused"
+        );
+    }
+    let graph = PatchGraph {
+        nodes: vec![recording("rec", Some("2026-09-16T10-00-00_rtlsdr"))],
+        edges: Vec::new(),
+    };
+    assert!(graph.validate().is_ok());
+}
+
+#[test]
+fn the_catalog_offers_a_recording_and_a_generator_as_sources() {
+    let catalog = PatchCatalog::build();
+    for kind in ["recording", "signal_gen"] {
+        let entry = catalog
+            .nodes
+            .iter()
+            .find(|entry| entry.kind == kind)
+            .unwrap_or_else(|| panic!("{kind} is in the catalog"));
+        assert_eq!(entry.category, NodeCategory::Source);
+        assert!(!entry.needs_channel_type);
+        assert_eq!(entry.ports.len(), 1);
+    }
 }

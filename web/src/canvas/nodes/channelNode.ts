@@ -1,5 +1,5 @@
 import type { DeviceInfo, DeviceRef, PatchGraph } from "../../lib/types";
-import { deviceNodeOf, refMatches } from "../binding";
+import { deviceNodeOf, nodeDeviceRef, refMatches } from "../binding";
 import { tuningLocked } from "../graph";
 
 export type ChannelBinding =
@@ -12,7 +12,7 @@ export type ChannelBinding =
 export function radioRefOf(graph: PatchGraph, node: string): DeviceRef | null {
   const device = deviceNodeOf(graph, node);
   const found = graph.nodes.find((candidate) => candidate.id === device);
-  return found?.kind === "device" ? (found.data.device ?? null) : null;
+  return found === undefined ? null : nodeDeviceRef(found);
 }
 
 export function lockedChannels(

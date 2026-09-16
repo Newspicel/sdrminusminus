@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceInfo, RecordingInfo } from "../lib/types";
+import type { DeviceInfo } from "../lib/types";
 import {
   deviceId,
-  filterRecordingChoices,
   groupDevices,
-  isRecordingDevice,
   NETWORK_BACKENDS,
   networkDeviceId,
   rankDevices,
-  recordingChoices,
   sourceTabs,
   unclaimedDevices,
   visibleDevices,
@@ -16,22 +13,6 @@ import {
 
 function device(driver: string, key: string, label = `${driver} ${key}`): DeviceInfo {
   return { driver, key, label };
-}
-
-function recording(overrides: Partial<RecordingInfo>): RecordingInfo {
-  return {
-    id: 1,
-    file: "capture",
-    device_id: "virtual:file:/recordings/capture",
-    device_label: "RTL-SDR 0",
-    center_hz: 100e6,
-    sample_rate: 2.048e6,
-    samples: 2_048_000,
-    bytes: 16_384_000,
-    duration_s: 1,
-    created_at: "2026-08-09T12:00:00Z",
-    ...overrides,
-  };
 }
 
 describe("rankDevices", () => {
@@ -55,24 +36,22 @@ describe("visibleDevices", () => {
   const devices = [
     device("virtual", "siggen", "Signal Generator"),
     device("virtual", "array4", "Coherent Array"),
-    device("virtual", "file:/recordings/airband", "airband (recording)"),
+    device("recording", "airband", "airband"),
+    device("siggen", "signal_gen-a1b2", "Signal generator"),
+    device("array", "array-9f2c", "Array"),
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
   ];
 
-  it("includes virtual devices in a development build", () => {
+  it("leaves every radio a node of its own opens out of the picker", () => {
     expect(visibleDevices(devices, true).map(deviceId)).toEqual([
       "rtlsdr:00000001",
-      "virtual:file:/recordings/airband",
       "virtual:array4",
       "virtual:siggen",
     ]);
   });
 
-  it("omits synthetic devices from production but keeps recordings", () => {
-    expect(visibleDevices(devices, false).map(deviceId)).toEqual([
-      "rtlsdr:00000001",
-      "virtual:file:/recordings/airband",
-    ]);
+  it("omits synthetic radios from a production build", () => {
+    expect(visibleDevices(devices, false).map(deviceId)).toEqual(["rtlsdr:00000001"]);
   });
 });
 
@@ -113,34 +92,21 @@ describe("unclaimedDevices", () => {
 describe("groupDevices", () => {
   const devices = [
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
-    device("virtual", "file:/recordings/airband", "airband (recording)"),
     device("virtual", "siggen", "Signal Generator"),
-    device("virtual", "file:/recordings/weather", "weather (recording)"),
+    device("virtual", "array4", "Coherent Array"),
   ];
 
-  it("keeps recordings and virtual radios out of the top-level device list", () => {
+  it("keeps the synthetic radios out of the top-level device list", () => {
     const grouped = groupDevices(devices);
 
     expect(grouped.radios.map(deviceId)).toEqual(["rtlsdr:00000001"]);
-    expect(grouped.virtual.map(deviceId)).toEqual(["virtual:siggen"]);
-    expect(grouped.recordings.map(deviceId)).toEqual([
-      "virtual:file:/recordings/airband",
-      "virtual:file:/recordings/weather",
-    ]);
-  });
-
-  it("recognizes only file-backed virtual devices as recordings", () => {
-    expect(isRecordingDevice(device("rtlsdr", "00000001"))).toBe(false);
-    expect(isRecordingDevice(device("virtual", "file:/recordings/airband"))).toBe(true);
-    expect(isRecordingDevice(device("virtual", "siggen"))).toBe(false);
+    expect(grouped.virtual.map(deviceId)).toEqual(["virtual:siggen", "virtual:array4"]);
   });
 });
 
 describe("sourceTabs", () => {
   const groups = groupDevices([
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
-    device("virtual", "file:/recordings/airband", "airband (recording)"),
-    device("virtual", "file:/recordings/weather", "weather (recording)"),
     device("virtual", "siggen", "Signal Generator"),
   ]);
 
@@ -148,7 +114,6 @@ describe("sourceTabs", () => {
     const tabs = sourceTabs(groups);
     expect(tabs.map((tab) => [tab.value, tab.label])).toEqual([
       ["radios", "Radios"],
-      ["recordings", "Recordings (2)"],
       ["network", "Network"],
       ["virtual", "Virtual (1)"],
     ]);
@@ -156,62 +121,8 @@ describe("sourceTabs", () => {
   });
 
   it("offers no virtual tab in a build without virtual radios", () => {
-    const tabs = sourceTabs({ ...groups, virtual: [], recordings: [] });
-    expect(tabs.map((tab) => tab.label)).toEqual(["Radios", "Recordings", "Network"]);
-  });
-});
-
-describe("recordingChoices", () => {
-  const devices = [
-    device("virtual", "file:/recordings/airband", "airband (recording)"),
-    device("virtual", "file:/recordings/weather", "weather (recording)"),
-  ];
-
-  it("titles a device by the name its library row carries, or by the file", () => {
-    const choices = recordingChoices(devices, [
-      recording({ device_id: "virtual:file:/recordings/airband", name: "Tower watch" }),
-    ]);
-    expect(choices.map((choice) => choice.title)).toEqual(["Tower watch", "weather (recording)"]);
-    expect(choices[0]?.info?.name).toBe("Tower watch");
-    expect(choices[1]?.info).toBeNull();
-  });
-});
-
-describe("filterRecordingChoices", () => {
-  const choices = recordingChoices(
-    [
-      device("virtual", "file:/recordings/Airband", "Airband morning (recording)"),
-      device("virtual", "file:/recordings/weather", "Weather net (recording)"),
-    ],
-    [
-      recording({
-        device_id: "virtual:file:/recordings/weather",
-        name: "Sunday net",
-        tags: ["hf"],
-        note: "80 m",
-      }),
-    ],
-  );
-  const titles = (query: string): string[] =>
-    filterRecordingChoices(choices, query).map((choice) => choice.title);
-
-  it("matches labels without case sensitivity or surrounding whitespace", () => {
-    expect(titles("  AIRBAND ")).toEqual(["Airband morning (recording)"]);
-  });
-
-  it("matches the name, a tag or a note an operator wrote", () => {
-    expect(titles("sunday")).toEqual(["Sunday net"]);
-    expect(titles("hf")).toEqual(["Sunday net"]);
-    expect(titles("80 m")).toEqual(["Sunday net"]);
-    expect(titles("weather")).toEqual(["Sunday net"]);
-  });
-
-  it("returns every recording for an empty search", () => {
-    expect(filterRecordingChoices(choices, " ")).toEqual(choices);
-  });
-
-  it("returns an empty list when no recording matches", () => {
-    expect(filterRecordingChoices(choices, "marine")).toEqual([]);
+    const tabs = sourceTabs({ ...groups, virtual: [] });
+    expect(tabs.map((tab) => tab.label)).toEqual(["Radios", "Network"]);
   });
 });
 

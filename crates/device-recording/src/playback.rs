@@ -17,7 +17,7 @@ use sdrmm_wire::{
     Capabilities, DcArtifact, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range, StreamScope,
 };
 
-use crate::{BLOCK_SECS, DRIVER_ID, FILE_KEY_PREFIX};
+use crate::{BLOCK_SECS, DRIVER_ID};
 
 pub const LOOP_SETTING: &str = "loop";
 
@@ -172,7 +172,10 @@ fn hand_over(
 fn open_error(stem: &Path, err: SigmfError) -> DeviceError {
     match err {
         SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
-            DeviceError::NotFound(format!("{DRIVER_ID}:{FILE_KEY_PREFIX}{}", stem.display()))
+            DeviceError::NotFound(format!(
+                "{DRIVER_ID}:{}",
+                stem.file_name().unwrap_or(stem.as_os_str()).display()
+            ))
         }
         SigmfError::UnsupportedDatatype(_) => DeviceError::Unsupported(err.to_string()),
         other => DeviceError::Io(other.to_string()),
@@ -731,7 +734,7 @@ mod tests {
         let stem = dir.path().join("nope");
         match FilePlayback::open(&stem) {
             Err(DeviceError::NotFound(id)) => {
-                assert_eq!(id, format!("virtual:file:{}", stem.display()));
+                assert_eq!(id, "recording:nope");
             }
             Err(other) => panic!("expected NotFound, got {other:?}"),
             Ok(_) => panic!("expected NotFound, got a device"),

@@ -94,7 +94,9 @@ pub use device::{
     ChannelCapabilities, Coherence, DcArtifact, DeviceInfo, DeviceProfile, DeviceSettings,
     Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue,
     MANAGED_LO_OFFSET_FRACTION, MAX_ARRAY_KEY_LEN, MAX_ARRAY_MEMBERS, MAX_LO_OFFSET_FRACTION,
-    Range, StreamScope, StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
+    MAX_RECORDING_STEM_LEN, RECORDING_DRIVER_ID, Range, SIGGEN_DRIVER_ID, StreamScope,
+    StreamSettings, any_range_holds, lo_offset_limit_hz, managed_lo_offset_hz,
+    recording_stem_valid,
 };
 pub use diagnostics::{DiagnosticsReport, LogLevel, LogLine, MAX_LOG_LINES, MAX_LOG_MESSAGE_LEN};
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
@@ -126,7 +128,8 @@ pub use patch::{
     NodeTypeInfo, PassiveRadarNode, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode,
     PortBacking, PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position,
     RACK_COLS, RACK_ROWS, RADAR_REFERENCE_PORT, RADAR_SURVEILLANCE_PORT, RackCell, RackLayout,
-    RackSlot, SignalMapNode, Size, port_stream, stream_port,
+    RackSlot, RecordingNode, SignalGenNode, SignalMapNode, Size, port_stream, siggen_key,
+    stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -146,12 +149,12 @@ pub use rest::{
     CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse, ErrorCode, EventAudio,
     EventImage, ExportFormat, LogScope, MAX_LOG_SOURCES, MAX_RECORDING_NAME_LEN,
-    MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_ROUTE_LEG_M, Maneuver,
-    ManeuverKind, OccupancyBucket, OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction,
-    PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
-    RecordingAnnotation, RecordingDownloadQuery, RecordingFormat, RecordingInfo,
-    RecordingsResponse, Route, RoutePoint, RouteRequest, RoutingBackend, TemplateInfo,
-    TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    MAX_RECORDING_NOTE_LEN, MAX_RECORDING_TAG_LEN, MAX_RECORDING_TAGS, MAX_RECORDING_UPLOAD_BYTES,
+    MAX_ROUTE_LEG_M, Maneuver, ManeuverKind, OccupancyBucket, OccupancyReport,
+    PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo,
+    PresetSnapshot, RecordAction, RecordRequest, RecordingAnnotation, RecordingDownloadQuery,
+    RecordingFormat, RecordingInfo, RecordingUpload, RecordingsResponse, Route, RoutePoint,
+    RouteRequest, RoutingBackend, TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_DEVICE_SETS, MAX_SCAN_TARGETS, ScanAction, ScanMember, ScanMode, ScanRange,

@@ -516,8 +516,22 @@ impl Capabilities {
 }
 
 pub const ARRAY_DRIVER_ID: &str = "array";
+pub const RECORDING_DRIVER_ID: &str = "recording";
+pub const SIGGEN_DRIVER_ID: &str = "siggen";
 pub const MAX_ARRAY_MEMBERS: usize = 16;
 pub const MAX_ARRAY_KEY_LEN: usize = 64;
+pub const MAX_RECORDING_STEM_LEN: usize = 200;
+
+#[must_use]
+pub fn recording_stem_valid(stem: &str) -> bool {
+    !stem.is_empty()
+        && stem.len() <= MAX_RECORDING_STEM_LEN
+        && stem != "."
+        && stem != ".."
+        && !stem.contains('/')
+        && !stem.contains('\\')
+        && !stem.contains('\0')
+}
 
 /// A bank of separate radios the operator has wired to one clock and wants treated as one.
 ///

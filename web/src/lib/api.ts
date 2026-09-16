@@ -443,6 +443,25 @@ export async function annotateRecording(
   );
 }
 
+export async function uploadRecording(files: readonly File[]): Promise<RecordingInfo> {
+  const body = new FormData();
+  for (const file of files) {
+    body.append(uploadField(file.name), file, file.name);
+  }
+  return unwrap(
+    await client.POST("/api/recordings", {
+      body: body as unknown as never,
+    }),
+  );
+}
+
+function uploadField(name: string): "archive" | "meta" | "data" {
+  if (name.endsWith(".sigmf-meta")) {
+    return "meta";
+  }
+  return name.endsWith(".sigmf-data") ? "data" : "archive";
+}
+
 export async function deleteRecording(id: number): Promise<void> {
   unwrap(
     await client.DELETE("/api/recordings/{id}", {

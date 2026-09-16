@@ -96,6 +96,7 @@ fn state_over(store: Arc<Store>) -> AppState {
     let arrays = sdrmm_engine::ArrayCatalog::new();
     let mut registry = sdrmm_device::DeviceRegistry::new();
     registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+    registry.register(1, Box::new(sdrmm_device_siggen::SigGenDriver::new()));
     let mut state = AppState::new(Engine::with_arrays(registry, None, arrays), store);
     let mut tools = sdrmm_tools::ToolRegistry::default();
     tools
@@ -110,11 +111,13 @@ fn state_over(store: Arc<Store>) -> AppState {
 
 fn recording_router(dir: &Path) -> Router {
     let mut registry = sdrmm_device::DeviceRegistry::new();
+    registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+    registry.register(1, Box::new(sdrmm_device_siggen::SigGenDriver::new()));
     registry.register(
         1,
-        Box::new(sdrmm_device_virtual::VirtualDriver::with_recordings(
+        Box::new(sdrmm_device_recording::RecordingDriver::new(Some(
             dir.to_path_buf(),
-        )),
+        ))),
     );
     let state = AppState::new(
         Engine::with_registry(registry, Some(dir.to_path_buf())),

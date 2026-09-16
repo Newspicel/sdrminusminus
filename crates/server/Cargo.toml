@@ -80,8 +80,10 @@ libc.workspace = true
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "test-util"] }
-# Hermetic test engine (virtual driver only): tests must never enumerate live Soapy modules.
+# Hermetic test engine: tests must never enumerate live Soapy modules.
 sdrmm-device-virtual.workspace = true
+sdrmm-device-recording.workspace = true
+sdrmm-device-siggen.workspace = true
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 tokio-tungstenite.workspace = true
 serialport.workspace = true

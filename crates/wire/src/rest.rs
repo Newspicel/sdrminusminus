@@ -185,6 +185,21 @@ pub struct RecordingInfo {
     pub note: Option<String>,
 }
 
+pub const MAX_RECORDING_UPLOAD_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RecordingUpload {
+    #[schema(value_type = String, format = Binary)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<String>,
+    #[schema(value_type = String, format = Binary)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<String>,
+    #[schema(value_type = String, format = Binary)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+}
+
 pub const MAX_RECORDING_TAGS: usize = 32;
 pub const MAX_RECORDING_TAG_LEN: usize = 48;
 pub const MAX_RECORDING_NOTE_LEN: usize = 4_000;

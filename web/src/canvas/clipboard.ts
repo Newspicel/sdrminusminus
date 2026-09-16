@@ -76,7 +76,13 @@ export function pasteNodes(
 
 function copyOf(node: PatchNode, id: string, offset: Position): PatchNode {
   const position = { x: node.position.x + offset.x, y: node.position.y + offset.y };
-  return node.kind === "device" ? { ...node, id, position, data: {} } : { ...node, id, position };
+  if (node.kind === "device") {
+    return { ...node, id, position, data: {} };
+  }
+  if (node.kind === "recording") {
+    return { ...node, id, position, data: {} };
+  }
+  return { ...node, id, position };
 }
 
 export function useClipboard(

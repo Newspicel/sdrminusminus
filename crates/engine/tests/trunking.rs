@@ -5,7 +5,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 use num_complex::Complex;
 use sdrmm_channels::testgen;
 use sdrmm_device::DeviceRegistry;
-use sdrmm_device_virtual::VirtualDriver;
+use sdrmm_device_recording::RecordingDriver;
 use sdrmm_engine::{Engine, TrunkSystem, trunking::TrunkRadio};
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{DmrDiscovery, DmrTrunkProtocol, TrunkChannelSource};
@@ -62,15 +62,12 @@ fn band(dir: &Path) -> String {
     let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "trunk fixture").unwrap();
     writer.write_block(&iq).unwrap();
     writer.finalize().unwrap();
-    format!("virtual:file:{}", path.display())
+    format!("recording:{}", path.file_name().unwrap().display())
 }
 
 fn engine_for(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
-    registry.register(
-        10,
-        Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
-    );
+    registry.register(10, Box::new(RecordingDriver::new(Some(dir.to_path_buf()))));
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 
@@ -150,7 +147,7 @@ fn capacity_plus_band(dir: &Path) -> String {
     let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "trunk fixture").unwrap();
     writer.write_block(&iq).unwrap();
     writer.finalize().unwrap();
-    format!("virtual:file:{}", path.display())
+    format!("recording:{}", path.file_name().unwrap().display())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

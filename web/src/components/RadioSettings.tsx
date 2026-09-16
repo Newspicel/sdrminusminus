@@ -20,6 +20,7 @@ import { FIELD } from "./controls";
 import { formatHz, formatSampleRate } from "./format";
 import { NumberField } from "./NumberField";
 import { LOOP_SETTING } from "./playback";
+import { SearchableSelect } from "./SearchableSelect";
 import { Select } from "./Select";
 import { SettingGroup, SettingRow, Settings } from "./Settings";
 import { Slider } from "./Slider";
@@ -30,6 +31,8 @@ import { useDebouncedCommit } from "./useDebouncedCommit";
 const formatFilter = (hz: number): string => (hz === 0 ? "Auto (match rate)" : formatHz(hz));
 
 const AGC_HINT = "The radio is setting this — turn gain mode off to set it by hand";
+
+const SEARCHABLE_FROM = 12;
 
 export function RadioSettings({
   active,
@@ -355,20 +358,23 @@ function ExtraControl({
           />
         </SettingRow>
       );
-    case "enum":
+    case "enum": {
+      const options = setting.options.map((option) => ({
+        value: option.value,
+        label: option.label ?? option.value,
+      }));
+      const Picker = options.length > SEARCHABLE_FROM ? SearchableSelect : Select;
       return (
         <SettingRow label={name} title={setting.name}>
-          <Select
+          <Picker
             label={setting.name}
             value={typeof raw === "string" ? raw : setting.default}
-            options={setting.options.map((option) => ({
-              value: option.value,
-              label: option.label ?? option.value,
-            }))}
+            options={options}
             onChange={onCommit}
           />
         </SettingRow>
       );
+    }
     case "range":
       return (
         <SettingRow label={name} title={setting.name}>

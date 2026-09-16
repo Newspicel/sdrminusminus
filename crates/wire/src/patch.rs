@@ -6,7 +6,10 @@ use crate::{
     MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD, MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     coherent::{CombinerParams, DfParams, PassiveRadarParams},
-    device::{ArrayDefinition, Capabilities, Coherence, DeviceInfo, Direction},
+    device::{
+        ArrayDefinition, Capabilities, Coherence, DeviceInfo, Direction, RECORDING_DRIVER_ID,
+        SIGGEN_DRIVER_ID, recording_stem_valid,
+    },
     filter::EventFilterNode,
     network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
     propagation::PropagationNode,
@@ -269,6 +272,49 @@ pub struct DeviceNode {
     pub device: Option<DeviceRef>,
     #[serde(default)]
     pub tuning_locked: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RecordingNode {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<String>,
+}
+
+impl RecordingNode {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        self.recording.as_deref().is_none_or(recording_stem_valid)
+    }
+
+    #[must_use]
+    pub fn device_ref(&self) -> Option<DeviceRef> {
+        let stem = self
+            .recording
+            .as_deref()
+            .filter(|stem| recording_stem_valid(stem))?;
+        Some(DeviceRef {
+            backend: RECORDING_DRIVER_ID.to_owned(),
+            serial: None,
+            key: Some(stem.to_owned()),
+        })
+    }
+}
+
+#[must_use]
+pub fn siggen_key(node_id: &str) -> String {
+    node_id.replace(':', "-")
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct SignalGenNode {
+    pub running: bool,
+}
+
+impl Default for SignalGenNode {
+    fn default() -> Self {
+        Self { running: true }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -536,6 +582,8 @@ pub const DF_BEAM_PORT: &str = "beam";
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
     Device(DeviceNode),
+    Recording(RecordingNode),
+    SignalGen(SignalGenNode),
     Array(ArrayNode),
     Gps(GpsNode),
     Channel(ChannelNode),
@@ -569,6 +617,8 @@ impl NodeBody {
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::Device(_) => "device",
+            Self::Recording(_) => "recording",
+            Self::SignalGen(_) => "signal_gen",
             Self::Gps(_) => "gps",
             Self::Channel(_) => "channel",
             Self::Scope => "scope",
@@ -601,7 +651,9 @@ impl NodeBody {
     #[must_use]
     pub const fn category(&self) -> NodeCategory {
         match self {
-            Self::Device(_) | Self::Gps(_) => NodeCategory::Source,
+            Self::Device(_) | Self::Recording(_) | Self::SignalGen(_) | Self::Gps(_) => {
+                NodeCategory::Source
+            }
             Self::Channel(_) => NodeCategory::Channel,
             Self::Array(_)
             | Self::Df(_)
@@ -633,9 +685,23 @@ impl NodeBody {
     /// The radio a node opens, if it opens one. An array names itself, because the composite it
     /// describes exists only as long as the node drawing it does.
     #[must_use]
+    pub const fn opens_device(&self) -> bool {
+        matches!(
+            self,
+            Self::Device(_) | Self::Recording(_) | Self::SignalGen(_) | Self::Array(_)
+        )
+    }
+
+    #[must_use]
     pub fn device_ref(&self, node_id: &str) -> Option<DeviceRef> {
         match self {
             Self::Device(device) => device.device.clone(),
+            Self::Recording(recording) => recording.device_ref(),
+            Self::SignalGen(generator) => generator.running.then(|| DeviceRef {
+                backend: SIGGEN_DRIVER_ID.to_owned(),
+                serial: None,
+                key: Some(siggen_key(node_id)),
+            }),
             Self::Array(array) => (array.members > 0).then(|| DeviceRef {
                 backend: crate::device::ARRAY_DRIVER_ID.to_owned(),
                 serial: None,
@@ -742,6 +808,8 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
                 ),
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
+        "recording" => vec![PortSpec::new(Iq, Out, true, Always)],
+        "signal_gen" => vec![PortSpec::new(Iq, Out, true, Always)],
         "array" => vec![
             PortSpec::new(Iq, In, false, Always)
                 .repeated(PortRepeat::PerRxStream)
@@ -865,6 +933,11 @@ impl PatchCatalog {
         Self {
             nodes: vec![
                 entry(&NodeBody::Device(DeviceNode::default()), "Device"),
+                entry(&NodeBody::Recording(RecordingNode::default()), "Recording"),
+                entry(
+                    &NodeBody::SignalGen(SignalGenNode::default()),
+                    "Signal generator",
+                ),
                 entry(&NodeBody::Array(ArrayNode::default()), "Array"),
                 entry(&NodeBody::Gps(GpsNode::default()), "GPS position"),
                 entry(
@@ -1078,9 +1151,7 @@ impl PatchGraph {
     }
 
     pub fn device_nodes(&self) -> impl Iterator<Item = &PatchNode> {
-        self.nodes
-            .iter()
-            .filter(|node| matches!(node.body, NodeBody::Device(_) | NodeBody::Array(_)))
+        self.nodes.iter().filter(|node| node.body.opens_device())
     }
 
     /// The radios wired into an array, in the order of the ports they arrive on, which is the
@@ -1212,6 +1283,9 @@ impl PatchGraph {
                             return Err(PatchError::NodeSettings(node.id.clone()));
                         }
                     }
+                }
+                NodeBody::Recording(recording) if !recording.valid() => {
+                    return Err(PatchError::NodeSettings(node.id.clone()));
                 }
                 NodeBody::EventFilter(settings) if !settings.valid() => {
                     return Err(PatchError::NodeSettings(node.id.clone()));

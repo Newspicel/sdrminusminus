@@ -7,6 +7,7 @@ use std::{
 };
 
 use sdrmm_device::DeviceRegistry;
+use sdrmm_device_recording::RecordingDriver;
 use sdrmm_device_virtual::{NFM_CARRIER_OFFSET_HZ, VirtualDriver};
 use sdrmm_engine::Engine;
 use sdrmm_recorder::read_audio_info;
@@ -19,10 +20,8 @@ const TEST_RATE: f64 = 2_400_000.0;
 
 fn engine(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
-    registry.register(
-        10,
-        Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
-    );
+    registry.register(10, Box::new(VirtualDriver::new()));
+    registry.register(10, Box::new(RecordingDriver::new(Some(dir.to_path_buf()))));
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
 

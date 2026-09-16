@@ -9,7 +9,7 @@ import { useWorkspaceContext } from "./context";
 import { addNode, newNodeId, nodeIds } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
-import { newNodeBody } from "./newNode";
+import { newNodeBody, startsOnItsOwn } from "./newNode";
 import { useNodePlacement } from "./placement";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
@@ -71,6 +71,9 @@ export function WorkspaceBar({
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });
     workspace.select(id);
+    if (startsOnItsOwn(kind)) {
+      workspace.apply();
+    }
   };
 
   return (

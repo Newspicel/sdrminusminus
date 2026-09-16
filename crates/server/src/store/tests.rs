@@ -132,8 +132,7 @@ fn recording_row(stem: &str, samples: u64) -> RecordingRow {
 #[test]
 fn recording_index_upsert_list_prune_roundtrip() {
     let store = Store::open(None).expect("open");
-    let dir = Path::new("/tmp/recs");
-    assert!(store.list_recordings(dir).expect("list").is_empty());
+    assert!(store.list_recordings().expect("list").is_empty());
 
     store
         .upsert_recording(&recording_row("rec_1_a", 2_048_000))
@@ -141,13 +140,10 @@ fn recording_index_upsert_list_prune_roundtrip() {
     store
         .upsert_recording(&recording_row("rec_1_b", 1_024_000))
         .expect("upsert");
-    let listed = store.list_recordings(dir).expect("list");
+    let listed = store.list_recordings().expect("list");
     assert_eq!(listed.len(), 2);
     assert_eq!(listed[0].file, "rec_1_a");
-    assert_eq!(
-        listed[0].device_id,
-        format!("virtual:file:{}", dir.join("rec_1_a").display())
-    );
+    assert_eq!(listed[0].device_id, "recording:rec_1_a");
     assert_eq!(listed[0].duration_s, 1.0);
     assert_eq!(listed[0].bytes, 2_048_000 * 8);
     let id = listed[0].id;
@@ -156,7 +152,7 @@ fn recording_index_upsert_list_prune_roundtrip() {
     store
         .upsert_recording(&recording_row("rec_1_a", 4_096_000))
         .expect("upsert");
-    let listed = store.list_recordings(dir).expect("list");
+    let listed = store.list_recordings().expect("list");
     assert_eq!(listed.len(), 2);
     assert_eq!(listed[0].id, id);
     assert_eq!(listed[0].samples, 4_096_000);
@@ -164,7 +160,7 @@ fn recording_index_upsert_list_prune_roundtrip() {
     store
         .prune_recordings(&["rec_1_a".to_string()])
         .expect("prune");
-    let listed = store.list_recordings(dir).expect("list");
+    let listed = store.list_recordings().expect("list");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].file, "rec_1_a");
 
@@ -182,13 +178,12 @@ fn recording_index_upsert_list_prune_roundtrip() {
         .upsert_recording(&recording_row("rec_1_c", 1))
         .expect("upsert");
     store.prune_recordings(&[]).expect("prune all");
-    assert!(store.list_recordings(dir).expect("list").is_empty());
+    assert!(store.list_recordings().expect("list").is_empty());
 }
 
 #[test]
 fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
     let store = Store::open(None).expect("open");
-    let dir = Path::new("/tmp/recs");
     let annotated = RecordingRow {
         name: Some("Tower watch".to_string()),
         tags: vec!["airband".to_string(), "tower".to_string()],
@@ -196,7 +191,7 @@ fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
         ..recording_row("rec_1_a", 48_000)
     };
     store.upsert_recording(&annotated).expect("upsert");
-    let listed = store.list_recordings(dir).expect("list");
+    let listed = store.list_recordings().expect("list");
     assert_eq!(listed[0].tags, ["airband", "tower"]);
     assert_eq!(listed[0].note.as_deref(), Some("EDDF ground"));
     assert_eq!(listed[0].name.as_deref(), Some("Tower watch"));
@@ -204,7 +199,7 @@ fn an_upserted_recording_carries_the_annotation_disk_last_reported() {
     store
         .upsert_recording(&recording_row("rec_1_a", 48_000))
         .expect("upsert");
-    let listed = store.list_recordings(dir).expect("list");
+    let listed = store.list_recordings().expect("list");
     assert!(listed[0].tags.is_empty());
     assert_eq!(listed[0].note, None);
     assert_eq!(listed[0].name, None);
@@ -1468,6 +1463,59 @@ fn a_stored_discord_output_reopens_as_a_webhook_in_the_discord_format() {
         panic!("event output");
     };
     assert!(matrix.target.configured(), "a Matrix room keeps posting");
+}
+
+#[test]
+fn a_stored_recording_device_reopens_as_a_recording_node() {
+    let mut value = serde_json::to_value(WorkspaceSnapshot::starter()).expect("snapshot");
+    let nodes = value
+        .get_mut("graph")
+        .and_then(|graph| graph.get_mut("nodes"))
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("nodes");
+    nodes.extend([
+        serde_json::json!({
+            "id": "played",
+            "position": { "x": 0.0, "y": 0.0 },
+            "kind": "device",
+            "data": { "device": { "backend": "virtual", "key": "file:/var/lib/sdrmm/take-1" } }
+        }),
+        serde_json::json!({
+            "id": "radio",
+            "position": { "x": 100.0, "y": 0.0 },
+            "kind": "device",
+            "data": { "device": { "backend": "rtlsdr", "serial": "00000001" } }
+        }),
+        serde_json::json!({
+            "id": "instrument",
+            "position": { "x": 200.0, "y": 0.0 },
+            "kind": "device",
+            "data": { "device": { "backend": "virtual", "key": "siggen" } }
+        }),
+    ]);
+
+    let migrated = parse_workspace_snapshot(&value.to_string()).expect("migrated");
+    migrated.validate().expect("valid");
+
+    let sdrmm_wire::NodeBody::Recording(played) =
+        &migrated.graph.node("played").expect("played").body
+    else {
+        panic!("a played recording is a Recording node");
+    };
+    assert_eq!(played.recording.as_deref(), Some("take-1"));
+    assert_eq!(
+        played.device_ref().and_then(|reference| reference.key),
+        Some("take-1".to_owned())
+    );
+
+    assert!(matches!(
+        migrated.graph.node("radio").expect("radio").body,
+        sdrmm_wire::NodeBody::Device(_)
+    ));
+    assert!(matches!(
+        migrated.graph.node("instrument").expect("instrument").body,
+        sdrmm_wire::NodeBody::Device(_)
+    ));
 }
 
 #[test]

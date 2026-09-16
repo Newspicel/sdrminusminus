@@ -3,6 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use sdrmm_device::DeviceRegistry;
+use sdrmm_device_recording::RecordingDriver;
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
@@ -31,7 +32,7 @@ async fn dvb_satellite_video_reaches_the_color_video_stream() {
         let mut registry = DeviceRegistry::new();
         registry.register(
             10,
-            Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+            Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
         );
         let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
         let iq = match standard {
@@ -53,7 +54,10 @@ async fn dvb_satellite_video_reaches_the_color_video_stream() {
         writer.finalize().unwrap();
         let mut statuses = engine.subscribe_decoded();
         let ds = engine
-            .create_device_set(&format!("virtual:file:{}", path.display()))
+            .create_device_set(&format!(
+                "recording:{}",
+                path.file_name().unwrap().display()
+            ))
             .unwrap();
         let ch = engine
             .add_channel(
@@ -110,9 +114,10 @@ async fn dvb_satellite_video_reaches_the_color_video_stream() {
 async fn dvbt_media_crosses_a_virtual_device_and_reaches_audio_and_video() {
     let dir = TempDir::new().unwrap();
     let mut registry = DeviceRegistry::new();
+    registry.register(10, Box::new(VirtualDriver::new()));
     registry.register(
         10,
-        Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+        Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
     );
     let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
     let iq =
@@ -123,7 +128,10 @@ async fn dvbt_media_crosses_a_virtual_device_and_reaches_audio_and_video() {
     writer.write_block(&iq).unwrap();
     writer.finalize().unwrap();
     let ds = engine
-        .create_device_set(&format!("virtual:file:{}", path.display()))
+        .create_device_set(&format!(
+            "recording:{}",
+            path.file_name().unwrap().display()
+        ))
         .unwrap();
     let channel = engine
         .add_channel(
@@ -164,9 +172,10 @@ fn atv_params() -> AtvParams {
 async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
     let dir = TempDir::new().unwrap();
     let mut registry = DeviceRegistry::new();
+    registry.register(10, Box::new(VirtualDriver::new()));
     registry.register(
         10,
-        Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+        Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
     );
     let engine = Arc::new(Engine::with_registry(
         registry,
@@ -182,7 +191,7 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
     let mut writer = SigmfWriter::create(&path, DEVICE_RATE, CENTER_HZ, "atv fixture").unwrap();
     writer.write_block(&iq).unwrap();
     writer.finalize().unwrap();
-    let device = format!("virtual:file:{}", path.display());
+    let device = format!("recording:{}", path.file_name().unwrap().display());
 
     let ds = engine.create_device_set(&device).unwrap();
     let ch = engine
@@ -242,9 +251,10 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
 async fn a_channel_without_video_refuses_the_subscription() {
     let dir = TempDir::new().unwrap();
     let mut registry = DeviceRegistry::new();
+    registry.register(10, Box::new(VirtualDriver::new()));
     registry.register(
         10,
-        Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+        Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
     );
     let engine = Arc::new(Engine::with_registry(
         registry,
@@ -286,11 +296,12 @@ async fn an_sstv_transmission_reaches_the_image_stream_as_a_finished_picture() {
     let mut registry = DeviceRegistry::new();
     registry.register(
         10,
-        Box::new(VirtualDriver::with_accelerated_recordings(
-            dir.path().to_path_buf(),
+        Box::new(RecordingDriver::accelerated(
+            Some(dir.path().to_path_buf()),
             20.0,
         )),
     );
+    registry.register(10, Box::new(VirtualDriver::new()));
     let engine = Arc::new(Engine::with_registry(
         registry,
         Some(dir.path().to_path_buf()),
@@ -309,7 +320,7 @@ async fn an_sstv_transmission_reaches_the_image_stream_as_a_finished_picture() {
         SigmfWriter::create(&path, SSTV_DEVICE_RATE, CENTER_HZ, "sstv fixture").unwrap();
     writer.write_block(&iq).unwrap();
     writer.finalize().unwrap();
-    let device = format!("virtual:file:{}", path.display());
+    let device = format!("recording:{}", path.file_name().unwrap().display());
 
     let mut images = engine.subscribe_images();
     let ds = engine.create_device_set(&device).unwrap();

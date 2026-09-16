@@ -17,6 +17,7 @@ use sdrmm_channels::testgen;
 use sdrmm_device::{
     DeviceDriver, DeviceError, DeviceRegistry, RxSink, SdrDevice, check_stream_settings,
 };
+use sdrmm_device_recording::RecordingDriver;
 use sdrmm_device_virtual::{VirtualDriver, stream_marker_offset_hz};
 use sdrmm_engine::{Engine, SpectrumSnapshot};
 use sdrmm_wire::{
@@ -221,9 +222,10 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
 async fn a_recording_on_stream_2_captures_stream_2_and_says_so() {
     let dir = tempfile::TempDir::new().unwrap();
     let mut registry = DeviceRegistry::new();
+    registry.register(10, Box::new(VirtualDriver::new()));
     registry.register(
         10,
-        Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+        Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
     );
     let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
     let ds = engine.create_device_set(ARRAY).unwrap();
@@ -443,9 +445,10 @@ async fn a_recording_on_a_retuned_lane_stamps_that_lanes_centre() {
     const LANE1_HZ: f64 = 99_950_000.0;
     let dir = tempfile::TempDir::new().unwrap();
     let mut registry = DeviceRegistry::new();
+    registry.register(10, Box::new(VirtualDriver::new()));
     registry.register(
         10,
-        Box::new(VirtualDriver::with_recordings(dir.path().to_path_buf())),
+        Box::new(RecordingDriver::new(Some(dir.path().to_path_buf()))),
     );
     let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
     let ds = engine.create_device_set(TRANSCEIVER).unwrap();

@@ -138,26 +138,20 @@ test.describe("the workspace", () => {
     await page.route("**/api/devices", (route) =>
       route.fulfill({
         json: {
-          devices: [
-            { driver: "virtual", key: "siggen", label: "Signal Generator (virtual)" },
-            ...Array.from({ length: 100 }, (_, index) => ({
-              driver: "virtual",
-              key: `file:/recordings/capture-${index.toString().padStart(3, "0")}`,
-              label: `capture-${index.toString().padStart(3, "0")} (recording)`,
-            })),
-          ],
+          devices: [{ driver: "virtual", key: "siggen", label: "Signal Generator (virtual)" }],
         },
       }),
     );
     await page.route("**/api/recordings", (route) =>
       route.fulfill({
         json: {
-          recordings: [
-            {
-              id: 1,
-              file: "capture-099",
-              name: "Tower watch",
-              device_id: "virtual:file:/recordings/capture-099",
+          recordings: Array.from({ length: 100 }, (_, index) => {
+            const file = `capture-${index.toString().padStart(3, "0")}`;
+            return {
+              id: index + 1,
+              file,
+              name: index === 99 ? "Tower watch" : undefined,
+              device_id: `recording:${file}`,
               device_label: "RTL-SDR 00000001",
               center_hz: 100e6,
               sample_rate: 2.048e6,
@@ -165,10 +159,10 @@ test.describe("the workspace", () => {
               bytes: 32_768_000,
               duration_s: 2,
               created_at: "2026-08-09T12:00:00Z",
-              tags: ["airband"],
-              note: "EDDF ground",
-            },
-          ],
+              tags: index === 99 ? ["airband"] : [],
+              note: index === 99 ? "EDDF ground" : undefined,
+            };
+          }),
         },
       }),
     );
@@ -189,19 +183,29 @@ test.describe("the workspace", () => {
     await activate(receiver);
     const source = receiver.getByRole("group", { name: "Radio source" });
     await expect(receiver.getByRole("button", { name: /capture-099/i })).toHaveCount(0);
-    await source.getByText("Recordings (100)").click();
-    await receiver.getByRole("searchbox", { name: "Search recordings" }).fill("099");
-    const capture = receiver.getByRole("button", { name: /Tower watch/i });
-    await expect(capture).toBeVisible();
-    await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.768 MB");
-    await expect(capture).toContainText("RTL-SDR 00000001 · capture-099 · #airband");
-    await expect(capture).toHaveAttribute("title", "EDDF ground");
-    await expect(receiver.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
+    await expect(source.getByText(/Recordings/)).toHaveCount(0);
 
     await expect(receiver.getByRole("button", { name: /signal generator/i })).toHaveCount(0);
     await source.getByText("Virtual (1)").click();
     await receiver.getByRole("button", { name: /signal generator/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
+
+    await page.getByRole("button", { name: "Add a node" }).click();
+    await page.getByRole("button", { name: "Recording", exact: true }).click();
+    const library = page.locator('.react-flow__node[data-id^="recording:"]');
+    await expect(library).toBeVisible();
+    await activate(library);
+    await expect(library.getByRole("button", { name: /Upload SigMF/i })).toBeVisible();
+    await library.getByRole("searchbox", { name: "Search recordings" }).fill("099");
+    const capture = library.getByRole("button", { name: /Tower watch/i });
+    await expect(capture).toBeVisible();
+    await expect(capture).toContainText("100.0000 MHz · 2.048 MS/s · 2.0 s · 32.768 MB");
+    await expect(capture).toContainText("RTL-SDR 00000001 · capture-099 · #airband");
+    await expect(capture).toHaveAttribute("title", "EDDF ground");
+    await expect(library.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
+    await library.getByRole("button", { name: "Remove Recording" }).click();
+    await expect(library).toHaveCount(0);
+    await activate(receiver);
 
     await page.getByRole("button", { name: "Add a node" }).click();
     await page.getByRole("button", { name: "NFM", exact: true }).click();

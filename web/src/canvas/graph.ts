@@ -283,6 +283,8 @@ export interface NodeSize {
 
 export const NODE_SIZE: Record<NodeKind, NodeSize> = {
   device: { w: 380 },
+  recording: { w: 380 },
+  signal_gen: { w: 380 },
   array: { w: 380 },
   gps: { w: 360 },
   channel: { w: 440 },

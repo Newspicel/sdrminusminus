@@ -16,6 +16,7 @@ import type { RecordingAnnotation, RecordingInfo } from "../lib/types";
 import { Button, Form, Input, Textarea } from "./BaseControls";
 import { BTN, BTN_SM, CHIP, FIELD } from "./controls";
 import { formatBytes, formatSampleRate } from "./format";
+import { RecordingUpload } from "./RecordingUpload";
 import {
   describeRecording,
   downloadFormats,
@@ -55,17 +56,20 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {listed.length > 0 && (
-        <Input
-          className={FIELD}
-          type="search"
-          name="recording-library-filter"
-          placeholder="Search name, tag or note"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search the recording library"
-        />
-      )}
+      <div className="flex items-center gap-2">
+        {listed.length > 0 && (
+          <Input
+            className={`${FIELD} min-w-0 flex-1`}
+            type="search"
+            name="recording-library-filter"
+            placeholder="Search name, tag or note"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search the recording library"
+          />
+        )}
+        <RecordingUpload compact={listed.length > 0} />
+      </div>
       {shown.map((r) => (
         <div key={r.id} className="flex flex-col gap-1">
           <div className="flex items-center gap-2">

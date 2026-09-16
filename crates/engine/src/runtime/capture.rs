@@ -534,17 +534,24 @@ mod tests {
             .expect("write");
         writer.finalize().expect("finalize");
 
-        let driver = sdrmm_device_virtual::VirtualDriver::with_recordings(dir.path().to_path_buf());
-        let infos = sdrmm_device::DeviceDriver::probe(&driver);
-        let open = |key: &str| {
-            let info = infos
-                .iter()
+        let recordings =
+            sdrmm_device_recording::RecordingDriver::new(Some(dir.path().to_path_buf()));
+        let synthetic = sdrmm_device_virtual::VirtualDriver::new();
+        let open = |driver: &dyn sdrmm_device::DeviceDriver, key: &str| {
+            let info = sdrmm_device::DeviceDriver::probe(driver)
+                .into_iter()
                 .find(|info| info.key.ends_with(key))
                 .expect("probed");
-            sdrmm_device::DeviceDriver::open(&driver, info).expect("open")
+            sdrmm_device::DeviceDriver::open(driver, &info).expect("open")
         };
-        assert_eq!(max_age_for(open("aged").as_ref()), Duration::MAX);
-        assert_eq!(max_age_for(open("siggen").as_ref()), LIVE_MAX_AGE);
+        assert_eq!(
+            max_age_for(open(&recordings, "aged").as_ref()),
+            Duration::MAX
+        );
+        assert_eq!(
+            max_age_for(open(&synthetic, "siggen").as_ref()),
+            LIVE_MAX_AGE
+        );
     }
 
     #[test]

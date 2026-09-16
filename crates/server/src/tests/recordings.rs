@@ -251,10 +251,7 @@ async fn record_start_stop_index_and_delete_roundtrip_over_http() {
     assert_eq!(rec.center_hz, 100_000_000.0);
     assert_eq!(rec.device_label, "Signal Generator (virtual)");
     assert!(rec.duration_s > 0.0);
-    assert_eq!(
-        rec.device_id,
-        format!("virtual:file:{}", dir.path().join(&rec.file).display())
-    );
+    assert_eq!(rec.device_id, format!("recording:{}", rec.file));
 
     let (status, _) = request(
         app.clone(),
@@ -486,4 +483,226 @@ async fn delete_recording_never_404s_against_concurrent_reconciles() {
             "iteration {i}: deleted recording resurfaced"
         );
     }
+}
+
+const BOUNDARY: &str = "sdrmmuploadboundary";
+
+fn multipart(parts: &[(&str, &str, &[u8])]) -> Vec<u8> {
+    let mut body = Vec::new();
+    for (field, filename, bytes) in parts {
+        body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!(
+                "Content-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+    body
+}
+
+async fn upload(app: &Router, parts: &[(&str, &str, &[u8])]) -> (StatusCode, Bytes) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/recordings")
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(Body::from(multipart(parts)))
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    (status, bytes)
+}
+
+fn upload_meta(datatype: &str) -> Vec<u8> {
+    serde_json::json!({
+        "global": {
+            "core:datatype": datatype,
+            "core:version": "1.2.6",
+            "core:sample_rate": 250_000.0,
+        },
+        "captures": [{ "core:sample_start": 0, "core:frequency": 433_920_000.0 }],
+    })
+    .to_string()
+    .into_bytes()
+}
+
+fn ci16_samples(count: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for n in 0..count {
+        let re = (n as i16).wrapping_mul(97);
+        bytes.extend_from_slice(&re.to_le_bytes());
+        bytes.extend_from_slice(&re.wrapping_neg().to_le_bytes());
+    }
+    bytes
+}
+
+#[tokio::test]
+async fn an_uploaded_pair_joins_the_library_and_plays_like_any_recording() {
+    let dir = tempfile::TempDir::new().expect("temp");
+    let app = recording_router(dir.path());
+
+    let (status, body) = upload(
+        &app,
+        &[
+            ("meta", "airband.sigmf-meta", &upload_meta("ci16_le")),
+            ("data", "airband.sigmf-data", &ci16_samples(4_096)),
+        ],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let info = serde_json::from_slice::<sdrmm_wire::RecordingInfo>(&body).expect("json");
+    assert_eq!(info.file, "airband");
+    assert_eq!(info.device_id, "recording:airband");
+    assert_eq!(info.sample_rate, 250_000.0);
+    assert_eq!(info.center_hz, 433_920_000.0);
+    assert_eq!(info.samples, 4_096);
+
+    assert_eq!(list_recordings(&app).await.len(), 1);
+    let ds = playback_set(&app, &info).await;
+    assert!(
+        get_state(&app)
+            .await
+            .device_sets
+            .iter()
+            .any(|set| set.id == ds)
+    );
+}
+
+#[tokio::test]
+async fn an_uploaded_archive_joins_the_library_under_its_own_name() {
+    let dir = tempfile::TempDir::new().expect("temp");
+    let app = recording_router(dir.path());
+    let rec = recorded(&app).await;
+    let (status, archive) = request(
+        app.clone(),
+        "GET",
+        &format!("/api/recordings/{}/download?format=sigmf", rec.id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let fresh = tempfile::TempDir::new().expect("temp");
+    let app = recording_router(fresh.path());
+    let (status, body) = upload(&app, &[("archive", "take.sigmf", &archive)]).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let info = serde_json::from_slice::<sdrmm_wire::RecordingInfo>(&body).expect("json");
+    assert_eq!(info.file, rec.file);
+    assert_eq!(info.samples, rec.samples);
+}
+
+#[tokio::test]
+async fn an_upload_that_is_not_a_recording_is_refused_and_leaves_the_library_alone() {
+    let dir = tempfile::TempDir::new().expect("temp");
+    let app = recording_router(dir.path());
+
+    for parts in [
+        vec![("meta", "only.sigmf-meta", upload_meta("ci16_le"))],
+        vec![("data", "only.sigmf-data", ci16_samples(8))],
+        vec![
+            ("meta", "real.sigmf-meta", upload_meta("rf32_le")),
+            ("data", "real.sigmf-data", ci16_samples(8)),
+        ],
+        vec![
+            ("meta", "empty.sigmf-meta", upload_meta("ci16_le")),
+            ("data", "empty.sigmf-data", Vec::new()),
+        ],
+        vec![("archive", "bad.sigmf", b"not a tar".to_vec())],
+    ] {
+        let borrowed: Vec<(&str, &str, &[u8])> = parts
+            .iter()
+            .map(|(field, name, bytes)| (*field, *name, bytes.as_slice()))
+            .collect();
+        let (status, body) = upload(&app, &borrowed).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    assert!(list_recordings(&app).await.is_empty());
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .expect("read dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name())
+        .collect();
+    assert!(leftovers.is_empty(), "upload left {leftovers:?} behind");
+}
+
+#[tokio::test]
+async fn two_uploads_of_one_name_stay_two_recordings() {
+    let dir = tempfile::TempDir::new().expect("temp");
+    let app = recording_router(dir.path());
+    let meta = upload_meta("ci16_le");
+    let data = ci16_samples(64);
+    let parts: Vec<(&str, &str, &[u8])> = vec![
+        ("meta", "same.sigmf-meta", meta.as_slice()),
+        ("data", "same.sigmf-data", data.as_slice()),
+    ];
+
+    upload(&app, &parts).await;
+    upload(&app, &parts).await;
+
+    let listed = list_recordings(&app).await;
+    assert_eq!(listed.len(), 2);
+    let names: Vec<&str> = listed.iter().map(|rec| rec.file.as_str()).collect();
+    assert!(
+        names.contains(&"same") && names.contains(&"same-2"),
+        "{names:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_upload_larger_than_a_json_body_is_still_taken_whole() {
+    let dir = tempfile::TempDir::new().expect("temp");
+    let app = recording_router(dir.path());
+    const SAMPLES: usize = 800_000;
+
+    let meta = upload_meta("ci16_le");
+    let data = ci16_samples(SAMPLES);
+    assert!(
+        data.len() > 3 * 1024 * 1024,
+        "the body must pass the default 2 MiB limit to prove the route lifts it"
+    );
+    let (status, body) = upload(
+        &app,
+        &[
+            ("meta", "big.sigmf-meta", &meta),
+            ("data", "big.sigmf-data", &data),
+        ],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let info = serde_json::from_slice::<sdrmm_wire::RecordingInfo>(&body).expect("json");
+    assert_eq!(info.samples, SAMPLES as u64);
+    assert_eq!(
+        info.bytes,
+        SAMPLES as u64 * sdrmm_recorder::BYTES_PER_SAMPLE
+    );
 }
