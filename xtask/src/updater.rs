@@ -31,6 +31,7 @@ const EXPECTED: &[&str] = &[
     "darwin-x86_64",
     "linux-aarch64",
     "linux-x86_64",
+    "windows-aarch64",
     "windows-x86_64",
 ];
 
@@ -185,6 +186,7 @@ mod tests {
             "SDR--_1.2.3_x86_64.app.tar.gz",
             "SDR--_1.2.3_aarch64.AppImage",
             "SDR--_1.2.3_amd64.AppImage",
+            "SDR--_1.2.3_arm64-setup.exe",
             "SDR--_1.2.3_x64-setup.exe",
         ]
         .iter()

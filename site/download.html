@@ -182,7 +182,7 @@
     </div>
 
     <div class="group">
-      <h3><span class="legend">Windows</span>64-bit x86</h3>
+      <h3><span class="legend">Windows</span>x86-64 and ARM64</h3>
       <ul>
         <li><a class="row" data-file="_x64-setup.exe" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
           <span class="what">Desktop app <em>installer</em></span>
@@ -194,10 +194,20 @@
           <span class="size"></span>
           <span class="name">SDR--_&lt;version&gt;_x64_en-US.msi</span>
         </a></li>
+        <li><a class="row" data-file="_arm64-setup.exe" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Desktop app <em>installer, ARM64</em></span>
+          <span class="size"></span>
+          <span class="name">SDR--_&lt;version&gt;_arm64-setup.exe</span>
+        </a></li>
         <li><a class="row" data-file="-x86_64-pc-windows-msvc.zip" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
-          <span class="what">Server <em>zip archive</em></span>
+          <span class="what">Server <em>zip archive, x86-64</em></span>
           <span class="size"></span>
           <span class="name">sdrmm-&lt;version&gt;-x86_64-pc-windows-msvc.zip</span>
+        </a></li>
+        <li><a class="row" data-file="-aarch64-pc-windows-msvc.zip" href="https://github.com/Newspicel/sdrminusminus/releases/latest">
+          <span class="what">Server <em>zip archive, ARM64</em></span>
+          <span class="size"></span>
+          <span class="name">sdrmm-&lt;version&gt;-aarch64-pc-windows-msvc.zip</span>
         </a></li>
       </ul>
     </div>
@@ -366,13 +376,7 @@ const PICKS = {
   "mac-intel": { who: "macOS · Intel", file: "_x64.dmg", label: "Download for macOS", alts: ["mac-arm"] },
   windows: { who: "Windows · 64-bit", file: "_x64-setup.exe", label: "Download for Windows", alts: ["windows-msi"] },
   "windows-msi": { who: "Windows · MSI package", file: "_x64_en-US.msi", label: "Download for Windows", alts: ["windows"] },
-  "windows-arm": {
-    who: "Windows on ARM",
-    file: "_x64-setup.exe",
-    label: "Download for Windows",
-    hint: "There is no ARM build yet; this x64 installer runs under emulation.",
-    alts: [],
-  },
+  "windows-arm": { who: "Windows on ARM", file: "_arm64-setup.exe", label: "Download for Windows", alts: [] },
   linux: { who: "Linux · x86-64", file: "_amd64.AppImage", label: "Download for Linux", alts: ["linux-deb"] },
   "linux-deb": { who: "Linux · Debian and Ubuntu", file: "_amd64.deb", label: "Download for Linux", alts: ["linux"] },
   "linux-arm": { who: "Linux · ARM64", file: "_aarch64.AppImage", label: "Download for Linux", alts: ["linux-arm-deb", "linux-arm-server"] },

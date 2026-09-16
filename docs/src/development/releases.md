@@ -44,7 +44,8 @@ cargo xtask desktop --bundles dmg
 ```
 
 Use `deb,appimage` on Linux and `msi,nsis` on Windows. Installers use system SoapySDR at runtime.
-Linux bundles are built on x86-64 and ARM64, each on a native machine.
+Linux and Windows bundles are built on x86-64 and ARM64, each on a native machine. Windows ARM64
+builds `nsis` alone, because WiX 3 emits no arm64 package.
 
 The AppImage bundles the GStreamer WebKit plays audio through, and bundles only what the build
 machine has: an `appimage` build needs `patchelf` and the GStreamer plugin packages installed, or
