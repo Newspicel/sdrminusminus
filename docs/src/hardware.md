@@ -109,7 +109,7 @@ Open the **Network** tab on an unbound Device node and enter the receiver's addr
 | SDRconnect | 5454 |
 | AD936x / iiod | 30431 |
 
-All four protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
+These protocols are built in. A remote `SoapySDRServer` instead requires SoapyRemote and
 appears through the normal device search.
 
 ## Virtual sources
@@ -265,44 +265,27 @@ own decimation but cannot apply ppm correction.
 
 ### Over the network with SDRconnect
 
-An RSP attached to another machine is reachable through [SDRconnect](https://www.sdrplay.com/sdrconnect/)
-without the SDRplay API on this one. Enable the WebSocket API in SDRconnect, or start
-`SDRconnect_headless --websocket_port=5454`, then enter `host:5454` on the Device node's
-**Network** tab.
+Connect to a remote RSP through [SDRconnect](https://www.sdrplay.com/sdrconnect/) without a local
+SDRplay API. Enable its WebSocket API or run `SDRconnect_headless --websocket_port=5454`, then
+choose **Network → SDRconnect** on a Device node and enter `host:5454`. For an RSPduo's second
+tuner, use `host:5454/secondary`; the default is primary.
 
-The API is plain `ws://`; SDRconnect documents no TLS on it, so SDR-- refuses a `wss://` address
-rather than pretend the link is encrypted. Anyone on the path can read the IQ and retune the
-receiver, so keep the endpoint on a network you trust or carry it through a tunnel you manage.
+Only unencrypted `ws://` is supported. Use a trusted network or an encrypted tunnel.
 
-SDR-- tunes the receiver, sets its sample rate and antenna, and takes the 16-bit IQ stream.
-Demodulation happens here, so the SDR-- channels are the ones that decode. A tuner of an RSPduo
-is addressed by appending it to the address: `host:5454/secondary`, with `host:5454` meaning the
-primary tuner.
-
-The centre frequency, sample rate and antenna are the usual Device controls. What the API adds
-beyond them:
+SDR-- demodulates 16-bit IQ locally; SDRconnect's audio processing does not affect its channels.
+Frequency, sample rate and antenna use the standard Device controls. Additional settings:
 
 | Setting | Effect |
 |---|---|
-| `lna_state` | RF gain state, between the receiver's own minimum and maximum |
-| `device_vfo_frequency` | Where SDRconnect's VFO sits inside the sampled window |
-| `filter_bandwidth` | Its channel filter, no wider than the receiver's `demod_max_bandwidth` |
-| `receiver` | Which radio on the host: a name from the list, a slot in it, or a serial number |
-| `network_mode` | Stream quality for a receiver SDRconnect itself reaches over the network |
-| `device_profile` | Applies a device profile saved in SDRconnect |
-| `recording` | Starts an IQ, audio, or compressed-audio recording on the SDRconnect host |
+| `lna_state` | RF gain state within the receiver's range |
+| `device_vfo_frequency` | SDRconnect VFO frequency within the sampled window |
+| `filter_bandwidth` | Channel filter width, limited by `demod_max_bandwidth` |
+| `receiver` | Radio name, list slot or serial number |
+| `network_mode` | Stream quality for SDRconnect's upstream network receiver |
+| `device_profile` | Apply a saved SDRconnect device profile |
+| `recording` | Record IQ, audio or compressed audio on the SDRconnect host |
 
-Everything after the detector stays on the SDRconnect side: its demodulator mode, squelch, audio
-AGC, de-emphasis, noise reduction, RDS decoder and audio chain produce sound that SDR-- never
-reads, so changing them here would alter someone's session without changing a sample. This side
-demodulates in a channel. For the same reason the demodulated-audio and spectrum streams stay
-switched off; if one arrives anyway it is reported rather than quietly carried.
-
-What the receiver reports back and cannot be set — signal power and SNR, RDS text, the stereo
-lock, ADC overload — is written to the log, and an overload is a warning.
-
-A session someone was already running is left running when SDR-- stops; one SDR-- started is
-stopped again.
+SDR-- stops only sessions it started; existing sessions remain running.
 
 ### Licensing
 
