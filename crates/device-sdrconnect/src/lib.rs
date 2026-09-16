@@ -93,9 +93,11 @@ impl CaptureRadio for SdrConnectRadio {
         let tuner = self.address.tuner;
         let socket = Arc::new(session::connect(&self.address)?);
         session::send(&socket, &session::focus(tuner), tuner)?;
+        let mut held = lock(&self.socket);
         let start = lock(&self.remote).start();
         session::send(&socket, &start, tuner)?;
-        *lock(&self.socket) = Some(socket.clone());
+        *held = Some(socket.clone());
+        drop(held);
         tracing::debug!(address = %self.address, "SDRconnect stream armed");
         Ok(SdrConnectStream::new(socket, tuner))
     }

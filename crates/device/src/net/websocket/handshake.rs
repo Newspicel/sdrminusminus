@@ -60,6 +60,16 @@ pub(crate) fn verify(response: &[u8], key: &str) -> Result<(), DeviceError> {
             "the server accepted the upgrade without switching to websocket".to_string(),
         ));
     }
+    let upgrading = |value: &str| {
+        value
+            .split(',')
+            .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+    };
+    if !header("connection").is_some_and(upgrading) {
+        return Err(DeviceError::Io(
+            "the server's switch carries no Connection: Upgrade".to_string(),
+        ));
+    }
     let expected = accept(key);
     match header("sec-websocket-accept") {
         Some(value) if value == expected => Ok(()),
@@ -238,12 +248,43 @@ mod tests {
             verify(plain, "KEY").is_err_and(|e| e.to_string().contains("404")),
             "a web server is not a WebSocket server"
         );
-        let no_accept = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n";
+        let no_accept =
+            b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
         assert!(verify(no_accept, "KEY").is_err_and(|e| e.to_string().contains("Accept")));
         let wrong = verify(&upgrade("other"), "KEY");
         assert!(wrong.is_err_and(|e| e.to_string().contains("does not answer")));
         let not_websocket =
             b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: h2c\r\nSec-WebSocket-Accept: x\r\n\r\n";
         assert!(verify(not_websocket, "KEY").is_err_and(|e| e.to_string().contains("websocket")));
+    }
+
+    #[test]
+    fn a_switch_that_does_not_connect_upgrade_is_refused() {
+        let key = "dGhlIHNhbXBsZSBub25jZQ==";
+        let without = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+            accept(key)
+        );
+        assert!(
+            verify(without.as_bytes(), key).is_err_and(|e| e.to_string().contains("Connection")),
+            "RFC 6455 4.1 makes the client reject a 101 without the Upgrade token"
+        );
+        let keep_alive = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: keep-alive\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+            accept(key)
+        );
+        assert!(
+            verify(keep_alive.as_bytes(), key).is_err_and(|e| e.to_string().contains("Connection"))
+        );
+    }
+
+    #[test]
+    fn a_connection_header_listing_more_than_upgrade_still_counts() {
+        let key = "dGhlIHNhbXBsZSBub25jZQ==";
+        let listed = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: keep-alive, UPGRADE\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+            accept(key)
+        );
+        assert!(verify(listed.as_bytes(), key).is_ok());
     }
 }

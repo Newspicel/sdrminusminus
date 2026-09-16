@@ -239,8 +239,8 @@
   },
   {
     "bench": "ident",
-    "msamples_per_s": 343.1532350771237,
-    "realtime_factor": 1429.805146154682,
+    "msamples_per_s": 167.50457893824225,
+    "realtime_factor": 697.9357455760094,
     "config": "noise including deferred decode slots, 240000 Hz, 2048 sample blocks",
     "host": "aarch64-macos"
   },

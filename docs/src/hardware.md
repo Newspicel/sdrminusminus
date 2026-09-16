@@ -270,6 +270,10 @@ without the SDRplay API on this one. Enable the WebSocket API in SDRconnect, or 
 `SDRconnect_headless --websocket_port=5454`, then enter `host:5454` on the Device node's
 **Network** tab.
 
+The API is plain `ws://`; SDRconnect documents no TLS on it, so SDR-- refuses a `wss://` address
+rather than pretend the link is encrypted. Anyone on the path can read the IQ and retune the
+receiver, so keep the endpoint on a network you trust or carry it through a tunnel you manage.
+
 SDR-- tunes the receiver, sets its sample rate and antenna, and takes the 16-bit IQ stream.
 Demodulation happens here, so the SDR-- channels are the ones that decode. A tuner of an RSPduo
 is addressed by appending it to the address: `host:5454/secondary`, with `host:5454` meaning the
