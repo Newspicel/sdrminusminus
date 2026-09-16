@@ -32,8 +32,17 @@ export function tuneDelta(capabilities: Capabilities, stream: number, hz: number
     : { center_hz: hz, tuning: "manual" };
 }
 
-export function autoMissed(set: DeviceSet): number {
-  return autoTuning(set) ? set.channels.filter((channel) => channel.out_of_band).length : 0;
+export interface Hearing {
+  heard: number;
+  total: number;
+  tone: "ok" | "warn" | "danger";
+}
+
+export function hearing(set: DeviceSet): Hearing {
+  const total = set.channels.length;
+  const heard = set.channels.filter((channel) => !channel.out_of_band).length;
+  const missing = set.status !== "running" || (total > 0 && heard === 0);
+  return { heard, total, tone: missing ? "danger" : heard === total ? "ok" : "warn" };
 }
 
 export function refLabel(reference: DeviceRef): string {

@@ -25,9 +25,10 @@ import { patchNode } from "../graph";
 import { releaseRadio } from "../remove";
 import { arrayHolding } from "./arrayNode";
 import {
-  autoMissed,
   autoTuning,
   faultSaid,
+  type Hearing,
+  hearing,
   refLabel,
   scannerOwnsTuning,
   tuneDelta,
@@ -58,7 +59,6 @@ function Tuner({
   const pinned = !isTunable(range);
   const held = scanning || pinned || locked || arrayTuning;
   const auto = autoTuning(set);
-  const missed = autoMissed(set);
   const tune = (stream: number, hz: number): void =>
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   return (
@@ -131,16 +131,32 @@ function Tuner({
           The scanner is driving this radio; tuning from here is refused until it stops.
         </p>
       )}
-      {missed > 0 && (
-        <p
-          role="status"
-          className="text-xs text-warn"
-          title="The window cannot hold every decoder wired to this radio. Raise the sample rate, or move the ones it misses to another radio."
-        >
-          Hears {set.channels.length - missed} of {set.channels.length}
-        </p>
-      )}
     </div>
+  );
+}
+
+const TONE: Record<Hearing["tone"], string> = {
+  ok: "text-ok",
+  warn: "text-warn",
+  danger: "text-danger",
+};
+
+const INSIDE = "Decoders wired to this radio that sit inside its window";
+
+function Heard({ set }: { set: DeviceSet }) {
+  const heard = hearing(set);
+  return (
+    <span
+      role="status"
+      className={TONE[heard.tone]}
+      title={
+        heard.tone === "ok"
+          ? INSIDE
+          : `${INSIDE}. Raise the sample rate, or move the ones it misses to another radio.`
+      }
+    >
+      {heard.heard}/{heard.total}
+    </span>
   );
 }
 
@@ -289,7 +305,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       node={node}
       title={set.device.label}
       category="source"
-      subtitle={<span className={set.status === "error" ? "text-danger" : ""}>{set.status}</span>}
+      subtitle={<Heard set={set} />}
     >
       <FaceBody>
         <Tuner

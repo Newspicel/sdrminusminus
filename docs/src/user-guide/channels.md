@@ -6,9 +6,9 @@ them again.
 
 A Device tunes itself by default: it parks its window over as many of its channels as the sample
 rate holds, and keeps its own DC spike out of them. The radar button on the Device turns this off
-so you can tune by hand, and moving the dial turns it off for you. When the window cannot hold
-every channel the Device reads `Hears 3 of 5` — raise the sample rate, or move the rest to another
-radio.
+so you can tune by hand, and moving the dial turns it off for you. The Device header counts the
+channels inside its window: `5/5` green, `3/5` yellow, `0/5` red. Raise the sample rate, or move
+the rest to another radio.
 
 ## Add a channel
 

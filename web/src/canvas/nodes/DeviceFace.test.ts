@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Capabilities, DeviceSet, ScannerStatus } from "../../lib/types";
 import { mergeSettings } from "../../lib/useDevicePatch";
 import {
-  autoMissed,
   autoTuning,
   faultSaid,
+  hearing,
   refLabel,
   scannerOwnsTuning,
   tuneDelta,
@@ -196,13 +196,39 @@ function carrying(out: boolean[]): DeviceSet["channels"] {
   }));
 }
 
-describe("autoMissed", () => {
-  it("counts the decoders an auto radio cannot fit in its window", () => {
-    expect(autoMissed(deviceSet({ channels: carrying([false, true, true]) }))).toBe(2);
+describe("hearing", () => {
+  it("is green when the window holds every decoder", () => {
+    expect(hearing(deviceSet())).toEqual({ heard: 0, total: 0, tone: "ok" });
+    expect(hearing(deviceSet({ channels: carrying([false, false, false]) }))).toEqual({
+      heard: 3,
+      total: 3,
+      tone: "ok",
+    });
   });
 
-  it("says nothing about a radio the operator is tuning by hand", () => {
-    const set = deviceSet({ settings: { tuning: "manual" }, channels: carrying([true]) });
-    expect(autoMissed(set)).toBe(0);
+  it("is yellow when the window misses some of them", () => {
+    expect(hearing(deviceSet({ channels: carrying([false, true, true]) }))).toEqual({
+      heard: 1,
+      total: 3,
+      tone: "warn",
+    });
+  });
+
+  it("is red when the window misses all of them", () => {
+    expect(hearing(deviceSet({ channels: carrying([true, true]) }))).toEqual({
+      heard: 0,
+      total: 2,
+      tone: "danger",
+    });
+  });
+
+  it("counts the misses of a radio the operator is tuning by hand", () => {
+    const set = deviceSet({ settings: { tuning: "manual" }, channels: carrying([false, true]) });
+    expect(hearing(set)).toEqual({ heard: 1, total: 2, tone: "warn" });
+  });
+
+  it("is red while the radio is faulted", () => {
+    const set = deviceSet({ status: "error", channels: carrying([false, false]) });
+    expect(hearing(set)).toEqual({ heard: 2, total: 2, tone: "danger" });
   });
 });
