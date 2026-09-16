@@ -320,12 +320,19 @@ impl Protection {
         Self::build(24 * usize::from(bitrate), segments)
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn fic() -> Self {
+        Self::fic_for_mode(sdrmm_wire::DabTransmissionMode::I)
+    }
+
+    #[must_use]
+    pub fn fic_for_mode(mode: sdrmm_wire::DabTransmissionMode) -> Self {
+        let third = mode == sdrmm_wire::DabTransmissionMode::Iii;
         Self {
-            segments: vec![(21, 16), (3, 15)],
-            frame_bits: 768,
-            coded_bits: 2_304,
+            segments: vec![(if third { 29 } else { 21 }, 16), (3, 15)],
+            frame_bits: if third { 1024 } else { 768 },
+            coded_bits: if third { 3072 } else { 2304 },
         }
     }
 

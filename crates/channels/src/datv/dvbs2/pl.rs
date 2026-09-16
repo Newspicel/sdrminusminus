@@ -45,14 +45,26 @@ pub struct Signalling {
 impl Signalling {
     #[must_use]
     pub const fn code(self) -> u8 {
-        self.modcod << 2 | (self.short as u8) << 1 | self.pilots as u8
+        if self.modcod & 0x80 != 0 {
+            self.modcod | self.pilots as u8
+        } else {
+            self.modcod << 2 | (self.short as u8) << 1 | self.pilots as u8
+        }
     }
 
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         Self {
-            modcod: code >> 2,
-            short: code >> 1 & 1 == 1,
+            modcod: if code & 0x80 != 0 {
+                code & 0xfe
+            } else {
+                code >> 2
+            },
+            short: if code & 0x80 != 0 {
+                code >= 216
+            } else {
+                code >> 1 & 1 == 1
+            },
             pilots: code & 1 == 1,
         }
     }

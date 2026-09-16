@@ -20,9 +20,13 @@ use super::{
         gse::protocol_name,
         receiver::{Dvbs2Decoder, Dvbs2Output},
     },
-    ts::{PesUnit, TsDemux},
+    ts::{PesUnit, StreamKind as ElementaryKind, TsDemux},
 };
-use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
+use crate::{
+    ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    broadcast_media::{BroadcastMedia, Kind as MediaKind},
+    check_input_rate,
+};
 
 const INPUT_RATE_HZ: f64 = 2_000_000.0;
 const BANDWIDTH_HZ: f64 = 1_500_000.0;
@@ -38,7 +42,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "DATV (DVB-S / S2)".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
+    has_video: true,
     decoder_kind: Some("broadcast".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -104,6 +109,27 @@ fn demodulator(standard: DatvStandard) -> Result<LinearDemod, ChannelError> {
     ))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MediaSelection {
+    program: u16,
+    audio: Option<(u16, ElementaryKind)>,
+    video: Option<(u16, ElementaryKind)>,
+}
+
+pub(super) fn media_kind(kind: ElementaryKind) -> Option<MediaKind> {
+    match kind {
+        ElementaryKind::Mpeg1Audio | ElementaryKind::Mpeg2Audio => Some(MediaKind::Mp2),
+        ElementaryKind::Eac3Audio => Some(MediaKind::Eac3),
+        ElementaryKind::AacAudio => Some(MediaKind::Aac),
+        ElementaryKind::LatmAudio => Some(MediaKind::Latm),
+        ElementaryKind::Ac3Audio => Some(MediaKind::Ac3),
+        ElementaryKind::Mpeg2Video => Some(MediaKind::Mpeg2),
+        ElementaryKind::H264Video => Some(MediaKind::H264),
+        ElementaryKind::H265Video => Some(MediaKind::H265),
+        _ => None,
+    }
+}
+
 pub struct DatvChannel {
     params: DatvParams,
     acquisition: Acquisition,
@@ -122,6 +148,8 @@ pub struct DatvChannel {
     last: Acquired,
     video_units: u64,
     audio_units: u64,
+    media: BroadcastMedia,
+    media_selection: Option<MediaSelection>,
 }
 
 impl DatvChannel {
@@ -134,10 +162,13 @@ impl DatvChannel {
         self.demux = TsDemux::new();
         self.demux.select(self.params.program);
         self.second.select(self.params.input_stream);
+        self.second.superframes(self.params.superframes);
         self.protocols.clear();
         self.last = Acquired::default();
         self.video_units = 0;
         self.audio_units = 0;
+        self.media.reset();
+        self.media_selection = None;
         Ok(())
     }
 
@@ -177,6 +208,43 @@ impl DatvChannel {
         self.second
             .stream
             .filter(|kind| self.params.standard == DatvStandard::DvbS2 && kind.is_encapsulated())
+    }
+
+    fn read_audio(&mut self, out: &mut ChannelOutputs) {
+        let selection = self.demux.program().map(|program| MediaSelection {
+            program: program.number,
+            audio: program
+                .streams
+                .iter()
+                .find(|s| s.kind.is_audio())
+                .map(|s| (s.pid, s.kind)),
+            video: program
+                .streams
+                .iter()
+                .find(|s| s.kind.is_video())
+                .map(|s| (s.pid, s.kind)),
+        });
+        if selection != self.media_selection {
+            self.media.reset();
+            self.media_selection = selection;
+        }
+        if let Some(selection) = &self.media_selection {
+            for unit in &self.units {
+                if let Some((pid, kind)) = selection.audio
+                    && unit.pid == pid
+                    && let Some(kind) = media_kind(kind)
+                {
+                    self.media.push(kind, &unit.payload, unit.pts, None);
+                }
+                if let Some((pid, kind)) = selection.video
+                    && unit.pid == pid
+                    && let Some(kind) = media_kind(kind)
+                {
+                    self.media.push(kind, &unit.payload, unit.pts, None);
+                }
+            }
+        }
+        self.media.drain(out);
     }
 
     fn streams(&self) -> Vec<BroadcastService> {
@@ -276,7 +344,10 @@ impl DatvChannel {
             }
             DatvStandard::DvbS2 => (
                 self.second.metrics.frames_ok,
-                self.second.metrics.frames_bad,
+                self.second
+                    .metrics
+                    .frames_bad
+                    .saturating_add(self.second.metrics.transport_errors),
             ),
         }
     }
@@ -297,6 +368,12 @@ impl DatvChannel {
         let program = self.demux.program();
         out.events.push(DecoderEvent::Broadcast(BroadcastStatus {
             system: self.system(),
+            audio_frames_ok: self.media.audio_frames,
+            audio_frames_bad: self.media.audio_errors,
+            audio_error: self.media.audio_error.clone(),
+            video_frames_ok: self.media.video_frames,
+            video_frames_bad: self.media.video_errors,
+            video_error: self.media.video_error.clone(),
             locked: acquired.locked,
             snr_db: acquired.snr_db,
             frequency_error_hz: self.frequency_error_hz(acquired),
@@ -309,7 +386,19 @@ impl DatvChannel {
                 .then(|| metrics.byte_error_rate())
                 .flatten(),
             frames_ok: self.frames().0,
-            frames_bad: self.frames().1,
+            frames_bad: self
+                .frames()
+                .1
+                .saturating_add(self.demux.dropped)
+                .saturating_add(self.demux.discontinuities),
+            data_error: self
+                .second
+                .superframe_format()
+                .filter(|format| *format > 1)
+                .map(|format| format!("Unsupported superframe format {format}"))
+                .or_else(|| {
+                    (self.demux.scrambled > 0).then(|| "Selected programme is scrambled".to_owned())
+                }),
             text: self.text(),
             services: self.services(),
             ..BroadcastStatus::default()
@@ -343,9 +432,13 @@ impl ChannelRx for DatvChannel {
             last: Acquired::default(),
             video_units: 0,
             audio_units: 0,
+            media: BroadcastMedia::new()?,
+            media_selection: None,
         };
+        channel.media.enable_clock();
         channel.demux.select(params.program);
         channel.second.select(params.input_stream);
+        channel.second.superframes(params.superframes);
         Ok(channel)
     }
 
@@ -360,6 +453,7 @@ impl ChannelRx for DatvChannel {
         } else {
             self.demux.select(wanted.program);
             self.second.select(wanted.input_stream);
+            self.second.superframes(wanted.superframes);
         }
         Ok(())
     }
@@ -374,9 +468,12 @@ impl ChannelRx for DatvChannel {
         self.protocols.clear();
         self.video_units = 0;
         self.audio_units = 0;
+        self.media.reset();
+        self.media_selection = None;
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
+        self.media.advance(iq.len(), INPUT_RATE_HZ);
         let mut reports = std::mem::take(&mut self.reports);
         reports.clear();
         self.acquisition.push(iq, &mut reports);
@@ -394,7 +491,16 @@ impl ChannelRx for DatvChannel {
                 second.clear();
                 self.second.push(&symbols, &mut second);
                 self.packets.extend_from_slice(&second.packets);
-                for pdu in &second.pdus {
+                for (index, pdu) in second.pdus.iter().enumerate() {
+                    out.events
+                        .push(DecoderEvent::BroadcastData(sdrmm_wire::BroadcastData {
+                            service_id: self.params.input_stream.map(u32::from),
+                            protocol: Some(pdu.protocol),
+                            label: pdu.label.clone(),
+                            name: format!("GSE-{}-{index}.bin", self.second.metrics.frames_ok),
+                            media_type: "application/octet-stream".to_owned(),
+                            bytes: pdu.data.clone(),
+                        }));
                     if !self.protocols.contains(&pdu.protocol)
                         && self.protocols.len() < MAX_PROTOCOLS
                     {
@@ -413,6 +519,7 @@ impl ChannelRx for DatvChannel {
         }
         self.units = units;
         self.count();
+        self.read_audio(out);
         for acquired in &reports {
             self.report(*acquired, out);
         }
@@ -437,6 +544,7 @@ mod tests {
                 code_rate: DatvCodeRate::ThreeQuarters,
                 program,
                 input_stream: None,
+                superframes: false,
             }),
             audio: Default::default(),
         }
@@ -485,6 +593,23 @@ mod tests {
         assert!(status.frames_ok > 20, "{status:?}");
         assert!(channel.video_units > 0, "no video access unit arrived");
         assert!(channel.audio_units > 0, "no audio access unit arrived");
+        let mut out = ChannelOutputs::default();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while channel.media.video_frames == 0 && std::time::Instant::now() < until {
+            channel.media.advance(16384, INPUT_RATE_HZ);
+            channel.media.drain(&mut out);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            channel.media.video_frames > 0,
+            "{:?}",
+            channel.media.video_error
+        );
+        assert!(
+            channel.media.audio_frames > 0,
+            "{:?}",
+            channel.media.audio_error
+        );
     }
 
     #[test]
@@ -553,6 +678,38 @@ mod tests {
                 "{status:?}"
             );
             assert!(channel.video_units > 0, "{label} carried no video");
+        }
+    }
+
+    #[test]
+    fn s2x_high_order_iq_reaches_programmes_at_a_bounded_cost() {
+        use crate::datv::dvbs2::{frame::Modulation, ldpc::Rate};
+        for (modulation, rate) in [
+            (Modulation::Apsk8, Rate::R100_180),
+            (Modulation::Apsk64, Rate::R128_180),
+            (Modulation::Apsk128, Rate::R135_180),
+            (Modulation::Apsk256, Rate::R116_180),
+        ] {
+            let iq = testgen::datv::dvbs2_mode(2, modulation, rate, false, true);
+            let mut channel = second_generation();
+            let started = std::time::Instant::now();
+            let statuses = drive(&mut channel, &iq);
+            let elapsed = started.elapsed().as_secs_f64();
+            let status = statuses.last().expect("broadcast status");
+            assert_eq!(
+                status.label.as_deref(),
+                Some(testgen::datv::PROGRAM_NAME),
+                "{modulation:?}: {status:?}"
+            );
+            assert!(status.frames_ok > 0, "{modulation:?}: {status:?}");
+            // Four times the signal's own duration, not once: these are the heaviest modcods
+            // the standard defines, and a hosted runner's speed moves by nearly two to one
+            // between runs. A tighter bound reports which machine picked up the job; this one
+            // still catches a decoder that has halved in speed.
+            assert!(
+                elapsed < realtime_budget(8.0),
+                "{modulation:?}: {elapsed:.3}s for two seconds of IQ"
+            );
         }
     }
 

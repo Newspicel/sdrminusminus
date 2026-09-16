@@ -45,7 +45,7 @@ FROM debian:trixie-slim AS builder
 # SoapySDR: the backend opens it at runtime and links nothing at build time.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       build-essential cmake ca-certificates curl pkg-config \
+       build-essential cmake ca-certificates curl pkg-config python3 clang libclang-dev nasm \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -60,6 +60,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 # variable replaces `[build] rustflags` wholesale and would silently drop polonius.
 WORKDIR /src
 COPY --from=planner /plan/ ./
+COPY scripts/build-media.py scripts/build-media.py
+RUN python3 scripts/build-media.py --prefix /opt/sdrmm-media
+ENV FFMPEG_DIR=/opt/sdrmm-media
 RUN rustup show
 
 ARG FEATURES=soapy,sdrplay,rtlsdr,hackrf,airspy,airspyhf,ad936x,net-client,gpu-fft
@@ -89,7 +92,7 @@ RUN test -f web/dist/index.html \
 FROM debian:trixie-slim AS runtime
 LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminus" \
       org.opencontainers.image.description="SDR-- — headless SDR server with embedded web UI" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # SoapySDR comes from Debian, as it would on the host: the modules named here are the ones no
 # native backend in this build covers. Modules are listed one by one rather than through

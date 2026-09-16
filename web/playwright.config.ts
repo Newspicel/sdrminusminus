@@ -25,6 +25,7 @@ export default defineConfig({
     // whatever `web/dist` holds, so the UI has to be built here rather than by the caller.
     command:
       `pnpm --dir web build && rm -rf web/${SCRATCH} ` +
+      `&& cargo xtask broadcast-fixtures --out web/${SCRATCH}/recordings ` +
       `&& cargo run -q -p sdrmm --no-default-features -- --bind 127.0.0.1:${PORT} ` +
       `--db web/${SCRATCH}/e2e.db --recordings-dir web/${SCRATCH}/recordings`,
     cwd: "..",

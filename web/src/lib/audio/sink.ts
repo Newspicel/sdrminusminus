@@ -1,10 +1,11 @@
+import { registerMediaLatency } from "../mediaLatency";
 import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";
 import { isWatched, publishAudio } from "./monitor";
 import { createPlayback } from "./playback";
 import type { WorkletReport } from "./worklet";
-import { CHANNELS, SAMPLE_RATE } from "./worklet";
+import { CHANNELS, SAMPLE_RATE, targetFramesForHost } from "./worklet";
 
 const VOLUME_RANGE_DB = 60;
 const VOLUME_RAMP_SECONDS = 0.02;
@@ -112,6 +113,16 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
   playback.node.connect(gain).connect(context.destination);
 
   let closed = false;
+  let received = false;
+  const removeLatency = registerMediaLatency(key, () => {
+    if (!received || closed || context.state !== "running") return 0;
+    const frames =
+      lastReport.bufferedFrames ??
+      targetFramesForHost(typeof location === "undefined" ? "" : location.hostname);
+    return (
+      1000 * (frames / SAMPLE_RATE + (context.baseLatency ?? 0) + (context.outputLatency ?? 0))
+    );
+  });
   const emit = (channels: number) => (pcm: Float32Array) => {
     if (closed) {
       return;
@@ -119,6 +130,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     if (isWatched(key)) {
       publishAudio(key, pcm, channels);
     }
+    received = true;
     playback.send(toOutputLayout(pcm, channels));
   };
 
@@ -129,6 +141,7 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
     playback.send("close");
     playback.release();
     gain.disconnect();
+    removeLatency();
     throw err;
   }
 
@@ -172,11 +185,13 @@ export const createWebAudioSink: SinkFactory = async (key, volume, onError, onRe
       gain.gain.setTargetAtTime(gainForVolume(v), context.currentTime, VOLUME_RAMP_SECONDS);
     },
     reset() {
+      received = false;
       decoder.reset();
       playback.send("reset");
     },
     close() {
       closed = true;
+      removeLatency();
       decoder.close();
       playback.send("close");
       playback.release();

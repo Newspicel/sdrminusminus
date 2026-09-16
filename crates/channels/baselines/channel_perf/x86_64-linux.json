@@ -28,6 +28,13 @@
     "host": "x86_64-linux"
   },
   {
+    "bench": "dvbt",
+    "msamples_per_s": 41.37,
+    "realtime_factor": 4.52484375,
+    "config": "noise including deferred decode slots, 9142857 Hz, 2048 sample blocks",
+    "host": "x86_64-linux"
+  },
+  {
     "bench": "dect",
     "msamples_per_s": 19.5,
     "realtime_factor": 8.463541666666666,

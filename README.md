@@ -91,11 +91,13 @@ These captures use debug-build signal sources and repository IQ fixtures. Regene
 
 ## Build and contribute
 
-Use the repository's pinned Rust toolchain, a C/C++ compiler, CMake, Node 26, and pnpm 11.
+Use the repository's pinned Rust toolchain, a C/C++ compiler, Clang/libclang, CMake, Python 3.12+, GNU Make, Node 26, and pnpm 11.
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus.git
 cd sdrminusminus
+python3 scripts/build-media.py
+export FFMPEG_DIR="$(python3 scripts/build-media.py --print-prefix)"
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web build
 cargo run -p sdrmm

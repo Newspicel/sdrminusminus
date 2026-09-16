@@ -18,6 +18,12 @@ pub enum WebhookFormat {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "service", rename_all = "snake_case")]
 pub enum EventOutputTarget {
+    Tunnel {
+        interface: String,
+        #[schema(value_type = String, format = "ipv4")]
+        address: std::net::Ipv4Addr,
+        prefix: u8,
+    },
     Webhook {
         url: String,
         #[serde(default)]
@@ -41,6 +47,16 @@ pub enum EventOutputTarget {
 impl std::fmt::Debug for EventOutputTarget {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Tunnel {
+                interface,
+                address,
+                prefix,
+            } => formatter
+                .debug_struct("Tunnel")
+                .field("interface", interface)
+                .field("address", address)
+                .field("prefix", prefix)
+                .finish(),
             Self::Webhook { format, .. } => formatter
                 .debug_struct("Webhook")
                 .field("url", &"[redacted]")
@@ -85,6 +101,7 @@ impl EventOutputTarget {
     #[must_use]
     pub fn configured(&self) -> bool {
         match self {
+            Self::Tunnel { interface, .. } => !interface.is_empty(),
             Self::Webhook { url, .. } => !url.trim().is_empty(),
             Self::Matrix {
                 homeserver_url,
@@ -104,6 +121,20 @@ impl EventOutputTarget {
     #[must_use]
     pub fn valid(&self) -> bool {
         match self {
+            Self::Tunnel {
+                interface,
+                address,
+                prefix,
+            } => {
+                interface.len() <= 15
+                    && interface
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+                    && *prefix <= 32
+                    && !address.is_unspecified()
+                    && !address.is_multicast()
+                    && !address.is_broadcast()
+            }
             Self::Webhook { url, .. } => valid_https_url(url),
             Self::Matrix {
                 homeserver_url,
@@ -193,6 +224,29 @@ mod tests {
             topic: topic.to_owned(),
             username: String::new(),
             password: String::new(),
+        }
+    }
+
+    #[test]
+    fn tunnel_configuration_is_bounded_and_round_trips() {
+        let target = EventOutputTarget::Tunnel {
+            interface: "utun7".to_owned(),
+            address: "10.23.0.1".parse().unwrap(),
+            prefix: 24,
+        };
+        assert!(target.valid() && target.configured());
+        assert_eq!(
+            serde_json::from_str::<EventOutputTarget>(&serde_json::to_string(&target).unwrap())
+                .unwrap(),
+            target
+        );
+        for interface in ["../tun", "tun 0", "1234567890123456"] {
+            let target = EventOutputTarget::Tunnel {
+                interface: interface.to_owned(),
+                address: "10.23.0.1".parse().unwrap(),
+                prefix: 24,
+            };
+            assert!(!target.valid());
         }
     }
 

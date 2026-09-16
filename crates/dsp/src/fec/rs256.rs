@@ -10,6 +10,7 @@ pub struct ReedSolomon {
     generator: Vec<u8>,
     parity: usize,
     first_root: u8,
+    root_multiples: Vec<[u8; 256]>,
 }
 
 impl ReedSolomon {
@@ -33,8 +34,16 @@ impl ReedSolomon {
             generator: Vec::new(),
             parity,
             first_root,
+            root_multiples: Vec::new(),
         };
+        assert!(parity < 256, "GF(256) parity length");
         code.generator = code.build_generator();
+        code.root_multiples = (0..parity)
+            .map(|index| {
+                let root = code.power(u32::from(first_root) + index as u32);
+                std::array::from_fn(|value| code.mul(value as u8, root))
+            })
+            .collect();
         code
     }
 
@@ -104,27 +113,29 @@ impl ReedSolomon {
         out[start..start + data.len()].copy_from_slice(data);
     }
 
-    fn syndromes(&self, codeword: &[u8]) -> Vec<u8> {
-        (0..self.parity)
-            .map(|index| {
-                let root = self.power(u32::from(self.first_root) + index as u32);
-                codeword.iter().fold(0u8, |accumulator, &symbol| {
-                    self.mul(accumulator, root) ^ symbol
-                })
-            })
-            .collect()
+    fn syndromes(&self, codeword: &[u8]) -> [u8; 256] {
+        let mut result = [0u8; 256];
+        for (syndrome, table) in result.iter_mut().zip(&self.root_multiples) {
+            *syndrome = codeword
+                .iter()
+                .fold(0u8, |value, &symbol| table[usize::from(value)] ^ symbol);
+        }
+        result
     }
 
-    fn berlekamp_massey(&self, syndromes: &[u8]) -> (Vec<u8>, usize) {
-        let mut locator = vec![1u8];
-        let mut previous = vec![1u8];
+    fn berlekamp_massey(&self, syndromes: &[u8]) -> ([u8; 256], usize) {
+        let mut locator = [0u8; 256];
+        locator[0] = 1;
+        let mut previous = locator;
+        let mut locator_len = 1;
+        let mut previous_len = 1;
         let mut discrepancy_at_update = 1u8;
         let mut shift = 1usize;
         let mut errors = 0usize;
         for step in 0..self.parity {
             let mut discrepancy = syndromes[step];
             for index in 1..=errors.min(step) {
-                if index < locator.len() {
+                if index < locator_len {
                     discrepancy ^= self.mul(locator[index], syndromes[step - index]);
                 }
             }
@@ -132,39 +143,44 @@ impl ReedSolomon {
                 shift += 1;
                 continue;
             }
-            let saved = locator.clone();
+            let saved = locator;
+            let saved_len = locator_len;
             let scale = self.mul(discrepancy, self.inv(discrepancy_at_update));
-            if locator.len() < previous.len() + shift {
-                locator.resize(previous.len() + shift, 0);
-            }
-            for (index, &coefficient) in previous.iter().enumerate() {
+            locator_len = locator_len.max(previous_len + shift).min(256);
+            for (index, &coefficient) in previous
+                .iter()
+                .take(previous_len.min(256 - shift))
+                .enumerate()
+            {
                 locator[index + shift] ^= self.mul(scale, coefficient);
             }
             if 2 * errors <= step {
                 errors = step + 1 - errors;
                 previous = saved;
+                previous_len = saved_len;
                 discrepancy_at_update = discrepancy;
                 shift = 1;
             } else {
                 shift += 1;
             }
         }
-        locator.truncate(errors + 1);
         (locator, errors)
     }
 
-    fn chien(&self, locator: &[u8], length: usize, errors: usize) -> Option<Vec<usize>> {
-        let mut positions = Vec::with_capacity(errors);
+    fn chien(&self, locator: &[u8], length: usize, errors: usize) -> Option<[usize; 256]> {
+        let mut positions = [0usize; 256];
+        let mut count = 0;
         for position in 0..length {
             if self.evaluate(locator, self.power((ORDER - position % ORDER) as u32)) == 0 {
-                positions.push(position);
+                positions[count] = position;
+                count += 1;
             }
         }
-        (positions.len() == errors).then_some(positions)
+        (count == errors).then_some(positions)
     }
 
-    fn evaluator(&self, syndromes: &[u8], locator: &[u8]) -> Vec<u8> {
-        let mut product = vec![0u8; self.parity];
+    fn evaluator(&self, syndromes: &[u8], locator: &[u8]) -> [u8; 256] {
+        let mut product = [0u8; 256];
         for (index, &coefficient) in locator.iter().enumerate() {
             for (offset, &syndrome) in syndromes.iter().enumerate() {
                 if index + offset < self.parity {
@@ -189,23 +205,33 @@ impl ReedSolomon {
     }
 
     pub fn decode(&self, codeword: &mut [u8]) -> Option<u32> {
-        let syndromes = self.syndromes(codeword);
+        if codeword.len() > 255 || codeword.len() < self.parity {
+            return None;
+        }
+        let storage = self.syndromes(codeword);
+        let syndromes = &storage[..self.parity];
         if syndromes.iter().all(|&value| value == 0) {
             return Some(0);
         }
-        let (locator, errors) = self.berlekamp_massey(&syndromes);
+        let (locator, errors) = self.berlekamp_massey(syndromes);
         if errors == 0 || errors > self.correctable() {
             return None;
         }
-        let positions = self.chien(&locator, codeword.len(), errors)?;
-        let evaluator = self.evaluator(&syndromes, &locator);
-        let derivative: Vec<u8> = locator
-            .iter()
-            .enumerate()
-            .map(|(index, &coefficient)| if index % 2 == 1 { coefficient } else { 0 })
-            .collect();
-        for &position in &positions {
-            let magnitude = self.magnitude(&evaluator, &derivative, position)?;
+        let locator = &locator[..errors + 1];
+        let positions = self.chien(locator, codeword.len(), errors)?;
+        let evaluator = self.evaluator(syndromes, locator);
+        let mut derivative = [0u8; 256];
+        for (index, &coefficient) in locator.iter().enumerate() {
+            if index % 2 == 1 {
+                derivative[index] = coefficient;
+            }
+        }
+        for &position in positions.iter().take(errors) {
+            let magnitude = self.magnitude(
+                &evaluator[..self.parity],
+                &derivative[..locator.len()],
+                position,
+            )?;
             let index = codeword.len().checked_sub(1 + position)?;
             codeword[index] ^= magnitude;
         }

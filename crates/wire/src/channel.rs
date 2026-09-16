@@ -855,8 +855,20 @@ pub enum DabMode {
     DabPlus,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DabTransmissionMode {
+    #[default]
+    I,
+    Ii,
+    Iii,
+    Iv,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DabParams {
+    #[serde(default)]
+    pub transmission_mode: DabTransmissionMode,
     #[serde(default)]
     pub mode: DabMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -904,6 +916,8 @@ impl DatvCodeRate {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DatvParams {
     #[serde(default)]
+    pub superframes: bool,
+    #[serde(default)]
     pub standard: DatvStandard,
     #[serde(default = "default_datv_symbol_rate")]
     pub symbol_rate: f64,
@@ -920,11 +934,41 @@ impl Default for DatvParams {
         Self {
             standard: DatvStandard::default(),
             symbol_rate: default_datv_symbol_rate(),
+            superframes: false,
             code_rate: DatvCodeRate::default(),
             program: None,
             input_stream: None,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DvbtBandwidth {
+    Mhz6,
+    Mhz7,
+    #[default]
+    Mhz8,
+}
+
+impl DvbtBandwidth {
+    pub const fn hz(self) -> f64 {
+        match self {
+            Self::Mhz6 => 6_000_000.0,
+            Self::Mhz7 => 7_000_000.0,
+            Self::Mhz8 => 8_000_000.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DvbtParams {
+    #[serde(default)]
+    pub bandwidth: DvbtBandwidth,
+    #[serde(default)]
+    pub low_priority: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<u16>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -1378,6 +1422,7 @@ pub enum ChannelParams {
     Sstv(SstvParams),
     Dab(DabParams),
     Datv(DatvParams),
+    Dvbt(DvbtParams),
     Drm(DrmParams),
     Dmr(DmrParams),
     Dstar(DstarParams),
@@ -1430,6 +1475,7 @@ impl ChannelParams {
             Self::Sstv(_) => "sstv",
             Self::Dab(_) => "dab",
             Self::Datv(_) => "datv",
+            Self::Dvbt(_) => "dvbt",
             Self::Drm(_) => "drm",
             Self::Dmr(_) => "dmr",
             Self::Dstar(_) => "dstar",

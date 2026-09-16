@@ -72,6 +72,7 @@ repository = "https://github.com/newspicel/sdrminusminus"
 rust-version = "1.98"
 
 [workspace.dependencies]
+tun-rs = { version = "2.8.10", features = ["async"] }
 sdrmm-test-support = { path = "crates/test-support" }
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
@@ -164,6 +165,9 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 opus = "0.4"
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 codec2 = "0.3.1"
+symphonia-core = "0.6.1"
+symphonia-bundle-mp3 = { version = "0.6.1", default-features = false, features = ["mp2"] }
+ffmpeg-the-third = { version = "6.0.0", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }

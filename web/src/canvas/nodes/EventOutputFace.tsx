@@ -1,3 +1,4 @@
+import { NumberField } from "../../components/NumberField";
 import { Select } from "../../components/Select";
 import { SettingRow, Settings } from "../../components/Settings";
 import { TextField } from "../../components/TextField";
@@ -68,6 +69,9 @@ function emptyHint(inputs: number, configured: boolean, target: EventOutputTarge
   if (inputs === 0) {
     return "Wire a decoder or DMR trunk's events in";
   }
+  if (target.service === "tunnel") {
+    return configured ? "Received IPv4 and IPv6 datagrams" : "Enter the interface name";
+  }
   if (!configured) {
     return "Enter the destination credentials";
   }
@@ -89,6 +93,39 @@ function TargetFields({
   target: EventOutputTarget;
   onEdit: (next: EventOutputTarget) => void;
 }) {
+  if (target.service === "tunnel") {
+    return (
+      <>
+        <SettingRow
+          label="Interface"
+          title="TUN interface name; macOS uses utun followed by a number. Creating an interface requires system networking privileges."
+        >
+          <TextField
+            label="Network interface name"
+            value={target.interface}
+            onCommit={(name) => onEdit({ ...target, interface: name })}
+          />
+        </SettingRow>
+        <SettingRow label="Local IPv4">
+          <TextField
+            label="Interface IPv4 address"
+            value={target.address}
+            onCommit={(address) => onEdit({ ...target, address })}
+          />
+        </SettingRow>
+        <SettingRow label="Prefix length">
+          <NumberField
+            label="Interface IPv4 prefix length"
+            value={target.prefix}
+            min={0}
+            max={32}
+            step={1}
+            onCommit={(prefix) => onEdit({ ...target, prefix })}
+          />
+        </SettingRow>
+      </>
+    );
+  }
   if (target.service === "webhook") {
     return (
       <>

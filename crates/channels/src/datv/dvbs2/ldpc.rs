@@ -60,6 +60,34 @@ const MAX_ITERATIONS: usize = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rate {
+    R100_180,
+    R104_180,
+    R116_180,
+    R11_20,
+    R124_180,
+    R128_180,
+    R132_180,
+    R135_180,
+    R13_18,
+    R13_45,
+    R140_180,
+    R14_45,
+    R154_180,
+    R18_30,
+    R20_30,
+    R22_30,
+    R23_36,
+    R25_36,
+    R26_45,
+    R28_45,
+    R32_45,
+    R7_15,
+    R7_9,
+    R8_15,
+    R90_180,
+    R96_180,
+    R9_20,
+
     R1_5,
     R2_9,
     R11_45,
@@ -81,6 +109,33 @@ impl Rate {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::R100_180 => "100/180",
+            Self::R104_180 => "104/180",
+            Self::R116_180 => "116/180",
+            Self::R11_20 => "11/20",
+            Self::R124_180 => "124/180",
+            Self::R128_180 => "128/180",
+            Self::R132_180 => "132/180",
+            Self::R135_180 => "135/180",
+            Self::R13_18 => "13/18",
+            Self::R13_45 => "13/45",
+            Self::R140_180 => "140/180",
+            Self::R14_45 => "14/45",
+            Self::R154_180 => "154/180",
+            Self::R18_30 => "18/30",
+            Self::R20_30 => "20/30",
+            Self::R22_30 => "22/30",
+            Self::R23_36 => "23/36",
+            Self::R25_36 => "25/36",
+            Self::R26_45 => "26/45",
+            Self::R28_45 => "28/45",
+            Self::R32_45 => "32/45",
+            Self::R7_15 => "7/15",
+            Self::R7_9 => "7/9",
+            Self::R8_15 => "8/15",
+            Self::R90_180 => "90/180",
+            Self::R96_180 => "96/180",
+            Self::R9_20 => "9/20",
             Self::R1_5 => "1/5",
             Self::R2_9 => "2/9",
             Self::R11_45 => "11/45",
@@ -107,6 +162,9 @@ impl Rate {
 
     #[must_use]
     pub fn addresses(self, frame: Frame) -> Option<&'static [&'static [u16]]> {
+        if let Some(addresses) = super::s2x::tables::addresses(self, frame) {
+            return Some(addresses);
+        }
         Some(match frame {
             Frame::Short => match self {
                 Self::R11_45 => &tables::short::R11_45,
@@ -121,7 +179,7 @@ impl Rate {
                 Self::R4_5 => &tables::short::R4_5,
                 Self::R5_6 => &tables::short::R5_6,
                 Self::R8_9 => &tables::short::R8_9,
-                Self::R1_5 | Self::R2_9 | Self::R9_10 => return None,
+                _ => return None,
             },
             Frame::Medium => match self {
                 Self::R1_5 => &tables::medium::R1_5,
@@ -142,7 +200,7 @@ impl Rate {
                 Self::R5_6 => &tables::normal::R5_6,
                 Self::R8_9 => &tables::normal::R8_9,
                 Self::R9_10 => &tables::normal::R9_10,
-                Self::R1_5 | Self::R11_45 | Self::R4_15 => return None,
+                _ => return None,
             },
         })
     }
