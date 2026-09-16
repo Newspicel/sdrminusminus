@@ -425,7 +425,7 @@ mod tests {
     use sdrmm_wire::DatvCodeRate;
 
     use super::*;
-    use crate::testgen;
+    use crate::{testgen, testutil::realtime_budget};
 
     fn settings(program: Option<u16>) -> ChannelSettings {
         ChannelSettings {
@@ -664,7 +664,7 @@ mod tests {
             "no 32APSK frame decoded, so the timing proves nothing"
         );
         assert!(
-            elapsed < seconds,
+            elapsed < realtime_budget(seconds),
             "{seconds:.2} s of 32APSK took {elapsed:.2} s"
         );
     }
@@ -682,7 +682,7 @@ mod tests {
             "no VL-SNR frame decoded, so the timing proves nothing"
         );
         assert!(
-            elapsed < seconds,
+            elapsed < realtime_budget(seconds),
             "{seconds:.2} s of VL-SNR took {elapsed:.2} s"
         );
     }
@@ -696,7 +696,7 @@ mod tests {
         let elapsed = started.elapsed().as_secs_f64();
         let seconds = iq.len() as f64 / INPUT_RATE_HZ;
         assert!(
-            elapsed < seconds,
+            elapsed < realtime_budget(seconds),
             "{seconds:.2} s of DATV took {elapsed:.2} s"
         );
     }

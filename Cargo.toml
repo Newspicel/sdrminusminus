@@ -212,6 +212,9 @@ expect_used = "warn"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
+# `cargo xtask sanitize` sets this so the wall-clock gates stop holding an instrumented build
+# to real time.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(sanitized)"] }
 
 [profile.release]
 opt-level = 3

@@ -478,6 +478,7 @@ fn check_word(raw: u32, previous_d29: bool, previous_d30: bool) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::realtime_budget;
 
     #[test]
     fn ca_codes_have_the_gold_code_balance_and_distinct_prns() {
@@ -550,7 +551,7 @@ mod tests {
         channel.process(&iq, &mut output);
         let elapsed = started.elapsed().as_secs_f64();
         assert!(
-            elapsed < 1.0,
+            elapsed < realtime_budget(1.0),
             "one second of acquisition search took {elapsed:.3} s"
         );
     }

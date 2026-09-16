@@ -1252,6 +1252,8 @@ fn ubsan_runtime(dir: &Path, target: &str) -> Result<PathBuf> {
         })
 }
 
+const SANITIZED_CFG: &str = "--cfg=sanitized";
+
 fn encoded_rustflags(flags: &[String]) -> String {
     flags.join("\u{1f}")
 }
@@ -1269,6 +1271,9 @@ fn sanitize(root: &Path) -> Result<()> {
         "--lib",
     ];
 
+    // Instrumentation costs several times the runtime, so the wall-clock gates read this and
+    // stop holding the decoders to real time; every other assertion still runs.
+    let address = encoded_rustflags(&["-Zsanitizer=address".to_owned(), SANITIZED_CFG.to_owned()]);
     // Apple's clang emits a version check its own runtime answers; the Rust runtime does not.
     run_with_env(
         "cargo",
@@ -1282,13 +1287,14 @@ fn sanitize(root: &Path) -> Result<()> {
                 "-fsanitize=address -mllvm -asan-guard-against-version-mismatch=0 \
                  -fno-omit-frame-pointer -g",
             ),
-            ("CARGO_ENCODED_RUSTFLAGS", "-Zsanitizer=address"),
+            ("CARGO_ENCODED_RUSTFLAGS", &address),
         ],
     )?;
 
     let link = encoded_rustflags(&[
         format!("-Clink-arg={}", ubsan.display()),
         format!("-Clink-arg=-Wl,-rpath,{}", runtime_dir.display()),
+        SANITIZED_CFG.to_owned(),
     ]);
     run_with_env(
         "cargo",
@@ -1322,6 +1328,9 @@ fn fuzz_targets(target: Option<&str>) -> Result<Vec<&str>> {
 
 fn fuzz(root: &Path, target: Option<&str>, seconds: u64, jobs: u8, minimize: bool) -> Result<()> {
     ensure_tool("fuzz", "cargo-fuzz")?;
+    // cargo-fuzz defaults to the triple its own binary was built for, and the prebuilt one is a
+    // musl static build — a target no sanitizer can link against. The host is what we fuzz.
+    let host = host_target()?;
     let budget = format!("-max_total_time={seconds}");
     let workers = jobs.to_string();
     // Each worker holds its own copy of the corpus and the target's own state, so the runner's
@@ -1329,12 +1338,14 @@ fn fuzz(root: &Path, target: Option<&str>, seconds: u64, jobs: u8, minimize: boo
     let rss = format!("-rss_limit_mb={}", 8_192 / u32::from(jobs.max(1)));
     for name in fuzz_targets(target)? {
         if minimize {
-            run("cargo", &["fuzz", "cmin", name], root)?;
+            run("cargo", &["fuzz", "cmin", "--target", &host, name], root)?;
             continue;
         }
         run(
             "cargo",
-            &["fuzz", "run", "--jobs", &workers, name, "--", &budget, &rss],
+            &[
+                "fuzz", "run", "--target", &host, "--jobs", &workers, name, "--", &budget, &rss,
+            ],
             root,
         )?;
     }

@@ -362,7 +362,7 @@ mod tests {
     use crate::{
         ChannelCtx, ChannelOutputs, ChannelRx,
         testgen::{self, dv as tgdv},
-        testutil::complex_noise,
+        testutil::{complex_noise, realtime_budget},
     };
 
     const INTERVAL_MS: u32 = 500;
@@ -847,7 +847,7 @@ mod tests {
         let described = reports.len() as f64 * f64::from(INTERVAL_MS) / 1_000.0;
         assert!(described > 0.0, "the run produced no reports");
         assert!(
-            elapsed < described / 2.0,
+            elapsed < realtime_budget(described / 2.0),
             "identification took {elapsed:.3} s for {described:.1} s of signal"
         );
     }

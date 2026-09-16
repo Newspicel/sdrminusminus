@@ -272,10 +272,10 @@ impl FreeDvChannel {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     use super::*;
-    use crate::testutil::settings;
+    use crate::testutil::{realtime_budget, settings};
 
     #[test]
     fn free_dv_uses_the_selected_sideband() {
@@ -343,7 +343,7 @@ mod tests {
                 audio.extend_from_slice(&out.audio_pcm);
             }
             assert!(
-                started.elapsed() < Duration::from_secs(2),
+                started.elapsed().as_secs_f64() < realtime_budget(2.0),
                 "three seconds of FreeDV must decode faster than real time"
             );
             assert!(

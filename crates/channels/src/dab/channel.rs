@@ -403,7 +403,7 @@ impl ChannelRx for DabChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testgen;
+    use crate::{testgen, testutil::realtime_budget};
 
     fn settings(service_id: Option<u32>) -> ChannelSettings {
         ChannelSettings {
@@ -513,7 +513,7 @@ mod tests {
         let elapsed = started.elapsed().as_secs_f64();
         let seconds = iq.len() as f64 / INPUT_RATE_HZ;
         assert!(
-            elapsed < seconds,
+            elapsed < realtime_budget(seconds),
             "{seconds:.2} s of DAB took {elapsed:.2} s"
         );
     }

@@ -161,3 +161,13 @@ pub(crate) fn tone_power(audio: &[f32], freq_hz: f64, rate: f64) -> f64 {
     let bin = (freq_hz * audio.len() as f64 / rate).round() as usize;
     bin_power(&power, bin) / power.iter().sum::<f64>().max(1e-30)
 }
+
+// Under `cargo xtask sanitize` the decoders run several times slower than the signal they
+// decode, so the real-time gates measure the instrumentation instead of the code.
+pub(crate) fn realtime_budget(seconds: f64) -> f64 {
+    if cfg!(sanitized) {
+        f64::INFINITY
+    } else {
+        seconds
+    }
+}
